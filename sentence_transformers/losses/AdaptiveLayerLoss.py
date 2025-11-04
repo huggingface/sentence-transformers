@@ -77,7 +77,10 @@ class TransformerDecorator:
         return output
 
     def call_use_cache(self, features: dict[str, Tensor]) -> dict[str, Tensor]:
-        return {**self.features[self.call_idx], "token_embeddings": self.embeddings[self.call_idx][self.layer_idx]}
+        output = {**self.features[self.call_idx], "token_embeddings": self.embeddings[self.call_idx][self.layer_idx]}
+        if self.transformer.auto_model.config.output_hidden_states and "all_layer_embeddings" in features:
+            output["all_layer_embeddings"] = features["all_layer_embeddings"]
+        return output
 
 
 class ForwardDecorator:
