@@ -71,7 +71,7 @@ class TransformerDecorator:
         # Restore original setting
         self.transformer.auto_model.config.output_hidden_states = original_output_hidden_states
 
-        if original_output_hidden_states:
+        if not original_output_hidden_states:
             del output["all_layer_embeddings"]
 
         return output
