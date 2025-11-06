@@ -148,7 +148,7 @@ class AdaptiveLayerLoss(nn.Module):
                 default value is 1.0.
 
         References:
-            - The concept was inspired by the 2DMSE paper: https://arxiv.org/abs/2402.14776
+            - The concept was inspired by the 2DMSE paper: https://huggingface.co/papers/2402.14776
             - `Adaptive Layers <../../../examples/sentence_transformer/training/adaptive_layer/README.html>`_
 
         Requirements:

@@ -74,7 +74,7 @@ class Matryoshka2dLoss(AdaptiveLayerLoss):
                 default value is 1.0.
 
         References:
-            - See the 2D Matryoshka Sentence Embeddings (2DMSE) paper: https://arxiv.org/abs/2402.14776
+            - See the 2D Matryoshka Sentence Embeddings (2DMSE) paper: https://huggingface.co/papers/2402.14776
             - `Matryoshka Embeddings <../../../examples/sentence_transformer/training/matryoshka/README.html>`_
             - `Adaptive Layers <../../../examples/sentence_transformer/training/adaptive_layer/README.html>`_
 

@@ -54,7 +54,7 @@ class GISTEmbedLoss(nn.Module):
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
 
         References:
-            - For further details, see: https://arxiv.org/abs/2402.16829
+            - For further details, see: https://huggingface.co/papers/2402.16829
 
         Requirements:
             1. (anchor, positive, negative) triplets

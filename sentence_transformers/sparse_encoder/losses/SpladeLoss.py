@@ -58,7 +58,7 @@ class SpladeLoss(nn.Module):
 
         References:
             - For more details, see the paper "From Distillation to Hard Negative Sampling: Making Sparse Neural IR Models More Effective"
-              https://arxiv.org/abs/2205.04733
+              https://huggingface.co/papers/2205.04733
 
         Requirements:
             1. Input requirements depend on the chosen loss

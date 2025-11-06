@@ -21,7 +21,7 @@ class MSELoss(nn.Module):
             model: SentenceTransformerModel
 
         References:
-            - Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation: https://arxiv.org/abs/2004.09813
+            - Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation: https://huggingface.co/papers/2004.09813
             - `Training > Model Distillation <../../../examples/sentence_transformer/training/distillation/README.html>`_
             - `Training > Multilingual Models <../../../examples/sentence_transformer/training/multilingual/README.html>`_
 

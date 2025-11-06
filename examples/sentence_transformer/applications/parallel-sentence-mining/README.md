@@ -29,9 +29,9 @@ Usually you apply this method to large corpora, for example, you want to find al
 
 ## Margin Based Mining
 
-We follow the setup from [Artetxe and Schwenk, Section 4.3](https://arxiv.org/pdf/1812.10464.pdf) to find translated sentences in two datasets:
+We follow the setup from [Artetxe and Schwenk, Section 4.3](https://huggingface.co/papers/1812.10464) to find translated sentences in two datasets:
 
-1. First, we encode all sentences to their respective embedding. As shown in [our paper](https://arxiv.org/abs/2004.09813) is [LaBSE](https://huggingface.co/sentence-transformers/LaBSE) currently the best method for bitext mining. The model is integrated in Sentence-Transformers
+1. First, we encode all sentences to their respective embedding. As shown in [our paper](https://huggingface.co/papers/2004.09813) is [LaBSE](https://huggingface.co/sentence-transformers/LaBSE) currently the best method for bitext mining. The model is integrated in Sentence-Transformers
 1. Once we have all embeddings, we find the *k* nearest neighbor sentences for all sentences in both directions. Typical choices for k are between 4 and 16.
 1. Then, we score all possible sentence combinations using the formula mentioned in Section 4.3.
 1. The pairs with the highest scores are most likely translated sentences. Note, that the score can be larger than 1. Usually you have to find some cut-off where you ignore pairs below that threshold. For a high quality, a threshold of about 1.2 - 1.3 works quite well.

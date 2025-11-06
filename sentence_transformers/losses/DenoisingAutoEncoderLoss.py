@@ -34,7 +34,7 @@ class DenoisingAutoEncoderLoss(nn.Module):
             tie_encoder_decoder (bool): Whether to tie the trainable parameters of encoder and decoder. Defaults to True.
 
         References:
-            * TSDAE paper: https://arxiv.org/pdf/2104.06979.pdf
+            * TSDAE paper: https://huggingface.co/papers/2104.06979
             * `Unsupervised Learning > TSDAE <../../../examples/sentence_transformer/unsupervised_learning/TSDAE/README.html>`_
 
         Requirements:

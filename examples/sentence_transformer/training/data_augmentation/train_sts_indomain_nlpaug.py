@@ -23,7 +23,7 @@ You could also extend the easy data augmentation methods for other languages too
 found here - (https://github.com/makcedward/nlpaug/blob/master/example/textual_language_augmenter.ipynb)
 
 
-Citation: https://arxiv.org/abs/2010.08240
+Citation: https://huggingface.co/papers/2010.08240
 
 Usage:
 python train_sts_indomain_nlpaug.py

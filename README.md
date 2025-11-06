@@ -248,7 +248,7 @@ pytest
 
 ## Citing & Authors
 
-If you find this repository helpful, feel free to cite our publication [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://arxiv.org/abs/1908.10084):
+If you find this repository helpful, feel free to cite our publication [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://huggingface.co/papers/1908.10084):
 
 ```bibtex
 @inproceedings{reimers-2019-sentence-bert,
@@ -258,11 +258,11 @@ If you find this repository helpful, feel free to cite our publication [Sentence
     month = "11",
     year = "2019",
     publisher = "Association for Computational Linguistics",
-    url = "https://arxiv.org/abs/1908.10084",
+    url = "https://huggingface.co/papers/1908.10084",
 }
 ```
 
-If you use one of the multilingual models, feel free to cite our publication [Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation](https://arxiv.org/abs/2004.09813):
+If you use one of the multilingual models, feel free to cite our publication [Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation](https://huggingface.co/papers/2004.09813):
 
 ```bibtex
 @inproceedings{reimers-2020-multilingual-sentence-bert,
@@ -272,7 +272,7 @@ If you use one of the multilingual models, feel free to cite our publication [Ma
     month = "11",
     year = "2020",
     publisher = "Association for Computational Linguistics",
-    url = "https://arxiv.org/abs/2004.09813",
+    url = "https://huggingface.co/papers/2004.09813",
 }
 ```
 

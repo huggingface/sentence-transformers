@@ -44,7 +44,7 @@ class CSRReconstructionLoss(nn.Module):
 
         References:
             - For more details, see the paper "Beyond Matryoshka: Revisiting Sparse Coding for Adaptive Representation"
-              https://arxiv.org/abs/2503.01776
+              https://huggingface.co/papers/2503.01776
 
         Requirements:
             1. The model must be configured to output the necessary reconstruction components
@@ -149,7 +149,7 @@ class CSRLoss(nn.Module):
 
         References:
             - For more details, see the paper "Beyond Matryoshka: Revisiting Sparse Coding for Adaptive Representation"
-            https://arxiv.org/abs/2503.01776
+            https://huggingface.co/papers/2503.01776
 
         Requirements:
             1. Input requirements depend on the chosen loss

@@ -1,6 +1,6 @@
 # TSDAE
 
-This section shows an example, of how we can train an unsupervised [TSDAE (Transformer-based Denoising AutoEncoder)](https://arxiv.org/abs/2104.06979) model with pure sentences as training data.
+This section shows an example, of how we can train an unsupervised [TSDAE (Transformer-based Denoising AutoEncoder)](https://huggingface.co/papers/2104.06979) model with pure sentences as training data.
 
 ## Background
 
@@ -78,13 +78,13 @@ The [AskUbuntu dataset](https://github.com/taolei87/askubuntu) is a manually ann
 
 ## TSDAE as Pre-Training Task
 
-As we show in our [TSDAE paper](https://arxiv.org/abs/2104.06979), TSDAE also a powerful pre-training method outperforming the classical Mask Language Model (MLM) pre-training task.
+As we show in our [TSDAE paper](https://huggingface.co/papers/2104.06979), TSDAE also a powerful pre-training method outperforming the classical Mask Language Model (MLM) pre-training task.
 
 You first train your model with the TSDAE loss. After you have trained for a certain number of steps / after the model converges, you can further fine-tune your pre-trained model like any other SentenceTransformer model.
 
 ## Citation
 
-If you use the code for augmented sbert, feel free to cite our publication [TSDAE: Using Transformer-based Sequential Denoising Auto-Encoderfor Unsupervised Sentence Embedding Learning](https://arxiv.org/abs/2104.06979):
+If you use the code for augmented sbert, feel free to cite our publication [TSDAE: Using Transformer-based Sequential Denoising Auto-Encoderfor Unsupervised Sentence Embedding Learning](https://huggingface.co/papers/2104.06979):
 
 ```bibtex
 @article{wang-2021-TSDAE,

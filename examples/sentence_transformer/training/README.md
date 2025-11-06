@@ -17,7 +17,7 @@ For the documentation how to train your own models, see [Training Overview](http
 - [hpo](hpo/) - Examples with hyperparameter search to find the best hyperparameters for your task.
 - [matryoshka](matryoshka/) - Examples with training embedding models whose embeddings can be truncated (allowing for faster search) with minimal performance loss.
 - [ms_marco](ms_marco/) - Example training scripts for training on the MS MARCO information retrieval dataset.
-- [multilingual](multilingual/) - Existent monolingual models can be extend to various languages ([paper](https://arxiv.org/abs/2004.09813)). This folder contains a step-by-step guide to extend existent models to new languages.
+- [multilingual](multilingual/) - Existent monolingual models can be extend to various languages ([paper](https://huggingface.co/papers/2004.09813)). This folder contains a step-by-step guide to extend existent models to new languages.
 - [nli](nli/) - Natural Language Inference (NLI) data can be quite helpful to pre-train and fine-tune models to create meaningful sentence embeddings.
 - [other](other/) - Various tiny examples for show-casing one specific training case.
 - [paraphrases](paraphrases/) - Examples for training models capable of recognizing paraphrases, i.e. understand when texts have the same meaning despite using different words.

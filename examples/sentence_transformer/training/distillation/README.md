@@ -4,7 +4,7 @@ This page contains an example to make SentenceTransformer models **faster, cheap
 
 ## Knowledge Distillation
 
-Knowledge distillation describes the process to transfer knowledge from a teacher model to a student model. It can be used to extend sentence embeddings to new languages ([Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation](https://arxiv.org/abs/2004.09813)), but the traditional approach is to have a slow (but well performing) teacher model and a fast student model.
+Knowledge distillation describes the process to transfer knowledge from a teacher model to a student model. It can be used to extend sentence embeddings to new languages ([Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation](https://huggingface.co/papers/2004.09813)), but the traditional approach is to have a slow (but well performing) teacher model and a fast student model.
 
 The fast student model imitates the teacher model and achieves by this a high performance.
 
@@ -35,7 +35,7 @@ Smaller models are faster, but show a (slightly) worse performance when evaluate
 
 ```{eval-rst}
 .. warning::
-    Since writing this, `Embedding Quantization <../../applications/embedding-quantization/README.html>`_ has been introduced as the go-to approach for shrinking embedding sizes. Following `Thakur et al. <https://arxiv.org/abs/2205.11498>`_, We recommend that approach over PCA.
+    Since writing this, `Embedding Quantization <../../applications/embedding-quantization/README.html>`_ has been introduced as the go-to approach for shrinking embedding sizes. Following `Thakur et al. <https://huggingface.co/papers/2205.11498>`_, We recommend that approach over PCA.
 ```
 
 By default, the pretrained models output embeddings with size 768 (base-models) or with size 1024 (large-models). However, when you store millions of embeddings, this can require quite a lot of memory / storage.

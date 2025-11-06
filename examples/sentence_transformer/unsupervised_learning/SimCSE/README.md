@@ -1,6 +1,6 @@
 # SimCSE
 
-Gao et al. present in [SimCSE](https://arxiv.org/abs/2104.08821) a simple method to train sentence embeddings without having training data.
+Gao et al. present in [SimCSE](https://huggingface.co/papers/2104.08821) a simple method to train sentence embeddings without having training data.
 
 The idea is to encode the same sentence twice. Due to the used dropout in transformer models, both sentence embeddings will be at slightly different positions. The distance between these two embeddings will be minimized, while the distance to other embeddings of the other sentences in the same batch will be maximized (they serve as negative examples).
 
@@ -59,7 +59,7 @@ SimCSE will be training using these sentences. Checkpoints are stored every 500 
 
 ## Ablation Study
 
-We use the evaluation setup proposed in our [TSDAE paper](https://arxiv.org/abs/2104.06979).
+We use the evaluation setup proposed in our [TSDAE paper](https://huggingface.co/papers/2104.06979).
 
 Using mean pooling, with max_seq_length=32 and batch_size=128
 

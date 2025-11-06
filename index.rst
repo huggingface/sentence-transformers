@@ -166,12 +166,12 @@ If you find this repository helpful, feel free to cite our publication `Sentence
     month = "11",
     year = "2019",
     publisher = "Association for Computational Linguistics",
-    url = "https://arxiv.org/abs/1908.10084",
+    url = "https://huggingface.co/papers/1908.10084",
   }
 
 
 
-If you use one of the multilingual models, feel free to cite our publication `Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation <https://arxiv.org/abs/2004.09813>`_:
+If you use one of the multilingual models, feel free to cite our publication `Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation <https://huggingface.co/papers/2004.09813>`_:
 
  .. code-block:: bibtex
 
@@ -182,12 +182,12 @@ If you use one of the multilingual models, feel free to cite our publication `Ma
     month = "11",
     year = "2020",
     publisher = "Association for Computational Linguistics",
-    url = "https://arxiv.org/abs/2004.09813",
+    url = "https://huggingface.co/papers/2004.09813",
   }
 
 
 
-If you use the code for `data augmentation <https://github.com/huggingface/sentence-transformers/tree/master/examples/sentence_transformer/training/data_augmentation>`_, feel free to cite our publication `Augmented SBERT: Data Augmentation Method for Improving Bi-Encoders for Pairwise Sentence Scoring Tasks <https://arxiv.org/abs/2010.08240>`_:
+If you use the code for `data augmentation <https://github.com/huggingface/sentence-transformers/tree/master/examples/sentence_transformer/training/data_augmentation>`_, feel free to cite our publication `Augmented SBERT: Data Augmentation Method for Improving Bi-Encoders for Pairwise Sentence Scoring Tasks <https://huggingface.co/papers/2010.08240>`_:
 
  .. code-block:: bibtex
 

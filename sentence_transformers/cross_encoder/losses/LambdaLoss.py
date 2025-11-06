@@ -153,7 +153,7 @@ class LambdaLoss(nn.Module):
 
         References:
             - The LambdaLoss Framework for Ranking Metric Optimization: https://marc.najork.org/papers/cikm2018.pdf
-            - Context-Aware Learning to Rank with Self-Attention: https://arxiv.org/abs/2005.10084
+            - Context-Aware Learning to Rank with Self-Attention: https://huggingface.co/papers/2005.10084
             - `Cross Encoder > Training Examples > MS MARCO <../../../examples/cross_encoder/training/ms_marco/README.html>`_
 
         Requirements:

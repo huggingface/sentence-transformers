@@ -390,7 +390,7 @@ This example demonstrates how to set up Elasticsearch for sparse vector search b
 
 ## Seismic Integration
 
-This example demonstrates how to use [Seismic](https://github.com/TusKANNy/seismic) for extremely performant sparse vector search. It does not require running a separate client, but instead performs search directly in memory. The Seismic library was introduced in [Bruch et al. (2024)](https://arxiv.org/abs/2404.18812), where it's shown to outperform the common inverted file (IVF) approach by an order of magnitude. For more information on building your Seismic Index you can look at the [Seismic Guidelines](https://github.com/TusKANNy/seismic/blob/main/docs/Guidelines.md). See [semantic_search_seismic.py](semantic_search_seismic.py) or below:
+This example demonstrates how to use [Seismic](https://github.com/TusKANNy/seismic) for extremely performant sparse vector search. It does not require running a separate client, but instead performs search directly in memory. The Seismic library was introduced in [Bruch et al. (2024)](https://huggingface.co/papers/2404.18812), where it's shown to outperform the common inverted file (IVF) approach by an order of magnitude. For more information on building your Seismic Index you can look at the [Seismic Guidelines](https://github.com/TusKANNy/seismic/blob/main/docs/Guidelines.md). See [semantic_search_seismic.py](semantic_search_seismic.py) or below:
 
 ### Prerequisites:
 
