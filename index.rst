@@ -155,7 +155,7 @@ Consider reading one of the following sections to answer the related questions:
 Citing
 ======
 
-If you find this repository helpful, feel free to cite our publication `Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks <https://arxiv.org/abs/1908.10084>`_:
+If you find this repository helpful, feel free to cite our publication `Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks <https://huggingface.co/papers/1908.10084>`_:
 
  .. code-block:: bibtex
 
