@@ -103,7 +103,7 @@ If you find these resources helpful, feel free to cite our papers.
 }
 ```
 
-[GPL: Generative Pseudo Labeling for Unsupervised Domain Adaptation of Dense Retrieval](https://arxiv.org/abs/2112.07577):
+[GPL: Generative Pseudo Labeling for Unsupervised Domain Adaptation of Dense Retrieval](https://huggingface.co/papers/2112.07577):
 
 ```bibtex
 @inproceedings{wang-2021-GPL,
