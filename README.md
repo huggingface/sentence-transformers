@@ -258,7 +258,7 @@ If you find this repository helpful, feel free to cite our publication [Sentence
     month = "11",
     year = "2019",
     publisher = "Association for Computational Linguistics",
-    url = "https://huggingface.co/papers/1908.10084",
+    url = "https://arxiv.org/abs/1908.10084",
 }
 ```
 
@@ -272,7 +272,7 @@ If you use one of the multilingual models, feel free to cite our publication [Ma
     month = "11",
     year = "2020",
     publisher = "Association for Computational Linguistics",
-    url = "https://huggingface.co/papers/2004.09813",
+    url = "https://arxiv.org/abs/2004.09813",
 }
 ```
 

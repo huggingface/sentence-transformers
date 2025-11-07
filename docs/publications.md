@@ -10,7 +10,7 @@ If you find this repository helpful, feel free to cite our publication [Sentence
     month = "11",
     year = "2019",
     publisher = "Association for Computational Linguistics",
-    url = "http://huggingface.co/papers/1908.10084",
+    url = "http://arxiv.org/abs/1908.10084",
 }
 ```
 
@@ -24,7 +24,7 @@ If you use one of the multilingual models, feel free to cite our publication [Ma
     month = "11",
     year = "2020",
     publisher = "Association for Computational Linguistics",
-    url = "https://huggingface.co/papers/2004.09813",
+    url = "https://arxiv.org/abs/2004.09813",
 }
 ```
 
@@ -39,7 +39,7 @@ If you use the code for [data augmentation](https://github.com/huggingface/sente
     year = "2021",
     address = "Online",
     publisher = "Association for Computational Linguistics",
-    url = "https://huggingface.co/papers/2010.08240",
+    url = "https://arxiv.org/abs/2010.08240",
     pages = "296--310",
 }
 ```
@@ -55,7 +55,7 @@ If you use the models for [MS MARCO](pretrained-models/msmarco-v2.md), feel free
     year = "2021",
     address = "Online",
     publisher = "Association for Computational Linguistics",
-    url = "https://huggingface.co/papers/2012.14210",
+    url = "https://arxiv.org/abs/2012.14210",
     pages = "605--611",
 }
 ```
@@ -72,7 +72,7 @@ When you use the unsupervised learning example, please have a look at: [TSDAE: U
     address = "Punta Cana, Dominican Republic",
     publisher = "Association for Computational Linguistics",
     pages = "671--688",
-    url = "https://huggingface.co/papers/2104.06979",
+    url = "https://arxiv.org/abs/2104.06979",
 }
 ```
 
@@ -85,7 +85,7 @@ When you use the GenQ learning example, please have a look at: [BEIR: A Heteroge
     booktitle={Thirty-fifth Conference on Neural Information Processing Systems (NeurIPS 2021) - Datasets and Benchmarks Track (Round 2)},
     month = "4",
     year = "2021",
-    url = "https://huggingface.co/papers/2104.08663",
+    url = "https://arxiv.org/abs/2104.08663",
 }
 ```
 
@@ -98,7 +98,7 @@ When you use GPL, please have a look at: [GPL: Generative Pseudo Labeling for Un
     journal= "arXiv preprint arXiv:2112.07577",
     month = "12",
     year = "2021",
-    url = "https://huggingface.co/papers/2112.07577",
+    url = "https://arxiv.org/abs/2112.07577",
 }
 ```
 
