@@ -132,9 +132,7 @@ def test_cmnrl_same_grad(
 @pytest.mark.parametrize("use_rand_context", [True, False])
 def test_rand_context_working(use_rand_context: bool):
     # Given:
-    from sentence_transformers.losses.CachedMultipleNegativesRankingLoss import (
-        RandContext,
-    )
+    from sentence_transformers.losses.CachedMultipleNegativesRankingLoss import RandContext
 
     a = torch.Tensor(1)
     b = torch.Tensor(1)
