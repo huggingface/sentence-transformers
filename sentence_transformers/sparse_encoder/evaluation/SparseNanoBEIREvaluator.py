@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from torch import Tensor
 
     from sentence_transformers.evaluation import SimilarityFunction
-    from sentence_transformers.evaluation.NanoBEIREvaluator import DatasetNameType
+    from sentence_transformers.evaluation.NanoBEIREvaluator import DatasetNameType, LanguageType
     from sentence_transformers.sparse_encoder import SparseEncoder
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
 
     Args:
         dataset_names (List[str]): The names of the datasets to evaluate on. Defaults to all datasets.
+        language (str): The language of the NanoBEIR collection. Supports Arabic (ar), German (de), English (en), Spanish (es), French (fr), Italian (it), Norwegian (no), Portuguese (pt), and Swedish (sv). Defaults to English (en).
         mrr_at_k (List[int]): A list of integers representing the values of k for MRR calculation. Defaults to [10].
         ndcg_at_k (List[int]): A list of integers representing the values of k for NDCG calculation. Defaults to [10].
         accuracy_at_k (List[int]): A list of integers representing the values of k for accuracy calculation. Defaults to [1, 3, 5, 10].
@@ -164,6 +165,7 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
     def __init__(
         self,
         dataset_names: list[DatasetNameType] | None = None,
+        language: LanguageType | None = "en",
         mrr_at_k: list[int] = [10],
         ndcg_at_k: list[int] = [10],
         accuracy_at_k: list[int] = [1, 3, 5, 10],
@@ -185,6 +187,7 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
         self.sparsity_stats = defaultdict(list)
         super().__init__(
             dataset_names=dataset_names,
+            language=language,
             mrr_at_k=mrr_at_k,
             ndcg_at_k=ndcg_at_k,
             accuracy_at_k=accuracy_at_k,

@@ -61,3 +61,17 @@ def test_nanobeir_evaluator_empty_inputs():
     """Test that NanoBEIREvaluator behaves correctly with empty datasets."""
     with pytest.raises(ValueError, match="dataset_names cannot be empty. Use None to evaluate on all datasets."):
         NanoBEIREvaluator(dataset_names=[])
+
+
+def test_nanobeir_evaluator_invalid_language():
+    """Test that NanoBEIREvaluator raises an error for invalid languages."""
+    invalid_language = "nl"
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            r"Language 'nl' not found in the NanoBEIR multilingual collection. "
+            r"Valid languages are: ['ar', 'de', 'en', 'es', 'fr', 'it', 'no', 'pt', 'sv']"
+        ),
+    ):
+        NanoBEIREvaluator(language=invalid_language)

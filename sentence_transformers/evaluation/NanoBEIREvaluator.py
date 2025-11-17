@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal, get_args
 
 import numpy as np
 from torch import Tensor
@@ -35,21 +35,32 @@ DatasetNameType = Literal[
     "touche2020",
 ]
 
+LanguageType = Literal[
+    "ar",
+    "de",
+    "en",
+    "es",
+    "fr",
+    "it",
+    "no",
+    "pt",
+    "sv",
+]
 
-dataset_name_to_id = {
-    "climatefever": "zeta-alpha-ai/NanoClimateFEVER",
-    "dbpedia": "zeta-alpha-ai/NanoDBPedia",
-    "fever": "zeta-alpha-ai/NanoFEVER",
-    "fiqa2018": "zeta-alpha-ai/NanoFiQA2018",
-    "hotpotqa": "zeta-alpha-ai/NanoHotpotQA",
-    "msmarco": "zeta-alpha-ai/NanoMSMARCO",
-    "nfcorpus": "zeta-alpha-ai/NanoNFCorpus",
-    "nq": "zeta-alpha-ai/NanoNQ",
-    "quoraretrieval": "zeta-alpha-ai/NanoQuoraRetrieval",
-    "scidocs": "zeta-alpha-ai/NanoSCIDOCS",
-    "arguana": "zeta-alpha-ai/NanoArguAna",
-    "scifact": "zeta-alpha-ai/NanoSciFact",
-    "touche2020": "zeta-alpha-ai/NanoTouche2020",
+dataset_name_to_subset_id = {
+    "climatefever": "NanoClimateFEVER",
+    "dbpedia": "NanoDBPedia",
+    "fever": "NanoFEVER",
+    "fiqa2018": "NanoFiQA2018",
+    "hotpotqa": "NanoHotpotQA",
+    "msmarco": "NanoMSMARCO",
+    "nfcorpus": "NanoNFCorpus",
+    "nq": "NanoNQ",
+    "quoraretrieval": "NanoQuoraRetrieval",
+    "scidocs": "NanoSCIDOCS",
+    "arguana": "NanoArguAna",
+    "scifact": "NanoSciFact",
+    "touche2020": "NanoTouche2020",
 }
 
 dataset_name_to_human_readable = {
@@ -80,6 +91,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
     Args:
         dataset_names (List[str]): The names of the datasets to evaluate on. Defaults to all datasets.
+        language (str): The language of the NanoBEIR collection. Supports Arabic (ar), German (de), English (en), Spanish (es), French (fr), Italian (it), Norwegian (no), Portuguese (pt), and Swedish (sv). Defaults to English (en).
         mrr_at_k (List[int]): A list of integers representing the values of k for MRR calculation. Defaults to [10].
         ndcg_at_k (List[int]): A list of integers representing the values of k for NDCG calculation. Defaults to [10].
         accuracy_at_k (List[int]): A list of integers representing the values of k for accuracy calculation. Defaults to [1, 3, 5, 10].
@@ -193,6 +205,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
     def __init__(
         self,
         dataset_names: list[DatasetNameType] | None = None,
+        language: LanguageType | None = "en",
         mrr_at_k: list[int] = [10],
         ndcg_at_k: list[int] = [10],
         accuracy_at_k: list[int] = [1, 3, 5, 10],
@@ -212,7 +225,8 @@ class NanoBEIREvaluator(SentenceEvaluator):
     ):
         super().__init__()
         if dataset_names is None:
-            dataset_names = list(dataset_name_to_id.keys())
+            dataset_names = list(dataset_name_to_subset_id.keys())
+        self.language = language
         self.dataset_names = dataset_names
         self.aggregate_fn = aggregate_fn
         self.aggregate_key = aggregate_key
@@ -236,6 +250,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
         self.map_at_k = map_at_k
 
         self._validate_dataset_names()
+        self._validate_language()
         self._validate_prompts()
 
         ir_evaluator_kwargs = {
@@ -409,10 +424,11 @@ class NanoBEIREvaluator(SentenceEvaluator):
             )
         from datasets import load_dataset
 
-        dataset_path = dataset_name_to_id[dataset_name.lower()]
-        corpus = load_dataset(dataset_path, "corpus", split="train")
-        queries = load_dataset(dataset_path, "queries", split="train")
-        qrels = load_dataset(dataset_path, "qrels", split="train")
+        dataset_path = "lightonai/nanobeir-multilingual"
+        subset_id = dataset_name_to_subset_id[dataset_name.lower()]
+        corpus = load_dataset(dataset_path, f"{subset_id}_{self.language}", split="corpus")
+        queries = load_dataset(dataset_path, f"{subset_id}_{self.language}", split="queries")
+        qrels = load_dataset(dataset_path, subset_id, split="qrels")
         corpus_dict = {sample["_id"]: sample["text"] for sample in corpus if len(sample["text"]) > 0}
         queries_dict = {sample["_id"]: sample["text"] for sample in queries if len(sample["text"]) > 0}
         qrels_dict = {}
@@ -438,11 +454,21 @@ class NanoBEIREvaluator(SentenceEvaluator):
         if len(self.dataset_names) == 0:
             raise ValueError("dataset_names cannot be empty. Use None to evaluate on all datasets.")
         if missing_datasets := [
-            dataset_name for dataset_name in self.dataset_names if dataset_name.lower() not in dataset_name_to_id
+            dataset_name
+            for dataset_name in self.dataset_names
+            if dataset_name.lower() not in dataset_name_to_subset_id
         ]:
             raise ValueError(
                 f"Dataset(s) {missing_datasets} not found in the NanoBEIR collection. "
-                f"Valid dataset names are: {list(dataset_name_to_id.keys())}"
+                f"Valid dataset names are: {list(dataset_name_to_subset_id.keys())}"
+            )
+
+    def _validate_language(self):
+        valid_languages = list(get_args(LanguageType))
+        if self.language not in valid_languages:
+            raise ValueError(
+                f"Language '{self.language}' not found in the NanoBEIR multilingual collection. "
+                f"Valid languages are: {valid_languages}"
             )
 
     def _validate_prompts(self):
