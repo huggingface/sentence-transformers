@@ -24,7 +24,6 @@ from sentence_transformers.sampler import (
 )
 from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util import is_datasets_available, is_training_available
-from tests.utils import SafeTemporaryDirectory
 
 if is_datasets_available():
     from datasets import Dataset, DatasetDict, IterableDatasetDict
@@ -187,7 +186,7 @@ def test_trainer_invalid_column_names(
 def test_model_card_reuse(stsb_bert_tiny_model: SentenceTransformer):
     assert stsb_bert_tiny_model._model_card_text
     # Reuse the model card if no training was done
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model_path = Path(tmp_folder) / "tiny_model_local"
         stsb_bert_tiny_model.save(str(model_path))
 
@@ -198,7 +197,7 @@ def test_model_card_reuse(stsb_bert_tiny_model: SentenceTransformer):
     # Create a new model card if a Trainer was initialized
     SentenceTransformerTrainer(model=stsb_bert_tiny_model)
 
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model_path = Path(tmp_folder) / "tiny_model_local"
         stsb_bert_tiny_model.save(str(model_path))
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +18,6 @@ from sentence_transformers.cross_encoder.util import (
     cross_encoder_predict_rank_args_decorator,
 )
 from sentence_transformers.util import fullname
-from tests.utils import SafeTemporaryDirectory
 
 
 def test_classifier_dropout_is_set() -> None:
@@ -194,7 +194,7 @@ def test_predict_output_types(
 
 @pytest.mark.parametrize("safe_serialization", [True, False, None])
 def test_safe_serialization(safe_serialization: bool) -> None:
-    with SafeTemporaryDirectory() as cache_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache_folder:
         model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
         if safe_serialization:
             model.save_pretrained(cache_folder, safe_serialization=safe_serialization)

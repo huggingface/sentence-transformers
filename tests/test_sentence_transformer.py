@@ -9,10 +9,12 @@ import json
 import logging
 import os
 import re
+import tempfile
+from collections.abc import Callable
 from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
-from typing import Callable, Literal, cast
+from typing import Literal, cast
 from unittest.mock import patch
 
 import numpy as np
@@ -38,11 +40,11 @@ from sentence_transformers.models import (
     WeightedLayerPooling,
 )
 from sentence_transformers.similarity_functions import SimilarityFunction
-from tests.utils import SafeTemporaryDirectory, is_ci
+from tests.utils import is_ci
 
 
 def test_load_with_safetensors() -> None:
-    with SafeTemporaryDirectory() as cache_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache_folder:
         safetensors_model = SentenceTransformer(
             "sentence-transformers-testing/stsb-bert-tiny-safetensors",
             cache_folder=cache_folder,
@@ -54,7 +56,7 @@ def test_load_with_safetensors() -> None:
         safetensors_files = list(Path(cache_folder).glob("**/model.safetensors"))
         assert 1 == len(safetensors_files), "Safetensors model file must be downloaded."
 
-    with SafeTemporaryDirectory() as cache_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache_folder:
         transformer = Transformer(
             "sentence-transformers-testing/stsb-bert-tiny-safetensors",
             cache_dir=cache_folder,
@@ -262,7 +264,7 @@ def test_push_to_hub(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureF
 @pytest.mark.parametrize("safe_serialization", [True, False, None])
 def test_safe_serialization(stsb_bert_tiny_model: SentenceTransformer, safe_serialization: bool) -> None:
     model = stsb_bert_tiny_model
-    with SafeTemporaryDirectory() as cache_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache_folder:
         if safe_serialization:
             model.save(cache_folder, safe_serialization=safe_serialization)
             model_files = list(Path(cache_folder).glob("**/model.safetensors"))
@@ -295,7 +297,7 @@ def test_load_with_revision() -> None:
 def test_load_local_without_normalize_directory(stsb_bert_tiny_model: SentenceTransformer) -> None:
     model = stsb_bert_tiny_model
     model.add_module("Normalize", Normalize())
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model_path = Path(tmp_folder) / "tiny_model_local"
         model.save(str(model_path))
 
@@ -367,7 +369,7 @@ def test_save_load_prompts() -> None:
     assert model.prompts == {"query": "query: ", "document": ""}
     assert model.default_prompt_name == "query"
 
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model_path = Path(tmp_folder) / "tiny_model_local"
         model.save(str(model_path))
         config_path = model_path / "config_sentence_transformers.json"
@@ -473,7 +475,7 @@ def test_load_with_torch_dtype(stsb_bert_tiny_model: SentenceTransformer) -> Non
 
     assert model.encode(["Hello there!"], convert_to_tensor=True).dtype == torch.float32
 
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         fp16_model_dir = Path(tmp_folder) / "fp16_model"
         model.half()
         model.save(str(fp16_model_dir))
@@ -523,7 +525,7 @@ def test_load_checkpoint_with_peft_and_lora(stsb_bert_tiny_model: SentenceTransf
         lora_dropout=0.1,
     )
 
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model.add_adapter(peft_config)
         model.save(tmp_folder)
         expecteds = model.encode(["Hello there!", "How are you?"], convert_to_tensor=True)
@@ -721,7 +723,7 @@ def test_similarity_score_save(stsb_bert_tiny_model: SentenceTransformer) -> Non
     assert model.similarity_fn_name == "cosine"
 
     model.similarity_fn_name = "euclidean"
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model.save(tmp_folder)
         loaded_model = SentenceTransformer(tmp_folder)
     assert loaded_model.similarity_fn_name == "euclidean"
@@ -733,7 +735,7 @@ def test_model_card_save_update_model_id(stsb_bert_tiny_model: SentenceTransform
     model = stsb_bert_tiny_model
     # Removing the saved model card will cause a fresh one to be generated when we save
     model._model_card_text = ""
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model.save(tmp_folder)
         with open(Path(tmp_folder) / "README.md", encoding="utf8") as f:
             model_card_text = f.read()
@@ -743,7 +745,7 @@ def test_model_card_save_update_model_id(stsb_bert_tiny_model: SentenceTransform
         # if we have it set
         loaded_model = SentenceTransformer(tmp_folder)
 
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         loaded_model.save(tmp_folder, model_name="test_user/test_model")
 
         with open(Path(tmp_folder) / "README.md", encoding="utf8") as f:
@@ -755,7 +757,7 @@ def test_override_config_versions(stsb_bert_tiny_model: SentenceTransformer) -> 
     model = stsb_bert_tiny_model
 
     assert model._model_config["__version__"]["sentence_transformers"] == "2.2.2"
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model.save(tmp_folder)
         loaded_model = SentenceTransformer(tmp_folder)
     # Verify that the version has now been updated when saving the model again
@@ -808,7 +810,7 @@ def test_safetensors(
         model = SentenceTransformer(modules=modules)
     original_embedding = model.encode("Hello, World!")
 
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model.save(tmp_folder)
         # Ensure that we only have the safetensors file and no pytorch_model.bin
         assert list(Path(tmp_folder).rglob("**/model.safetensors"))
