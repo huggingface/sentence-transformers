@@ -176,8 +176,9 @@ class CachedMultipleNegativesSymmetricRankingLoss(nn.Module):
         random_states: list[RandContext] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
         """Iterate over mini-batches of sentences for embedding."""
-        input_ids: Tensor = sentence_feature["input_ids"]
-        batch_size, _ = input_ids.shape
+        batch_size = next(
+            value.shape[0] for value in sentence_feature.values() if isinstance(value, torch.Tensor) and value.ndim > 0
+        )
         for i, begin in enumerate(
             tqdm.trange(
                 0,

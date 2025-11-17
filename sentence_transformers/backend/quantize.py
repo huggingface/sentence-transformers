@@ -199,6 +199,7 @@ def export_static_quantized_openvino_model(
         and hasattr(model[0], "auto_model")
         and isinstance(model[0].auto_model, OVModel)
     )
+    # TODO: This is different now
     viable_ce_model = isinstance(model, CrossEncoder) and isinstance(model.model, OVModel)
     if not (viable_st_model or viable_ce_model or viable_se_model):
         raise ValueError(

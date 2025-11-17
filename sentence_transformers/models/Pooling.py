@@ -133,10 +133,13 @@ class Pooling(Module):
         return "+".join(modes)
 
     def forward(self, features: dict[str, Tensor]) -> dict[str, Tensor]:
+        # TODO: Definitely don't keep this, we want to be smarter with recognizing when we have to include a Pooling module
+        # if "sentence_embedding" in features:
+        #     return features
         token_embeddings = features["token_embeddings"]
         attention_mask = (
             features["attention_mask"]
-            if "attention_mask" in features
+            if "attention_mask" in features and features["attention_mask"].size(-1) == token_embeddings.size(1)
             else torch.ones(token_embeddings.shape[:-1], device=token_embeddings.device, dtype=torch.int64)
         )
         if not self.include_prompt and "prompt_length" in features:

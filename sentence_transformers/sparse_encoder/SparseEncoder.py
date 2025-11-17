@@ -504,10 +504,15 @@ class SparseEncoder(SentenceTransformer):
             )
 
         # Cast an individual input to a list with length 1
-        input_was_string = False
-        if isinstance(sentences, str) or not hasattr(sentences, "__len__"):
+        input_was_singular = False
+        if (
+            isinstance(sentences, str)
+            or not hasattr(sentences, "__len__")
+            or (isinstance(sentences, np.ndarray) and sentences.ndim == 0)
+            or isinstance(sentences, dict)
+        ):
             sentences = [sentences]
-            input_was_string = True
+            input_was_singular = True
 
         # Throw an error if unused kwargs are passed, except 'task' which is always allowed, even
         # when it does not do anything (as e.g. there's no Router module in the model)
@@ -528,7 +533,7 @@ class SparseEncoder(SentenceTransformer):
                 sentences,
                 # Utility and post-processing parameters
                 show_progress_bar=show_progress_bar,
-                input_was_string=input_was_string,
+                input_was_singular=input_was_singular,
                 # Multi-process encoding parameters
                 pool=pool,
                 device=device,
@@ -617,7 +622,7 @@ class SparseEncoder(SentenceTransformer):
             else:
                 all_embeddings = torch.stack(all_embeddings)
 
-        if input_was_string:
+        if input_was_singular:
             all_embeddings = all_embeddings[0]
 
         return all_embeddings

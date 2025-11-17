@@ -2,37 +2,29 @@ from __future__ import annotations
 
 import logging
 import os
-import tempfile
-import traceback
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Callable, Literal, overload
+from typing import Any, Callable, Literal, overload
 
 import numpy as np
 import torch
-from huggingface_hub import HfApi
-from packaging import version
 from torch import nn
 from tqdm.autonotebook import trange
 from transformers import (
     AutoConfig,
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
     PretrainedConfig,
     PreTrainedModel,
-    PreTrainedTokenizer,
 )
-from transformers.utils import PushToHubMixin
 from typing_extensions import deprecated
 
-from sentence_transformers import __version__
-from sentence_transformers.backend import load_onnx_model, load_openvino_model
-from sentence_transformers.cross_encoder.fit_mixin import FitMixin
-from sentence_transformers.cross_encoder.model_card import CrossEncoderModelCardData, generate_model_card
+from sentence_transformers.cross_encoder.model_card import CrossEncoderModelCardData
+from sentence_transformers.cross_encoder.models.CausalScoreHead import CausalScoreHead
 from sentence_transformers.cross_encoder.util import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
-from sentence_transformers.util import fullname, get_device_name, import_from_string, load_file_path
+from sentence_transformers.models import Transformer
+from sentence_transformers.SentenceTransformer import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +37,8 @@ def _save_pretrained_wrapper(_save_pretrained_fn: Callable, subfolder: str) -> C
     return wrapper
 
 
-class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
+# class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
+class CrossEncoder(SentenceTransformer):
     """
     A CrossEncoder takes exactly two sentences / texts as input and either predicts
     a score or label for this sentence pair. It can for example predict the similarity of the sentence pair
@@ -119,10 +112,13 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
     def __init__(
         self,
         model_name_or_path: str,
+        modules: Iterable[nn.Module] | None = None,
+        device: str | None = None,
+        prompts: dict[str, str] | None = None,
+        default_prompt_name: str | None = None,
         num_labels: int | None = None,
         max_length: int | None = None,
         activation_fn: Callable | None = None,
-        device: str | None = None,
         cache_folder: str | None = None,
         trust_remote_code: bool = False,
         revision: str | None = None,
@@ -134,7 +130,39 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         model_card_data: CrossEncoderModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
     ) -> None:
-        super().__init__()
+        super().__init__(  # similarity_fn_name
+            model_name_or_path=model_name_or_path,
+            modules=modules,
+            device=device,
+            prompts=prompts,
+            default_prompt_name=default_prompt_name,
+            cache_folder=cache_folder,
+            trust_remote_code=trust_remote_code,
+            revision=revision,
+            local_files_only=local_files_only,
+            token=token,
+            model_kwargs=model_kwargs,
+            tokenizer_kwargs=tokenizer_kwargs,
+            config_kwargs=config_kwargs,
+            model_card_data=model_card_data,
+            backend=backend,
+        )
+        # TODO: Store activation function as a plain callable to avoid nn.Module registration
+        self._activation_fn = [activation_fn or nn.Sigmoid()]
+
+        classifier_trained = False
+        if self.config.architectures is not None:
+            classifier_trained = any(
+                [arch.endswith("ForSequenceClassification") for arch in self.config.architectures]
+            )
+
+        if num_labels is None and not classifier_trained:
+            num_labels = 1
+
+        if num_labels is not None:
+            self.config.num_labels = num_labels
+
+        """
         if tokenizer_kwargs is None:
             tokenizer_kwargs = {}
         if model_kwargs is None:
@@ -195,6 +223,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             local_files_only=local_files_only,
             token=token,
             **tokenizer_kwargs,
+            # padding_side='left'
         )
         if "model_max_length" not in tokenizer_kwargs and hasattr(self.config, "max_position_embeddings"):
             self.tokenizer.model_max_length = min(self.tokenizer.model_max_length, self.config.max_position_embeddings)
@@ -225,7 +254,100 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         # Pass the model to the model card data for later use in generating a model card upon saving this model
         self.model_card_data.register_model(self)
         self.model_card_data.set_base_model(model_name_or_path, revision=revision)
+        """
+        # self.set_activation_fn(activation_fn)
 
+    def _load_auto_model(
+        self,
+        model_name_or_path: str,
+        token: bool | str | None,
+        cache_folder: str | None,
+        revision: str | None = None,
+        trust_remote_code: bool = False,
+        local_files_only: bool = False,
+        model_kwargs: dict[str, Any] | None = None,
+        tokenizer_kwargs: dict[str, Any] | None = None,
+        config_kwargs: dict[str, Any] | None = None,
+        has_modules: bool = False,
+    ) -> list[nn.Module]:
+        # logger.warning(
+        #     f"No CrossEncoder model found with name {model_name_or_path}. Creating a new one with mean pooling."
+        # )
+
+        shared_kwargs = {
+            "token": token,
+            "trust_remote_code": trust_remote_code,
+            "revision": revision,
+            "local_files_only": local_files_only,
+        }
+        model_kwargs = shared_kwargs if model_kwargs is None else {**shared_kwargs, **model_kwargs}
+        tokenizer_kwargs = shared_kwargs if tokenizer_kwargs is None else {**shared_kwargs, **tokenizer_kwargs}
+        config_kwargs = shared_kwargs if config_kwargs is None else {**shared_kwargs, **config_kwargs}
+
+        if not local_files_only:
+            self.model_card_data.set_base_model(model_name_or_path, revision=revision)
+
+        config: PretrainedConfig = AutoConfig.from_pretrained(
+            model_name_or_path,
+            cache_dir=cache_folder,
+            **config_kwargs,
+        )
+        if (
+            hasattr(config, "architectures")
+            and config.architectures is not None
+            and config.architectures[0].endswith("ForCausalLM")
+        ):
+            transformer_model = Transformer(
+                model_name_or_path,
+                transformer_task="text-generation",
+                cache_dir=cache_folder,
+                model_args=model_kwargs,
+                tokenizer_args=tokenizer_kwargs,
+                config_args=config_kwargs,
+                backend=self.backend,
+            )
+            post_processing = CausalScoreHead(
+                true_token_id=transformer_model.tokenizer.convert_tokens_to_ids("yes"),
+                false_token_id=transformer_model.tokenizer.convert_tokens_to_ids("no"),
+            )
+            return [transformer_model, post_processing]
+        else:
+            transformer_model = Transformer(
+                model_name_or_path,
+                transformer_task="sequence-classification",
+                cache_dir=cache_folder,
+                model_args=model_kwargs,
+                tokenizer_args=tokenizer_kwargs,
+                config_args=config_kwargs,
+                backend=self.backend,
+            )
+            return [transformer_model]
+
+    def _load_sbert_model(
+        self,
+        model_name_or_path: str,
+        token: bool | str | None,
+        cache_folder: str | None,
+        revision: str | None = None,
+        trust_remote_code: bool = False,
+        local_files_only: bool = False,
+        model_kwargs: dict[str, Any] | None = None,
+        tokenizer_kwargs: dict[str, Any] | None = None,
+        config_kwargs: dict[str, Any] | None = None,
+    ) -> dict[str, nn.Module]:
+        return super()._load_sbert_model(
+            model_name_or_path=model_name_or_path,
+            token=token,
+            cache_folder=cache_folder,
+            revision=revision,
+            trust_remote_code=trust_remote_code,
+            local_files_only=local_files_only,
+            model_kwargs=model_kwargs,
+            tokenizer_kwargs=tokenizer_kwargs,
+            config_kwargs=config_kwargs,
+        )
+
+    """
     def _load_model(
         self,
         model_name_or_path: str,
@@ -234,11 +356,18 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         **model_kwargs,
     ) -> None:
         if backend == "torch":
-            self.model: PreTrainedModel = AutoModelForSequenceClassification.from_pretrained(
+            if config.architectures[0].endswith("ForSequenceClassification"):
+                model_cls = AutoModelForSequenceClassification
+            elif config.architectures[0].endswith("ForCausalLM"):
+                model_cls = AutoModelForCausalLM
+
+            self.model: PreTrainedModel = model_cls.from_pretrained(
                 model_name_or_path,
                 config=config,
                 **model_kwargs,
             )
+        '''
+        # TODO: Patch this
         elif backend == "onnx":
             self.model = load_onnx_model(
                 model_name_or_path=model_name_or_path,
@@ -255,7 +384,10 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             )
         else:
             raise ValueError(f"Unsupported backend '{backend}'. `backend` should be `torch`, `onnx`, or `openvino`.")
+        '''
+    """
 
+    '''
     def get_backend(self) -> Literal["torch", "onnx", "openvino"]:
         """Return the backend used for inference, which can be one of "torch", "onnx", or "openvino".
 
@@ -263,7 +395,9 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             str: The backend used for inference.
         """
         return self.backend
+    '''
 
+    '''
     def set_activation_fn(self, activation_fn: Callable | None, set_default: bool = True) -> None:
         if activation_fn is not None:
             self.activation_fn = activation_fn
@@ -313,14 +447,27 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             self.config.sentence_transformers[key] = value
         except Exception as e:
             logger.warning(f"Was not able to add '{key}' to the config: {str(e)}")
+    '''
 
     @property
     def config(self) -> PretrainedConfig:
-        return self.model.config
+        # return self.model.config
+        # TODO: This won't work nicely
+        return self[0].model.config
+
+    @property
+    def model(self) -> PreTrainedModel:
+        return self[0].model
 
     @property
     def num_labels(self) -> int:
+        # TODO: This won't work nicely
         return self.config.num_labels
+
+    @property
+    def activation_fn(self) -> Callable:
+        """Get the activation function used for predictions."""
+        return self._activation_fn[0]
 
     @property
     def max_length(self) -> int:
@@ -338,8 +485,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
     def default_activation_function(self) -> Callable:
         return self.activation_fn
 
-    def forward(self, *args, **kwargs):
-        return self.model(*args, **kwargs)
+    # def forward(self, *args, **kwargs):
+    #     return self.model(*args, **kwargs)
 
     @overload
     def predict(
@@ -351,6 +498,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[False] = ...,
         convert_to_tensor: Literal[False] = ...,
+        **kwargs,
     ) -> torch.Tensor: ...
 
     @overload
@@ -363,6 +511,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[True] = True,
         convert_to_tensor: Literal[False] = False,
+        **kwargs,
     ) -> np.ndarray: ...
 
     @overload
@@ -375,6 +524,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: bool = ...,
         convert_to_tensor: Literal[True] = ...,
+        **kwargs,
     ) -> torch.Tensor: ...
 
     @overload
@@ -387,6 +537,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[False] = ...,
         convert_to_tensor: Literal[False] = ...,
+        **kwargs,
     ) -> list[torch.Tensor]: ...
 
     @torch.inference_mode()
@@ -395,11 +546,14 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         self,
         sentences: list[tuple[str, str]] | list[list[str]] | tuple[str, str] | list[str],
         batch_size: int = 32,
+        prompt: str | None = None,
+        prompt_name: str | None = None,
         show_progress_bar: bool | None = None,
         activation_fn: Callable | None = None,
         apply_softmax: bool | None = False,
         convert_to_numpy: bool = True,
         convert_to_tensor: bool = False,
+        **kwargs,
     ) -> list[torch.Tensor] | np.ndarray | torch.Tensor:
         """
         Performs predictions with the CrossEncoder on the given sentence pairs.
@@ -448,35 +602,92 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
                 logger.getEffectiveLevel() == logging.INFO or logger.getEffectiveLevel() == logging.DEBUG
             )
 
-        if activation_fn is not None:
-            self.set_activation_fn(activation_fn, set_default=False)
+        # if activation_fn is not None:
+        #     self.set_activation_fn(activation_fn, set_default=False)
+
+        if prompt is None:
+            if prompt_name is not None:
+                try:
+                    prompt = self.prompts[prompt_name]
+                except KeyError:
+                    raise ValueError(
+                        f"Prompt name '{prompt_name}' not found in the configured prompts dictionary with keys {list(self.prompts.keys())!r}."
+                    )
+            elif self.default_prompt_name is not None:
+                prompt = self.prompts.get(self.default_prompt_name, None)
+        else:
+            if prompt_name is not None:
+                logger.warning(
+                    "Encode with either a `prompt`, a `prompt_name`, or neither, but not both. "
+                    "Ignoring the `prompt_name` in favor of `prompt`."
+                )
 
         pred_scores = []
         self.eval()
         for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
             batch = sentences[start_index : start_index + batch_size]
-            features = self.tokenizer(
-                batch,
-                padding=True,
-                truncation=True,
-                return_tensors="pt",
-            )
-            features.to(self.model.device)
-            model_predictions = self.model(**features, return_dict=True)
-            logits = self.activation_fn(model_predictions.logits)
+            # TODO: Let's also allow a prompt
+            # TODO: This should probably call self.tokenize() instead
+            # '''
+            if hasattr(self, "template") and self.template is not None:
+                template_parts = self.template.split("{document}")  # TODO: What if the prompt is after the document?
+                main_template = template_parts[0] + "{document}"
+                suffix = template_parts[1]
 
-            if apply_softmax and logits.ndim > 1:
-                logits = torch.nn.functional.softmax(logits, dim=1)
-            pred_scores.extend(logits)
+                tokenized_suffix = self._get_tokenized_suffix(suffix)
+                num_suffix_tokens = len(tokenized_suffix["input_ids"])
+                tokenized = self.tokenizer(
+                    [main_template.format(query=query, document=document, prompt=prompt) for query, document in batch],
+                    add_special_tokens=False,
+                    padding=False,
+                    truncation=True,
+                    max_length=self.tokenizer.model_max_length - num_suffix_tokens,
+                )
 
-        if self.config.num_labels == 1:
+                # for key in tokenized.keys():
+                #     tokenized[key] = [items + tokenized_suffix[key] for items in tokenized[key]]
+
+                batch = [body + suffix for body in self.tokenizer.batch_decode(tokenized["input_ids"])]
+
+                # self.tokenizer.deprecation_warnings["Asking-to-pad-a-fast-tokenizer"] = True
+                # features = self.tokenizer.pad(
+                #     tokenized,
+                #     padding=True,
+                #     return_tensors="pt",
+                # )
+            # else:
+            # TODO: Add prompt on this level as well
+            # features = self.tokenizer(
+            #     batch,
+            #     padding=True,
+            #     truncation=True,
+            #     return_tensors="pt",
+            # )
+            # features = self.tokenize(batch, **kwargs)
+            # '''
+            features = self.tokenize(batch, **kwargs)
+            # return features
+            features.to(self.device)
+            out_features = self.forward(features, **kwargs)
+            scores = out_features["scores"]
+            scores = self.activation_fn(scores)
+
+            # NOTE: This is just backwards compatibility with the code below, we can optimize this
+            if scores.ndim == 1:
+                scores = scores.unsqueeze(1)
+
+            if apply_softmax and scores.ndim > 1:
+                scores = torch.nn.functional.softmax(scores, dim=1)
+            pred_scores.extend(scores)
+
+        if self.num_labels == 1:
             pred_scores = [score[0] for score in pred_scores]
 
         if convert_to_tensor:
             if len(pred_scores):
                 pred_scores = torch.stack(pred_scores)
             else:
-                pred_scores = torch.tensor([], device=self.model.device)
+                pred_scores = torch.tensor([], device=self.device)
         elif convert_to_numpy:
             pred_scores = np.asarray([score.cpu().detach().float().numpy() for score in pred_scores])
 
@@ -578,6 +789,22 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         results = sorted(results, key=lambda x: x["score"], reverse=True)
         return results[:top_k]
 
+    def _get_tokenized_suffix(self, suffix):
+        # Cache tokenized suffix to avoid redundant tokenization
+        if not hasattr(self, "_cached_tokenized_suffix"):
+            self._cached_tokenized_suffix = {}
+        cache = self._cached_tokenized_suffix
+        if suffix not in cache:
+            cache[suffix] = self.tokenizer(
+                suffix,
+                add_special_tokens=False,
+                padding=False,
+                truncation=False,
+                return_attention_mask=True,
+            )
+        return cache[suffix]
+
+    '''
     def save(self, path: str, *, safe_serialization: bool = True, **kwargs) -> None:
         """
         Saves the model and tokenizer to path; identical to `save_pretrained`
@@ -763,3 +990,4 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None) -> None:
         # Propagate the gradient checkpointing to the transformer model
         return self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs)
+    '''

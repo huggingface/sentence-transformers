@@ -23,10 +23,13 @@ class Dense(Module):
         in_features: Size of the input dimension
         out_features: Output size
         bias: Add a bias vector
-        activation_function: Pytorch activation function applied on
-            output
+        activation_function: Pytorch activation function applied on output
         init_weight: Initial value for the matrix of the linear layer
         init_bias: Initial value for the bias of the linear layer
+        module_input_name: The key in the features dictionary to apply the dense layer to.
+            Defaults to "sentence_embedding". Can be set to "token_embeddings" or any other key.
+        module_output_name: The key in the features dictionary to store the output.
+            If None, uses the same key as module_input_name. Defaults to None.
     """
 
     config_keys: list[str] = [
@@ -34,6 +37,8 @@ class Dense(Module):
         "out_features",
         "bias",
         "activation_function",
+        "module_input_name",
+        "module_output_name",
     ]
 
     def __init__(
@@ -44,6 +49,8 @@ class Dense(Module):
         activation_function: Callable[[Tensor], Tensor] | None = nn.Tanh(),
         init_weight: Tensor | None = None,
         init_bias: Tensor | None = None,
+        module_input_name: str = "sentence_embedding",
+        module_output_name: str | None = None,
     ):
         super().__init__()
         self.in_features = in_features
@@ -51,6 +58,8 @@ class Dense(Module):
         self.bias = bias
         self.activation_function = nn.Identity() if activation_function is None else activation_function
         self.linear = nn.Linear(in_features, out_features, bias=bias)
+        self.module_input_name = module_input_name
+        self.module_output_name = module_output_name if module_output_name is not None else module_input_name
 
         if init_weight is not None:
             self.linear.weight = nn.Parameter(init_weight)
@@ -59,7 +68,9 @@ class Dense(Module):
             self.linear.bias = nn.Parameter(init_bias)
 
     def forward(self, features: dict[str, Tensor]):
-        features.update({"sentence_embedding": self.activation_function(self.linear(features["sentence_embedding"]))})
+        features.update(
+            {self.module_output_name: self.activation_function(self.linear(features[self.module_input_name]))}
+        )
         return features
 
     def get_sentence_embedding_dimension(self) -> int:
@@ -71,6 +82,8 @@ class Dense(Module):
             "out_features": self.out_features,
             "bias": self.bias,
             "activation_function": fullname(self.activation_function),
+            "module_input_name": self.module_input_name,
+            "module_output_name": self.module_output_name,
         }
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:

@@ -398,6 +398,7 @@ def test_prompt_output_value_None(stsb_bert_tiny_model) -> None:
         "sentence_embedding",
         "token_embeddings",
         "prompt_length",
+        "modality",
     }
     assert set(outputs[0].keys()) == expected_keys
     assert set(outputs[1].keys()) == expected_keys
@@ -1238,7 +1239,14 @@ def test_get_model_kwargs(stsb_bert_tiny_model: SentenceTransformer) -> None:
         query_modules=[query_pooling_copy],
         document_modules=[document_pooling_copy],
     )
-    assert set(model.get_model_kwargs()) == {"foo", "task", "query_arg", "document_arg_1", "document_arg_2"}
+    assert set(model.get_model_kwargs()) == {
+        "foo",
+        "task",
+        "query_arg",
+        "document_arg_1",
+        "document_arg_2",
+        "modality",
+    }
     with pytest.raises(
         ValueError,
         match=re.escape(
@@ -1246,7 +1254,7 @@ def test_get_model_kwargs(stsb_bert_tiny_model: SentenceTransformer) -> None:
             "not use: ['normalize']. As per SentenceTransformer.get_model_kwargs(), the valid additional keyword"
             " arguments are: "
         )
-        + r"\[('foo'|'task'|'query_arg'|'document_arg_1'|'document_arg_2'|, ){9}\].",
+        + r"\[('foo'|'task'|'query_arg'|'document_arg_1'|'document_arg_2'|'modality'|, ){11}\].",
     ):
         # There is no "normalize" argument, this should crash
         model.encode("Test sentence", task="query", normalize=True)

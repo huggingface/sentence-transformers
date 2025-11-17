@@ -207,22 +207,23 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         random_states: list[RandContext] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
         """Do forward pass on all the minibatches of the input features and yield corresponding embeddings."""
-        input_ids: Tensor = sentence_feature["input_ids"]
-        bsz, _ = input_ids.shape
-        for i, b in enumerate(
+        batch_size = next(
+            value.shape[0] for value in sentence_feature.values() if isinstance(value, torch.Tensor) and value.ndim > 0
+        )
+        for i, begin in enumerate(
             tqdm.trange(
                 0,
-                bsz,
+                batch_size,
                 self.mini_batch_size,
                 desc="Embed mini-batches",
                 disable=not self.show_progress_bar,
             )
         ):
-            e = b + self.mini_batch_size
+            end = begin + self.mini_batch_size
             reps, random_state = self.embed_minibatch(
                 sentence_feature=sentence_feature,
-                begin=b,
-                end=e,
+                begin=begin,
+                end=end,
                 with_grad=with_grad,
                 copy_random_state=copy_random_state,
                 random_state=None if random_states is None else random_states[i],

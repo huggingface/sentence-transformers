@@ -518,13 +518,15 @@ class SentenceTransformerTrainer(Trainer):
         # are considered to correspond to a feature
         features = []
         for column in inputs:
-            if column.endswith("_input_ids"):
+            if column.endswith("_input_ids"):  # text
                 prefix = column[: -len("input_ids")]
             elif column.endswith("_sentence_embedding"):
                 prefix = column[: -len("sentence_embedding")]
-            elif column.endswith("_pixel_values"):
+            elif column.endswith("_pixel_values"):  # image
                 prefix = column[: -len("pixel_values")]
-            else:
+            elif column.endswith("_input_features"):  # audio
+                prefix = column[: -len("input_features")]
+            else:  # TODO: video
                 continue
             features.append({key[len(prefix) :]: value for key, value in inputs.items() if key.startswith(prefix)})
         labels = inputs.get("label", None)
