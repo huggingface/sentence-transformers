@@ -85,9 +85,9 @@ class DenoisingAutoEncoderLoss(nn.Module):
 
         encoder_name_or_path = model.transformers_model.config._name_or_path
         if decoder_name_or_path is None:
-            assert (
-                tie_encoder_decoder
-            ), "Must indicate the decoder_name_or_path argument when tie_encoder_decoder=False!"
+            assert tie_encoder_decoder, (
+                "Must indicate the decoder_name_or_path argument when tie_encoder_decoder=False!"
+            )
         if tie_encoder_decoder:
             if decoder_name_or_path:
                 logger.warning("When tie_encoder_decoder=True, the decoder_name_or_path will be invalid.")

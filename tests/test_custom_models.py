@@ -68,9 +68,9 @@ def test_jina_embeddings_v3():
         prompt_name=task,
     )
     assert embeddings.shape == (1, 1024), f"Expected shape (1, 1024), but got {embeddings.shape}"
-    assert embeddings[0][0] == pytest.approx(
-        -0.08203125, abs=0.01
-    ), f"Expected value close to 0.08203125, but got {embeddings[0][0]}"
+    assert embeddings[0][0] == pytest.approx(-0.08203125, abs=0.01), (
+        f"Expected value close to 0.08203125, but got {embeddings[0][0]}"
+    )
 
 
 @pytest.mark.custom

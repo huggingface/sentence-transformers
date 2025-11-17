@@ -4,9 +4,10 @@ import logging
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import huggingface_hub
 from huggingface_hub import list_repo_files

@@ -68,7 +68,7 @@ else:
     pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(), args.pooling)
     model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
-model_save_path = f'output/train_bi-encoder-margin_mse-{model_name.replace("/", "-")}-batch_size_{train_batch_size}-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
+model_save_path = f"output/train_bi-encoder-margin_mse-{model_name.replace('/', '-')}-batch_size_{train_batch_size}-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
 
 # Write self to path

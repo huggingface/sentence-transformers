@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 import torch
 

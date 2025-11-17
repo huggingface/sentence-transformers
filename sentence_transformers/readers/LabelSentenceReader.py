@@ -41,7 +41,7 @@ class LabelSentenceReader:
                 self.label_map[label] = len(self.label_map)
 
             label_id = self.label_map[label]
-            guid = "%s-%d" % (filename, id)
+            guid = f"{filename}-{id}"
             id += 1
             examples.append(InputExample(guid=guid, texts=[sentence], label=label_id))
 
