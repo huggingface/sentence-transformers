@@ -32,7 +32,7 @@ Working with Sentence Transformer models is straightforward:
    
       pip install -U sentence-transformers
    
-   We recommend **Python 3.9+** and **PyTorch 1.11.0+**. See `installation <docs/installation.html>`_ for further installation options.
+   We recommend **Python 3.10+** and **PyTorch 1.11.0+**. See `installation <docs/installation.html>`_ for further installation options.
 
 .. tab:: Embedding Models
 

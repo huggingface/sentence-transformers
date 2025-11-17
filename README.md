@@ -20,7 +20,7 @@ For the **full documentation**, see **[www.SBERT.net](https://www.sbert.net)**.
 
 ## Installation
 
-We recommend **Python 3.9+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.34.0+](https://github.com/huggingface/transformers)**.
+We recommend **Python 3.10+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.34.0+](https://github.com/huggingface/transformers)**.
 
 **Install with pip**
 
