@@ -29,18 +29,12 @@ class TransformerDecorator:
     def __init__(self, transformer: Transformer, original_forward) -> None:
         self.transformer = transformer
         self.original_forward = original_forward
-        self.embeddings: list[tuple[Tensor]] = []
-        self.last_embeddings: list[Tensor] = []
-        self.features: list[dict[str, Tensor]] = []
         self.layer_idx = None
         self.call_idx = 0
 
     def set_layer_idx(self, layer_idx) -> None:
         self.layer_idx = layer_idx
         self.call_idx = 0
-
-    def get_layer_embeddings(self) -> Tensor:
-        return torch.concat([embedding[self.layer_idx] for embedding in self.embeddings], dim=1)
 
     def __call__(self, features) -> dict[str, Tensor]:
         if self.layer_idx is None:
@@ -56,31 +50,18 @@ class TransformerDecorator:
         Use the all_layer_embeddings to get the embeddings of all layers.
         """
         original_output_hidden_states = self.transformer.auto_model.config.output_hidden_states
-        self.transformer.auto_model.config.output_hidden_states = True
-
-        output = self.original_forward(features)
-        # We ignore the first layer, as it is the input embeddings
-        # and the last layer, as we already computed the loss over it
-        self.num_layers = len(output["all_layer_embeddings"]) - 1
-        self.embeddings.append(output["all_layer_embeddings"][1:-1])
-        self.last_embeddings.append(output["token_embeddings"])
-        self.features.append(
-            {key: value for key, value in output.items() if key not in ["all_layer_embeddings", "token_embeddings"]}
-        )
-
-        # Restore original setting
-        self.transformer.auto_model.config.output_hidden_states = original_output_hidden_states
-
-        if not original_output_hidden_states:
-            del output["all_layer_embeddings"]
+        try:
+            self.transformer.auto_model.config.output_hidden_states = True
+            output = self.original_forward(features)
+            self.num_layers = len(output["all_layer_embeddings"])
+        finally:
+            # Restore original setting
+            self.transformer.auto_model.config.output_hidden_states = original_output_hidden_states
 
         return output
 
     def call_use_cache(self, features: dict[str, Tensor]) -> dict[str, Tensor]:
-        output = {**self.features[self.call_idx], "token_embeddings": self.embeddings[self.call_idx][self.layer_idx]}
-        if self.transformer.auto_model.config.output_hidden_states and "all_layer_embeddings" in features:
-            output["all_layer_embeddings"] = features["all_layer_embeddings"]
-        return output
+        return {**features, "token_embeddings": features["all_layer_embeddings"][self.layer_idx]}
 
 
 class ForwardDecorator:
