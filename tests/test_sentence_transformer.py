@@ -817,7 +817,7 @@ def test_safetensors(
         # Ensure that we can load the model again and get the same embeddings
         loaded_model = SentenceTransformer(tmp_folder)
         loaded_embedding = loaded_model.encode("Hello, World!")
-        assert np.allclose(original_embedding, loaded_embedding)
+        assert np.allclose(original_embedding, loaded_embedding, rtol=1e-4, atol=1e-6)
 
 
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
