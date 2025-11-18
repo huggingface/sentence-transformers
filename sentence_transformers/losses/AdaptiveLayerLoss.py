@@ -30,18 +30,15 @@ class TransformerDecorator:
         self.transformer = transformer
         self.original_forward = original_forward
         self.layer_idx = None
-        self.call_idx = 0
 
     def set_layer_idx(self, layer_idx) -> None:
         self.layer_idx = layer_idx
-        self.call_idx = 0
 
     def __call__(self, features) -> dict[str, Tensor]:
         if self.layer_idx is None:
             output = self.call_grow_cache(features)
         else:
             output = self.call_use_cache(features)
-            self.call_idx += 1
         return output
 
     def call_grow_cache(self, features: dict[str, Tensor]) -> dict[str, Tensor]:
