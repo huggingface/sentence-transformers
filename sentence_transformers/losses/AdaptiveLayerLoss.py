@@ -36,10 +36,8 @@ class TransformerDecorator:
 
     def __call__(self, features) -> dict[str, Tensor]:
         if self.layer_idx is None:
-            output = self.call_grow_cache(features)
-        else:
-            output = self.call_use_cache(features)
-        return output
+            return self.call_grow_cache(features)
+        return self.call_use_cache(features)
 
     def call_grow_cache(self, features: dict[str, Tensor]) -> dict[str, Tensor]:
         """
