@@ -8,7 +8,7 @@ Chien Vu also wrote a nice blog article on this technique: [A complete guide to 
 
 ## Extend your own models
 
-![Multilingual Knowledge Distillation](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/multilingual-distillation.png)
+![Multilingual Knowledge Distillation](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/multilingual-distillation.png)
 
 The idea is based on a fixed (monolingual) **teacher model** that produces sentence embeddings with our desired properties in one language (e.g. English). The **student model** is supposed to mimic the teacher model, i.e., the same English sentence should be mapped to the same vector by the teacher and by the student model. Additionally, in order to make the student model work for other languages, we train the student model on parallel (translated) sentences. The translation of each sentence should also be mapped to the same vector as the original sentence.
 

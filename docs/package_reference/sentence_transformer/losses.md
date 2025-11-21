@@ -66,7 +66,7 @@ Sadly, there is no "one size fits all" loss function. Which loss function is sui
 
 ## CosineSimilarityLoss
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/SBERT_Siamese_Network.png" alt="SBERT Siamese Network Architecture" width="250"/>
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/SBERT_Siamese_Network.png" alt="SBERT Siamese Network Architecture" width="250"/>
 
 For each sentence pair, we pass sentence A and sentence B through our network which yields the embeddings *u* und *v*. The similarity of these embeddings is computed using cosine similarity and the result is compared to the gold similarity score.
 

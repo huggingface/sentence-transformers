@@ -6,7 +6,7 @@ Model distillation refers to training an (often smaller) student model to mimic 
 
 The goal is to minimize the difference between the student logits (a.k.a. raw model outputs) and the teacher logits on the same input pair (often a query-answer pair).
 
-![](https://github.com/huggingface/sentence-transformers/raw/master/docs/img/msmarco-training-ce-distillation.png)
+![](https://github.com/huggingface/sentence-transformers/raw/main/docs/img/msmarco-training-ce-distillation.png)
 
 Here are two training scripts that use pre-computed logits from [Hostätter et al.](https://huggingface.co/papers/2010.02666), who trained an ensemble of 3 (large) models for the MS MARCO dataset and predicted the scores for various (query, passage)-pairs (50% positive, 50% negative).
 

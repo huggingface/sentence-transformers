@@ -98,7 +98,7 @@ Additionally, some research papers (`INSTRUCTOR <https://huggingface.co/papers/2
 ```{eval-rst}
 See the following script as an example of how to train with prompts in practice:
 
-* `training_nq_prompts.py <https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/training/prompts/training_nq_prompts.py>`_: This script finetunes `mpnet-base <https://huggingface.co/microsoft/mpnet-base>`_ on 100k query-answer pairs from the `natural-questions <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset using the :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss` loss. The model is evaluated during training using the :class:`~sentence_transformers.evaluation.NanoBEIREvaluator`.
+* `training_nq_prompts.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/prompts/training_nq_prompts.py>`_: This script finetunes `mpnet-base <https://huggingface.co/microsoft/mpnet-base>`_ on 100k query-answer pairs from the `natural-questions <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset using the :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss` loss. The model is evaluated during training using the :class:`~sentence_transformers.evaluation.NanoBEIREvaluator`.
 
 This script has two variables that affect 1) whether prompts are used and 2) whether prompts are included in the pooling. I have finetuned both ``mpnet-base`` and ``bert-base-uncased`` under the various different settings, resulting in a 0.66% and 0.90% relative improvements on ``NDCG@10`` at no extra cost.
 

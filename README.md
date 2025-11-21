@@ -1,7 +1,7 @@
 <!--- BADGES: START --->
 
 [![HF Models](https://img.shields.io/badge/%F0%9F%A4%97-models-yellow)](https://huggingface.co/models?library=sentence-transformers)
-[![GitHub - License](https://img.shields.io/github/license/UKPLab/sentence-transformers?logo=github&style=flat&color=green)][#github-license]
+[![GitHub - License](https://img.shields.io/github/license/huggingface/sentence-transformers?logo=github&style=flat&color=green)][#github-license]
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/sentence-transformers?logo=pypi&style=flat&color=blue)][#pypi-package]
 [![PyPI - Package Version](https://img.shields.io/pypi/v/sentence-transformers?logo=pypi&style=flat&color=orange)][#pypi-package]
 [![Docs - GitHub.io](https://img.shields.io/static/v1?logo=github&style=flat&color=pink&label=docs&message=sentence-transformers)][#docs-package]
@@ -179,13 +179,13 @@ This framework allows you to fine-tune your own sentence embedding methods, so t
 
 - Embedding Models
   - [Sentence Transformer > Training Overview](https://www.sbert.net/docs/sentence_transformer/training_overview.html)
-  - [Sentence Transformer > Training Examples](https://www.sbert.net/docs/sentence_transformer/training/examples.html) or [training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/master/examples/sentence_transformer/training).
+  - [Sentence Transformer > Training Examples](https://www.sbert.net/docs/sentence_transformer/training/examples.html) or [training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/main/examples/sentence_transformer/training).
 - Reranker Models
   - [Cross Encoder > Training Overview](https://www.sbert.net/docs/cross_encoder/training_overview.html)
-  - [Cross Encoder > Training Examples](https://www.sbert.net/docs/cross_encoder/training/examples.html) or [training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/master/examples/cross_encoder/training).
+  - [Cross Encoder > Training Examples](https://www.sbert.net/docs/cross_encoder/training/examples.html) or [training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/main/examples/cross_encoder/training).
 - Sparse Embedding Models
   - [Sparse Encoder > Training Overview](https://www.sbert.net/docs/sparse_encoder/training_overview.html)
-  - [Sparse Encoder > Training Examples](https://www.sbert.net/docs/sparse_encoder/training/examples.html) or [training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/master/examples/sparse_encoder/training).
+  - [Sparse Encoder > Training Examples](https://www.sbert.net/docs/sparse_encoder/training/examples.html) or [training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/main/examples/sparse_encoder/training).
 
 Some highlights across the different types of training are:
 
@@ -228,7 +228,7 @@ You can use this framework for:
 
 and many more use-cases.
 
-For all examples, see [examples/sentence_transformer/applications](https://github.com/huggingface/sentence-transformers/tree/master/examples/sentence_transformer/applications).
+For all examples, see [examples/sentence_transformer/applications](https://github.com/huggingface/sentence-transformers/tree/main/examples/sentence_transformer/applications).
 
 ## Development setup
 
@@ -291,5 +291,5 @@ This project was originally developed by the [Ubiquitous Knowledge Processing (U
 > This repository contains experimental software and is published for the sole purpose of giving additional background details on the respective publication.
 
 [#docs-package]: https://www.sbert.net/
-[#github-license]: https://github.com/huggingface/sentence-transformers/blob/master/LICENSE
+[#github-license]: https://github.com/huggingface/sentence-transformers/blob/main/LICENSE
 [#pypi-package]: https://pypi.org/project/sentence-transformers/

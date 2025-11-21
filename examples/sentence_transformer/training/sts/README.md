@@ -56,7 +56,7 @@ train_dataset = load_dataset("sentence-transformers/stsb", split="train")
 We use :class:`~sentence_transformers.losses.CosineSimilarityLoss` as our loss function.
 ```
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/SBERT_Siamese_Network.png" alt="SBERT Siamese Network Architecture" width="250"/>
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/SBERT_Siamese_Network.png" alt="SBERT Siamese Network Architecture" width="250"/>
 
 For each sentence pair, we pass sentence A and sentence B through the BERT-based model, which yields the embeddings *u* und *v*. The similarity of these embeddings is computed using cosine similarity and the result is compared to the gold similarity score. Note that the two sentences are fed through the same model rather than two separate models. In particular, the cosine similarity for similar texts is maximized and the cosine similarity for dissimilar texts is minimized. This allows our model to be fine-tuned and to recognize the similarity of sentences.
 

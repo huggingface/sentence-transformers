@@ -12,7 +12,7 @@ There are **pre-trained models** available, which you can directly use without t
 
 For retrieval of suitable documents from a large collection, we have to use a Sentence Transformer (a.k.a. bi-encoder) model. The documents are independently encoded into fixed-sized embeddings. A query is embedded into the same vector space. Relevant documents can then be found by using cosine similarity or dot-product.
 
-![BiEncoder](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/BiEncoder.png)
+![BiEncoder](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/BiEncoder.png)
 
 This page describes two strategies to **train an bi-encoder** on the MS MARCO dataset:
 
@@ -26,7 +26,7 @@ When we use :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`,
 To further improve the training, we use **in-batch negatives**: 
 ```
 
-![MultipleNegativesRankingLoss](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/MultipleNegativeRankingLoss.png)
+![MultipleNegativesRankingLoss](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/MultipleNegativeRankingLoss.png)
 
 We embed all `queries`, `positive_passages`, and `negative_passages` into the vector space. The matching `(query_i, positive_passage_i)` should be close, while there should be a large distance between a `query` and all other (positive/negative) passages from all other triplets in a batch. For a batch size of 64, we compare a query against 64+64=128 passages, from which only one passage should be close and the 127 others should be distant in vector space.
 

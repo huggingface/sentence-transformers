@@ -105,9 +105,9 @@ html_js_files = [
 html_show_sourcelink = False
 html_context = {
     "display_github": True,
-    "github_user": "UKPLab",
+    "github_user": "huggingface",
     "github_repo": "sentence-transformers",
-    "github_version": "master/",
+    "github_version": "main/",
 }
 
 html_logo = "img/logo.png"
@@ -153,11 +153,11 @@ def linkcode_resolve(domain, info):
         return None
     start, end = lines[1], lines[1] + len(lines[0]) - 1
 
-    return f"https://github.com/huggingface/sentence-transformers/blob/master/{file}#L{start}-L{end}"
+    return f"https://github.com/huggingface/sentence-transformers/blob/main/{file}#L{start}-L{end}"
 
 
 def visit_download_reference(self, node):
-    root = "https://github.com/huggingface/sentence-transformers/tree/master"
+    root = "https://github.com/huggingface/sentence-transformers/tree/main"
     atts = {"class": "reference download", "download": ""}
 
     if not self.builder.download_support:
