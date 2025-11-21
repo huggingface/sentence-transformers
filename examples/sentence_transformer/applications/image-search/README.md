@@ -2,7 +2,7 @@
 
 SentenceTransformers provides models that allow to embed images and text into the same vector space. This allows to find similar images as well as to implement **image search**.
 
-![ImageSearch](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/ImageSearch.png)
+![ImageSearch](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/ImageSearch.png)
 
 ## Installation
 

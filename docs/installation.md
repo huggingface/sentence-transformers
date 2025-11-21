@@ -112,7 +112,7 @@ Note that you can mix and match the various extras, e.g. `pip install -U "senten
 
 ## Install from Source
 
-You can install `sentence-transformers` directly from source to take advantage of the bleeding edge `master` branch rather than the latest stable release:
+You can install `sentence-transformers` directly from source to take advantage of the bleeding edge `main` branch rather than the latest stable release:
 
 ```{eval-rst}
 

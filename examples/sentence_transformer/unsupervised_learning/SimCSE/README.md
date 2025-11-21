@@ -4,7 +4,7 @@ Gao et al. present in [SimCSE](https://huggingface.co/papers/2104.08821) a simpl
 
 The idea is to encode the same sentence twice. Due to the used dropout in transformer models, both sentence embeddings will be at slightly different positions. The distance between these two embeddings will be minimized, while the distance to other embeddings of the other sentences in the same batch will be maximized (they serve as negative examples).
 
-![SimCSE working](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/SimCSE.png)
+![SimCSE working](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/SimCSE.png)
 
 ## Usage with SentenceTransformers
 

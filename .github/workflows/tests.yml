@@ -3,11 +3,11 @@ name: Unit tests
 on:
   push:
     branches:
-      - master
+      - main
       - v*-release
   pull_request:
     branches:
-      - master
+      - main
       - v*-release
   workflow_dispatch:
 

@@ -645,8 +645,8 @@ Training on multiple datasets looks like this:
 
     **Training Examples:**
 
-    - `Quora Duplicate Questions > Multi-task learning <https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/training/quora_duplicate_questions/training_multi-task-learning.py>`_
-    - `AllNLI + STSb > Multi-task learning <https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/training/other/training_multi-task.py>`_
+    - `Quora Duplicate Questions > Multi-task learning <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/quora_duplicate_questions/training_multi-task-learning.py>`_
+    - `AllNLI + STSb > Multi-task learning <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/other/training_multi-task.py>`_
 
 ::
 
@@ -771,7 +771,7 @@ In case there are issues with the updated :meth:`SentenceTransformer.fit() <sent
 
 The quality of your text embedding model depends on which transformer model you choose. Sadly we cannot infer from a better performance on e.g. the GLUE or SuperGLUE benchmark that this model will also yield better representations.
 
-To test the suitability of transformer models, I use the [training_nli_v2.py](https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/training/nli/training_nli_v2.py) script and train on 560k (anchor, positive, negative)-triplets for 1 epoch with batch size 64. I then evaluate on 14 diverse text similarity tasks (clustering, semantic search, duplicate detection etc.) from various domains.
+To test the suitability of transformer models, I use the [training_nli_v2.py](https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/nli/training_nli_v2.py) script and train on 560k (anchor, positive, negative)-triplets for 1 epoch with batch size 64. I then evaluate on 14 diverse text similarity tasks (clustering, semantic search, duplicate detection etc.) from various domains.
 
 In the following table you find the performance for different models and their performance on this benchmark:
 

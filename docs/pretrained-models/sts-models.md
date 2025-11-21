@@ -5,8 +5,8 @@ The models were first trained on [NLI data](nli-models.md), then we fine-tuned t
 We use the training file from the [STS benchmark dataset](https://huggingface.co/datasets/sentence-transformers/stsb).
 
 For a training example, see:
-- [examples/sentence_transformer/training_stsbenchmark.py](https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/training/sts/training_stsbenchmark.py) - Train directly on STS data
-- [examples/sentence_transformer/training_stsbenchmark_continue_training.py ](https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/training/sts/training_stsbenchmark_continue_training.py) - First train on NLI, than train on STS data.
+- [examples/sentence_transformer/training_stsbenchmark.py](https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/sts/training_stsbenchmark.py) - Train directly on STS data
+- [examples/sentence_transformer/training_stsbenchmark_continue_training.py ](https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/sts/training_stsbenchmark_continue_training.py) - First train on NLI, than train on STS data.
 
 # Pre-trained models
  We provide the following pre-trained models:

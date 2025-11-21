@@ -11,7 +11,7 @@ This page contains a collection of unsupervised learning methods to learn senten
 
 In our work [TSDAE (Transformer-based Denoising AutoEncoder)](https://huggingface.co/papers/2104.06979) we present an unsupervised sentence embedding learning method based on denoising auto-encoders:
 
-![](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/TSDAE.png)
+![](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/TSDAE.png)
 
 We add noise to the input text, in our case, we delete about 60% of the words in the text. The encoder maps this input to a fixed-sized sentence embeddings. A decoder then tries to re-create the original text without the noise. Later, we use the encoder as the sentence embedding methods.
 
@@ -23,7 +23,7 @@ Gao et al. present in [SimCSE: Simple Contrastive Learning of Sentence Embedding
 
 The distance between these two embeddings will be minimized, while the distance to other embeddings of the other sentences in the same batch will be maximized.
 
-![SimCSE working](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/SimCSE.png)
+![SimCSE working](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/SimCSE.png)
 
 See **[SimCSE](SimCSE/README.md)** for more information and training examples.
 
@@ -31,7 +31,7 @@ See **[SimCSE](SimCSE/README.md)** for more information and training examples.
 
 Carlsson et al. present in [Semantic Re-Tuning With Contrastive Tension (CT)](https://openreview.net/pdf?id=Ov_sMNau-PF) an unsupervised method that uses two models: If the same sentences are passed to Model1 and Model2, then the respective sentence embeddings should get a large dot-score. If the different sentences are passed, then the sentence embeddings should get a low score.
 
-![CT working](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/CT.jpg)
+![CT working](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/CT.jpg)
 
 See **[CT](CT/README.md)** for more information and training examples.
 
@@ -51,7 +51,7 @@ In our paper [BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Inform
 
 We pass all passages in our collection through a trained T5 model, which generates potential queries from users. We then use these (query, passage) pairs to train a SentenceTransformer model.
 
-![Query Generation](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/query-generation.png)
+![Query Generation](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/query-generation.png)
 
 See **[GenQ](query_generation/README.md)** for more information and training examples. See **[GPL](../domain_adaptation/README.md)** for the improved version that uses a multi-step training approach.
 
@@ -59,7 +59,7 @@ See **[GenQ](query_generation/README.md)** for more information and training exa
 
 In [GPL: Generative Pseudo Labeling for Unsupervised Domain Adaptation of Dense Retrieval](https://huggingface.co/papers/2112.07577) we show an improved version of GenQ, which combines the generation with negative mining and pseudo labeling using a Cross-Encoder. It leads to significantly improved results. See **[Domain Adaptation](../domain_adaptation/README.md)** for more information.
 
-![GPL Architecture](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/gpl_architecture.png)
+![GPL Architecture](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/gpl_architecture.png)
 
 ## Performance Comparison
 

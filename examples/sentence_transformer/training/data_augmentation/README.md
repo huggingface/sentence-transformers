@@ -34,7 +34,7 @@ We apply the Augmented SBERT (<b>In-domain</b>) strategy, it involves three step
 
 - Step 3: Finally, train a bi-encoder (SBERT) on the extended (gold + silver) training dataset
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/augsbert-indomain.png" width="400" height="500">
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/augsbert-indomain.png" width="400" height="500">
 
 ## Scenario 2: No annotated datasets (Only unlabeled sentence-pairs)
 
@@ -46,11 +46,11 @@ We apply the Augmented SBERT (<b>Domain-Transfer</b>) strategy, it involves thre
 
 - Step 3: Finally, train a bi-encoder (SBERT) on the labeled target dataset
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/augsbert-domain-transfer.png" width="500" height="300">
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/augsbert-domain-transfer.png" width="500" height="300">
 
 ## Training
 
-The [examples/sentence_transformer/training/data_augmentation](https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/training/data_augmentation/) folder contains simple training examples for each scenario explained below:
+The [examples/sentence_transformer/training/data_augmentation](https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/data_augmentation/) folder contains simple training examples for each scenario explained below:
 
 - [train_sts_seed_optimization.py](train_sts_seed_optimization.py)
 

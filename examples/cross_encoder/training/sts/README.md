@@ -57,7 +57,7 @@ train_dataset = load_dataset("sentence-transformers/stsb", split="train")
 We use :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss` as our loss function.
 ```
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/CrossEncoder.png" alt="CrossEncoder architecture" width="250"/>
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/CrossEncoder.png" alt="CrossEncoder architecture" width="250"/>
 
 ```{eval-rst}
 For each sentence pair, we pass sentence A and sentence B through the BERT-based model, after which a classifier head converts the intermediary representation from the BERT-based model into a similarity score. With this loss, we apply :class:`torch.nn.BCEWithLogitsLoss` which accepts logits (a.k.a. outputs, raw predictions) and gold similarity scores to compute a loss denoting how well the model has done on this batch. This loss can be minimized to improve the performance of the model.

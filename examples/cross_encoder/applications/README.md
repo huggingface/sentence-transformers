@@ -8,7 +8,7 @@ First, it is important to understand the difference between Bi- and Cross-Encode
 
 **Bi-Encoders** produce for a given sentence a sentence embedding. We pass to a BERT independently the sentences A and B, which result in the sentence embeddings u and v. These sentence embedding can then be compared using cosine similarity:
 
-![BiEncoder](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/Bi_vs_Cross-Encoder.png)
+![BiEncoder](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/Bi_vs_Cross-Encoder.png)
 
 In contrast, for a **Cross-Encoder**, we pass both sentences simultaneously to the Transformer network. It produces then an output value between 0 and 1 indicating the similarity of the input sentence pair:
 

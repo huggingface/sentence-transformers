@@ -41,7 +41,7 @@ We format AllNLI in a few different subsets, compatible with different loss func
 `Conneau et al. <https://huggingface.co/papers/1705.02364>`_ described how a softmax classifier on top of a `siamese network <https://en.wikipedia.org/wiki/Siamese_neural_network>`_ can be used to learn meaningful sentence representation. We can achieve this by using :class:`~sentence_transformers.losses.SoftmaxLoss`:
 ```
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/SBERT_SoftmaxLoss.png" alt="SBERT SoftmaxLoss" width="250"/>
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/SBERT_SoftmaxLoss.png" alt="SBERT SoftmaxLoss" width="250"/>
 
 We pass the two sentences through our SentenceTransformer model and get the sentence embeddings *u* and *v*. We then concatenate *u*, *v* and *|u-v|* to form one long vector. This vector is then passed to a softmax classifier, which predicts our three classes (entailment, neutral, contradiction).
 
@@ -55,7 +55,7 @@ That the :class:`~sentence_transformers.losses.SoftmaxLoss` with NLI data produc
 
 The training data for MultipleNegativesRankingLoss consists of sentence pairs [(a<sub>1</sub>, b<sub>1</sub>), ..., (a<sub>n</sub>, b<sub>n</sub>)] where we assume that (a<sub>i</sub>, b<sub>i</sub>) are similar sentences and (a<sub>i</sub>, b<sub>j</sub>) are dissimilar sentences for i != j. The minimizes the distance between (a<sub>i</sub>, b<sub>i</sub>) while it simultaneously maximizes the distance (a<sub>i</sub>, b<sub>j</sub>) for all i != j. For example, in the following picture:
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/MultipleNegativeRankingLoss.png" alt="SBERT MultipleNegativeRankingLoss" width="350"/>
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/MultipleNegativeRankingLoss.png" alt="SBERT MultipleNegativeRankingLoss" width="350"/>
 
 The distance between (a<sub>1</sub>, b<sub>1</sub>) is reduced, while the distance between (a<sub>1</sub>, b<sub>2...5</sub>) will be increased. The same is done for a<sub>2</sub>, ..., a<sub>5</sub>.
 
