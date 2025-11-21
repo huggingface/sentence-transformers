@@ -132,6 +132,81 @@ def test_predict_softmax():
     assert not torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
 
 
+def test_predict_with_prompt_template():
+    model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
+    query = "A man is eating pasta."
+    corpus = [
+        "A man is eating food.",
+        "A woman is playing violin.",
+    ]
+    pairs = [[query, doc] for doc in corpus]
+    prompt_template = (
+        "Instruct: Given a query and a document, determine if they are relevant. Query: {query} Document: {document}"
+    )
+
+    # 1. Test with prompt_template in predict
+    scores_prompt = model.predict(pairs, prompt_template=prompt_template)
+
+    # 2. Test without prompt_template
+    scores_no_prompt = model.predict(pairs)
+
+    # The scores should be different as the input to the model is different
+    assert not np.allclose(scores_prompt, scores_no_prompt)
+
+    # 3. Test with prompt_template in rank
+    ranks_prompt = model.rank(query, corpus, prompt_template=prompt_template)
+    ranks_no_prompt = model.rank(query, corpus)
+
+    assert ranks_prompt[0]["score"] != ranks_no_prompt[0]["score"]
+    assert ranks_prompt[1]["score"] != ranks_no_prompt[1]["score"]
+
+
+def test_predict_with_default_prompt_template(tmp_path: Path):
+    # 1. Create a base model and save it
+    model_name = "cross-encoder-testing/reranker-bert-tiny-gooaq-bce"
+    original_model = CrossEncoder(model_name)
+    save_path = tmp_path / "model_with_template"
+    original_model.save(str(save_path))
+
+    # 2. Modify the config.json to add a default prompt template
+    config_path = save_path / "config.json"
+    with open(config_path) as f:
+        config = json.load(f)
+
+    prompt_template = "Instruct: {instruction} Query: {query} Document: {document}"
+    prompt_kwargs = {"instruction": "Determine relevance."}
+    if "sentence_transformers" not in config:
+        config["sentence_transformers"] = {}
+    config["sentence_transformers"]["prompt_template"] = prompt_template
+    config["sentence_transformers"]["prompt_template_kwargs"] = prompt_kwargs
+
+    with open(config_path, "w") as f:
+        json.dump(config, f)
+
+    # 3. Load the model with the modified config
+    model_with_template = CrossEncoder(str(save_path))
+    assert model_with_template.default_prompt_template == prompt_template
+    assert model_with_template.default_prompt_template_kwargs == prompt_kwargs
+
+    # 4. Perform prediction and compare results
+    query = "A man is eating pasta."
+    doc = "A man is eating food."
+
+    # Prediction with the model that has a default template
+    scores_with_default_template = model_with_template.predict([[query, doc]])
+
+    # Prediction with the original model (no template)
+    scores_original = original_model.predict([[query, doc]])
+
+    # The scores should be different because one uses the template and the other doesn't.
+    assert not np.allclose(scores_with_default_template, scores_original)
+
+    # 5. Test that runtime arguments can overwrite the default template
+    runtime_template = "Query: {query} and Doc: {document}"
+    scores_runtime_template = model_with_template.predict([[query, doc]], prompt_template=runtime_template)
+    assert not np.allclose(scores_with_default_template, scores_runtime_template)
+
+
 @pytest.mark.parametrize(
     "model_name", ["cross-encoder-testing/reranker-bert-tiny-gooaq-bce", "cross-encoder/nli-MiniLM2-L6-H768"]
 )

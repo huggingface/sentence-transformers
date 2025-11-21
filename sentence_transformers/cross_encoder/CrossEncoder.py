@@ -169,6 +169,12 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         if config.architectures is not None:
             classifier_trained = any([arch.endswith("ForSequenceClassification") for arch in config.architectures])
 
+        self.default_prompt_template: str | None = None
+        self.default_prompt_template_kwargs: dict[str, Any] | None = None
+        if hasattr(config, "sentence_transformers"):
+            self.default_prompt_template = config.sentence_transformers.get("prompt_template")
+            self.default_prompt_template_kwargs = config.sentence_transformers.get("prompt_template_kwargs")
+
         if num_labels is None and not classifier_trained:
             num_labels = 1
 
@@ -352,6 +358,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[False] = ...,
         convert_to_tensor: Literal[False] = ...,
+        prompt_template: str | None = None,
+        prompt_template_kwargs: dict[str, Any] | None = None,
     ) -> torch.Tensor: ...
 
     @overload
@@ -364,6 +372,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[True] = True,
         convert_to_tensor: Literal[False] = False,
+        prompt_template: str | None = None,
+        prompt_template_kwargs: dict[str, Any] | None = None,
     ) -> np.ndarray: ...
 
     @overload
@@ -376,6 +386,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: bool = ...,
         convert_to_tensor: Literal[True] = ...,
+        prompt_template: str | None = None,
+        prompt_template_kwargs: dict[str, Any] | None = None,
     ) -> torch.Tensor: ...
 
     @overload
@@ -388,6 +400,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[False] = ...,
         convert_to_tensor: Literal[False] = ...,
+        prompt_template: str | None = None,
+        prompt_template_kwargs: dict[str, Any] | None = None,
     ) -> list[torch.Tensor]: ...
 
     @torch.inference_mode()
@@ -401,6 +415,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = False,
         convert_to_numpy: bool = True,
         convert_to_tensor: bool = False,
+        prompt_template: str | None = None,
+        prompt_template_kwargs: dict[str, Any] | None = None,
     ) -> list[torch.Tensor] | np.ndarray | torch.Tensor:
         """
         Performs predictions with the CrossEncoder on the given sentence pairs.
@@ -413,13 +429,17 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             activation_fn (callable, optional): Activation function applied on the logits output of the CrossEncoder.
                 If None, the ``model.activation_fn`` will be used, which defaults to :class:`torch.nn.Sigmoid` if num_labels=1, else
                 :class:`torch.nn.Identity`. Defaults to None.
-            convert_to_numpy (bool, optional): Convert the output to a numpy matrix. Defaults to True.
             apply_softmax (bool, optional): If set to True and `model.num_labels > 1`, applies softmax on the logits
                 output such that for each sample, the scores of each class sum to 1. Defaults to False.
             convert_to_numpy (bool, optional): Whether the output should be a list of numpy vectors. If False, output
                 a list of PyTorch tensors. Defaults to True.
             convert_to_tensor (bool, optional): Whether the output should be one large tensor. Overwrites `convert_to_numpy`.
                 Defaults to False.
+            prompt_template (str, optional): A template to format the input sentence pairs. The template should have placeholders
+                for `{query}` and `{document}`. For example: "Query: {query} Document: {document}".
+            prompt_template_kwargs (dict[str, Any], optional): A dictionary of keyword arguments to format the prompt template.
+                For example, you can provide an instruction: `{"instruction": "Determine the relevance."}` for a template like
+                "Instruct: {instruction} Query: {query} Document: {document}".
 
         Returns:
             Union[List[torch.Tensor], np.ndarray, torch.Tensor]: Predictions for the passed sentence pairs.
@@ -448,6 +468,28 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             show_progress_bar = (
                 logger.getEffectiveLevel() == logging.INFO or logger.getEffectiveLevel() == logging.DEBUG
             )
+
+        # If prompt_template is provided or default_prompt_template in config.json is set, use it to format the input sentence pairs
+        final_prompt_template = prompt_template if prompt_template is not None else self.default_prompt_template
+        if final_prompt_template:
+            final_kwargs = self.default_prompt_template_kwargs.copy() if self.default_prompt_template_kwargs else {}
+            if prompt_template_kwargs:
+                # Update final_kwargs with any additional keyword arguments provided in prompt_template_kwargs
+                final_kwargs.update(prompt_template_kwargs)
+
+            formatted_sentences = []
+            try:
+                for query, doc in sentences:
+                    all_kwargs = {"query": query, "document": doc, **final_kwargs}
+                    formatted_sentences.append(final_prompt_template.format(**all_kwargs))
+            except KeyError as e:
+                # If a placeholder in the prompt template is not valid, raise an error
+                available_keys = ["query", "document"] + list(final_kwargs.keys())
+                raise KeyError(
+                    f"A placeholder in the prompt template is not valid. The placeholder {e} was not found. "
+                    f"Available placeholders are: {', '.join(sorted(list(set(available_keys))))}."
+                ) from e
+            sentences = formatted_sentences
 
         if activation_fn is not None:
             self.set_activation_fn(activation_fn, set_default=False)
@@ -499,6 +541,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax=False,
         convert_to_numpy: bool = True,
         convert_to_tensor: bool = False,
+        prompt_template: str | None = None,
+        prompt_template_kwargs: dict[str, Any] | None = None,
     ) -> list[dict[Literal["corpus_id", "score", "text"], int | float | str]]:
         """
         Performs ranking with the CrossEncoder on the given query and documents. Returns a sorted list with the document indices and scores.
@@ -514,6 +558,11 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             convert_to_numpy (bool, optional): Convert the output to a numpy matrix. Defaults to True.
             apply_softmax (bool, optional): If there are more than 2 dimensions and apply_softmax=True, applies softmax on the logits output. Defaults to False.
             convert_to_tensor (bool, optional): Convert the output to a tensor. Defaults to False.
+            prompt_template (str, optional): A template to format the input sentence pairs. The template should have placeholders
+                for `{query}` and `{document}`. For example: "Query: {query} Document: {document}".
+            prompt_template_kwargs (dict[str, Any], optional): A dictionary of keyword arguments to format the prompt template.
+                For example, you can provide an instruction: `{"instruction": "Determine the relevance."}` for a template like
+                "Instruct: {instruction} Query: {query} Document: {document}".
 
         Returns:
             List[Dict[Literal["corpus_id", "score", "text"], Union[int, float, str]]]: A sorted list with the "corpus_id", "score", and optionally "text" of the documents.
@@ -568,6 +617,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             apply_softmax=apply_softmax,
             convert_to_numpy=convert_to_numpy,
             convert_to_tensor=convert_to_tensor,
+            prompt_template=prompt_template,
+            prompt_template_kwargs=prompt_template_kwargs,
         )
 
         results = []
