@@ -6,7 +6,7 @@ function addGithubButton() {
                     <a href="https://huggingface.co/models?library=sentence-transformers" target="_blank" title="See all Sentence Transformer models"><img src="https://sbert.net/_static/hf-logo.svg" style="margin: 0px 10px 0px -10px; padding: 0px; height: 28px; width: 28px;"></a>
                 </div>
                 <a class="github-button"
-                    href="https://github.com/huggingface/sentence-transformers" data-size="large" data-show-count="true" aria-label="Star UKPLab/sentence-transformers on GitHub" title="sentence-transformers on GitHub">
+                    href="https://github.com/huggingface/sentence-transformers" data-size="large" data-show-count="true" aria-label="Star huggingface/sentence-transformers on GitHub" title="sentence-transformers on GitHub">
                     Star
                 </a>
             </div>

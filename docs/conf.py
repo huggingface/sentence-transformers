@@ -105,7 +105,7 @@ html_js_files = [
 html_show_sourcelink = False
 html_context = {
     "display_github": True,
-    "github_user": "UKPLab",
+    "github_user": "huggingface",
     "github_repo": "sentence-transformers",
     "github_version": "main/",
 }
