@@ -33,7 +33,7 @@ from sentence_transformers import InputExample, SentenceTransformer, losses
             ],
             True,
             1.0,
-            1e-6,
+            1e-5,
         ),
         (
             [
@@ -54,7 +54,7 @@ from sentence_transformers import InputExample, SentenceTransformer, losses
             ],
             False,
             1.0,
-            1e-6,
+            1e-5,
         ),
         (
             [
