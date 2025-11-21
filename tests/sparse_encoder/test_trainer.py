@@ -11,7 +11,6 @@ from tokenizers.processors import TemplateProcessing
 from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments
 from sentence_transformers.sparse_encoder import losses
 from sentence_transformers.util import is_datasets_available, is_training_available
-from tests.utils import SafeTemporaryDirectory
 
 if is_datasets_available():
     from datasets import Dataset, DatasetDict
@@ -61,7 +60,7 @@ def test_model_card_reuse(dummy_sparse_encoder_for_trainer: SparseEncoder):
         ),
     )
 
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model_path = Path(tmp_folder) / "sparse_model_local"
         model.save_pretrained(str(model_path))
 

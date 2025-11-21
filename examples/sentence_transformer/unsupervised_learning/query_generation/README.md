@@ -1,6 +1,6 @@
 # GenQ
 
-In our paper [BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models](https://arxiv.org/abs/2104.08663) we presented a method to adapt a model for [asymmetric semantic search](../../applications/semantic-search/README.md) for a corpus without labeled training data.
+In our paper [BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models](https://huggingface.co/papers/2104.08663) we presented a method to adapt a model for [asymmetric semantic search](../../applications/semantic-search/README.md) for a corpus without labeled training data.
 
 ## Background
 
@@ -29,7 +29,7 @@ For example, we have the following text passage:
  Python is an interpreted, high-level and general-purpose programming language. Python's design philosophy emphasizes code readability with its notable use of significant whitespace. Its language constructs and object-oriented approach aim to help programmers write clear, logical code for small and large-scale projects.
 ```
 
-We pass this passage through a specially trained [T5 model](https://arxiv.org/abs/1910.10683) which generates possible queries for us. For the above passage, it might generate these queries:
+We pass this passage through a specially trained [T5 model](https://huggingface.co/papers/1910.10683) which generates possible queries for us. For the above passage, it might generate these queries:
 
 - What is python
 - definition python

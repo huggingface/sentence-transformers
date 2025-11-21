@@ -1,6 +1,6 @@
 # Installation
 
-We recommend **Python 3.9+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.41.0+](https://github.com/huggingface/transformers)**. There are 5 extra options to install Sentence Transformers:
+We recommend **Python 3.10+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.41.0+](https://github.com/huggingface/transformers)**. There are 5 extra options to install Sentence Transformers:
 
 - **Default:** This allows for loading, saving, and inference (i.e., getting embeddings) of models.
 - **ONNX:** This allows for loading, saving, inference, optimizing, and quantizing of models using the ONNX backend.

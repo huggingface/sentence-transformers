@@ -57,7 +57,7 @@ print(train_dataset[0])
 **Training code: [train_bi-encoder_margin-mse.py](train_bi-encoder_margin-mse.py)**
 
 ```{eval-rst}
-:class:`~sentence_transformers.losses.MarginMSELoss` is based on the paper of `Hofstätter et al <https://arxiv.org/abs/2010.02666>`_. Like when training with :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, we can use triplets: ``(query, passage1, passage2)``. However, in contrast to :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, `passage1` and `passage2` do not have to be strictly positive/negative, both can be relevant or not relevant for a given query.  
+:class:`~sentence_transformers.losses.MarginMSELoss` is based on the paper of `Hofstätter et al <https://huggingface.co/papers/2010.02666>`_. Like when training with :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, we can use triplets: ``(query, passage1, passage2)``. However, in contrast to :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, `passage1` and `passage2` do not have to be strictly positive/negative, both can be relevant or not relevant for a given query.  
 
 We then compute the `Cross-Encoder <../../../cross_encoder/applications/README.html>`_ score for ``(query, passage1)`` and ``(query, passage2)``. We provide scores for 160 million such pairs in our `msmarco-hard-negatives dataset <https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives>`_. We then compute the distance: ``CE_distance = CEScore(query, passage1) - CEScore(query, passage2)``.
 

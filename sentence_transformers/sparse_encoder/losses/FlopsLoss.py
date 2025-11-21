@@ -26,7 +26,7 @@ class FlopsLoss(nn.Module):
                 This can help to ignore embeddings that are too sparse and may not contribute meaningfully to the loss.
 
         References:
-            - For further details, see: https://arxiv.org/pdf/2004.05665 for the general FLOPS loss and https://arxiv.org/pdf/2504.14839 for FLOPS with thresholds, a.k.a. FLOPS with l0 masking.
+            - For further details, see: https://huggingface.co/papers/2004.05665 for the general FLOPS loss and https://huggingface.co/papers/2504.14839 for FLOPS with thresholds, a.k.a. FLOPS with l0 masking.
 
         Relations:
             - Used as a component within :class:`SpladeLoss` to regularize both query and document embeddings

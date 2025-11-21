@@ -32,7 +32,7 @@ class BatchAllTripletLoss(nn.Module):
 
         References:
             * Source: https://github.com/NegatioN/OnlineMiningTripletLoss/blob/master/online_triplet_loss/losses.py
-            * Paper: In Defense of the Triplet Loss for Person Re-Identification, https://arxiv.org/abs/1703.07737
+            * Paper: In Defense of the Triplet Loss for Person Re-Identification, https://huggingface.co/papers/1703.07737
             * Blog post: https://omoindrot.github.io/triplet-loss
 
         Requirements:

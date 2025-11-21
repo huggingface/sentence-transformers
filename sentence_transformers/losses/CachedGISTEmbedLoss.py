@@ -86,7 +86,7 @@ class CachedGISTEmbedLoss(nn.Module):
         :class:`GISTEmbedLoss` yields stronger training signals than :class:`MultipleNegativesRankingLoss` due to the
         use of a guide model for in-batch negative sample selection. Meanwhile, :class:`CachedMultipleNegativesRankingLoss`
         allows for scaling of the batch size by dividing the computation into two stages of embedding and loss
-        calculation, which both can be scaled by mini-batches (https://arxiv.org/pdf/2101.06983.pdf).
+        calculation, which both can be scaled by mini-batches (https://huggingface.co/papers/2101.06983).
 
         By combining the guided selection from :class:`GISTEmbedLoss` and Gradient Cache from
         :class:`CachedMultipleNegativesRankingLoss`, it is possible to reduce memory usage while maintaining performance
@@ -120,9 +120,9 @@ class CachedGISTEmbedLoss(nn.Module):
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
 
         References:
-            - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://arxiv.org/pdf/1705.00652.pdf
-            - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup: https://arxiv.org/pdf/2101.06983.pdf
-            - GISTEmbed: Guided In-sample Selection of Training Negatives for Text Embedding Fine-tuning https://arxiv.org/abs/2402.16829
+            - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
+            - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup: https://huggingface.co/papers/2101.06983
+            - GISTEmbed: Guided In-sample Selection of Training Negatives for Text Embedding Fine-tuning https://huggingface.co/papers/2402.16829
 
         Requirements:
             1. (anchor, positive) pairs or (anchor, positive, negative pairs)

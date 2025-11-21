@@ -8,7 +8,7 @@ the positive sentence is closer to the anchor than the negative sentence. Howeve
 to select good triplets. If the negative sentence is selected randomly, the training objective is often
 too easy and the network fails to learn good representations.
 
-Batch hard triplet loss (https://arxiv.org/abs/1703.07737) creates triplets on the fly. It requires that the
+Batch hard triplet loss (https://huggingface.co/papers/1703.07737) creates triplets on the fly. It requires that the
 data is labeled (e.g. labels 1, 2, 3) and we assume that samples with the same label are similar:
 
 In a batch, it checks for sent1 with label 1 what is the other sentence with label 1 that is the furthest (hard positive)

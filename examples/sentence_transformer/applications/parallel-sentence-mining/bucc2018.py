@@ -4,7 +4,7 @@ https://comparable.limsi.fr/bucc2018/bucc2018-task.html
 
 You can download the necessary files from there.
 
-We have used it in our paper (https://arxiv.org/pdf/2004.09813.pdf) in Section 4.2 to evaluate different multilingual models.
+We have used it in our paper (https://huggingface.co/papers/2004.09813) in Section 4.2 to evaluate different multilingual models.
 
 This script requires that you have FAISS installed:
 https://github.com/facebookresearch/faiss

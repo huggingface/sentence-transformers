@@ -27,7 +27,7 @@ class SparseMarginMSELoss(MarginMSELoss):
             similarity_fct: Which similarity function to use.
 
         References:
-            - For more details, please refer to https://arxiv.org/abs/2010.02666.
+            - For more details, please refer to https://huggingface.co/papers/2010.02666.
 
         Requirements:
             1. Need to be used in SpladeLoss or CSRLoss as a loss function.

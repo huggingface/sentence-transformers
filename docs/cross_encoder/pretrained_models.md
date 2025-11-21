@@ -46,7 +46,7 @@ For details on the usage, see [Retrieve & Re-Rank](../../examples/sentence_trans
 
 ## SQuAD (QNLI)
 
-QNLI is based on the [SQuAD dataset](https://rajpurkar.github.io/SQuAD-explorer/) ([HF](https://huggingface.co/datasets/rajpurkar/squad)) and was introduced by the [GLUE Benchmark](https://arxiv.org/abs/1804.07461) ([HF](https://huggingface.co/datasets/nyu-mll/glue)). Given a passage from Wikipedia, annotators created questions that are answerable by that passage. These models output higher scores if a passage answers a question.
+QNLI is based on the [SQuAD dataset](https://rajpurkar.github.io/SQuAD-explorer/) ([HF](https://huggingface.co/datasets/rajpurkar/squad)) and was introduced by the [GLUE Benchmark](https://huggingface.co/papers/1804.07461) ([HF](https://huggingface.co/datasets/nyu-mll/glue)). Given a passage from Wikipedia, annotators created questions that are answerable by that passage. These models output higher scores if a passage answers a question.
 
 | Model Name | Accuracy on QNLI dev set |
 | ------------- | :----------------------------: |

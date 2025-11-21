@@ -87,7 +87,7 @@ def mine_hard_negatives(
 
     .. tip::
 
-        The excellent `NV-Retriever paper <https://arxiv.org/abs/2407.15831>`_ is a great resource for understanding the
+        The excellent `NV-Retriever paper <https://huggingface.co/papers/2407.15831>`_ is a great resource for understanding the
         details of hard negative mining and how to use it effectively. Notably, it reaches the strongest performance using
         these settings::
 

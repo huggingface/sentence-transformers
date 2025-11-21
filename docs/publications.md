@@ -1,6 +1,6 @@
 # Publications
 
-If you find this repository helpful, feel free to cite our publication [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://arxiv.org/abs/1908.10084):
+If you find this repository helpful, feel free to cite our publication [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://huggingface.co/papers/1908.10084):
 
 ```bibtex
 @inproceedings{reimers-2019-sentence-bert,
@@ -14,7 +14,7 @@ If you find this repository helpful, feel free to cite our publication [Sentence
 }
 ```
 
-If you use one of the multilingual models, feel free to cite our publication [Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation](https://arxiv.org/abs/2004.09813):
+If you use one of the multilingual models, feel free to cite our publication [Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation](https://huggingface.co/papers/2004.09813):
 
 ```bibtex
 @inproceedings{reimers-2020-multilingual-sentence-bert,
@@ -28,7 +28,7 @@ If you use one of the multilingual models, feel free to cite our publication [Ma
 }
 ```
 
-If you use the code for [data augmentation](https://github.com/huggingface/sentence-transformers/tree/master/examples/sentence_transformer/training/data_augmentation), feel free to cite our publication [Augmented SBERT: Data Augmentation Method for Improving Bi-Encoders for Pairwise Sentence Scoring Tasks](https://arxiv.org/abs/2010.08240):
+If you use the code for [data augmentation](https://github.com/huggingface/sentence-transformers/tree/master/examples/sentence_transformer/training/data_augmentation), feel free to cite our publication [Augmented SBERT: Data Augmentation Method for Improving Bi-Encoders for Pairwise Sentence Scoring Tasks](https://huggingface.co/papers/2010.08240):
 
 ```bibtex
 @inproceedings{thakur-2020-AugSBERT,
@@ -44,7 +44,7 @@ If you use the code for [data augmentation](https://github.com/huggingface/sente
 }
 ```
 
-If you use the models for [MS MARCO](pretrained-models/msmarco-v2.md), feel free to cite the paper: [The Curse of Dense Low-Dimensional Information Retrieval for Large Index Sizes](https://arxiv.org/abs/2012.14210)
+If you use the models for [MS MARCO](pretrained-models/msmarco-v2.md), feel free to cite the paper: [The Curse of Dense Low-Dimensional Information Retrieval for Large Index Sizes](https://huggingface.co/papers/2012.14210)
 
 ```bibtex
 @inproceedings{reimers-2020-Curse_Dense_Retrieval,
@@ -60,7 +60,7 @@ If you use the models for [MS MARCO](pretrained-models/msmarco-v2.md), feel free
 }
 ```
 
-When you use the unsupervised learning example, please have a look at: [TSDAE: Using Transformer-based Sequential Denoising Auto-Encoderfor Unsupervised Sentence Embedding Learning](https://arxiv.org/abs/2104.06979):
+When you use the unsupervised learning example, please have a look at: [TSDAE: Using Transformer-based Sequential Denoising Auto-Encoderfor Unsupervised Sentence Embedding Learning](https://huggingface.co/papers/2104.06979):
 
 ```bibtex
 @inproceedings{wang-2021-TSDAE,
@@ -76,7 +76,7 @@ When you use the unsupervised learning example, please have a look at: [TSDAE: U
 }
 ```
 
-When you use the GenQ learning example, please have a look at: [BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models](https://arxiv.org/abs/2104.08663):
+When you use the GenQ learning example, please have a look at: [BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models](https://huggingface.co/papers/2104.08663):
 
 ```bibtex
 @inproceedings{thakur-2021-BEIR,
@@ -89,7 +89,7 @@ When you use the GenQ learning example, please have a look at: [BEIR: A Heteroge
 }
 ```
 
-When you use GPL, please have a look at: [GPL: Generative Pseudo Labeling for Unsupervised Domain Adaptation of Dense Retrieval](https://arxiv.org/abs/2112.07577):
+When you use GPL, please have a look at: [GPL: Generative Pseudo Labeling for Unsupervised Domain Adaptation of Dense Retrieval](https://huggingface.co/papers/2112.07577):
 
 ```bibtex
 @inproceedings{wang-2021-GPL,

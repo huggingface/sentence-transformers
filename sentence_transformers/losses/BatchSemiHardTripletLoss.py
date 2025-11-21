@@ -42,7 +42,7 @@ class BatchSemiHardTripletLoss(nn.Module):
 
         References:
             * Source: https://github.com/NegatioN/OnlineMiningTripletLoss/blob/master/online_triplet_loss/losses.py
-            * Paper: In Defense of the Triplet Loss for Person Re-Identification, https://arxiv.org/abs/1703.07737
+            * Paper: In Defense of the Triplet Loss for Person Re-Identification, https://huggingface.co/papers/1703.07737
             * Blog post: https://omoindrot.github.io/triplet-loss
 
         Requirements:
@@ -105,7 +105,7 @@ class BatchSemiHardTripletLoss(nn.Module):
 
     # Semi-Hard Triplet Loss
     # Based on: https://github.com/tensorflow/addons/blob/master/tensorflow_addons/losses/triplet.py#L71
-    # Paper: FaceNet: A Unified Embedding for Face Recognition and Clustering: https://arxiv.org/pdf/1503.03832.pdf
+    # Paper: FaceNet: A Unified Embedding for Face Recognition and Clustering: https://huggingface.co/papers/1503.03832
     def batch_semi_hard_triplet_loss(self, labels: Tensor, embeddings: Tensor) -> Tensor:
         """Build the triplet loss over a batch of embeddings.
         We generate all the valid triplets and average the loss over the positive ones.

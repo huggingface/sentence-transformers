@@ -36,7 +36,7 @@ class BatchHardSoftMarginTripletLoss(BatchHardTripletLoss):
 
         References:
             * Source: https://github.com/NegatioN/OnlineMiningTripletLoss/blob/master/online_triplet_loss/losses.py
-            * Paper: In Defense of the Triplet Loss for Person Re-Identification, https://arxiv.org/abs/1703.07737
+            * Paper: In Defense of the Triplet Loss for Person Re-Identification, https://huggingface.co/papers/1703.07737
             * Blog post: https://omoindrot.github.io/triplet-loss
 
         Requirements:
@@ -94,7 +94,7 @@ class BatchHardSoftMarginTripletLoss(BatchHardTripletLoss):
         return self.batch_hard_triplet_soft_margin_loss(labels, rep)
 
     # Hard Triplet Loss with Soft Margin
-    # Paper: In Defense of the Triplet Loss for Person Re-Identification, https://arxiv.org/abs/1703.07737
+    # Paper: In Defense of the Triplet Loss for Person Re-Identification, https://huggingface.co/papers/1703.07737
     def batch_hard_triplet_soft_margin_loss(self, labels: Tensor, embeddings: Tensor) -> Tensor:
         """Build the triplet loss over a batch of embeddings.
         For each anchor, we get the hardest positive and hardest negative to form a triplet.

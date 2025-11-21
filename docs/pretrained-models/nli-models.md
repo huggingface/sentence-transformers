@@ -1,5 +1,5 @@
 # NLI Models
-Conneau et al., 2017, show in the InferSent-Paper ([Supervised Learning of Universal Sentence Representations from Natural Language Inference Data](https://arxiv.org/abs/1705.02364)) that training on Natural Language Inference (NLI) data can produce universal sentence embeddings.
+Conneau et al., 2017, show in the InferSent-Paper ([Supervised Learning of Universal Sentence Representations from Natural Language Inference Data](https://huggingface.co/papers/1705.02364)) that training on Natural Language Inference (NLI) data can produce universal sentence embeddings.
 
 The datasets labeled sentence pairs with the labels *entail*, *contradict*, and *neutral*. For both sentences, we compute a sentence embedding. These two embeddings are concatenated and passed to softmax classifier to derive the final label.
 

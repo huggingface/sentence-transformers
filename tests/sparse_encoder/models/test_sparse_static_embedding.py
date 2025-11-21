@@ -21,9 +21,9 @@ def test_sparse_static_embedding_padding_ignored(inference_free_splade_bert_tiny
     single_embeddings = torch.stack(single_embeddings)
 
     # Check that the batch embeddings match the single embeddings
-    assert sparse_allclose(
-        batch_embeddings, single_embeddings, atol=1e-6
-    ), "Batch encoding does not match single encoding."
+    assert sparse_allclose(batch_embeddings, single_embeddings, atol=1e-6), (
+        "Batch encoding does not match single encoding."
+    )
 
 
 def test_sparse_static_embedding_save_load(
@@ -56,9 +56,9 @@ def test_sparse_static_embedding_save_load(
     assert sparse_allclose(original_embeddings, loaded_embeddings, atol=1e-6), "Embeddings changed after save and load"
 
     # Check if SparseStaticEmbedding weights are maintained after loading
-    assert isinstance(
-        loaded_model[0].sub_modules.query[0], SparseStaticEmbedding
-    ), "SparseStaticEmbedding component missing after loading"
-    assert torch.allclose(
-        model[0].sub_modules.query[0].weight, loaded_model[0].sub_modules.query[0].weight
-    ), "SparseStaticEmbedding weights changed after save and load"
+    assert isinstance(loaded_model[0].sub_modules.query[0], SparseStaticEmbedding), (
+        "SparseStaticEmbedding component missing after loading"
+    )
+    assert torch.allclose(model[0].sub_modules.query[0].weight, loaded_model[0].sub_modules.query[0].weight), (
+        "SparseStaticEmbedding weights changed after save and load"
+    )

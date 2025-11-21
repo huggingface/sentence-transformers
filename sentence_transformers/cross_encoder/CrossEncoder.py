@@ -4,8 +4,9 @@ import logging
 import os
 import tempfile
 import traceback
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Literal, overload
+from typing import Literal, overload
 
 import numpy as np
 import torch

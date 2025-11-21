@@ -60,7 +60,7 @@ We use :class:`~sentence_transformers.losses.CosineSimilarityLoss` as our loss f
 
 For each sentence pair, we pass sentence A and sentence B through the BERT-based model, which yields the embeddings *u* und *v*. The similarity of these embeddings is computed using cosine similarity and the result is compared to the gold similarity score. Note that the two sentences are fed through the same model rather than two separate models. In particular, the cosine similarity for similar texts is maximized and the cosine similarity for dissimilar texts is minimized. This allows our model to be fine-tuned and to recognize the similarity of sentences.
 
-For more details, see [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://arxiv.org/abs/1908.10084).
+For more details, see [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://huggingface.co/papers/1908.10084).
 
 ```{eval-rst}
 :class:`~sentence_transformers.losses.CoSENTLoss` and :class:`~sentence_transformers.losses.AnglELoss` are more modern variants of :class:`~sentence_transformers.losses.CosineSimilarityLoss` that accept the same data format of a sentence pair with a similarity score ranging from 0.0 to 1.0. Informal experiments indicate that these two produce stronger models than :class:`~sentence_transformers.losses.CosineSimilarityLoss`.

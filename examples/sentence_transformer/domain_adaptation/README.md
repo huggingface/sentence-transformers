@@ -2,7 +2,7 @@
 
 The goal of **Domain Adaptation** is to adapt text embedding models to your specific text domain without the need to have labeled training data.
 
-Domain adaptation is still an active research field and there exists no perfect solution yet. However, in our two recent papers [TSDAE](https://arxiv.org/abs/2104.06979) and [GPL](https://arxiv.org/abs/2112.07577) we evaluated several methods how text embeddings model can be adapted to your specific domain. You can find an overview of these methods in my [talk on unsupervised domain adaptation](https://youtu.be/xbdLowiQTlk).
+Domain adaptation is still an active research field and there exists no perfect solution yet. However, in our two recent papers [TSDAE](https://huggingface.co/papers/2104.06979) and [GPL](https://huggingface.co/papers/2112.07577) we evaluated several methods how text embeddings model can be adapted to your specific domain. You can find an overview of these methods in my [talk on unsupervised domain adaptation](https://youtu.be/xbdLowiQTlk).
 
 ## Domain Adaptation vs. Unsupervised Learning
 
@@ -16,7 +16,7 @@ When using adaptive pre-training, you first pre-train on your target corpus usin
 
 <img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/adaptive_pre-training.png" alt="Adaptive Pre-Training" width="550"/>
 
-In our paper [TSDAE](https://arxiv.org/abs/2104.06979) we evaluated several methods for domain adaptation on 4 domain specific sentence embedding tasks:
+In our paper [TSDAE](https://huggingface.co/papers/2104.06979) we evaluated several methods for domain adaptation on 4 domain specific sentence embedding tasks:
 
 | Approach | AskUbuntu | CQADupStack | Twitter | SciDocs | Avg |
 | -------- | :-------: | :---------: | :-----: | :-----: | :---: |
@@ -28,7 +28,7 @@ In our paper [TSDAE](https://arxiv.org/abs/2104.06979) we evaluated several meth
 
 As we can see, the performance can improve up-to 8 points when you first perform pre-training on your specific corpus and then fine-tune on provided labeled training data.
 
-In [GPL](https://arxiv.org/abs/2112.07577) we evaluate these methods for semantic search: Given a short query, find the relevant passage. Here, performance can improve up to 10 points:
+In [GPL](https://huggingface.co/papers/2112.07577) we evaluate these methods for semantic search: Given a short query, find the relevant passage. Here, performance can improve up to 10 points:
 
 | Approach | FiQA | SciFact | BioASQ | TREC-COVID | CQADupStack | Robust04 | Avg |
 | -------- | :---: | :-----: | :----: | :--------: | :---------: | :------: | :---: |
@@ -44,7 +44,7 @@ A big **disadvantage of adaptive pre-training** is the high computational overhe
 
 ## GPL: Generative Pseudo-Labeling
 
-[GPL](https://arxiv.org/abs/2112.07577) overcomes the aforementioned issue: It can be applied on-top of a fine-tuned model. Hence, you can use one of the [pre-trained models](../../../docs/sentence_transformer/pretrained_models.md) and adapt it to your specific domain:
+[GPL](https://huggingface.co/papers/2112.07577) overcomes the aforementioned issue: It can be applied on-top of a fine-tuned model. Hence, you can use one of the [pre-trained models](../../../docs/sentence_transformer/pretrained_models.md) and adapt it to your specific domain:
 
 <img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/gpl_overview.png" alt="GPL_Overview" width="750"/>
 
@@ -87,7 +87,7 @@ We made the code simple to use, so that you just need to pass your corpus and ev
 
 If you find these resources helpful, feel free to cite our papers.
 
-[TSDAE: Using Transformer-based Sequential Denoising Auto-Encoderfor Unsupervised Sentence Embedding Learning](https://arxiv.org/abs/2104.06979)
+[TSDAE: Using Transformer-based Sequential Denoising Auto-Encoderfor Unsupervised Sentence Embedding Learning](https://huggingface.co/papers/2104.06979)
 
 ```bibtex
 @inproceedings{wang-2021-TSDAE,
@@ -103,7 +103,7 @@ If you find these resources helpful, feel free to cite our papers.
 }
 ```
 
-[GPL: Generative Pseudo Labeling for Unsupervised Domain Adaptation of Dense Retrieval](https://arxiv.org/abs/2112.07577):
+[GPL: Generative Pseudo Labeling for Unsupervised Domain Adaptation of Dense Retrieval](https://huggingface.co/papers/2112.07577):
 
 ```bibtex
 @inproceedings{wang-2021-GPL,

@@ -10,7 +10,7 @@ The training procedure can be found in the files make_multilingual.py.
 
 Further information can be found in our paper:
 Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation
-https://arxiv.org/abs/2004.09813
+https://huggingface.co/papers/2004.09813
 """
 
 import csv

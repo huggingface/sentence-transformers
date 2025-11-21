@@ -1,5 +1,5 @@
 """
-This file evaluates CrossEncoder on the TREC 2019 Deep Learning (DL) Track: https://arxiv.org/abs/2003.07820
+This file evaluates CrossEncoder on the TREC 2019 Deep Learning (DL) Track: https://huggingface.co/papers/2003.07820
 
 TREC 2019 DL is based on the corpus of MS Marco. MS Marco provides a sparse annotation, i.e., usually only a single
 passage is marked as relevant for a given query. Many other highly relevant passages are not annotated and hence are treated

@@ -34,7 +34,7 @@ class SparseAnglELoss(SparseCoSENTLoss):
                 value. Represents the inverse temperature.
 
         References:
-            - For further details, see: https://arxiv.org/abs/2309.12871v1
+            - For further details, see: https://huggingface.co/papers/2309.12871
 
         Requirements:
             - Need to be used in SpladeLoss or CSRLoss as a loss function.

@@ -197,7 +197,7 @@ def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray |
 def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:
     """
     Computes the absolute normalized angle distance. See :class:`~sentence_transformers.losses.AnglELoss`
-    or https://arxiv.org/abs/2309.12871v1 for more information.
+    or https://huggingface.co/papers/2309.12871 for more information.
 
     Args:
         x (Tensor): The first tensor.

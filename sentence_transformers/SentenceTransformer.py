@@ -14,11 +14,11 @@ import tempfile
 import traceback
 import warnings
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from multiprocessing import Queue
 from pathlib import Path
-from typing import Any, Callable, Literal, overload
+from typing import Any, Literal, overload
 
 import numpy as np
 import numpy.typing as npt

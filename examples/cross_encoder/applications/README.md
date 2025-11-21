@@ -14,7 +14,7 @@ In contrast, for a **Cross-Encoder**, we pass both sentences simultaneously to t
 
 A **Cross-Encoder does not produce a sentence embedding**. Also, we are not able to pass individual sentences to a Cross-Encoder.
 
-As detailed in our [paper](https://arxiv.org/abs/1908.10084), Cross-Encoder achieve better performances than Bi-Encoders. However, for many application they are not practical as they do not produce embeddings we could e.g. index or efficiently compare using cosine similarity.
+As detailed in our [paper](https://huggingface.co/papers/1908.10084), Cross-Encoder achieve better performances than Bi-Encoders. However, for many application they are not practical as they do not produce embeddings we could e.g. index or efficiently compare using cosine similarity.
 
 ## When to use Cross- / Bi-Encoders?
 

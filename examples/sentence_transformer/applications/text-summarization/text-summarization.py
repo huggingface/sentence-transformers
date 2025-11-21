@@ -18,6 +18,9 @@ If the New York metropolitan area were a sovereign state, it would have the eigh
 Note: Requires NLTK: `pip install nltk`
 """
 
+# NB
+# The pip implementation of LexRank is broken.
+# A working implementation can be found at https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/applications/text-summarization/LexRank.py.
 import nltk
 import numpy as np
 from LexRank import degree_centrality_scores

@@ -32,7 +32,7 @@ Working with Sentence Transformer models is straightforward:
    
       pip install -U sentence-transformers
    
-   We recommend **Python 3.9+** and **PyTorch 1.11.0+**. See `installation <docs/installation.html>`_ for further installation options.
+   We recommend **Python 3.10+** and **PyTorch 1.11.0+**. See `installation <docs/installation.html>`_ for further installation options.
 
 .. tab:: Embedding Models
 
@@ -155,7 +155,7 @@ Consider reading one of the following sections to answer the related questions:
 Citing
 ======
 
-If you find this repository helpful, feel free to cite our publication `Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks <https://arxiv.org/abs/1908.10084>`_:
+If you find this repository helpful, feel free to cite our publication `Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks <https://huggingface.co/papers/1908.10084>`_:
 
  .. code-block:: bibtex
 
@@ -171,7 +171,7 @@ If you find this repository helpful, feel free to cite our publication `Sentence
 
 
 
-If you use one of the multilingual models, feel free to cite our publication `Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation <https://arxiv.org/abs/2004.09813>`_:
+If you use one of the multilingual models, feel free to cite our publication `Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation <https://huggingface.co/papers/2004.09813>`_:
 
  .. code-block:: bibtex
 
@@ -187,7 +187,7 @@ If you use one of the multilingual models, feel free to cite our publication `Ma
 
 
 
-If you use the code for `data augmentation <https://github.com/huggingface/sentence-transformers/tree/master/examples/sentence_transformer/training/data_augmentation>`_, feel free to cite our publication `Augmented SBERT: Data Augmentation Method for Improving Bi-Encoders for Pairwise Sentence Scoring Tasks <https://arxiv.org/abs/2010.08240>`_:
+If you use the code for `data augmentation <https://github.com/huggingface/sentence-transformers/tree/master/examples/sentence_transformer/training/data_augmentation>`_, feel free to cite our publication `Augmented SBERT: Data Augmentation Method for Improving Bi-Encoders for Pairwise Sentence Scoring Tasks <https://huggingface.co/papers/2010.08240>`_:
 
  .. code-block:: bibtex
 

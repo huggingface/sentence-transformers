@@ -143,9 +143,9 @@ class ReciprocalRankFusionEvaluator(SentenceEvaluator):
             query_id = dense_sample["query_id"]
 
             # Verify query_id match (redundant since we checked in __init__, but good for safety)
-            assert (
-                query_id == sparse_sample["query_id"]
-            ), f"Query ID mismatch: {query_id} != {sparse_sample['query_id']}"
+            assert query_id == sparse_sample["query_id"], (
+                f"Query ID mismatch: {query_id} != {sparse_sample['query_id']}"
+            )
 
             query = dense_sample["query"]
             positive = dense_sample["positive"]

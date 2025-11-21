@@ -23,7 +23,7 @@ class MSELoss(nn.Module):
             logits with Sigmoid to bound them to [0, 1], then you may wish to use a Sigmoid activation function in the loss.
 
         References:
-            - Improving Efficient Neural Ranking Models with Cross-Architecture Knowledge Distillation: https://arxiv.org/abs/2010.02666
+            - Improving Efficient Neural Ranking Models with Cross-Architecture Knowledge Distillation: https://huggingface.co/papers/2010.02666
             - `Cross Encoder > Training Examples > Distillation <../../../examples/cross_encoder/training/distillation/README.html>`_
 
         Requirements:

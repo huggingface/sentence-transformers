@@ -150,7 +150,7 @@ class MatryoshkaLoss(nn.Module):
                 step. The default value is -1.
 
         References:
-            - The concept was introduced in this paper: https://arxiv.org/abs/2205.13147
+            - The concept was introduced in this paper: https://huggingface.co/papers/2205.13147
             - `Matryoshka Embeddings <../../../examples/sentence_transformer/training/matryoshka/README.html>`_
 
         Inputs:
