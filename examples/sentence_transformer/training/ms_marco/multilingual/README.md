@@ -7,7 +7,7 @@ As dataset, we use the [MS Marco Passage Ranking dataset](https://github.com/mic
 Sadly this dataset is only available in English. As there are no large, multi-lingual datasets available suitable to train a semantic search model, we will use **machine translation** to translate the training data.
 
 ## Translating Data
+
 We will translate the queries and the passages using [EasyNMT](https://github.com/UKPLab/EasyNMT), which provides state-of-the-art machine translation to 150+ languages.
 
 Then, we will use [Multilingual Knowledge Distillation](https://www.sbert.net/examples/training/multilingual/README.html) and transform the English model trained on MS MARCO to a multi-lingual model.
-

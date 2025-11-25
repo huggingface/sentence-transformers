@@ -1,4 +1,3 @@
-
 # Migration Guide
 
 ## Migrating from v4.x to v5.x
@@ -851,6 +850,7 @@ The v4 Sentence Transformers release refactored the training of :class:`~sentenc
 ```
 
 ### Migration for specific parameters from `CrossEncoder.fit`
+
 ```{eval-rst}
 .. collapse:: CrossEncoder.fit(train_dataloader)
 
@@ -1460,7 +1460,6 @@ The v4 Sentence Transformers release refactored the training of :class:`~sentenc
    The old :meth:`CrossEncoder.fit <sentence_transformers.cross_encoder.CrossEncoder.fit>` method still works, it was only softly deprecated. It now uses the new :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` behind the scenes.
 ```
 
-
 ### Migration for CrossEncoder evaluators
 
 ```{eval-rst}
@@ -1571,6 +1570,7 @@ The v3 Sentence Transformers release refactored the training of :class:`~sentenc
 ```
 
 ### Migration for specific parameters from `SentenceTransformer.fit`
+
 ```{eval-rst}
 .. collapse:: SentenceTransformer.fit(train_objectives)
 

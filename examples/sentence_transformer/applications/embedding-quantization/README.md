@@ -10,7 +10,7 @@ To learn more about Embedding Quantization and their performance, please read th
 
 Binary quantization refers to the conversion of the `float32` values in an embedding to 1-bit values, resulting in a 32x reduction in memory and storage usage. To quantize `float32` embeddings to binary, we simply threshold normalized embeddings at 0: if the value is larger than 0, we make it 1, otherwise we convert it to 0. We can use the Hamming Distance to efficiently perform retrieval with these binary embeddings. This is simply the number of positions at which the bits of two binary embeddings differ. The lower the Hamming Distance, the closer the embeddings, and thus the more relevant the document. A huge advantage of the Hamming Distance is that it can be easily calculated with 2 CPU cycles, allowing for blazingly fast performance.
 
-[Yamada et al. (2021)](https://arxiv.org/abs/2106.00882) introduced a rescore step, which they called *rerank*, to boost the performance. They proposed that the `float32` query embedding could be compared with the binary document embeddings using dot-product. In practice, we first retrieve `rescore_multiplier * top_k` results with the binary query embedding and the binary document embeddings -- i.e., the list of the first k results of the double-binary retrieval --  and then rescore that list of binary document embeddings with the `float32` query embedding.
+[Yamada et al. (2021)](https://huggingface.co/papers/2106.00882) introduced a rescore step, which they called *rerank*, to boost the performance. They proposed that the `float32` query embedding could be compared with the binary document embeddings using dot-product. In practice, we first retrieve `rescore_multiplier * top_k` results with the binary query embedding and the binary document embeddings -- i.e., the list of the first k results of the double-binary retrieval -- and then rescore that list of binary document embeddings with the `float32` query embedding.
 
 By applying this novel rescoring step, we are able to preserve up to ~96% of the total retrieval performance, while reducing the memory and disk space usage by 32x and improving the retrieval speed by up to 32x as well.
 
@@ -64,6 +64,7 @@ float32
 >>> binary_embeddings.dtype
 int8
 ```
+
 Note that you can also choose `"ubinary"` to quantize to binary using the unsigned `uint8` data format. This may be a requirement for your vector library/database.
 
 ## Scalar (int8) Quantization
@@ -74,12 +75,13 @@ To further boost the retrieval performance, you can optionally apply the same re
 
 ### Scalar Quantization in Sentence Transformers
 
-Quantizing an embedding with a dimensionality of 1024 to `int8` results in 1024 bytes. In practice, we can choose either `uint8` or `int8`. This choice is usually made depending on what your vector library/database supports. 
+Quantizing an embedding with a dimensionality of 1024 to `int8` results in 1024 bytes. In practice, we can choose either `uint8` or `int8`. This choice is usually made depending on what your vector library/database supports.
 
 In practice, it is recommended to provide the scalar quantization with either:
+
 1. a large set of embeddings to quantize all at once, or
-2. `min` and `max` ranges for each of the embedding dimensions, or
-3. a large calibration dataset of embeddings from which the `min` and `max` ranges can be computed. 
+1. `min` and `max` ranges for each of the embedding dimensions, or
+1. a large calibration dataset of embeddings from which the `min` and `max` ranges can be computed.
 
 If none of these are the case, you will be given a warning like this:
 
@@ -142,11 +144,11 @@ int8
 It is possible to combine binary and scalar quantization to get the best of both worlds: the extreme speed from binary embeddings and the great performance preservation of scalar embeddings with rescoring. See the [demo](#demo) below for a real-life implementation of this approach involving 41 million texts from Wikipedia. The pipeline for that setup is as follows:
 
 1. The query is embedded using the [`mixedbread-ai/mxbai-embed-large-v1`](https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1) SentenceTransformer model.
-2. The query is quantized to binary using the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.quantize_embeddings"><code>quantize_embeddings</code></a> function from the `sentence-transformers` library.
-3. A binary index (41M binary embeddings; 5.2GB of memory/disk space) is searched using the quantized query for the top 40 documents.
-4. The top 40 documents are loaded on the fly from an int8 index on disk (41M int8 embeddings; 0 bytes of memory, 47.5GB of disk space).
-5. The top 40 documents are rescored using the float32 query and the int8 embeddings to get the top 10 documents.
-6. The top 10 documents are sorted by score and displayed.
+1. The query is quantized to binary using the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.quantize_embeddings"><code>quantize_embeddings</code></a> function from the `sentence-transformers` library.
+1. A binary index (41M binary embeddings; 5.2GB of memory/disk space) is searched using the quantized query for the top 40 documents.
+1. The top 40 documents are loaded on the fly from an int8 index on disk (41M int8 embeddings; 0 bytes of memory, 47.5GB of disk space).
+1. The top 40 documents are rescored using the float32 query and the int8 embeddings to get the top 10 documents.
+1. The top 10 documents are sorted by score and displayed.
 
 Through this approach, we use 5.2GB of memory and 52GB of disk space for the indices. This is considerably less than normal retrieval, for which we would require 200GB of memory and 200GB of disk space. Especially as you scale up even further, this will result in notable reductions in both latency and costs.
 
@@ -170,11 +172,11 @@ The following demo showcases the retrieval efficiency using `exact` search throu
 
 The following scripts can be used to experiment with embedding quantization for retrieval & beyond. There are three categories:
 
-* **Recommended Retrieval**:
-  * [semantic_search_recommended.py](semantic_search_recommended.py): This script combines binary search with scalar rescoring, much like the above demo, for cheap, efficient, and performant retrieval.
-* **Usage**:
-  * [semantic_search_faiss.py](semantic_search_faiss.py): This script showcases regular usage of binary or scalar quantization, retrieval, and rescoring using FAISS, by using the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.semantic_search_faiss"><code>semantic_search_faiss</code></a> utility function.
-  * [semantic_search_usearch.py](semantic_search_usearch.py): This script showcases regular usage of binary or scalar quantization, retrieval, and rescoring using USearch, by using the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.semantic_search_usearch"><code>semantic_search_usearch</code></a> utility function.
-* **Benchmarks**:
-  * [semantic_search_faiss_benchmark.py](semantic_search_faiss_benchmark.py): This script includes a retrieval speed benchmark of `float32` retrieval, binary retrieval + rescoring, and scalar retrieval + rescoring, using FAISS. It uses the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.semantic_search_faiss"><code>semantic_search_faiss</code></a> utility function. Our benchmarks especially show show speedups for `ubinary`.
-  * [semantic_search_usearch_benchmark.py](semantic_search_usearch_benchmark.py): This script includes a retrieval speed benchmark of `float32` retrieval, binary retrieval + rescoring, and scalar retrieval + rescoring, using USearch. It uses the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.semantic_search_usearch"><code>semantic_search_usearch</code></a> utility function. Our experiments show large speedups on newer hardware, particularly for `int8`.
+- **Recommended Retrieval**:
+  - [semantic_search_recommended.py](semantic_search_recommended.py): This script combines binary search with scalar rescoring, much like the above demo, for cheap, efficient, and performant retrieval.
+- **Usage**:
+  - [semantic_search_faiss.py](semantic_search_faiss.py): This script showcases regular usage of binary or scalar quantization, retrieval, and rescoring using FAISS, by using the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.semantic_search_faiss"><code>semantic_search_faiss</code></a> utility function.
+  - [semantic_search_usearch.py](semantic_search_usearch.py): This script showcases regular usage of binary or scalar quantization, retrieval, and rescoring using USearch, by using the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.semantic_search_usearch"><code>semantic_search_usearch</code></a> utility function.
+- **Benchmarks**:
+  - [semantic_search_faiss_benchmark.py](semantic_search_faiss_benchmark.py): This script includes a retrieval speed benchmark of `float32` retrieval, binary retrieval + rescoring, and scalar retrieval + rescoring, using FAISS. It uses the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.semantic_search_faiss"><code>semantic_search_faiss</code></a> utility function. Our benchmarks especially show show speedups for `ubinary`.
+  - [semantic_search_usearch_benchmark.py](semantic_search_usearch_benchmark.py): This script includes a retrieval speed benchmark of `float32` retrieval, binary retrieval + rescoring, and scalar retrieval + rescoring, using USearch. It uses the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.semantic_search_usearch"><code>semantic_search_usearch</code></a> utility function. Our experiments show large speedups on newer hardware, particularly for `int8`.

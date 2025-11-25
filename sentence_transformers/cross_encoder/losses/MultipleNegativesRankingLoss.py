@@ -44,7 +44,7 @@ class MultipleNegativesRankingLoss(nn.Module):
             The current default values are subject to change in the future. Experimentation is encouraged.
 
         References:
-            - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://arxiv.org/pdf/1705.00652.pdf
+            - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
 
         Requirements:
             1. Your model must be initialized with `num_labels = 1` (a.k.a. the default) to predict one class.

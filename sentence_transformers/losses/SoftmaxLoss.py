@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
-from typing import Callable
+from collections.abc import Callable, Iterable
 
 import torch
 import transformers
@@ -26,11 +25,11 @@ class SoftmaxLoss(nn.Module):
         loss_fct: Callable = nn.CrossEntropyLoss(),
     ) -> None:
         """
-        This loss was used in our SBERT publication (https://arxiv.org/abs/1908.10084) to train the SentenceTransformer
+        This loss was used in our SBERT publication (https://huggingface.co/papers/1908.10084) to train the SentenceTransformer
         model on NLI data. It adds a softmax classifier on top of the output of two transformer networks.
 
         :class:`MultipleNegativesRankingLoss` is an alternative loss function that often yields better results,
-        as per https://arxiv.org/abs/2004.09813.
+        as per https://huggingface.co/papers/2004.09813.
 
         Args:
             model (SentenceTransformer): The SentenceTransformer model.
@@ -42,7 +41,7 @@ class SoftmaxLoss(nn.Module):
             loss_fct (Callable): Custom pytorch loss function. If not set, uses nn.CrossEntropyLoss(). Defaults to nn.CrossEntropyLoss().
 
         References:
-            - Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks: https://arxiv.org/abs/1908.10084
+            - Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks: https://huggingface.co/papers/1908.10084
             - `Training Examples > Natural Language Inference <../../../examples/sentence_transformer/training/nli/README.html>`_
 
         Requirements:

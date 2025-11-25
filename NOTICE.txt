@@ -1,5 +1,10 @@
 -------------------------------------------------------------------------------
-Copyright 2019
+Sentence Transformers
+
+Copyright 2019-2025
 Ubiquitous Knowledge Processing (UKP) Lab
 Technische Universität Darmstadt
+
+Copyright 2025-present
+Hugging Face, Inc.
 -------------------------------------------------------------------------------

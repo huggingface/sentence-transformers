@@ -1,10 +1,10 @@
 # Adaptive Layers
 
-Embedding models are often encoder models with numerous layers, such as 12 (e.g. [all-mpnet-base-v2](https://huggingface.co/sentence-transformers/all-mpnet-base-v2)) or 6 (e.g. [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)). To get embeddings, every single one of these layers must be traversed. The [2D Matryoshka Sentence Embeddings](https://arxiv.org/abs/2402.14776v1) (2DMSE) preprint revisits  this concept by proposing an approach to train embedding models that will perform well when only using a selection of all layers. This results in faster inference speeds at relatively low performance costs.
+Embedding models are often encoder models with numerous layers, such as 12 (e.g. [all-mpnet-base-v2](https://huggingface.co/sentence-transformers/all-mpnet-base-v2)) or 6 (e.g. [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)). To get embeddings, every single one of these layers must be traversed. The [2D Matryoshka Sentence Embeddings](https://huggingface.co/papers/2402.14776) (2DMSE) preprint revisits this concept by proposing an approach to train embedding models that will perform well when only using a selection of all layers. This results in faster inference speeds at relatively low performance costs.
 
 ```{eval-rst}
 .. note::
-   The 2DMSE preprint was later updated and renamed to `ESE: Espresso Sentence Embeddings <https://arxiv.org/abs/2402.14776>`_. The Sentence Transformers implementation of Adaptive Layers and Matryoshka2d (Adaptive Layer + Matryoshka Embeddings) are based on the initial preprint, and we accept contributions that implement the updated ESE paper.
+   The 2DMSE preprint was later updated and renamed to `ESE: Espresso Sentence Embeddings <https://huggingface.co/papers/2402.14776>`_. The Sentence Transformers implementation of Adaptive Layers and Matryoshka2d (Adaptive Layer + Matryoshka Embeddings) are based on the initial preprint, and we accept contributions that implement the updated ESE paper.
 ```
 
 ## Use Cases
@@ -15,8 +15,8 @@ The 2DMSE paper mentions that using a few layers of a larger model trained using
 
 Let's look at the performance that we may be able to expect from an Adaptive Layer embedding model versus a regular embedding model. For this experiment, I have trained two models:
 
-* [tomaarsen/mpnet-base-nli-adaptive-layer](https://huggingface.co/tomaarsen/mpnet-base-nli-adaptive-layer): Trained by running [adaptive_layer_nli.py](adaptive_layer_nli.py) with [microsoft/mpnet-base](https://huggingface.co/microsoft/mpnet-base).
-* [tomaarsen/mpnet-base-nli](https://huggingface.co/tomaarsen/mpnet-base-nli): A near identical model as the former, but using only `MultipleNegativesRankingLoss` rather than `AdaptiveLayerLoss` on top of `MultipleNegativesRankingLoss`. I also use [microsoft/mpnet-base](https://huggingface.co/microsoft/mpnet-base) as the base model.
+- [tomaarsen/mpnet-base-nli-adaptive-layer](https://huggingface.co/tomaarsen/mpnet-base-nli-adaptive-layer): Trained by running [adaptive_layer_nli.py](adaptive_layer_nli.py) with [microsoft/mpnet-base](https://huggingface.co/microsoft/mpnet-base).
+- [tomaarsen/mpnet-base-nli](https://huggingface.co/tomaarsen/mpnet-base-nli): A near identical model as the former, but using only `MultipleNegativesRankingLoss` rather than `AdaptiveLayerLoss` on top of `MultipleNegativesRankingLoss`. I also use [microsoft/mpnet-base](https://huggingface.co/microsoft/mpnet-base) as the base model.
 
 Both of these models were trained on the AllNLI dataset, which is a concatenation of the [SNLI](https://huggingface.co/datasets/snli) and [MultiNLI](https://huggingface.co/datasets/multi_nli) datasets. I have evaluated these models on the [STSBenchmark](https://huggingface.co/datasets/mteb/stsbenchmark-sts) test set using multiple different embedding dimensions. The results are plotted in the following figure:
 
@@ -41,7 +41,8 @@ model = SentenceTransformer("microsoft/mpnet-base")
 base_loss = CoSENTLoss(model=model)
 loss = AdaptiveLayerLoss(model=model, loss=base_loss)
 ```
-* **Reference**: <a href="../../../../docs/package_reference/sentence_transformer/losses.html#adaptivelayerloss"><code>AdaptiveLayerLoss</code></a>
+
+- **Reference**: <a href="../../../../docs/package_reference/sentence_transformer/losses.html#adaptivelayerloss"><code>AdaptiveLayerLoss</code></a>
 
 Note that training with `AdaptiveLayerLoss` is not notably slower than without using it.
 
@@ -57,7 +58,7 @@ base_loss = CoSENTLoss(model=model)
 loss = Matryoshka2dLoss(model=model, loss=base_loss, matryoshka_dims=[768, 512, 256, 128, 64])
 ```
 
-* **Reference**: <a href="../../../../docs/package_reference/sentence_transformer/losses.html#matryoshka2dloss"><code>Matryoshka2dLoss</code></a>
+- **Reference**: <a href="../../../../docs/package_reference/sentence_transformer/losses.html#matryoshka2dloss"><code>Matryoshka2dLoss</code></a>
 
 ## Inference
 
@@ -73,6 +74,7 @@ model = SentenceTransformer("tomaarsen/mpnet-base-nli-adaptive-layer")
 # We can access the underlying model with `model.transformers_model`
 print(model.transformers_model)
 ```
+
 ```
 MPNetModel(
   (embeddings): MPNetEmbeddings(
@@ -114,6 +116,7 @@ MPNetModel(
   )
 )
 ```
+
 This output will differ depending on the model. We will look for the repeated layers in the encoder. For this MPNet model, this is stored under `model.transformers_model.encoder.layer`. Then we can slice the model to only keep the first few layers to speed up the model:
 
 ```python
@@ -121,7 +124,7 @@ new_num_layers = 3
 model.transformers_model.encoder.layer = model.transformers_model.encoder.layer[:new_num_layers]
 ```
 
-Then we can run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>. 
+Then we can run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
 
 ```python
 from sentence_transformers import SentenceTransformer
@@ -142,16 +145,17 @@ similarities = model.similarity(embeddings[0], embeddings[1:])
 # => tensor([[0.7761, 0.1655]])
 # compared to tensor([[ 0.7547, -0.0162]]) for the full model
 ```
-As you can see, the similarity between the related sentences is much higher than the unrelated sentence, despite only using 3 layers. Feel free to copy this script locally, modify the `new_num_layers`, and observe the difference in similarities.
 
+As you can see, the similarity between the related sentences is much higher than the unrelated sentence, despite only using 3 layers. Feel free to copy this script locally, modify the `new_num_layers`, and observe the difference in similarities.
 
 ## Code Examples
 
 See the following scripts as examples of how to apply the <a href="../../../../docs/package_reference/sentence_transformer/losses.html#adaptivelayerloss"><code>AdaptiveLayerLoss</code></a> in practice:
 
-* **[adaptive_layer_nli.py](adaptive_layer_nli.py)**: This example uses the `MultipleNegativesRankingLoss` with `AdaptiveLayerLoss` to train a strong embedding model using Natural Language Inference (NLI) data. It is an adaptation of the [NLI](../nli/README) documentation.
-* **[adaptive_layer_sts.py](adaptive_layer_sts.py)**: This example uses the CoSENTLoss with AdaptiveLayerLoss to train an embedding model on the training set of the STSBenchmark dataset. It is an adaptation of the [STS](../sts/README) documentation.
+- **[adaptive_layer_nli.py](adaptive_layer_nli.py)**: This example uses the `MultipleNegativesRankingLoss` with `AdaptiveLayerLoss` to train a strong embedding model using Natural Language Inference (NLI) data. It is an adaptation of the [NLI](../nli/README) documentation.
+- **[adaptive_layer_sts.py](adaptive_layer_sts.py)**: This example uses the CoSENTLoss with AdaptiveLayerLoss to train an embedding model on the training set of the STSBenchmark dataset. It is an adaptation of the [STS](../sts/README) documentation.
 
 And the following scripts to see how to apply <a href="../../../../docs/package_reference/sentence_transformer/losses.html#matryoshka2dloss"><code>Matryoshka2dLoss</code></a>:
-* **[2d_matryoshka_nli.py](../matryoshka/2d_matryoshka_nli.py)**: This example uses the `MultipleNegativesRankingLoss` with `Matryoshka2dLoss` to train a strong embedding model using Natural Language Inference (NLI) data. It is an adaptation of the [NLI](../nli/README) documentation.
-* **[2d_matryoshka_sts.py](../matryoshka/2d_matryoshka_sts.py)**: This example uses the `CoSENTLoss` with `Matryoshka2dLoss` to train an embedding model on the training set of the STSBenchmark dataset. It is an adaptation of the [STS](../sts/README) documentation.
+
+- **[2d_matryoshka_nli.py](../matryoshka/2d_matryoshka_nli.py)**: This example uses the `MultipleNegativesRankingLoss` with `Matryoshka2dLoss` to train a strong embedding model using Natural Language Inference (NLI) data. It is an adaptation of the [NLI](../nli/README) documentation.
+- **[2d_matryoshka_sts.py](../matryoshka/2d_matryoshka_sts.py)**: This example uses the `CoSENTLoss` with `Matryoshka2dLoss` to train an embedding model on the training set of the STSBenchmark dataset. It is an adaptation of the [STS](../sts/README) documentation.

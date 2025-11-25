@@ -54,7 +54,7 @@ class CachedMultipleNegativesSymmetricRankingLoss(nn.Module):
         show_progress_bar: bool = False,
     ) -> None:
         """
-        Boosted version of :class:`MultipleNegativesSymmetricRankingLoss` (MNSRL) by GradCache (https://arxiv.org/pdf/2101.06983.pdf).
+        Boosted version of :class:`MultipleNegativesSymmetricRankingLoss` (MNSRL) by GradCache (https://huggingface.co/papers/2101.06983).
 
         Given a list of (anchor, positive) pairs, MNSRL sums the following two losses:
 
@@ -125,8 +125,8 @@ class CachedMultipleNegativesSymmetricRankingLoss(nn.Module):
                 trainer.train()
 
         References:
-            - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://arxiv.org/pdf/1705.00652.pdf
-            - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup: https://arxiv.org/pdf/2101.06983.pdf
+            - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
+            - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup: https://huggingface.co/papers/2101.06983
         """
         super().__init__()
         if isinstance(model[0], StaticEmbedding):

@@ -5,9 +5,10 @@ import logging
 import os
 import re
 from collections import OrderedDict
+from collections.abc import Callable
 from contextlib import nullcontext
 from functools import partial
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import torch
 from packaging.version import parse as parse_version

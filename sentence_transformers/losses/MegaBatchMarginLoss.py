@@ -95,11 +95,17 @@ class MegaBatchMarginLoss(nn.Module):
     def forward_mini_batched(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         anchor, positive = sentence_features
         feature_names = list(anchor.keys())
+        batch_size = len(positive[next(iter(positive))])
 
+        all_positive_emb = []
         with torch.no_grad():
             self.model.eval()
-            all_positive_emb = self.model(positive)["sentence_embedding"].detach()
+            for start_idx in range(0, batch_size, self.mini_batch_size):
+                end_idx = start_idx + self.mini_batch_size
+                input_mini_batch = {k: v[start_idx:end_idx] for k, v in positive.items()}
+                all_positive_emb.append(self.model(input_mini_batch)["sentence_embedding"].detach())
             self.model.train()
+        all_positive_emb = torch.cat(all_positive_emb, dim=0)
 
         diagonal_matrix = torch.eye(len(all_positive_emb), len(all_positive_emb), device=all_positive_emb.device)
 

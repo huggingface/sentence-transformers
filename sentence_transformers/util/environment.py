@@ -19,7 +19,7 @@ def get_device_name() -> str:
     In distributed mode for cuda device, it uses the rank to assign a specific CUDA device.
 
     Returns:
-        str: Device name, like 'cuda:2', 'mps', 'npu', 'hpu', or 'cpu'
+        str: Device name, like 'cuda:2', 'mps', 'npu', 'xpu', 'hpu', or 'cpu'
     """
     if torch.cuda.is_available():
         if "LOCAL_RANK" in os.environ:
@@ -33,6 +33,8 @@ def get_device_name() -> str:
         return "mps"
     elif is_torch_npu_available():
         return "npu"
+    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+        return "xpu"
     elif importlib.util.find_spec("habana_frameworks") is not None:
         import habana_frameworks.torch.hpu as hthpu
 

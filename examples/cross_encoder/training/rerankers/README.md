@@ -11,28 +11,28 @@ Many reranker models are trained on MS MARCO:
 
 But most likely, you will get the best results when training on your dataset. Because of this, this page includes some examples training scripts that you can adopt for your own data:
 
-* **[training_gooaq_bce.py](training_gooaq_bce.py)**:
-    ```{eval-rst}
-    This example uses :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss` on labeled pair data that was mined from the `GooAQ <https://huggingface.co/datasets/sentence-transformers/gooaq>`_ dataset using an efficient :class:`~sentence_transformer.SentenceTransformers`.
+- **[training_gooaq_bce.py](training_gooaq_bce.py)**:
+  ```{eval-rst}
+  This example uses :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss` on labeled pair data that was mined from the `GooAQ <https://huggingface.co/datasets/sentence-transformers/gooaq>`_ dataset using an efficient :class:`~sentence_transformer.SentenceTransformers`.
 
-    The model is evaluated on subsets of `MS MARCO <https://huggingface.co/datasets/sentence-transformers/NanoMSMARCO-bm25>`_, `NFCorpus <https://huggingface.co/datasets/sentence-transformers/NanoNFCorpus-bm25>`_, `NQ <https://huggingface.co/datasets/sentence-transformers/NanoNQ-bm25>`_ via the :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator`. Additionally, it is evaluated on the performance gain when reranking the top 100 results from an efficient :class:`~sentence_transformer.SentenceTransformers` on the GooAQ development set.
-    ```
-* **[training_gooaq_cmnrl.py](training_gooaq_cmnrl.py)**:
-    ```{eval-rst}
-    This example uses :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss` on positive pair data loaded from the `GooAQ <https://huggingface.co/datasets/sentence-transformers/gooaq>`_ dataset.
+  The model is evaluated on subsets of `MS MARCO <https://huggingface.co/datasets/sentence-transformers/NanoMSMARCO-bm25>`_, `NFCorpus <https://huggingface.co/datasets/sentence-transformers/NanoNFCorpus-bm25>`_, `NQ <https://huggingface.co/datasets/sentence-transformers/NanoNQ-bm25>`_ via the :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator`. Additionally, it is evaluated on the performance gain when reranking the top 100 results from an efficient :class:`~sentence_transformer.SentenceTransformers` on the GooAQ development set.
+  ```
+- **[training_gooaq_cmnrl.py](training_gooaq_cmnrl.py)**:
+  ```{eval-rst}
+  This example uses :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss` on positive pair data loaded from the `GooAQ <https://huggingface.co/datasets/sentence-transformers/gooaq>`_ dataset.
 
-    The model is evaluated on subsets of `MS MARCO <https://huggingface.co/datasets/sentence-transformers/NanoMSMARCO-bm25>`_, `NFCorpus <https://huggingface.co/datasets/sentence-transformers/NanoNFCorpus-bm25>`_, `NQ <https://huggingface.co/datasets/sentence-transformers/NanoNQ-bm25>`_ via the :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator`.
-    ```
-* **[training_gooaq_lambda.py](training_gooaq_lambda.py)**:
-    ```{eval-rst}
-    This example uses :class:`~sentence_transformers.cross_encoder.losses.LambdaLoss` on labeled list data that was mined from the `GooAQ <https://huggingface.co/datasets/sentence-transformers/gooaq>`_ dataset using an efficient :class:`~sentence_transformer.SentenceTransformers`.
+  The model is evaluated on subsets of `MS MARCO <https://huggingface.co/datasets/sentence-transformers/NanoMSMARCO-bm25>`_, `NFCorpus <https://huggingface.co/datasets/sentence-transformers/NanoNFCorpus-bm25>`_, `NQ <https://huggingface.co/datasets/sentence-transformers/NanoNQ-bm25>`_ via the :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator`.
+  ```
+- **[training_gooaq_lambda.py](training_gooaq_lambda.py)**:
+  ```{eval-rst}
+  This example uses :class:`~sentence_transformers.cross_encoder.losses.LambdaLoss` on labeled list data that was mined from the `GooAQ <https://huggingface.co/datasets/sentence-transformers/gooaq>`_ dataset using an efficient :class:`~sentence_transformer.SentenceTransformers`.
 
-    The model is evaluated on subsets of `MS MARCO <https://huggingface.co/datasets/sentence-transformers/NanoMSMARCO-bm25>`_, `NFCorpus <https://huggingface.co/datasets/sentence-transformers/NanoNFCorpus-bm25>`_, `NQ <https://huggingface.co/datasets/sentence-transformers/NanoNQ-bm25>`_ via the :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator`. Additionally, it is evaluated on the performance gain when reranking the top 100 results from an efficient :class:`~sentence_transformer.SentenceTransformers` on the GooAQ development set.
-    ```
-* **[training_nq_bce.py](training_nq_bce.py)**:
-    ```{eval-rst}
-    This example uses a near-identical training script as ``training_gooaq_bce.py``, except on the smaller `NQ (natural questions) <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset.
-    ```
+  The model is evaluated on subsets of `MS MARCO <https://huggingface.co/datasets/sentence-transformers/NanoMSMARCO-bm25>`_, `NFCorpus <https://huggingface.co/datasets/sentence-transformers/NanoNFCorpus-bm25>`_, `NQ <https://huggingface.co/datasets/sentence-transformers/NanoNQ-bm25>`_ via the :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator`. Additionally, it is evaluated on the performance gain when reranking the top 100 results from an efficient :class:`~sentence_transformer.SentenceTransformers` on the GooAQ development set.
+  ```
+- **[training_nq_bce.py](training_nq_bce.py)**:
+  ```{eval-rst}
+  This example uses a near-identical training script as ``training_gooaq_bce.py``, except on the smaller `NQ (natural questions) <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset.
+  ```
 
 ## BinaryCrossEntropyLoss
 
@@ -47,9 +47,9 @@ The :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesR
 
 The loss will then compute scores for all (query, answer) pairs, *including* the incorrect answers ones it just selected. The loss will then use a Cross Entropy Loss to ensure that the score of the (query, correct_answer) is higher than (query, wrong_answer) for all (randomly selected) wrong answers.
 
-The :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss` uses an approach called `GradCache <https://arxiv.org/abs/2101.06983>`_ to allow computing the scores in mini-batches without increasing the memory usage excessively. This loss is recommended over the "standard" :class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss` (a.k.a. InfoNCE) loss, which does not have this clever mini-batching support and thus requires a lot of memory.
+The :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss` uses an approach called `GradCache <https://huggingface.co/papers/2101.06983>`_ to allow computing the scores in mini-batches without increasing the memory usage excessively. This loss is recommended over the "standard" :class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss` (a.k.a. InfoNCE) loss, which does not have this clever mini-batching support and thus requires a lot of memory.
 
-Experimentation with an ``activation_fn`` and ``scale`` is warranted for this loss. :class:`torch.nn.Sigmoid` with ``scale=10.0`` works okay, :class:`torch.nn.Identity`` with ``scale=1.0`` also works, and the `mGTE <https://arxiv.org/abs/2407.19669>`_ paper authors suggest using :class:`torch.nn.Tanh` with ``scale=10.0``.
+Experimentation with an ``activation_fn`` and ``scale`` is warranted for this loss. :class:`torch.nn.Sigmoid` with ``scale=10.0`` works okay, :class:`torch.nn.Identity`` with ``scale=1.0`` also works, and the `mGTE <https://huggingface.co/papers/2407.19669>`_ paper authors suggest using :class:`torch.nn.Tanh` with ``scale=10.0``.
 ```
 
 ## Inference

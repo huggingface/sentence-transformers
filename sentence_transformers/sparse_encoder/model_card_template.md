@@ -55,7 +55,7 @@ This is a [{{ model_type or "Sparse Encoder" }}](https://www.sbert.net/docs/spar
 
 - **Documentation:** [Sentence Transformers Documentation](https://sbert.net)
 - **Documentation:** [Sparse Encoder Documentation](https://www.sbert.net/docs/sparse_encoder/usage/usage.html)
-- **Repository:** [Sentence Transformers on GitHub](https://github.com/UKPLab/sentence-transformers)
+- **Repository:** [Sentence Transformers on GitHub](https://github.com/huggingface/sentence-transformers)
 - **Hugging Face:** [Sparse Encoders on Hugging Face](https://huggingface.co/models?library=sentence-transformers&other=sparse-encoder)
 
 ### Full Model Architecture

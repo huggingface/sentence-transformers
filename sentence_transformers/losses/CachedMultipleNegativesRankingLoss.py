@@ -77,7 +77,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         show_progress_bar: bool = False,
     ) -> None:
         """
-        Boosted version of MultipleNegativesRankingLoss (https://arxiv.org/pdf/1705.00652.pdf) by GradCache (https://arxiv.org/pdf/2101.06983.pdf).
+        Boosted version of MultipleNegativesRankingLoss (https://huggingface.co/papers/1705.00652) by GradCache (https://huggingface.co/papers/2101.06983).
 
         Constrastive learning (here our MNRL loss) with in-batch negatives is usually hard to work with large batch sizes due to (GPU) memory limitation.
         Even with batch-scaling methods like gradient-scaling, it cannot work either. This is because the in-batch negatives make the data points within
@@ -112,8 +112,8 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
 
         References:
-            - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://arxiv.org/pdf/1705.00652.pdf
-            - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup: https://arxiv.org/pdf/2101.06983.pdf
+            - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
+            - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup: https://huggingface.co/papers/2101.06983
 
         Requirements:
             1. (anchor, positive) pairs or (anchor, positive, negative pairs)

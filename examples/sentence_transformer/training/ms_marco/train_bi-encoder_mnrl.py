@@ -139,7 +139,7 @@ ce_scores_file = os.path.join(data_folder, "cross-encoder-ms-marco-MiniLM-L6-v2-
 if not os.path.exists(ce_scores_file):
     logging.info("Download cross-encoder scores file")
     util.http_get(
-        "https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives/resolve/main/cross-encoder-ms-marco-MiniLM-L6-v2-scores.pkl.gz",
+        "https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives/resolve/main/cross-encoder-ms-marco-MiniLM-L-6-v2-scores.pkl.gz",
         ce_scores_file,
     )
 

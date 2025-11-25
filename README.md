@@ -1,15 +1,13 @@
 <!--- BADGES: START --->
+
 [![HF Models](https://img.shields.io/badge/%F0%9F%A4%97-models-yellow)](https://huggingface.co/models?library=sentence-transformers)
-[![GitHub - License](https://img.shields.io/github/license/UKPLab/sentence-transformers?logo=github&style=flat&color=green)][#github-license]
+[![GitHub - License](https://img.shields.io/github/license/huggingface/sentence-transformers?logo=github&style=flat&color=green)][#github-license]
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/sentence-transformers?logo=pypi&style=flat&color=blue)][#pypi-package]
 [![PyPI - Package Version](https://img.shields.io/pypi/v/sentence-transformers?logo=pypi&style=flat&color=orange)][#pypi-package]
 [![Docs - GitHub.io](https://img.shields.io/static/v1?logo=github&style=flat&color=pink&label=docs&message=sentence-transformers)][#docs-package]
+
 <!-- [![PyPI - Downloads](https://img.shields.io/pypi/dm/sentence-transformers?logo=pypi&style=flat&color=green)][#pypi-package] -->
 
-[#github-license]: https://github.com/UKPLab/sentence-transformers/blob/master/LICENSE
-[#pypi-package]: https://pypi.org/project/sentence-transformers/
-[#conda-forge-package]: https://anaconda.org/conda-forge/sentence-transformers
-[#docs-package]: https://www.sbert.net/
 <!--- BADGES: END --->
 
 # Sentence Transformers: Embeddings, Retrieval, and Reranking
@@ -22,7 +20,7 @@ For the **full documentation**, see **[www.SBERT.net](https://www.sbert.net)**.
 
 ## Installation
 
-We recommend **Python 3.9+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.34.0+](https://github.com/huggingface/transformers)**.
+We recommend **Python 3.10+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.34.0+](https://github.com/huggingface/transformers)**.
 
 **Install with pip**
 
@@ -38,11 +36,11 @@ conda install -c conda-forge sentence-transformers
 
 **Install from sources**
 
-Alternatively, you can also clone the latest version from the [repository](https://github.com/UKPLab/sentence-transformers) and install it directly from the source code:
+Alternatively, you can also clone the latest version from the [repository](https://github.com/huggingface/sentence-transformers) and install it directly from the source code:
 
-````
+```
 pip install -e .
-```` 
+```
 
 **PyTorch with CUDA**
 
@@ -57,15 +55,15 @@ See [Quickstart](https://www.sbert.net/docs/quickstart.html) in our documentatio
 
 First download a pretrained embedding a.k.a. Sentence Transformer model.
 
-````python
+```python
 from sentence_transformers import SentenceTransformer
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
-````
+```
 
 Then provide some texts to the model.
 
-````python
+```python
 sentences = [
     "The weather is lovely today.",
     "It's so sunny outside!",
@@ -74,17 +72,17 @@ sentences = [
 embeddings = model.encode(sentences)
 print(embeddings.shape)
 # => (3, 384)
-````
+```
 
 And that's already it. We now have numpy arrays with the embeddings, one for each text. We can use these to compute similarities.
 
-````python
+```python
 similarities = model.similarity(embeddings, embeddings)
 print(similarities)
 # tensor([[1.0000, 0.6660, 0.1046],
 #         [0.6660, 1.0000, 0.1411],
 #         [0.1046, 0.1411, 1.0000]])
-````
+```
 
 ### Reranker Models
 
@@ -130,6 +128,7 @@ Query: How many people live in Berlin?
 - #1 (5.51): Berlin has a yearly total of about 135 million day visitors, making it one of the most-visited cities in the European Union.
 """
 ```
+
 ### Sparse Encoder Models
 
 First download a pretrained sparse embedding a.k.a. Sparse Encoder model.
@@ -168,27 +167,28 @@ print(f"Sparsity: {stats['sparsity_ratio']:.2%}")
 
 ## Pre-Trained Models
 
-We provide a large list of pretrained models for more than 100 languages. Some models are general purpose models, while others produce embeddings for specific use cases. 
+We provide a large list of pretrained models for more than 100 languages. Some models are general purpose models, while others produce embeddings for specific use cases.
 
-* [Pretrained Sentence Transformer (Embedding) Models](https://sbert.net/docs/sentence_transformer/pretrained_models.html)
-* [Pretrained Cross Encoder (Reranker) Models](https://sbert.net/docs/cross_encoder/pretrained_models.html)
-* [Pretrained Sparse Encoder (Sparse Embeddings) Models](https://sbert.net/docs/sparse_encoder/pretrained_models.html)
+- [Pretrained Sentence Transformer (Embedding) Models](https://sbert.net/docs/sentence_transformer/pretrained_models.html)
+- [Pretrained Cross Encoder (Reranker) Models](https://sbert.net/docs/cross_encoder/pretrained_models.html)
+- [Pretrained Sparse Encoder (Sparse Embeddings) Models](https://sbert.net/docs/sparse_encoder/pretrained_models.html)
 
 ## Training
 
-This framework allows you to fine-tune your own sentence embedding methods, so that you get task-specific sentence embeddings. You have various options to choose from in order to get perfect sentence embeddings for your specific task. 
+This framework allows you to fine-tune your own sentence embedding methods, so that you get task-specific sentence embeddings. You have various options to choose from in order to get perfect sentence embeddings for your specific task.
 
-* Embedding Models
-    * [Sentence Transformer > Training Overview](https://www.sbert.net/docs/sentence_transformer/training_overview.html)
-    * [Sentence Transformer > Training Examples](https://www.sbert.net/docs/sentence_transformer/training/examples.html) or [training examples on GitHub](https://github.com/UKPLab/sentence-transformers/tree/master/examples/sentence_transformer/training).
-* Reranker Models
-    * [Cross Encoder > Training Overview](https://www.sbert.net/docs/cross_encoder/training_overview.html)
-    * [Cross Encoder > Training Examples](https://www.sbert.net/docs/cross_encoder/training/examples.html) or [training examples on GitHub](https://github.com/UKPLab/sentence-transformers/tree/master/examples/cross_encoder/training).
-* Sparse Embedding Models
-    * [Sparse Encoder > Training Overview](https://www.sbert.net/docs/sparse_encoder/training_overview.html)
-    * [Sparse Encoder > Training Examples](https://www.sbert.net/docs/sparse_encoder/training/examples.html) or [training examples on GitHub](https://github.com/UKPLab/sentence-transformers/tree/master/examples/sparse_encoder/training).
+- Embedding Models
+  - [Sentence Transformer > Training Overview](https://www.sbert.net/docs/sentence_transformer/training_overview.html)
+  - [Sentence Transformer > Training Examples](https://www.sbert.net/docs/sentence_transformer/training/examples.html) or [training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/main/examples/sentence_transformer/training).
+- Reranker Models
+  - [Cross Encoder > Training Overview](https://www.sbert.net/docs/cross_encoder/training_overview.html)
+  - [Cross Encoder > Training Examples](https://www.sbert.net/docs/cross_encoder/training/examples.html) or [training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/main/examples/cross_encoder/training).
+- Sparse Embedding Models
+  - [Sparse Encoder > Training Overview](https://www.sbert.net/docs/sparse_encoder/training_overview.html)
+  - [Sparse Encoder > Training Examples](https://www.sbert.net/docs/sparse_encoder/training/examples.html) or [training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/main/examples/sparse_encoder/training).
 
 Some highlights across the different types of training are:
+
 - Support of various transformer networks including BERT, RoBERTa, XLM-R, DistilBERT, Electra, BART, ...
 - Multi-Lingual and multi-task learning
 - Evaluation during training to find optimal model
@@ -199,29 +199,36 @@ Some highlights across the different types of training are:
 You can use this framework for:
 
 - **Computing Sentence Embeddings**
+
   - [Dense Embeddings](https://www.sbert.net/examples/sentence_transformer/applications/computing-embeddings/README.html)
   - [Sparse Embeddings](https://www.sbert.net/examples/sparse_encoder/applications/computing_embeddings/README.html)
 
-- **Semantic Textual Similarity** 
+- **Semantic Textual Similarity**
+
   - [Dense STS](https://www.sbert.net/docs/sentence_transformer/usage/semantic_textual_similarity.html)
   - [Sparse STS](https://www.sbert.net/examples/sparse_encoder/applications/semantic_textual_similarity/README.html)
 
 - **Semantic Search**
-  - [Dense Search](https://www.sbert.net/examples/sentence_transformer/applications/semantic-search/README.html)  
+
+  - [Dense Search](https://www.sbert.net/examples/sentence_transformer/applications/semantic-search/README.html)
   - [Sparse Search](https://www.sbert.net/examples/sparse_encoder/applications/semantic_search/README.html)
 
 - **Retrieve & Re-Rank**
+
   - [Dense only Retrieval](https://www.sbert.net/examples/sentence_transformer/applications/retrieve_rerank/README.html)
   - [Sparse/Dense/Hybrid Retrieval](https://www.sbert.net/examples/sentence_transformer/applications/retrieve_rerank/README.html)
 
 - [Clustering](https://www.sbert.net/examples/sentence_transformer/applications/clustering/README.html)
+
 - [Paraphrase Mining](https://www.sbert.net/examples/sentence_transformer/applications/paraphrase-mining/README.html)
+
 - [Translated Sentence Mining](https://www.sbert.net/examples/sentence_transformer/applications/parallel-sentence-mining/README.html)
+
 - [Multilingual Image Search, Clustering & Duplicate Detection](https://www.sbert.net/examples/sentence_transformer/applications/image-search/README.html)
 
 and many more use-cases.
 
-For all examples, see [examples/sentence_transformer/applications](https://github.com/UKPLab/sentence-transformers/tree/master/examples/sentence_transformer/applications).
+For all examples, see [examples/sentence_transformer/applications](https://github.com/huggingface/sentence-transformers/tree/main/examples/sentence_transformer/applications).
 
 ## Development setup
 
@@ -241,9 +248,9 @@ pytest
 
 ## Citing & Authors
 
-If you find this repository helpful, feel free to cite our publication [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://arxiv.org/abs/1908.10084):
+If you find this repository helpful, feel free to cite our publication [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://huggingface.co/papers/1908.10084):
 
-```bibtex 
+```bibtex
 @inproceedings{reimers-2019-sentence-bert,
     title = "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks",
     author = "Reimers, Nils and Gurevych, Iryna",
@@ -255,7 +262,7 @@ If you find this repository helpful, feel free to cite our publication [Sentence
 }
 ```
 
-If you use one of the multilingual models, feel free to cite our publication [Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation](https://arxiv.org/abs/2004.09813):
+If you use one of the multilingual models, feel free to cite our publication [Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation](https://huggingface.co/papers/2004.09813):
 
 ```bibtex
 @inproceedings{reimers-2020-multilingual-sentence-bert,
@@ -271,10 +278,18 @@ If you use one of the multilingual models, feel free to cite our publication [Ma
 
 Please have a look at [Publications](https://www.sbert.net/docs/publications.html) for our different publications that are integrated into SentenceTransformers.
 
-Maintainer: [Tom Aarsen](https://github.com/tomaarsen), 🤗 Hugging Face
+### Maintainers
 
-https://www.ukp.tu-darmstadt.de/
+Maintainer: [Tom Aarsen](https://github.com/tomaarsen), 🤗 Hugging Face
 
 Don't hesitate to open an issue if something is broken (and it shouldn't be) or if you have further questions.
 
+---
+
+This project was originally developed by the [Ubiquitous Knowledge Processing (UKP) Lab](https://www.ukp.tu-darmstadt.de/) at TU Darmstadt. We're grateful for their foundational work and continued contributions to the field.
+
 > This repository contains experimental software and is published for the sole purpose of giving additional background details on the respective publication.
+
+[#docs-package]: https://www.sbert.net/
+[#github-license]: https://github.com/huggingface/sentence-transformers/blob/main/LICENSE
+[#pypi-package]: https://pypi.org/project/sentence-transformers/

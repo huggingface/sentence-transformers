@@ -19,7 +19,7 @@ def degree_centrality_scores(
 ):
     if not (threshold is None or isinstance(threshold, float) and 0 <= threshold < 1):
         raise ValueError(
-            "'threshold' should be a floating-point number " "from the interval [0, 1) or None",
+            "'threshold' should be a floating-point number from the interval [0, 1) or None",
         )
 
     if threshold is None:

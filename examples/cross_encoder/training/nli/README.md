@@ -1,18 +1,20 @@
 # Natural Language Inference
 
-Given two sentence (premise and hypothesis), Natural Language Inference (NLI) is the task of deciding if the premise entails the hypothesis, if they are contradiction, or if they are neutral. Commonly used NLI dataset are [SNLI](https://huggingface.co/datasets/stanfordnlp/snli) and [MultiNLI](https://huggingface.co/datasets/nyu-mll/multi_nli). 
+Given two sentence (premise and hypothesis), Natural Language Inference (NLI) is the task of deciding if the premise entails the hypothesis, if they are contradiction, or if they are neutral. Commonly used NLI dataset are [SNLI](https://huggingface.co/datasets/stanfordnlp/snli) and [MultiNLI](https://huggingface.co/datasets/nyu-mll/multi_nli).
 
 To train a CrossEncoder on NLI, see the following example file:
-* **[training_nli.py](training_nli.py)**:
-    ```{eval-rst}
-    This example uses :class:`~sentence_transformers.cross_encoder.losses.CrossEntropyLoss` to train the CrossEncoder model to predict the highest logit for the correct class out of "contradiction", "entailment", and "neutral".
-    ```
+
+- **[training_nli.py](training_nli.py)**:
+  ```{eval-rst}
+  This example uses :class:`~sentence_transformers.cross_encoder.losses.CrossEntropyLoss` to train the CrossEncoder model to predict the highest logit for the correct class out of "contradiction", "entailment", and "neutral".
+  ```
 
 ```{eval-rst}
 You can also train and use :class:`~sentence_transformers.SentenceTransformer` models for this task. See `Sentence Transformer > Training Examples > Natural Language Inference <../../../sentence_transformer/training/nli/README.html>`_ for more details.
 ```
 
 ## Data
+
 We combine [SNLI](https://huggingface.co/datasets/stanfordnlp/snli) and [MultiNLI](https://huggingface.co/datasets/nyu-mll/multi_nli) into a dataset we call [AllNLI](https://huggingface.co/datasets/sentence-transformers/all-nli). These two datasets contain sentence pairs and one of three labels: entailment, neutral, contradiction:
 
 | Sentence A (Premise) | Sentence B (Hypothesis) | Label |

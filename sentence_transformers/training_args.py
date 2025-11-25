@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Union
+from typing import Union
 
 from transformers import TrainingArguments as TransformersTrainingArguments
 from transformers.training_args import ParallelMode

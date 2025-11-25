@@ -17,4 +17,3 @@ The [semantic_search](semantic_search/) folder shows examples for semantic searc
 ## Retrieve & Rerank
 
 The [retrieve_rerank](retrieve_rerank/) folder shows how to combine a bi-encoder for semantic search retrieval and a more powerful re-ranking stage with a cross-encoder.
-

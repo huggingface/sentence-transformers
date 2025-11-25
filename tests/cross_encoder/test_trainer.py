@@ -15,7 +15,6 @@ from sentence_transformers.cross_encoder import (
     losses,
 )
 from sentence_transformers.util import is_datasets_available, is_training_available
-from tests.utils import SafeTemporaryDirectory
 
 if is_datasets_available():
     from datasets import DatasetDict
@@ -93,7 +92,7 @@ def test_trainer_multi_dataset_errors(reranker_bert_tiny_model: CrossEncoder, st
 def test_model_card_reuse(reranker_bert_tiny_model: CrossEncoder):
     assert reranker_bert_tiny_model._model_card_text
     # Reuse the model card if no training was done
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model_path = Path(tmp_folder) / "tiny_model_local"
         reranker_bert_tiny_model.save_pretrained(str(model_path))
 
@@ -104,7 +103,7 @@ def test_model_card_reuse(reranker_bert_tiny_model: CrossEncoder):
     # Create a new model card if a Trainer was initialized
     CrossEncoderTrainer(model=reranker_bert_tiny_model)
 
-    with SafeTemporaryDirectory() as tmp_folder:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model_path = Path(tmp_folder) / "tiny_model_local"
         reranker_bert_tiny_model.save_pretrained(str(model_path))
 

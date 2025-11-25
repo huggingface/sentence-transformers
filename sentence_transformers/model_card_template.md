@@ -55,7 +55,7 @@ This is a [sentence-transformers](https://www.SBERT.net) model{% if base_model %
 ### Model Sources
 
 - **Documentation:** [Sentence Transformers Documentation](https://sbert.net)
-- **Repository:** [Sentence Transformers on GitHub](https://github.com/UKPLab/sentence-transformers)
+- **Repository:** [Sentence Transformers on GitHub](https://github.com/huggingface/sentence-transformers)
 - **Hugging Face:** [Sentence Transformers on Hugging Face](https://huggingface.co/models?library=sentence-transformers)
 
 ### Full Model Architecture

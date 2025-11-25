@@ -1,11 +1,13 @@
 # SimCSE
-Gao et al. present in [SimCSE](https://arxiv.org/abs/2104.08821) a simple method to train sentence embeddings without having training data. 
+
+Gao et al. present in [SimCSE](https://huggingface.co/papers/2104.08821) a simple method to train sentence embeddings without having training data.
 
 The idea is to encode the same sentence twice. Due to the used dropout in transformer models, both sentence embeddings will be at slightly different positions. The distance between these two embeddings will be minimized, while the distance to other embeddings of the other sentences in the same batch will be maximized (they serve as negative examples).
 
-![SimCSE working](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/SimCSE.png)
+![SimCSE working](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/SimCSE.png)
 
 ## Usage with SentenceTransformers
+
 SentenceTransformers implements the [MultipleNegativesRankingLoss](https://www.sbert.net/docs/package_reference/sentence_transformer/losses.html#multiplenegativesrankingloss), which makes training with SimCSE trivial:
 
 ```python
@@ -42,7 +44,7 @@ model.fit(
 )
 
 model.save("output/simcse-model")
-``` 
+```
 
 ## SimCSE from Sentences File
 
@@ -50,14 +52,14 @@ model.save("output/simcse-model")
 
 SimCSE will be training using these sentences. Checkpoints are stored every 500 steps to the output folder.
 
-
 ## Training Examples
+
 - **[train_askubuntu_simcse.py](train_askubuntu_simcse.py)** - Shows the example how to train with SimCSE on the [AskUbuntu Questions dataset](https://github.com/taolei87/askubuntu).
 - **[train_stsb_simcse.py](train_stsb_simcse.py)** - This script uses 1 million sentences and evaluates SimCSE on the [STSbenchmark dataset](https://ixa2.si.ehu.eus/stswiki/index.php/STSbenchmark).
 
 ## Ablation Study
-We use the evaluation setup proposed in our [TSDAE paper](https://arxiv.org/abs/2104.06979).
 
+We use the evaluation setup proposed in our [TSDAE paper](https://huggingface.co/papers/2104.06979).
 
 Using mean pooling, with max_seq_length=32 and batch_size=128
 
@@ -73,17 +75,16 @@ Using mean pooling, with max_seq_length=32 and distilroberta-base model.
 | Batch Size | AskUbuntu Test-Performance (MAP) |
 | ---- | :----: |
 | 128 | 56.16 |
-| 256 | 56.63  |
+| 256 | 56.63 |
 | **512** | **56.69** |
 
 Using max_seq_length=32, distilroberta-base model, and 512 batch size.
 
 | Pooling Mode | AskUbuntu Test-Performance (MAP) |
 | ---- | :----: |
-| **Mean pooling** |  **56.69** |
-| CLS pooling | 56.56  |
+| **Mean pooling** | **56.69** |
+| CLS pooling | 56.56 |
 | Max pooling | 52.91 |
-
 
 **Note:**
 This is a re-implementation of SimCSE within sentence-transformers. For the official CT code, see: [princeton-nlp/SimCSE](https://github.com/princeton-nlp/SimCSE)

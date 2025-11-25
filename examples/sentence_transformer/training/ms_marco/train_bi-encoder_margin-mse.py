@@ -68,7 +68,7 @@ else:
     pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(), args.pooling)
     model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
-model_save_path = f'output/train_bi-encoder-margin_mse-{model_name.replace("/", "-")}-batch_size_{train_batch_size}-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
+model_save_path = f"output/train_bi-encoder-margin_mse-{model_name.replace('/', '-')}-batch_size_{train_batch_size}-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
 
 # Write self to path
@@ -129,7 +129,7 @@ ce_scores_file = os.path.join(data_folder, "cross-encoder-ms-marco-MiniLM-L6-v2-
 if not os.path.exists(ce_scores_file):
     logging.info("Download cross-encoder scores file")
     util.http_get(
-        "https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives/resolve/main/cross-encoder-ms-marco-MiniLM-L6-v2-scores.pkl.gz",
+        "https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives/resolve/main/cross-encoder-ms-marco-MiniLM-L-6-v2-scores.pkl.gz",
         ce_scores_file,
     )
 

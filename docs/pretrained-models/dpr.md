@@ -1,5 +1,5 @@
 # DPR-Models
-In [Dense Passage Retrieval  for Open-Domain Question Answering](https://arxiv.org/abs/2004.04906)  Karpukhin et al. trained models based on [Google's Natural Questions dataset](https://ai.google.com/research/NaturalQuestions):
+In [Dense Passage Retrieval  for Open-Domain Question Answering](https://huggingface.co/papers/2004.04906)  Karpukhin et al. trained models based on [Google's Natural Questions dataset](https://ai.google.com/research/NaturalQuestions):
 - **facebook-dpr-ctx_encoder-single-nq-base** 
 - **facebook-dpr-question_encoder-single-nq-base**
 

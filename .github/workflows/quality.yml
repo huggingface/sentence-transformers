@@ -3,12 +3,12 @@ name: Quality
 on:
   push:
     branches:
-      - master
+      - main
       - v*-release
       - v*-pre
   pull_request:
     branches:
-      - master
+      - main
       - v*-release
       - v*-pre
   workflow_dispatch:

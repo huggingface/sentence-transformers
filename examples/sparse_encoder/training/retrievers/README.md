@@ -12,22 +12,25 @@ However, you will likely achieve the best results by training on your specific d
 
 Example scripts could be:
 
-* **[train_splade_gooaq.py](train_splade_gooaq.py)**:
-    ```{eval-rst}
-    This example uses :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss` (which internally uses :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss`) on (query, positive_passage) pair data mined from a dataset like `GooAQ <https://huggingface.co/datasets/sentence-transformers/gooaq>`_. The goal is to train a SPLADE models where the query and its positive_passage have high similarity, and are dissimilar to other passages in the batch (in-batch negatives).
+- **[train_splade_gooaq.py](train_splade_gooaq.py)**:
 
-    The model would be evaluated on its retrieval performance on datasets like `MS MARCO <https://huggingface.co/datasets/sentence-transformers/NanoMSMARCO-bm25>`_, `NFCorpus <https://huggingface.co/datasets/sentence-transformers/NanoNFCorpus-bm25>`_, or `NQ <https://huggingface.co/datasets/sentence-transformers/NanoNQ-bm25>`_ using appropriate retrieval metrics (e.g., nDCG@k, MRR@k) via an evaluator like :class:`~sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator`.
-    ```
-* **[train_splade_nq.py](train_splade_nq.py)**:
-    ```{eval-rst}
-    This example also uses :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss` (similarly utilizing :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss`) and trains on the `NQ (natural questions) <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset. It showcases an alternative configuration or approach for training SPLADE models on question-answering data for sparse retrieval.
-    ```
+  ```{eval-rst}
+  This example uses :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss` (which internally uses :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss`) on (query, positive_passage) pair data mined from a dataset like `GooAQ <https://huggingface.co/datasets/sentence-transformers/gooaq>`_. The goal is to train a SPLADE models where the query and its positive_passage have high similarity, and are dissimilar to other passages in the batch (in-batch negatives).
 
-* **[train_csr_nq.py](train_csr_nq.py)**:
-    ```{eval-rst}
-    This example uses :class:`~sentence_transformers.sparse_encoder.losses.CSRLoss` (which internally uses :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss`) for sparse retrievers. It trains on data from datasets like `NQ (natural questions) <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_. The script demonstrates how to train a sparse model with a SparseAutoEncoder head on top of a SentenceTransformer model for retrieval tasks.
-    ```
+  The model would be evaluated on its retrieval performance on datasets like `MS MARCO <https://huggingface.co/datasets/sentence-transformers/NanoMSMARCO-bm25>`_, `NFCorpus <https://huggingface.co/datasets/sentence-transformers/NanoNFCorpus-bm25>`_, or `NQ <https://huggingface.co/datasets/sentence-transformers/NanoNQ-bm25>`_ using appropriate retrieval metrics (e.g., nDCG@k, MRR@k) via an evaluator like :class:`~sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator`.
+  ```
 
+- **[train_splade_nq.py](train_splade_nq.py)**:
+
+  ```{eval-rst}
+  This example also uses :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss` (similarly utilizing :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss`) and trains on the `NQ (natural questions) <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset. It showcases an alternative configuration or approach for training SPLADE models on question-answering data for sparse retrieval.
+  ```
+
+- **[train_csr_nq.py](train_csr_nq.py)**:
+
+  ```{eval-rst}
+  This example uses :class:`~sentence_transformers.sparse_encoder.losses.CSRLoss` (which internally uses :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss`) for sparse retrievers. It trains on data from datasets like `NQ (natural questions) <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_. The script demonstrates how to train a sparse model with a SparseAutoEncoder head on top of a SentenceTransformer model for retrieval tasks.
+  ```
 
 ## SparseMultipleNegativesRankingLoss (MNRL)
 
@@ -42,8 +45,9 @@ For sparse models, the output embeddings are sparse, and the similarity is typic
 Once a sparse retriever is trained, you would typically encode your entire document corpus into sparse vectors and store them in an efficient index (e.g., an inverted index).
 
 Given a new query:
+
 1. Encode the query into its sparse vector using the trained sparse retriever.
-2. Use this query vector to search the indexed document vectors to find the top-k most similar documents (highest dot-product scores).
+1. Use this query vector to search the indexed document vectors to find the top-k most similar documents (highest dot-product scores).
 
 An example of how inference might look (conceptual):
 

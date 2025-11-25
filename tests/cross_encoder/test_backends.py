@@ -178,9 +178,9 @@ def test_openvino_backend() -> None:
             tmpdirname, backend="openvino", model_kwargs={"ov_config": {"INFERENCE_PRECISION_HINT": "f32"}}
         )
         local_openvino_result = local_openvino_model.predict(test_pairs)
-        assert np.allclose(
-            local_openvino_result, openvino_result
-        ), "OpenVINO saved model output differs from in-memory converted model"
+        assert np.allclose(local_openvino_result, openvino_result), (
+            "OpenVINO saved model output differs from in-memory converted model"
+        )
         del local_openvino_model
         gc.collect()
 

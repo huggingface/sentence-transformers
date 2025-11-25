@@ -1,14 +1,15 @@
 # Training Overview
 
 ## Why Finetune?
+
 Cross Encoder models are very often used as 2nd stage rerankers in a [Retrieve and Rerank](../../examples/sentence_transformer/applications/retrieve_rerank/README.md) search stack. In such a situation, the Cross Encoder reranks the top X candidates from the retriever (which can be a [Sentence Transformer model](../sentence_transformer/usage/usage.rst)). To avoid the reranker model reducing the performance on your use case, finetuning it can be crucial. Rerankers always have just 1 output label.
 
 Beyond that, Cross Encoder models can also be used as pair classifiers. For example, a model trained on Natural Language Inference data can be used to classify pairs of texts as "contradiction", "entailment", and "neutral". Pair Classifiers generally have more than 1 output label.
 
 See [**Training Examples**](training/examples) for numerous training scripts for common real-world applications that you can adopt.
 
-
 ## Training Components
+
 Training Cross Encoder models involves between 4 to 6 components, just like [training Sentence Transformer models](../sentence_transformer/training_overview.md):
 
 <div class="components">
@@ -40,6 +41,7 @@ Training Cross Encoder models involves between 4 to 6 components, just like [tra
 <p></p>
 
 ## Model
+
 ```{eval-rst}
 
 Cross Encoder models are initialized by loading a pretrained `transformers <https://huggingface.co/docs/transformers>`_ model using a sequence classification head. If the model itself does not have such a head, then it will be added automatically. Consequently, initializing a Cross Encoder model is rather simple:
@@ -72,6 +74,7 @@ Cross Encoder models are initialized by loading a pretrained `transformers <http
 ```
 
 ## Dataset
+
 ```{eval-rst}
 The :class:`CrossEncoderTrainer` trains and evaluates using :class:`datasets.Dataset` (one dataset) or :class:`datasets.DatasetDict` instances (multiple datasets, see also `Multi-dataset training <#multi-dataset-training>`_). 
 
@@ -192,13 +195,14 @@ Additionally, if your dataset has extraneous columns (e.g. sample_id, metadata, 
 
 The success of training CrossEncoder models often depends on the quality of the *negatives*, i.e. the passages for which the query-negative score should be low. Negatives can be divided into two types:
 
-* **Soft negatives**: passages that are completely unrelated.
-* **Hard negatives**: passages that seem like they might be relevant for the query, but are not.
+- **Soft negatives**: passages that are completely unrelated.
+- **Hard negatives**: passages that seem like they might be relevant for the query, but are not.
 
 A concise example is:
-* **Query**: Where was Apple founded?
-* **Soft Negative**: The Cache River Bridge is a Parker pony truss that spans the Cache River between Walnut Ridge and Paragould, Arkansas.
-* **Hard Negative**: The Fuji apple is an apple cultivar developed in the late 1930s, and brought to market in 1962.
+
+- **Query**: Where was Apple founded?
+- **Soft Negative**: The Cache River Bridge is a Parker pony truss that spans the Cache River between Walnut Ridge and Paragould, Arkansas.
+- **Hard Negative**: The Fuji apple is an apple cultivar developed in the late 1930s, and brought to market in 1962.
 
 ```{eval-rst}
 The strongest CrossEncoder models are generally trained to recognize hard negatives, and so it's valuable to be able to "mine" hard negatives. Sentence Transformers supports a strong :func:`~sentence_transformers.util.mine_hard_negatives` function that can assist, given a dataset of query-answer pairs:
@@ -281,6 +285,7 @@ Dataset({
 <br>
 
 ## Loss Function
+
 Loss functions quantify how well a model performs for a given batch of data, allowing an optimizer to update the model weights to produce more favourable (i.e., lower) loss values. This is the core of the training process.
 
 Sadly, there is no single loss function that works best for all use-cases. Instead, which loss function to use greatly depends on your available data and on your target task. See [Dataset Format](#dataset-format) to learn what datasets are valid for which loss functions. Additionally, the [Loss Overview](loss_overview) will be your best friend to learn about the options.
@@ -993,6 +998,7 @@ documentation for more information on the integrated callbacks and how to write 
 ```
 
 ## Multi-Dataset Training
+
 ```{eval-rst}
 The top performing models are trained using many datasets at once. Normally, this is rather tricky, as each dataset has a different format. However, :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` can train with multiple datasets without having to convert each dataset to the same format. It can even apply different loss functions to each of the datasets. The steps to train with multiple datasets are:
 
@@ -1017,7 +1023,8 @@ Cross Encoder models have their own unique quirks, so here's some tips to help y
 #. Don't underestimate :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`, it remains a very strong option despite being simpler than learning-to-rank (:class:`~sentence_transformers.cross_encoder.losses.LambdaLoss`, :class:`~sentence_transformers.cross_encoder.losses.ListNetLoss`) or in-batch negatives (:class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`, :class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss`) losses, and its data is easy to prepare, especially using :func:`~sentence_transformers.util.mine_hard_negatives`.
 ```
 
-## Deprecated Training 
+## Deprecated Training
+
 ```{eval-rst}
 Prior to the Sentence Transformers v4.0 release, models would be trained with the :meth:`CrossEncoder.fit() <sentence_transformers.cross_encoder.CrossEncoder.fit>` method and a :class:`~torch.utils.data.DataLoader` of :class:`~sentence_transformers.readers.InputExample`, which looked something like this::
 

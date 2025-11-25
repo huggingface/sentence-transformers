@@ -1,4 +1,3 @@
-
 # Trainer
 
 ## SentenceTransformerTrainer

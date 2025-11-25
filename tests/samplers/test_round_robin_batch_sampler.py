@@ -57,15 +57,15 @@ def test_round_robin_batch_sampler(dummy_concat_dataset: ConcatDataset) -> None:
     for i in range(0, len(batches), 2):
         # Batch from the first part of the dataset
         batch_1 = batches[i]
-        assert all(
-            dummy_concat_dataset[idx]["data"] < 100 for idx in batch_1
-        ), f"Batch {i} contains data from the second part of the dataset: {[dummy_concat_dataset[idx]['data'] for idx in batch_1]}"
+        assert all(dummy_concat_dataset[idx]["data"] < 100 for idx in batch_1), (
+            f"Batch {i} contains data from the second part of the dataset: {[dummy_concat_dataset[idx]['data'] for idx in batch_1]}"
+        )
 
         # Batch from the second part of the dataset
         batch_2 = batches[i + 1]
-        assert all(
-            dummy_concat_dataset[idx]["data"] >= 100 for idx in batch_2
-        ), f"Batch {i+1} contains data from the first part of the dataset: {[dummy_concat_dataset[idx]['data'] for idx in batch_2]}"
+        assert all(dummy_concat_dataset[idx]["data"] >= 100 for idx in batch_2), (
+            f"Batch {i + 1} contains data from the first part of the dataset: {[dummy_concat_dataset[idx]['data'] for idx in batch_2]}"
+        )
 
 
 def test_round_robin_batch_sampler_value_error(dummy_concat_dataset: ConcatDataset) -> None:

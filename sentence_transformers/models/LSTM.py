@@ -64,7 +64,7 @@ class LSTM(Module):
         self.save_config(output_path)
 
         # Saving LSTM models with Safetensors does not work unless the weights are on CPU
-        # See https://github.com/UKPLab/sentence-transformers/pull/2722
+        # See https://github.com/huggingface/sentence-transformers/pull/2722
         device = next(self.parameters()).device
         self.cpu()
         self.save_torch_weights(output_path, safe_serialization=safe_serialization)

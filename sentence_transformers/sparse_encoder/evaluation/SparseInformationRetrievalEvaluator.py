@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 import os
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 import torch
 

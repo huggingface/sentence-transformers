@@ -3,31 +3,31 @@
 This directory contains examples demonstrating how to evaluate Sparse Encoder models using various metrics and evaluator classes.
 
 To run any of these evaluation scripts, simply execute the Python script. Each script will:
+
 1. Load a pretrained sparse encoder model.
-2. Prepare the evaluation dataset.
-3. Configure the appropriate evaluator.
-4. Run the evaluation.
-5. Report the results.
+1. Prepare the evaluation dataset.
+1. Configure the appropriate evaluator.
+1. Run the evaluation.
+1. Report the results.
 
 ```{eval-rst}
 =============================================================================================  =========================================================================================================================================================================
 Evaluator                                                                                      Evaluation Script
 =============================================================================================  =========================================================================================================================================================================
-:class:`~sentence_transformers.sparse_encoder.evaluation.SparseInformationRetrievalEvaluator`  `sparse_retrieval_evaluator.py <https://github.com/UKPLab/sentence-transformers/blob/master/examples/sparse_encoder/evaluation/sparse_retrieval_evaluator.py>`_
-:class:`~sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator`              `sparse_nanobeir_evaluator.py <https://github.com/UKPLab/sentence-transformers/blob/master/examples/sparse_encoder/evaluation/sparse_nanobeir_evaluator.py>`_
-:class:`~sentence_transformers.sparse_encoder.evaluation.SparseEmbeddingSimilarityEvaluator`   `sparse_similarity_evaluator.py <https://github.com/UKPLab/sentence-transformers/blob/master/examples/sparse_encoder/evaluation/sparse_similarity_evaluator.py>`_
-:class:`~sentence_transformers.sparse_encoder.evaluation.SparseBinaryClassificationEvaluator`  `sparse_classification_evaluator.py <https://github.com/UKPLab/sentence-transformers/blob/master/examples/sparse_encoder/evaluation/sparse_classification_evaluator.py>`_
-:class:`~sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator`               `sparse_triplet_evaluator.py <https://github.com/UKPLab/sentence-transformers/blob/master/examples/sparse_encoder/evaluation/sparse_triplet_evaluator.py>`_
-:class:`~sentence_transformers.sparse_encoder.evaluation.SparseRerankingEvaluator`             `sparse_reranking_evaluator.py <https://github.com/UKPLab/sentence-transformers/blob/master/examples/sparse_encoder/evaluation/sparse_reranking_evaluator.py>`_
-:class:`~sentence_transformers.sparse_encoder.evaluation.SparseTranslationEvaluator`           `sparse_translation_evaluator.py <https://github.com/UKPLab/sentence-transformers/blob/master/examples/sparse_encoder/evaluation/sparse_translation_evaluator.py>`_
-:class:`~sentence_transformers.sparse_encoder.evaluation.SparseMSEEvaluator`                   `sparse_mse_evaluator.py <https://github.com/UKPLab/sentence-transformers/blob/master/examples/sparse_encoder/evaluation/sparse_mse_evaluator.py>`_
+:class:`~sentence_transformers.sparse_encoder.evaluation.SparseInformationRetrievalEvaluator`  `sparse_retrieval_evaluator.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sparse_encoder/evaluation/sparse_retrieval_evaluator.py>`_
+:class:`~sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator`              `sparse_nanobeir_evaluator.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sparse_encoder/evaluation/sparse_nanobeir_evaluator.py>`_
+:class:`~sentence_transformers.sparse_encoder.evaluation.SparseEmbeddingSimilarityEvaluator`   `sparse_similarity_evaluator.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sparse_encoder/evaluation/sparse_similarity_evaluator.py>`_
+:class:`~sentence_transformers.sparse_encoder.evaluation.SparseBinaryClassificationEvaluator`  `sparse_classification_evaluator.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sparse_encoder/evaluation/sparse_classification_evaluator.py>`_
+:class:`~sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator`               `sparse_triplet_evaluator.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sparse_encoder/evaluation/sparse_triplet_evaluator.py>`_
+:class:`~sentence_transformers.sparse_encoder.evaluation.SparseRerankingEvaluator`             `sparse_reranking_evaluator.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sparse_encoder/evaluation/sparse_reranking_evaluator.py>`_
+:class:`~sentence_transformers.sparse_encoder.evaluation.SparseTranslationEvaluator`           `sparse_translation_evaluator.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sparse_encoder/evaluation/sparse_translation_evaluator.py>`_
+:class:`~sentence_transformers.sparse_encoder.evaluation.SparseMSEEvaluator`                   `sparse_mse_evaluator.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sparse_encoder/evaluation/sparse_mse_evaluator.py>`_
 =============================================================================================  =========================================================================================================================================================================
 ```
 
-## Example with Retrieval Evaluation: 
+## Example with Retrieval Evaluation:
 
 This script demonstrates how to evaluate a sparse encoder on an information retrieval task ([`sparse_retrieval_evaluator.py`](sparse_retrieval_evaluator.py)):
-
 
 ```python
 import logging

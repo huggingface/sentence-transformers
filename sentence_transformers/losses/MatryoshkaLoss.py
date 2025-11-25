@@ -150,7 +150,7 @@ class MatryoshkaLoss(nn.Module):
                 step. The default value is -1.
 
         References:
-            - The concept was introduced in this paper: https://arxiv.org/abs/2205.13147
+            - The concept was introduced in this paper: https://huggingface.co/papers/2205.13147
             - `Matryoshka Embeddings <../../../examples/sentence_transformer/training/matryoshka/README.html>`_
 
         Inputs:
@@ -255,7 +255,17 @@ class MatryoshkaLoss(nn.Module):
                 dim = self.matryoshka_dims[idx]
                 weight = self.matryoshka_weights[idx]
                 decorated_forward.set_dim(dim)
-                loss += weight * self.loss(sentence_features, labels)
+                # If the labels seem to be embeddings, truncate them to match the soon-to-be-truncated predicted embeddings
+                # This allows for MatryoshkaLoss with a direct distillation loss
+                dim_labels = labels
+                if (
+                    isinstance(labels, torch.Tensor)
+                    and labels.ndim == 2
+                    and labels.size(-1) == self.model.get_sentence_embedding_dimension()
+                ):
+                    dim_labels = labels[:, :dim]
+
+                loss += weight * self.loss(sentence_features, dim_labels)
         finally:
             self.model.forward = original_forward
         return loss

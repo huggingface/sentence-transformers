@@ -1,4 +1,5 @@
 # MS MARCO
+
 [MS MARCO Passage Ranking](https://github.com/microsoft/MSMARCO-Passage-Ranking) is a large dataset to train models for information retrieval. It consists of about 500k real search queries from Bing search engine with the relevant text passage that answers the query.
 
 This page shows how to **train** Sentence Transformer models on this dataset so that it can be used for searching text passages given queries (key words, phrases or questions).
@@ -11,11 +12,12 @@ There are **pre-trained models** available, which you can directly use without t
 
 For retrieval of suitable documents from a large collection, we have to use a Sentence Transformer (a.k.a. bi-encoder) model. The documents are independently encoded into fixed-sized embeddings. A query is embedded into the same vector space. Relevant documents can then be found by using cosine similarity or dot-product.
 
-![BiEncoder](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/BiEncoder.png)
+![BiEncoder](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/BiEncoder.png)
 
 This page describes two strategies to **train an bi-encoder** on the MS MARCO dataset:
 
 ### MultipleNegativesRankingLoss
+
 **Training code: [train_bi-encoder_mnrl.py](train_bi-encoder_mnrl.py)**
 
 ```{eval-rst}
@@ -24,7 +26,7 @@ When we use :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`,
 To further improve the training, we use **in-batch negatives**: 
 ```
 
-![MultipleNegativesRankingLoss](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/MultipleNegativeRankingLoss.png)
+![MultipleNegativesRankingLoss](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/MultipleNegativeRankingLoss.png)
 
 We embed all `queries`, `positive_passages`, and `negative_passages` into the vector space. The matching `(query_i, positive_passage_i)` should be close, while there should be a large distance between a `query` and all other (positive/negative) passages from all other triplets in a batch. For a batch size of 64, we compare a query against 64+64=128 passages, from which only one passage should be close and the 127 others should be distant in vector space.
 
@@ -36,7 +38,8 @@ We find these hard negatives in the following way: We use existing retrieval sys
 For :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, we must ensure that in the triplet ``(query, positive_passage, negative_passage)`` that the ``negative_passage`` is indeed not relevant for the query. The MS MARCO dataset is sadly **highly redundant**, and even though that there is on average only one passage marked as relevant for a query, it actually contains many passages that humans would consider as relevant. We must ensure that these passages are **not passed as negatives**: We do this by ensuring a certain threshold in the CrossEncoder scores between the relevant passages and the mined hard negative. By default, we set a threshold of 3: If the ``(query, positive_passage)`` gets a score of 9 from the CrossEncoder, than we will only consider negatives with a score below 6 from the CrossEncoder. This threshold ensures that we actually use negatives in our triplets.
 ```
 
-You can find this data by traversing to any of the datasets in the [MS MARCO Mined Triplet dataset collection](https://huggingface.co/collections/sentence-transformers/ms-marco-mined-triplets-6644d6f1ff58c5103fe65f23) and using the ``triplet-hard`` subset. Across all datasets, this refers to 175.7 million triplets. The original data can be found [here](https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives). Load some of it using:
+You can find this data by traversing to any of the datasets in the [MS MARCO Mined Triplet dataset collection](https://huggingface.co/collections/sentence-transformers/ms-marco-mined-triplets-6644d6f1ff58c5103fe65f23) and using the `triplet-hard` subset. Across all datasets, this refers to 175.7 million triplets. The original data can be found [here](https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives). Load some of it using:
+
 ```python
 from datasets import load_dataset
 
@@ -50,10 +53,11 @@ print(train_dataset[0])
 ```
 
 ### MarginMSE
+
 **Training code: [train_bi-encoder_margin-mse.py](train_bi-encoder_margin-mse.py)**
 
 ```{eval-rst}
-:class:`~sentence_transformers.losses.MarginMSELoss` is based on the paper of `Hofstätter et al <https://arxiv.org/abs/2010.02666>`_. Like when training with :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, we can use triplets: ``(query, passage1, passage2)``. However, in contrast to :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, `passage1` and `passage2` do not have to be strictly positive/negative, both can be relevant or not relevant for a given query.  
+:class:`~sentence_transformers.losses.MarginMSELoss` is based on the paper of `Hofstätter et al <https://huggingface.co/papers/2010.02666>`_. Like when training with :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, we can use triplets: ``(query, passage1, passage2)``. However, in contrast to :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, `passage1` and `passage2` do not have to be strictly positive/negative, both can be relevant or not relevant for a given query.  
 
 We then compute the `Cross-Encoder <../../../cross_encoder/applications/README.html>`_ score for ``(query, passage1)`` and ``(query, passage2)``. We provide scores for 160 million such pairs in our `msmarco-hard-negatives dataset <https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives>`_. We then compute the distance: ``CE_distance = CEScore(query, passage1) - CEScore(query, passage2)``.
 

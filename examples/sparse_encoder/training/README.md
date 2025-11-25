@@ -7,6 +7,7 @@ For the beginning, I can recommend to have a look at the [MS MARCO](ms_marco/) e
 For the documentation how to train your own models, see [Training Overview](http://www.sbert.net/docs/sparse_encoder/training_overview.html).
 
 ## Training Examples
+
 - [distillation](distillation/) - Examples to make models smaller, faster and lighter.
 - [ms_marco](ms_marco/) - Example training scripts for training on the MS MARCO information retrieval dataset.
 - [nli](nli/) - Natural Language Inference (NLI) data can be quite helpful to pre-train and fine-tune models to create meaningful sparse embeddings.

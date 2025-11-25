@@ -1,6 +1,7 @@
 # SentenceTransformer
 
 ## SentenceTransformer
+
 ```{eval-rst}
 .. autoclass:: sentence_transformers.SentenceTransformer
    :members:
@@ -9,11 +10,13 @@
 ```
 
 ## SentenceTransformerModelCardData
+
 ```{eval-rst}
 .. autoclass:: sentence_transformers.model_card.SentenceTransformerModelCardData
 ```
 
 ## SimilarityFunction
+
 ```{eval-rst}
 .. autoclass:: sentence_transformers.SimilarityFunction
    :members:

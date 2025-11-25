@@ -3,9 +3,10 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal, Union
 
 import torch
 

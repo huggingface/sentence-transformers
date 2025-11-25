@@ -28,6 +28,7 @@ Loss functions play a critical role in the performance of your fine-tuned Cross 
 | `(query, [doc1, doc2, ..., docN])`                | `[score1, score2, ..., scoreN]`          | `1`                           | <ol style="margin-bottom: 0;line-height: inherit;"><li><a href="../package_reference/cross_encoder/losses.html#lambdaloss">`LambdaLoss`</a></li><li><a href="../package_reference/cross_encoder/losses.html#plistmleloss">`PListMLELoss`</a></li><li><a href="../package_reference/cross_encoder/losses.html#listnetloss">`ListNetLoss`</a></li><li><a href="../package_reference/cross_encoder/losses.html#ranknetloss">`RankNetLoss`</a></li><li><a href="../package_reference/cross_encoder/losses.html#listmleloss">`ListMLELoss`</a></li></ol> |
 
 ## Distillation
+
 These loss functions are specifically designed to be used when distilling the knowledge from one model into another.
 For example, when finetuning a small model to behave more like a larger & stronger one, or when finetuning a model to become multi-lingual.
 
@@ -40,12 +41,13 @@ For example, when finetuning a small model to behave more like a larger & strong
 | `(query, positive, negative_1, ..., negative_n) ` | `[gold_sim(query, positive), gold_sim(query, negative_i)...] `            | <a href="../package_reference/cross_encoder/losses.html#marginmseloss">`MarginMSELoss`</a> |
 
 ## Commonly used Loss Functions
+
 In practice, not all loss functions get used equally often. The most common scenarios are:
 
-* `(sentence_A, sentence_B) pairs` with `float similarity score` or `1 if positive, 0 if negative`: <a href="../package_reference/cross_encoder/losses.html#binarycrossentropyloss"><code>BinaryCrossEntropyLoss</code></a> is a traditional option that remains very challenging to outperform. 
-* `(anchor, positive) pairs` without any labels: combined with <a href="../package_reference/util.html#sentence_transformers.util.mine_hard_negatives"><code>mine_hard_negatives</code></a>
-    * with <code>output_format="labeled-list"</code>, then <a href="../package_reference/cross_encoder/losses.html#lambdaloss"><code>LambdaLoss</code></a> is frequently used for learning-to-rank tasks.
-    * with <code>output_format="labeled-pair"</code>, then <a href="../package_reference/cross_encoder/losses.html#binarycrossentropyloss"><code>BinaryCrossEntropyLoss</code></a> remains a strong option.
+- `(sentence_A, sentence_B) pairs` with `float similarity score` or `1 if positive, 0 if negative`: <a href="../package_reference/cross_encoder/losses.html#binarycrossentropyloss"><code>BinaryCrossEntropyLoss</code></a> is a traditional option that remains very challenging to outperform.
+- `(anchor, positive) pairs` without any labels: combined with <a href="../package_reference/util.html#sentence_transformers.util.mine_hard_negatives"><code>mine_hard_negatives</code></a>
+  - with <code>output_format="labeled-list"</code>, then <a href="../package_reference/cross_encoder/losses.html#lambdaloss"><code>LambdaLoss</code></a> is frequently used for learning-to-rank tasks.
+  - with <code>output_format="labeled-pair"</code>, then <a href="../package_reference/cross_encoder/losses.html#binarycrossentropyloss"><code>BinaryCrossEntropyLoss</code></a> remains a strong option.
 
 ## Custom Loss Functions
 

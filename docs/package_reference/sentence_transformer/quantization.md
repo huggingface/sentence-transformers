@@ -1,5 +1,6 @@
 # quantization
-`sentence_transformers.quantization` defines different helpful functions to perform embedding quantization. 
+
+`sentence_transformers.quantization` defines different helpful functions to perform embedding quantization.
 
 ```{eval-rst}
 .. note::

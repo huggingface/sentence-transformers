@@ -25,6 +25,7 @@ scores = model.predict([
 Cross-Encoders require text pairs as inputs and output a score 0...1 (if the Sigmoid activation function is used). They do not work for individual sentences and they don't compute embeddings for individual texts.
 
 ## MS MARCO
+
 [MS MARCO Passage Retrieval](https://github.com/microsoft/MSMARCO-Passage-Ranking) is a large dataset with real user queries from Bing search engine with annotated relevant text passages. Models trained on this dataset are very effective as rerankers for search systems.
 
 ```{eval-rst}
@@ -32,20 +33,20 @@ Cross-Encoders require text pairs as inputs and output a score 0...1 (if the Sig
     You can initialize these models with ``activation_fn=torch.nn.Sigmoid()`` to force the model to return scores between 0 and 1. Otherwise, the raw value can reasonably range between -10 and 10.
 ```
 
-| Model Name        | NDCG@10 (TREC DL 19) | MRR@10 (MS Marco Dev)  | Docs / Sec |
-| ------------- | :-------------: | :-----: | ---: | 
-| [cross-encoder/ms-marco-TinyBERT-L2-v2](https://huggingface.co/cross-encoder/ms-marco-TinyBERT-L2)  | 69.84 | 32.56 | 9000
+| Model Name | NDCG@10 (TREC DL 19) | MRR@10 (MS Marco Dev) | Docs / Sec |
+| ------------- | :-------------: | :-----: | ---: |
+| [cross-encoder/ms-marco-TinyBERT-L2-v2](https://huggingface.co/cross-encoder/ms-marco-TinyBERT-L2) | 69.84 | 32.56 | 9000
 | [cross-encoder/ms-marco-MiniLM-L2-v2](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L2-v2) | 71.01 | 34.85 | 4100
 | [cross-encoder/ms-marco-MiniLM-L4-v2](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L4-v2) | 73.04 | 37.70 | 2500
 | **[cross-encoder/ms-marco-MiniLM-L6-v2](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2)** | 74.30 | 39.01 | 1800
 | [cross-encoder/ms-marco-MiniLM-L12-v2](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L12-v2) | 74.31 | 39.02 | 960
-| [cross-encoder/ms-marco-electra-base](https://huggingface.co/cross-encoder/ms-marco-electra-base) | 71.99 | 36.41 | 340 | 
+| [cross-encoder/ms-marco-electra-base](https://huggingface.co/cross-encoder/ms-marco-electra-base) | 71.99 | 36.41 | 340 |
 
 For details on the usage, see [Retrieve & Re-Rank](../../examples/sentence_transformer/applications/retrieve_rerank/README.md).
 
 ## SQuAD (QNLI)
 
-QNLI is based on the [SQuAD dataset](https://rajpurkar.github.io/SQuAD-explorer/) ([HF](https://huggingface.co/datasets/rajpurkar/squad)) and was introduced by the [GLUE Benchmark](https://arxiv.org/abs/1804.07461) ([HF](https://huggingface.co/datasets/nyu-mll/glue)). Given a passage from Wikipedia, annotators created questions that are answerable by that passage. These models output higher scores if a passage answers a question.
+QNLI is based on the [SQuAD dataset](https://rajpurkar.github.io/SQuAD-explorer/) ([HF](https://huggingface.co/datasets/rajpurkar/squad)) and was introduced by the [GLUE Benchmark](https://huggingface.co/papers/1804.07461) ([HF](https://huggingface.co/datasets/nyu-mll/glue)). Given a passage from Wikipedia, annotators created questions that are answerable by that passage. These models output higher scores if a passage answers a question.
 
 | Model Name | Accuracy on QNLI dev set |
 | ------------- | :----------------------------: |
@@ -53,7 +54,9 @@ QNLI is based on the [SQuAD dataset](https://rajpurkar.github.io/SQuAD-explorer/
 | [cross-encoder/qnli-electra-base](https://huggingface.co/cross-encoder/qnli-electra-base) | 93.21 |
 
 ## STSbenchmark
+
 The following models can be used like this:
+
 ```python
 from sentence_transformers import CrossEncoder
 
@@ -62,7 +65,7 @@ scores = model.predict([("It's a wonderful day outside.", "It's so sunny today!"
 # => array([0.60443085, 0.00240758], dtype=float32)
 ```
 
-They return a score  0...1 indicating the semantic similarity of the given sentence pair.
+They return a score 0...1 indicating the semantic similarity of the given sentence pair.
 | Model Name | STSbenchmark Test Performance |
 | ------------- | :----------------------------: |
 | [cross-encoder/stsb-TinyBERT-L4](https://huggingface.co/cross-encoder/stsb-TinyBERT-L4) | 85.50 |
@@ -71,6 +74,7 @@ They return a score  0...1 indicating the semantic similarity of the given sente
 | [cross-encoder/stsb-roberta-large](https://huggingface.co/cross-encoder/stsb-roberta-large) | 91.47 |
 
 ## Quora Duplicate Questions
+
 These models have been trained on the [Quora duplicate questions dataset](https://huggingface.co/datasets/sentence-transformers/quora-duplicates). They can used like the STSb models and give a score 0...1 indicating the probability that two questions are duplicate questions.
 
 | Model Name | Average Precision dev set |
@@ -85,6 +89,7 @@ These models have been trained on the [Quora duplicate questions dataset](https:
 ```
 
 ## NLI
+
 Given two sentences, are these contradicting each other, entailing one the other or are these neutral? The following models were trained on the [SNLI](https://huggingface.co/datasets/stanfordnlp/snli) and [MultiNLI](https://huggingface.co/datasets/nyu-mll/multi_nli) datasets.
 | Model Name | Accuracy on MNLI mismatched set |
 | ------------- | :----------------------------: |

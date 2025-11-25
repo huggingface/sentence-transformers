@@ -26,12 +26,12 @@ class SpladePooling(Module):
     Args:
         pooling_strategy (str): Pooling method across token dimensions.
             Choices:
-                - `sum`: Sum pooling (used in original SPLADE see https://arxiv.org/pdf/2107.05720).
-                - `max`: Max pooling (used in SPLADEv2 and later models see https://arxiv.org/pdf/2109.10086 or https://arxiv.org/pdf/2205.04733).
+                - `sum`: Sum pooling (used in original SPLADE see https://huggingface.co/papers/2107.05720).
+                - `max`: Max pooling (used in SPLADEv2 and later models see https://huggingface.co/papers/2109.10086 or https://huggingface.co/papers/2205.04733).
         activation_function (str): Activation function applied before log1p transformation.
             Choices:
                 - `relu`: ReLU activation (standard in all Splade models).
-                - `log1p_relu`: log(1 + ReLU(x)) variant used in Opensearch Splade models, see https://arxiv.org/pdf/2504.14839.
+                - `log1p_relu`: log(1 + ReLU(x)) variant used in Opensearch Splade models, see https://huggingface.co/papers/2504.14839.
         word_embedding_dimension (int, optional): Dimensionality of the output embeddings (if needed).
         chunk_size (int, optional): Chunk size along the sequence length dimension (i.e., number of tokens per chunk).
             If None, processes entire sequence at once. Using smaller chunks the reduces memory usage but may

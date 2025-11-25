@@ -1,9 +1,9 @@
-
 # Training with PEFT Adapters
 
 Sentence Transformers has been integrated with [PEFT](https://huggingface.co/docs/peft/en/index) (Parameter-Efficient Fine-Tuning), allowing you to finetune embedding models without fine-tuning all of the model parameters. Instead, with PEFT methods you are only finetuning a fraction of (extra) model parameters with only a minor hit in performance compared to full model finetuning.
 
 PEFT Adapter models can be loaded just like any others, for example [tomaarsen/bert-base-uncased-gooaq-peft](https://huggingface.co/tomaarsen/bert-base-uncased-gooaq-peft) which does not contain a `model.safetensors` but only a tiny `adapter_model.safetensors`:
+
 ```python
 from sentence_transformers import SentenceTransformer
 
@@ -87,7 +87,9 @@ embeddings = model.encode(["This is an example sentence", "Each sentence is conv
 print(embeddings.shape)
 # (2, 768)
 ```
+
 Or you can load the base model and load the adapter into it:
+
 ```python
 from sentence_transformers import SentenceTransformer
 
@@ -103,6 +105,7 @@ In most cases, the former is easiest, as it will work regardless of whether the 
 ## Training Script
 
 See the following example file for a full example of how PEFT can be used with Sentence Transformers:
-* **[training_gooaq_lora.py](training_gooaq_lora.py)**: This is a simple recipe for finetuning [bert-base-uncased](https://huggingface.co/google-bert/bert-base-uncased) on the GooAQ question-answer dataset with the excellent MultipleNegativesRankingLoss, but it has been adapted to use a [LoRA adapter](https://huggingface.co/docs/peft/en/package_reference/lora) from PEFT.
+
+- **[training_gooaq_lora.py](training_gooaq_lora.py)**: This is a simple recipe for finetuning [bert-base-uncased](https://huggingface.co/google-bert/bert-base-uncased) on the GooAQ question-answer dataset with the excellent MultipleNegativesRankingLoss, but it has been adapted to use a [LoRA adapter](https://huggingface.co/docs/peft/en/package_reference/lora) from PEFT.
 
 This script was used to train [tomaarsen/bert-base-uncased-gooaq-peft](https://huggingface.co/tomaarsen/bert-base-uncased-gooaq-peft), which reached 0.4705 NDCG@10 on the NanoBEIR benchmark; only marginally behind [tomaarsen/bert-base-uncased-gooaq](https://huggingface.co/tomaarsen/bert-base-uncased-gooaq) which scores 0.4728 NDCG@10 with a modified script that uses full model finetuning.

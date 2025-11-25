@@ -7,6 +7,7 @@ For the beginning, I can recommend to have a look at the [MS MARCO](ms_marco/) e
 For the documentation how to train your own models, see [Training Overview](http://www.sbert.net/docs/cross_encoder/training_overview.html).
 
 ## Training Examples
+
 - [distillation](distillation/) - Examples to make models smaller, faster and lighter.
 - [ms_marco](ms_marco/) - Numerous example training scripts for training on the MS MARCO information retrieval dataset.
 - [nli](nli/) - Natural Language Inference (NLI) data involves pair classification using the "contradiction", "entailment", and "neutral" classes.

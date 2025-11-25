@@ -1,7 +1,7 @@
-
 # Samplers
 
 ## BatchSamplers
+
 ```{eval-rst}
 .. autoclass:: sentence_transformers.training_args.BatchSamplers
     :members:
@@ -23,6 +23,7 @@
 ```
 
 ## MultiDatasetBatchSamplers
+
 ```{eval-rst}
 .. autoclass:: sentence_transformers.training_args.MultiDatasetBatchSamplers
     :members:

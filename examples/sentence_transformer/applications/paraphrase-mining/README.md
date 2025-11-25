@@ -1,6 +1,6 @@
 # Paraphrase Mining
 
-Paraphrase mining is the task of finding paraphrases (texts with identical / similar meaning) in a large corpus of sentences. In [Semantic Textual Similarity](../../../../docs/sentence_transformer/usage/semantic_textual_similarity.rst) we saw a simplified version of finding paraphrases in a list of sentences. The approach presented there used a brute-force approach to score and rank all pairs. 
+Paraphrase mining is the task of finding paraphrases (texts with identical / similar meaning) in a large corpus of sentences. In [Semantic Textual Similarity](../../../../docs/sentence_transformer/usage/semantic_textual_similarity.rst) we saw a simplified version of finding paraphrases in a list of sentences. The approach presented there used a brute-force approach to score and rank all pairs.
 
 ```{eval-rst}
 However, as this has a quadratic runtime, it fails to scale to large (10,000 and more) collections of sentences. For larger collections, the :func:`~sentence_transformers.util.paraphrase_mining` function can be used::

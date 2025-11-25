@@ -15,6 +15,7 @@ Choosing the right loss function is crucial for finetuning useful models. For th
 ```
 
 ### Contrastive Loss
+
 For the complete training example, see [training_OnlineContrastiveLoss.py](training_OnlineContrastiveLoss.py).
 
 ```{eval-rst}
@@ -26,6 +27,7 @@ An improved version is :class:`~sentence_transformers.losses.OnlineContrastiveLo
 ```
 
 The loss can be used like this:
+
 ```python
 from datasets import load_dataset
 
@@ -40,6 +42,7 @@ train_loss = losses.OnlineContrastiveLoss(model=model, margin=0.5)
 ```
 
 ## MultipleNegativesRankingLoss
+
 For the complete example, see [training_MultipleNegativesRankingLoss.py](training_MultipleNegativesRankingLoss.py).
 
 ```{eval-rst}
@@ -47,6 +50,7 @@ For the complete example, see [training_MultipleNegativesRankingLoss.py](trainin
 ```
 
 Using the loss is easy and does not require tuning of any hyperparameters:
+
 ```python
 from datasets import load_dataset
 
@@ -74,6 +78,7 @@ train_dataset = concatenate_datasets([
 #     num_rows: 298526
 # })
 ```
+
 ```{eval-rst}
 .. note::
     Increasing the batch sizes usually yields better results, as the  task gets harder. It is more difficult to identify the correct duplicate question out of a set of 100 questions than out of a set of only 10 questions. So it is advisable to set the training batch size as large as possible. I trained it with a batch size of 350 on 32 GB GPU memory.
@@ -83,6 +88,7 @@ train_dataset = concatenate_datasets([
 ```
 
 ### Multi-Task-Learning
+
 ```{eval-rst}
 :class:`~sentence_transformers.losses.ContrastiveLoss` works well for pair classification, i.e., given two pairs, are these duplicates or not. It pushes negative pairs far away in vector space, so that the distinguishing between duplicate and non-duplicate pairs works good.
 
@@ -137,10 +143,12 @@ trainer.train()
 ## Pretrained Models
 
 Currently the following models trained on Quora Duplicate Questions are available:
-* [distilbert-base-nli-stsb-quora-ranking](https://huggingface.co/sentence-transformers/distilbert-base-nli-stsb-quora-ranking):  We extended the [distilbert-base-nli-stsb-mean-tokens](https://huggingface.co/sentence-transformers/distilbert-base-nli-stsb-mean-tokens) model and trained it with *OnlineContrastiveLoss* and with *MultipleNegativesRankingLoss* on the Quora Duplicate questions dataset. For the code, see [training_multi-task-learning.py](training_multi-task-learning.py)
-* [distilbert-multilingual-nli-stsb-quora-ranking](https://huggingface.co/sentence-transformers/distilbert-multilingual-nli-stsb-quora-ranking): Extension of *distilbert-base-nli-stsb-quora-ranking* to be multi-lingual. Trained on parallel data for 50 languages.
+
+- [distilbert-base-nli-stsb-quora-ranking](https://huggingface.co/sentence-transformers/distilbert-base-nli-stsb-quora-ranking): We extended the [distilbert-base-nli-stsb-mean-tokens](https://huggingface.co/sentence-transformers/distilbert-base-nli-stsb-mean-tokens) model and trained it with *OnlineContrastiveLoss* and with *MultipleNegativesRankingLoss* on the Quora Duplicate questions dataset. For the code, see [training_multi-task-learning.py](training_multi-task-learning.py)
+- [distilbert-multilingual-nli-stsb-quora-ranking](https://huggingface.co/sentence-transformers/distilbert-multilingual-nli-stsb-quora-ranking): Extension of *distilbert-base-nli-stsb-quora-ranking* to be multi-lingual. Trained on parallel data for 50 languages.
 
 You can load & use pre-trained models like this:
+
 ```python
 from sentence_transformers import SentenceTransformer
 

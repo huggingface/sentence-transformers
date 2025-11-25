@@ -55,7 +55,7 @@ This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.h
 
 - **Documentation:** [Sentence Transformers Documentation](https://sbert.net)
 - **Documentation:** [Cross Encoder Documentation](https://www.sbert.net/docs/cross_encoder/usage/usage.html)
-- **Repository:** [Sentence Transformers on GitHub](https://github.com/UKPLab/sentence-transformers)
+- **Repository:** [Sentence Transformers on GitHub](https://github.com/huggingface/sentence-transformers)
 - **Hugging Face:** [Cross Encoders on Hugging Face](https://huggingface.co/models?library=sentence-transformers&other=cross-encoder)
 
 ## Usage

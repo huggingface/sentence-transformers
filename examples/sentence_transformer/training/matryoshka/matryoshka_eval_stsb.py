@@ -5,7 +5,7 @@ benchmark.
 
 import argparse
 import os
-from typing import Optional, cast
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,9 +20,7 @@ from sentence_transformers.evaluation import (
 
 
 # Dimension plot
-def _grouped_barplot_ratios(
-    group_name_to_x_to_y: dict[str, dict[int, float]], ax: Optional[plt.Axes] = None
-) -> plt.Axes:
+def _grouped_barplot_ratios(group_name_to_x_to_y: dict[str, dict[int, float]], ax: plt.Axes | None = None) -> plt.Axes:
     # To save a pandas dependency, do from scratch in matplotlib
     if ax is None:
         ax: plt.Axes = plt.subplots()
