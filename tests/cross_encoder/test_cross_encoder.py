@@ -547,7 +547,7 @@ def test_load_activation_fn_from_kwargs(num_labels: int, activation_fn: str, sav
     assert config["sentence_transformers"]["activation_fn"] == saved_activation_fn
     assert "sbert_ce_default_activation_function" not in config
 
-    loaded_model = CrossEncoder(tmp_path)
+    loaded_model = CrossEncoder(str(tmp_path))
     assert fullname(loaded_model.activation_fn) == saved_activation_fn
 
     # Setting the activation function via a prediction updates the instance, but not the config
@@ -575,7 +575,7 @@ def test_load_activation_fn_from_config(tanh_model_name: str, tmp_path):
     assert config["sentence_transformers"]["activation_fn"] == saved_activation_fn
     assert "sbert_ce_default_activation_function" not in config
 
-    loaded_model = CrossEncoder(tmp_path)
+    loaded_model = CrossEncoder(str(tmp_path))
     assert fullname(loaded_model.activation_fn) == saved_activation_fn
 
 
@@ -590,7 +590,7 @@ def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEn
         json.dump(config, f)
 
     with caplog.at_level(logging.WARNING):
-        CrossEncoder(tmp_path)
+        CrossEncoder(str(tmp_path))
         assert (
             "Activation function path 'sentence_transformers.custom.activations.CustomActivation' is not trusted, using default activation function instead."
             in caplog.text
@@ -598,7 +598,7 @@ def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEn
 
     # If we use trust_remote_code, it'll try to load the custom activation function, which doesn't exist
     with pytest.raises(ImportError):
-        model = CrossEncoder(tmp_path, trust_remote_code=True)
+        model = CrossEncoder(str(tmp_path), trust_remote_code=True)
 
 
 def test_default_activation_fn(reranker_bert_tiny_model: CrossEncoder):

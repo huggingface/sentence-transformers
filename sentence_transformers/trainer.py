@@ -131,7 +131,7 @@ class SentenceTransformerTrainer(Trainer):
 
     """
 
-    @deprecate_kwarg("tokenizer", new_name="processing_class", version="5.0.0", raise_if_both_names=True)
+    @deprecate_kwarg("tokenizer", new_name="processing_class", version="6.0.0", raise_if_both_names=True)
     def __init__(
         self,
         model: SentenceTransformer | None = None,
