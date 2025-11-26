@@ -183,7 +183,7 @@ def test_inference_free_splade(inference_free_splade_bert_tiny_model: SparseEnco
 
     decoded_query = model.decode(query_embeddings)
     decoded_document = model.decode(document_embeddings)
-    assert len(decoded_query) == len(model.tokenize(query, task="query")["input_ids"][0])
+    assert len(decoded_query) == len(model.preprocess(query, task="query")["input_ids"][0])
     assert len(decoded_document) >= 50
 
     assert model.max_seq_length == 512

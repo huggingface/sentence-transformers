@@ -450,7 +450,7 @@ class FitMixin:
             a batch of tensors for the model
         """
         texts = [example.texts for example in batch]
-        sentence_features = [self.tokenize(sentence) for sentence in zip(*texts)]
+        sentence_features = [self.preprocess(sentence) for sentence in zip(*texts)]
         labels = [example.label for example in batch]
 
         # Use torch.from_numpy to convert the numpy array directly to a tensor,

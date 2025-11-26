@@ -17,9 +17,13 @@ from torch.utils.data import BatchSampler, ConcatDataset, DataLoader, RandomSamp
 from transformers import EvalPrediction, PreTrainedTokenizerBase, Trainer, TrainerCallback
 from transformers import __version__ as transformers_version
 from transformers.data.data_collator import DataCollator
+from transformers.feature_extraction_utils import FeatureExtractionMixin
+from transformers.image_processing_utils import BaseImageProcessor
 from transformers.integrations import WandbCallback
+from transformers.processing_utils import ProcessorMixin
 from transformers.trainer import TRAINING_ARGS_NAME
 from transformers.trainer_utils import EvalLoopOutput
+from transformers.utils.deprecation import deprecate_kwarg
 
 from sentence_transformers.data_collator import SentenceTransformerDataCollator
 from sentence_transformers.evaluation import SentenceEvaluator, SequentialEvaluator
@@ -127,6 +131,7 @@ class SentenceTransformerTrainer(Trainer):
 
     """
 
+    @deprecate_kwarg("tokenizer", new_name="processing_class", version="5.0.0", raise_if_both_names=True)
     def __init__(
         self,
         model: SentenceTransformer | None = None,
@@ -140,11 +145,16 @@ class SentenceTransformerTrainer(Trainer):
         | None = None,
         evaluator: SentenceEvaluator | list[SentenceEvaluator] | None = None,
         data_collator: DataCollator | None = None,
-        tokenizer: PreTrainedTokenizerBase | Callable | None = None,
+        processing_class: PreTrainedTokenizerBase
+        | BaseImageProcessor
+        | FeatureExtractionMixin
+        | ProcessorMixin
+        | None = None,
         model_init: Callable[[], SentenceTransformer] | None = None,
         compute_metrics: Callable[[EvalPrediction], dict] | None = None,
         callbacks: list[TrainerCallback] | None = None,
         optimizers: tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
+        optimizer_cls_and_kwargs: tuple[type[torch.optim.Optimizer], dict[str, Any]] | None = None,
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     ) -> None:
         if not is_training_available():
@@ -195,15 +205,23 @@ class SentenceTransformerTrainer(Trainer):
         if args.hub_model_id and not model.model_card_data.model_id:
             model.model_card_data.set_model_id(args.hub_model_id)
 
-        if tokenizer is None and hasattr(model, "tokenizer") and isinstance(model.tokenizer, PreTrainedTokenizerBase):
-            tokenizer = model.tokenizer
+        if (
+            processing_class is None
+            and hasattr(model, "processor")
+            and isinstance(
+                model.processor, (PreTrainedTokenizerBase, BaseImageProcessor, FeatureExtractionMixin, ProcessorMixin)
+            )
+        ):
+            processing_class = model.processor
 
         if data_collator is None:
             data_collator = SentenceTransformerDataCollator(
                 tokenize_fn=model.tokenize,
                 router_mapping=args.router_mapping,
                 prompts=args.prompts,
-                all_special_ids=set(tokenizer.all_special_ids) if hasattr(tokenizer, "all_special_ids") else set(),
+                all_special_ids=set(processing_class.all_special_ids)
+                if processing_class is not None and hasattr(processing_class, "all_special_ids")
+                else set(),
             )
 
             if Router in [module.__class__ for module in model.children()] and not args.router_mapping:
@@ -234,27 +252,6 @@ class SentenceTransformerTrainer(Trainer):
         if isinstance(eval_dataset, dict) and not isinstance(eval_dataset, DatasetDict):
             eval_dataset = DatasetDict(eval_dataset)
 
-        # Transformers v4.46.0 introduced a ValueError if `eval_dataset` is None while eval_strategy is not "no",
-        # but in Sentence Transformers you can also evaluate without an eval_dataset via an evaluator, so we set
-        # it to "dummy" in that case to avoid the ValueError
-        super_kwargs = {
-            "model": None if self.model_init else model,
-            "args": args,
-            "data_collator": data_collator,
-            "train_dataset": train_dataset,
-            "eval_dataset": eval_dataset if eval_dataset is not None or evaluator is None else "dummy",
-            "model_init": model_init,
-            "compute_metrics": compute_metrics,
-            "callbacks": callbacks,
-            "optimizers": optimizers,
-            "preprocess_logits_for_metrics": preprocess_logits_for_metrics,
-        }
-        # Transformers v4.46.0 changed the `tokenizer` argument to a more general `processing_class` argument
-        if parse_version(transformers_version) >= parse_version("4.46.0"):
-            super_kwargs["processing_class"] = tokenizer
-        else:
-            super_kwargs["tokenizer"] = tokenizer
-
         # super.__init__() will still raise a ValueError if `eval_dataset` is None, `evaluator` is None,
         # while eval_strategy is not "no", so let's get ahead of it with a more useful ST-specific error message
         if eval_dataset is None and evaluator is None and args.eval_strategy != "no":
@@ -264,7 +261,20 @@ class SentenceTransformerTrainer(Trainer):
                 "or set `args.eval_strategy='no'` to skip evaluation."
             )
 
-        super().__init__(**super_kwargs)
+        super().__init__(
+            model=None if self.model_init else model,
+            args=args,
+            data_collator=data_collator,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset if eval_dataset is not None or evaluator is None else "dummy",
+            processing_class=processing_class,
+            model_init=model_init,
+            compute_metrics=compute_metrics,
+            callbacks=callbacks,
+            optimizers=optimizers,
+            optimizer_cls_and_kwargs=optimizer_cls_and_kwargs,
+            preprocess_logits_for_metrics=preprocess_logits_for_metrics,
+        )
         # If the eval_dataset is "dummy", then we set it back to None
         if self.eval_dataset == "dummy":
             self.eval_dataset = None

@@ -933,12 +933,12 @@ def test_router_tokenize_with_task(static_embedding_model: StaticEmbedding):
     texts = ["What is the capital of France?", "Paris is the capital of France."]
 
     # Tokenize with explicit task
-    query_tokens = router.tokenize(texts, task="query")
+    query_tokens = router.preprocess(texts, task="query")
     assert "task" in query_tokens
     assert query_tokens["task"] == "query"
     assert "input_ids" in query_tokens
 
-    doc_tokens = router.tokenize(texts, task="document")
+    doc_tokens = router.preprocess(texts, task="document")
     assert "task" in doc_tokens
     assert doc_tokens["task"] == "document"
     assert "input_ids" in doc_tokens
@@ -954,7 +954,7 @@ def test_router_tokenize_with_dict_input(static_embedding_model: StaticEmbedding
         {"query": "What is the largest ocean?"},
     ]
 
-    tokens = router.tokenize(texts)
+    tokens = router.preprocess(texts)
     assert "task" in tokens
     assert tokens["task"] == "query"
     assert "input_ids" in tokens
@@ -970,7 +970,7 @@ def test_router_tokenize_with_mixed_dict_raises_error(static_embedding_model: St
     ]
 
     with pytest.raises(ValueError, match="You cannot pass a list of dictionaries with different task types"):
-        router.tokenize(texts)
+        router.preprocess(texts)
 
 
 def test_router_tokenize_with_modality(static_embedding_model: StaticEmbedding):
@@ -980,7 +980,7 @@ def test_router_tokenize_with_modality(static_embedding_model: StaticEmbedding):
     texts = ["Test text"]
 
     # Tokenize with explicit modality
-    tokens = router.tokenize(texts, task="query", modality="text")
+    tokens = router.preprocess(texts, task="query", modality="text")
     assert "task" in tokens
     assert tokens["task"] == "query"
     assert "modality" in tokens
@@ -1270,6 +1270,6 @@ def test_router_tokenize_with_modality_inference_failure(static_embedding_model:
     # The function should handle this gracefully
     texts = ["Normal text that should work"]
 
-    tokens = router.tokenize(texts, task="query")
+    tokens = router.preprocess(texts, task="query")
     assert "task" in tokens
     assert tokens["task"] == "query"

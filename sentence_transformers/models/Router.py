@@ -363,9 +363,7 @@ class Router(InputModule):
             return modality
 
         if task is not None:
-            raise ValueError(
-                f"No route found for task type '{task}'. " f"Available routes: {self._get_routes_string()}"
-            )
+            raise ValueError(f"No route found for task type '{task}'. Available routes: {self._get_routes_string()}")
 
         # No route found
         return None
@@ -504,14 +502,14 @@ class Router(InputModule):
                 indent=4,
             )
 
-    def tokenize(
+    def preprocess(
         self,
         texts: list[str] | list[tuple[str, str]],
         task: str | None = None,
         modality: str | tuple[str, ...] | None = None,
         **kwargs,
     ):
-        """Tokenizes a text and maps tokens to token-ids"""
+        """Preprocesses a text and maps tokens to token-ids"""
         """
         # TODO: Passing a dictionary of task types is now fully deprecated with this removed. You can now only pass a dictionary of inputs for multimodal data.
         if isinstance(texts[0], dict):
@@ -541,7 +539,7 @@ class Router(InputModule):
         route = self._resolve_route(task=task, modality=modality)
 
         input_module = self.sub_modules[route][0]
-        tokenized = input_module.tokenize(texts, **kwargs)
+        tokenized = input_module.preprocess(texts, **kwargs)
         tokenized["task"] = task
         if modality is not None:
             tokenized["modality"] = modality

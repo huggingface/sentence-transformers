@@ -60,8 +60,8 @@ class BoW(InputModule):
         # Nothing to do, everything is done in get_sentence_features
         return features
 
-    def tokenize(self, texts: list[str], **kwargs) -> list[int]:
-        tokenized = [self.tokenizer.tokenize(text, **kwargs) for text in texts]
+    def preprocess(self, inputs: list[str], **kwargs) -> list[int]:
+        tokenized = [self.tokenizer.tokenize(text, **kwargs) for text in inputs]
         return self.get_sentence_features(tokenized)
 
     def get_sentence_embedding_dimension(self):

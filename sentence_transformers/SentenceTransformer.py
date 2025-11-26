@@ -1076,7 +1076,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
 
         for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
             sentences_batch = sentences[start_index : start_index + batch_size]
-            features = self.tokenize(sentences_batch, **kwargs)
+            features = self.preprocess(sentences_batch, **kwargs)
             if self.device.type == "hpu":
                 if "input_ids" in features:
                     curr_tokenize_len = features["input_ids"].shape
@@ -1597,7 +1597,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
         if (prompt, *kwargs.values()) in self._prompt_length_mapping:
             return self._prompt_length_mapping[(prompt, *kwargs.values())]
 
-        tokenized_prompt = self.tokenize([prompt], **kwargs)
+        tokenized_prompt = self.preprocess([prompt], **kwargs)
         if "input_ids" not in tokenized_prompt:
             # If the tokenizer does not return input_ids, we cannot determine the prompt length.
             # This can happen with some tokenizers that do not use input_ids.
@@ -1623,8 +1623,37 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
 
         return None
 
+    def preprocess(self, inputs: list[str] | list[dict] | list[tuple[str, str]], **kwargs) -> dict[str, Tensor]:
+        """
+        Preprocesses the texts.
+
+        Args:
+            texts (Union[List[str], List[Dict], List[Tuple[str, str]]]): A list of texts to be preprocessed.
+
+        Returns:
+            Dict[str, Tensor]: A dictionary of tensors with the preprocessed texts. Common keys are "input_ids",
+                "attention_mask", and "token_type_ids".
+        """
+        # Infer modality if not already provided in kwargs
+        if "modality" not in kwargs:
+            try:
+                kwargs["modality"] = infer_modality(inputs)
+            except (ValueError, TypeError, ImportError):
+                # If modality inference fails, proceed without it
+                pass
+
+        # TODO: Ensure that the try path always works with core ST modules
+        # TODO: Can we remove try-except here as we're now using preprocess
+        try:
+            return self[0].preprocess(inputs, **kwargs)
+        except TypeError:
+            return self[0].preprocess(inputs)
+
     def tokenize(self, texts: list[str] | list[dict] | list[tuple[str, str]], **kwargs) -> dict[str, Tensor]:
         """
+        .. deprecated:: 3.4.0
+            `tokenize` is deprecated and will be removed in a future version. Use `preprocess` instead.
+
         Tokenizes the texts.
 
         Args:
@@ -1634,18 +1663,13 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
             Dict[str, Tensor]: A dictionary of tensors with the tokenized texts. Common keys are "input_ids",
                 "attention_mask", and "token_type_ids".
         """
-        # Infer modality if not already provided in kwargs
-        if "modality" not in kwargs:
-            try:
-                kwargs["modality"] = infer_modality(texts)
-            except (ValueError, TypeError, ImportError):
-                # If modality inference fails, proceed without it
-                pass
-
-        try:
-            return self[0].tokenize(texts, **kwargs)
-        except TypeError:
-            return self[0].tokenize(texts)
+        warnings.warn(
+            "The `tokenize` method is deprecated and will be removed in a future version. "
+            "Please use `preprocess` instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        return self.preprocess(texts, **kwargs)
 
     def get_sentence_features(self, *features) -> dict[Literal["sentence_embedding"], Tensor]:
         return self._first_module().get_sentence_features(*features)
@@ -2404,6 +2428,13 @@ print(similarities)
         Property to set the tokenizer that should be used by this model
         """
         self[0].tokenizer = value
+
+    @property
+    def processor(self) -> Any:
+        """
+        Property to get the tokenizer that is used by this model
+        """
+        return self[0].processor
 
     @property
     def max_seq_length(self) -> int:

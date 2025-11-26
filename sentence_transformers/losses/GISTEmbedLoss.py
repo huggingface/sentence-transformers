@@ -144,7 +144,7 @@ class GISTEmbedLoss(nn.Module):
                     self.tokenizer.batch_decode(sentence_feature["input_ids"], skip_special_tokens=True)
                     for sentence_feature in sentence_features
                 ]
-                sentence_features = [self.guide.tokenize(sentences) for sentences in decoded]
+                sentence_features = [self.guide.preprocess(sentences) for sentences in decoded]
                 sentence_features = [
                     {key: value.to(self.guide.device) for key, value in sentence_feature.items()}
                     for sentence_feature in sentence_features

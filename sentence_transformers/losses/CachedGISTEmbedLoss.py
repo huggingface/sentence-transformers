@@ -237,7 +237,7 @@ class CachedGISTEmbedLoss(nn.Module):
                     decoded = self.tokenizer.batch_decode(
                         sentence_feature_minibatch["input_ids"], skip_special_tokens=True
                     )
-                    sentence_feature_minibatch = self.guide.tokenize(decoded)
+                    sentence_feature_minibatch = self.guide.preprocess(decoded)
                     sentence_feature_minibatch = {
                         key: value.to(self.guide.device) for key, value in sentence_feature_minibatch.items()
                     }

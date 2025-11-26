@@ -727,14 +727,14 @@ def test_data_collator(
 
     # Check that we can update the tokenizer in this way
     if has_eos_token:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[-1] == dummy_eos_token_id
+        assert model.preprocess(["dummy text"])["input_ids"].flatten()[-1] == dummy_eos_token_id
     else:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[-1] != dummy_eos_token_id
+        assert model.preprocess(["dummy text"])["input_ids"].flatten()[-1] != dummy_eos_token_id
 
     if has_bos_token:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[0] == dummy_bos_token_id
+        assert model.preprocess(["dummy text"])["input_ids"].flatten()[0] == dummy_bos_token_id
     else:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[0] != dummy_bos_token_id
+        assert model.preprocess(["dummy text"])["input_ids"].flatten()[0] != dummy_bos_token_id
 
     train_dataset = stsb_dataset_dict["train"].select(range(10))
     eval_dataset = stsb_dataset_dict["validation"].select(range(10))

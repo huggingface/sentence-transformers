@@ -59,7 +59,7 @@ def test_csr_outputs(csr_bert_tiny_model: SparseEncoder, is_inference: bool, exp
     model.forward = wrapper
 
     # Run the encode method which should call forward internally
-    inputs = model.tokenize(["This is a test sentence."])
+    inputs = model.preprocess(["This is a test sentence."])
     inputs = {key: value.to(model.device) for key, value in inputs.items()}
     model(inputs)
 

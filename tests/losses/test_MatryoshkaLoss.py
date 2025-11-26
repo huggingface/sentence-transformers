@@ -150,7 +150,7 @@ def test_mse_loss_matryoshka(static_retrieval_mrl_en_v1_model):
     model = static_retrieval_mrl_en_v1_model.cpu()
     orig_loss = MSELoss(model=model)
     loss = MatryoshkaLoss(model=model, loss=orig_loss, matryoshka_dims=[32, 64, 128, 256, 512, 768, 1024])
-    sentence_features = [model.tokenize(["This is an input text"])]
+    sentence_features = [model.preprocess(["This is an input text"])]
     x = torch.randn(1, 1024)  # Original dimension (teacher)
 
     # Call the loss function and verify output type and shape

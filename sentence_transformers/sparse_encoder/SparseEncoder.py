@@ -573,7 +573,7 @@ class SparseEncoder(SentenceTransformer):
 
             # Some models (e.g. INSTRUCTOR, GRIT) require removing the prompt before pooling
             # Tracking the prompt length allow us to remove the prompt during pooling
-            tokenized_prompt = self.tokenize([prompt], **kwargs)
+            tokenized_prompt = self.preprocess([prompt], **kwargs)
             if "input_ids" in tokenized_prompt:
                 extra_features["prompt_length"] = tokenized_prompt["input_ids"].shape[-1] - 1
 
@@ -593,7 +593,7 @@ class SparseEncoder(SentenceTransformer):
 
         for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
             sentences_batch = sentences_sorted[start_index : start_index + batch_size]
-            features = self.tokenize(sentences_batch, **kwargs)
+            features = self.preprocess(sentences_batch, **kwargs)
             features = batch_to_device(features, self.device)
             features.update(extra_features)
 

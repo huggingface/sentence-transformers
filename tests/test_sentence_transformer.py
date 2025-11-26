@@ -451,14 +451,14 @@ def test_prompt_length_calculation(
 
     # Check that we can update the tokenizer in this way
     if has_eos_token:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[-1] == dummy_eos_token_id
+        assert model.preprocess(["dummy text"])["input_ids"].flatten()[-1] == dummy_eos_token_id
     else:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[-1] != dummy_eos_token_id
+        assert model.preprocess(["dummy text"])["input_ids"].flatten()[-1] != dummy_eos_token_id
 
     if has_bos_token:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[0] == dummy_bos_token_id
+        assert model.preprocess(["dummy text"])["input_ids"].flatten()[0] == dummy_bos_token_id
     else:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[0] != dummy_bos_token_id
+        assert model.preprocess(["dummy text"])["input_ids"].flatten()[0] != dummy_bos_token_id
 
     # This should populate _prompt_length_mapping
     model.encode_query("This is a test sentence")
@@ -943,14 +943,14 @@ def test_clip():
     model = CLIPModel()
     assert model.max_seq_length == 77
     assert model.processor.tokenizer.model_max_length == 77
-    tokenized = model.tokenize(["This is my text sentence"])
+    tokenized = model.preprocess(["This is my text sentence"])
     assert "input_ids" in tokenized
     assert tokenized["input_ids"].shape == (1, 7)
 
     model.max_seq_length = 5
     assert model.max_seq_length == 5
     assert model.processor.tokenizer.model_max_length == 5
-    tokenized = model.tokenize(["This is my text sentence"])
+    tokenized = model.preprocess(["This is my text sentence"])
     assert "input_ids" in tokenized
     assert tokenized["input_ids"].shape == (1, 5)
 

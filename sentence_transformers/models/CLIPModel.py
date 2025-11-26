@@ -67,12 +67,12 @@ class CLIPModel(InputModule):
 
         return features
 
-    def tokenize(self, texts, padding: str | bool = True) -> dict[str, torch.Tensor]:
+    def preprocess(self, inputs, padding: str | bool = True) -> dict[str, torch.Tensor]:
         images = []
         texts_values = []
         image_text_info = []
 
-        for idx, data in enumerate(texts):
+        for idx, data in enumerate(inputs):
             if isinstance(data, Image.Image):  # An Image
                 images.append(data)
                 image_text_info.append(0)

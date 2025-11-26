@@ -29,14 +29,14 @@ def test_initialization_with_embedding_dim(tokenizer: Tokenizer) -> None:
 
 def test_tokenize(static_embedding_model: StaticEmbedding) -> None:
     texts = ["Hello world!", "How are you?"]
-    tokens = static_embedding_model.tokenize(texts)
+    tokens = static_embedding_model.preprocess(texts)
     assert "input_ids" in tokens
     assert "offsets" in tokens
 
 
 def test_forward(static_embedding_model: StaticEmbedding) -> None:
     texts = ["Hello world!", "How are you?"]
-    tokens = static_embedding_model.tokenize(texts)
+    tokens = static_embedding_model.preprocess(texts)
     output = static_embedding_model(tokens)
     assert "sentence_embedding" in output
 

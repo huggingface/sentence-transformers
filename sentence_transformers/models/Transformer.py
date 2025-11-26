@@ -246,9 +246,6 @@ class Transformer(InputModule):
             else:
                 self.processor.do_lower_case = do_lower_case
 
-        # print("Has a chat template?", hasattr(self.processor, "chat_template"))
-        print(f"Chat template length: {len(getattr(self.processor, 'chat_template', '') or '')}")
-
         # No max_seq_length set. Try to infer from model
         # TODO: self.processor.model_max_length might not work
         if max_seq_length is None:
@@ -627,7 +624,7 @@ class Transformer(InputModule):
             modality_config, module_output_name = result
 
             # If the processor has a chat template, add message modality with same configuration
-            if processor.chat_template:
+            if hasattr(processor, "chat_template") and processor.chat_template:
                 modality_config["message"] = modality_config[tuple(detected_modalities)]
 
         if modality_config and module_output_name:
@@ -810,16 +807,14 @@ class Transformer(InputModule):
             f"Please report this issue with your model name: {self.model.config.model_type if hasattr(self.model.config, 'model_type') else 'unknown'}"
         )
 
-    # TODO: Perhaps rename to 'preprocess' or 'process'?
-    # TODO: Consider moving modality checking to SentenceTransformer, so you can make multiple towers for different modalities
-    def tokenize(
+    def preprocess(
         self,
         texts: list[str] | list[dict] | list[tuple[str, str]],
         padding: str | bool = True,
         modality: str | tuple[str, ...] | None = None,
         **kwargs,
     ) -> dict[str, torch.Tensor]:
-        """Tokenizes inputs and maps tokens to token-ids.
+        """Preprocesses inputs and maps tokens to token-ids.
 
         Args:
             texts: List of inputs which can be:
@@ -827,11 +822,11 @@ class Transformer(InputModule):
                 - dict: Dictionary with modality keys (text, image, audio, video) or chat messages
                 - PIL.Image.Image: Image inputs
                 - np.ndarray/torch.Tensor: Audio (1-2D) or video (3-5D) inputs
-            padding: Padding strategy for tokenization
+            padding: Padding strategy for preprocessing
             modality: Optional modality to use. If not provided, will be inferred from inputs.
 
         Returns:
-            Dictionary containing tokenized inputs with 'modality' key indicating the input type
+            Dictionary containing preprocessed inputs with 'modality' key indicating the input type
         """
         # Configuration for different modality types
         common_kwargs = {"return_tensors": "pt"}

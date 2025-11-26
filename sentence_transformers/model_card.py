@@ -612,12 +612,12 @@ class SentenceTransformerModelCardData(CardData):
 
         return [dataset_output]
 
-    def tokenize(self, text: str | list[str], **kwargs) -> dict[str, Any]:
+    def preprocess(self, text: str | list[str], **kwargs) -> dict[str, Any]:
         try:
-            return self.model.tokenize(text, **kwargs)
+            return self.model.preprocess(text, **kwargs)
         except TypeError:
             # Fallback for backwards compatibility with modules that don't yet support kwargs
-            return self.model.tokenize(text)
+            return self.model.preprocess(text)
 
     def compute_dataset_metrics(
         self,
@@ -651,7 +651,7 @@ class SentenceTransformerModelCardData(CardData):
                 subsection = dataset[:1000][column]
                 first = subsection[0]
                 if isinstance(first, str):
-                    tokenized = self.tokenize(subsection, task="document")
+                    tokenized = self.preprocess(subsection, task="document")
                     if isinstance(tokenized, dict) and "attention_mask" in tokenized:
                         lengths = tokenized["attention_mask"].sum(dim=1).tolist()
                         suffix = "tokens"

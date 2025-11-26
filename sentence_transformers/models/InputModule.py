@@ -58,8 +58,24 @@ class InputModule(Module):
     """
 
     @abstractmethod
+    def preprocess(self, inputs: list[str], **kwargs) -> dict[str, torch.Tensor | Any]:
+        """
+        Preprocesses the input texts and returns a dictionary of preprocessed features.
+
+        Args:
+            texts (list[str]): List of input texts to preprocess.
+            **kwargs: Additional keyword arguments for preprocessing, e.g. ``task``.
+
+        Returns:
+            dict[str, torch.Tensor | Any]: Dictionary containing preprocessed features, e.g.
+                ``{"input_ids": ..., "attention_mask": ...}``
+        """
+
     def tokenize(self, texts: list[str], **kwargs) -> dict[str, torch.Tensor | Any]:
         """
+        .. deprecated::
+            `tokenize` is deprecated and will be removed in a future version. Use `preprocess` instead.
+
         Tokenizes the input texts and returns a dictionary of tokenized features.
 
         Args:
@@ -70,6 +86,15 @@ class InputModule(Module):
             dict[str, torch.Tensor | Any]: Dictionary containing tokenized features, e.g.
                 ``{"input_ids": ..., "attention_mask": ...}``
         """
+        import warnings
+
+        warnings.warn(
+            "The `tokenize` method is deprecated and will be removed in a future version. "
+            "Please use `preprocess` instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        return self.preprocess(texts, **kwargs)
 
     def save_tokenizer(self, output_path: str, **kwargs) -> None:
         """

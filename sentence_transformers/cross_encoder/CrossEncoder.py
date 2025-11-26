@@ -665,7 +665,7 @@ class CrossEncoder(SentenceTransformer):
             # )
             # features = self.tokenize(batch, **kwargs)
             # '''
-            features = self.tokenize(batch, **kwargs)
+            features = self.preprocess(batch, **kwargs)
             # return features
             features.to(self.device)
             out_features = self.forward(features, **kwargs)

@@ -67,8 +67,8 @@ class WordEmbeddings(Module):
         )
         return features
 
-    def tokenize(self, texts: list[str], **kwargs):
-        tokenized_texts = [self.tokenizer.tokenize(text, **kwargs) for text in texts]
+    def preprocess(self, inputs: list[str], **kwargs):
+        tokenized_texts = [self.tokenizer.tokenize(text, **kwargs) for text in inputs]
         sentence_lengths = [len(tokens) for tokens in tokenized_texts]
         max_len = max(sentence_lengths)
 

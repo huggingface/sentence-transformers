@@ -106,8 +106,8 @@ class StaticEmbedding(InputModule):
         # For the model card
         self.base_model = kwargs.get("base_model", None)
 
-    def tokenize(self, texts: list[str], **kwargs) -> dict[str, torch.Tensor]:
-        encodings = self.tokenizer.encode_batch(texts, add_special_tokens=False)
+    def preprocess(self, inputs: list[str], **kwargs) -> dict[str, torch.Tensor]:
+        encodings = self.tokenizer.encode_batch(inputs, add_special_tokens=False)
         encodings_ids = [encoding.ids for encoding in encodings]
 
         offsets = torch.from_numpy(np.cumsum([0] + [len(token_ids) for token_ids in encodings_ids[:-1]]))
