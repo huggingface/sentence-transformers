@@ -12,12 +12,12 @@ import torch
 from torch import nn
 
 from sentence_transformers import (
-    BaseTrainingArguments,
     SentenceTransformer,
     SentenceTransformerTrainer,
-    losses,
+    SentenceTransformerTrainingArguments,
 )
 from sentence_transformers.base.models.InputModule import InputModule
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 from sentence_transformers.sentence_transformer.models import Asym, Dense, Normalize, Router
 from sentence_transformers.sentence_transformer.models.StaticEmbedding import StaticEmbedding
 from sentence_transformers.util import is_datasets_available
@@ -447,9 +447,9 @@ def test_router_with_trainer(static_embedding_model: StaticEmbedding, tmp_path: 
     router_mapping = {"question": "query", "answer": "document"}
 
     # Create a loss function that works with router
-    loss = losses.MultipleNegativesRankingLoss(model=model)
+    loss = MultipleNegativesRankingLoss(model=model)
 
-    args = BaseTrainingArguments(
+    args = SentenceTransformerTrainingArguments(
         output_dir=tmp_path,
         router_mapping=router_mapping,
     )
@@ -483,9 +483,9 @@ def test_router_with_trainer_without_router_mapping(static_embedding_model: Stat
     )
 
     # Create a loss function that works with router
-    loss = losses.MultipleNegativesRankingLoss(model=model)
+    loss = MultipleNegativesRankingLoss(model=model)
 
-    args = BaseTrainingArguments(output_dir=tmp_path)
+    args = SentenceTransformerTrainingArguments(output_dir=tmp_path)
 
     with pytest.raises(
         ValueError,
