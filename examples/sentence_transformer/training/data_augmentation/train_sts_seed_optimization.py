@@ -35,10 +35,10 @@ from datasets import load_dataset
 from transformers import TrainerCallback, TrainerControl, TrainerState
 
 from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.similarity_functions import SimilarityFunction
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.base.trainer import SentenceTransformerTrainer
+from sentence_transformers.base.training_args import BaseTrainingArguments
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.util.similarity_functions import SimilarityFunction
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(
@@ -107,16 +107,14 @@ for seed in range(seed_count):
         def __init__(self, num_steps_until_stop: int):
             self.num_steps_until_stop = num_steps_until_stop
 
-        def on_step_end(
-            self, args: SentenceTransformerTrainingArguments, state: TrainerState, control: TrainerControl, **kwargs
-        ):
+        def on_step_end(self, args: BaseTrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
             if state.global_step >= self.num_steps_until_stop:
                 control.should_training_stop = True
 
     seed_testing_early_stopping_callback = SeedTestingEarlyStoppingCallback(num_steps_until_stop)
 
     # 6. Define the training arguments
-    args = SentenceTransformerTrainingArguments(
+    args = BaseTrainingArguments(
         # Required parameter:
         output_dir=model_save_path,
         # Optional training parameters:

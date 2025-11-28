@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.losses import MatryoshkaLoss, MSELoss, MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.losses import MatryoshkaLoss, MSELoss, MultipleNegativesRankingLoss
 
 
 @pytest.fixture

@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import InformationRetrievalEvaluator
+from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
 from sentence_transformers.util import cos_sim
 
 

@@ -7,7 +7,7 @@ import pytest
 from tokenizers import Tokenizer
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.models.StaticEmbedding import StaticEmbedding
+from sentence_transformers.sentence_transformer.models.StaticEmbedding import StaticEmbedding
 
 try:
     import model2vec

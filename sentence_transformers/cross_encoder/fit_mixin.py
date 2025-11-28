@@ -16,21 +16,21 @@ from tqdm.autonotebook import tqdm, trange
 from transformers import TrainerCallback, TrainerControl, TrainerState, is_torch_npu_available
 from transformers.tokenization_utils_base import BatchEncoding
 
+from sentence_transformers.base.evaluation.SentenceEvaluator import SentenceEvaluator
+from sentence_transformers.base.training_args import BatchSamplers
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
-from sentence_transformers.datasets.NoDuplicatesDataLoader import NoDuplicatesDataLoader
-from sentence_transformers.datasets.SentenceLabelDataset import SentenceLabelDataset
-from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
-from sentence_transformers.readers import InputExample
-from sentence_transformers.SentenceTransformer import SentenceTransformer
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.sentence_transformer.datasets.NoDuplicatesDataLoader import NoDuplicatesDataLoader
+from sentence_transformers.sentence_transformer.datasets.SentenceLabelDataset import SentenceLabelDataset
+from sentence_transformers.sentence_transformer.model import SentenceTransformer
+from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
     from datasets import Dataset
 
 if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
-    from sentence_transformers.readers.InputExample import InputExample
+    from sentence_transformers.cross_encoder.model import CrossEncoder
+    from sentence_transformers.sentence_transformer.readers.InputExample import InputExample
 
 
 logger = logging.getLogger(__name__)

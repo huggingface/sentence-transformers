@@ -5,8 +5,8 @@ from collections.abc import Iterable
 import torch.nn as nn
 from torch import Tensor
 
-from sentence_transformers.losses.CosineSimilarityLoss import CosineSimilarityLoss
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sentence_transformer.losses.CosineSimilarityLoss import CosineSimilarityLoss
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 class SparseCosineSimilarityLoss(CosineSimilarityLoss):

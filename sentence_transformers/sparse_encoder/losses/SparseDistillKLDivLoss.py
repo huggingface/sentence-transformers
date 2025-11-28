@@ -5,8 +5,8 @@ from collections.abc import Iterable
 from torch import Tensor
 
 from sentence_transformers import util
-from sentence_transformers.losses.DistillKLDivLoss import DistillKLDivLoss
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sentence_transformer.losses.DistillKLDivLoss import DistillKLDivLoss
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 class SparseDistillKLDivLoss(DistillKLDivLoss):

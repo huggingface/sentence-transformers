@@ -6,7 +6,7 @@ from datasets import load_dataset
 
 from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderRerankingEvaluator
-from sentence_transformers.evaluation import InformationRetrievalEvaluator
+from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
 from sentence_transformers.sparse_encoder.evaluation import SparseInformationRetrievalEvaluator
 from sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator import ReciprocalRankFusionEvaluator
 from sentence_transformers.sparse_encoder.models import MLMTransformer, SpladePooling

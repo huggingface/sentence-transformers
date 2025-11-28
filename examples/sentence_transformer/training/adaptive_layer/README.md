@@ -34,7 +34,7 @@ For example, with the 12-layer [microsoft/mpnet-base](https://huggingface.co/mic
 
 ```python
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.losses import CoSENTLoss, AdaptiveLayerLoss
+from sentence_transformers.sentence_transformer.losses import CoSENTLoss, AdaptiveLayerLoss
 
 model = SentenceTransformer("microsoft/mpnet-base")
 
@@ -50,7 +50,7 @@ Additionally, this can be combined with the `MatryoshkaLoss` such that the resul
 
 ```python
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.losses import CoSENTLoss, Matryoshka2dLoss
+from sentence_transformers.sentence_transformer.losses import CoSENTLoss, Matryoshka2dLoss
 
 model = SentenceTransformer("microsoft/mpnet-base")
 

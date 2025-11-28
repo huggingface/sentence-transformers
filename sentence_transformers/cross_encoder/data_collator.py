@@ -6,11 +6,11 @@ from typing import Any
 
 import torch
 
-from sentence_transformers.data_collator import SentenceTransformerDataCollator
+from sentence_transformers.base.data_collator import BaseDataCollator
 
 
 @dataclass
-class CrossEncoderDataCollator(SentenceTransformerDataCollator):
+class CrossEncoderDataCollator(BaseDataCollator):
     """Collator for a CrossEncoder model.
     This encodes the text columns to {column}_input_ids and {column}_attention_mask columns.
     This works with the two text dataset that is used as the example in the training overview:
@@ -50,6 +50,7 @@ class CrossEncoderDataCollator(SentenceTransformerDataCollator):
 
         for column_name in column_names:
             # If the prompt length has been set, we should add it to the batch
+            # TODO: I think CrossEncoder didn't/doesn't use prompts, so this may be unnecessary
             if column_name.endswith("_prompt_length") and column_name[: -len("_prompt_length")] in column_names:
                 batch[column_name] = torch.tensor([row[column_name] for row in features], dtype=torch.int)
                 continue

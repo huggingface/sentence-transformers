@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from sentence_transformers.losses.MSELoss import MSELoss
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sentence_transformer.losses.MSELoss import MSELoss
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 class SparseMSELoss(MSELoss):

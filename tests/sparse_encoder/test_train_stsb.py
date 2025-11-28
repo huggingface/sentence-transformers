@@ -8,7 +8,7 @@ from collections.abc import Generator
 import pytest
 
 from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments, util
-from sentence_transformers.readers import InputExample
+from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.sparse_encoder import losses
 from sentence_transformers.sparse_encoder.evaluation import SparseEmbeddingSimilarityEvaluator
 from sentence_transformers.util import is_datasets_available, is_training_available

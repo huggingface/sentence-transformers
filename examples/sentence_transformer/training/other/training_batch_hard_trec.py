@@ -25,9 +25,9 @@ from datetime import datetime
 from torch.utils.data import DataLoader
 
 from sentence_transformers import LoggingHandler, SentenceTransformer, losses, util
-from sentence_transformers.datasets import SentenceLabelDataset
-from sentence_transformers.evaluation import TripletEvaluator
-from sentence_transformers.readers import InputExample
+from sentence_transformers.sentence_transformer.datasets import SentenceLabelDataset
+from sentence_transformers.sentence_transformer.evaluation import TripletEvaluator
+from sentence_transformers.sentence_transformer.readers import InputExample
 
 logging.basicConfig(
     format="%(asctime)s - %(message)s",

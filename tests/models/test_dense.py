@@ -7,7 +7,7 @@ import torch
 from torch import nn
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.models import Dense, StaticEmbedding
+from sentence_transformers.sentence_transformer.models import Dense, StaticEmbedding
 
 
 def test_dense_load_and_save_in_other_precisions(static_embedding_model: StaticEmbedding, tmp_path: Path) -> None:

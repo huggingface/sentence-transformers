@@ -17,7 +17,7 @@ from .tensor import normalize_embeddings
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from sentence_transformers.SentenceTransformer import SentenceTransformer
+    from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
 def paraphrase_mining(

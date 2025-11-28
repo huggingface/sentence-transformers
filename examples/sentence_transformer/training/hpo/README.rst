@@ -74,7 +74,7 @@ The compute objective function is a function that takes the evaluation ``metrics
 
 .. note:
 
-    The dictionary keys of ``metrics`` are all prepended with ``eval_``. Additionally, if you're interested in maximizing the performance of an evaluator, note that the ``name`` of the evaluator is also prepended with a ``-``. So, to optimize on ``spearman_cosine`` from :class:`~sentence_transformers.evaluation.EmbeddingSimilarityEvaluator` which was initialized with ``name="stsb_dev"``, then you would use the key ``eval_sts-dev_spearman_cosine`` in your ``hpo_compute_objective``.
+    The dictionary keys of ``metrics`` are all prepended with ``eval_``. Additionally, if you're interested in maximizing the performance of an evaluator, note that the ``name`` of the evaluator is also prepended with a ``-``. So, to optimize on ``spearman_cosine`` from :class:`~sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator` which was initialized with ``name="stsb_dev"``, then you would use the key ``eval_sts-dev_spearman_cosine`` in your ``hpo_compute_objective``.
 
     Another common option is to use ``eval_loss``.
 
@@ -86,7 +86,7 @@ You can perform HPO on any regular training loop, the only difference being that
 .. sidebar:: Documentation
 
     #. `sentence-transformers/all-nli <https://huggingface.co/datasets/sentence-transformers/all-nli>`_
-    #. :class:`~sentence_transformers.evaluation.EmbeddingSimilarityEvaluator`
+    #. :class:`~sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator`
     #. `Hyperparameter Search Space <#hyperparameter-search-space>`_
     #. `Model Initialization <#model-initialization>`_
     #. `Loss Initialization <#loss-initialization>`_
@@ -99,7 +99,7 @@ You can perform HPO on any regular training loop, the only difference being that
 
     from sentence_transformers import losses
     from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
-    from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
+    from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
     from sentence_transformers.training_args import BatchSamplers
     from datasets import load_dataset
 

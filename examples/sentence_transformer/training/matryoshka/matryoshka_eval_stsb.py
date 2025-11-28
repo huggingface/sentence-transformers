@@ -13,7 +13,7 @@ from datasets import load_dataset
 from tqdm.auto import tqdm
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import (
+from sentence_transformers.sentence_transformer.evaluation import (
     EmbeddingSimilarityEvaluator,
     SimilarityFunction,
 )

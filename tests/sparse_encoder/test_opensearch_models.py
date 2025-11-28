@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from sentence_transformers.models import Router
+from sentence_transformers.base.models import Router
 from sentence_transformers.sparse_encoder import SparseEncoder
 from sentence_transformers.sparse_encoder.models import MLMTransformer, SparseStaticEmbedding, SpladePooling
 

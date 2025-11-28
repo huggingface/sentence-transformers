@@ -8,10 +8,10 @@ from datetime import datetime
 from datasets import Dataset
 
 from sentence_transformers import SentenceTransformer, models, util
-from sentence_transformers.evaluation import RerankingEvaluator
-from sentence_transformers.losses import DenoisingAutoEncoderLoss
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.base.trainer import SentenceTransformerTrainer
+from sentence_transformers.base.training_args import BaseTrainingArguments
+from sentence_transformers.sentence_transformer.evaluation import RerankingEvaluator
+from sentence_transformers.sentence_transformer.losses import DenoisingAutoEncoderLoss
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -166,7 +166,7 @@ dev_evaluator = RerankingEvaluator(eval_dataset, name="AskUbuntu-dev")
 dev_evaluator(model)
 
 # 5. Define the training arguments
-args = SentenceTransformerTrainingArguments(
+args = BaseTrainingArguments(
     # Required parameter:
     output_dir=output_dir,
     # Optional training parameters:

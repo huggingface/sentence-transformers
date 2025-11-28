@@ -6,7 +6,7 @@ import pytest
 import torch
 from torch.utils.data import ConcatDataset
 
-from sentence_transformers.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler
+from sentence_transformers.base.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():

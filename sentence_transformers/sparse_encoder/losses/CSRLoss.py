@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss import (
     SparseMultipleNegativesRankingLoss,
 )
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 def normalized_mean_squared_error(reconstruction: torch.Tensor, original_input: torch.Tensor) -> torch.Tensor:

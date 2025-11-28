@@ -4,7 +4,7 @@ from collections import Counter
 
 import pytest
 
-from sentence_transformers.sampler import GroupByLabelBatchSampler
+from sentence_transformers.base.sampler import GroupByLabelBatchSampler
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():

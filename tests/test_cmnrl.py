@@ -8,7 +8,11 @@ import tqdm
 from torch.optim import Adam
 from transformers import set_seed
 
-from sentence_transformers import InputExample, SentenceTransformer, losses
+from sentence_transformers import InputExample, SentenceTransformer
+from sentence_transformers.sentence_transformer.losses import (
+    CachedMultipleNegativesRankingLoss,
+    MultipleNegativesRankingLoss,
+)
 
 
 @pytest.mark.parametrize(
@@ -87,9 +91,9 @@ def test_cmnrl_same_grad(
     precision: float,
 ):
     # Given:
-    sbert = SentenceTransformer("distilbert-base-uncased")
-    sbert.to("cpu")
-    optimizer = Adam(sbert.parameters())
+    model = SentenceTransformer("distilbert-base-uncased")
+    model.to("cpu")
+    optimizer = Adam(model.parameters())
     # train_samples_mnrl
     # train_samples_cmnrl
     # same_grad
@@ -100,16 +104,16 @@ def test_cmnrl_same_grad(
     # First run with MNRL
     set_seed(42)
     optimizer.zero_grad()
-    loss_mnrl = losses.MultipleNegativesRankingLoss(sbert)
-    loss_mnrl_value: torch.Tensor = loss_mnrl.forward(*sbert.smart_batching_collate(train_samples_mnrl)) * scaler
+    loss_mnrl = MultipleNegativesRankingLoss(model)
+    loss_mnrl_value: torch.Tensor = loss_mnrl.forward(*model.smart_batching_collate(train_samples_mnrl)) * scaler
     loss_mnrl_value.backward()
     grad_expected = {name: p.grad.clone() for name, p in loss_mnrl.named_parameters() if p.grad is not None}
 
     # Then run with this cached version:
     set_seed(42)
     optimizer.zero_grad()
-    loss_cmnrl = losses.CachedMultipleNegativesRankingLoss(sbert, mini_batch_size=2)
-    loss_cmnrl_value = loss_cmnrl.forward(*sbert.smart_batching_collate(train_samples_cmnrl)) * scaler
+    loss_cmnrl = CachedMultipleNegativesRankingLoss(model, mini_batch_size=2)
+    loss_cmnrl_value = loss_cmnrl.forward(*model.smart_batching_collate(train_samples_cmnrl)) * scaler
     loss_cmnrl_value.backward()
     grad = {name: p.grad.clone() for name, p in loss_cmnrl.named_parameters() if p.grad is not None}
 
@@ -132,7 +136,7 @@ def test_cmnrl_same_grad(
 @pytest.mark.parametrize("use_rand_context", [True, False])
 def test_rand_context_working(use_rand_context: bool):
     # Given:
-    from sentence_transformers.losses.CachedMultipleNegativesRankingLoss import RandContext
+    from sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss import RandContext
 
     a = torch.Tensor(1)
     b = torch.Tensor(1)

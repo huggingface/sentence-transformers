@@ -125,7 +125,7 @@ Sentence Transformers implements two methods to calculate the similarity between
 
 .. note::
 
-   If a Sentence Transformer instance ends with a :class:`~sentence_transformers.models.Normalize` module, then it is sensible to choose the "dot" metric instead of "cosine".
+   If a Sentence Transformer instance ends with a :class:`~sentence_transformers.sentence_transformer.models.Normalize` module, then it is sensible to choose the "dot" metric instead of "cosine".
 
    Dot product on normalized embeddings is equivalent to cosine similarity, but "cosine" will re-normalize the embeddings again. As a result, the "dot" metric will be faster than "cosine".
 

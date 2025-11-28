@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 
 from sentence_transformers import CrossEncoder, util
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
-from sentence_transformers.readers import InputExample
+from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import is_training_available
 
 if not is_training_available():

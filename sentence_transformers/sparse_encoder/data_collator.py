@@ -3,13 +3,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sentence_transformers.data_collator import SentenceTransformerDataCollator
+from sentence_transformers.base.data_collator import BaseDataCollator
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class SparseEncoderDataCollator(SentenceTransformerDataCollator):
+class SparseEncoderDataCollator(BaseDataCollator):
     """Collator for a SparseEncoder model. Overridden from SentenceTransformerDataCollator with nothing added.
     This encodes the text columns to {column}_input_ids and {column}_attention_mask columns.
     This works with the two text dataset that is used as the example in the training overview:

@@ -3,7 +3,7 @@ import time
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.quantization import quantize_embeddings, semantic_search_usearch
+from sentence_transformers.util.quantization import quantize_embeddings, semantic_search_usearch
 
 # 1. Load the quora corpus with questions
 dataset = load_dataset("quora", split="train", trust_remote_code=True).map(

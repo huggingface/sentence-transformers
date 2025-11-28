@@ -11,10 +11,10 @@ from datetime import datetime
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import TripletEvaluator
-from sentence_transformers.losses import TripletLoss
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.base.trainer import SentenceTransformerTrainer
+from sentence_transformers.base.training_args import BaseTrainingArguments
+from sentence_transformers.sentence_transformer.evaluation import TripletEvaluator
+from sentence_transformers.sentence_transformer.losses import TripletLoss
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -56,7 +56,7 @@ dev_evaluator = TripletEvaluator(
 )
 
 # 5. Define the training arguments
-args = SentenceTransformerTrainingArguments(
+args = BaseTrainingArguments(
     # Required parameter:
     output_dir=output_dir,
     # Optional training parameters:

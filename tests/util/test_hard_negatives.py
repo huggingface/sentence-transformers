@@ -9,7 +9,7 @@ import pytest
 from torch import Tensor
 
 from sentence_transformers import CrossEncoder
-from sentence_transformers.SentenceTransformer import SentenceTransformer
+from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.util import is_datasets_available, mine_hard_negatives
 
 if is_datasets_available():

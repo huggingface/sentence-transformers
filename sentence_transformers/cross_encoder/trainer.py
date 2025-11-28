@@ -11,16 +11,16 @@ from packaging.version import parse as parse_version
 from torch import nn
 from transformers import EvalPrediction, PreTrainedTokenizerBase, TrainerCallback
 from transformers import __version__ as transformers_version
-from transformers.data.data_collator import DataCollator
 from transformers.integrations import WandbCallback
 
+from sentence_transformers.base import BaseDataCollator
+from sentence_transformers.base.evaluation import SentenceEvaluator, SequentialEvaluator
+from sentence_transformers.base.trainer import BaseTrainer
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.data_collator import CrossEncoderDataCollator
 from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss, CrossEntropyLoss
 from sentence_transformers.cross_encoder.model_card import CrossEncoderModelCardCallback
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
-from sentence_transformers.evaluation import SentenceEvaluator, SequentialEvaluator
-from sentence_transformers.trainer import SentenceTransformerTrainer
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 if is_datasets_available():
@@ -29,7 +29,7 @@ if is_datasets_available():
 logger = logging.getLogger(__name__)
 
 
-class CrossEncoderTrainer(SentenceTransformerTrainer):
+class CrossEncoderTrainer(BaseTrainer):
     """
     CrossEncoderTrainer is a simple but feature-complete training and eval loop for PyTorch
     based on the 🤗 Transformers :class:`~transformers.Trainer`.
@@ -66,12 +66,12 @@ class CrossEncoderTrainer(SentenceTransformerTrainer):
             or a dictionary mapping dataset names to functions that return a loss class instance given a model.
             In practice, the latter two are primarily used for hyper-parameter optimization. Will default to
             :class:`~sentence_transformers.losses.CoSENTLoss` if no ``loss`` is provided.
-        evaluator (Union[:class:`~sentence_transformers.evaluation.SentenceEvaluator`,\
-            List[:class:`~sentence_transformers.evaluation.SentenceEvaluator`]], *optional*):
+        evaluator (Union[:class:`~sentence_transformers.sentence_transformer.evaluation.SentenceEvaluator`,\
+            List[:class:`~sentence_transformers.sentence_transformer.evaluation.SentenceEvaluator`]], *optional*):
             The evaluator instance for useful evaluation metrics during training. You can use an ``evaluator`` with
             or without an ``eval_dataset``, and vice versa. Generally, the metrics that an ``evaluator`` returns
             are more useful than the loss value returned from the ``eval_dataset``. A list of evaluators will be
-            wrapped in a :class:`~sentence_transformers.evaluation.SequentialEvaluator` to run them sequentially.
+            wrapped in a :class:`~sentence_transformers.sentence_transformer.evaluation.SequentialEvaluator` to run them sequentially.
         callbacks (List of [:class:`transformers.TrainerCallback`], *optional*):
             A list of callbacks to customize the training loop. Will add those to the list of default callbacks
             detailed in [here](callback).
@@ -111,7 +111,7 @@ class CrossEncoderTrainer(SentenceTransformerTrainer):
         | dict[str, Callable[[CrossEncoder], torch.nn.Module]]
         | None = None,
         evaluator: SentenceEvaluator | list[SentenceEvaluator] | None = None,
-        data_collator: DataCollator | None = None,
+        data_collator: BaseDataCollator | None = None,
         tokenizer: PreTrainedTokenizerBase | Callable | None = None,
         model_init: Callable[[], CrossEncoder] | None = None,
         compute_metrics: Callable[[EvalPrediction], dict] | None = None,
@@ -220,7 +220,7 @@ class CrossEncoderTrainer(SentenceTransformerTrainer):
             )
 
         # Call the __init__ from Trainer, not from SentenceTransformerTrainer
-        super(SentenceTransformerTrainer, self).__init__(**super_kwargs)
+        super(BaseTrainer, self).__init__(**super_kwargs)
         # If the eval_dataset is "dummy", then we set it back to None
         if self.eval_dataset == "dummy":
             self.eval_dataset = None
@@ -331,7 +331,7 @@ class CrossEncoderTrainer(SentenceTransformerTrainer):
         full_model = self.model
         self.model = self.model.model
         try:
-            return super(SentenceTransformerTrainer, self)._load_best_model()
+            return super(BaseTrainer, self)._load_best_model()
         finally:
             loaded_auto_model = self.model
             self.model = full_model

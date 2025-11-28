@@ -12,14 +12,14 @@ import torch
 from torch import nn
 
 from sentence_transformers import (
+    BaseTrainingArguments,
     SentenceTransformer,
     SentenceTransformerTrainer,
-    SentenceTransformerTrainingArguments,
     losses,
 )
-from sentence_transformers.models import Asym, Dense, Normalize, Router
-from sentence_transformers.models.InputModule import InputModule
-from sentence_transformers.models.StaticEmbedding import StaticEmbedding
+from sentence_transformers.base.models.InputModule import InputModule
+from sentence_transformers.sentence_transformer.models import Asym, Dense, Normalize, Router
+from sentence_transformers.sentence_transformer.models.StaticEmbedding import StaticEmbedding
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -285,9 +285,9 @@ def test_router_backwards_compatibility(static_embedding_model):
     [
         (
             [
-                "sentence_transformers.models.Asym",
-                "sentence_transformers.models.Router",
-                "sentence_transformers.models",
+                "sentence_transformers.sentence_transformer.models.Asym",
+                "sentence_transformers.sentence_transformer.models.Router",
+                "sentence_transformers.sentence_transformer.models",
             ],
             [Asym, Router],
         ),
@@ -449,7 +449,7 @@ def test_router_with_trainer(static_embedding_model: StaticEmbedding, tmp_path: 
     # Create a loss function that works with router
     loss = losses.MultipleNegativesRankingLoss(model=model)
 
-    args = SentenceTransformerTrainingArguments(
+    args = BaseTrainingArguments(
         output_dir=tmp_path,
         router_mapping=router_mapping,
     )
@@ -485,7 +485,7 @@ def test_router_with_trainer_without_router_mapping(static_embedding_model: Stat
     # Create a loss function that works with router
     loss = losses.MultipleNegativesRankingLoss(model=model)
 
-    args = SentenceTransformerTrainingArguments(output_dir=tmp_path)
+    args = BaseTrainingArguments(output_dir=tmp_path)
 
     with pytest.raises(
         ValueError,
