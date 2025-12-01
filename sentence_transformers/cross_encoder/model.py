@@ -13,7 +13,7 @@ import numpy as np
 import torch
 from torch import nn
 from tqdm.autonotebook import trange
-from transformers import AutoConfig, PreTrainedConfig, PretrainedConfig, PreTrainedModel
+from transformers import AutoConfig, PretrainedConfig, PreTrainedModel
 from typing_extensions import deprecated
 
 from sentence_transformers.base.model import BaseModel
@@ -225,7 +225,7 @@ class CrossEncoder(BaseModel, FitMixin):
         if not local_files_only:
             self.model_card_data.set_base_model(model_name_or_path, revision=revision)
 
-        config: PreTrainedConfig = AutoConfig.from_pretrained(
+        config: PretrainedConfig = AutoConfig.from_pretrained(
             model_name_or_path,
             cache_dir=cache_folder,
             **config_kwargs,

@@ -293,7 +293,7 @@ class Transformer(InputModule):
     def auto_model(self) -> PreTrainedModel:
         return self.model
 
-    # TODO: Perhaps a def config(self) -> PreTrainedConfig:?
+    # TODO: Perhaps a def config(self) -> PretrainedConfig:?
 
     @property
     def modalities(self) -> list[str]:
