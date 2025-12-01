@@ -113,7 +113,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         token: bool | str | None = None,
         use_auth_token: bool | str | None = None,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        tokenizer_kwargs: dict[str, Any] | None = None,  # TODO: processor_kwargs?
         config_kwargs: dict[str, Any] | None = None,
         model_card_data: SentenceTransformerModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",

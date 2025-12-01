@@ -109,7 +109,9 @@ def test_torch_dtype(torch_dtype) -> None:
     assert embedding.shape[-1] == model.get_sentence_embedding_dimension()
 
 
-def test_push_to_hub(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_push_to_hub(
+    stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     def mock_create_repo(self, repo_id, **kwargs):
         return RepoUrl(f"https://huggingface.co/{repo_id}")
 
@@ -119,19 +121,16 @@ def test_push_to_hub(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureF
         nonlocal mock_upload_folder_kwargs
         mock_upload_folder_kwargs = kwargs
         if kwargs.get("revision") is None:
-            return CommitInfo(
-                commit_url=f"https://huggingface.co/{kwargs.get('repo_id')}/commit/123456",
-                commit_message="commit_message",
-                commit_description="commit_description",
-                oid="oid",
-            )
+            revision = "123456"
         else:
-            return CommitInfo(
-                commit_url=f"https://huggingface.co/{kwargs.get('repo_id')}/commit/678901",
-                commit_message="commit_message",
-                commit_description="commit_description",
-                oid="oid",
-            )
+            revision = "678901"
+        return CommitInfo(
+            commit_url=f"https://huggingface.co/{kwargs.get('repo_id')}/commit/{revision}",
+            commit_message="commit_message",
+            commit_description="commit_description",
+            oid="oid",
+            pr_url=f"https://huggingface.co/{kwargs.get('repo_id')}/discussions/123",
+        )
 
     def mock_create_branch(self, repo_id, branch, revision=None, **kwargs):
         return None
@@ -140,11 +139,16 @@ def test_push_to_hub(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureF
     monkeypatch.setattr(HfApi, "upload_folder", mock_upload_folder)
     monkeypatch.setattr(HfApi, "create_branch", mock_create_branch)
 
-    model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    model = stsb_bert_tiny_model
 
     url = model.push_to_hub("sentence-transformers-testing/stsb-bert-tiny-safetensors")
     assert mock_upload_folder_kwargs["repo_id"] == "sentence-transformers-testing/stsb-bert-tiny-safetensors"
     assert url == "https://huggingface.co/sentence-transformers-testing/stsb-bert-tiny-safetensors/commit/123456"
+    mock_upload_folder_kwargs.clear()
+
+    url = model.push_to_hub("sentence-transformers-testing/stsb-bert-tiny-safetensors", create_pr=True)
+    assert mock_upload_folder_kwargs["repo_id"] == "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    assert url == "https://huggingface.co/sentence-transformers-testing/stsb-bert-tiny-safetensors/discussions/123"
     mock_upload_folder_kwargs.clear()
 
     caplog.clear()

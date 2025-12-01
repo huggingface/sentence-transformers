@@ -12,6 +12,7 @@ class CausalScoreHead(Module):
         super().__init__()
         self.true_token_id = true_token_id
         self.false_token_id = false_token_id
+        self.num_labels = 1
 
     def forward(self, features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         is_padding_left = torch.all(features["attention_mask"][:, -1]).item()
@@ -36,8 +37,9 @@ class CausalScoreHead(Module):
             scores = logits[:, 0]
         else:
             scores = logits[:, 0] - logits[:, 1]
+        # TODO: Not sure if this unsqueeze is necessary
+        # scores = scores.unsqueeze(1)
         features["scores"] = scores
-
         return features
 
     def save(self, output_path) -> None:

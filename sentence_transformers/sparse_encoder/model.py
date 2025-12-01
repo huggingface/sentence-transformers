@@ -10,7 +10,7 @@ import numpy.typing as npt
 import torch
 from torch import Tensor, nn
 from tqdm import trange
-from transformers import AutoConfig
+from transformers import AutoConfig, PreTrainedConfig
 from transformers.modeling_utils import PreTrainedModel
 from typing_extensions import deprecated
 
@@ -928,7 +928,9 @@ class SparseEncoder(BaseModel):
         tokenizer_kwargs = shared_kwargs if tokenizer_kwargs is None else {**shared_kwargs, **tokenizer_kwargs}
         config_kwargs = shared_kwargs if config_kwargs is None else {**shared_kwargs, **config_kwargs}
 
-        config = AutoConfig.from_pretrained(model_name_or_path, cache_dir=cache_folder, **config_kwargs)
+        config: PreTrainedConfig = AutoConfig.from_pretrained(
+            model_name_or_path, cache_dir=cache_folder, **config_kwargs
+        )
 
         # Check if the architecture ends with "ForMaskedLM"
         is_mlm_model = False

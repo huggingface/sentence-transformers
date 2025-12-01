@@ -669,6 +669,9 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
         if create_pr:
             logger.info(f"A pull request has been created at {folder_url.pr_url}")
+            # TODO: Check backwards compatibility, this previously returned the commit URL only it seems
+            return folder_url.pr_url
+
         return folder_url.commit_url
 
     def _load_modules(

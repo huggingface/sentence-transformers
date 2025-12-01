@@ -542,18 +542,21 @@ def test_load_activation_fn_from_kwargs(num_labels: int, activation_fn: str, sav
     assert fullname(model.activation_fn) == saved_activation_fn
 
     model.save_pretrained(tmp_path)
-    with open(tmp_path / "config.json") as f:
+    with open(tmp_path / "config_sentence_transformers.json") as f:
         config = json.load(f)
-    assert config["sentence_transformers"]["activation_fn"] == saved_activation_fn
-    assert "sbert_ce_default_activation_function" not in config
+    assert config["activation_fn"] == saved_activation_fn
 
     loaded_model = CrossEncoder(str(tmp_path))
     assert fullname(loaded_model.activation_fn) == saved_activation_fn
 
-    # Setting the activation function via a prediction updates the instance, but not the config
+    # Setting the activation function via a predict call only updates it for that call
+    # TODO: Backwards incompatibility, previously setting activation_fn would keep it in the instance beyond the predict
     loaded_model.predict([["Hello there!", "Hello, World!"]], activation_fn=torch.nn.Identity())
+    assert fullname(loaded_model.activation_fn) == saved_activation_fn
+
+    # But we can also override it again when loading the model
+    loaded_model = CrossEncoder(str(tmp_path), activation_fn=torch.nn.Identity())
     assert fullname(loaded_model.activation_fn) == "torch.nn.modules.linear.Identity"
-    assert loaded_model.config.sentence_transformers["activation_fn"] == saved_activation_fn
 
 
 @pytest.mark.parametrize(
@@ -570,10 +573,9 @@ def test_load_activation_fn_from_config(tanh_model_name: str, tmp_path):
     assert fullname(model.activation_fn) == saved_activation_fn
 
     model.save_pretrained(tmp_path)
-    with open(tmp_path / "config.json") as f:
+    with open(tmp_path / "config_sentence_transformers.json") as f:
         config = json.load(f)
-    assert config["sentence_transformers"]["activation_fn"] == saved_activation_fn
-    assert "sbert_ce_default_activation_function" not in config
+    assert config["activation_fn"] == saved_activation_fn
 
     loaded_model = CrossEncoder(str(tmp_path))
     assert fullname(loaded_model.activation_fn) == saved_activation_fn
@@ -583,10 +585,10 @@ def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEn
     model = reranker_bert_tiny_model
 
     model.save_pretrained(tmp_path)
-    with open(tmp_path / "config.json") as f:
+    with open(tmp_path / "config_sentence_transformers.json") as f:
         config = json.load(f)
-    config["sentence_transformers"]["activation_fn"] = "sentence_transformers.custom.activations.CustomActivation"
-    with open(tmp_path / "config.json", "w") as f:
+    config["activation_fn"] = "sentence_transformers.custom.activations.CustomActivation"
+    with open(tmp_path / "config_sentence_transformers.json", "w") as f:
         json.dump(config, f)
 
     with caplog.at_level(logging.WARNING):
@@ -597,7 +599,7 @@ def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEn
         )
 
     # If we use trust_remote_code, it'll try to load the custom activation function, which doesn't exist
-    with pytest.raises(ImportError):
+    with pytest.raises(ModuleNotFoundError):
         model = CrossEncoder(str(tmp_path), trust_remote_code=True)
 
 

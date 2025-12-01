@@ -199,6 +199,19 @@ class Transformer(InputModule):
             config_args = {}
 
         config, is_peft_model = self._load_config(model_name_or_path, cache_dir, backend, config_args)
+
+        if (
+            transformer_task == "sequence-classification"
+            and "num_labels" not in config_args
+            and (
+                config.architectures is None
+                or not any([arch.endswith("ForSequenceClassification") for arch in config.architectures])
+            )
+        ):
+            # If we're loading a model for sequence-classification, but the base architecture is not for sequence-classification,
+            # and num_labels is not specified, we default to 1 label for CrossEncoder-like behavior
+            config.num_labels = 1
+
         self.model = self._load_model(
             model_name_or_path, transformer_task, config, cache_dir, backend, is_peft_model, **model_args
         )
@@ -279,6 +292,8 @@ class Transformer(InputModule):
     @property
     def auto_model(self) -> PreTrainedModel:
         return self.model
+
+    # TODO: Perhaps a def config(self) -> PreTrainedConfig:?
 
     @property
     def modalities(self) -> list[str]:

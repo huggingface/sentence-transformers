@@ -2,19 +2,18 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from pathlib import Path
+
+# TODO: OrderedDict from typing or typing_dict? Or collections?
 from typing import Any, Literal, overload
 
 import numpy as np
 import torch
 from torch import nn
 from tqdm.autonotebook import trange
-from transformers import (
-    AutoConfig,
-    PretrainedConfig,
-    PreTrainedModel,
-)
+from transformers import AutoConfig, PreTrainedConfig, PretrainedConfig, PreTrainedModel
 from typing_extensions import deprecated
 
 from sentence_transformers.base.model import BaseModel
@@ -26,6 +25,7 @@ from sentence_transformers.cross_encoder.util import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
+from sentence_transformers.util import fullname, import_from_string
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,6 @@ def _save_pretrained_wrapper(_save_pretrained_fn: Callable, subfolder: str) -> C
     return wrapper
 
 
-# class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
 class CrossEncoder(BaseModel, FitMixin):
     """
     A CrossEncoder takes exactly two sentences / texts as input and either predicts
@@ -109,20 +108,20 @@ class CrossEncoder(BaseModel, FitMixin):
             on the different backends.
     """
 
+    # TODO: Check backwards incompatibilities with the methods that are now handled by the superclass
+
     model_card_data_class = CrossEncoderModelCardData
     default_huggingface_organization: str | None = "cross-encoder"
 
     @cross_encoder_init_args_decorator
+    # TODO: Should we remove 'prompts'? They're a tad duplicate if we also have templates
+    # But it's possible to have a template with a spot for instructions (prompts), so maybe keep both
     def __init__(
         self,
         model_name_or_path: str,
+        *,
         modules: Iterable[nn.Module] | None = None,
         device: str | None = None,
-        prompts: dict[str, str] | None = None,
-        default_prompt_name: str | None = None,
-        num_labels: int | None = None,
-        max_length: int | None = None,
-        activation_fn: Callable | None = None,
         cache_folder: str | None = None,
         trust_remote_code: bool = False,
         revision: str | None = None,
@@ -133,13 +132,32 @@ class CrossEncoder(BaseModel, FitMixin):
         config_kwargs: dict | None = None,
         model_card_data: CrossEncoderModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
+        # CrossEncoder-specific args
+        prompts: dict[str, str] | None = None,
+        default_prompt_name: str | None = None,
+        num_labels: int | None = None,
+        max_length: int | None = None,
+        activation_fn: Callable | None = None,
     ) -> None:
-        super().__init__(  # similarity_fn_name
+        # CrossEncoder-specific attributes
+        self.prompts = prompts or {}
+        self.default_prompt_name = default_prompt_name
+        self.activation_fn = None
+
+        if num_labels is not None:
+            if config_kwargs is None:
+                config_kwargs = {}
+            config_kwargs["num_labels"] = num_labels
+
+        if max_length is not None:
+            if tokenizer_kwargs is None:
+                tokenizer_kwargs = {}
+            tokenizer_kwargs["model_max_length"] = max_length
+
+        super().__init__(
             model_name_or_path=model_name_or_path,
             modules=modules,
             device=device,
-            prompts=prompts,
-            default_prompt_name=default_prompt_name,
             cache_folder=cache_folder,
             trust_remote_code=trust_remote_code,
             revision=revision,
@@ -151,117 +169,34 @@ class CrossEncoder(BaseModel, FitMixin):
             model_card_data=model_card_data,
             backend=backend,
         )
-        # TODO: Store activation function as a plain callable to avoid nn.Module registration
-        self._activation_fn = [activation_fn or nn.Sigmoid()]
 
-        classifier_trained = False
-        if self.config.architectures is not None:
-            classifier_trained = any(
-                [arch.endswith("ForSequenceClassification") for arch in self.config.architectures]
+        # Validate and log prompts
+        if self.default_prompt_name is not None and self.default_prompt_name not in self.prompts:
+            raise ValueError(
+                f"Default prompt name '{self.default_prompt_name}' not found in the configured prompts "
+                f"dictionary with keys {list(self.prompts.keys())!r}."
             )
 
-        if num_labels is None and not classifier_trained:
-            num_labels = 1
+        if self.prompts and (non_empty_keys := [k for k, v in self.prompts.items() if v != ""]):
+            if len(non_empty_keys) == 1:
+                logger.info(f"1 prompt is loaded, with the key: {non_empty_keys[0]}")
+            else:
+                logger.info(f"{len(non_empty_keys)} prompts are loaded, with the keys: {non_empty_keys}")
+        if self.default_prompt_name:
+            logger.warning(
+                f"Default prompt name is set to '{self.default_prompt_name}'. "
+                "This prompt will be applied to all `encode()` calls, except if `encode()` "
+                "is called with `prompt` or `prompt_name` parameters."
+            )
 
-        if num_labels is not None:
-            self.config.num_labels = num_labels
+        # If an activation function is provided, use it. Otherwise, load the default one/from backwards compatibility
+        # if it wasn't set during super().__init__()
+        if activation_fn is not None:
+            self.activation_fn = activation_fn
+        elif self.activation_fn is None:
+            self.activation_fn = self.get_default_activation_fn()
 
-        """
-        if tokenizer_kwargs is None:
-            tokenizer_kwargs = {}
-        if model_kwargs is None:
-            model_kwargs = {}
-        if config_kwargs is None:
-            config_kwargs = {}
-        self.model_card_data = model_card_data or CrossEncoderModelCardData(local_files_only=local_files_only)
-        self.trust_remote_code = trust_remote_code
-        self._model_card_text = None
-        self.backend = backend
-
-        config: PretrainedConfig = AutoConfig.from_pretrained(
-            model_name_or_path,
-            cache_dir=cache_folder,
-            trust_remote_code=trust_remote_code,
-            revision=revision,
-            local_files_only=local_files_only,
-            token=token,
-            **config_kwargs,
-        )
-        if hasattr(config, "sentence_transformers") and "version" in config.sentence_transformers:
-            model_version = config.sentence_transformers["version"]
-            if version.parse(model_version) > version.parse(__version__):
-                logger.warning(
-                    f"You are trying to use a model that was created with Sentence Transformers version {model_version}, "
-                    f"but you're currently using version {__version__}. This might cause unexpected behavior or errors. "
-                    "In that case, try to update to the latest version."
-                )
-
-        classifier_trained = False
-        if config.architectures is not None:
-            classifier_trained = any([arch.endswith("ForSequenceClassification") for arch in config.architectures])
-
-        if num_labels is None and not classifier_trained:
-            num_labels = 1
-
-        if num_labels is not None:
-            config.num_labels = num_labels
-        self._load_model(
-            model_name_or_path,
-            config=config,
-            backend=backend,
-            cache_dir=cache_folder,
-            trust_remote_code=trust_remote_code,
-            revision=revision,
-            local_files_only=local_files_only,
-            token=token,
-            **model_kwargs,
-        )
-
-        if "model_max_length" not in tokenizer_kwargs and max_length is not None:
-            tokenizer_kwargs["model_max_length"] = max_length
-        self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
-            model_name_or_path,
-            cache_dir=cache_folder,
-            trust_remote_code=trust_remote_code,
-            revision=revision,
-            local_files_only=local_files_only,
-            token=token,
-            **tokenizer_kwargs,
-            # padding_side='left'
-        )
-        if "model_max_length" not in tokenizer_kwargs and hasattr(self.config, "max_position_embeddings"):
-            self.tokenizer.model_max_length = min(self.tokenizer.model_max_length, self.config.max_position_embeddings)
-
-        # Check if a readme exists
-        model_card_path = load_file_path(
-            model_name_or_path,
-            "README.md",
-            token=model_kwargs.get("token", None),
-            cache_folder=cache_folder,
-            revision=revision,
-            local_files_only=local_files_only,
-        )
-        if model_card_path is not None:
-            try:
-                with open(model_card_path, encoding="utf8") as fIn:
-                    self._model_card_text = fIn.read()
-            except Exception:
-                pass
-
-        self.set_activation_fn(activation_fn)
-
-        if device is None:
-            device = get_device_name()
-            logger.info(f"Use pytorch device: {device}")
-        self.to(device)
-
-        # Pass the model to the model card data for later use in generating a model card upon saving this model
-        self.model_card_data.register_model(self)
-        self.model_card_data.set_base_model(model_name_or_path, revision=revision)
-        """
-        # self.set_activation_fn(activation_fn)
-
-    def _load_auto_model(
+    def _load_default_modules(
         self,
         model_name_or_path: str,
         token: bool | str | None,
@@ -272,8 +207,7 @@ class CrossEncoder(BaseModel, FitMixin):
         model_kwargs: dict[str, Any] | None = None,
         tokenizer_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
-        has_modules: bool = False,
-    ) -> list[nn.Module]:
+    ) -> tuple[OrderedDict[str, nn.Module], OrderedDict[str, Any]]:
         # logger.warning(
         #     f"No CrossEncoder model found with name {model_name_or_path}. Creating a new one with mean pooling."
         # )
@@ -291,7 +225,7 @@ class CrossEncoder(BaseModel, FitMixin):
         if not local_files_only:
             self.model_card_data.set_base_model(model_name_or_path, revision=revision)
 
-        config: PretrainedConfig = AutoConfig.from_pretrained(
+        config: PreTrainedConfig = AutoConfig.from_pretrained(
             model_name_or_path,
             cache_dir=cache_folder,
             **config_kwargs,
@@ -314,102 +248,19 @@ class CrossEncoder(BaseModel, FitMixin):
                 true_token_id=transformer_model.tokenizer.convert_tokens_to_ids("yes"),
                 false_token_id=transformer_model.tokenizer.convert_tokens_to_ids("no"),
             )
-            return [transformer_model, post_processing]
-        else:
-            transformer_model = Transformer(
-                model_name_or_path,
-                transformer_task="sequence-classification",
-                cache_dir=cache_folder,
-                model_args=model_kwargs,
-                tokenizer_args=tokenizer_kwargs,
-                config_args=config_kwargs,
-                backend=self.backend,
-            )
-            return [transformer_model]
+            return [transformer_model, post_processing], {}
 
-    def _load_sbert_model(
-        self,
-        model_name_or_path: str,
-        token: bool | str | None,
-        cache_folder: str | None,
-        revision: str | None = None,
-        trust_remote_code: bool = False,
-        local_files_only: bool = False,
-        model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
-        config_kwargs: dict[str, Any] | None = None,
-    ) -> dict[str, nn.Module]:
-        return super()._load_sbert_model(
-            model_name_or_path=model_name_or_path,
-            token=token,
-            cache_folder=cache_folder,
-            revision=revision,
-            trust_remote_code=trust_remote_code,
-            local_files_only=local_files_only,
-            model_kwargs=model_kwargs,
-            tokenizer_kwargs=tokenizer_kwargs,
-            config_kwargs=config_kwargs,
+        # Otherwise, assume sequence-classification
+        transformer_model = Transformer(
+            model_name_or_path,
+            transformer_task="sequence-classification",
+            cache_dir=cache_folder,
+            model_args=model_kwargs,
+            tokenizer_args=tokenizer_kwargs,
+            config_args=config_kwargs,
+            backend=self.backend,
         )
-
-    """
-    def _load_model(
-        self,
-        model_name_or_path: str,
-        config: PretrainedConfig,
-        backend: str,
-        **model_kwargs,
-    ) -> None:
-        if backend == "torch":
-            if config.architectures[0].endswith("ForSequenceClassification"):
-                model_cls = AutoModelForSequenceClassification
-            elif config.architectures[0].endswith("ForCausalLM"):
-                model_cls = AutoModelForCausalLM
-
-            self.model: PreTrainedModel = model_cls.from_pretrained(
-                model_name_or_path,
-                config=config,
-                **model_kwargs,
-            )
-        '''
-        # TODO: Patch this
-        elif backend == "onnx":
-            self.model = load_onnx_model(
-                model_name_or_path=model_name_or_path,
-                config=config,
-                task_name="sequence-classification",
-                **model_kwargs,
-            )
-        elif backend == "openvino":
-            self.model = load_openvino_model(
-                model_name_or_path=model_name_or_path,
-                config=config,
-                task_name="sequence-classification",
-                **model_kwargs,
-            )
-        else:
-            raise ValueError(f"Unsupported backend '{backend}'. `backend` should be `torch`, `onnx`, or `openvino`.")
-        '''
-    """
-
-    '''
-    def get_backend(self) -> Literal["torch", "onnx", "openvino"]:
-        """Return the backend used for inference, which can be one of "torch", "onnx", or "openvino".
-
-        Returns:
-            str: The backend used for inference.
-        """
-        return self.backend
-    '''
-
-    '''
-    def set_activation_fn(self, activation_fn: Callable | None, set_default: bool = True) -> None:
-        if activation_fn is not None:
-            self.activation_fn = activation_fn
-        else:
-            self.activation_fn = self.get_default_activation_fn()
-
-        if set_default:
-            self.set_config_value("activation_fn", fullname(self.activation_fn))
+        return [transformer_model], {}
 
     def get_default_activation_fn(self) -> Callable:
         activation_fn_path = None
@@ -437,14 +288,9 @@ class CrossEncoder(BaseModel, FitMixin):
             return nn.Sigmoid()
         return nn.Identity()
 
-    def set_config_value(self, key: str, value) -> None:
-        """
-        Set a value in the underlying model's config.
-
-        Args:
-            key (str): The key to set.
-            value: The value to set.
-        """
+    '''
+    def set_config_value(self, key: str, value: Any) -> None:
+        """Set a value in the underlying model's config under `sentence_transformers`."""
         try:
             if not hasattr(self.config, "sentence_transformers"):
                 self.config.sentence_transformers = {}
@@ -465,13 +311,20 @@ class CrossEncoder(BaseModel, FitMixin):
 
     @property
     def num_labels(self) -> int:
-        # TODO: This won't work nicely
-        return self.config.num_labels
+        for module in reversed(self):
+            if isinstance(module, Transformer):
+                return module.model.config.num_labels
+            if isinstance(module, CausalScoreHead):
+                return module.num_labels
+        # Default to 1, not commonly reached
+        return 1
 
-    @property
-    def activation_fn(self) -> Callable:
-        """Get the activation function used for predictions."""
-        return self._activation_fn[0]
+    def __setattr__(self, name: str, value: Any) -> None:
+        # We don't want activation_fn to be registered as a module, instead we want it as a normal attribute
+        # This avoids issues with saving/loading the model
+        if name == "activation_fn":
+            return super(torch.nn.Module, self).__setattr__(name, value)
+        return super().__setattr__(name, value)
 
     @property
     def max_length(self) -> int:
@@ -488,9 +341,6 @@ class CrossEncoder(BaseModel, FitMixin):
     )
     def default_activation_function(self) -> Callable:
         return self.activation_fn
-
-    # def forward(self, *args, **kwargs):
-    #     return self.model(*args, **kwargs)
 
     @overload
     def predict(
@@ -606,9 +456,6 @@ class CrossEncoder(BaseModel, FitMixin):
                 logger.getEffectiveLevel() == logging.INFO or logger.getEffectiveLevel() == logging.DEBUG
             )
 
-        # if activation_fn is not None:
-        #     self.set_activation_fn(activation_fn, set_default=False)
-
         if prompt is None:
             if prompt_name is not None:
                 try:
@@ -670,11 +517,13 @@ class CrossEncoder(BaseModel, FitMixin):
             # features = self.tokenize(batch, **kwargs)
             # '''
             features = self.preprocess(batch, **kwargs)
-            # return features
             features.to(self.device)
             out_features = self.forward(features, **kwargs)
             scores = out_features["scores"]
-            scores = self.activation_fn(scores)
+
+            activation_fn = activation_fn or self.activation_fn
+            if activation_fn is not None:
+                scores = activation_fn(scores)
 
             # NOTE: This is just backwards compatibility with the code below, we can optimize this
             if scores.ndim == 1:
@@ -808,190 +657,21 @@ class CrossEncoder(BaseModel, FitMixin):
             )
         return cache[suffix]
 
-    '''
-    def save(self, path: str, *, safe_serialization: bool = True, **kwargs) -> None:
-        """
-        Saves the model and tokenizer to path; identical to `save_pretrained`
-        """
-        if path is None:
-            return
+    def _get_model_config(self) -> dict[str, Any]:
+        return super()._get_model_config() | {
+            "activation_fn": fullname(self.activation_fn),
+        }
 
-        logger.info(f"Save model to {path}")
-        self.set_config_value("version", __version__)
-        self.model.save_pretrained(path, safe_serialization=safe_serialization, **kwargs)
-        self.tokenizer.save_pretrained(path, **kwargs)
-        self._create_model_card(path)
-
-    def save_pretrained(self, path: str, *, safe_serialization: bool = True, **kwargs) -> None:
-        """
-        Save the model and tokenizer to the specified path.
-
-        Args:
-            path (str): Directory where the model should be saved
-            safe_serialization (bool, optional): Whether to save using `safetensors` or the traditional
-                PyTorch way. Defaults to True.
-            **kwargs: Additional arguments passed to the underlying save methods of the model and tokenizer.
-
-        Returns:
-            None
-        """
-        return self.save(path, safe_serialization=safe_serialization, **kwargs)
-
-    def _create_model_card(self, path: str) -> None:
-        """
-        Create an automatic model and stores it in the specified path. If no training was done and the loaded model
-        was a CrossEncoder model already, then its model card is reused.
-
-        Args:
-            path (str): The path where the model card will be stored.
-
-        Returns:
-            None
-        """
-        # If we loaded a model from the Hub, and no training was done, then
-        # we don't generate a new model card, but reuse the old one instead.
-        if self._model_card_text and "generated_from_trainer" not in self.model_card_data.tags:
-            model_card = self._model_card_text
-            if self.model_card_data.model_id:
-                # If the original model card was saved without a model_id, we replace the model_id with the new model_id
-                model_card = model_card.replace(
-                    'model = CrossEncoder("cross_encoder_model_id"',
-                    f'model = CrossEncoder("{self.model_card_data.model_id}"',
+    def _parse_model_config(self, model_config: dict[str, Any]) -> None:
+        if "activation_fn" in model_config:
+            activation_fn_path = model_config["activation_fn"]
+            # TODO: This is duplicate with get_default_activation_fn, definitely refactor
+            if activation_fn_path is not None:
+                if self.trust_remote_code or activation_fn_path.startswith("torch."):
+                    self.activation_fn = import_from_string(activation_fn_path)()
+                    return
+                logger.warning(
+                    f"Activation function path '{activation_fn_path}' is not trusted, using default activation function instead. "
+                    "Please load the CrossEncoder with `trust_remote_code=True` to allow loading custom activation "
+                    "functions via the configuration."
                 )
-        else:
-            try:
-                model_card = generate_model_card(self)
-            except Exception:
-                logger.error(
-                    f"Error while generating model card:\n{traceback.format_exc()}"
-                    "Consider opening an issue on https://github.com/huggingface/sentence-transformers/issues with this traceback.\n"
-                    "Skipping model card creation."
-                )
-                return
-
-        with open(os.path.join(path, "README.md"), "w", encoding="utf8") as fOut:
-            fOut.write(model_card)
-
-    def push_to_hub(
-        self,
-        repo_id: str,
-        *,
-        token: str | None = None,
-        private: bool | None = None,
-        safe_serialization: bool = True,
-        commit_message: str | None = None,
-        exist_ok: bool = False,
-        revision: str | None = None,
-        create_pr: bool = False,
-        tags: list[str] | None = None,
-    ) -> str:
-        """
-        Upload the CrossEncoder model to the Hugging Face Hub.
-
-        Example:
-            ::
-
-                from sentence_transformers import CrossEncoder
-
-                model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
-                model.push_to_hub("username/my-crossencoder-model")
-                # => "https://huggingface.co/username/my-crossencoder-model"
-
-        Args:
-            repo_id (str): The name of the repository on the Hugging Face Hub, e.g. "username/repo_name",
-                "organization/repo_name" or just "repo_name".
-            token (str, optional): The authentication token to use for the Hugging Face Hub API.
-                If not provided, will use the token stored via the Hugging Face CLI.
-            private (bool, optional): Whether to create a private repository. If not specified,
-                the repository will be public.
-            safe_serialization (bool, optional): Whether or not to convert the model weights in safetensors
-                format for safer serialization. Defaults to True.
-            commit_message (str, optional): The commit message to use for the push. Defaults to "Add new CrossEncoder model".
-            exist_ok (bool, optional): If True, do not raise an error if the repository already exists.
-                Ignored if ``create_pr=True``. Defaults to False.
-            revision (str, optional): The git branch to commit to. Defaults to the head of the 'main' branch.
-            create_pr (bool, optional): Whether to create a Pull Request with the upload or directly commit. Defaults to False.
-            tags (list[str], optional): A list of tags to add to the model card. Defaults to None.
-
-        Returns:
-            str: URL of the commit or pull request (if create_pr=True)
-        """
-        api = HfApi(token=token)
-        repo_url = api.create_repo(
-            repo_id=repo_id,
-            private=private,
-            repo_type=None,
-            exist_ok=exist_ok or create_pr,
-        )
-        repo_id = repo_url.repo_id  # Update the repo_id in case the old repo_id didn't contain a user or organization
-        self.model_card_data.set_model_id(repo_id)
-        if tags is not None:
-            self.model_card_data.add_tags(tags)
-
-        if revision is not None:
-            api.create_branch(repo_id=repo_id, branch=revision, exist_ok=True)
-
-        if commit_message is None:
-            commit_message = "Add new CrossEncoder model"
-        commit_description = ""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            self.save_pretrained(
-                tmp_dir,
-                safe_serialization=safe_serialization,
-            )
-            folder_url = api.upload_folder(
-                repo_id=repo_id,
-                folder_path=tmp_dir,
-                commit_message=commit_message,
-                commit_description=commit_description,
-                revision=revision,
-                create_pr=create_pr,
-            )
-
-        if create_pr:
-            return folder_url.pr_url
-        return folder_url.commit_url
-
-    @property
-    def transformers_model(self) -> PreTrainedModel | None:
-        """
-        Property to get the underlying transformers PreTrainedModel instance.
-
-        Returns:
-            PreTrainedModel or None: The underlying transformers model or None if not found.
-
-        Example:
-            ::
-
-                from sentence_transformers import CrossEncoder
-
-                model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
-
-                # You can now access the underlying transformers model
-                transformers_model = model.transformers_model
-                print(type(transformers_model))
-                # => <class 'transformers.models.bert.modeling_bert.BertForSequenceClassification'>
-        """
-        # This property simply points to self.model, it exists primarily to have the same interface
-        # as SentenceTransformer and SparseEncoder models.
-        return self.model
-
-    @property
-    def _target_device(self) -> torch.device:
-        logger.warning(
-            "`CrossEncoder._target_device` has been removed, please use `CrossEncoder.device` instead.",
-        )
-        return self.device
-
-    @_target_device.setter
-    def _target_device(self, device: int | str | torch.device | None = None) -> None:
-        self.to(device)
-
-    @property
-    def device(self) -> torch.device:
-        return self.model.device
-
-    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None) -> None:
-        # Propagate the gradient checkpointing to the transformer model
-        return self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs)
-    '''
