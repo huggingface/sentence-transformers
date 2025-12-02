@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -81,6 +82,9 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
     Args:
         dataset_names (List[str]): The names of the datasets to evaluate on. Defaults to all datasets.
+            Can be either predefined names (e.g., "climatefever", "msmarco") or custom HuggingFace 
+            dataset paths following the NanoBEIR format (e.g., "sentence-transformers/NanoClimateFEVER-bm25").
+            Custom datasets must have "corpus", "queries", and "qrels"/"relevance" subsets.
         mrr_at_k (List[int]): A list of integers representing the values of k for MRR calculation. Defaults to [10].
         ndcg_at_k (List[int]): A list of integers representing the values of k for NDCG calculation. Defaults to [10].
         accuracy_at_k (List[int]): A list of integers representing the values of k for accuracy calculation. Defaults to [1, 3, 5, 10].
@@ -193,7 +197,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
     def __init__(
         self,
-        dataset_names: list[DatasetNameType] | None = None,
+        dataset_names: list[DatasetNameType | str] | None = None,
         mrr_at_k: list[int] = [10],
         ndcg_at_k: list[int] = [10],
         accuracy_at_k: list[int] = [1, 3, 5, 10],
@@ -398,7 +402,13 @@ class NanoBEIREvaluator(SentenceEvaluator):
         return per_dataset_results
 
     def _get_human_readable_name(self, dataset_name: DatasetNameType) -> str:
-        human_readable_name = f"Nano{dataset_name_to_human_readable[dataset_name.lower()]}"
+        if dataset_name.lower() in dataset_name_to_human_readable:
+            human_readable_name = f"Nano{dataset_name_to_human_readable[dataset_name.lower()]}"
+        elif "/" in dataset_name:
+            human_readable_name = dataset_name.split("/")[-1]
+        else:
+            human_readable_name = dataset_name
+
         if self.truncate_dim is not None:
             human_readable_name += f"_{self.truncate_dim}"
         return human_readable_name
@@ -410,17 +420,33 @@ class NanoBEIREvaluator(SentenceEvaluator):
             )
         from datasets import load_dataset
 
-        dataset_path = dataset_name_to_id[dataset_name.lower()]
+        if dataset_name.lower() in dataset_name_to_id:
+            dataset_path = dataset_name_to_id[dataset_name.lower()]
+        else:
+            dataset_path = dataset_name
+
         corpus = load_dataset(dataset_path, "corpus", split="train")
         queries = load_dataset(dataset_path, "queries", split="train")
-        qrels = load_dataset(dataset_path, "qrels", split="train")
+
+        try:
+            qrels = load_dataset(dataset_path, "qrels", split="train")
+        except ValueError:
+            qrels = load_dataset(dataset_path, "relevance", split="train")
+
         corpus_dict = {sample["_id"]: sample["text"] for sample in corpus if len(sample["text"]) > 0}
         queries_dict = {sample["_id"]: sample["text"] for sample in queries if len(sample["text"]) > 0}
+
         qrels_dict = {}
         for sample in qrels:
+            corpus_ids = sample.get("positive-corpus-ids") or sample.get("corpus-id")
+
             if sample["query-id"] not in qrels_dict:
                 qrels_dict[sample["query-id"]] = set()
-            qrels_dict[sample["query-id"]].add(sample["corpus-id"])
+
+            if isinstance(corpus_ids, list):
+                qrels_dict[sample["query-id"]].update(corpus_ids)
+            else:
+                qrels_dict[sample["query-id"]].add(corpus_ids)
 
         if self.query_prompts is not None:
             ir_evaluator_kwargs["query_prompt"] = self.query_prompts.get(dataset_name, None)
@@ -438,13 +464,34 @@ class NanoBEIREvaluator(SentenceEvaluator):
     def _validate_dataset_names(self):
         if len(self.dataset_names) == 0:
             raise ValueError("dataset_names cannot be empty. Use None to evaluate on all datasets.")
-        if missing_datasets := [
-            dataset_name for dataset_name in self.dataset_names if dataset_name.lower() not in dataset_name_to_id
-        ]:
+
+        invalid_datasets = []
+        for dataset_name in self.dataset_names:
+            if "/" in dataset_name:
+                if not self._is_valid_nanobeir_path(dataset_name):
+                    invalid_datasets.append(dataset_name)
+            else:
+                if dataset_name.lower() not in dataset_name_to_id:
+                    invalid_datasets.append(dataset_name)
+
+        if invalid_datasets:
             raise ValueError(
-                f"Dataset(s) {missing_datasets} not found in the NanoBEIR collection. "
-                f"Valid dataset names are: {list(dataset_name_to_id.keys())}"
+                f"Dataset(s) {invalid_datasets} are not valid NanoBEIR datasets. "
+                f"Valid predefined names are: {list(dataset_name_to_id.keys())}. "
+                f"Custom paths must follow the pattern '{{org}}/Nano{{DatasetName}}' or "
+                f"'{{org}}/Nano{{DatasetName}}-{{suffix}}' where DatasetName is one of valid predefined names."
             )
+
+    def _is_valid_nanobeir_path(self, dataset_path: str) -> bool:
+        pattern = r"^[^/]+/Nano([A-Za-z0-9]+)(?:-.*)?$"
+        match = re.match(pattern, dataset_path)
+
+        if not match:
+            return False
+
+        extracted_name = match.group(1).lower()
+
+        return extracted_name in dataset_name_to_id
 
     def _validate_prompts(self):
         error_msg = ""
