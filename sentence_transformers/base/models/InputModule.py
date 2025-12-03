@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import abstractmethod
 from typing import Any
 
 import torch
@@ -57,7 +56,6 @@ class InputModule(Module):
     ``tokenizers`` library.
     """
 
-    @abstractmethod
     def preprocess(self, inputs: list[str], **kwargs) -> dict[str, torch.Tensor | Any]:
         """
         Preprocesses the input texts and returns a dictionary of preprocessed features.

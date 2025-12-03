@@ -725,7 +725,7 @@ class Transformer(InputModule):
         """
 
         # TODO: Should we pass along the modality in 'features'?
-        modality_name = features["modality"]
+        modality_name = features.get("modality", "text")
         modality_params = self.modality_config[modality_name]
         # TODO: Allow 'method' to be a tuple of methods to execute sequentially? A bit messy with the kwargs though
         method_name = modality_params["method"]

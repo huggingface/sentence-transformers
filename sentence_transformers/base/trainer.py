@@ -27,7 +27,6 @@ from sentence_transformers.base.data_collator import BaseDataCollator
 from sentence_transformers.base.evaluation import SentenceEvaluator, SequentialEvaluator
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.model_card import BaseModelCardCallback, BaseModelCardData
-from sentence_transformers.base.models import Router
 from sentence_transformers.base.sampler import (
     DefaultBatchSampler,
     GroupByLabelBatchSampler,
@@ -218,14 +217,6 @@ class BaseTrainer(Trainer, ABC):
         if data_collator is None:
             data_collator = self.load_data_collator(model=model, args=args, processing_class=processing_class)
 
-            if Router in [module.__class__ for module in model.children()] and not args.router_mapping:
-                raise ValueError(
-                    "You are using a Router module in your model, but you did not provide a `router_mapping` in the "
-                    "training arguments. This means that the Router module will not be able to route the inputs to "
-                    "the correct submodules. Please provide a `router_mapping` that maps column names to routes, "
-                    "e.g. {'column_one': 'query', 'column_two': 'document', 'column_three': 'document'}."
-                )
-
         for dataset_name, dataset in zip(["train", "eval"], [train_dataset, eval_dataset]):
             if isinstance(dataset, IterableDataset) and dataset.column_names is None:
                 sample = next(iter(dataset))
@@ -251,7 +242,7 @@ class BaseTrainer(Trainer, ABC):
         if eval_dataset is None and evaluator is None and args.eval_strategy != "no":
             raise ValueError(
                 f"You have set `args.eval_strategy` to {args.eval_strategy}, but you didn't provide an `eval_dataset` or an `evaluator`. "
-                "Either provide an `eval_dataset` or an `evaluator` to `SentenceTransformerTrainer`, "
+                f"Either provide an `eval_dataset` or an `evaluator` to `{self.__class__.__name__}`, "
                 "or set `args.eval_strategy='no'` to skip evaluation."
             )
 
@@ -325,6 +316,7 @@ class BaseTrainer(Trainer, ABC):
             self.eval_dataset = self.preprocess_dataset(eval_dataset, dataset_name="eval")
         self.add_model_card_callback(default_args_dict)
 
+    # TODO: Normalize load_... and get_... (e.g. get_default_loss) naming
     def load_data_collator(
         self,
         model: BaseModel,
@@ -352,7 +344,7 @@ class BaseTrainer(Trainer, ABC):
 
             This method can be overridden by subclassing the trainer to use a custom data collator.
         """
-        return self.data_collator_class(tokenize_fn=model.preprocess, router_mapping=args.router_mapping)
+        return self.data_collator_class(tokenize_fn=model.preprocess)
 
     def add_model_card_callback(self, default_args_dict: dict[str, Any]) -> None:
         """
@@ -1085,20 +1077,11 @@ class BaseTrainer(Trainer, ABC):
         loss: nn.Module | dict[str, nn.Module],
     ) -> bool:
         """
-        We should add a dataset name column to the dataset, if the dataset is a DatasetDict, *and* one of:
-
-        a. The loss is a dictionary, or
-        b. The router_mapping contains a mapping of dataset names.
+        We should add a dataset name column to the dataset, if the dataset is a DatasetDict, *and* the
+        loss is a dictionary.
         """
 
-        return isinstance(dataset, (DatasetDict, IterableDatasetDict)) and (
-            isinstance(loss, dict)
-            or (
-                args.router_mapping
-                and isinstance(args.router_mapping, dict)
-                and isinstance(next(iter(args.router_mapping.values())), dict)
-            )
-        )
+        return isinstance(dataset, (DatasetDict, IterableDatasetDict)) and isinstance(loss, dict)
 
     def add_dataset_name_column(
         self,

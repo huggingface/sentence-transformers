@@ -10,9 +10,12 @@ from sentence_transformers.base.data_collator import BaseDataCollator
 
 @dataclass
 class SentenceTransformerDataCollator(BaseDataCollator):
+    # SentenceTransformer-specific data collator parameters for mapping columns to Router routes and supporting prompts
+    router_mapping: dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
     prompts: dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
     include_prompt_lengths: bool = field(default=False, repr=False)
     all_special_ids: set[int] = field(default_factory=set, repr=False)
+
     _prompt_length_mapping: dict[str, int] = field(default_factory=dict, init=False, repr=False)
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, torch.Tensor]:

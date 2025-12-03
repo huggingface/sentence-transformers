@@ -16,6 +16,7 @@ from transformers import (
 )
 from transformers.utils.deprecation import deprecate_kwarg
 
+from sentence_transformers.base.models import Router
 from sentence_transformers.base.trainer import BaseTrainer
 from sentence_transformers.sentence_transformer.evaluation import SentenceEvaluator
 from sentence_transformers.sparse_encoder.callbacks.splade_callbacks import SpladeRegularizerWeightSchedulerCallback
@@ -27,7 +28,7 @@ from sentence_transformers.sparse_encoder.training_args import SparseEncoderTrai
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
-    from datasets import Dataset, DatasetDict, IterableDataset
+    from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,65 @@ class SparseEncoderTrainer(BaseTrainer):
             loss=SparseMultipleNegativesRankingLoss(model=model),
             query_regularizer_weight=5e-5,  # Weight for query loss
             document_regularizer_weight=3e-5,  # Weight for document loss
+        )
+
+    def load_data_collator(
+        self,
+        model: SparseEncoder,
+        args: SparseEncoderTrainingArguments,
+        processing_class: PreTrainedTokenizerBase
+        | BaseImageProcessor
+        | FeatureExtractionMixin
+        | ProcessorMixin
+        | None = None,
+    ) -> SparseEncoderDataCollator:
+        """
+        Load the data collator for the trainer.
+
+        Args:
+            model (:class:`~sentence_transformers.SentenceTransformer`):
+                The model to train, evaluate or use for predictions.
+            args (:class:`~sentence_transformers.training_args.BaseTrainingArguments`):
+                The arguments to tweak for training.
+            processing_class (Union[:class:`transformers.PreTrainedTokenizerBase`, :class:`transformers.BaseImageProcessor`, :class:`transformers.FeatureExtractionMixin`, :class:`transformers.ProcessorMixin`], *optional*):
+                The processing class to use for tokenization or image processing.
+        Returns:
+            :class:`BaseDataCollator`: The data collator to use for the trainer
+
+        .. note::
+
+            This method can be overridden by subclassing the trainer to use a custom data collator.
+        """
+        if Router in [module.__class__ for module in model.children()] and not args.router_mapping:
+            raise ValueError(
+                "You are using a Router module in your model, but you did not provide a `router_mapping` in the "
+                "training arguments. This means that the Router module will not be able to route the inputs to "
+                "the correct submodules. Please provide a `router_mapping` that maps column names to routes, "
+                "e.g. {'column_one': 'query', 'column_two': 'document', 'column_three': 'document'}."
+            )
+
+        return self.data_collator_class(tokenize_fn=model.preprocess, router_mapping=args.router_mapping)
+
+    def should_dataset_name_column_be_added(
+        self,
+        dataset: DatasetDict | Dataset | None,
+        args: SparseEncoderTrainingArguments,
+        loss: nn.Module | dict[str, nn.Module],
+    ) -> bool:
+        """
+        We should add a dataset name column to the dataset, if the dataset is a DatasetDict, *and* one of:
+
+        a. The loss is a dictionary, or
+        b. The router_mapping contains a mapping of dataset names.
+        """
+
+        return isinstance(dataset, (DatasetDict, IterableDatasetDict)) and (
+            isinstance(loss, dict)
+            or (
+                args.router_mapping
+                and isinstance(args.router_mapping, dict)
+                and isinstance(next(iter(args.router_mapping.values())), dict)
+            )
         )
 
     def prepare_loss(

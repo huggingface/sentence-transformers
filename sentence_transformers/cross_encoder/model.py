@@ -326,6 +326,19 @@ class CrossEncoder(BaseModel, FitMixin):
             return super(torch.nn.Module, self).__setattr__(name, value)
         return super().__setattr__(name, value)
 
+    '''
+    def forward(self, input: dict[str, torch.Tensor] = None, **kwargs) -> dict[str, torch.Tensor]:
+        """Run a forward pass through all modules in the model.
+
+        The preferred calling pattern is ``model(input)`` where ``input`` is a dictionary of tensors.
+        For backwards compatibility, calling ``model(**inputs)`` is still supported. In that case,
+        the keyword arguments are collected into a single input dictionary, akin to ``model(inputs)``.
+        """
+        if input is None and kwargs:
+            input = kwargs
+        return super().forward(input)
+    '''
+
     @property
     def max_length(self) -> int:
         return self.tokenizer.model_max_length

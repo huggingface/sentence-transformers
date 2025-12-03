@@ -25,7 +25,6 @@ class BaseDataCollator:
 
     tokenize_fn: Callable
     valid_label_columns: list[str] = field(default_factory=lambda: ["label", "score"])
-    router_mapping: dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
 
     _warned_columns: set[tuple[str]] = field(default_factory=set, init=False, repr=False)
 
@@ -49,26 +48,9 @@ class BaseDataCollator:
                 column_names.remove(label_column)
                 break
 
-        router_mapping = self.router_mapping
-        # If the router_mapping is a nested dict, then the outer keys are the column names, and we should
-        # grab the inner mapping for the specific dataset if it exists.
-        if (
-            router_mapping
-            and isinstance(router_mapping, dict)
-            and isinstance(next(iter(router_mapping.values())), dict)
-        ):
-            if "dataset_name" in batch and batch["dataset_name"] in router_mapping:
-                # Use the mapping for the specific dataset
-                router_mapping = router_mapping[batch["dataset_name"]]
-            else:
-                router_mapping = {}
-
         for column_name in column_names:
-            # Users can specify a router_mapping via the training arguments, which maps column names to "task types",
-            # useful for the Router module (among others). This has to be provided to the tokenization function.
-            task = router_mapping.get(column_name, None)
             inputs = [row[column_name] for row in features]
-            tokenized = self.tokenize_fn(inputs, task=task)
+            tokenized = self.tokenize_fn(inputs)
             for key, value in tokenized.items():
                 batch[f"{column_name}_{key}"] = value
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Collection
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,9 +22,8 @@ class CrossEncoderDataCollator(BaseDataCollator):
     "given the answer, what is the question?".
     """
 
-    tokenize_fn: Callable
+    # CrossEncoder-specific overriding of valid label columns to include "labels" and plural "scores"
     valid_label_columns: list[str] = field(default_factory=lambda: ["label", "labels", "score", "scores"])
-    _warned_columns: set[tuple[str]] = field(default_factory=set, init=False, repr=False)
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         column_names = list(features[0].keys())

@@ -34,13 +34,6 @@ class BaseTrainingArguments(TransformersTrainingArguments):
         multi_dataset_batch_sampler (Union[:class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`, `str`, :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler`]], *optional*):
             The multi-dataset batch sampler to use. See :class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`
             for valid options. Defaults to ``MultiDatasetBatchSamplers.PROPORTIONAL``.
-        router_mapping (`Dict[str, str] | Dict[str, Dict[str, str]]`, *optional*):
-            A mapping of dataset column names to Router routes, like "query" or "document". This is used to specify
-            which Router submodule to use for each dataset. Two formats are accepted:
-
-            1. `Dict[str, str]`: A mapping of column names to routes.
-            2. `Dict[str, Dict[str, str]]`: A mapping of dataset names to a mapping of column names to routes for
-               multi-dataset training/evaluation.
         learning_rate_mapping (`Dict[str, float] | None`, *optional*):
             A mapping of parameter name regular expressions to learning rates. This allows you to set different
             learning rates for different parts of the model, e.g., `{'SparseStaticEmbedding\.*': 1e-3}` for the
@@ -58,7 +51,6 @@ class BaseTrainingArguments(TransformersTrainingArguments):
         "deepspeed",
         "gradient_checkpointing_kwargs",
         "lr_scheduler_kwargs",
-        "router_mapping",
         "learning_rate_mapping",
     ]
 
@@ -69,14 +61,6 @@ class BaseTrainingArguments(TransformersTrainingArguments):
         MultiDatasetBatchSamplers, str, MultiDatasetDefaultBatchSampler, Callable[..., MultiDatasetDefaultBatchSampler]
     ] = field(
         default=MultiDatasetBatchSamplers.PROPORTIONAL, metadata={"help": "The multi-dataset batch sampler to use."}
-    )
-    router_mapping: Union[str, None, dict[str, str], dict[str, dict[str, str]]] = field(  # noqa: UP007
-        default_factory=dict,
-        metadata={
-            "help": 'A mapping of dataset column names to Router routes, like "query" or "document". '
-            "Either 1) a mapping of column names to routes or 2) a mapping of dataset names to a mapping "
-            "of column names to routes for multi-dataset training/evaluation. "
-        },
     )
     learning_rate_mapping: Union[str, None, dict[str, float]] = field(  # noqa: UP007
         default_factory=dict,
@@ -98,15 +82,6 @@ class BaseTrainingArguments(TransformersTrainingArguments):
             if isinstance(self.multi_dataset_batch_sampler, str)
             else self.multi_dataset_batch_sampler
         )
-
-        self.router_mapping = self.router_mapping if self.router_mapping is not None else {}
-        if isinstance(self.router_mapping, str):
-            # Note that we allow a stringified dictionary for router_mapping, but then it should have been
-            # parsed by the superclass's `__post_init__` method already
-            raise ValueError(
-                "The `router_mapping` argument must be a dictionary mapping dataset column names to Router routes, "
-                "like 'query' or 'document'. A stringified dictionary also works."
-            )
 
         self.learning_rate_mapping = self.learning_rate_mapping if self.learning_rate_mapping is not None else {}
         if isinstance(self.learning_rate_mapping, str):

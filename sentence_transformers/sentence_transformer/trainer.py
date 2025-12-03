@@ -17,6 +17,7 @@ from transformers import (
 from transformers.utils.deprecation import deprecate_kwarg
 
 from sentence_transformers.base.evaluation import SentenceEvaluator
+from sentence_transformers.base.models import Router
 from sentence_transformers.base.trainer import BaseTrainer
 from sentence_transformers.sentence_transformer.data_collator import SentenceTransformerDataCollator
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
@@ -109,6 +110,14 @@ class SentenceTransformerTrainer(BaseTrainer):
         | ProcessorMixin
         | None = None,
     ) -> SentenceTransformerDataCollator:
+        if Router in [module.__class__ for module in model.children()] and not args.router_mapping:
+            raise ValueError(
+                "You are using a Router module in your model, but you did not provide a `router_mapping` in the "
+                "training arguments. This means that the Router module will not be able to route the inputs to "
+                "the correct submodules. Please provide a `router_mapping` that maps column names to routes, "
+                "e.g. {'column_one': 'query', 'column_two': 'document', 'column_three': 'document'}."
+            )
+
         all_special_ids = set()
         if processing_class is not None and hasattr(processing_class, "all_special_ids"):
             all_special_ids = set(processing_class.all_special_ids)
