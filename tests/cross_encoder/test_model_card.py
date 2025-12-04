@@ -59,7 +59,7 @@ def dummy_dataset():
                 "# (5,)",
                 "ranks = model.rank(",
                 "#### Unnamed Dataset",
-                "| details | <ul><li>min: 8 characters</li><li>mean: 8.1 characters</li><li>max: 9 characters</li></ul> | <ul><li>min: 10 characters</li><li>mean: 10.1 characters</li><li>max: 11 characters</li></ul> | <ul><li>min: 10 characters</li><li>mean: 10.1 characters</li><li>max: 11 characters</li></ul> |",
+                "| details | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> |",
                 "| <code>anchor 1</code> | <code>positive 1</code> | <code>negative 1</code> |",
                 "Loss: [<code>BinaryCrossEntropyLoss</code>](https://sbert.net/docs/package_reference/cross_encoder/losses.html#binarycrossentropyloss) with these parameters:",
             ],

@@ -340,12 +340,14 @@ class CrossEncoder(BaseModel, FitMixin):
     '''
 
     @property
+    @deprecated("The `max_length` property was renamed and is now deprecated. Please use `max_seq_length` instead.")
     def max_length(self) -> int:
-        return self.tokenizer.model_max_length
+        return self.max_seq_length
 
     @max_length.setter
+    @deprecated("The `max_length` property was renamed and is now deprecated. Please use `max_seq_length` instead.")
     def max_length(self, value: int) -> None:
-        self.tokenizer.model_max_length = value
+        self.max_seq_length = value
 
     @property
     @deprecated(

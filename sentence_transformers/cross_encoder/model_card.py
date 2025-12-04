@@ -144,8 +144,8 @@ class CrossEncoderModelCardData(BaseModelCardData):
         if self.pipeline_tag is None:
             self.pipeline_tag = "text-ranking" if model.num_labels == 1 else "text-classification"
 
-    def tokenize(self, text: str | list[str], **kwargs) -> dict[str, Any]:
-        return self.model.tokenizer(text)
+    # def tokenize(self, text: str | list[str], **kwargs) -> dict[str, Any]:
+    #     return self.model.tokenizer(text)
 
     def run_usage_snippet(self) -> dict[str, Any]:
         # At the moment, we don't run the usage snippet for CrossEncoder models,

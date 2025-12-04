@@ -235,6 +235,14 @@ class Transformer(InputModule):
             **tokenizer_args,
         )
 
+        # Shrink the tokenizer model_max_length if the model config has a smaller max_position_embeddings
+        if (
+            self.tokenizer is not None
+            and "model_max_length" not in tokenizer_args
+            and hasattr(self.config, "max_position_embeddings")
+        ):
+            self.tokenizer.model_max_length = min(self.tokenizer.model_max_length, self.config.max_position_embeddings)
+
         # TODO: self.processor.is_fast might not work
         if do_lower_case:
             if self.processor.is_fast:
@@ -293,11 +301,8 @@ class Transformer(InputModule):
 
     @property
     def max_seq_length(self) -> int | None:
-        if hasattr(self.processor, "model_max_length"):
-            return self.processor.model_max_length
-
-        if hasattr(self.processor, "tokenizer") and hasattr(self.processor.tokenizer, "model_max_length"):
-            return self.processor.tokenizer.model_max_length
+        if self.tokenizer is not None:
+            return self.tokenizer.model_max_length
 
         # Get text config, e.g. for multi-modal models
         try:
@@ -311,17 +316,16 @@ class Transformer(InputModule):
 
     @max_seq_length.setter
     def max_seq_length(self, value: int | None) -> None:
-        # TODO: Should I isinstance PreTrainedTokenizerBase here instead?
-        if hasattr(self.processor, "model_max_length"):
-            self.processor.model_max_length = value
-        elif hasattr(self.processor, "tokenizer") and hasattr(self.processor.tokenizer, "model_max_length"):
-            self.processor.tokenizer.model_max_length = value
+        if self.tokenizer is not None:
+            self.tokenizer.model_max_length = value
 
     @property
     def auto_model(self) -> PreTrainedModel:
         return self.model
 
-    # TODO: Perhaps a def config(self) -> PretrainedConfig:?
+    @property
+    def config(self) -> PretrainedConfig:
+        return self.model.config
 
     @property
     def modalities(self) -> list[str]:
