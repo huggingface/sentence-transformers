@@ -13,10 +13,8 @@ from typing import Any, Literal, overload
 import numpy as np
 import numpy.typing as npt
 import torch
-import torch.multiprocessing as mp
 from torch import Tensor, nn
 from tqdm.autonotebook import trange
-from transformers import is_torch_npu_available
 from typing_extensions import deprecated
 
 from sentence_transformers.base.model import BaseModel
@@ -733,56 +731,6 @@ class SentenceTransformer(BaseModel, FitMixin):
             self.similarity_fn_name = SimilarityFunction.COSINE
         return self._similarity_pairwise
 
-    def start_multi_process_pool(
-        self, target_devices: list[str] | None = None
-    ) -> dict[Literal["input", "output", "processes"], Any]:
-        """
-        Starts a multi-process pool to process the encoding with several independent processes.
-        """
-        if target_devices is None:
-            if torch.cuda.is_available():
-                target_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
-            elif is_torch_npu_available():
-                target_devices = [f"npu:{i}" for i in range(torch.npu.device_count())]
-            else:
-                logger.info("CUDA/NPU is not available. Starting 4 CPU workers")
-                target_devices = ["cpu"] * 4
-
-        logger.info("Start multi-process pool on devices: {}".format(", ".join(map(str, target_devices))))
-
-        self.to("cpu")
-        self.share_memory()
-        ctx = mp.get_context("spawn")
-        input_queue = ctx.Queue()
-        output_queue = ctx.Queue()
-        processes = []
-
-        for device_id in target_devices:
-            p = ctx.Process(
-                target=self.__class__._encode_multi_process_worker,
-                args=(device_id, self, input_queue, output_queue),
-                daemon=True,
-            )
-            p.start()
-            processes.append(p)
-
-        return {"input": input_queue, "output": output_queue, "processes": processes}
-
-    @staticmethod
-    def stop_multi_process_pool(pool: dict[Literal["input", "output", "processes"], Any]) -> None:
-        """
-        Stops all processes started with start_multi_process_pool.
-        """
-        for p in pool["processes"]:
-            p.terminate()
-
-        for p in pool["processes"]:
-            p.join()
-            p.close()
-
-        pool["input"].close()
-        pool["output"].close()
-
     @deprecated(
         "The `encode_multi_process` method has been deprecated, and its functionality has been integrated into `encode`. "
         "You can now call `encode` with the same parameters to achieve multi-process encoding.",
@@ -885,7 +833,7 @@ class SentenceTransformer(BaseModel, FitMixin):
                 self.stop_multi_process_pool(pool)
 
     @staticmethod
-    def _encode_multi_process_worker(
+    def _multi_process_worker(
         target_device: str, model: SentenceTransformer, input_queue: Queue, results_queue: Queue
     ) -> None:
         """Internal working process to encode sentences in multi-process setup."""

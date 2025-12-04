@@ -16,11 +16,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 import torch
+import torch.multiprocessing as mp
 import transformers
 from huggingface_hub import CardData, HfApi
 from packaging import version
 from torch import Tensor, device, nn
-from transformers import PreTrainedModel
+from transformers import PreTrainedModel, is_torch_npu_available
 from transformers.dynamic_module_utils import get_class_from_dynamic_module, get_relative_import_files
 
 from sentence_transformers import __version__
@@ -1085,6 +1086,56 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 return first_tuple[1].device
             except StopIteration:
                 return torch.device("cpu")
+
+    def start_multi_process_pool(
+        self, target_devices: list[str] | None = None
+    ) -> dict[Literal["input", "output", "processes"], Any]:
+        """
+        Starts a multi-process pool to process the encoding with several independent processes.
+        """
+        if target_devices is None:
+            if torch.cuda.is_available():
+                target_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
+            elif is_torch_npu_available():
+                target_devices = [f"npu:{i}" for i in range(torch.npu.device_count())]
+            else:
+                logger.info("CUDA/NPU is not available. Starting 4 CPU workers")
+                target_devices = ["cpu"] * 4
+
+        logger.info("Start multi-process pool on devices: {}".format(", ".join(map(str, target_devices))))
+
+        self.to("cpu")
+        self.share_memory()
+        ctx = mp.get_context("spawn")
+        input_queue = ctx.Queue()
+        output_queue = ctx.Queue()
+        processes = []
+
+        for device_id in target_devices:
+            p = ctx.Process(
+                target=self.__class__._multi_process_worker,
+                args=(device_id, self, input_queue, output_queue),
+                daemon=True,
+            )
+            p.start()
+            processes.append(p)
+
+        return {"input": input_queue, "output": output_queue, "processes": processes}
+
+    @staticmethod
+    def stop_multi_process_pool(pool: dict[Literal["input", "output", "processes"], Any]) -> None:
+        """
+        Stops all processes started with start_multi_process_pool.
+        """
+        for p in pool["processes"]:
+            p.terminate()
+
+        for p in pool["processes"]:
+            p.join()
+            p.close()
+
+        pool["input"].close()
+        pool["output"].close()
 
     @property
     def tokenizer(self) -> Any:

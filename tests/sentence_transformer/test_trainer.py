@@ -361,16 +361,15 @@ def test_trainer_prompts(
             return super().forward(features, *args, **kwargs)
 
     loss = EmptyLoss(model=model)
-    # loss = MultipleNegativesRankingLoss(model=model)
 
     tracked_texts = []
-    old_tokenize = model.tokenize
+    old_preprocess = model.preprocess
 
-    def tokenize_tracker(texts, *args, **kwargs):
+    def preprocess_tracker(texts, *args, **kwargs):
         tracked_texts.extend(texts)
-        return old_tokenize(texts, *args, **kwargs)
+        return old_preprocess(texts, *args, **kwargs)
 
-    model.tokenize = tokenize_tracker
+    model.preprocess = preprocess_tracker
 
     if train_dict:
         if streaming:
