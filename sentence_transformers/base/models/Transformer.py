@@ -259,6 +259,7 @@ class Transformer(InputModule):
             else:
                 self.processor.do_lower_case = do_lower_case
 
+        """
         # No max_seq_length set. Try to infer from model
         # TODO: self.processor.model_max_length might not work
         if max_seq_length is None:
@@ -270,6 +271,7 @@ class Transformer(InputModule):
                 max_seq_length = min(self.model.config.max_position_embeddings, self.processor.model_max_length)
 
         self.max_seq_length = max_seq_length
+        """
 
         if modality_config is not None:
             self.modality_config = modality_config
@@ -288,6 +290,32 @@ class Transformer(InputModule):
         # TODO: Do we need this? Perhaps even remove tokenizer_name_or_path?
         if tokenizer_name_or_path is not None:
             self.model.config.tokenizer_class = self.processor.__class__.__name__
+
+    @property
+    def max_seq_length(self) -> int | None:
+        if hasattr(self.processor, "model_max_length"):
+            return self.processor.model_max_length
+
+        if hasattr(self.processor, "tokenizer") and hasattr(self.processor.tokenizer, "model_max_length"):
+            return self.processor.tokenizer.model_max_length
+
+        # Get text config, e.g. for multi-modal models
+        try:
+            text_config = self.model.config.get_text_config()
+        except AttributeError:
+            text_config = self.model.config
+
+        if hasattr(text_config, "max_position_embeddings"):
+            return text_config.max_position_embeddings
+        return None
+
+    @max_seq_length.setter
+    def max_seq_length(self, value: int | None) -> None:
+        # TODO: Should I isinstance PreTrainedTokenizerBase here instead?
+        if hasattr(self.processor, "model_max_length"):
+            self.processor.model_max_length = value
+        elif hasattr(self.processor, "tokenizer") and hasattr(self.processor.tokenizer, "model_max_length"):
+            self.processor.tokenizer.model_max_length = value
 
     @property
     def auto_model(self) -> PreTrainedModel:

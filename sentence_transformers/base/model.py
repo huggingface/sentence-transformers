@@ -988,7 +988,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         )
 
         if config_sentence_transformers_json_path is None:
-            return None
+            return "SentenceTransformer"  # TODO: What should we default to if there's no config?
 
         with open(config_sentence_transformers_json_path, encoding="utf8") as fIn:
             config = json.load(fIn)

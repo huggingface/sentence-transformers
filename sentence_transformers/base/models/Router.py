@@ -624,7 +624,8 @@ class Router(InputModule):
         for modules in self.sub_modules.values():
             input_module: InputModule = modules[0]
             if modules and hasattr(input_module, "max_seq_length"):
-                max_seq_lengths.add(input_module.max_seq_length)
+                if max_seq_length := input_module.max_seq_length:
+                    max_seq_lengths.add(max_seq_length)
 
         if not max_seq_lengths:
             return None
