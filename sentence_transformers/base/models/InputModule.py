@@ -68,6 +68,7 @@ class InputModule(Module):
             dict[str, torch.Tensor | Any]: Dictionary containing preprocessed features, e.g.
                 ``{"input_ids": ..., "attention_mask": ...}``
         """
+        return self.tokenize(inputs, **kwargs)
 
     def tokenize(self, texts: list[str], **kwargs) -> dict[str, torch.Tensor | Any]:
         """

@@ -21,6 +21,13 @@ from .WordEmbeddings import WordEmbeddings
 from .WordWeights import WordWeights
 
 sys.modules["sentence_transformers.models.Asym"] = sys.modules["sentence_transformers.base.models.Router"]
+sys.modules["sentence_transformers.sentence_transformer.models.Asym"] = sys.modules[
+    "sentence_transformers.base.models.Router"
+]
+sys.modules["sentence_transformers.models.Router"] = sys.modules["sentence_transformers.base.models.Router"]
+sys.modules["sentence_transformers.sentence_transformer.models.Router"] = sys.modules[
+    "sentence_transformers.base.models.Router"
+]
 
 __all__ = [
     "Transformer",

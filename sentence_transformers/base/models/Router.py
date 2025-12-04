@@ -13,7 +13,7 @@ from torch import Tensor, nn
 from transformers.utils import logging
 
 from sentence_transformers.base.models.InputModule import InputModule
-from sentence_transformers.base.models.modality_utils import infer_modality
+from sentence_transformers.base.models.modality_utils import Modality, infer_modality
 from sentence_transformers.base.models.Module import Module
 from sentence_transformers.util import import_from_string, load_dir_path
 
@@ -510,22 +510,23 @@ class Router(InputModule):
         **kwargs,
     ):
         """Preprocesses a text and maps tokens to token-ids"""
-        """
-        # TODO: Passing a dictionary of task types is now fully deprecated with this removed. You can now only pass a dictionary of inputs for multimodal data.
-        if isinstance(texts[0], dict):
+        # TODO: What if `texts` is an empty list
+
+        # Backwards compatibility branch: for when texts are list of dicts with task types as keys
+        if isinstance(texts[0], dict) and task is None:
             # Extract the task type key from the dictionaries
-            if task is None:
-                tasks = set(key for text in texts for key in text.keys())
-                if len(tasks) > 1:
+            dict_keys = set(key for text in texts for key in text.keys())
+            # If the input keys are not modalities, they might be task types from backwards compatibility
+            if not (dict_keys & set(Modality.all())):
+                if len(dict_keys) > 1:
                     raise ValueError(
                         "You cannot pass a list of dictionaries with different task types. "
-                        "Please ensure all dictionaries have the same task type key, or pass a single `task` argument."
+                        "Please ensure all dictionaries have the same task type key, or pass non-dictionary inputs "
+                        "while providing the `task` argument."
                     )
-                task = tasks.pop()
-
-            # Remove dictionary structure
-            texts = [text[task] for text in texts]
-        """
+                # If there's just one task type, extract it and remove the dictionary structure
+                task = dict_keys.pop()
+                texts = [text[task] for text in texts]
 
         # Infer modality if not provided
         if modality is None:

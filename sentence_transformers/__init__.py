@@ -67,6 +67,12 @@ deprecated_modules = [
     ("sentence_transformers.models.LSTM", "sentence_transformers.sentence_transformer.models.LSTM"),
     ("sentence_transformers.models.Normalize", "sentence_transformers.sentence_transformer.models.Normalize"),
     ("sentence_transformers.models.Pooling", "sentence_transformers.sentence_transformer.models.Pooling"),
+    ("sentence_transformers.models.Router", "sentence_transformers.base.models.Router"),
+    ("sentence_transformers.models.Asym", "sentence_transformers.base.models.Router"),
+    ("sentence_transformers.models.InputModule", "sentence_transformers.base.models.InputModule"),
+    ("sentence_transformers.models.Module", "sentence_transformers.base.models.Module"),
+    ("sentence_transformers.models.Transformer", "sentence_transformers.base.models.Transformer"),
+    ("sentence_transformers.models.modality_utils", "sentence_transformers.base.models.modality_utils"),
     (
         "sentence_transformers.models.StaticEmbedding",
         "sentence_transformers.sentence_transformer.models.StaticEmbedding",
