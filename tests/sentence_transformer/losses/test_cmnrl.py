@@ -8,7 +8,7 @@ import tqdm
 from torch.optim import Adam
 from transformers import set_seed
 
-from sentence_transformers import InputExample, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.losses import (
     CachedMultipleNegativesRankingLoss,
     MultipleNegativesRankingLoss,
@@ -20,7 +20,7 @@ from sentence_transformers.sentence_transformer.losses import (
     [
         (
             [
-                InputExample(texts=[q, p, n])
+                (q, p, n)
                 for q, p, n in zip(
                     ["aaa", "bbb", "ccc", "ddd", "eee"],
                     ["aas", "bbs", "ccs", "dds", "ees"],
@@ -28,7 +28,7 @@ from sentence_transformers.sentence_transformer.losses import (
                 )
             ],
             [
-                InputExample(texts=[q, p, n])
+                (q, p, n)
                 for q, p, n in zip(
                     ["aaa", "bbb", "ccc", "ddd", "eee"],
                     ["aas", "bbs", "ccs", "dds", "ees"],
@@ -41,7 +41,7 @@ from sentence_transformers.sentence_transformer.losses import (
         ),
         (
             [
-                InputExample(texts=[q, p, n])
+                (q, p, n)
                 for q, p, n in zip(
                     ["adsa", "czx", "dsada"],
                     ["b", "fas", "xcz"],
@@ -49,7 +49,7 @@ from sentence_transformers.sentence_transformer.losses import (
                 )
             ],
             [
-                InputExample(texts=[q, p, n])
+                (q, p, n)
                 for q, p, n in zip(
                     ["aaa", "bbb", "ccc", "ddd", "eee"],
                     ["aas", "bbs", "ccs", "dds", "ees"],
@@ -62,7 +62,7 @@ from sentence_transformers.sentence_transformer.losses import (
         ),
         (
             [
-                InputExample(texts=[q, p, n])
+                (q, p, n)
                 for q, p, n in zip(
                     ["aaa", "bbb", "ccc", "ddd", "eee"],
                     ["aas", "bbs", "ccs", "dds", "ees"],
@@ -70,7 +70,7 @@ from sentence_transformers.sentence_transformer.losses import (
                 )
             ],
             [
-                InputExample(texts=[q, p, n])
+                (q, p, n)
                 for q, p, n in zip(
                     ["aaa", "bbb", "ccc", "ddd", "eee"],
                     ["aas", "bbs", "ccs", "dds", "ees"],
@@ -84,8 +84,8 @@ from sentence_transformers.sentence_transformer.losses import (
     ],
 )
 def test_cmnrl_same_grad(
-    train_samples_mnrl: list[InputExample],
-    train_samples_cmnrl: list[InputExample],
+    train_samples_mnrl: list[tuple[str, str, str]],
+    train_samples_cmnrl: list[tuple[str, str, str]],
     same_grad: bool,
     scaler: float,
     precision: float,
@@ -94,18 +94,16 @@ def test_cmnrl_same_grad(
     model = SentenceTransformer("distilbert-base-uncased")
     model.to("cpu")
     optimizer = Adam(model.parameters())
-    # train_samples_mnrl
-    # train_samples_cmnrl
-    # same_grad
-    # scaler  # This simulates AMP scenarios
-    # precision
 
     # When:
     # First run with MNRL
     set_seed(42)
     optimizer.zero_grad()
     loss_mnrl = MultipleNegativesRankingLoss(model)
-    loss_mnrl_value: torch.Tensor = loss_mnrl.forward(*model.smart_batching_collate(train_samples_mnrl)) * scaler
+    queries_mnrl, positives_mnrl, negatives_mnrl = zip(*train_samples_mnrl)
+    features_mnrl = [model.preprocess(list(texts)) for texts in (queries_mnrl, positives_mnrl, negatives_mnrl)]
+    labels = torch.zeros(len(train_samples_mnrl), dtype=torch.long)
+    loss_mnrl_value: torch.Tensor = loss_mnrl(features_mnrl, labels) * scaler
     loss_mnrl_value.backward()
     grad_expected = {name: p.grad.clone() for name, p in loss_mnrl.named_parameters() if p.grad is not None}
 
@@ -113,7 +111,9 @@ def test_cmnrl_same_grad(
     set_seed(42)
     optimizer.zero_grad()
     loss_cmnrl = CachedMultipleNegativesRankingLoss(model, mini_batch_size=2)
-    loss_cmnrl_value = loss_cmnrl.forward(*model.smart_batching_collate(train_samples_cmnrl)) * scaler
+    queries_cmnrl, positives_cmnrl, negatives_cmnrl = zip(*train_samples_cmnrl)
+    features_cmnrl = [model.preprocess(list(texts)) for texts in (queries_cmnrl, positives_cmnrl, negatives_cmnrl)]
+    loss_cmnrl_value = loss_cmnrl(features_cmnrl, labels) * scaler
     loss_cmnrl_value.backward()
     grad = {name: p.grad.clone() for name, p in loss_cmnrl.named_parameters() if p.grad is not None}
 
