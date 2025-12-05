@@ -544,6 +544,9 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[False] = ...,
         convert_to_tensor: Literal[False] = ...,
+        device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        chunk_size: int | None = None,
     ) -> torch.Tensor: ...
 
     @overload
@@ -556,6 +559,9 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[True] = True,
         convert_to_tensor: Literal[False] = False,
+        device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        chunk_size: int | None = None,
     ) -> np.ndarray: ...
 
     @overload
@@ -568,6 +574,9 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: bool = ...,
         convert_to_tensor: Literal[True] = ...,
+        device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        chunk_size: int | None = None,
     ) -> torch.Tensor: ...
 
     @overload
@@ -580,6 +589,9 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[False] = ...,
         convert_to_tensor: Literal[False] = ...,
+        device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        chunk_size: int | None = None,
     ) -> list[torch.Tensor]: ...
 
     @torch.inference_mode()
@@ -683,7 +695,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             self.set_activation_fn(activation_fn, set_default=False)
 
         # Here, device is either a single device string (e.g., "cuda:0", "cpu") for single-process encoding or None
-        if device is not None:
+        if device is None:
             device = self.model.device
 
         self.to(device)
