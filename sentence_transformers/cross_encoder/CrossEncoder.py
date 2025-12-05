@@ -593,8 +593,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax: bool | None = False,
         convert_to_numpy: bool = True,
         convert_to_tensor: bool = False,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
     ) -> list[torch.Tensor] | np.ndarray | torch.Tensor:
         """
@@ -615,12 +615,12 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
                 a list of PyTorch tensors. Defaults to True.
             convert_to_tensor (bool, optional): Whether the output should be one large tensor. Overwrites `convert_to_numpy`.
                 Defaults to False.
-            pool (Dict[str, Any], optional): A pool of workers created with :meth:`start_multi_process_pool`. If provided,
-                multiprocessing will be used. If None and ``device`` is a list, a pool will be created automatically.
-                Defaults to None.
             device (Union[str, List[str]], optional): Device(s) to use for computation. Can be a single device string
                 (e.g., "cuda:0", "cpu") or a list of devices (e.g., ["cuda:0", "cuda:1"]). If a list is provided,
                 multiprocessing will be used automatically. Defaults to None.
+            pool (Dict[str, Any], optional): A pool of workers created with :meth:`start_multi_process_pool`. If provided,
+                multiprocessing will be used. If None and ``device`` is a list, a pool will be created automatically.
+                Defaults to None.
             chunk_size (int, optional): Size of chunks for multiprocessing. If None, a sensible default is calculated.
                 Only used when ``pool`` is not None or ``device`` is a list. Defaults to None.
 
@@ -659,11 +659,14 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         if pool is not None or (isinstance(device, list) and len(device) > 0):
             return self._multi_process(
                 sentence_pairs=sentences,
+                # Utility and post-processing parameters
                 show_progress_bar=show_progress_bar,
                 input_was_singular=input_was_singular,
+                # Multi-process encoding parameters
                 pool=pool,
                 device=device,
                 chunk_size=chunk_size,
+                # Prediction parameters
                 batch_size=batch_size,
                 activation_fn=activation_fn,
                 apply_softmax=apply_softmax,
@@ -731,8 +734,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         apply_softmax=False,
         convert_to_numpy: bool = True,
         convert_to_tensor: bool = False,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
     ) -> list[dict[Literal["corpus_id", "score", "text"], int | float | str]]:
         """
@@ -749,12 +752,12 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             convert_to_numpy (bool, optional): Convert the output to a numpy matrix. Defaults to True.
             apply_softmax (bool, optional): If there are more than 2 dimensions and apply_softmax=True, applies softmax on the logits output. Defaults to False.
             convert_to_tensor (bool, optional): Convert the output to a tensor. Defaults to False.
-            pool (Dict[str, Any], optional): A pool of workers created with :meth:`start_multi_process_pool`. If provided,
-                multiprocessing will be used. If None and ``device`` is a list, a pool will be created automatically.
-                Defaults to None.
             device (Union[str, List[str]], optional): Device(s) to use for computation. Can be a single device string
                 (e.g., "cuda:0", "cpu") or a list of devices (e.g., ["cuda:0", "cuda:1"]). If a list is provided,
                 multiprocessing will be used automatically. Defaults to None.
+            pool (Dict[str, Any], optional): A pool of workers created with :meth:`start_multi_process_pool`. If provided,
+                multiprocessing will be used. If None and ``device`` is a list, a pool will be created automatically.
+                Defaults to None.
             chunk_size (int, optional): Size of chunks for multiprocessing. If None, a sensible default is calculated.
                 Only used when ``pool`` is not None or ``device`` is a list. Defaults to None.
 
@@ -811,8 +814,8 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             apply_softmax=apply_softmax,
             convert_to_numpy=convert_to_numpy,
             convert_to_tensor=convert_to_tensor,
-            pool=pool,
             device=device,
+            pool=pool,
             chunk_size=chunk_size,
         )
 
