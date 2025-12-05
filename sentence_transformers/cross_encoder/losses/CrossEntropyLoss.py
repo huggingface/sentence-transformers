@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from torch import Tensor, nn
 
-from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+from sentence_transformers.cross_encoder.model import CrossEncoder
 
 
 class CrossEntropyLoss(nn.Module):

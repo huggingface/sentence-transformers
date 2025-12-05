@@ -9,7 +9,7 @@ import pytest
 from tokenizers import Tokenizer
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.models import Pooling, StaticEmbedding, Transformer
+from sentence_transformers.sentence_transformer.models import Pooling, StaticEmbedding, Transformer
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():

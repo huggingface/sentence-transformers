@@ -19,15 +19,15 @@ from datetime import datetime
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import (
+from sentence_transformers.base.trainer import SentenceTransformerTrainer
+from sentence_transformers.base.training_args import BaseTrainingArguments, BatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import (
     BinaryClassificationEvaluator,
     InformationRetrievalEvaluator,
     ParaphraseMiningEvaluator,
     SequentialEvaluator,
 )
-from sentence_transformers.losses import MultipleNegativesRankingLoss
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -134,7 +134,7 @@ logging.info("Evaluate model without training")
 seq_evaluator(model, epoch=0, steps=0)
 
 # Define the training arguments
-args = SentenceTransformerTrainingArguments(
+args = BaseTrainingArguments(
     # Required parameter:
     output_dir=output_dir,
     # Optional training parameters:

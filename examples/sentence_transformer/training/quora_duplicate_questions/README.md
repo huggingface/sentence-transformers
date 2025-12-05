@@ -99,7 +99,7 @@ In [training_multi-task-learning.py](training_multi-task-learning.py) I demonstr
 
 ```python
 from datasets import load_dataset
-from sentence_transformers.losses import ContrastiveLoss, MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.losses import ContrastiveLoss, MultipleNegativesRankingLoss
 from sentence_transformers import SentenceTransformerTrainer, SentenceTransformer
 
 model_name = "stsb-distilbert-base"

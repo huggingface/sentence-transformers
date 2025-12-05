@@ -29,7 +29,7 @@ Training using Matryoshka Representation Learning (MRL) is quite elementary: rat
 
 ```python
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.losses import CoSENTLoss, MatryoshkaLoss
+from sentence_transformers.sentence_transformer.losses import CoSENTLoss, MatryoshkaLoss
 
 model = SentenceTransformer("microsoft/mpnet-base")
 
@@ -43,7 +43,7 @@ Additionally, this can be combined with the `AdaptiveLayerLoss` such that the re
 
 ```python
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.losses import CoSENTLoss, Matryoshka2dLoss
+from sentence_transformers.sentence_transformer.losses import CoSENTLoss, Matryoshka2dLoss
 
 model = SentenceTransformer("microsoft/mpnet-base")
 

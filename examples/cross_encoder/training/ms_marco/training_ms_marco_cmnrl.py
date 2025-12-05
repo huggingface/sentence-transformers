@@ -6,6 +6,7 @@ import torch
 from datasets import load_dataset
 from torch import nn
 
+from sentence_transformers.base.training_args import BatchSamplers
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderNanoBEIREvaluator
 from sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss import (
@@ -13,7 +14,6 @@ from sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLo
 )
 from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
-from sentence_transformers.training_args import BatchSamplers
 
 
 def main():

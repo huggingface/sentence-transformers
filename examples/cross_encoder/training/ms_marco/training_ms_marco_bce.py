@@ -4,12 +4,12 @@ import traceback
 import torch
 from datasets import load_dataset
 
+from sentence_transformers.base.training_args import BatchSamplers
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderNanoBEIREvaluator
 from sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss import BinaryCrossEntropyLoss
 from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
-from sentence_transformers.training_args import BatchSamplers
 
 
 def main():

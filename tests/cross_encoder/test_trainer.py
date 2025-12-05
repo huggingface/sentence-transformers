@@ -12,8 +12,8 @@ from sentence_transformers.cross_encoder import (
     CrossEncoder,
     CrossEncoderTrainer,
     CrossEncoderTrainingArguments,
-    losses,
 )
+from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 if is_datasets_available():
@@ -29,9 +29,9 @@ if not is_training_available():
 def test_trainer_multi_dataset_errors(reranker_bert_tiny_model: CrossEncoder, stsb_dataset_dict: DatasetDict) -> None:
     train_dataset = stsb_dataset_dict["train"]
     loss = {
-        "multi_nli": losses.BinaryCrossEntropyLoss(model=reranker_bert_tiny_model),
-        "snli": losses.BinaryCrossEntropyLoss(model=reranker_bert_tiny_model),
-        "stsb": losses.BinaryCrossEntropyLoss(model=reranker_bert_tiny_model),
+        "multi_nli": BinaryCrossEntropyLoss(model=reranker_bert_tiny_model),
+        "snli": BinaryCrossEntropyLoss(model=reranker_bert_tiny_model),
+        "stsb": BinaryCrossEntropyLoss(model=reranker_bert_tiny_model),
     }
     with pytest.raises(
         ValueError, match="If the provided `loss` is a dict, then the `train_dataset` must be a `DatasetDict`."
@@ -89,27 +89,28 @@ def test_trainer_multi_dataset_errors(reranker_bert_tiny_model: CrossEncoder, st
         )
 
 
-def test_model_card_reuse(reranker_bert_tiny_model: CrossEncoder):
-    assert reranker_bert_tiny_model._model_card_text
+def test_model_card_reuse(reranker_bert_tiny_model_v6: CrossEncoder):
+    model = reranker_bert_tiny_model_v6
+    assert model._model_card_text
     # Reuse the model card if no training was done
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model_path = Path(tmp_folder) / "tiny_model_local"
-        reranker_bert_tiny_model.save_pretrained(str(model_path))
+        model.save_pretrained(str(model_path))
 
         with open(model_path / "README.md", encoding="utf8") as f:
             model_card_text = f.read()
-        assert model_card_text == reranker_bert_tiny_model._model_card_text
+        assert model_card_text == model._model_card_text
 
     # Create a new model card if a Trainer was initialized
-    CrossEncoderTrainer(model=reranker_bert_tiny_model)
+    CrossEncoderTrainer(model=model)
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
         model_path = Path(tmp_folder) / "tiny_model_local"
-        reranker_bert_tiny_model.save_pretrained(str(model_path))
+        model.save_pretrained(str(model_path))
 
         with open(model_path / "README.md", encoding="utf8") as f:
             model_card_text = f.read()
-        assert model_card_text != reranker_bert_tiny_model._model_card_text
+        assert model_card_text != model._model_card_text
 
 
 @pytest.mark.parametrize("streaming", [False, True])
@@ -162,7 +163,7 @@ def test_trainer(
     original_model = deepcopy(model)
     train_dataset = stsb_dataset_dict["train"].select(range(10))
     eval_dataset = stsb_dataset_dict["validation"].select(range(10))
-    loss = losses.BinaryCrossEntropyLoss(model=model)
+    loss = BinaryCrossEntropyLoss(model=model)
 
     if streaming:
         train_dataset = train_dataset.to_iterable_dataset()

@@ -4,6 +4,7 @@ import traceback
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.base.evaluation.SequentialEvaluator import SequentialEvaluator
 from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderModelCardData
 from sentence_transformers.cross_encoder.evaluation import (
     CrossEncoderNanoBEIREvaluator,
@@ -12,7 +13,6 @@ from sentence_transformers.cross_encoder.evaluation import (
 from sentence_transformers.cross_encoder.losses import LambdaLoss
 from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
-from sentence_transformers.evaluation.SequentialEvaluator import SequentialEvaluator
 from sentence_transformers.util import mine_hard_negatives
 
 # Set the log level to INFO to get more information

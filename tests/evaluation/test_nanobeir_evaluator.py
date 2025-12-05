@@ -5,7 +5,7 @@ import re
 import pytest
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import NanoBEIREvaluator
+from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
 from sentence_transformers.util import is_datasets_available
 from tests.utils import is_ci
 

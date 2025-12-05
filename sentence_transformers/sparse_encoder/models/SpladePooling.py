@@ -5,7 +5,7 @@ from typing import Literal
 
 import torch
 
-from sentence_transformers.models.Module import Module
+from sentence_transformers.base.models.Module import Module
 
 logger = logging.getLogger(__name__)
 

@@ -11,11 +11,11 @@ from datetime import datetime
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.losses import CosineSimilarityLoss, SoftmaxLoss
-from sentence_transformers.similarity_functions import SimilarityFunction
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import MultiDatasetBatchSamplers, SentenceTransformerTrainingArguments
+from sentence_transformers.base.trainer import SentenceTransformerTrainer
+from sentence_transformers.base.training_args import BaseTrainingArguments, MultiDatasetBatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss, SoftmaxLoss
+from sentence_transformers.util.similarity_functions import SimilarityFunction
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -62,7 +62,7 @@ dev_evaluator = EmbeddingSimilarityEvaluator(
 )
 
 # 5. Define the training arguments
-args = SentenceTransformerTrainingArguments(
+args = BaseTrainingArguments(
     # Required parameter:
     output_dir=output_dir,
     # Optional training parameters:
