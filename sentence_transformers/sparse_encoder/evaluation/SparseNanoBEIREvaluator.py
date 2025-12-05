@@ -38,6 +38,9 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
 
     Args:
         dataset_names (List[str]): The names of the datasets to evaluate on. Defaults to all datasets.
+            Can be either predefined names (e.g., "climatefever", "msmarco") or custom HuggingFace
+            dataset paths following the NanoBEIR format (e.g., "sentence-transformers/NanoClimateFEVER-bm25").
+            Custom datasets must have "corpus", "queries", and "qrels"/"relevance" subsets.
         mrr_at_k (List[int]): A list of integers representing the values of k for MRR calculation. Defaults to [10].
         ndcg_at_k (List[int]): A list of integers representing the values of k for NDCG calculation. Defaults to [10].
         accuracy_at_k (List[int]): A list of integers representing the values of k for accuracy calculation. Defaults to [1, 3, 5, 10].
@@ -158,13 +161,31 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
             print(f"Primary metric value: {results[evaluator.primary_metric]:.4f}")
             # => Primary metric value: 0.8060
 
+        Evaluating on custom/translated datasets::
+
+            import logging
+            from pprint import pprint
+
+            from sentence_transformers import SparseEncoder
+            from sentence_transformers.sparse_encoder.evaluation import SparseNanoBEIREvaluator
+
+            logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+
+            model = SparseEncoder("opensearch-project/opensearch-neural-sparse-encoding-multilingual-v1")
+            evaluator = SparseNanoBEIREvaluator(
+                ["Serbian-AI-Society/NanoMSMARCO-bm25", "Serbian-AI-Society/NanoNQ-bm25"],
+                batch_size=32,
+            )
+            results = evaluator(model)
+            print(results[evaluator.primary_metric])
+            pprint({key: value for key, value in results.items() if "ndcg@10" in key})
     """
 
     information_retrieval_class = SparseInformationRetrievalEvaluator
 
     def __init__(
         self,
-        dataset_names: list[DatasetNameType] | None = None,
+        dataset_names: list[DatasetNameType | str] | None = None,
         mrr_at_k: list[int] = [10],
         ndcg_at_k: list[int] = [10],
         accuracy_at_k: list[int] = [1, 3, 5, 10],
@@ -227,7 +248,13 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
             )
 
     def __call__(
-        self, model: SparseEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1, *args, **kwargs
+        self,
+        model: SparseEncoder,
+        output_path: str | None = None,
+        epoch: int = -1,
+        steps: int = -1,
+        *args,
+        **kwargs,
     ) -> dict[str, float]:
         self.sparsity_stats = defaultdict(list)
         self.lengths = defaultdict(list)
@@ -255,15 +282,23 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
                 continue
 
             lengths = self.lengths[key.split("_")[0]]
-            self.sparsity_stats[key] = sum(val * length for val, length in zip(values, lengths)) / sum(lengths)
+            self.sparsity_stats[key] = sum(
+                val * length for val, length in zip(values, lengths)
+            ) / sum(lengths)
 
         avg_query_count = total_query_count / sum(self.lengths["query"])
         avg_corpus_count = total_corpus_count / sum(self.lengths["corpus"])
-        self.sparsity_stats["avg_flops"] = float(torch.dot(avg_query_count, avg_corpus_count).cpu())
+        self.sparsity_stats["avg_flops"] = float(
+            torch.dot(avg_query_count, avg_corpus_count).cpu()
+        )
 
-        per_dataset_results.update(self.prefix_name_to_metrics(self.sparsity_stats, self.name))
+        per_dataset_results.update(
+            self.prefix_name_to_metrics(self.sparsity_stats, self.name)
+        )
         aggregated_results = {
-            key: value for key, value in per_dataset_results.items() if key.startswith(self.name) and key != self.name
+            key: value
+            for key, value in per_dataset_results.items()
+            if key.startswith(self.name) and key != self.name
         }
         self.store_metrics_in_model_card_data(model, aggregated_results, epoch, steps)
         logger.info(
@@ -282,7 +317,7 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
         return per_dataset_results
 
     def _load_dataset(
-        self, dataset_name: DatasetNameType, **ir_evaluator_kwargs
+        self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs
     ) -> SparseInformationRetrievalEvaluator:
         ir_evaluator_kwargs["max_active_dims"] = self.max_active_dims
         ir_evaluator_kwargs.pop("truncate_dim", None)
