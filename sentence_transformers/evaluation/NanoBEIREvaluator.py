@@ -38,7 +38,7 @@ DatasetNameType = Literal[
 ]
 
 
-dataset_name_to_id = {
+DATASET_NAME_TO_ID = {
     "climatefever": "zeta-alpha-ai/NanoClimateFEVER",
     "dbpedia": "zeta-alpha-ai/NanoDBPedia",
     "fever": "zeta-alpha-ai/NanoFEVER",
@@ -54,7 +54,7 @@ dataset_name_to_id = {
     "touche2020": "zeta-alpha-ai/NanoTouche2020",
 }
 
-dataset_name_to_human_readable = {
+DATASET_NAME_TO_HUMAN_READABLE = {
     "climatefever": "ClimateFEVER",
     "dbpedia": "DBPedia",
     "fever": "FEVER",
@@ -217,7 +217,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
     ):
         super().__init__()
         if dataset_names is None:
-            dataset_names = list(dataset_name_to_id.keys())
+            dataset_names = list(DATASET_NAME_TO_ID.keys())
         self.dataset_names = dataset_names
         self.aggregate_fn = aggregate_fn
         self.aggregate_key = aggregate_key
@@ -401,9 +401,9 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
         return per_dataset_results
 
-    def _get_human_readable_name(self, dataset_name: DatasetNameType) -> str:
-        if dataset_name.lower() in dataset_name_to_human_readable:
-            human_readable_name = f"Nano{dataset_name_to_human_readable[dataset_name.lower()]}"
+    def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
+        if dataset_name.lower() in DATASET_NAME_TO_HUMAN_READABLE:
+            human_readable_name = f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
         elif "/" in dataset_name:
             human_readable_name = dataset_name.split("/")[-1]
         else:
@@ -413,15 +413,17 @@ class NanoBEIREvaluator(SentenceEvaluator):
             human_readable_name += f"_{self.truncate_dim}"
         return human_readable_name
 
-    def _load_dataset(self, dataset_name: DatasetNameType, **ir_evaluator_kwargs) -> InformationRetrievalEvaluator:
+    def _load_dataset(
+        self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs
+    ) -> InformationRetrievalEvaluator:
         if not is_datasets_available():
             raise ValueError(
                 "datasets is not available. Please install it to use the NanoBEIREvaluator via `pip install datasets`."
             )
         from datasets import load_dataset
 
-        if dataset_name.lower() in dataset_name_to_id:
-            dataset_path = dataset_name_to_id[dataset_name.lower()]
+        if dataset_name.lower() in DATASET_NAME_TO_ID:
+            dataset_path = DATASET_NAME_TO_ID[dataset_name.lower()]
         else:
             dataset_path = dataset_name
 
@@ -439,6 +441,10 @@ class NanoBEIREvaluator(SentenceEvaluator):
         qrels_dict = {}
         for sample in qrels:
             corpus_ids = sample.get("positive-corpus-ids") or sample.get("corpus-id")
+            if corpus_ids is None:
+                raise ValueError(
+                    f"Could not find 'positive-corpus-ids' or 'corpus-id' in qrels/relevance for dataset {dataset_name}."
+                )
 
             if sample["query-id"] not in qrels_dict:
                 qrels_dict[sample["query-id"]] = set()
@@ -471,13 +477,13 @@ class NanoBEIREvaluator(SentenceEvaluator):
                 if not self._is_valid_nanobeir_path(dataset_name):
                     invalid_datasets.append(dataset_name)
             else:
-                if dataset_name.lower() not in dataset_name_to_id:
+                if dataset_name.lower() not in DATASET_NAME_TO_ID:
                     invalid_datasets.append(dataset_name)
 
         if invalid_datasets:
             raise ValueError(
                 f"Dataset(s) {invalid_datasets} are not valid NanoBEIR datasets. "
-                f"Valid predefined names are: {list(dataset_name_to_id.keys())}. "
+                f"Valid predefined names are: {list(DATASET_NAME_TO_ID.keys())}. "
                 f"Custom paths must follow the pattern '{{org}}/Nano{{DatasetName}}' or "
                 f"'{{org}}/Nano{{DatasetName}}-{{suffix}}' where DatasetName is one of valid predefined names."
             )
@@ -491,7 +497,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
         extracted_name = match.group(1).lower()
 
-        return extracted_name in dataset_name_to_id
+        return extracted_name in DATASET_NAME_TO_ID
 
     def _validate_prompts(self):
         error_msg = ""
