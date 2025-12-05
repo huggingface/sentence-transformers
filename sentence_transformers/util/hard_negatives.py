@@ -490,6 +490,14 @@ def mine_hard_negatives(
     if cross_encoder is not None and (
         absolute_margin is not None or relative_margin is not None or max_score is not None
     ):
+        if use_multi_process:
+            pool = cross_encoder.start_multi_process_pool(
+                target_devices=None 
+                if isinstance(use_multi_process, bool) 
+                else use_multi_process)
+        else:
+            pool = None
+            
         for idx, candidate_idx in tqdm(enumerate(indices), desc="Rescoring with CrossEncoder", total=len(indices)):
             query = queries[idx]
             candidate_passages = [corpus[_idx] for _idx in candidate_idx]
@@ -497,13 +505,17 @@ def mine_hard_negatives(
                 list(zip([query] * (range_max + 1), candidate_passages)),
                 batch_size=batch_size,
                 convert_to_tensor=True,
+                pool=pool,
             )
             scores[idx] = pred_scores
         positive_scores = cross_encoder.predict(
             list(zip(all_queries, positives)),
             batch_size=batch_size,
             convert_to_tensor=True,
+            pool=pool,
         )
+        if use_multi_process:
+            cross_encoder.stop_multi_process_pool(pool)
 
     if not include_positives:
         # for each query, create a mask that is True for the positives and False for the negatives in the indices
