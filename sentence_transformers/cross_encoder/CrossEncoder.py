@@ -311,7 +311,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
 
         for device_id in target_devices:
             p = ctx.Process(
-                target=self.__class__._predict_multi_process_worker,
+                target=self.__class__._multi_process_worker,
                 args=(device_id, self, input_queue, output_queue),
                 daemon=True,
             )
@@ -341,7 +341,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         pool["input"].close()
         pool["output"].close()
 
-    def _predict_multi_process(
+    def _multi_process(
         self,
         sentence_pairs: list[tuple[str, str]] | list[list[str]],
         show_progress_bar: bool | None = True,
@@ -420,7 +420,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
                 self.stop_multi_process_pool(pool)
 
     @staticmethod
-    def _predict_multi_process_worker(
+    def _multi_process_worker(
         target_device: str,
         model: CrossEncoder,
         input_queue: Queue,
@@ -657,7 +657,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
 
         # If pool or a list of devices is provided, use multi-process prediction
         if pool is not None or (isinstance(device, list) and len(device) > 0):
-            return self._predict_multi_process(
+            return self._multi_process(
                 sentence_pairs=sentences,
                 show_progress_bar=show_progress_bar,
                 input_was_singular=input_was_singular,
