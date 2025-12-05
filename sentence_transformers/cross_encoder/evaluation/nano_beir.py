@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from tqdm import tqdm
 
-from sentence_transformers.cross_encoder.evaluation.reranking import CrossEncoderRerankingEvaluator
+from sentence_transformers.cross_encoder.evaluation.reranking import (
+    CrossEncoderRerankingEvaluator,
+)
 from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
 from sentence_transformers.util import is_datasets_available
 
@@ -33,7 +36,7 @@ DatasetNameType = Literal[
     "touche2020",
 ]
 
-dataset_name_to_id = {
+DATASET_NAME_TO_ID = {
     "climatefever": "sentence-transformers/NanoClimateFEVER-bm25",
     "dbpedia": "sentence-transformers/NanoDBPedia-bm25",
     "fever": "sentence-transformers/NanoFEVER-bm25",
@@ -49,7 +52,7 @@ dataset_name_to_id = {
     "touche2020": "sentence-transformers/NanoTouche2020-bm25",
 }
 
-dataset_name_to_human_readable = {
+DATASET_NAME_TO_HUMAN_READABLE = {
     "climatefever": "ClimateFEVER",
     "dbpedia": "DBPedia",
     "fever": "FEVER",
@@ -98,6 +101,9 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
 
     Args:
         dataset_names (List[str]): The names of the datasets to evaluate on. If not specified, use all datasets except arguana and touche2020.
+            Can be either predefined names (e.g., "climatefever", "msmarco") or custom HuggingFace
+            dataset paths following the NanoBEIR format (e.g., "sentence-transformers/NanoClimateFEVER-bm25").
+            Custom datasets must have "corpus", "queries", and "relevance" subsets with "bm25-ranked-ids" column.
         rerank_k (int): The number of documents to rerank from the BM25 ranking. Defaults to 100.
         at_k (int, optional): Only consider the top k most similar documents to each query for the evaluation. Defaults to 10.
         always_rerank_positives (bool): If True, always evaluate with all positives included. If False, only include
@@ -161,11 +167,31 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
             # NanoBEIR_R100_mean_ndcg@10
             print(results[evaluator.primary_metric])
             # 0.60716840988382
+
+        Evaluating on custom/translated datasets::
+
+            import logging
+            from pprint import pprint
+
+            from sentence_transformers.cross_encoder import CrossEncoder
+            from sentence_transformers.cross_encoder.evaluation import CrossEncoderNanoBEIREvaluator
+
+            logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
+
+            # Load a model
+            model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
+
+            # Load & run the evaluator
+            dataset_names = ["Serbian-AI-Society/NanoMSMARCO-bm25", "Serbian-AI-Society/NanoNQ-bm25"]
+            evaluator = CrossEncoderNanoBEIREvaluator(dataset_names)
+            results = evaluator(model)
+            print(results[evaluator.primary_metric])
+            pprint({key: value for key, value in results.items() if "ndcg@10" in key})
     """
 
     def __init__(
         self,
-        dataset_names: list[DatasetNameType] | None = None,
+        dataset_names: list[DatasetNameType | str] | None = None,
         rerank_k: int = 100,
         at_k: int = 10,
         always_rerank_positives: bool = True,
@@ -178,7 +204,11 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
         super().__init__()
         if dataset_names is None:
             # We exclude arguana and touche2020 because their Argument Retrieval meaningfully task differs from the others
-            dataset_names = [key for key in dataset_name_to_id if key not in ["arguana", "touche2020"]]
+            dataset_names = [
+                key
+                for key in DATASET_NAME_TO_ID
+                if key not in ["arguana", "touche2020"]
+            ]
         self.dataset_names = dataset_names
         self.rerank_k = rerank_k
         self.at_k = at_k
@@ -203,16 +233,30 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
 
         self.evaluators = [
             self._load_dataset(name, **reranking_kwargs)
-            for name in tqdm(self.dataset_names, desc="Loading NanoBEIR datasets", leave=False)
+            for name in tqdm(
+                self.dataset_names, desc="Loading NanoBEIR datasets", leave=False
+            )
         ]
 
         self.csv_file: str = f"NanoBEIR_evaluation_{aggregate_key}_results.csv"
-        self.csv_headers = ["epoch", "steps", "MAP", f"MRR@{self.at_k}", f"NDCG@{self.at_k}"]
+        self.csv_headers = [
+            "epoch",
+            "steps",
+            "MAP",
+            f"MRR@{self.at_k}",
+            f"NDCG@{self.at_k}",
+        ]
 
         self.primary_metric = f"ndcg@{self.at_k}"
 
     def __call__(
-        self, model: CrossEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1, *args, **kwargs
+        self,
+        model: CrossEncoder,
+        output_path: str | None = None,
+        epoch: int = -1,
+        steps: int = -1,
+        *args,
+        **kwargs,
     ) -> dict[str, float]:
         per_metric_results = {}
         per_dataset_results = {}
@@ -223,16 +267,24 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
                 out_txt = f" in epoch {epoch} after {steps} steps"
         else:
             out_txt = ""
-        logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
+        logger.info(
+            f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:"
+        )
 
-        for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
+        for evaluator in tqdm(
+            self.evaluators,
+            desc="Evaluating datasets",
+            disable=not self.show_progress_bar,
+        ):
             logger.info(f"Evaluating {evaluator.name}")
             evaluation = evaluator(model, output_path, epoch, steps)
             for k in evaluation:
                 dataset, _rerank_k, metric = k.split("_", maxsplit=2)
                 if metric not in per_metric_results:
                     per_metric_results[metric] = []
-                per_dataset_results[f"{dataset}_R{self.rerank_k}_{metric}"] = evaluation[k]
+                per_dataset_results[f"{dataset}_R{self.rerank_k}_{metric}"] = (
+                    evaluation[k]
+                )
                 per_metric_results[metric].append(evaluation[k])
             logger.info("")
 
@@ -288,28 +340,48 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
 
         return per_dataset_results
 
-    def _get_human_readable_name(self, dataset_name: DatasetNameType) -> str:
-        human_readable_name = f"Nano{dataset_name_to_human_readable[dataset_name.lower()]}_R{self.rerank_k}"
+    def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
+        if dataset_name.lower() in DATASET_NAME_TO_HUMAN_READABLE:
+            human_readable_name = f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}_R{self.rerank_k}"
+        else:
+            human_readable_name = f"{dataset_name}_R{self.rerank_k}"
         return human_readable_name
 
-    def _load_dataset(self, dataset_name: DatasetNameType, **ir_evaluator_kwargs) -> CrossEncoderRerankingEvaluator:
+    def _load_dataset(
+        self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs
+    ) -> CrossEncoderRerankingEvaluator:
         if not is_datasets_available():
             raise ValueError(
                 "datasets is not available. Please install it to use the CrossEncoderNanoBEIREvaluator via `pip install datasets`."
             )
         from datasets import load_dataset
 
-        dataset_path = dataset_name_to_id[dataset_name.lower()]
+        if dataset_name.lower() in DATASET_NAME_TO_ID:
+            dataset_path = DATASET_NAME_TO_ID[dataset_name.lower()]
+        else:
+            dataset_path = dataset_name
+
         corpus = load_dataset(dataset_path, "corpus", split="train")
         corpus_mapping = dict(zip(corpus["_id"], corpus["text"]))
         queries = load_dataset(dataset_path, "queries", split="train")
         query_mapping = dict(zip(queries["_id"], queries["text"]))
         relevance = load_dataset(dataset_path, "relevance", split="train")
 
-        def mapper(sample, corpus_mapping: dict[str, str], query_mapping: dict[str, str], rerank_k: int):
+        def mapper(
+            sample,
+            corpus_mapping: dict[str, str],
+            query_mapping: dict[str, str],
+            rerank_k: int,
+        ):
             query = query_mapping[sample["query-id"]]
-            positives = [corpus_mapping[positive_id] for positive_id in sample["positive-corpus-ids"]]
-            documents = [corpus_mapping[document_id] for document_id in sample["bm25-ranked-ids"][:rerank_k]]
+            positives = [
+                corpus_mapping[positive_id]
+                for positive_id in sample["positive-corpus-ids"]
+            ]
+            documents = [
+                corpus_mapping[document_id]
+                for document_id in sample["bm25-ranked-ids"][:rerank_k]
+            ]
             return {
                 "query": query,
                 "positive": positives,
@@ -318,7 +390,11 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
 
         relevance = relevance.map(
             mapper,
-            fn_kwargs={"corpus_mapping": corpus_mapping, "query_mapping": query_mapping, "rerank_k": self.rerank_k},
+            fn_kwargs={
+                "corpus_mapping": corpus_mapping,
+                "query_mapping": query_mapping,
+                "rerank_k": self.rerank_k,
+            },
         )
 
         human_readable_name = self._get_human_readable_name(dataset_name)
@@ -330,14 +406,36 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
 
     def _validate_dataset_names(self):
         if len(self.dataset_names) == 0:
-            raise ValueError("dataset_names cannot be empty. Use None to evaluate on all datasets.")
-        if missing_datasets := [
-            dataset_name for dataset_name in self.dataset_names if dataset_name.lower() not in dataset_name_to_id
-        ]:
             raise ValueError(
-                f"Dataset(s) {missing_datasets} not found in the NanoBEIR collection. "
-                f"Valid dataset names are: {list(dataset_name_to_id.keys())}"
+                "dataset_names cannot be empty. Use None to evaluate on all datasets."
             )
+        invalid_datasets = []
+        for dataset_name in self.dataset_names:
+            if "/" in dataset_name:
+                if not self._is_valid_nanobeir_path(dataset_name):
+                    invalid_datasets.append(dataset_name)
+            else:
+                if dataset_name.lower() not in DATASET_NAME_TO_ID:
+                    invalid_datasets.append(dataset_name)
+
+        if invalid_datasets:
+            raise ValueError(
+                f"Dataset(s) {invalid_datasets} are not valid NanoBEIR datasets. "
+                f"Valid predefined names are: {list(DATASET_NAME_TO_ID.keys())}. "
+                f"Custom paths must follow the pattern '{{org}}/Nano{{DatasetName}}' or "
+                f"'{{org}}/Nano{{DatasetName}}-{{suffix}}' where DatasetName is one of valid predefined names."
+            )
+
+    def _is_valid_nanobeir_path(self, dataset_path: str) -> bool:
+        pattern = r"^[^/]+/Nano([A-Za-z0-9]+)(?:-.*)?$"
+        match = re.match(pattern, dataset_path)
+
+        if not match:
+            return False
+
+        extracted_name = match.group(1).lower()
+
+        return extracted_name in DATASET_NAME_TO_ID
 
     def get_config_dict(self):
         return {
