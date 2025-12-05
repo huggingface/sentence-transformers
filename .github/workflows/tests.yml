@@ -21,6 +21,7 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
         os: [ubuntu-latest, windows-latest]
+        transformers-version: ["<5.0.0", ">=5.0.0"]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -58,15 +59,23 @@ jobs:
         id: restore-cache
         with:
           path: ${{ env.pythonLocation }}
-          key: python-dependencies-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}-${{ env.pythonLocation }}
+          key: python-dependencies-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.transformers-version }}-${{ hashFiles('pyproject.toml') }}-${{ env.pythonLocation }}
 
-      - name: Install dependencies
+      - name: Install dependencies (transformers < 5.0.0)
+        if: ${{ matrix.transformers-version == '<5.0.0' }}
         run: |
           # The --break-system-packages flag is used to allow pip to upgrade or install packages
           # even in environments where system-managed packages might otherwise block such operations.
           python -m pip install --upgrade pip --break-system-packages
-          python -m pip install '.[train, onnx, openvino, dev]'
-          python -m pip install --upgrade 'huggingface_hub[hf_xet]'
+          python -m pip install '.[train, onnx, openvino, dev]' 'transformers<5.0.0'
+
+      - name: Install dependencies (transformers >= 5.0.0)
+        if: ${{ matrix.transformers-version == '>=5.0.0' }}
+        run: |
+          # The --break-system-packages flag is used to allow pip to upgrade or install packages
+          # even in environments where system-managed packages might otherwise block such operations.
+          python -m pip install --upgrade pip --break-system-packages
+          python -m pip install '.[train, dev]' 'transformers>=5.0.0rc0'
 
       - name: Install model2vec
         run: python -m pip install model2vec
