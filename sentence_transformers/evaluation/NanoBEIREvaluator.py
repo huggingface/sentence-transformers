@@ -404,8 +404,6 @@ class NanoBEIREvaluator(SentenceEvaluator):
     def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
         if dataset_name.lower() in DATASET_NAME_TO_HUMAN_READABLE:
             human_readable_name = f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
-        elif "/" in dataset_name:
-            human_readable_name = dataset_name.split("/")[-1]
         else:
             human_readable_name = dataset_name
 
