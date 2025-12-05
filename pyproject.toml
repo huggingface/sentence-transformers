@@ -37,7 +37,7 @@ dependencies = [
     "torch>=1.11.0",
     "scikit-learn",
     "scipy",
-    "huggingface-hub>=0.20.0",
+    "huggingface-hub==1.2.0rc0",
     "Pillow",
     "typing_extensions>=4.5.0",
 ]
