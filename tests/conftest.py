@@ -9,6 +9,7 @@ import pytest
 from tokenizers import Tokenizer
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.models import Pooling, StaticEmbedding, Transformer
 from sentence_transformers.util import is_datasets_available
 
@@ -97,6 +98,16 @@ def distilbert_base_uncased_model() -> SentenceTransformer:
 @pytest.fixture(scope="session")
 def stsb_dataset_dict() -> DatasetDict:
     return load_dataset("sentence-transformers/stsb")
+
+
+@pytest.fixture(scope="session")
+def _reranker_bert_tiny_model() -> CrossEncoder:
+    return CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
+
+
+@pytest.fixture()
+def reranker_bert_tiny_model(_reranker_bert_tiny_model) -> CrossEncoder:
+    return deepcopy(_reranker_bert_tiny_model)
 
 
 @pytest.fixture()
