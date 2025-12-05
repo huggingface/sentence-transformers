@@ -368,50 +368,32 @@ def mine_hard_negatives(
             pool = model.start_multi_process_pool(
                 target_devices=None if isinstance(use_multi_process, bool) else use_multi_process
             )
-            if corpus_embeddings is None:
-                corpus_embeddings = model.encode_document(
-                    corpus,
-                    pool=pool,
-                    batch_size=batch_size,
-                    normalize_embeddings=True,
-                    convert_to_numpy=True,
-                    show_progress_bar=True,
-                    prompt_name=corpus_prompt_name,
-                    prompt=corpus_prompt,
-                )
-            if query_embeddings is None:
-                query_embeddings = model.encode_query(
-                    queries,
-                    pool=pool,
-                    batch_size=batch_size,
-                    normalize_embeddings=True,
-                    convert_to_numpy=True,
-                    show_progress_bar=True,
-                    prompt_name=query_prompt_name,
-                    prompt=query_prompt,
-                )
-            model.stop_multi_process_pool(pool)
         else:
-            if corpus_embeddings is None:
-                corpus_embeddings = model.encode_document(
-                    corpus,
-                    batch_size=batch_size,
-                    normalize_embeddings=True,
-                    convert_to_numpy=True,
-                    show_progress_bar=True,
-                    prompt_name=corpus_prompt_name,
-                    prompt=corpus_prompt,
-                )
-            if query_embeddings is None:
-                query_embeddings = model.encode_query(
-                    queries,
-                    batch_size=batch_size,
-                    normalize_embeddings=True,
-                    convert_to_numpy=True,
-                    show_progress_bar=True,
-                    prompt_name=query_prompt_name,
-                    prompt=query_prompt,
-                )
+            pool = None
+        if corpus_embeddings is None:
+            corpus_embeddings = model.encode_document(
+                corpus,
+                pool=pool,
+                batch_size=batch_size,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=True,
+                prompt_name=corpus_prompt_name,
+                prompt=corpus_prompt,
+            )
+        if query_embeddings is None:
+            query_embeddings = model.encode_query(
+                queries,
+                pool=pool,
+                batch_size=batch_size,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=True,
+                prompt_name=query_prompt_name,
+                prompt=query_prompt,
+            )
+        if use_multi_process:
+            model.stop_multi_process_pool(pool)
 
     if cache_folder:
         if not os.path.exists(query_cache_file):
@@ -490,6 +472,12 @@ def mine_hard_negatives(
     if cross_encoder is not None and (
         absolute_margin is not None or relative_margin is not None or max_score is not None
     ):
+        if use_multi_process:
+            pool = cross_encoder.start_multi_process_pool(
+                target_devices=None if isinstance(use_multi_process, bool) else use_multi_process
+            )
+        else:
+            pool = None
         for idx, candidate_idx in tqdm(enumerate(indices), desc="Rescoring with CrossEncoder", total=len(indices)):
             query = queries[idx]
             candidate_passages = [corpus[_idx] for _idx in candidate_idx]
@@ -497,13 +485,17 @@ def mine_hard_negatives(
                 list(zip([query] * (range_max + 1), candidate_passages)),
                 batch_size=batch_size,
                 convert_to_tensor=True,
-            )
+                pool=pool,
+            ).to(device)
             scores[idx] = pred_scores
         positive_scores = cross_encoder.predict(
             list(zip(all_queries, positives)),
             batch_size=batch_size,
             convert_to_tensor=True,
-        )
+            pool=pool,
+        ).to(device)
+        if use_multi_process:
+            cross_encoder.stop_multi_process_pool(pool)
 
     if not include_positives:
         # for each query, create a mask that is True for the positives and False for the negatives in the indices

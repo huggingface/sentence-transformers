@@ -74,12 +74,6 @@ def multiple_positive_dataset(queries, passages):
     )
 
 
-@pytest.fixture
-def cross_encoder():
-    """Return a cross-encoder model."""
-    return CrossEncoder("cross-encoder/ms-marco-MiniLM-L2-v2")
-
-
 def test_basic_functionality(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
     """Test the basic functionality with default parameters."""
     model = static_retrieval_mrl_en_v1_model
@@ -179,10 +173,11 @@ def test_separate_corpus(
 
 
 def test_cross_encoder(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, cross_encoder: CrossEncoder
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, reranker_bert_tiny_model: CrossEncoder
 ) -> None:
     """Test using a cross-encoder for rescoring."""
     model = static_retrieval_mrl_en_v1_model
+    cross_encoder = reranker_bert_tiny_model
     result = mine_hard_negatives(
         dataset=dataset,
         model=model,
@@ -199,10 +194,11 @@ def test_cross_encoder(
 
 
 def test_cross_encoder_detailed(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, cross_encoder: CrossEncoder
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, reranker_bert_tiny_model: CrossEncoder
 ) -> None:
     """Test using a cross-encoder with different parameters."""
     model = static_retrieval_mrl_en_v1_model
+    cross_encoder = reranker_bert_tiny_model
     # Test with cross-encoder and various filtering parameters
     result = mine_hard_negatives(
         dataset=dataset,
@@ -584,22 +580,31 @@ def test_margin_with_safe_range(dataset: Dataset, static_retrieval_mrl_en_v1_mod
     assert len(result) > 0
 
 
-def test_multi_process(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
+def test_multi_process(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, reranker_bert_tiny_model: CrossEncoder
+) -> None:
     """Test use_multi_process parameter if multiple CPUs available."""
     model = static_retrieval_mrl_en_v1_model
+    cross_encoder = reranker_bert_tiny_model
     # Skip on CI environments where multi-processing might be restricted
     if os.environ.get("CI"):
         pytest.skip("Skipping multi-process test in CI environment")
 
-    try:
-        result = mine_hard_negatives(dataset=dataset, model=model, use_multi_process=True, verbose=False)
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        cross_encoder=cross_encoder,
+        range_max=3,  # Reduced to avoid k out of range error
+        num_negatives=2,
+        relative_margin=0.1,
+        use_multi_process=True,
+        verbose=False,
+    )
 
-        # Should still produce expected output
-        assert "query" in result.column_names
-        assert "passage" in result.column_names
-        assert "negative" in result.column_names
-    except Exception as e:
-        pytest.skip(f"Multi-process test failed: {str(e)}")
+    # Should still produce expected output
+    assert "query" in result.column_names
+    assert "passage" in result.column_names
+    assert "negative" in result.column_names
 
 
 def test_empty_dataset(static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
