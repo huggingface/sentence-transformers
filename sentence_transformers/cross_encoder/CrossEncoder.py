@@ -682,10 +682,11 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         if activation_fn is not None:
             self.set_activation_fn(activation_fn, set_default=False)
 
-        target_device = self.model.device
-        if device is not None and isinstance(device, str):
-            target_device = device
-            self.to(device)
+        # Here, device is either a single device string (e.g., "cuda:0", "cpu") for single-process encoding or None
+        if device is not None:
+            device = self.model.device
+
+        self.to(device)
 
         pred_scores = []
         self.eval()
@@ -697,7 +698,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
                 truncation=True,
                 return_tensors="pt",
             )
-            features.to(target_device)
+            features.to(device)
             model_predictions = self.model(**features, return_dict=True)
             logits = self.activation_fn(model_predictions.logits)
 
@@ -712,7 +713,7 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
             if len(pred_scores):
                 pred_scores = torch.stack(pred_scores)
             else:
-                pred_scores = torch.tensor([], device=target_device)
+                pred_scores = torch.tensor([], device=device)
         elif convert_to_numpy:
             pred_scores = np.asarray([score.cpu().detach().float().numpy() for score in pred_scores])
 
