@@ -231,13 +231,7 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
         ]
 
         self.csv_file: str = f"NanoBEIR_evaluation_{aggregate_key}_results.csv"
-        self.csv_headers = [
-            "epoch",
-            "steps",
-            "MAP",
-            f"MRR@{self.at_k}",
-            f"NDCG@{self.at_k}",
-        ]
+        self.csv_headers = ["epoch", "steps", "MAP", f"MRR@{self.at_k}", f"NDCG@{self.at_k}"]
 
         self.primary_metric = f"ndcg@{self.at_k}"
 
@@ -255,11 +249,7 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
             out_txt = ""
         logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
 
-        for evaluator in tqdm(
-            self.evaluators,
-            desc="Evaluating datasets",
-            disable=not self.show_progress_bar,
-        ):
+        for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
             logger.info(f"Evaluating {evaluator.name}")
             evaluation = evaluator(model, output_path, epoch, steps)
             for k in evaluation:
