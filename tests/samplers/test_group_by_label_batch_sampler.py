@@ -71,9 +71,9 @@ def test_group_by_label_batch_sampler_label_b(dummy_dataset: Dataset) -> None:
 
     # drop_last=True, so each batch should be the same length and the last batch is dropped.
     batches = list(iter(sampler))
-    assert all(
-        len(batch) == batch_size for batch in batches
-    ), "Not all batches are the same size, while drop_last was True."
+    assert all(len(batch) == batch_size for batch in batches), (
+        "Not all batches are the same size, while drop_last was True."
+    )
 
     # Assert that we have the expected number of total samples in the batches.
     assert sum(len(batch) for batch in batches) == 100 // batch_size * batch_size

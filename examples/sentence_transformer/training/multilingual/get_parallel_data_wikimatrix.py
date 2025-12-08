@@ -1,12 +1,12 @@
 """
-This script downloads the WikiMatrix corpus (https://github.com/facebookresearch/LASER/tree/master/tasks/WikiMatrix)
+This script downloads the WikiMatrix corpus (https://github.com/facebookresearch/LASER/tree/main/tasks/WikiMatrix)
  and create parallel sentences tsv files that can be used to extend existent sentence embedding models to new languages.
 
 The WikiMatrix mined parallel sentences from Wikipedia in various languages.
 
 Further information can be found in our paper:
 Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation
-https://arxiv.org/abs/2004.09813
+https://huggingface.co/papers/2004.09813
 """
 
 import gzip

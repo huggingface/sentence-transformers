@@ -28,7 +28,7 @@ class DistillKLDivLoss(nn.Module):
                 A temperature of 1.0 does not scale the scores. Note: in the v5.0.1 release, the default temperature was changed from 2.0 to 1.0.
 
         References:
-            - For more details, please refer to https://arxiv.org/abs/2010.11386
+            - For more details, please refer to https://huggingface.co/papers/2010.11386
 
         Requirements:
             1. (query, positive, negative_1, ..., negative_n) examples

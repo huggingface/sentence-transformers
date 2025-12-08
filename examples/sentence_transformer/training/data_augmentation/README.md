@@ -6,7 +6,7 @@ Bi-encoders (a.k.a. sentence embeddings models) require substantial training dat
 
 To solve this practical issue, we release an effective data-augmentation strategy known as <b>Augmented SBERT</b> where we utilize a high performing and slow cross-encoder (BERT) to label a larger set of input pairs to augment the training data for the bi-encoder (SBERT).
 
-For more details, refer to our publication - [Augmented SBERT: Data Augmentation Method for Improving Bi-Encoders for Pairwise Sentence Scoring Tasks](https://arxiv.org/abs/2010.08240) which is a joint effort by Nandan Thakur, Nils Reimers and Johannes Daxenberger of UKP Lab, TU Darmstadt.
+For more details, refer to our publication - [Augmented SBERT: Data Augmentation Method for Improving Bi-Encoders for Pairwise Sentence Scoring Tasks](https://huggingface.co/papers/2010.08240) which is a joint effort by Nandan Thakur, Nils Reimers and Johannes Daxenberger of UKP Lab, TU Darmstadt.
 
 Chien Vu also wrote a nice blog article on this technique: [Advance BERT model via transferring knowledge from Cross-Encoders to Bi-Encoders](https://resources.experfy.com/ai-ml/bert-model-transferring-knowledge-cross-encoders-bi-encoders/)
 
@@ -34,7 +34,7 @@ We apply the Augmented SBERT (<b>In-domain</b>) strategy, it involves three step
 
 - Step 3: Finally, train a bi-encoder (SBERT) on the extended (gold + silver) training dataset
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/augsbert-indomain.png" width="400" height="500">
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/augsbert-indomain.png" width="400" height="500">
 
 ## Scenario 2: No annotated datasets (Only unlabeled sentence-pairs)
 
@@ -46,16 +46,16 @@ We apply the Augmented SBERT (<b>Domain-Transfer</b>) strategy, it involves thre
 
 - Step 3: Finally, train a bi-encoder (SBERT) on the labeled target dataset
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/augsbert-domain-transfer.png" width="500" height="300">
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/augsbert-domain-transfer.png" width="500" height="300">
 
 ## Training
 
-The [examples/sentence_transformer/training/data_augmentation](https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/training/data_augmentation/) folder contains simple training examples for each scenario explained below:
+The [examples/sentence_transformer/training/data_augmentation](https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/data_augmentation/) folder contains simple training examples for each scenario explained below:
 
 - [train_sts_seed_optimization.py](train_sts_seed_optimization.py)
 
   - This script trains a bi-encoder (SBERT) model from scratch for STS benchmark dataset with seed-optimization.
-  - Seed optimization technique is inspired from [(Dodge et al., 2020)](https://arxiv.org/abs/2002.06305).
+  - Seed optimization technique is inspired from [(Dodge et al., 2020)](https://huggingface.co/papers/2002.06305).
   - For Seed opt., we train our bi-encoder for various seeds and evaluate using an early stopping algorithm.
   - Finally, measure dev performance across the seeds to get the highest performing seeds.
 
@@ -90,7 +90,7 @@ The [examples/sentence_transformer/training/data_augmentation](https://github.co
 
 ## Citation
 
-If you use the code for augmented sbert, feel free to cite our publication [Augmented SBERT: Data Augmentation Method for Improving Bi-Encoders for Pairwise Sentence Scoring Tasks](https://arxiv.org/abs/2010.08240):
+If you use the code for augmented sbert, feel free to cite our publication [Augmented SBERT: Data Augmentation Method for Improving Bi-Encoders for Pairwise Sentence Scoring Tasks](https://huggingface.co/papers/2010.08240):
 
 ```
 @article{thakur-2020-AugSBERT,

@@ -3,8 +3,9 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from sentence_transformers.backend import load_onnx_model, load_openvino_model
 

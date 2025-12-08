@@ -2,7 +2,7 @@
 
 Given two sentence (premise and hypothesis), Natural Language Inference (NLI) is the task of deciding if the premise entails the hypothesis, if they are contradiction, or if they are neutral. Commonly used NLI dataset are [SNLI](https://huggingface.co/datasets/stanfordnlp/snli) and [MultiNLI](https://huggingface.co/datasets/nyu-mll/multi_nli).
 
-[Conneau et al.](https://arxiv.org/abs/1705.02364) showed that NLI data can be quite useful when training Sentence Embedding methods. We also found this in our [Sentence-BERT-Paper](https://arxiv.org/abs/1908.10084) and often use NLI as a first fine-tuning step for sparse encoder methods.
+[Conneau et al.](https://huggingface.co/papers/1705.02364) showed that NLI data can be quite useful when training Sentence Embedding methods. We also found this in our [Sentence-BERT-Paper](https://huggingface.co/papers/1908.10084) and often use NLI as a first fine-tuning step for sparse encoder methods.
 
 To train on NLI, see the following example file:
 
@@ -43,7 +43,7 @@ The :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss` is used in 
 
 The underlying ranking loss operates on sentence pairs [(a<sub>1</sub>, b<sub>1</sub>), ..., (a<sub>n</sub>, b<sub>n</sub>)] where (a<sub>i</sub>, b<sub>i</sub>) are similar sentences (e.g., premise and its entailed hypothesis) and (a<sub>i</sub>, b<sub>j</sub>) for i != j are treated as dissimilar sentences (in-batch negatives). The loss minimizes the distance (or maximizes similarity) between (a<sub>i</sub>, b<sub>i</sub>) while simultaneously maximizing the distance (or minimizing similarity) between (a<sub>i</sub>, b<sub>j</sub>) for all i != j.
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/MultipleNegativeRankingLoss.png" alt="SBERT MultipleNegativeRankingLoss" width="350"/>
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/MultipleNegativeRankingLoss.png" alt="SBERT MultipleNegativeRankingLoss" width="350"/>
 
 Using this with NLI data means defining entailment pairs as positive pairs. For example, (*"A soccer game with multiple males playing."*, *"Some men are playing a sport."*) should be close in the sparse vector space.
 

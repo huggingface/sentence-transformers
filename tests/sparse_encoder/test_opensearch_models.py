@@ -44,9 +44,9 @@ def test_opensearch_v2_distill_similarity():
     tolerance = 1e-3  # Allow small margin of error
 
     # Check similarity is close to expected value
-    assert torch.allclose(
-        similarity, torch.tensor([[expected_similarity]]), atol=tolerance, rtol=0.01
-    ), f"Expected similarity ~{expected_similarity}, got {similarity.item():.4f}"
+    assert torch.allclose(similarity, torch.tensor([[expected_similarity]]), atol=tolerance, rtol=0.01), (
+        f"Expected similarity ~{expected_similarity}, got {similarity.item():.4f}"
+    )
 
     # Check specific token scores as documented in original file
     decoded_query = model.decode(query_embed, top_k=3)
@@ -72,12 +72,12 @@ def test_opensearch_v2_distill_similarity():
         query_score = query_token_scores[token]
         document_score = document_token_scores[token]
 
-        assert (
-            abs(query_score - expected["query"]) < tolerance
-        ), f"Query score for '{token}': expected {expected['query']}, got {query_score}"
-        assert (
-            abs(document_score - expected["document"]) < tolerance
-        ), f"Document score for '{token}': expected {expected['document']}, got {document_score}"
+        assert abs(query_score - expected["query"]) < tolerance, (
+            f"Query score for '{token}': expected {expected['query']}, got {query_score}"
+        )
+        assert abs(document_score - expected["document"]) < tolerance, (
+            f"Document score for '{token}': expected {expected['document']}, got {document_score}"
+        )
 
 
 def test_opensearch_v3_distill_similarity():
@@ -117,9 +117,9 @@ def test_opensearch_v3_distill_similarity():
     tolerance = 1e-3  # Allow small margin of error
 
     # Check similarity is close to expected value
-    assert torch.allclose(
-        similarity, torch.tensor([[expected_similarity]]), atol=tolerance, rtol=0.01
-    ), f"Expected similarity ~{expected_similarity}, got {similarity.item():.4f}"
+    assert torch.allclose(similarity, torch.tensor([[expected_similarity]]), atol=tolerance, rtol=0.01), (
+        f"Expected similarity ~{expected_similarity}, got {similarity.item():.4f}"
+    )
 
     # Check specific token scores as documented in original file
     decoded_query = model.decode(query_embed, top_k=10)
@@ -151,9 +151,9 @@ def test_opensearch_v3_distill_similarity():
         query_score = query_token_scores[token]
         document_score = document_token_scores[token]
 
-        assert (
-            abs(query_score - expected["query"]) < tolerance
-        ), f"Query score for '{token}': expected {expected['query']}, got {query_score}"
-        assert (
-            abs(document_score - expected["document"]) < tolerance
-        ), f"Document score for '{token}': expected {expected['document']}, got {document_score}"
+        assert abs(query_score - expected["query"]) < tolerance, (
+            f"Query score for '{token}': expected {expected['query']}, got {query_score}"
+        )
+        assert abs(document_score - expected["document"]) < tolerance, (
+            f"Document score for '{token}': expected {expected['document']}, got {document_score}"
+        )

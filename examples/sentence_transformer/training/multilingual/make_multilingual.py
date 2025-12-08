@@ -14,7 +14,7 @@ talks translated to 100+ languages. For other parallel data, see get_parallel_da
 
 Further information can be found in our paper:
 Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation
-https://arxiv.org/abs/2004.09813
+https://huggingface.co/papers/2004.09813
 """
 
 import logging

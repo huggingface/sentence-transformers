@@ -25,7 +25,7 @@ You can also train and use :class:`~sentence_transformers.SentenceTransformer` m
 Choosing the right loss function is crucial for finetuning useful models. :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss` remains a very solid loss for training any :class:`~sentence_transformers.cross_encoder.CrossEncoder` model that has just one output class, i.e. if it just outputs one score.
 ```
 
-<img src="https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/CrossEncoder.png" alt="CrossEncoder architecture" width="250"/>
+<img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/CrossEncoder.png" alt="CrossEncoder architecture" width="250"/>
 
 ```{eval-rst}
 For each question pair, we pass question A and question B through the BERT-based model, after which a classifier head converts the intermediary representation from the BERT-based model into a similarity score. With this loss, we apply :class:`torch.nn.BCEWithLogitsLoss` which accepts logits (a.k.a. outputs, raw predictions) and gold similarity scores (1 if duplicate, 0 if not duplicate) to compute a loss denoting how well the model has done. This loss is then minimized to improve the performance of the model.

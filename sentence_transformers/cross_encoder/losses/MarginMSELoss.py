@@ -28,7 +28,7 @@ class MarginMSELoss(nn.Module):
             **kwargs: Additional keyword arguments passed to the underlying :class:`torch.nn.MSELoss`.
 
         References:
-            - Improving Efficient Neural Ranking Models with Cross-Architecture Knowledge Distillation: https://arxiv.org/abs/2010.02666
+            - Improving Efficient Neural Ranking Models with Cross-Architecture Knowledge Distillation: https://huggingface.co/papers/2010.02666
             - `Cross Encoder > Training Examples > Distillation <../../../examples/cross_encoder/training/distillation/README.html>`_
 
         Requirements:

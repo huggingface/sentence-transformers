@@ -33,7 +33,7 @@ class TiedTranspose(nn.Module):
 class SparseAutoEncoder(Module):
     """
     This module implements the Sparse AutoEncoder architecture based on the paper:
-    Beyond Matryoshka: Revisiting Sparse Coding for Adaptive Representation, https://arxiv.org/abs/2503.01776
+    Beyond Matryoshka: Revisiting Sparse Coding for Adaptive Representation, https://huggingface.co/papers/2503.01776
 
     This module transforms dense embeddings into sparse representations by:
 

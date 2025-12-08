@@ -27,7 +27,7 @@ class MarginMSELoss(nn.Module):
             similarity_fct: Which similarity function to use.
 
         References:
-            - For more details, please refer to https://arxiv.org/abs/2010.02666.
+            - For more details, please refer to https://huggingface.co/papers/2010.02666.
             - `Training Examples > MS MARCO <../../../examples/sentence_transformer/training/ms_marco/README.html>`_
             - `Unsupervised Learning > Domain Adaptation <../../../examples/sentence_transformer/domain_adaptation/README.html>`_
 

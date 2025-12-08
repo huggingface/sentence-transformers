@@ -53,4 +53,4 @@ We use :class:`~sentence_transformers.sparse_encoder.losses.SparseCosineSimilari
 
 For each sentence pair, we pass sentence A and sentence B through the sparse encoder model, which yields the sparse embeddings *u* und *v*. The similarity of these embeddings is computed using cosine similarity and the result is compared to the gold similarity score. Note that the two sentences are fed through the same model rather than two separate models. In particular, the cosine similarity for similar texts is maximized and the cosine similarity for dissimilar texts is minimized. This allows our model to be fine-tuned and to recognize the similarity of sentences.
 
-For more details, see [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://arxiv.org/abs/1908.10084).
+For more details, see [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://huggingface.co/papers/1908.10084).

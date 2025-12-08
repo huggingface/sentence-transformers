@@ -22,7 +22,7 @@ class MSEEvaluator(SentenceEvaluator):
 
     The MSE is computed between ||teacher.encode(source_sentences) - student.encode(target_sentences)||.
 
-    For multilingual knowledge distillation (https://arxiv.org/abs/2004.09813), source_sentences are in English
+    For multilingual knowledge distillation (https://huggingface.co/papers/2004.09813), source_sentences are in English
     and target_sentences are in a different language like German, Chinese, Spanish...
 
     Args:

@@ -10,7 +10,7 @@ In the original CT paper, specially created batches are used. We implemented an 
 
 Using in-batch negative sampling gives a stronger training signal than the original loss function proposed by Carlsson et al.
 
-![CT working](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/CT.jpg)
+![CT working](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/CT.jpg)
 
 After training, the model 2 will be used for inference, which usually has better performance.
 

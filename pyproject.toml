@@ -11,7 +11,7 @@ authors = [
 maintainers = [
     { name = "Tom Aarsen", email = "tom.aarsen@huggingface.co" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 keywords = [
     "Transformer Networks",
     "BERT",
@@ -25,7 +25,6 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -33,7 +32,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "transformers>=4.41.0,<5.0.0",
+    "transformers>=4.41.0,<6.0.0",
     "tqdm",
     "torch>=1.11.0",
     "scikit-learn",
@@ -50,9 +49,9 @@ Repository = "https://github.com/huggingface/sentence-transformers/"
 
 [project.optional-dependencies]
 train = ["datasets", "accelerate>=0.20.3"]
-onnx = ["optimum[onnxruntime]>=1.23.1"]
-onnx-gpu = ["optimum[onnxruntime-gpu]>=1.23.1"]
-openvino = ["optimum-intel[openvino]>=1.20.0"]
+onnx = ["optimum-onnx[onnxruntime]"]
+onnx-gpu = ["optimum-onnx[onnxruntime-gpu]"]
+openvino = ["optimum-intel[openvino]"]
 dev = ["datasets", "accelerate>=0.20.3", "pre-commit", "pytest", "pytest-cov", "peft"]
 
 [build-system]

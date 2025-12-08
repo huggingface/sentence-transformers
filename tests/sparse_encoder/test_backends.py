@@ -173,9 +173,9 @@ def test_openvino_backend() -> None:
             tmpdirname, backend="openvino", model_kwargs={"ov_config": {"INFERENCE_PRECISION_HINT": "f32"}}
         )
         local_openvino_result = local_openvino_model.encode(["Hello there!"])
-        assert sparse_allclose(
-            local_openvino_result, openvino_result
-        ), "OpenVINO saved model output differs from in-memory converted model"
+        assert sparse_allclose(local_openvino_result, openvino_result), (
+            "OpenVINO saved model output differs from in-memory converted model"
+        )
         del local_openvino_model
         gc.collect()
 

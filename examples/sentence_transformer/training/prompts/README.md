@@ -2,7 +2,7 @@
 
 ## What are Prompts?
 
-Many modern embedding models are trained with "instructions" or "prompts" following the [INSTRUCTOR paper](https://arxiv.org/abs/2212.09741). These prompts are strings, prefixed to each text to be embedded, allowing the model to distinguish between different types of text.
+Many modern embedding models are trained with "instructions" or "prompts" following the [INSTRUCTOR paper](https://huggingface.co/papers/2212.09741). These prompts are strings, prefixed to each text to be embedded, allowing the model to distinguish between different types of text.
 
 For example, the [mixedbread-ai/mxbai-embed-large-v1](https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1) model was trained with `Represent this sentence for searching relevant passages: ` as the prompt for all queries. This prompt is stored in the [model configuration](https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1/blob/main/config_sentence_transformers.json) under the prompt name `"query"`, so users can specify that `prompt_name` in `model.encode`:
 
@@ -27,13 +27,13 @@ See [Prompt Templates](https://sbert.net/examples/applications/computing-embeddi
 
 ## Why would we train with Prompts?
 
-The [INSTRUCTOR paper](https://arxiv.org/abs/2212.09741) showed that adding prompts or instructions before each text could improve model performance by an average of ~6%, with major gains especially for classification, clustering, and semantic textual similarity. Note that the performance improvements for retrieval are notably lower at 0.4% and 2.7% for small and large models, respectively.
+The [INSTRUCTOR paper](https://huggingface.co/papers/2212.09741) showed that adding prompts or instructions before each text could improve model performance by an average of ~6%, with major gains especially for classification, clustering, and semantic textual similarity. Note that the performance improvements for retrieval are notably lower at 0.4% and 2.7% for small and large models, respectively.
 
 <div align="center">
 <img src="https://huggingface.co/tomaarsen/mpnet-base-nq-prompts/resolve/main/instructor.png" alt="instructor results" width="720"/>
 </div>
 
-More recently, the [BGE paper](https://arxiv.org/pdf/2309.07597) showed similar findings, showing about a 1.4% performance increase for retrieval if the query is prefixed with `Represent this sentence for searching relevant passages: `. The authors conclude that using instructions may substantially contribute to the quality of task-specific fine-tuning.
+More recently, the [BGE paper](https://huggingface.co/papers/2309.07597) showed similar findings, showing about a 1.4% performance increase for retrieval if the query is prefixed with `Represent this sentence for searching relevant passages: `. The authors conclude that using instructions may substantially contribute to the quality of task-specific fine-tuning.
 
 <div align="center">
 <img src="https://huggingface.co/tomaarsen/mpnet-base-nq-prompts/resolve/main/bge.png" alt="bge results" width="720"/>
@@ -90,7 +90,7 @@ Since the v3.3.0 Sentence Transformers release, it's possible to finetune embedd
         ...,
     )
 
-Additionally, some research papers (`INSTRUCTOR <https://arxiv.org/abs/2212.09741>`_, `NV-Embed <https://arxiv.org/pdf/2405.17428>`_) exclude the prompt from the mean pooling step, such that it's only used in the Transformer blocks. In Sentence Transformers, this can be configured with the ``include_prompt`` argument/attribute in the :class:`~sentence_transformers.models.Pooling` module or via the :meth:`SentenceTransformer.set_pooling_include_prompt() <sentence_transformers.SentenceTransformer.set_pooling_include_prompt>` method. In my personal experience, models that include the prompt in the pooling tend to perform better.
+Additionally, some research papers (`INSTRUCTOR <https://huggingface.co/papers/2212.09741>`_, `NV-Embed <https://huggingface.co/papers/2405.17428>`_) exclude the prompt from the mean pooling step, such that it's only used in the Transformer blocks. In Sentence Transformers, this can be configured with the ``include_prompt`` argument/attribute in the :class:`~sentence_transformers.models.Pooling` module or via the :meth:`SentenceTransformer.set_pooling_include_prompt() <sentence_transformers.SentenceTransformer.set_pooling_include_prompt>` method. In my personal experience, models that include the prompt in the pooling tend to perform better.
 ```
 
 ### Training Script
@@ -98,7 +98,7 @@ Additionally, some research papers (`INSTRUCTOR <https://arxiv.org/abs/2212.0974
 ```{eval-rst}
 See the following script as an example of how to train with prompts in practice:
 
-* `training_nq_prompts.py <https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/training/prompts/training_nq_prompts.py>`_: This script finetunes `mpnet-base <https://huggingface.co/microsoft/mpnet-base>`_ on 100k query-answer pairs from the `natural-questions <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset using the :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss` loss. The model is evaluated during training using the :class:`~sentence_transformers.evaluation.NanoBEIREvaluator`.
+* `training_nq_prompts.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/prompts/training_nq_prompts.py>`_: This script finetunes `mpnet-base <https://huggingface.co/microsoft/mpnet-base>`_ on 100k query-answer pairs from the `natural-questions <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset using the :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss` loss. The model is evaluated during training using the :class:`~sentence_transformers.evaluation.NanoBEIREvaluator`.
 
 This script has two variables that affect 1) whether prompts are used and 2) whether prompts are included in the pooling. I have finetuned both ``mpnet-base`` and ``bert-base-uncased`` under the various different settings, resulting in a 0.66% and 0.90% relative improvements on ``NDCG@10`` at no extra cost.
 

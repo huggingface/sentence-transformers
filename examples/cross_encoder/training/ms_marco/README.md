@@ -10,7 +10,7 @@ If you are interested in how to use these models, see [Application - Retrieve & 
 A `Cross Encoder <../../applications/README.html>`_ accepts both a query and a possible relevant passage and returns a score denoting how relevant the passage is for the given query. Often times, a :class:`torch.nn.Sigmoid` is applied over the raw output prediction, casting it to a value between 0 and 1.
 ```
 
-![CrossEncoder](https://raw.githubusercontent.com/UKPLab/sentence-transformers/master/docs/img/CrossEncoder.png)
+![CrossEncoder](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/CrossEncoder.png)
 
 ```{eval-rst}
 :class:`~sentence_transformers.cross_encoder.CrossEncoder` models are often used for **re-ranking**: Given a list with possible relevant passages for a query, for example retrieved from a :class:`~sentence_transformers.SentenceTransformer` model / BM25 / Elasticsearch, the cross-encoder re-ranks this list so that the most relevant passages are the top of the result list. 

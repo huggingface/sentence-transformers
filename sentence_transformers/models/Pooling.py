@@ -28,12 +28,12 @@ class Pooling(Module):
             divide by sqrt(input_length).
         pooling_mode_weightedmean_tokens: Perform (position) weighted
             mean pooling. See `SGPT: GPT Sentence Embeddings for
-            Semantic Search <https://arxiv.org/abs/2202.08904>`_.
+            Semantic Search <https://huggingface.co/papers/2202.08904>`_.
         pooling_mode_lasttoken: Perform last token pooling. See `SGPT:
             GPT Sentence Embeddings for Semantic Search
-            <https://arxiv.org/abs/2202.08904>`_ and `Text and Code
+            <https://huggingface.co/papers/2202.08904>`_ and `Text and Code
             Embeddings by Contrastive Pre-Training
-            <https://arxiv.org/abs/2201.10005>`_.
+            <https://huggingface.co/papers/2201.10005>`_.
         include_prompt: If set to false, the prompt tokens are not
             included in the pooling. This is useful for reproducing
             work that does not include the prompt tokens in the pooling

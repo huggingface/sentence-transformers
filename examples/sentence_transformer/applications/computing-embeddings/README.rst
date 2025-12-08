@@ -146,7 +146,7 @@ Multi-Process / Multi-GPU Encoding
 ----------------------------------
 
 You can encode input texts with more than one GPU (or with multiple processes on a CPU machine). It tends to help significantly with large datasets, but the overhead of starting multiple processes can be significant for smaller datasets.
-For an example, see: `computing_embeddings_multi_gpu.py <https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/applications/computing-embeddings/computing_embeddings_multi_gpu.py>`_.
+For an example, see: `computing_embeddings_multi_gpu.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/applications/computing-embeddings/computing_embeddings_multi_gpu.py>`_.
  
 You can use :meth:`SentenceTransformer.encode() <sentence_transformers.SentenceTransformer.encode>` (or :meth:`SentenceTransformer.encode_query() <sentence_transformers.SentenceTransformer.encode_query>` or :meth:`SentenceTransformer.encode_document() <sentence_transformers.SentenceTransformer.encode_document>`) with either:
 

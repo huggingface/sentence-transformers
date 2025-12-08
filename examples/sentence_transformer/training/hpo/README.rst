@@ -214,4 +214,4 @@ As you can see, the strongest hyperparameters reached **0.802** Spearman correla
 Example Scripts
 ---------------
 
-- `hpo_nli.py <https://github.com/huggingface/sentence-transformers/blob/master/examples/sentence_transformer/training/hpo/hpo_nli.py>`_ - An example script that performs hyperparameter optimization on the AllNLI dataset.
+- `hpo_nli.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/hpo/hpo_nli.py>`_ - An example script that performs hyperparameter optimization on the AllNLI dataset.

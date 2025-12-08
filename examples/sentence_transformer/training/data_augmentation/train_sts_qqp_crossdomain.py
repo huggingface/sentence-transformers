@@ -8,7 +8,7 @@ Three steps are followed for AugSBERT data-augmentation strategy with Domain Tra
 2. Cross-Encoder is used to label QQP training (target) dataset (Assume no labels/no annotations are provided).
 3. Bi-encoder aka SBERT is trained over the labeled QQP (target) dataset.
 
-Citation: https://arxiv.org/abs/2010.08240
+Citation: https://huggingface.co/papers/2010.08240
 
 Usage:
 python train_sts_qqp_crossdomain.py

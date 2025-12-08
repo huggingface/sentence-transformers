@@ -27,7 +27,7 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
                 can help prevent the student model from going to zero active dimensions. Defaults to 2.0.
 
         References:
-            - For more details, please refer to https://arxiv.org/abs/2010.11386
+            - For more details, please refer to https://huggingface.co/papers/2010.11386
 
         Requirements:
             1. Need to be used in SpladeLoss or CSRLoss as a loss function.

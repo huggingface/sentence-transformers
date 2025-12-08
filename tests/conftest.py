@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from copy import deepcopy
 
 import numpy as np
@@ -8,9 +9,9 @@ import pytest
 from tokenizers import Tokenizer
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.models import Pooling, StaticEmbedding, Transformer
 from sentence_transformers.util import is_datasets_available
-from tests.utils import SafeTemporaryDirectory
 
 if is_datasets_available():
     from datasets import DatasetDict, load_dataset
@@ -99,6 +100,16 @@ def stsb_dataset_dict() -> DatasetDict:
     return load_dataset("sentence-transformers/stsb")
 
 
+@pytest.fixture(scope="session")
+def _reranker_bert_tiny_model() -> CrossEncoder:
+    return CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
+
+
+@pytest.fixture()
+def reranker_bert_tiny_model(_reranker_bert_tiny_model) -> CrossEncoder:
+    return deepcopy(_reranker_bert_tiny_model)
+
+
 @pytest.fixture()
 def cache_dir():
     """
@@ -108,7 +119,7 @@ def cache_dir():
     if os.environ.get("CI", None):
         # Note: `ignore_cleanup_errors=True` is used to avoid NotADirectoryError in Windows on GitHub Actions.
         # See https://github.com/python/cpython/issues/107408, https://www.scivision.dev/python-tempfile-permission-error-windows/
-        with SafeTemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
             yield tmp_dir
     else:
         yield None

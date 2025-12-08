@@ -13,7 +13,7 @@ This approach combines the efficiency of first-stage retrieval with the accuracy
 
 ## Interactive Demo: Simple Wikipedia Search
 
-**File**: [retrieve_rerank_simple_wikipedia.ipynb](retrieve_rerank_simple_wikipedia.ipynb) [ [Colab Version](https://colab.research.google.com/github/UKPLab/sentence-transformers/blob/master/examples/sparse_encoder/applications/retrieve_rerank/retrieve_rerank_simple_wikipedia.ipynb) ]
+**File**: [retrieve_rerank_simple_wikipedia.ipynb](retrieve_rerank_simple_wikipedia.ipynb) [ [Colab Version](https://colab.research.google.com/github/huggingface/sentence-transformers/blob/main/examples/sparse_encoder/applications/retrieve_rerank/retrieve_rerank_simple_wikipedia.ipynb) ]
 
 This Jupyter notebook provides an interactive demonstration of retrieve & re-rank over [Simple English Wikipedia](https://simple.wikipedia.org/wiki/Main_Page) as corpus. The example allows you to:
 

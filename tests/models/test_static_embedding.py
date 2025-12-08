@@ -4,7 +4,9 @@ import math
 from pathlib import Path
 
 import pytest
+from packaging.version import Version
 from tokenizers import Tokenizer
+from transformers import __version__ as transformers_version
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.models.StaticEmbedding import StaticEmbedding
@@ -15,6 +17,9 @@ except ImportError:
     model2vec = None
 
 skip_if_no_model2vec = pytest.mark.skipif(model2vec is None, reason="The model2vec library is not installed.")
+skip_if_transformers_5_or_higher = pytest.mark.skipif(
+    Version(transformers_version) >= Version("5.0.0rc0"), reason="Transformers version is v5.0.0rc0 or higher."
+)
 
 
 def test_initialization_with_embedding_weights(tokenizer: Tokenizer, embedding_weights) -> None:
@@ -50,6 +55,7 @@ def test_save_and_load(tmp_path: Path, static_embedding_model: StaticEmbedding) 
     assert loaded_model.embedding.weight.shape == static_embedding_model.embedding.weight.shape
 
 
+@skip_if_transformers_5_or_higher()  # Model2vec distillation is not yet compatible with transformers v5+
 @skip_if_no_model2vec()
 def test_from_distillation() -> None:
     model = StaticEmbedding.from_distillation("sentence-transformers-testing/stsb-bert-tiny-safetensors", pca_dims=32)

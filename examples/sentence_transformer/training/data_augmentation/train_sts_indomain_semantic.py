@@ -8,7 +8,7 @@ Three steps are followed for AugSBERT data-augmentation strategy with Semantic S
     2. Fine-tuned Cross-encoder is used to label on Sem. Search sampled unlabeled pairs (silver STSb dataset)
     3. Bi-encoder (SBERT) is finally fine-tuned on both gold + silver STSb dataset
 
-Citation: https://arxiv.org/abs/2010.08240
+Citation: https://huggingface.co/papers/2010.08240
 
 Usage:
 python train_sts_indomain_semantic.py
