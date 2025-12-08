@@ -177,7 +177,7 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
             logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
             # Load a model
-            model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
+            model = CrossEncoder("cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
 
             # Load & run the evaluator
             dataset_names = ["Serbian-AI-Society/NanoMSMARCO-bm25", "Serbian-AI-Society/NanoNQ-bm25"]
