@@ -328,11 +328,7 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
             )
         from datasets import load_dataset
 
-        if dataset_name.lower() in DATASET_NAME_TO_ID:
-            dataset_path = DATASET_NAME_TO_ID[dataset_name.lower()]
-        else:
-            dataset_path = dataset_name
-
+        dataset_path = DATASET_NAME_TO_ID.get(dataset_name.lower(), dataset_name)
         corpus = load_dataset(dataset_path, "corpus", split="train")
         corpus_mapping = dict(zip(corpus["_id"], corpus["text"]))
         queries = load_dataset(dataset_path, "queries", split="train")
