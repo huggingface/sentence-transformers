@@ -453,7 +453,9 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
         qrels_dict = {}
         for sample in qrels:
-            corpus_ids = sample.get("positive-corpus-ids") or sample.get("corpus-id")
+            corpus_ids = sample.get("positive-corpus-ids")
+            if corpus_ids is None:
+                corpus_ids = sample.get("corpus-id")
             if corpus_ids is None:
                 raise ValueError(
                     f"Could not find 'positive-corpus-ids' or 'corpus-id' in qrels/relevance for dataset {dataset_name}."
