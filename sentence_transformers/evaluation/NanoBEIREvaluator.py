@@ -11,9 +11,7 @@ from torch import Tensor
 from tqdm import tqdm
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation.InformationRetrievalEvaluator import (
-    InformationRetrievalEvaluator,
-)
+from sentence_transformers.evaluation.InformationRetrievalEvaluator import InformationRetrievalEvaluator
 from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
 from sentence_transformers.similarity_functions import SimilarityFunction
 from sentence_transformers.util import is_datasets_available
@@ -248,9 +246,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
         self.show_progress_bar = show_progress_bar
         self.write_csv = write_csv
         self.score_functions = score_functions
-        self.score_function_names = (
-            sorted(list(self.score_functions.keys())) if score_functions else []
-        )
+        self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
         self.main_score_function = main_score_function
         self.truncate_dim = truncate_dim
         self.name = f"NanoBEIR_{aggregate_key}"
@@ -282,9 +278,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
         }
         self.evaluators = [
             self._load_dataset(name, **ir_evaluator_kwargs)
-            for name in tqdm(
-                self.dataset_names, desc="Loading NanoBEIR datasets", leave=False
-            )
+            for name in tqdm(self.dataset_names, desc="Loading NanoBEIR datasets", leave=False)
         ]
 
         self.csv_file: str = f"NanoBEIR_evaluation_{aggregate_key}_results.csv"
@@ -330,9 +324,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
             out_txt = ""
         if self.truncate_dim is not None:
             out_txt += f" (truncated to {self.truncate_dim})"
-        logger.info(
-            f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:"
-        )
+        logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
 
         if self.score_functions is None:
             self.score_functions = {model.similarity_fn_name: model.similarity}
@@ -340,11 +332,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
             self._append_csv_headers(self.score_function_names)
 
         num_underscores_in_name = self.name.count("_")
-        for evaluator in tqdm(
-            self.evaluators,
-            desc="Evaluating datasets",
-            disable=not self.show_progress_bar,
-        ):
+        for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
             logger.info(f"Evaluating {evaluator.name}")
             evaluation = evaluator(model, output_path, epoch, steps)
             for full_key, metric_value in evaluation.items():
@@ -395,17 +383,12 @@ class NanoBEIREvaluator(SentenceEvaluator):
         if not self.primary_metric:
             if self.main_score_function is None:
                 score_function = max(
-                    [
-                        (name, agg_results[f"{name}_ndcg@{max(self.ndcg_at_k)}"])
-                        for name in self.score_function_names
-                    ],
+                    [(name, agg_results[f"{name}_ndcg@{max(self.ndcg_at_k)}"]) for name in self.score_function_names],
                     key=lambda x: x[1],
                 )[0]
                 self.primary_metric = f"{score_function}_ndcg@{max(self.ndcg_at_k)}"
             else:
-                self.primary_metric = (
-                    f"{self.main_score_function.value}_ndcg@{max(self.ndcg_at_k)}"
-                )
+                self.primary_metric = f"{self.main_score_function.value}_ndcg@{max(self.ndcg_at_k)}"
 
         avg_queries = np.mean([len(evaluator.queries) for evaluator in self.evaluators])
         avg_corpus = np.mean([len(evaluator.corpus) for evaluator in self.evaluators])
@@ -415,31 +398,17 @@ class NanoBEIREvaluator(SentenceEvaluator):
         for name in self.score_function_names:
             logger.info(f"Aggregated for Score Function: {name}")
             for k in self.accuracy_at_k:
-                logger.info(
-                    "Accuracy@{}: {:.2f}%".format(
-                        k, agg_results[f"{name}_accuracy@{k}"] * 100
-                    )
-                )
+                logger.info("Accuracy@{}: {:.2f}%".format(k, agg_results[f"{name}_accuracy@{k}"] * 100))
 
             for k in self.precision_recall_at_k:
-                logger.info(
-                    "Precision@{}: {:.2f}%".format(
-                        k, agg_results[f"{name}_precision@{k}"] * 100
-                    )
-                )
-                logger.info(
-                    "Recall@{}: {:.2f}%".format(
-                        k, agg_results[f"{name}_recall@{k}"] * 100
-                    )
-                )
+                logger.info("Precision@{}: {:.2f}%".format(k, agg_results[f"{name}_precision@{k}"] * 100))
+                logger.info("Recall@{}: {:.2f}%".format(k, agg_results[f"{name}_recall@{k}"] * 100))
 
             for k in self.mrr_at_k:
                 logger.info("MRR@{}: {:.4f}".format(k, agg_results[f"{name}_mrr@{k}"]))
 
             for k in self.ndcg_at_k:
-                logger.info(
-                    "NDCG@{}: {:.4f}".format(k, agg_results[f"{name}_ndcg@{k}"])
-                )
+                logger.info("NDCG@{}: {:.4f}".format(k, agg_results[f"{name}_ndcg@{k}"]))
 
             for k in self.map_at_k:
                 logger.info("MAP@{}: {:.4f}".format(k, agg_results[f"{name}_map@{k}"]))
@@ -453,9 +422,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
     def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
         if dataset_name.lower() in DATASET_NAME_TO_HUMAN_READABLE:
-            human_readable_name = (
-                f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
-            )
+            human_readable_name = f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
         else:
             human_readable_name = dataset_name
 
@@ -485,16 +452,8 @@ class NanoBEIREvaluator(SentenceEvaluator):
         except ValueError:
             qrels = load_dataset(dataset_path, "relevance", split="train")
 
-        corpus_dict = {
-            sample["_id"]: sample["text"]
-            for sample in corpus
-            if len(sample["text"]) > 0
-        }
-        queries_dict = {
-            sample["_id"]: sample["text"]
-            for sample in queries
-            if len(sample["text"]) > 0
-        }
+        corpus_dict = {sample["_id"]: sample["text"] for sample in corpus if len(sample["text"]) > 0}
+        queries_dict = {sample["_id"]: sample["text"] for sample in queries if len(sample["text"]) > 0}
 
         qrels_dict = {}
         for sample in qrels:
@@ -513,13 +472,9 @@ class NanoBEIREvaluator(SentenceEvaluator):
                 qrels_dict[sample["query-id"]].add(corpus_ids)
 
         if self.query_prompts is not None:
-            ir_evaluator_kwargs["query_prompt"] = self.query_prompts.get(
-                dataset_name, None
-            )
+            ir_evaluator_kwargs["query_prompt"] = self.query_prompts.get(dataset_name, None)
         if self.corpus_prompts is not None:
-            ir_evaluator_kwargs["corpus_prompt"] = self.corpus_prompts.get(
-                dataset_name, None
-            )
+            ir_evaluator_kwargs["corpus_prompt"] = self.corpus_prompts.get(dataset_name, None)
         human_readable_name = self._get_human_readable_name(dataset_name)
         return self.information_retrieval_class(
             queries=queries_dict,
@@ -531,9 +486,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
     def _validate_dataset_names(self):
         if len(self.dataset_names) == 0:
-            raise ValueError(
-                "dataset_names cannot be empty. Use None to evaluate on all datasets."
-            )
+            raise ValueError("dataset_names cannot be empty. Use None to evaluate on all datasets.")
 
         invalid_datasets = []
         for dataset_name in self.dataset_names:
@@ -567,27 +520,17 @@ class NanoBEIREvaluator(SentenceEvaluator):
         error_msg = ""
         if self.query_prompts is not None:
             if isinstance(self.query_prompts, str):
-                self.query_prompts = {
-                    dataset_name: self.query_prompts
-                    for dataset_name in self.dataset_names
-                }
+                self.query_prompts = {dataset_name: self.query_prompts for dataset_name in self.dataset_names}
             elif missing_query_prompts := [
-                dataset_name
-                for dataset_name in self.dataset_names
-                if dataset_name not in self.query_prompts
+                dataset_name for dataset_name in self.dataset_names if dataset_name not in self.query_prompts
             ]:
                 error_msg += f"The following datasets are missing query prompts: {missing_query_prompts}\n"
 
         if self.corpus_prompts is not None:
             if isinstance(self.corpus_prompts, str):
-                self.corpus_prompts = {
-                    dataset_name: self.corpus_prompts
-                    for dataset_name in self.dataset_names
-                }
+                self.corpus_prompts = {dataset_name: self.corpus_prompts for dataset_name in self.dataset_names}
             elif missing_corpus_prompts := [
-                dataset_name
-                for dataset_name in self.dataset_names
-                if dataset_name not in self.corpus_prompts
+                dataset_name for dataset_name in self.dataset_names if dataset_name not in self.corpus_prompts
             ]:
                 error_msg += f"The following datasets are missing corpus prompts: {missing_corpus_prompts}\n"
 
