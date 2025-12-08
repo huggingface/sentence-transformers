@@ -23,7 +23,7 @@ class SentenceTransformerDataCollator:
     """
 
     tokenize_fn: Callable
-    valid_label_columns: list[str] = field(default_factory=lambda: ["label", "score"])
+    valid_label_columns: list[str] = field(default_factory=lambda: ["label", "labels", "score", "scores"])
     router_mapping: dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
     prompts: dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
     include_prompt_lengths: bool = field(default=False, repr=False)

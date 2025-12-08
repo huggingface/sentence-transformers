@@ -233,8 +233,8 @@ The :class:`SentenceTransformerTrainer` trains and evaluates using :class:`datas
 ```{eval-rst}
 It is important that your dataset format matches your loss function (or that you choose a loss function that matches your dataset format). Verifying whether a dataset format works with a loss function involves two steps:
 
-1. If your loss function requires a *Label* according to the `Loss Overview <loss_overview.html>`_ table, then your dataset must have a **column named "label" or "score"**. This column is automatically taken as the label.
-2. All columns not named "label" or "score" are considered *Inputs* according to the `Loss Overview <loss_overview.html>`_ table. The number of remaining columns must match the number of valid inputs for your chosen loss. The names of these columns are **irrelevant**, only the **order matters**. 
+1. If your loss function requires a *Label* according to the `Loss Overview <loss_overview.html>`_ table, then your dataset must have a **column named "label", "labels", "score" or "scores"**. This column is automatically taken as the label.
+2. All columns not named "label", "labels", "score" or "scores" are considered *Inputs* according to the `Loss Overview <loss_overview.html>`_ table. The number of remaining columns must match the number of valid inputs for your chosen loss. The names of these columns are **irrelevant**, only the **order matters**. 
 
 For example, given a dataset with columns ``["text1", "text2", "label"]`` where the "label" column has float similarity score between 0 and 1, we can use it with :class:`~sentence_transformers.losses.CoSENTLoss`, :class:`~sentence_transformers.losses.AnglELoss`, and :class:`~sentence_transformers.losses.CosineSimilarityLoss` because it:
 
@@ -796,7 +796,6 @@ In the following table you find the performance for different models and their p
 ```{eval-rst}
 Training :class:`~sentence_transformers.SentenceTransformer` models is very similar as training :class:`~sentence_transformers.cross_encoder.CrossEncoder` models, with some key differences:
 
-- Instead of ``score``, ``scores``, ``label`` and ``labels`` columns being considered "label columns", only ``score`` and ``label`` are. As you can see in the `Loss Overview <loss_overview.html>`_ documentation, some losses require specific labels/scores in a column with one of these names.
 - For :class:`~sentence_transformers.cross_encoder.CrossEncoder` training, you can use (variably sized) lists of texts in a column. In :class:`~sentence_transformers.SentenceTransformer` training, you **cannot** use lists of inputs (e.g. texts) in a column of the training/evaluation dataset(s). In short: training with a variable number of negatives is not supported.
 
 See the `Cross Encoder > Training Overview <../cross_encoder/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.cross_encoder.CrossEncoder` models.

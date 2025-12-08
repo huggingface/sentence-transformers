@@ -403,25 +403,31 @@ def test_output_formats(dataset: Dataset, static_retrieval_mrl_en_v1_model: Sent
     assert "query" in result_triplet.column_names
     assert "passage" in result_triplet.column_names
     assert "negative" in result_triplet.column_names
+    # No score-related columns by default
     assert "positive_score" not in result_triplet.column_names
     assert "negative_score" not in result_triplet.column_names
+    assert "scores" not in result_triplet.column_names
     assert len(result_triplet.column_names) == 3
 
     # Test triplet format with scores
     result_triplet_scores = mine_hard_negatives(
-        dataset=dataset, model=model, output_format="triplet", include_scores=True, verbose=False
+        dataset=dataset, model=model, output_format="triplet", output_scores=True, verbose=False
     )
     assert "query" in result_triplet_scores.column_names
     assert "passage" in result_triplet_scores.column_names
     assert "negative" in result_triplet_scores.column_names
-    assert "positive_score" in result_triplet_scores.column_names
-    assert "negative_score" in result_triplet_scores.column_names
-    assert len(result_triplet_scores.column_names) == 5
+    # Scores are exposed via a single `scores` column as [pos, neg]
+    assert "positive_score" not in result_triplet_scores.column_names
+    assert "negative_score" not in result_triplet_scores.column_names
+    assert "scores" in result_triplet_scores.column_names
+    assert len(result_triplet_scores.column_names) == 4
 
-    # Verify scores are numeric values
+    # Verify scores are lists of numeric values [positive_score, negative_score]
     if len(result_triplet_scores) > 0:
-        assert all(isinstance(score, (int, float)) for score in result_triplet_scores["positive_score"])
-        assert all(isinstance(score, (int, float)) for score in result_triplet_scores["negative_score"])
+        for score_list in result_triplet_scores["scores"]:
+            assert isinstance(score_list, list)
+            assert len(score_list) == 2
+            assert all(isinstance(score, (int, float)) for score in score_list)
 
     # Test n-tuple format without scores (default)
     result_ntuple = mine_hard_negatives(
@@ -432,16 +438,26 @@ def test_output_formats(dataset: Dataset, static_retrieval_mrl_en_v1_model: Sent
     assert "negative_1" in result_ntuple.column_names
     assert "negative_2" in result_ntuple.column_names
     assert "score" not in result_ntuple.column_names
+    assert "scores" not in result_ntuple.column_names
 
     # Test n-tuple format with scores
     result_ntuple_scores = mine_hard_negatives(
-        dataset=dataset, model=model, num_negatives=2, output_format="n-tuple", include_scores=True, verbose=False
+        dataset=dataset, model=model, num_negatives=2, output_format="n-tuple", output_scores=True, verbose=False
     )
     assert "query" in result_ntuple_scores.column_names
     assert "passage" in result_ntuple_scores.column_names
     assert "negative_1" in result_ntuple_scores.column_names
     assert "negative_2" in result_ntuple_scores.column_names
-    assert "score" in result_ntuple_scores.column_names
+    # Unified `scores` column: [pos_score, neg1_score, neg2_score]
+    assert "score" not in result_ntuple_scores.column_names
+    assert "scores" in result_ntuple_scores.column_names
+
+    # Verify scores are lists of expected length (1 positive + num_negatives)
+    if len(result_ntuple_scores) > 0:
+        for score_list in result_ntuple_scores["scores"]:
+            assert isinstance(score_list, list)
+            assert len(score_list) == 3
+            assert all(isinstance(score, (int, float)) for score in score_list)
 
     # Test n-tuple-scores format
     result_scores = mine_hard_negatives(
@@ -451,10 +467,12 @@ def test_output_formats(dataset: Dataset, static_retrieval_mrl_en_v1_model: Sent
     assert "passage" in result_scores.column_names
     assert "negative_1" in result_scores.column_names
     assert "negative_2" in result_scores.column_names
-    assert "score" in result_scores.column_names
+    # Deprecated alias should behave like n-tuple + output_scores
+    assert "score" not in result_scores.column_names
+    assert "scores" in result_scores.column_names
 
     # Verify scores are lists of expected length (1 positive + num_negatives)
-    assert all(len(score) == 3 for score in result_scores["score"])
+    assert all(len(score) == 3 for score in result_scores["scores"])
 
     # Test labeled-pair format without scores (default)
     result_pair = mine_hard_negatives(dataset=dataset, model=model, output_format="labeled-pair", verbose=False)
@@ -466,13 +484,14 @@ def test_output_formats(dataset: Dataset, static_retrieval_mrl_en_v1_model: Sent
 
     # Test labeled-pair format with scores
     result_pair_scores = mine_hard_negatives(
-        dataset=dataset, model=model, output_format="labeled-pair", include_scores=True, verbose=False
+        dataset=dataset, model=model, output_format="labeled-pair", output_scores=True, verbose=False
     )
     assert "query" in result_pair_scores.column_names
     assert "passage" in result_pair_scores.column_names
-    assert "label" in result_pair_scores.column_names
+    # When output_scores=True we expose scores and drop labels
+    assert "label" not in result_pair_scores.column_names
     assert "score" in result_pair_scores.column_names
-    assert len(result_pair_scores.column_names) == 4
+    assert len(result_pair_scores.column_names) == 3
 
     # Verify labels are 0 or 1
     labels = set(result_pair["label"])
@@ -492,13 +511,14 @@ def test_output_formats(dataset: Dataset, static_retrieval_mrl_en_v1_model: Sent
 
     # Test labeled-list format with scores
     result_list_scores = mine_hard_negatives(
-        dataset=dataset, model=model, output_format="labeled-list", include_scores=True, verbose=False
+        dataset=dataset, model=model, output_format="labeled-list", output_scores=True, verbose=False
     )
     assert "query" in result_list_scores.column_names
     assert "passage" in result_list_scores.column_names
-    assert "labels" in result_list_scores.column_names
+    # With scores we replace labels by scores
+    assert "labels" not in result_list_scores.column_names
     assert "scores" in result_list_scores.column_names
-    assert len(result_list_scores.column_names) == 4
+    assert len(result_list_scores.column_names) == 3
 
     # Verify each item in 'passage' is a list
     assert all(isinstance(p, list) for p in result_list["passage"])
@@ -772,10 +792,12 @@ def test_n_tuple_scores_format_details(
     assert "passage" in result.column_names
     assert "negative_1" in result.column_names
     assert "negative_2" in result.column_names
-    assert "score" in result.column_names
+    # Deprecated alias should behave like n-tuple + output_scores
+    assert "score" not in result.column_names
+    assert "scores" in result.column_names
 
     # Check score structure - should be a list with 1 + num_negatives elements (positive + negatives)
-    for score_list in result["score"]:
+    for score_list in result["scores"]:
         # Should be a list
         assert isinstance(score_list, list)
 

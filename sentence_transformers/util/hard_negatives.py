@@ -42,8 +42,8 @@ def mine_hard_negatives(
     corpus_prompt_name: str | None = None,
     corpus_prompt: str | None = None,
     include_positives: bool = False,
-    output_format: Literal["triplet", "n-tuple", "n-tuple-scores", "labeled-pair", "labeled-list"] = "triplet",
-    include_scores: bool = False,
+    output_format: Literal["triplet", "n-tuple", "labeled-pair", "labeled-list"] = "triplet",
+    output_scores: bool = False,
     batch_size: int = 32,
     faiss_batch_size: int = 16384,
     use_faiss: bool = False,
@@ -158,11 +158,11 @@ def mine_hard_negatives(
             'answer': "Richmond Football Club Richmond began 2017 with 5 straight wins, a feat it had not achieved since 1995. A series of close losses hampered the Tigers throughout the middle of the season, including a 5-point loss to the Western Bulldogs, 2-point loss to Fremantle, and a 3-point loss to the Giants. Richmond ended the season strongly with convincing victories over Fremantle and St Kilda in the final two rounds, elevating the club to 3rd on the ladder. Richmond's first final of the season against the Cats at the MCG attracted a record qualifying final crowd of 95,028; the Tigers won by 51 points. Having advanced to the first preliminary finals for the first time since 2001, Richmond defeated Greater Western Sydney by 36 points in front of a crowd of 94,258 to progress to the Grand Final against Adelaide, their first Grand Final appearance since 1982. The attendance was 100,021, the largest crowd to a grand final since 1986. The Crows led at quarter time and led by as many as 13, but the Tigers took over the game as it progressed and scored seven straight goals at one point. They eventually would win by 48 points – 16.12 (108) to Adelaide's 8.12 (60) – to end their 37-year flag drought.[22] Dustin Martin also became the first player to win a Premiership medal, the Brownlow Medal and the Norm Smith Medal in the same season, while Damien Hardwick was named AFL Coaches Association Coach of the Year. Richmond's jump from 13th to premiers also marked the biggest jump from one AFL season to the next.",
             'negative': "2018 NRL Grand Final The 2018 NRL Grand Final was the conclusive and premiership-deciding game of the 2018 National Rugby League season and was played on Sunday September 30 at Sydney's ANZ Stadium.[1] The match was contested between minor premiers the Sydney Roosters and defending premiers the Melbourne Storm. In front of a crowd of 82,688, Sydney won the match 21â€“6 to claim their 14th premiership title and their first since 2013. Roosters five-eighth Luke Keary was awarded the Clive Churchill Medal as the game's official man of the match."
         }
-        >>> # To include similarity scores, use include_scores=True
+        >>> # To include similarity scores, use output_scores=True
         >>> dataset_with_scores = mine_hard_negatives(
         ...     dataset=dataset,
         ...     model=model,
-        ...     include_scores=True,
+        ...     output_scores=True,
         ...     # ... other parameters
         ... )
         >>> dataset_with_scores
@@ -215,21 +215,19 @@ def mine_hard_negatives(
             Setting this to True is primarily useful for creating Reranking evaluation datasets for CrossEncoder models,
             where it can be useful to get a full ranking (including the positives) from a first-stage retrieval model.
             Defaults to False.
-        output_format (Literal["triplet", "n-tuple", "n-tuple-scores", "labeled-pair", "labeled-list"]): Output format for the `datasets.Dataset`. Options are:
+        output_format (Literal["triplet", "n-tuple", "labeled-pair", "labeled-list"]): Output format for the `datasets.Dataset`. Options are:
 
-            - "triplet": (anchor, positive, negative) triplets, i.e. 3 columns. If `include_scores=True`, adds `positive_score` and `negative_score` columns (5 columns total). Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`.
+            - "triplet": (anchor, positive, negative) triplets, i.e. 3 columns. If `output_scores=True`, adds `positive_score` and `negative_score` columns (5 columns total). Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`.
             - "n-tuple": (anchor, positive, negative_1, ..., negative_n) tuples, i.e. 2 + num_negatives columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`.
-            - "n-tuple-scores": (anchor, positive, negative_1, ..., negative_n, score) tuples, i.e. 2 + num_negatives columns, but with one score value that's a list of similarities for the query-positive and each of the query-negative pairs. Useful for e.g. :class:`~sentence_transformers.sparse_encoder.losses.SparseMarginMSELoss`.
-            - "labeled-pair": (anchor, passage, label) text tuples with a label of 0 for negative and 1 for positive, i.e. 3 columns. If `include_scores=True`, adds a `score` column (4 columns total). Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`.
-            - "labeled-list": (anchor, [doc1, doc2, ..., docN], [label1, label2, ..., labelN]) tuples with labels of 0 for negative and 1 for positive, i.e. 3 columns. If `include_scores=True`, adds a `scores` column with corresponding similarity scores (4 columns total). Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.LambdaLoss`.
+            - "labeled-pair": (anchor, passage, label) text tuples with a label of 0 for negative and 1 for positive, i.e. 3 columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`.
+            - "labeled-list": (anchor, [doc1, doc2, ..., docN], [label1, label2, ..., labelN]) tuples with labels of 0 for negative and 1 for positive, i.e. 3 columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.LambdaLoss`.
 
             Defaults to "triplet".
-        include_scores (bool): Whether to include similarity scores in the output dataset. When True, adds score fields to the output:
-            - For "triplet" format: adds `positive_score` and `negative_score` columns
-            - For "labeled-pair" format: adds `score` column
-            - For "labeled-list" format: adds `scores` column
-            - For "n-tuple-scores" format: scores are always included regardless of this parameter
-            - For "n-tuple" format: no scores are added
+        output_scores (bool): Whether to include similarity scores in the output dataset. When True, adds score fields to the output:
+            - For "triplet" format: adds `scores` column with query-positive and query-negative similarity scores.
+            - For "n-tuple" format: adds `scores` column with a list of similarity scores for the query-positive and each of the query-negative pairs. Useful for e.g. :class:`~sentence_transformers.sparse_encoder.losses.SparseMarginMSELoss`.
+            - For "labeled-pair" format: replaces the `label` column with a `score` column. Labels are binary (1 for positive, 0 for negative), but scores contain the actual similarity scores computed by the model or cross_encoder.
+            - For "labeled-list" format: replaces the `labels` column with a `scores` column. Labels are binary (1 for positive, 0 for negative), but scores contain the actual similarity scores computed by the model or cross_encoder.
             Defaults to False.
         batch_size (int): Batch size for encoding the dataset. Defaults to 32.
         faiss_batch_size (int): Batch size for FAISS top-k search. Defaults to 16384.
@@ -245,16 +243,20 @@ def mine_hard_negatives(
         as_triplets (bool, optional): Deprecated. Use `output_format` instead. Defaults to None.
         margin (float, optional): Deprecated. Use `absolute_margin` or `relative_margin` instead. Defaults to None.
 
-
     Returns:
-        Dataset: A dataset containing the specified output format. When `include_scores=True`, score fields are added:
-        - "triplet": (anchor, positive, negative, positive_score, negative_score) tuples
-        - "labeled-pair": (anchor, passage, label, score) tuples
-        - "labeled-list": (anchor, [passages], [labels], [scores]) tuples
-        - "n-tuple": (anchor, positive, negative_1, ..., negative_n) tuples (no scores)
-        - "n-tuple-scores": (anchor, positive, negative_1, ..., negative_n, score) tuples (always includes scores)
+        Dataset: A dataset containing the specified output format. If `output_scores=False` (default), the formats are:
 
-        When `include_scores=False` (default), only the basic format is returned without score fields.
+        - "triplet": (anchor, positive, negative)
+        - "n-tuple": (anchor, positive, negative_1, ..., negative_n, [labels])
+        - "labeled-pair": (anchor, passage, label)
+        - "labeled-list": (anchor, [passages], [labels])
+
+        And if `output_scores=True`, the formats are:
+
+        - "triplet": (anchor, positive, negative, [scores])
+        - "n-tuple": (anchor, positive, negative_1, ..., negative_n, [scores])
+        - "labeled-pair": (anchor, passage, score)
+        - "labeled-list": (anchor, [passages], [scores])
     """
     if not is_datasets_available():
         raise ImportError("Please install `datasets` to use this function: `pip install datasets`.")
@@ -301,9 +303,17 @@ def mine_hard_negatives(
             )
             output_format = "n-tuple"
 
-    if output_format not in ["triplet", "n-tuple", "n-tuple-scores", "labeled-pair", "labeled-list"]:
+    if output_format == "n-tuple-scores":
+        logger.warning(
+            '`output_format="n-tuple-scores"` is deprecated. Use `output_format="n-tuple"` with '
+            "`output_scores=True instead for equivalent output formats"
+        )
+        output_format = "n-tuple"
+        output_scores = True
+
+    if output_format not in ["triplet", "n-tuple", "labeled-pair", "labeled-list"]:
         raise ValueError(
-            f"Invalid output_format: {output_format}. Must be one of 'triplet', 'n-tuple', 'n-tuple-scores', 'labeled-pair', or 'labeled-list'."
+            f"Invalid output_format: {output_format}. Must be one of 'triplet', 'n-tuple', 'labeled-pair', or 'labeled-list'."
         )
 
     if margin is not None:
@@ -640,91 +650,86 @@ def mine_hard_negatives(
         negative_scores = negative_scores[indices_to_keep]
 
         # the anchor_indices matrix is shaped [n_total_queries, n_negatives]
-        positive_score_idx = 0
+        start_idx = 0
         for q_idx in range(n_queries):
-            anchor_indices[positive_score_idx : positive_score_idx + n_positives[q_idx]] = torch.tensor(q_idx).repeat(
+            anchor_indices[start_idx : start_idx + n_positives[q_idx]] = torch.tensor(q_idx).repeat(
                 n_positives[q_idx], num_negatives
             )
-            pos_indices[positive_score_idx : positive_score_idx + n_positives[q_idx]] = (
+            pos_indices[start_idx : start_idx + n_positives[q_idx]] = (
                 positive_indices[q_idx].repeat(num_negatives, 1).T
             )
-            positive_score_idx += n_positives[q_idx]
+            start_idx += n_positives[q_idx]
 
         anchor_indices = anchor_indices[indices_to_keep]
         positive_indices = pos_indices[indices_to_keep]
 
+        # Base textual fields
         dataset_data = {
             anchor_column_name: [],
             positive_column_name: [],
             "negative": [],
         }
 
-        if include_scores:
-            dataset_data["positive_score"] = []
-            dataset_data["negative_score"] = []
+        if output_scores:
+            # Single `scores` field containing [pos_score, neg_score]
+            dataset_data["scores"] = []
 
-        positive_scores_expanded = positive_scores.repeat(num_negatives, 1).T[indices_to_keep]
-        for anchor_idx, positive_corpus_idx, negative_idx, pos_score, neg_score in zip(
-            anchor_indices, positive_indices, indices, positive_scores_expanded, negative_scores
-        ):
+        for anchor_idx, positive_idx, negative_idx in zip(anchor_indices, positive_indices, indices):
             dataset_data[anchor_column_name].append(queries[anchor_idx])
-            dataset_data[positive_column_name].append(corpus[positive_corpus_idx])
+            dataset_data[positive_column_name].append(corpus[positive_idx])
             dataset_data["negative"].append(corpus[negative_idx])
-            if include_scores:
-                dataset_data["positive_score"].append(pos_score.item())
-                dataset_data["negative_score"].append(neg_score.item())
+            if output_scores:
+                pos_score = positive_scores[positive_idx].item()
+                neg_score = negative_scores[negative_idx].item()
+                dataset_data["scores"].append([pos_score, neg_score])
         difference_scores = positive_scores.repeat(num_negatives, 1).T[indices_to_keep] - negative_scores
         maximum_possible_samples = indices_to_keep.numel()
 
     elif output_format == "labeled-pair":
         indices_to_keep = negative_scores != -float("inf")
 
+        # In labeled-pair format we either expose a binary `label` or a
+        # single continuous `score` column, but never both at once.
         dataset_data = {
             anchor_column_name: [],
             positive_column_name: [],  # Note, this is not strictly positives
-            "label": [],
         }
-
-        if include_scores:
+        if output_scores:
             dataset_data["score"] = []
+        else:
+            dataset_data["label"] = []
 
-        positive_score_idx = 0
         for query_idx in range(n_queries):
-            for positive_corpus_idx in positive_indices[query_idx]:
+            for positive_idx in positive_indices[query_idx]:
                 dataset_data[anchor_column_name].append(queries[query_idx])
-                dataset_data[positive_column_name].append(corpus[positive_corpus_idx])
-                dataset_data["label"].append(1)
-                if include_scores:
-                    dataset_data["score"].append(positive_scores[positive_score_idx].item())
-                positive_score_idx += 1
+                dataset_data[positive_column_name].append(corpus[positive_idx])
+                if output_scores:
+                    pos_score = positive_scores[positive_idx].item()
+                    dataset_data["score"].append(pos_score)
+                else:
+                    dataset_data["label"].append(1)
 
             for negative_idx, negative_score in zip(indices[query_idx], negative_scores[query_idx]):
                 if negative_score == -float("inf"):
                     continue
                 dataset_data[anchor_column_name].append(queries[query_idx])
                 dataset_data[positive_column_name].append(corpus[negative_idx])
-                dataset_data["label"].append(0)
-                if include_scores:
+                if output_scores:
                     dataset_data["score"].append(negative_score.item())
+                else:
+                    dataset_data["label"].append(0)
 
         negative_scores = negative_scores[indices_to_keep]
         difference_scores = positive_scores.repeat(num_negatives, 1).T[indices_to_keep] - negative_scores
         maximum_possible_samples = n_queries * num_negatives + len(dataset)
 
-    elif output_format in ("n-tuple", "n-tuple-scores"):
-        if output_format == "n-tuple-scores":
-            logger.warning(
-                "\"n-tuple-scores\" value of `output_format` is deprecated. '" \
-                "'Use \"n-tuple\" with `include_scores=True instead"
-            )
-            output_format = "n-tuple"
-            include_scores = True
-
+    elif output_format == "n-tuple":
         # Keep only indices where num_negative negatives were found
         indices_to_keep = (negative_scores != -float("inf")).all(dim=1)
         negative_scores = negative_scores[indices_to_keep]
         indices = indices[indices_to_keep]
 
+        # Base textual fields: anchor, positive and N negatives.
         dataset_data = {
             anchor_column_name: [all_queries[idx] for idx, keep in enumerate(indices_to_keep) if keep],
             positive_column_name: [positives[idx] for idx, keep in enumerate(indices_to_keep) if keep],
@@ -733,8 +738,9 @@ def mine_hard_negatives(
                 for i, neg_indices in enumerate(indices.T, start=1)
             },
         }
-        if include_scores:
-            dataset_data["score"] = torch.cat(
+        if output_scores:
+            # Single `scores` field containing [pos_score, neg_1_score, ..., neg_n_score]
+            dataset_data["scores"] = torch.cat(
                 [positive_scores[indices_to_keep].unsqueeze(-1), negative_scores], dim=1
             ).tolist()
         negative_scores = negative_scores.flatten()
@@ -751,15 +757,16 @@ def mine_hard_negatives(
                 for idx, (keep_row, indices_row) in enumerate(zip(indices_to_keep, indices))
                 if keep_row.any()
             ],
-            "labels": [[1] + [0] * sum(keep_row) for keep_row in indices_to_keep if keep_row.any()],
         }
-
-        if include_scores:
+        # Either `scores` or binary `labels` field
+        if output_scores:
             dataset_data["scores"] = [
                 [positive_scores[idx].item()] + negative_scores[idx][keep_row].tolist()
                 for idx, keep_row in enumerate(indices_to_keep)
                 if keep_row.any()
             ]
+        else:
+            dataset_data["labels"] = [[1] + [0] * sum(keep_row) for keep_row in indices_to_keep if keep_row.any()]
 
         negative_scores = negative_scores[indices_to_keep]
         difference_scores = positive_scores.repeat(num_negatives, 1).T[indices_to_keep] - negative_scores
