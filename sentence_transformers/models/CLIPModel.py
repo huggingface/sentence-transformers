@@ -7,7 +7,6 @@ except ImportError:
 
 import torch
 import transformers
-from PIL import Image
 
 from sentence_transformers.models.Router import InputModule
 
@@ -73,7 +72,7 @@ class CLIPModel(InputModule):
         image_text_info = []
 
         for idx, data in enumerate(texts):
-            if isinstance(data, Image.Image):  # An Image
+            if hasattr(data, "getpixel"):  # An Image
                 images.append(data)
                 image_text_info.append(0)
             else:  # A text
