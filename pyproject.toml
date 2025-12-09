@@ -39,6 +39,7 @@ dependencies = [
     "scipy",
     "huggingface-hub>=0.20.0",
     "typing_extensions>=4.5.0",
+    "Pillow",  # TODO: Turn into an optional dependency in v6.0.0
 ]
 
 [project.urls]
@@ -47,12 +48,12 @@ Repository = "https://github.com/huggingface/sentence-transformers/"
 
 
 [project.optional-dependencies]
-image = ["Pillow"]
+# TODO: Introduce a new 'image' when "Pillow" gets removed as a core dependency in v6.0.0
 train = ["datasets", "accelerate>=0.20.3"]
 onnx = ["optimum-onnx[onnxruntime]"]
 onnx-gpu = ["optimum-onnx[onnxruntime-gpu]"]
 openvino = ["optimum-intel[openvino]"]
-dev = ["datasets", "accelerate>=0.20.3", "pre-commit", "pytest", "pytest-cov", "peft"]
+dev = ["datasets", "accelerate>=0.20.3", "pre-commit", "pytest", "pytest-cov", "peft", "Pillow"]
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]

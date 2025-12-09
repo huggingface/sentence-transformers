@@ -10,6 +10,11 @@ import transformers
 
 from sentence_transformers.models.Router import InputModule
 
+try:
+    from PIL.Image import Image
+except Exception:
+    Image = None
+
 
 class CLIPModel(InputModule):
     save_in_root: bool = True
@@ -72,7 +77,7 @@ class CLIPModel(InputModule):
         image_text_info = []
 
         for idx, data in enumerate(texts):
-            if hasattr(data, "getpixel"):  # An Image
+            if Image is not None and isinstance(data, Image):
                 images.append(data)
                 image_text_info.append(0)
             else:  # A text
