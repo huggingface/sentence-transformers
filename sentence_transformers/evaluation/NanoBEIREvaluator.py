@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -83,7 +82,10 @@ class NanoBEIREvaluator(SentenceEvaluator):
     Args:
         dataset_names (List[str]): The names of the datasets to evaluate on. Defaults to all datasets.
             Can be either predefined names (e.g., "climatefever", "msmarco") or custom HuggingFace
-            dataset paths following the NanoBEIR format (e.g., "sentence-transformers/NanoClimateFEVER-bm25").
+            dataset paths that contain a valid NanoBEIR base name.
+            For custom datasets, the repository part (after the org) must contain
+            "nano{dataset_name}" for one of the predefined base names
+            (e.g., "sentence-transformers/NanoClimateFEVER-bm25", "CATIE-AQ/NanoMSMARCO-fr").
             Custom datasets must have "corpus", "queries", and "qrels"/"relevance" subsets.
         mrr_at_k (List[int]): A list of integers representing the values of k for MRR calculation. Defaults to [10].
         ndcg_at_k (List[int]): A list of integers representing the values of k for NDCG calculation. Defaults to [10].
@@ -102,6 +104,14 @@ class NanoBEIREvaluator(SentenceEvaluator):
         corpus_prompts (str | dict[str, str], optional): The prompts to add to the corpus. If a string, will add the same prompt to all corpus. If a dict, expects that all datasets in dataset_names are keys.
         write_predictions (bool): Whether to write the predictions to a JSONL file. Defaults to False.
             This can be useful for downstream evaluation as it can be used as input to the :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator` that accept precomputed predictions.
+
+    Example datasets:
+
+        - English: `msmarco <https://huggingface.co/datasets/zeta-alpha-ai/NanoMSMARCO>`_, `nq <https://huggingface.co/datasets/zeta-alpha-ai/NanoNQ>`_, ...
+        - French: `CATIE-AQ/NanoMSMARCO-fr <https://huggingface.co/datasets/CATIE-AQ/NanoMSMARCO-fr>`_, `CATIE-AQ/NanoNQ-fr <https://huggingface.co/datasets/CATIE-AQ/NanoNQ-fr>`_, ...
+        - Bharat (22 languages): `carlfeynman/Bharat_NanoMSMARCO_ur <https://huggingface.co/datasets/carlfeynman/Bharat_NanoMSMARCO_ur>`_, `carlfeynman/Bharat_NanoNQ_ur <https://huggingface.co/datasets/carlfeynman/Bharat_NanoNQ_ur>`_, ...
+        - Serbian: `Serbian-AI-Society/NanoMSMARCO-bm25 <https://huggingface.co/datasets/Serbian-AI-Society/NanoMSMARCO-bm25>`_, `Serbian-AI-Society/NanoNQ-bm25 <https://huggingface.co/datasets/Serbian-AI-Society/NanoNQ-bm25>`_, ...
+        - Arabic: `wissamantoun/NanoMSMARCOArabic <https://huggingface.co/datasets/wissamantoun/NanoMSMARCOArabic>`_, `wissamantoun/NanoNQArabic <https://huggingface.co/datasets/wissamantoun/NanoNQArabic>`_, ...
 
     Example:
         ::
@@ -499,20 +509,19 @@ class NanoBEIREvaluator(SentenceEvaluator):
             raise ValueError(
                 f"Dataset(s) {invalid_datasets} are not valid NanoBEIR datasets. "
                 f"Valid predefined names are: {list(DATASET_NAME_TO_ID.keys())}. "
-                f"Custom paths must follow the pattern '{{org}}/Nano{{DatasetName}}' or "
-                f"'{{org}}/Nano{{DatasetName}}-{{suffix}}' where DatasetName is one of valid predefined names."
+                f"Custom dataset paths must be of the form 'org/repo' where the "
+                f"'repo' part contains 'nano{{valid_dataset_name}}' for one of the "
+                f"predefined base names (e.g. 'NanoMSMARCO', 'NanoNQ_nl')."
             )
 
     def _is_valid_nanobeir_path(self, dataset_path: str) -> bool:
-        pattern = r"^[^/]+/Nano([A-Za-z0-9]+)(?:-.*)?$"
-        match = re.match(pattern, dataset_path)
-
-        if not match:
-            return False
-
-        extracted_name = match.group(1).lower()
-
-        return extracted_name in DATASET_NAME_TO_ID
+        dataset_names = DATASET_NAME_TO_ID.keys()
+        # Sort by length descending to match longer names first
+        sorted_dataset_names = sorted(dataset_names, key=len, reverse=True)
+        sorted_dataset_names = ["nano" + name.lower() for name in sorted_dataset_names]
+        dataset_name_to_load = dataset_path.split("/")[1].lower()
+        # Check if any of the valid dataset names are in the dataset_path after the org/
+        return any(dataset_name in dataset_name_to_load for dataset_name in sorted_dataset_names)
 
     def _validate_prompts(self):
         error_msg = ""
