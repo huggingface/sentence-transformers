@@ -23,7 +23,7 @@ if is_ci():
 
 
 def test_nanobeir_evaluator(static_retrieval_mrl_en_v1_model: SentenceTransformer):
-    """Tests that the NanoBERTEvaluator can be loaded and produces expected metrics"""
+    """Tests that the NanoBEIREvaluator can be loaded and produces expected metrics"""
     datasets = ["QuoraRetrieval", "MSMARCO"]
     query_prompts = {
         "QuoraRetrieval": "Instruct: Given a question, retrieve questions that are semantically equivalent to the given question\\nQuery: ",
@@ -37,7 +37,7 @@ def test_nanobeir_evaluator(static_retrieval_mrl_en_v1_model: SentenceTransforme
 
 
 def test_nanobeir_evaluator_custom_dataset_id(static_retrieval_mrl_en_v1_model: SentenceTransformer):
-    """Tests that the NanoBERTEvaluator can be loaded and produces expected metrics"""
+    """Tests that the NanoBEIREvaluator can load and evaluate on a custom dataset_id"""
     datasets = ["MSMARCO", "NQ"]
     model = static_retrieval_mrl_en_v1_model
     evaluator = NanoBEIREvaluator(
