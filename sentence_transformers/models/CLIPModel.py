@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 try:
     from typing import Self
 except ImportError:
@@ -10,10 +12,7 @@ import transformers
 
 from sentence_transformers.models.Router import InputModule
 
-try:
-    from PIL.Image import Image
-except Exception:
-    Image = None
+logger = logging.getLogger(__name__)
 
 
 class CLIPModel(InputModule):
@@ -72,6 +71,15 @@ class CLIPModel(InputModule):
         return features
 
     def tokenize(self, texts, padding: str | bool = True) -> dict[str, torch.Tensor]:
+        try:
+            from PIL.Image import Image
+        except Exception:
+            logger.warning(
+                "PIL.Image could not be imported. Image inputs will not be supported. "
+                "Please install the pillow package to enable image support: pip install pillow"
+            )
+            Image = None
+
         images = []
         texts_values = []
         image_text_info = []
