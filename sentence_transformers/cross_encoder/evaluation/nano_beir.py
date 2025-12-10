@@ -317,11 +317,7 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
         return per_dataset_results
 
     def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
-        if dataset_name.lower() in DATASET_NAME_TO_HUMAN_READABLE:
-            human_readable_name = f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}_R{self.rerank_k}"
-        else:
-            human_readable_name = f"{dataset_name}_R{self.rerank_k}"
-        return human_readable_name
+        return f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}_R{self.rerank_k}"
 
     def _load_dataset(
         self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs
@@ -331,18 +327,10 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
         human_readable = DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]
         split_name = f"Nano{human_readable}"
 
-        corpus = self._load_dataset_subset_split(
-            "corpus", split=split_name, required_columns=["_id", "text"]
-        )
-        queries = self._load_dataset_subset_split(
-            "queries", split=split_name, required_columns=["_id", "text"]
-        )
-        qrels = self._load_dataset_subset_split(
-            "qrels", split=split_name, required_columns=["query-id", "corpus-id"]
-        )
-        bm25 = self._load_dataset_subset_split(
-            "bm25", split=split_name, required_columns=["query-id", "corpus-ids"]
-        )
+        corpus = self._load_dataset_subset_split("corpus", split=split_name, required_columns=["_id", "text"])
+        queries = self._load_dataset_subset_split("queries", split=split_name, required_columns=["_id", "text"])
+        qrels = self._load_dataset_subset_split("qrels", split=split_name, required_columns=["query-id", "corpus-id"])
+        bm25 = self._load_dataset_subset_split("bm25", split=split_name, required_columns=["query-id", "corpus-ids"])
 
         corpus_mapping = dict(zip(corpus["_id"], corpus["text"]))
         query_mapping = dict(zip(queries["_id"], queries["text"]))
