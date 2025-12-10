@@ -308,7 +308,7 @@ def mine_hard_negatives(
     if output_format == "n-tuple-scores":
         logger.warning(
             '`output_format="n-tuple-scores"` is deprecated. Use `output_format="n-tuple"` with '
-            "`output_scores=True instead for equivalent output formats"
+            "`output_scores=True` instead for equivalent output formats."
         )
         output_format = "n-tuple"
         output_scores = True
