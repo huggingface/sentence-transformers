@@ -67,8 +67,8 @@ def export_optimized_onnx_model(
     except ImportError:
         raise ImportError(
             "Please install Optimum and ONNX Runtime to use this function. "
-            "You can install them with pip: `pip install optimum[onnxruntime]` "
-            "or `pip install optimum[onnxruntime-gpu]`"
+            "You can install them with pip: `pip install sentence-transformers[onnx]` "
+            "or `pip install sentence-transformers[onnx-gpu]`"
         )
 
     viable_st_model = (

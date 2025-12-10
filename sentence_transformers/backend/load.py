@@ -47,8 +47,8 @@ def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name
     except ModuleNotFoundError:
         raise Exception(
             "Using the ONNX backend requires installing Optimum and ONNX Runtime. "
-            "You can install them with pip: `pip install optimum[onnxruntime]` "
-            "or `pip install optimum[onnxruntime-gpu]`"
+            "You can install them with pip: `pip install sentence-transformers[onnx]` "
+            "or `pip install sentence-transformers[onnx-gpu]`"
         )
 
     # Default to the highest priority available provider if not specified
@@ -122,7 +122,7 @@ def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_
     except ModuleNotFoundError:
         raise Exception(
             "Using the OpenVINO backend requires installing Optimum and OpenVINO. "
-            "You can install them with pip: `pip install optimum[openvino]`"
+            "You can install them with pip: `pip install sentence-transformers[openvino]`"
         )
 
     load_path = Path(model_name_or_path)

@@ -49,9 +49,9 @@ Repository = "https://github.com/huggingface/sentence-transformers/"
 
 [project.optional-dependencies]
 train = ["datasets", "accelerate>=0.20.3"]
-onnx = ["optimum[onnxruntime]>=1.23.1"]
-onnx-gpu = ["optimum[onnxruntime-gpu]>=1.23.1"]
-openvino = ["optimum-intel[openvino]>=1.20.0"]
+onnx = ["optimum-onnx[onnxruntime]"]
+onnx-gpu = ["optimum-onnx[onnxruntime-gpu]"]
+openvino = ["optimum-intel[openvino]"]
 dev = ["datasets", "accelerate>=0.20.3", "pre-commit", "pytest", "pytest-cov", "peft"]
 
 [build-system]

@@ -55,6 +55,7 @@ def evaluate_stsb_test(
     assert score > expected_score or abs(score - expected_score) < 0.1
 
 
+@pytest.mark.skipif("CI" in os.environ, reason="This test triggers rate limits too often in the CI")
 def test_pretrained_stsb(sts_resource: tuple[list[InputExample], list[InputExample]]):
     _, sts_test_samples = sts_resource
     model = CrossEncoder("cross-encoder/stsb-distilroberta-base")
@@ -76,6 +77,7 @@ def test_train_stsb_slow(
     evaluate_stsb_test(model, 75, sts_test_samples)
 
 
+@pytest.mark.skipif("CI" in os.environ, reason="This test triggers rate limits too often in the CI")
 def test_train_stsb(
     distilroberta_base_ce_model: CrossEncoder, sts_resource: tuple[list[InputExample], list[InputExample]]
 ) -> None:
