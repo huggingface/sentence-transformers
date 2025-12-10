@@ -76,7 +76,7 @@ class CLIPModel(InputModule):
         except Exception:
             logger.warning(
                 "PIL.Image could not be imported. Image inputs will not be supported. "
-                "Please install the pillow package to enable image support: pip install pillow"
+                "Please install the pillow package to enable image support: pip install sentence-transformers[image] or pip install pillow"
             )
             Image = None
 
