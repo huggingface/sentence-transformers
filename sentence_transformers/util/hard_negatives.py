@@ -556,7 +556,7 @@ def mine_hard_negatives(
             max_positive_scores[q_idx] = torch.min(
                 positive_scores[positive_score_idx : positive_score_idx + n_positives[q_idx]]
             )
-            positive_score_idx += n_positives[q_idx - 1]
+            positive_score_idx += n_positives[q_idx]
 
         if absolute_margin is not None:
             removed_indices = scores + absolute_margin > max_positive_scores.repeat(scores.size(1), 1).T
