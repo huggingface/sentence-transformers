@@ -65,7 +65,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
     Args:
         dataset_names (List[str]): The short names of the datasets to evaluate on (e.g., "climatefever", "msmarco").
             If not specified, all predefined NanoBEIR datasets are used.
-        dataset_id: (str): The HuggingFace dataset ID to load the datasets from. Defaults to
+        dataset_id (str): The HuggingFace dataset ID to load the datasets from. Defaults to
             "sentence-transformers/NanoBEIR-en". The dataset must contain "corpus", "queries", and "qrels"
             subsets for each NanoBEIR dataset, stored under splits named ``Nano{DatasetName}`` (for example,
             ``NanoMSMARCO`` or ``NanoNFCorpus``).
