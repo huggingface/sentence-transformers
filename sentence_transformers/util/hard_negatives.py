@@ -167,7 +167,7 @@ def mine_hard_negatives(
         ... )
         >>> dataset_with_scores
         Dataset({
-            features: ['query', 'answer', 'negative', 'positive_score', 'negative_score'],
+            features: ['query', 'answer', 'negative', 'scores'],
             num_rows: 487865
         })
         >>> dataset.push_to_hub("natural-questions-hard-negatives", "triplet-all")
@@ -215,19 +215,20 @@ def mine_hard_negatives(
             Setting this to True is primarily useful for creating Reranking evaluation datasets for CrossEncoder models,
             where it can be useful to get a full ranking (including the positives) from a first-stage retrieval model.
             Defaults to False.
-        output_format (Literal["triplet", "n-tuple", "labeled-pair", "labeled-list"]): Output format for the `datasets.Dataset`. Options are:
+        output_format (Literal["triplet", "n-tuple", "labeled-pair", "labeled-list"]): Output format for the `datasets.Dataset`.
+            When ``output_scores=False`` (default), options are:
 
-            - "triplet": (anchor, positive, negative) triplets, i.e. 3 columns. If `output_scores=True`, adds `positive_score` and `negative_score` columns (5 columns total). Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`.
+            - "triplet": (anchor, positive, negative) triplets, i.e. 3 columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`.
             - "n-tuple": (anchor, positive, negative_1, ..., negative_n) tuples, i.e. 2 + num_negatives columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`.
             - "labeled-pair": (anchor, passage, label) text tuples with a label of 0 for negative and 1 for positive, i.e. 3 columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`.
             - "labeled-list": (anchor, [doc1, doc2, ..., docN], [label1, label2, ..., labelN]) tuples with labels of 0 for negative and 1 for positive, i.e. 3 columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.LambdaLoss`.
 
-            Defaults to "triplet".
+            Defaults to "triplet". See ``output_scores`` for the output formats when ``output_scores=True``.
         output_scores (bool): Whether to include similarity scores in the output dataset. When True, adds score fields to the output:
-            - For "triplet" format: adds `scores` column with query-positive and query-negative similarity scores.
-            - For "n-tuple" format: adds `scores` column with a list of similarity scores for the query-positive and each of the query-negative pairs. Useful for e.g. :class:`~sentence_transformers.sparse_encoder.losses.SparseMarginMSELoss`.
-            - For "labeled-pair" format: replaces the `label` column with a `score` column. Labels are binary (1 for positive, 0 for negative), but scores contain the actual similarity scores computed by the model or cross_encoder.
-            - For "labeled-list" format: replaces the `labels` column with a `scores` column. Labels are binary (1 for positive, 0 for negative), but scores contain the actual similarity scores computed by the model or cross_encoder.
+            - For "triplet" format: adds `scores` column with query-positive and query-negative similarity scores, for 4 columns total.
+            - For "n-tuple" format: adds `scores` column with a list of similarity scores for the query-positive and each of the query-negative pairs, for 3 + num_negatives columns total. Useful for e.g. :class:`~sentence_transformers.sparse_encoder.losses.SparseMarginMSELoss`.
+            - For "labeled-pair" format: replaces the `label` column with a `score` column. Labels are binary (1 for positive, 0 for negative), but scores contain the actual similarity scores computed by the model or cross_encoder. The output has 3 columns.
+            - For "labeled-list" format: replaces the `labels` column with a `scores` column. Labels are binary (1 for positive, 0 for negative), but scores contain the actual similarity scores computed by the model or cross_encoder. The output has 3 columns.
             Defaults to False.
         batch_size (int): Batch size for encoding the dataset. Defaults to 32.
         faiss_batch_size (int): Batch size for FAISS top-k search. Defaults to 16384.
@@ -247,7 +248,7 @@ def mine_hard_negatives(
         Dataset: A dataset containing the specified output format. If `output_scores=False` (default), the formats are:
 
         - "triplet": (anchor, positive, negative)
-        - "n-tuple": (anchor, positive, negative_1, ..., negative_n, [labels])
+        - "n-tuple": (anchor, positive, negative_1, ..., negative_n)
         - "labeled-pair": (anchor, passage, label)
         - "labeled-list": (anchor, [passages], [labels])
 
