@@ -431,13 +431,13 @@ class NanoBEIREvaluator(SentenceEvaluator):
         split_name = f"Nano{human_readable}"
 
         corpus = self._load_dataset_subset_split(
-            self.dataset_id, "corpus", split=split_name, required_columns=["_id", "text"]
+            "corpus", split=split_name, required_columns=["_id", "text"]
         )
         queries = self._load_dataset_subset_split(
-            self.dataset_id, "queries", split=split_name, required_columns=["_id", "text"]
+            "queries", split=split_name, required_columns=["_id", "text"]
         )
         qrels = self._load_dataset_subset_split(
-            self.dataset_id, "qrels", split=split_name, required_columns=["query-id", "corpus-id"]
+            "qrels", split=split_name, required_columns=["query-id", "corpus-id"]
         )
 
         corpus_dict = {sample["_id"]: sample["text"] for sample in corpus if len(sample["text"]) > 0}
@@ -467,7 +467,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
             **ir_evaluator_kwargs,
         )
 
-    def _load_dataset_subset_split(self, dataset_name: str, subset: str, split: str, required_columns: list[str]):
+    def _load_dataset_subset_split(self, subset: str, split: str, required_columns: list[str]):
         if not is_datasets_available():
             raise ValueError(
                 "datasets is not available. Please install it to use the NanoBEIREvaluator via `pip install datasets`."
@@ -478,12 +478,12 @@ class NanoBEIREvaluator(SentenceEvaluator):
             dataset = load_dataset(self.dataset_id, subset, split=split)
         except Exception as e:
             raise ValueError(
-                f"Could not load dataset '{dataset_name}' subset '{subset}' split '{split}' from dataset ID '{self.dataset_id}'."
+                f"Could not load subset '{subset}' split '{split}' from dataset '{self.dataset_id}'."
             ) from e
 
         if missing_columns := set(required_columns) - set(dataset.column_names):
             raise ValueError(
-                f"Dataset '{dataset_name}' subset '{subset}' split '{split}' is missing required columns: {list(missing_columns)}."
+                f"Subset '{subset}' split '{split}' from dataset '{self.dataset_id}' is missing required columns: {list(missing_columns)}."
             )
         return dataset
 
