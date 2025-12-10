@@ -37,13 +37,12 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
     This evaluator will return the same metrics as the InformationRetrievalEvaluator (i.e., MRR, nDCG, Recall@k), for each dataset and on average.
 
     Args:
-        dataset_names (List[str]): The names of the datasets to evaluate on. Defaults to all datasets.
-            Can be either predefined names (e.g., "climatefever", "msmarco") or custom HuggingFace
-            dataset paths that contain a valid NanoBEIR base name.
-            For custom datasets, the repository part (after the org) must contain
-            "nano{dataset_name}" for one of the predefined base names
-            (e.g., "sentence-transformers/NanoClimateFEVER-bm25", "carlfeynman/Bharat_NanoNQ_ur").
-            Custom datasets must have "corpus", "queries", and "qrels"/"relevance" subsets.
+        dataset_names (List[str]): The short names of the datasets to evaluate on (e.g., "climatefever", "msmarco").
+            If not specified, all predefined NanoBEIR datasets are used.
+        dataset_id (str): The HuggingFace dataset ID to load the datasets from. Defaults to
+            "sentence-transformers/NanoBEIR-en". The dataset must contain "corpus", "queries", and "qrels"
+            subsets for each NanoBEIR dataset, stored under splits named ``Nano{DatasetName}`` (for example,
+            ``NanoMSMARCO`` or ``NanoNFCorpus``).
         mrr_at_k (List[int]): A list of integers representing the values of k for MRR calculation. Defaults to [10].
         ndcg_at_k (List[int]): A list of integers representing the values of k for NDCG calculation. Defaults to [10].
         accuracy_at_k (List[int]): A list of integers representing the values of k for accuracy calculation. Defaults to [1, 3, 5, 10].
@@ -63,13 +62,10 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
         write_predictions (bool): Whether to write the predictions to a JSONL file. Defaults to False.
             This can be useful for downstream evaluation as it can be used as input to the :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator` that accept precomputed predictions.
 
-    Example datasets:
+    .. tip::
 
-        - English: `msmarco <https://huggingface.co/datasets/zeta-alpha-ai/NanoMSMARCO>`_, `nq <https://huggingface.co/datasets/zeta-alpha-ai/NanoNQ>`_, ...
-        - French: `CATIE-AQ/NanoMSMARCO-fr <https://huggingface.co/datasets/CATIE-AQ/NanoMSMARCO-fr>`_, `CATIE-AQ/NanoNQ-fr <https://huggingface.co/datasets/CATIE-AQ/NanoNQ-fr>`_, ...
-        - Bharat (22 languages): `carlfeynman/Bharat_NanoMSMARCO_ur <https://huggingface.co/datasets/carlfeynman/Bharat_NanoMSMARCO_ur>`_, `carlfeynman/Bharat_NanoNQ_ur <https://huggingface.co/datasets/carlfeynman/Bharat_NanoNQ_ur>`_, ...
-        - Serbian: `Serbian-AI-Society/NanoMSMARCO-bm25 <https://huggingface.co/datasets/Serbian-AI-Society/NanoMSMARCO-bm25>`_, `Serbian-AI-Society/NanoNQ-bm25 <https://huggingface.co/datasets/Serbian-AI-Society/NanoNQ-bm25>`_, ...
-        - Arabic: `wissamantoun/NanoMSMARCOArabic <https://huggingface.co/datasets/wissamantoun/NanoMSMARCOArabic>`_, `wissamantoun/NanoNQArabic <https://huggingface.co/datasets/wissamantoun/NanoNQArabic>`_, ...
+        See this `NanoBEIR datasets collection on Hugging Face <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_
+        with valid NanoBEIR ``dataset_id`` options for different languages.
 
     Example:
         ::
@@ -184,7 +180,8 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
 
             model = SparseEncoder("opensearch-project/opensearch-neural-sparse-encoding-multilingual-v1")
             evaluator = SparseNanoBEIREvaluator(
-                ["Serbian-AI-Society/NanoMSMARCO-bm25", "Serbian-AI-Society/NanoNQ-bm25"],
+                dataset_names=["msmarco", "nq"],
+                dataset_id="lightonai/NanoBEIR-de",
                 batch_size=32,
             )
             results = evaluator(model)
@@ -197,6 +194,7 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
     def __init__(
         self,
         dataset_names: list[DatasetNameType | str] | None = None,
+        dataset_id: str = "sentence-transformers/NanoBEIR-en",
         mrr_at_k: list[int] = [10],
         ndcg_at_k: list[int] = [10],
         accuracy_at_k: list[int] = [1, 3, 5, 10],
@@ -218,6 +216,7 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
         self.sparsity_stats = defaultdict(list)
         super().__init__(
             dataset_names=dataset_names,
+            dataset_id=dataset_id,
             mrr_at_k=mrr_at_k,
             ndcg_at_k=ndcg_at_k,
             accuracy_at_k=accuracy_at_k,

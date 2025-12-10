@@ -36,23 +36,6 @@ DatasetNameType = Literal[
     "touche2020",
 ]
 
-
-DATASET_NAME_TO_ID = {
-    "climatefever": "zeta-alpha-ai/NanoClimateFEVER",
-    "dbpedia": "zeta-alpha-ai/NanoDBPedia",
-    "fever": "zeta-alpha-ai/NanoFEVER",
-    "fiqa2018": "zeta-alpha-ai/NanoFiQA2018",
-    "hotpotqa": "zeta-alpha-ai/NanoHotpotQA",
-    "msmarco": "zeta-alpha-ai/NanoMSMARCO",
-    "nfcorpus": "zeta-alpha-ai/NanoNFCorpus",
-    "nq": "zeta-alpha-ai/NanoNQ",
-    "quoraretrieval": "zeta-alpha-ai/NanoQuoraRetrieval",
-    "scidocs": "zeta-alpha-ai/NanoSCIDOCS",
-    "arguana": "zeta-alpha-ai/NanoArguAna",
-    "scifact": "zeta-alpha-ai/NanoSciFact",
-    "touche2020": "zeta-alpha-ai/NanoTouche2020",
-}
-
 DATASET_NAME_TO_HUMAN_READABLE = {
     "climatefever": "ClimateFEVER",
     "dbpedia": "DBPedia",
@@ -80,13 +63,12 @@ class NanoBEIREvaluator(SentenceEvaluator):
     This evaluator will return the same metrics as the InformationRetrievalEvaluator (i.e., MRR, nDCG, Recall@k), for each dataset and on average.
 
     Args:
-        dataset_names (List[str]): The names of the datasets to evaluate on. Defaults to all datasets.
-            Can be either predefined names (e.g., "climatefever", "msmarco") or custom HuggingFace
-            dataset paths that contain a valid NanoBEIR base name.
-            For custom datasets, the repository part (after the org) must contain
-            "nano{dataset_name}" for one of the predefined base names
-            (e.g., "sentence-transformers/NanoClimateFEVER-bm25", "CATIE-AQ/NanoMSMARCO-fr").
-            Custom datasets must have "corpus", "queries", and "qrels"/"relevance" subsets.
+        dataset_names (List[str]): The short names of the datasets to evaluate on (e.g., "climatefever", "msmarco").
+            If not specified, all predefined NanoBEIR datasets are used.
+        dataset_id: (str): The HuggingFace dataset ID to load the datasets from. Defaults to
+            "sentence-transformers/NanoBEIR-en". The dataset must contain "corpus", "queries", and "qrels"
+            subsets for each NanoBEIR dataset, stored under splits named ``Nano{DatasetName}`` (for example,
+            ``NanoMSMARCO`` or ``NanoNFCorpus``).
         mrr_at_k (List[int]): A list of integers representing the values of k for MRR calculation. Defaults to [10].
         ndcg_at_k (List[int]): A list of integers representing the values of k for NDCG calculation. Defaults to [10].
         accuracy_at_k (List[int]): A list of integers representing the values of k for accuracy calculation. Defaults to [1, 3, 5, 10].
@@ -105,13 +87,10 @@ class NanoBEIREvaluator(SentenceEvaluator):
         write_predictions (bool): Whether to write the predictions to a JSONL file. Defaults to False.
             This can be useful for downstream evaluation as it can be used as input to the :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator` that accept precomputed predictions.
 
-    Example datasets:
+    .. tip::
 
-        - English: `msmarco <https://huggingface.co/datasets/zeta-alpha-ai/NanoMSMARCO>`_, `nq <https://huggingface.co/datasets/zeta-alpha-ai/NanoNQ>`_, ...
-        - French: `CATIE-AQ/NanoMSMARCO-fr <https://huggingface.co/datasets/CATIE-AQ/NanoMSMARCO-fr>`_, `CATIE-AQ/NanoNQ-fr <https://huggingface.co/datasets/CATIE-AQ/NanoNQ-fr>`_, ...
-        - Bharat (22 languages): `carlfeynman/Bharat_NanoMSMARCO_ur <https://huggingface.co/datasets/carlfeynman/Bharat_NanoMSMARCO_ur>`_, `carlfeynman/Bharat_NanoNQ_ur <https://huggingface.co/datasets/carlfeynman/Bharat_NanoNQ_ur>`_, ...
-        - Serbian: `Serbian-AI-Society/NanoMSMARCO-bm25 <https://huggingface.co/datasets/Serbian-AI-Society/NanoMSMARCO-bm25>`_, `Serbian-AI-Society/NanoNQ-bm25 <https://huggingface.co/datasets/Serbian-AI-Society/NanoNQ-bm25>`_, ...
-        - Arabic: `wissamantoun/NanoMSMARCOArabic <https://huggingface.co/datasets/wissamantoun/NanoMSMARCOArabic>`_, `wissamantoun/NanoNQArabic <https://huggingface.co/datasets/wissamantoun/NanoNQArabic>`_, ...
+        See this `NanoBEIR datasets collection on Hugging Face <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_
+        with valid NanoBEIR ``dataset_id`` options for different languages.
 
     Example:
         ::
@@ -214,7 +193,8 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
             model = SentenceTransformer("google/embeddinggemma-300m")
             evaluator = NanoBEIREvaluator(
-                ["Serbian-AI-Society/NanoMSMARCO-bm25", "Serbian-AI-Society/NanoNQ-bm25"],
+                ["msmarco", "nq"],
+                dataset_id="lightonai/NanoBEIR-de",
                 batch_size=32,
             )
             results = evaluator(model)
@@ -227,6 +207,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
     def __init__(
         self,
         dataset_names: list[DatasetNameType | str] | None = None,
+        dataset_id: str = "sentence-transformers/NanoBEIR-en",
         mrr_at_k: list[int] = [10],
         ndcg_at_k: list[int] = [10],
         accuracy_at_k: list[int] = [1, 3, 5, 10],
@@ -246,8 +227,9 @@ class NanoBEIREvaluator(SentenceEvaluator):
     ):
         super().__init__()
         if dataset_names is None:
-            dataset_names = list(DATASET_NAME_TO_ID.keys())
+            dataset_names = list(DATASET_NAME_TO_HUMAN_READABLE.keys())
         self.dataset_names = dataset_names
+        self.dataset_id = dataset_id
         self.aggregate_fn = aggregate_fn
         self.aggregate_key = aggregate_key
         self.write_csv = write_csv
@@ -443,34 +425,27 @@ class NanoBEIREvaluator(SentenceEvaluator):
     def _load_dataset(
         self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs
     ) -> InformationRetrievalEvaluator:
-        if not is_datasets_available():
-            raise ValueError(
-                "datasets is not available. Please install it to use the NanoBEIREvaluator via `pip install datasets`."
-            )
-        from datasets import load_dataset
+        if dataset_name.lower() not in DATASET_NAME_TO_HUMAN_READABLE:
+            raise ValueError(f"Dataset '{dataset_name}' is not a valid NanoBEIR dataset.")
+        human_readable = DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]
+        split_name = f"Nano{human_readable}"
 
-        dataset_path = DATASET_NAME_TO_ID.get(dataset_name.lower(), dataset_name)
-        corpus = load_dataset(dataset_path, "corpus", split="train")
-        queries = load_dataset(dataset_path, "queries", split="train")
-
-        try:
-            qrels = load_dataset(dataset_path, "qrels", split="train")
-        except ValueError:
-            qrels = load_dataset(dataset_path, "relevance", split="train")
+        corpus = self._load_dataset_subset_split(
+            self.dataset_id, "corpus", split=split_name, required_columns=["_id", "text"]
+        )
+        queries = self._load_dataset_subset_split(
+            self.dataset_id, "queries", split=split_name, required_columns=["_id", "text"]
+        )
+        qrels = self._load_dataset_subset_split(
+            self.dataset_id, "qrels", split=split_name, required_columns=["query-id", "corpus-id"]
+        )
 
         corpus_dict = {sample["_id"]: sample["text"] for sample in corpus if len(sample["text"]) > 0}
         queries_dict = {sample["_id"]: sample["text"] for sample in queries if len(sample["text"]) > 0}
 
         qrels_dict = {}
         for sample in qrels:
-            corpus_ids = sample.get("positive-corpus-ids")
-            if corpus_ids is None:
-                corpus_ids = sample.get("corpus-id")
-            if corpus_ids is None:
-                raise ValueError(
-                    f"Could not find 'positive-corpus-ids' or 'corpus-id' in qrels/relevance for dataset {dataset_name}."
-                )
-
+            corpus_ids = sample.get("corpus-id")
             if sample["query-id"] not in qrels_dict:
                 qrels_dict[sample["query-id"]] = set()
 
@@ -492,36 +467,39 @@ class NanoBEIREvaluator(SentenceEvaluator):
             **ir_evaluator_kwargs,
         )
 
+    def _load_dataset_subset_split(self, dataset_name: str, subset: str, split: str, required_columns: list[str]):
+        if not is_datasets_available():
+            raise ValueError(
+                "datasets is not available. Please install it to use the NanoBEIREvaluator via `pip install datasets`."
+            )
+        from datasets import load_dataset
+
+        try:
+            dataset = load_dataset(self.dataset_id, subset, split=split)
+        except Exception as e:
+            raise ValueError(
+                f"Could not load dataset '{dataset_name}' subset '{subset}' split '{split}' from dataset ID '{self.dataset_id}'."
+            ) from e
+
+        if missing_columns := set(required_columns) - set(dataset.column_names):
+            raise ValueError(
+                f"Dataset '{dataset_name}' subset '{subset}' split '{split}' is missing required columns: {list(missing_columns)}."
+            )
+        return dataset
+
     def _validate_dataset_names(self):
         if len(self.dataset_names) == 0:
             raise ValueError("dataset_names cannot be empty. Use None to evaluate on all datasets.")
-
-        invalid_datasets = []
-        for dataset_name in self.dataset_names:
-            if "/" in dataset_name:
-                if not self._is_valid_nanobeir_path(dataset_name):
-                    invalid_datasets.append(dataset_name)
-            else:
-                if dataset_name.lower() not in DATASET_NAME_TO_ID:
-                    invalid_datasets.append(dataset_name)
-
-        if invalid_datasets:
+        missing_datasets = [
+            dataset_name
+            for dataset_name in self.dataset_names
+            if dataset_name.lower() not in DATASET_NAME_TO_HUMAN_READABLE
+        ]
+        if missing_datasets:
             raise ValueError(
-                f"Dataset(s) {invalid_datasets} are not valid NanoBEIR datasets. "
-                f"Valid predefined names are: {list(DATASET_NAME_TO_ID.keys())}. "
-                f"Custom dataset paths must be of the form 'org/repo' where the "
-                f"'repo' part contains 'nano{{valid_dataset_name}}' for one of the "
-                f"predefined base names (e.g. 'NanoMSMARCO', 'NanoNQ_nl')."
+                f"Dataset(s) {missing_datasets} are not valid NanoBEIR datasets. "
+                f"Valid dataset names are: {list(DATASET_NAME_TO_HUMAN_READABLE.keys())}"
             )
-
-    def _is_valid_nanobeir_path(self, dataset_path: str) -> bool:
-        dataset_names = DATASET_NAME_TO_ID.keys()
-        # Sort by length descending to match longer names first
-        sorted_dataset_names = sorted(dataset_names, key=len, reverse=True)
-        sorted_dataset_names = ["nano" + name.lower() for name in sorted_dataset_names]
-        dataset_name_to_load = dataset_path.split("/")[1].lower()
-        # Check if any of the valid dataset names are in the dataset_path after the org/
-        return any(dataset_name in dataset_name_to_load for dataset_name in sorted_dataset_names)
 
     def _validate_prompts(self):
         error_msg = ""
@@ -552,7 +530,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
             super().store_metrics_in_model_card_data(*args, **kwargs)
 
     def get_config_dict(self) -> dict[str, Any]:
-        config_dict = {"dataset_names": self.dataset_names}
+        config_dict = {"dataset_names": self.dataset_names, "dataset_id": self.dataset_id}
         config_dict_candidate_keys = ["truncate_dim", "query_prompts", "corpus_prompts"]
         for key in config_dict_candidate_keys:
             if getattr(self, key) is not None:
