@@ -123,6 +123,7 @@ def test_train_stsb_slow(
     evaluate_stsb_test(model, 10, sts_test_samples)  # Lower expected score for a short training
 
 
+@pytest.mark.skipif("CI" in os.environ, reason="This test triggers rate limits too often in the CI")
 def test_train_stsb(
     dummy_sparse_encoder_model: SparseEncoder, sts_resource: tuple[list[InputExample], list[InputExample]]
 ) -> None:
