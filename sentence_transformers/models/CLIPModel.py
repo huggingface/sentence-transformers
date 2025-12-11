@@ -7,7 +7,6 @@ except ImportError:
 
 import torch
 import transformers
-from PIL import Image
 
 from sentence_transformers.models.Router import InputModule
 
@@ -68,12 +67,15 @@ class CLIPModel(InputModule):
         return features
 
     def tokenize(self, texts, padding: str | bool = True) -> dict[str, torch.Tensor]:
+        # Lazy import to avoid dependency if CLIPModel is not used
+        from PIL.Image import Image
+
         images = []
         texts_values = []
         image_text_info = []
 
         for idx, data in enumerate(texts):
-            if isinstance(data, Image.Image):  # An Image
+            if isinstance(data, Image):
                 images.append(data)
                 image_text_info.append(0)
             else:  # A text

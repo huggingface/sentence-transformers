@@ -22,23 +22,29 @@ if is_ci():
     )
 
 
-def test_nanobeir_evaluator(stsb_bert_tiny_model: SentenceTransformer):
-    """Tests that the NanoBERTEvaluator can be loaded and produces expected metrics"""
+def test_nanobeir_evaluator(static_retrieval_mrl_en_v1_model: SentenceTransformer):
+    """Tests that the NanoBEIREvaluator can be loaded and produces expected metrics"""
     datasets = ["QuoraRetrieval", "MSMARCO"]
     query_prompts = {
         "QuoraRetrieval": "Instruct: Given a question, retrieve questions that are semantically equivalent to the given question\\nQuery: ",
         "MSMARCO": "Instruct: Given a web search query, retrieve relevant passages that answer the query\\nQuery: ",
     }
+    model = static_retrieval_mrl_en_v1_model
+    evaluator = NanoBEIREvaluator(dataset_names=datasets, query_prompts=query_prompts)
+    results = evaluator(model)
+    assert len(results) > 0
+    assert all(isinstance(results[metric], float) for metric in results)
 
-    model = stsb_bert_tiny_model
 
+def test_nanobeir_evaluator_custom_dataset_id(static_retrieval_mrl_en_v1_model: SentenceTransformer):
+    """Tests that the NanoBEIREvaluator can load and evaluate on a custom dataset_id"""
+    datasets = ["MSMARCO", "NQ"]
+    model = static_retrieval_mrl_en_v1_model
     evaluator = NanoBEIREvaluator(
         dataset_names=datasets,
-        query_prompts=query_prompts,
+        dataset_id="sentence-transformers-testing/NanoBEIR-de",
     )
-
     results = evaluator(model)
-
     assert len(results) > 0
     assert all(isinstance(results[metric], float) for metric in results)
 
@@ -50,7 +56,7 @@ def test_nanobeir_evaluator_with_invalid_dataset():
     with pytest.raises(
         ValueError,
         match=re.escape(
-            r"Dataset(s) ['invalidDataset'] not found in the NanoBEIR collection. "
+            r"Dataset(s) ['invalidDataset'] are not valid NanoBEIR datasets. "
             r"Valid dataset names are: ['climatefever', 'dbpedia', 'fever', 'fiqa2018', 'hotpotqa', 'msmarco', 'nfcorpus', 'nq', 'quoraretrieval', 'scidocs', 'arguana', 'scifact', 'touche2020']"
         ),
     ):
