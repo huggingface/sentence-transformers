@@ -31,10 +31,14 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
 
     This class evaluates the performance of a SparseEncoder Model on the NanoBEIR collection of Information Retrieval datasets.
 
-    The collection is a set of datasets based on the BEIR collection, but with a significantly smaller size, so it can
-    be used for quickly evaluating the retrieval performance of a model before committing to a full evaluation.
-    The datasets are available on Hugging Face in the `NanoBEIR collection <https://huggingface.co/collections/zeta-alpha-ai/nanobeir-66e1a0af21dfd93e620cd9f6>`_.
-    This evaluator will return the same metrics as the InformationRetrievalEvaluator (i.e., MRR, nDCG, Recall@k), for each dataset and on average.
+    The NanoBEIR collection consists of downsized versions of several BEIR information-retrieval datasets, making it
+    suitable for quickly benchmarking a model's retrieval performance before running a full-scale BEIR evaluation.
+    The datasets are available on Hugging Face in the Sentence Transformers `NanoBEIR collection <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_,
+    which reformats the `original collection <https://huggingface.co/collections/zeta-alpha-ai/nanobeir>`_ from Zeta Alpha
+    into the default `NanoBEIR-en <https://huggingface.co/datasets/sentence-transformers/NanoBEIR-en>`_ dataset,
+    alongside many translated versions.
+    This evaluator will return the same metrics as the :class:`~sentence_transformers.sparse_encoder.evaluation.SparseInformationRetrievalEvaluator`
+    (i.e., MRR, nDCG, Recall@k, Sparsity, FLOPS), for each dataset and on average.
 
     Args:
         dataset_names (List[str]): The short names of the datasets to evaluate on (e.g., "climatefever", "msmarco").

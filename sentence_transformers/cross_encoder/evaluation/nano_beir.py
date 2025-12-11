@@ -56,8 +56,9 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
 
     The collection is a set of datasets based on the BEIR collection, but with a significantly smaller size, so it can
     be used for quickly evaluating the retrieval performance of a model before committing to a full evaluation.
-    The datasets are available on Hugging Face in the `NanoBEIR with BM25 collection <https://huggingface.co/collections/sentence-transformers/nanobeir-with-bm25-rankings-67bdcbc629f007c15bf358d8>`_.
-    This evaluator will return the same metrics as the CrossEncoderRerankingEvaluator (i.e., MRR@k, nDCG@k, MAP), for each dataset and on average.
+    The datasets are available on Hugging Face in the `NanoBEIR collection <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_.
+    This evaluator will return the same metrics as the :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator`
+    (i.e., MRR@k, nDCG@k, MAP), for each dataset and on average.
 
     Rather than reranking all documents for each query, the evaluator will only rerank the ``rerank_k`` documents from
     a BM25 ranking. When your logging is set to INFO, the evaluator will print the MAP, MRR@k, and nDCG@k for each dataset
