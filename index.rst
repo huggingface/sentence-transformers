@@ -1,7 +1,7 @@
 
 .. note::
 
-   Sentence Transformers v5.2 recently released, introducing multi-processing for CrossEncoder, multilingual NanoBEIR evaluators, similarity score outputs in `mine_hard_negatives`, Transformers v5 support, and more. Read the `v5.2 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.2.0>`_ for more information.
+   Sentence Transformers v5.2 recently released, introducing multi-processing for CrossEncoder, multilingual NanoBEIR evaluators, similarity score outputs in :class:`~sentence_transformers.util.mine_hard_negatives`, Transformers v5 support, and more. Read the `v5.2 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.2.0>`_ for more information.
 
 .. attention::
 
