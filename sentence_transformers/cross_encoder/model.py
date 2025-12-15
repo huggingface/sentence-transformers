@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 import logging
-import os
-from collections import OrderedDict
-from collections.abc import Callable, Iterable
-from pathlib import Path
+import math
 
 # TODO: OrderedDict from typing or typing_dict? Or collections?
+import queue
+from collections import OrderedDict
+from collections.abc import Callable, Iterable
+from multiprocessing import Queue
 from typing import Any, Literal, overload
 
 import numpy as np
 import torch
 from torch import nn
 from tqdm.autonotebook import trange
-from transformers import AutoConfig, PretrainedConfig, PreTrainedModel
+from transformers import (
+    AutoConfig,
+    PretrainedConfig,
+    PreTrainedModel,
+)
 from typing_extensions import deprecated
 
 from sentence_transformers.base.model import BaseModel
@@ -28,14 +33,6 @@ from sentence_transformers.cross_encoder.util import (
 from sentence_transformers.util import fullname, import_from_string
 
 logger = logging.getLogger(__name__)
-
-
-def _save_pretrained_wrapper(_save_pretrained_fn: Callable, subfolder: str) -> Callable[..., None]:
-    def wrapper(save_directory: str | Path, **kwargs) -> None:
-        os.makedirs(Path(save_directory) / subfolder, exist_ok=True)
-        return _save_pretrained_fn(Path(save_directory) / subfolder, **kwargs)
-
-    return wrapper
 
 
 class CrossEncoder(BaseModel, FitMixin):
@@ -262,6 +259,122 @@ class CrossEncoder(BaseModel, FitMixin):
         )
         return [transformer_model], {}
 
+    def _multi_process(
+        self,
+        sentence_pairs: list[tuple[str, str]] | list[list[str]],
+        show_progress_bar: bool | None = True,
+        input_was_singular: bool = False,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        device: str | list[str | torch.device] | None = None,
+        chunk_size: int | None = None,
+        **predict_kwargs,
+    ):
+        convert_to_tensor = predict_kwargs.get("convert_to_tensor", False)
+        convert_to_numpy = predict_kwargs.get("convert_to_numpy", True)
+        predict_kwargs["show_progress_bar"] = False
+
+        created_pool = False
+        if pool is None and isinstance(device, list) and len(device) > 0:
+            pool = self.start_multi_process_pool(device)
+            created_pool = True
+
+        # Create a pool if is not provided, but a list of devices is
+        try:
+            # Determine chunk size if not provided. As a default, aim for 10 chunks per process, with a maximum of 5000 sentences per chunk.
+            if chunk_size is None:
+                chunk_size = min(math.ceil(len(sentence_pairs) / len(pool["processes"]) / 10), 5000)
+                chunk_size = max(chunk_size, 1)  # Ensure at least 1
+
+            input_queue: torch.multiprocessing.Queue = pool["input"]
+            output_queue: torch.multiprocessing.Queue = pool["output"]
+
+            # Send inputs to the input queue in chunks
+            chunk_id = -1  # We default to -1 to handle empty input gracefully
+            for chunk_id, chunk_start in enumerate(range(0, len(sentence_pairs), chunk_size)):
+                chunk = sentence_pairs[chunk_start : chunk_start + chunk_size]
+                input_queue.put([chunk_id, chunk, predict_kwargs])
+
+            # Collect results from output queue
+            output_list = sorted(
+                [output_queue.get() for _ in trange(chunk_id + 1, desc="Chunks", disable=not show_progress_bar)],
+                key=lambda x: x[0],  # Sort by chunk_id
+            )
+
+            # Handle singular input case -> return the first (only) result directly
+            if input_was_singular and output_list:
+                return output_list[0][1][0] if len(output_list[0][1]) > 0 else output_list[0][1]
+
+            # Handle the various output formats: torch tensors, numpy arrays, or
+            # list of dictionaries, also when empty.
+            scores = [output[1] for output in output_list]
+
+            # Check for errors in results
+            if any(len(output) > 2 and output[2] is not None for output in output_list):
+                # Error occurred in worker
+                error_output = next(output for output in output_list if len(output) > 2 and output[2])
+                raise RuntimeError(f"Error in worker process: {error_output[2]}")
+
+            if scores:
+                if isinstance(scores[0], torch.Tensor):
+                    scores = torch.cat(scores)
+                elif isinstance(scores[0], np.ndarray):
+                    scores = np.concatenate(scores, axis=0)
+                elif isinstance(scores[0], list):
+                    scores = sum(scores, [])
+                else:
+                    scores = sum(scores, [])
+
+            elif convert_to_tensor:
+                scores = torch.tensor([], device=self.model.device)
+            elif convert_to_numpy:
+                scores = np.array([])
+            else:
+                scores = []
+            return scores
+
+        finally:
+            # Clean up the pool if we created it
+            if created_pool:
+                self.stop_multi_process_pool(pool)
+
+    @staticmethod
+    def _multi_process_worker(
+        target_device: str,
+        model: CrossEncoder,
+        input_queue: Queue,
+        results_queue: Queue,
+    ) -> None:
+        """
+        Internal working process to predict sentence pairs in a multi-process setup.
+
+        """
+        while True:
+            try:
+                chunk_id, sentence_pairs, kwargs = input_queue.get()
+                scores = model.predict(sentence_pairs, device=target_device, **kwargs)
+
+                # If multi-process scores are not on CPUs, move them to CPU, so they can all be concatenated later
+                if isinstance(scores, torch.Tensor) and scores.device.type != "cpu":
+                    scores = scores.cpu()
+                elif isinstance(scores, np.ndarray):
+                    scores = np.asarray(scores)
+                elif isinstance(scores, list):
+                    scores = [
+                        score.cpu() if isinstance(score, torch.Tensor) and score.device.type != "cpu" else score
+                        for score in scores
+                    ]
+                results_queue.put([chunk_id, scores])
+
+            except queue.Empty:
+                break
+            except Exception as e:
+                logger.error(f"Error in worker process on {target_device}: {e}")
+                try:
+                    results_queue.put([chunk_id, None, str(e)])
+                except Exception:
+                    pass
+                break
+
     def get_default_activation_fn(self) -> Callable:
         activation_fn_path = None
         if hasattr(self.config, "sentence_transformers") and "activation_fn" in self.config.sentence_transformers:
@@ -367,6 +480,9 @@ class CrossEncoder(BaseModel, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[False] = ...,
         convert_to_tensor: Literal[False] = ...,
+        device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        chunk_size: int | None = None,
         **kwargs,
     ) -> torch.Tensor: ...
 
@@ -380,6 +496,9 @@ class CrossEncoder(BaseModel, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[True] = True,
         convert_to_tensor: Literal[False] = False,
+        device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        chunk_size: int | None = None,
         **kwargs,
     ) -> np.ndarray: ...
 
@@ -393,6 +512,9 @@ class CrossEncoder(BaseModel, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: bool = ...,
         convert_to_tensor: Literal[True] = ...,
+        device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        chunk_size: int | None = None,
         **kwargs,
     ) -> torch.Tensor: ...
 
@@ -406,6 +528,9 @@ class CrossEncoder(BaseModel, FitMixin):
         apply_softmax: bool | None = ...,
         convert_to_numpy: Literal[False] = ...,
         convert_to_tensor: Literal[False] = ...,
+        device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        chunk_size: int | None = None,
         **kwargs,
     ) -> list[torch.Tensor]: ...
 
@@ -422,6 +547,9 @@ class CrossEncoder(BaseModel, FitMixin):
         apply_softmax: bool | None = False,
         convert_to_numpy: bool = True,
         convert_to_tensor: bool = False,
+        device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        chunk_size: int | None = None,
         **kwargs,
     ) -> list[torch.Tensor] | np.ndarray | torch.Tensor:
         """
@@ -442,6 +570,14 @@ class CrossEncoder(BaseModel, FitMixin):
                 a list of PyTorch tensors. Defaults to True.
             convert_to_tensor (bool, optional): Whether the output should be one large tensor. Overwrites `convert_to_numpy`.
                 Defaults to False.
+            device (Union[str, List[str]], optional): Device(s) to use for computation. Can be a single device string
+                (e.g., "cuda:0", "cpu") or a list of devices (e.g., ["cuda:0", "cuda:1"]). If a list is provided,
+                multiprocessing will be used automatically. Defaults to None.
+            pool (Dict[str, Any], optional): A pool of workers created with :meth:`start_multi_process_pool`. If provided,
+                multiprocessing will be used. If None and ``device`` is a list, a pool will be created automatically.
+                Defaults to None.
+            chunk_size (int, optional): Size of chunks for multiprocessing. If None, a sensible default is calculated.
+                Only used when ``pool`` is not None or ``device`` is a list. Defaults to None.
 
         Returns:
             Union[List[torch.Tensor], np.ndarray, torch.Tensor]: Predictions for the passed sentence pairs.
@@ -459,12 +595,40 @@ class CrossEncoder(BaseModel, FitMixin):
                 sentences = [["I love cats", "Cats are amazing"], ["I prefer dogs", "Dogs are loyal"]]
                 model.predict(sentences)
                 # => array([0.6912767, 0.4303499], dtype=float32)
+
+                # Using multiprocessing with automatic pool
+                scores = model.predict(sentences, device=["cuda:0", "cuda:1"])
+
+                # Using multiprocessing with manual pool
+                pool = model.start_multi_process_pool()
+                scores = model.predict(sentences, pool=pool)
+                model.stop_multi_process_pool(pool)
         """
         # Cast an individual pair to a list with length 1
         input_was_singular = False
         if sentences and isinstance(sentences, (list, tuple)) and isinstance(sentences[0], str):
             sentences = [sentences]
             input_was_singular = True
+
+        # If pool or a list of devices is provided, use multi-process prediction
+        if pool is not None or (isinstance(device, list) and len(device) > 0):
+            return self._multi_process(
+                sentence_pairs=sentences,
+                # Utility and post-processing parameters
+                show_progress_bar=show_progress_bar,
+                input_was_singular=input_was_singular,
+                # Multi-process encoding parameters
+                pool=pool,
+                device=device,
+                chunk_size=chunk_size,
+                # Prediction parameters
+                batch_size=batch_size,
+                activation_fn=activation_fn,
+                apply_softmax=apply_softmax,
+                convert_to_numpy=convert_to_numpy,
+                convert_to_tensor=convert_to_tensor,
+                **kwargs,
+            )
 
         if show_progress_bar is None:
             show_progress_bar = (
@@ -487,6 +651,12 @@ class CrossEncoder(BaseModel, FitMixin):
                     "Encode with either a `prompt`, a `prompt_name`, or neither, but not both. "
                     "Ignoring the `prompt_name` in favor of `prompt`."
                 )
+
+        # Here, device is either a single device string (e.g., "cuda:0", "cpu") for single-process encoding or None
+        if device is None:
+            device = self.model.device
+
+        self.to(device)
 
         pred_scores = []
         self.eval()
@@ -532,7 +702,7 @@ class CrossEncoder(BaseModel, FitMixin):
             # features = self.tokenize(batch, **kwargs)
             # '''
             features = self.preprocess(batch, **kwargs)
-            features.to(self.device)
+            features.to(device)
             out_features = self.forward(features, **kwargs)
             scores = out_features["scores"]
 
@@ -555,7 +725,7 @@ class CrossEncoder(BaseModel, FitMixin):
             if len(pred_scores):
                 pred_scores = torch.stack(pred_scores)
             else:
-                pred_scores = torch.tensor([], device=self.device)
+                pred_scores = torch.tensor([], device=device)
         elif convert_to_numpy:
             pred_scores = np.asarray([score.cpu().detach().float().numpy() for score in pred_scores])
 
@@ -577,6 +747,9 @@ class CrossEncoder(BaseModel, FitMixin):
         apply_softmax=False,
         convert_to_numpy: bool = True,
         convert_to_tensor: bool = False,
+        device: str | list[str | torch.device] | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        chunk_size: int | None = None,
     ) -> list[dict[Literal["corpus_id", "score", "text"], int | float | str]]:
         """
         Performs ranking with the CrossEncoder on the given query and documents. Returns a sorted list with the document indices and scores.
@@ -592,6 +765,14 @@ class CrossEncoder(BaseModel, FitMixin):
             convert_to_numpy (bool, optional): Convert the output to a numpy matrix. Defaults to True.
             apply_softmax (bool, optional): If there are more than 2 dimensions and apply_softmax=True, applies softmax on the logits output. Defaults to False.
             convert_to_tensor (bool, optional): Convert the output to a tensor. Defaults to False.
+            device (Union[str, List[str]], optional): Device(s) to use for computation. Can be a single device string
+                (e.g., "cuda:0", "cpu") or a list of devices (e.g., ["cuda:0", "cuda:1"]). If a list is provided,
+                multiprocessing will be used automatically. Defaults to None.
+            pool (Dict[str, Any], optional): A pool of workers created with :meth:`start_multi_process_pool`. If provided,
+                multiprocessing will be used. If None and ``device`` is a list, a pool will be created automatically.
+                Defaults to None.
+            chunk_size (int, optional): Size of chunks for multiprocessing. If None, a sensible default is calculated.
+                Only used when ``pool`` is not None or ``device`` is a list. Defaults to None.
 
         Returns:
             List[Dict[Literal["corpus_id", "score", "text"], Union[int, float, str]]]: A sorted list with the "corpus_id", "score", and optionally "text" of the documents.
@@ -646,6 +827,9 @@ class CrossEncoder(BaseModel, FitMixin):
             apply_softmax=apply_softmax,
             convert_to_numpy=convert_to_numpy,
             convert_to_tensor=convert_to_tensor,
+            device=device,
+            pool=pool,
+            chunk_size=chunk_size,
         )
 
         results = []

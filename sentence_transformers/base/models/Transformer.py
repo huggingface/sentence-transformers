@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import inspect
 import logging
-import os
 from collections.abc import Callable
 from dataclasses import fields
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Union
 
 import torch
@@ -47,14 +45,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING and is_peft_available():
     from peft import PeftConfig
-
-
-def _save_pretrained_wrapper(_save_pretrained_fn: Callable, subfolder: str) -> Callable[..., None]:
-    def wrapper(save_directory: str | Path, **kwargs) -> None:
-        os.makedirs(Path(save_directory) / subfolder, exist_ok=True)
-        return _save_pretrained_fn(Path(save_directory) / subfolder, **kwargs)
-
-    return wrapper
 
 
 TRANSFORMER_TASK_TO_AUTO_MODEL = {

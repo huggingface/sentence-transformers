@@ -1057,7 +1057,6 @@ In case there are issues with the updated :meth:`CrossEncoder.fit() <sentence_tr
 ```{eval-rst}
 Training :class:`~sentence_transformers.cross_encoder.CrossEncoder` models is very similar as training :class:`~sentence_transformers.SentenceTransformer` models, with some key differences:
 
-- Instead of just ``score`` and ``label``, columns named ``scores`` and ``labels`` will also be considered "label columns" for :class:`~sentence_transformers.cross_encoder.CrossEncoder` training. As you can see in the `Loss Overview <loss_overview.html>`_ documentation, some losses require specific labels/scores in a column with one of these names.
 - In :class:`~sentence_transformers.SentenceTransformer` training, you cannot use lists of inputs (e.g. texts) in a column of the training/evaluation dataset(s). For :class:`~sentence_transformers.cross_encoder.CrossEncoder` training, you **can** use (variably sized) lists of texts in a column. This is required for the :class:`~sentence_transformers.cross_encoder.losses.ListNetLoss` class, for example.
 
 See the `Sentence Transformer > Training Overview <../sentence_transformer/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.SentenceTransformer` models.

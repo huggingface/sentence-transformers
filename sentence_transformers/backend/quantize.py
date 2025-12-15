@@ -67,8 +67,8 @@ def export_dynamic_quantized_onnx_model(
     except ImportError:
         raise ImportError(
             "Please install Optimum and ONNX Runtime to use this function. "
-            "You can install them with pip: `pip install optimum[onnxruntime]` "
-            "or `pip install optimum[onnxruntime-gpu]`"
+            "You can install them with pip: `pip install sentence-transformers[onnx]` "
+            "or `pip install sentence-transformers[onnx-gpu]`"
         )
 
     viable_st_model = (
@@ -180,7 +180,7 @@ def export_static_quantized_openvino_model(
     except ImportError:
         raise ImportError(
             "Please install datasets, optimum-intel and openvino to use this function. "
-            "You can install them with pip: `pip install datasets optimum[openvino]`"
+            "You can install them with pip: `pip install datasets sentence-transformers[openvino]`"
         )
     if not is_datasets_available():
         raise ImportError(

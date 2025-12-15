@@ -12,6 +12,7 @@ import traceback
 import warnings
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from multiprocessing import Queue
 from pathlib import Path
 from typing import Any, Literal
 
@@ -1091,7 +1092,20 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self, target_devices: list[str] | None = None
     ) -> dict[Literal["input", "output", "processes"], Any]:
         """
-        Starts a multi-process pool to process the encoding with several independent processes.
+        Starts a multi-process pool to infer with several independent processes.
+
+        This method is recommended if you want to predict on multiple GPUs or CPUs. It is advised
+        to start only one process per GPU. This method works together with predict and
+        stop_multi_process_pool.
+
+        Args:
+            target_devices (List[str], optional): PyTorch target devices, e.g. ["cuda:0", "cuda:1", ...],
+                ["npu:0", "npu:1", ...], or ["cpu", "cpu", "cpu", "cpu"]. If target_devices is None and CUDA/NPU
+                is available, then all available CUDA/NPU devices will be used. If target_devices is None and
+                CUDA/NPU is not available, then 4 CPU devices will be used.
+
+        Returns:
+            Dict[str, Any]: A dictionary with the target processes, an input queue, and an output queue.
         """
         if target_devices is None:
             if torch.cuda.is_available():
@@ -1126,6 +1140,12 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     def stop_multi_process_pool(pool: dict[Literal["input", "output", "processes"], Any]) -> None:
         """
         Stops all processes started with start_multi_process_pool.
+
+        Args:
+            pool (Dict[str, object]): A dictionary containing the input queue, output queue, and process list.
+
+        Returns:
+            None
         """
         for p in pool["processes"]:
             p.terminate()
@@ -1136,6 +1156,18 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
         pool["input"].close()
         pool["output"].close()
+
+    def _multi_process(self, *args, **kwargs):
+        raise NotImplementedError("This method should be implemented in subclasses.")
+
+    @staticmethod
+    def _multi_process_worker(
+        target_device: str,
+        model: BaseModel,
+        input_queue: Queue,
+        results_queue: Queue,
+    ) -> None:
+        raise NotImplementedError("This method should be implemented in subclasses.")
 
     @property
     def tokenizer(self) -> Any:

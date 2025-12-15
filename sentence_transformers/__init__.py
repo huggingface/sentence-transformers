@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-__version__ = "5.2.0.dev0"
-# TODO: Perhaps remove __MODEL_HUB_ORGANIZATION__, we have multiple orgs now
+__version__ = "5.3.0.dev0"
 __MODEL_HUB_ORGANIZATION__ = "sentence-transformers"
 
 import importlib

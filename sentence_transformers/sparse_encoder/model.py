@@ -493,7 +493,7 @@ class SparseEncoder(BaseModel):
 
         # If pool or a list of devices is provided, use multi-process encoding
         if pool is not None or (isinstance(device, list) and len(device) > 0):
-            return self._encode_multi_process(
+            return self._multi_process(
                 sentences,
                 # Utility and post-processing parameters
                 show_progress_bar=show_progress_bar,
@@ -673,7 +673,7 @@ class SparseEncoder(BaseModel):
             self.similarity_fn_name = SimilarityFunction.DOT
         return self._similarity_pairwise
 
-    def _encode_multi_process(
+    def _multi_process(
         self,
         inputs: list[str],
         show_progress_bar: bool | None = True,

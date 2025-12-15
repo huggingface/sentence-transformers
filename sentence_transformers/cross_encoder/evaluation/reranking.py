@@ -22,7 +22,7 @@ class CrossEncoderRerankingEvaluator(SentenceEvaluator):
     This class evaluates a CrossEncoder model for the task of re-ranking.
 
     Given a query and a list of documents, it computes the score [query, doc_i] for all possible
-    documents and sorts them in decreasing order. Then, MRR@10, NDCG@10 and MAP are computed to measure the quality of the ranking.
+    documents and sorts them in decreasing order. Then, ``MRR@10``, ``NDCG@10`` and ``MAP`` are computed to measure the quality of the ranking.
 
     The evaluator expects a list of samples. Each sample is a dictionary with the mandatory "query" and "positive" keys,
     and either a "negative" or a "documents" key. The "query" is the search query, the "positive" is a list of relevant

@@ -522,13 +522,16 @@ class SentenceTransformer(BaseModel, FitMixin):
 
         # If pool or a list of devices is provided, use multi-process encoding
         if pool is not None or (isinstance(device, list) and len(device) > 0):
-            return self._encode_multi_process(
+            return self._multi_process(
                 sentences,
+                # Utility and post-processing parameters
                 show_progress_bar=show_progress_bar,
                 input_was_singular=input_was_singular,
+                # Multi-process encoding parameters
                 pool=pool,
                 device=device,
                 chunk_size=chunk_size,
+                # Encoding parameters
                 prompt_name=prompt_name,
                 prompt=prompt,
                 batch_size=batch_size,
@@ -769,7 +772,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             chunk_size=chunk_size,
         )
 
-    def _encode_multi_process(
+    def _multi_process(
         self,
         inputs: list[str],
         show_progress_bar: bool | None = True,

@@ -14,7 +14,9 @@ Loss functions play a critical role in the performance of your fine-tuned Cross 
     - ``(anchor, positive, negative) triplets`` with ``output_format="triplet"``, 
     - ``(anchor, positive, negative_1, …, negative_n) tuples`` with ``output_format="n-tuple"``.
     - ``(anchor, passage, label) labeled pairs`` with a label of 0 for negative and 1 for positive with ``output_format="labeled-pair"``,
-    - ``(anchor, [doc1, doc2, ..., docN], [label1, label2, ..., labelN]) triplets`` with labels of 0 for negative and 1 for positive with ``output_format="labeled-list"``, 
+    - ``(anchor, [doc1, doc2, ..., docN], [label1, label2, ..., labelN]) triplets`` with labels of 0 for negative and 1 for positive with ``output_format="labeled-list"``
+
+    As well as formats with similarity scores instead of binarized labels, by setting ``output_scores=True``.
 ```
 
 | Inputs                                            | Labels                                   | Number of Model Output Labels | Appropriate Loss Functions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |

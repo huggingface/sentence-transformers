@@ -24,6 +24,9 @@ QUERIES = [
     "What is the largest planet in our solar system?",
     "Who painted the Mona Lisa?",
     "What is the speed of light?",
+    "What is the chemical symbol for gold?",
+    "Who developed the theory of relativity?",
+    "What is the tallest mountain in the world?",
 ]
 
 PASSAGES = [
@@ -32,11 +35,18 @@ PASSAGES = [
     "Jupiter is the largest planet in our solar system and the fifth planet from the sun.",
     "Leonardo da Vinci painted the Mona Lisa between 1503 and 1519.",
     "The speed of light in vacuum is approximately 299,792,458 meters per second.",
+    "The chemical symbol for gold is Au, derived from the Latin word 'Aurum'.",
+    "Albert Einstein developed the theory of relativity, which revolutionized our understanding of space, time, and gravity.",
+    "Mount Everest is the tallest mountain in the world, with a peak that reaches 8,848 meters (29,029 feet) above sea level.",
+    # The following passages can be seen as non-matching negatives
     "Madrid is the capital of Spain and its largest city.",
     "J.K. Rowling wrote the Harry Potter series of fantasy novels.",
     "Saturn is the sixth planet from the Sun and the second-largest in the Solar System.",
     "Vincent van Gogh is famous for his post-impressionist paintings like 'Starry Night'.",
     "Sound travels at approximately 343 meters per second in air at standard temperature and pressure.",
+    "The chemical symbol for silver is Ag, derived from the Latin word 'Argentum'.",
+    "Isaac Newton formulated the laws of motion and universal gravitation.",
+    "K2, also known as Mount Godwin-Austen, is the second-highest mountain in the world.",
 ]
 
 
@@ -58,7 +68,29 @@ def dataset(queries, passages):
     return Dataset.from_dict(
         {
             "query": queries,
-            "passage": passages[:5],  # First 5 passages match the queries
+            "passage": passages[: len(queries)],
+        }
+    )
+
+
+@pytest.fixture(scope="session")
+def multiple_positive_queries_dataset(queries, passages):
+    """Return a sample dataset with multiple matching passages for each query."""
+    return Dataset.from_dict(
+        {
+            "query": queries + queries,
+            "passage": [f"Copy {idx}, {passage}" for idx in range(2) for passage in passages[: len(queries)]],
+        }
+    )
+
+
+@pytest.fixture(scope="session")
+def multiple_positive_passages_dataset(queries, passages):
+    """Return a sample dataset with multiple matching passages for each query."""
+    return Dataset.from_dict(
+        {
+            "query": [f"Copy {idx}, {query}" for idx in range(2) for query in queries],
+            "passage": passages[: len(queries)] + passages[: len(queries)],
         }
     )
 
@@ -69,15 +101,9 @@ def multiple_positive_dataset(queries, passages):
     return Dataset.from_dict(
         {
             "query": queries + queries,
-            "passage": [f"Copy {idx}, {passage}" for idx in range(2) for passage in passages[:5]],
+            "passage": passages[: len(queries)] + passages[: len(queries)],
         }
     )
-
-
-@pytest.fixture
-def cross_encoder():
-    """Return a cross-encoder model."""
-    return CrossEncoder("cross-encoder/ms-marco-MiniLM-L2-v2")
 
 
 def test_basic_functionality(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
@@ -99,7 +125,7 @@ def test_column_names(
 ) -> None:
     """Test specifying custom column names."""
     model = static_retrieval_mrl_en_v1_model
-    renamed_dataset = Dataset.from_dict({"question": queries, "answer": passages[:5]})
+    renamed_dataset = Dataset.from_dict({"question": queries, "answer": passages[: len(queries)]})
 
     result = mine_hard_negatives(
         dataset=renamed_dataset,
@@ -121,7 +147,7 @@ def test_fully_custom_column_names(
     """Test dataset with completely different column names."""
     model = static_retrieval_mrl_en_v1_model
     # Create dataset with completely custom column names
-    custom_dataset = Dataset.from_dict({"user_question": queries, "system_response": passages[:5]})
+    custom_dataset = Dataset.from_dict({"user_question": queries, "system_response": passages[: len(queries)]})
 
     # Test with custom column names
     result = mine_hard_negatives(
@@ -179,10 +205,11 @@ def test_separate_corpus(
 
 
 def test_cross_encoder(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, cross_encoder: CrossEncoder
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, reranker_bert_tiny_model: CrossEncoder
 ) -> None:
     """Test using a cross-encoder for rescoring."""
     model = static_retrieval_mrl_en_v1_model
+    cross_encoder = reranker_bert_tiny_model
     result = mine_hard_negatives(
         dataset=dataset,
         model=model,
@@ -199,10 +226,11 @@ def test_cross_encoder(
 
 
 def test_cross_encoder_detailed(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, cross_encoder: CrossEncoder
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, reranker_bert_tiny_model: CrossEncoder
 ) -> None:
     """Test using a cross-encoder with different parameters."""
     model = static_retrieval_mrl_en_v1_model
+    cross_encoder = reranker_bert_tiny_model
     # Test with cross-encoder and various filtering parameters
     result = mine_hard_negatives(
         dataset=dataset,
@@ -222,6 +250,30 @@ def test_cross_encoder_detailed(
     assert "passage" in result.column_names
     assert "negative_1" in result.column_names
     assert "negative_2" in result.column_names
+
+
+def test_cross_encoder_with_multiple_positives_non_faiss(
+    multiple_positive_dataset: Dataset,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    reranker_bert_tiny_model: CrossEncoder,
+) -> None:
+    model = static_retrieval_mrl_en_v1_model
+    cross_encoder = reranker_bert_tiny_model
+
+    result = mine_hard_negatives(
+        dataset=multiple_positive_dataset,
+        model=model,
+        cross_encoder=cross_encoder,
+        range_max=3,  # keep small to avoid k out of range
+        max_score=0.9,  # ensure CrossEncoder path is exercised
+        num_negatives=2,
+        verbose=False,
+    )
+
+    assert "query" in result.column_names
+    assert "passage" in result.column_names
+    assert "negative" in result.column_names
+    assert len(result) > 0
 
 
 def test_range_parameters(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
@@ -397,14 +449,39 @@ def test_include_positives_with_labeled_formats(
 def test_output_formats(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
     """Test all output_format options."""
     model = static_retrieval_mrl_en_v1_model
-    # Test triplet format
+
+    # Test triplet format without scores (default)
     result_triplet = mine_hard_negatives(dataset=dataset, model=model, output_format="triplet", verbose=False)
     assert "query" in result_triplet.column_names
     assert "passage" in result_triplet.column_names
     assert "negative" in result_triplet.column_names
+    # No score-related columns by default
+    assert "positive_score" not in result_triplet.column_names
+    assert "negative_score" not in result_triplet.column_names
+    assert "scores" not in result_triplet.column_names
     assert len(result_triplet.column_names) == 3
 
-    # Test n-tuple format
+    # Test triplet format with scores
+    result_triplet_scores = mine_hard_negatives(
+        dataset=dataset, model=model, output_format="triplet", output_scores=True, verbose=False
+    )
+    assert "query" in result_triplet_scores.column_names
+    assert "passage" in result_triplet_scores.column_names
+    assert "negative" in result_triplet_scores.column_names
+    # Scores are exposed via a single `scores` column as [pos, neg]
+    assert "positive_score" not in result_triplet_scores.column_names
+    assert "negative_score" not in result_triplet_scores.column_names
+    assert "scores" in result_triplet_scores.column_names
+    assert len(result_triplet_scores.column_names) == 4
+
+    # Verify scores are lists of numeric values [positive_score, negative_score]
+    if len(result_triplet_scores) > 0:
+        for score_list in result_triplet_scores["scores"]:
+            assert isinstance(score_list, list)
+            assert len(score_list) == 2
+            assert all(isinstance(score, (int, float)) for score in score_list)
+
+    # Test n-tuple format without scores (default)
     result_ntuple = mine_hard_negatives(
         dataset=dataset, model=model, num_negatives=2, output_format="n-tuple", verbose=False
     )
@@ -412,6 +489,27 @@ def test_output_formats(dataset: Dataset, static_retrieval_mrl_en_v1_model: Sent
     assert "passage" in result_ntuple.column_names
     assert "negative_1" in result_ntuple.column_names
     assert "negative_2" in result_ntuple.column_names
+    assert "score" not in result_ntuple.column_names
+    assert "scores" not in result_ntuple.column_names
+
+    # Test n-tuple format with scores
+    result_ntuple_scores = mine_hard_negatives(
+        dataset=dataset, model=model, num_negatives=2, output_format="n-tuple", output_scores=True, verbose=False
+    )
+    assert "query" in result_ntuple_scores.column_names
+    assert "passage" in result_ntuple_scores.column_names
+    assert "negative_1" in result_ntuple_scores.column_names
+    assert "negative_2" in result_ntuple_scores.column_names
+    # Unified `scores` column: [pos_score, neg1_score, neg2_score]
+    assert "score" not in result_ntuple_scores.column_names
+    assert "scores" in result_ntuple_scores.column_names
+
+    # Verify scores are lists of expected length (1 positive + num_negatives)
+    if len(result_ntuple_scores) > 0:
+        for score_list in result_ntuple_scores["scores"]:
+            assert isinstance(score_list, list)
+            assert len(score_list) == 3
+            assert all(isinstance(score, (int, float)) for score in score_list)
 
     # Test n-tuple-scores format
     result_scores = mine_hard_negatives(
@@ -421,26 +519,58 @@ def test_output_formats(dataset: Dataset, static_retrieval_mrl_en_v1_model: Sent
     assert "passage" in result_scores.column_names
     assert "negative_1" in result_scores.column_names
     assert "negative_2" in result_scores.column_names
-    assert "score" in result_scores.column_names
+    # Deprecated alias should behave like n-tuple + output_scores
+    assert "score" not in result_scores.column_names
+    assert "scores" in result_scores.column_names
 
     # Verify scores are lists of expected length (1 positive + num_negatives)
-    assert all(len(score) == 3 for score in result_scores["score"])
+    assert all(len(score) == 3 for score in result_scores["scores"])
 
-    # Test labeled-pair format
+    # Test labeled-pair format without scores (default)
     result_pair = mine_hard_negatives(dataset=dataset, model=model, output_format="labeled-pair", verbose=False)
     assert "query" in result_pair.column_names
     assert "passage" in result_pair.column_names
     assert "label" in result_pair.column_names
+    assert "score" not in result_pair.column_names
+    assert len(result_pair.column_names) == 3
+
+    # Test labeled-pair format with scores
+    result_pair_scores = mine_hard_negatives(
+        dataset=dataset, model=model, output_format="labeled-pair", output_scores=True, verbose=False
+    )
+    assert "query" in result_pair_scores.column_names
+    assert "passage" in result_pair_scores.column_names
+    # When output_scores=True we expose scores and drop labels
+    assert "label" not in result_pair_scores.column_names
+    assert "score" in result_pair_scores.column_names
+    assert len(result_pair_scores.column_names) == 3
 
     # Verify labels are 0 or 1
     labels = set(result_pair["label"])
     assert labels == {0, 1}
 
-    # Test labeled-list format
+    # Verify scores are numeric values
+    if len(result_pair_scores) > 0:
+        assert all(isinstance(score, (int, float)) for score in result_pair_scores["score"])
+
+    # Test labeled-list format without scores (default)
     result_list = mine_hard_negatives(dataset=dataset, model=model, output_format="labeled-list", verbose=False)
     assert "query" in result_list.column_names
     assert "passage" in result_list.column_names
     assert "labels" in result_list.column_names
+    assert "scores" not in result_list.column_names
+    assert len(result_list.column_names) == 3
+
+    # Test labeled-list format with scores
+    result_list_scores = mine_hard_negatives(
+        dataset=dataset, model=model, output_format="labeled-list", output_scores=True, verbose=False
+    )
+    assert "query" in result_list_scores.column_names
+    assert "passage" in result_list_scores.column_names
+    # With scores we replace labels by scores
+    assert "labels" not in result_list_scores.column_names
+    assert "scores" in result_list_scores.column_names
+    assert len(result_list_scores.column_names) == 3
 
     # Verify each item in 'passage' is a list
     assert all(isinstance(p, list) for p in result_list["passage"])
@@ -450,6 +580,243 @@ def test_output_formats(dataset: Dataset, static_retrieval_mrl_en_v1_model: Sent
         assert isinstance(label_list, list)
         assert label_list[0] == 1
         assert all(label == 0 for label in label_list[1:])
+
+    # Verify each item in 'scores' is a list with numeric values
+    if len(result_list_scores) > 0:
+        for score_list in result_list_scores["scores"]:
+            assert isinstance(score_list, list)
+            assert all(isinstance(score, (int, float)) for score in score_list)
+
+
+def _compute_similarity(model: SentenceTransformer, query: str, passage: str) -> float:
+    """Compute similarity between a single query and passage using the model.
+
+    This helper mirrors the internal scoring logic in `mine_hard_negatives` by
+    encoding the query and passage with the dedicated query/document encoders
+    and then using `similarity_pairwise`.
+    """
+
+    query_emb = model.encode_query([query], normalize_embeddings=True, convert_to_tensor=True, show_progress_bar=False)
+    passage_emb = model.encode_document(
+        [passage], normalize_embeddings=True, convert_to_tensor=True, show_progress_bar=False
+    )
+    return model.similarity_pairwise(query_emb, passage_emb).item()
+
+
+@pytest.mark.parametrize(
+    "test_dataset",
+    [
+        "dataset",
+        "multiple_positive_dataset",
+        "multiple_positive_queries_dataset",
+        "multiple_positive_passages_dataset",
+    ],
+)
+def test_triplet_output_scores_match_similarity(
+    request: pytest.FixtureRequest,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    test_dataset: str,
+) -> None:
+    """Verify that triplet scores match recomputed query-positive/negative similarity.
+
+    We validate both the simple dataset and the multiple-positive dataset to
+    ensure that score indexing remains correct when queries have more than
+    one positive passage.
+    """
+
+    dataset = request.getfixturevalue(test_dataset)
+    model = static_retrieval_mrl_en_v1_model
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        output_format="triplet",
+        output_scores=True,
+        num_negatives=2,
+        verbose=False,
+    )
+    assert result
+
+    for row in result:
+        pos_score_reported, neg_score_reported = row["scores"]
+
+        pos_score_actual = _compute_similarity(model, row["query"], row["passage"])
+        neg_score_actual = _compute_similarity(model, row["query"], row["negative"])
+
+        assert pos_score_reported == pytest.approx(pos_score_actual, rel=1e-5, abs=1e-5)
+        assert neg_score_reported == pytest.approx(neg_score_actual, rel=1e-5, abs=1e-5)
+
+
+@pytest.mark.parametrize(
+    "test_dataset",
+    [
+        "dataset",
+        "multiple_positive_dataset",
+        "multiple_positive_queries_dataset",
+        "multiple_positive_passages_dataset",
+    ],
+)
+def test_n_tuple_output_scores_match_similarity(
+    request: pytest.FixtureRequest,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    test_dataset: str,
+) -> None:
+    """Verify that n-tuple scores match recomputed query-positive/negatives similarity.
+
+    Runs over both the single- and multiple-positive datasets.
+    """
+
+    dataset = request.getfixturevalue(test_dataset)
+    model = static_retrieval_mrl_en_v1_model
+    num_negatives = 2
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        num_negatives=num_negatives,
+        output_format="n-tuple",
+        output_scores=True,
+        verbose=False,
+    )
+    assert result
+
+    for row in result:
+        scores = row["scores"]
+        assert len(scores) == 1 + num_negatives
+
+        # Positive
+        pos_score_reported = scores[0]
+        pos_score_actual = _compute_similarity(model, row["query"], row["passage"])
+        assert pos_score_reported == pytest.approx(pos_score_actual, rel=1e-5, abs=1e-5)
+
+        # Negatives
+        for i in range(num_negatives):
+            neg_col = f"negative_{i + 1}"
+            neg_score_reported = scores[i + 1]
+            neg_score_actual = _compute_similarity(model, row["query"], row[neg_col])
+            assert neg_score_reported == pytest.approx(neg_score_actual, rel=1e-5, abs=1e-5)
+
+
+@pytest.mark.parametrize(
+    "test_dataset",
+    [
+        "dataset",
+        "multiple_positive_dataset",
+        "multiple_positive_queries_dataset",
+        "multiple_positive_passages_dataset",
+    ],
+)
+def test_n_tuple_scores_alias_output_scores_match_similarity(
+    request: pytest.FixtureRequest,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    test_dataset: str,
+) -> None:
+    """Verify that n-tuple-scores (deprecated alias) exposes correct similarity scores.
+
+    Runs over both the single- and multiple-positive datasets.
+    """
+
+    dataset = request.getfixturevalue(test_dataset)
+    model = static_retrieval_mrl_en_v1_model
+    num_negatives = 2
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        num_negatives=num_negatives,
+        output_format="n-tuple-scores",
+        verbose=False,
+    )
+    assert result
+
+    for row in result:
+        scores = row["scores"]
+        assert len(scores) == 1 + num_negatives
+
+        pos_score_reported = scores[0]
+        pos_score_actual = _compute_similarity(model, row["query"], row["passage"])
+        assert pos_score_reported == pytest.approx(pos_score_actual, rel=1e-5, abs=1e-5)
+
+        for i in range(num_negatives):
+            neg_col = f"negative_{i + 1}"
+            neg_score_reported = scores[i + 1]
+            neg_score_actual = _compute_similarity(model, row["query"], row[neg_col])
+            assert neg_score_reported == pytest.approx(neg_score_actual, rel=1e-5, abs=1e-5)
+
+
+@pytest.mark.parametrize(
+    "test_dataset",
+    [
+        "dataset",
+        "multiple_positive_dataset",
+        "multiple_positive_queries_dataset",
+        "multiple_positive_passages_dataset",
+    ],
+)
+def test_labeled_pair_output_scores_match_similarity(
+    request: pytest.FixtureRequest,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    test_dataset: str,
+) -> None:
+    """Verify that labeled-pair scores match recomputed query-passage similarity.
+
+    Runs over both the single- and multiple-positive datasets.
+    """
+
+    dataset = request.getfixturevalue(test_dataset)
+    model = static_retrieval_mrl_en_v1_model
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        output_format="labeled-pair",
+        output_scores=True,
+        verbose=False,
+    )
+    assert result
+
+    for row in result:
+        score_reported = row["score"]
+        score_actual = _compute_similarity(model, row["query"], row["passage"])
+        assert score_reported == pytest.approx(score_actual, rel=1e-5, abs=1e-5)
+
+
+@pytest.mark.parametrize(
+    "test_dataset",
+    [
+        "dataset",
+        "multiple_positive_dataset",
+        "multiple_positive_queries_dataset",
+        "multiple_positive_passages_dataset",
+    ],
+)
+def test_labeled_list_output_scores_match_similarity(
+    request: pytest.FixtureRequest,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    test_dataset: str,
+) -> None:
+    """Verify that labeled-list scores match recomputed query-passage similarity for all items.
+
+    Runs over both the single- and multiple-positive datasets.
+    """
+
+    dataset = request.getfixturevalue(test_dataset)
+    model = static_retrieval_mrl_en_v1_model
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        output_format="labeled-list",
+        output_scores=True,
+        verbose=False,
+    )
+    assert result
+
+    for row in result:
+        query = row["query"]
+        passages = row["passage"]
+        scores = row["scores"]
+
+        assert len(passages) == len(scores)
+
+        for passage, score_reported in zip(passages, scores):
+            score_actual = _compute_similarity(model, query, passage)
+            assert score_reported == pytest.approx(score_actual, rel=1e-5, abs=1e-5)
 
 
 def test_batch_size(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
@@ -526,7 +893,7 @@ def test_multiple_positives_per_query(
     """Test dataset with multiple positives per query."""
     model = static_retrieval_mrl_en_v1_model
     # Create dataset with duplicate queries
-    queries_dup = queries[:3] + queries[:2]  # First 2 queries repeated
+    queries_dup = queries[:3] + queries[:2]
     passages_dup = passages[:3] + passages[5:7]  # Different positives for repeated queries
 
     dataset_dup = Dataset.from_dict({"query": queries_dup, "passage": passages_dup})
@@ -584,22 +951,31 @@ def test_margin_with_safe_range(dataset: Dataset, static_retrieval_mrl_en_v1_mod
     assert len(result) > 0
 
 
-def test_multi_process(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
+def test_multi_process(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, reranker_bert_tiny_model: CrossEncoder
+) -> None:
     """Test use_multi_process parameter if multiple CPUs available."""
     model = static_retrieval_mrl_en_v1_model
+    cross_encoder = reranker_bert_tiny_model
     # Skip on CI environments where multi-processing might be restricted
     if os.environ.get("CI"):
         pytest.skip("Skipping multi-process test in CI environment")
 
-    try:
-        result = mine_hard_negatives(dataset=dataset, model=model, use_multi_process=True, verbose=False)
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        cross_encoder=cross_encoder,
+        range_max=3,  # Reduced to avoid k out of range error
+        num_negatives=2,
+        relative_margin=0.1,
+        use_multi_process=True,
+        verbose=False,
+    )
 
-        # Should still produce expected output
-        assert "query" in result.column_names
-        assert "passage" in result.column_names
-        assert "negative" in result.column_names
-    except Exception as e:
-        pytest.skip(f"Multi-process test failed: {str(e)}")
+    # Should still produce expected output
+    assert "query" in result.column_names
+    assert "passage" in result.column_names
+    assert "negative" in result.column_names
 
 
 def test_empty_dataset(static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
@@ -616,13 +992,13 @@ def test_larger_dataset_with_combinations(
 ) -> None:
     """Test with a larger dataset and challenging parameter combinations."""
     model = static_retrieval_mrl_en_v1_model
-    # Create a larger dataset with 20 entries
+    # Create a larger dataset with 32 entries
     queries_large = [
         f"{query} {i}"  # Create unique queries by appending an index
         for i in range(4)
         for query in queries
     ]
-    passages_large = passages[:5] * 4  # Match the first 5 passages to each query
+    passages_large = passages[: len(queries)] * 4  # Match the first passages to each query
 
     larger_dataset = Dataset.from_dict({"query": queries_large, "passage": passages_large})
 
@@ -708,10 +1084,12 @@ def test_n_tuple_scores_format_details(
     assert "passage" in result.column_names
     assert "negative_1" in result.column_names
     assert "negative_2" in result.column_names
-    assert "score" in result.column_names
+    # Deprecated alias should behave like n-tuple + output_scores
+    assert "score" not in result.column_names
+    assert "scores" in result.column_names
 
     # Check score structure - should be a list with 1 + num_negatives elements (positive + negatives)
-    for score_list in result["score"]:
+    for score_list in result["scores"]:
         # Should be a list
         assert isinstance(score_list, list)
 
@@ -870,7 +1248,15 @@ def test_mine_hard_negatives_with_prompt(paraphrase_distilroberta_base_v1_model:
 
 
 @pytest.mark.parametrize("output_format", ["triplet", "labeled-pair", "n-tuple", "n-tuple-scores", "labeled-list"])
-@pytest.mark.parametrize("test_dataset", ["dataset", "multiple_positive_dataset"])
+@pytest.mark.parametrize(
+    "test_dataset",
+    [
+        "dataset",
+        "multiple_positive_dataset",
+        "multiple_positive_queries_dataset",
+        "multiple_positive_passages_dataset",
+    ],
+)
 def test_multiple_positives(
     request: pytest.FixtureRequest,
     static_retrieval_mrl_en_v1_model: SentenceTransformer,
@@ -880,29 +1266,42 @@ def test_multiple_positives(
     model = static_retrieval_mrl_en_v1_model
     # Get the actual dataset from the fixture using the parameter name
     dataset = request.getfixturevalue(test_dataset)
+    unique_dataset_length = len(set([tuple(sample.values()) for sample in dataset]))
 
     num_negatives = 3
     result = mine_hard_negatives(
         dataset=dataset, model=model, num_negatives=num_negatives, output_format=output_format, verbose=False
     )
 
+    # Ensure all rows in result are unique
+    unique_result_length = len(set([str(sample) for sample in result]))
+    assert unique_result_length == len(result)
+
     # Should have the expected number of rows, accounting for the dataset type
     if output_format == "triplet":
-        assert len(result) == len(dataset) * num_negatives
+        assert len(result) == unique_dataset_length * num_negatives
     elif output_format == "labeled-pair":
         # For the "labeled-pair" output format:
-        # - For each original (query, positive) pair in the dataset, we create one labeled pair with label 1 (positive).
+        # - For each unique (query, positive) pair in the dataset, we create one labeled pair with label 1 (positive).
         # - For each unique query, we mine `num_negatives` negatives, each paired with the query and labeled 0 (negative).
         # Therefore, the total number of result rows is:
-        #   (number of original pairs) + (number of unique queries) * num_negatives
-        #   == len(dataset) + len(set(dataset["query"])) * num_negatives
-        assert len(result) == len(dataset) + len(set(dataset["query"])) * num_negatives
+        #   (number of unique pairs) + (number of unique queries) * num_negatives
+        #   == unique_dataset_length + len(set(dataset["query"])) * num_negatives
+        assert len(result) == unique_dataset_length + len(set(dataset["query"])) * num_negatives
     elif output_format in ("n-tuple", "n-tuple-scores", "labeled-list"):
-        assert len(result) == len(dataset)
+        assert len(result) == unique_dataset_length
 
 
 @pytest.mark.parametrize("output_format", ["triplet", "labeled-pair", "n-tuple", "n-tuple-scores", "labeled-list"])
-@pytest.mark.parametrize("test_dataset", ["dataset", "multiple_positive_dataset"])
+@pytest.mark.parametrize(
+    "test_dataset",
+    [
+        "dataset",
+        "multiple_positive_dataset",
+        "multiple_positive_queries_dataset",
+        "multiple_positive_passages_dataset",
+    ],
+)
 def test_missing_negatives(
     capsys: pytest.CaptureFixture,
     request: pytest.FixtureRequest,
@@ -913,6 +1312,7 @@ def test_missing_negatives(
     model = static_retrieval_mrl_en_v1_model
     # Get the actual dataset from the fixture using the parameter name
     dataset = request.getfixturevalue(test_dataset)
+    unique_dataset_length = len(set([tuple(sample.values()) for sample in dataset]))
 
     num_negatives = 3
     expected_max_count = len(
@@ -924,6 +1324,12 @@ def test_missing_negatives(
             verbose=True,
         )
     )
+    if output_format == "triplet":
+        assert expected_max_count == unique_dataset_length * num_negatives
+    elif output_format == "labeled-pair":
+        assert expected_max_count == unique_dataset_length + len(set(dataset["query"])) * num_negatives
+    elif output_format in ("n-tuple", "n-tuple-scores", "labeled-list"):
+        assert expected_max_count == unique_dataset_length
 
     capsys.readouterr()  # Clear any previous output
     result = mine_hard_negatives(
@@ -935,39 +1341,6 @@ def test_missing_negatives(
         num_negatives=num_negatives,
         verbose=True,
     )
-    assert len(result) < (len(dataset) * num_negatives)
+    assert len(result) < expected_max_count
     captured = capsys.readouterr()
-    if test_dataset == "dataset":
-        # Only 6 negatives
-        if output_format == "triplet":
-            # 6 negatives, 15 max., so 9 not found
-            assert expected_max_count == 15
-            assert "Could not find enough negatives for 9 samples (60.00%)." in captured.out
-        elif output_format == "labeled-pair":
-            # 20 max, 6 negatives + 5 positives found, so 9 not found
-            assert expected_max_count == 20
-            assert "Could not find enough negatives for 9 samples (45.00%)." in captured.out
-        elif output_format == "labeled-list":
-            assert expected_max_count == 5
-            assert "Could not find enough negatives for 1 samples (20.00%)." in captured.out
-        elif output_format in ("n-tuple", "n-tuple-scores"):
-            assert expected_max_count == 5
-            assert "Could not find enough negatives for 5 samples (100.00%)." in captured.out
-    elif test_dataset == "multiple_positive_dataset":
-        # Only 4 negatives
-        if output_format == "triplet":
-            # 4 negs, 30 max., so 26 not found
-            assert expected_max_count == 30
-            assert "Could not find enough negatives for 26 samples (86.67%)." in captured.out
-        elif output_format == "labeled-pair":
-            # 4 negatives + 10 positives, with 40 max (10 positive, 30 unique negatives), so 11 not found
-            assert expected_max_count == 25
-            assert "Could not find enough negatives for 11 samples (44.00%)." in captured.out
-        elif output_format == "labeled-list":
-            # 4 negatives across 2 samples, so only 2 samples with 10 max
-            assert expected_max_count == 10
-            assert "Could not find enough negatives for 8 samples (80.00%)." in captured.out
-        elif output_format in ("n-tuple", "n-tuple-scores"):
-            # no samples with 3 negatives, so all 10 not found
-            assert expected_max_count == 10
-            assert "Could not find enough negatives for 10 samples (100.00%)." in captured.out
+    assert "Could not find enough negatives" in captured.out

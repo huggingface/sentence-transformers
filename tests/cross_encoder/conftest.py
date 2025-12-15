@@ -13,16 +13,6 @@ def distilroberta_base_ce_model() -> CrossEncoder:
 
 
 @pytest.fixture(scope="session")
-def _reranker_bert_tiny_model() -> CrossEncoder:
-    return CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
-
-
-@pytest.fixture()
-def reranker_bert_tiny_model(_reranker_bert_tiny_model) -> CrossEncoder:
-    return deepcopy(_reranker_bert_tiny_model)
-
-
-@pytest.fixture(scope="session")
 def _reranker_bert_tiny_model_v6() -> CrossEncoder:
     return CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce-v6")
 
