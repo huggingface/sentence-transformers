@@ -674,6 +674,9 @@ class CrossEncoder(BaseModel, FitMixin):
             batch = sentences[start_index : start_index + batch_size]
             # TODO: This is not robust enough, might not be compatible with other implementations (e.g. vLLM),
             # and also might not work nicely if this is ever extended to pairwise and/or listwise ranking
+            # TODO: Perhaps only do this if there's text inputs and the model doesn't accept "text"?
+            # TODO: Perhaps use "role": "system" for the prompt and "role": "user" for all inputs (can be more
+            # than just 2 in the future)?
             if self.tokenizer.chat_template:
                 batch = [
                     [
