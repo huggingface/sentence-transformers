@@ -327,7 +327,7 @@ The :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrain
     <div class="table">
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.learning_rate"><code>learning_rate</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.lr_scheduler_type"><code>lr_scheduler_type</code></a>
-        <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.warmup_ratio"><code>warmup_ratio</code></a>
+        <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.warmup_steps"><code>warmup_steps</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.num_train_epochs"><code>num_train_epochs</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.max_steps"><code>max_steps</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.per_device_train_batch_size"><code>per_device_train_batch_size</code></a>
@@ -384,7 +384,7 @@ args = CrossEncoderTrainingArguments(
     per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
     learning_rate=2e-5,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     batch_sampler=BatchSamplers.NO_DUPLICATES,  # losses that use "in-batch negatives" benefit from no duplicates
@@ -728,7 +728,7 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
             per_device_train_batch_size=train_batch_size,
             per_device_eval_batch_size=train_batch_size,
             learning_rate=2e-5,
-            warmup_ratio=0.1,
+            warmup_steps=0.1,
             fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
             bf16=True,  # Set to True if you have a GPU that supports BF16
             # Optional tracking/debugging parameters:
@@ -929,7 +929,7 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
                 per_device_train_batch_size=train_batch_size,
                 per_device_eval_batch_size=train_batch_size,
                 learning_rate=2e-5,
-                warmup_ratio=0.1,
+                warmup_steps=0.1,
                 fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
                 bf16=True,  # Set to True if you have a GPU that supports BF16
                 dataloader_num_workers=4,
