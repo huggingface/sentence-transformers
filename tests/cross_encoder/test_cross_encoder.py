@@ -208,7 +208,7 @@ def test_safe_serialization(safe_serialization: bool) -> None:
             assert 1 == len(model_files)
         else:
             # For transformers v5.0, safe_serialization is quietly ignored
-            if parse(transformers_version) < Version("5.0.0"):
+            if parse(transformers_version) < Version("5.0.0dev0"):
                 model.save_pretrained(cache_folder, safe_serialization=safe_serialization)
                 model_files = list(Path(cache_folder).glob("**/pytorch_model.bin"))
                 assert 1 == len(model_files)
