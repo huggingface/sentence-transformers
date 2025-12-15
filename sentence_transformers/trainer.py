@@ -1003,6 +1003,8 @@ class SentenceTransformerTrainer(Trainer):
         os.makedirs(output_dir, exist_ok=True)
         logger.info(f"Saving model checkpoint to {output_dir}")
 
+        # Transformers v5.0.0 removed the `save_safetensors` argument from the Training Arguments,
+        # so we check for its existence first
         if hasattr(self.args, "save_safetensors"):
             self.model.save_pretrained(output_dir, safe_serialization=self.args.save_safetensors)
         else:
