@@ -16,7 +16,7 @@ from sentence_transformers.cross_encoder import CrossEncoder
 )
 def test_pretrained_model(model_name: str, expected_score: list[float]) -> None:
     # Ensure that pretrained models are not accidentally changed
-    model = CrossEncoder(model_name)
+    model = CrossEncoder(model_name, model_kwargs={"torch_dtype": "float32"})
 
     query = "is toprol xl the same as metoprolol?"
     answers = [

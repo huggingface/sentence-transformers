@@ -21,9 +21,11 @@ import numpy as np
 import pytest
 import torch
 from huggingface_hub import CommitInfo, HfApi, RepoUrl
+from packaging.version import Version, parse
 from tokenizers.processors import TemplateProcessing
 from torch import nn
 from transformers import BertModel
+from transformers import __version__ as transformers_version
 from transformers.utils import is_peft_available
 
 from sentence_transformers import SentenceTransformer, util
@@ -274,9 +276,11 @@ def test_safe_serialization(stsb_bert_tiny_model: SentenceTransformer, safe_seri
             model_files = list(Path(cache_folder).glob("**/model.safetensors"))
             assert 1 == len(model_files)
         else:
-            model.save(cache_folder, safe_serialization=safe_serialization)
-            model_files = list(Path(cache_folder).glob("**/pytorch_model.bin"))
-            assert 1 == len(model_files)
+            # For transformers v5.0, safe_serialization is quietly ignored
+            if parse(transformers_version) < Version("5.0.0dev0"):
+                model.save(cache_folder, safe_serialization=safe_serialization)
+                model_files = list(Path(cache_folder).glob("**/pytorch_model.bin"))
+                assert 1 == len(model_files)
 
 
 def test_load_with_revision() -> None:
@@ -469,6 +473,10 @@ def test_prompt_length_calculation(
     assert model._prompt_length_mapping == {("Prompt: ", "query"): only_prompt_length}
 
 
+@pytest.mark.skipif(
+    parse(transformers_version) == Version("5.0.0rc01"),
+    reason="Transformers 5.0.0rc01 has a bug with saving models modified with model.half().",
+)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test float16 support.")
 def test_load_with_torch_dtype(stsb_bert_tiny_model: SentenceTransformer) -> None:
     model = stsb_bert_tiny_model
