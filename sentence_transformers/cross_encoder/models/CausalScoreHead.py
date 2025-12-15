@@ -25,7 +25,7 @@ class CausalScoreHead(Module):
         )
         # Get logits for the true/false token(s)
         if is_padding_left:
-            logits = logits[:, :-1, token_indices]
+            logits = logits[:, -1, token_indices]
         else:
             last_token_indices = features["attention_mask"].sum(1) - 1
             logits = logits[:, :, token_indices]
