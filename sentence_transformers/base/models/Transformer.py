@@ -594,7 +594,14 @@ class Transformer(InputModule):
                 model, method_to_output_mapping, self._get_method_output_fields, modality_name
             )
             if result is not None:
-                return result
+                modality_config, module_output_name = result
+                if (
+                    modality_name == "text"
+                    and hasattr(processor, "chat_template")
+                    and processor.chat_template is not None
+                ):
+                    modality_config["message"] = modality_config[modality_name]
+                return modality_config, module_output_name
 
         return None
 
@@ -696,18 +703,15 @@ class Transformer(InputModule):
             ValueError: If modalities cannot be inferred from the processor or model.
         """
 
-        # Check for special model cases
         result = self._handle_special_model_cases(model)
         if result is not None:
             return result
 
-        # Check for a single-modality model/processor
         result = self._infer_single_modality(model, processor)
         if result is not None:
             modality_config, module_output_name = result
             return modality_config, module_output_name
 
-        # Check for a multi-modal model/processor
         result = self._infer_multimodal(model, processor)
         if result is not None:
             modality_config, module_output_name = result

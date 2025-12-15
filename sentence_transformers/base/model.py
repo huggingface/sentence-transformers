@@ -306,7 +306,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
     def tokenize(self, texts: list[str] | list[dict] | list[tuple[str, str]], **kwargs) -> dict[str, Tensor]:
         """
-        .. deprecated:: 3.4.0
+        .. deprecated::
             `tokenize` is deprecated and will be removed in a future version. Use `preprocess` instead.
         """
         import warnings

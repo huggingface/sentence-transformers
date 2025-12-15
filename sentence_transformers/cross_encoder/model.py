@@ -30,7 +30,7 @@ from sentence_transformers.cross_encoder.util import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
-from sentence_transformers.util import fullname, import_from_string
+from sentence_transformers.util import batch_to_device, fullname, import_from_string
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +111,6 @@ class CrossEncoder(BaseModel, FitMixin):
     default_huggingface_organization: str | None = "cross-encoder"
 
     @cross_encoder_init_args_decorator
-    # TODO: Should we remove 'prompts'? They're a tad duplicate if we also have templates
-    # But it's possible to have a template with a spot for instructions (prompts), so maybe keep both
     def __init__(
         self,
         model_name_or_path: str,
@@ -474,6 +472,8 @@ class CrossEncoder(BaseModel, FitMixin):
     def predict(
         self,
         sentences: tuple[str, str] | list[str],
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         activation_fn: Callable | None = ...,
@@ -490,6 +490,8 @@ class CrossEncoder(BaseModel, FitMixin):
     def predict(
         self,
         sentences: list[tuple[str, str]] | list[list[str]] | tuple[str, str] | list[str],
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         activation_fn: Callable | None = ...,
@@ -506,6 +508,8 @@ class CrossEncoder(BaseModel, FitMixin):
     def predict(
         self,
         sentences: list[tuple[str, str]] | list[list[str]] | tuple[str, str] | list[str],
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         activation_fn: Callable | None = ...,
@@ -522,6 +526,8 @@ class CrossEncoder(BaseModel, FitMixin):
     def predict(
         self,
         sentences: list[tuple[str, str]] | list[list[str]],
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         activation_fn: Callable | None = ...,
@@ -539,9 +545,9 @@ class CrossEncoder(BaseModel, FitMixin):
     def predict(
         self,
         sentences: list[tuple[str, str]] | list[list[str]] | tuple[str, str] | list[str],
-        batch_size: int = 32,
-        prompt: str | None = None,
         prompt_name: str | None = None,
+        prompt: str | None = None,
+        batch_size: int = 32,
         show_progress_bar: bool | None = None,
         activation_fn: Callable | None = None,
         apply_softmax: bool | None = False,
@@ -558,6 +564,8 @@ class CrossEncoder(BaseModel, FitMixin):
         Args:
             sentences (Union[List[Tuple[str, str]], Tuple[str, str]]): A list of sentence pairs [(Sent1, Sent2), (Sent3, Sent4)]
                 or one sentence pair (Sent1, Sent2).
+            prompt_name (Optional[str], optional): The name of the prompt to use for encoding.
+            prompt (Optional[str], optional): The prompt to use for encoding.
             batch_size (int, optional): Batch size for encoding. Defaults to 32.
             show_progress_bar (bool, optional): Output progress bar. Defaults to None.
             activation_fn (callable, optional): Activation function applied on the logits output of the CrossEncoder.
@@ -622,6 +630,8 @@ class CrossEncoder(BaseModel, FitMixin):
                 device=device,
                 chunk_size=chunk_size,
                 # Prediction parameters
+                prompt=prompt,
+                prompt_name=prompt_name,
                 batch_size=batch_size,
                 activation_fn=activation_fn,
                 apply_softmax=apply_softmax,
@@ -662,47 +672,29 @@ class CrossEncoder(BaseModel, FitMixin):
         self.eval()
         for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
             batch = sentences[start_index : start_index + batch_size]
-            # TODO: Let's also allow a prompt
-            # TODO: This should probably call self.tokenize() instead
-            # '''
-            if hasattr(self, "template") and self.template is not None:
-                template_parts = self.template.split("{document}")  # TODO: What if the prompt is after the document?
-                main_template = template_parts[0] + "{document}"
-                suffix = template_parts[1]
+            # TODO: This is not robust enough, might not be compatible with other implementations (e.g. vLLM),
+            # and also might not work nicely if this is ever extended to pairwise and/or listwise ranking
+            if self.tokenizer.chat_template:
+                batch = [
+                    [
+                        {
+                            "role": "prompt",
+                            "content": prompt,
+                        },
+                        {
+                            "role": "query",
+                            "content": pair[0],
+                        },
+                        {
+                            "role": "document",
+                            "content": pair[1],
+                        },
+                    ]
+                    for pair in batch
+                ]
 
-                tokenized_suffix = self._get_tokenized_suffix(suffix)
-                num_suffix_tokens = len(tokenized_suffix["input_ids"])
-                tokenized = self.tokenizer(
-                    [main_template.format(query=query, document=document, prompt=prompt) for query, document in batch],
-                    add_special_tokens=False,
-                    padding=False,
-                    truncation=True,
-                    max_length=self.tokenizer.model_max_length - num_suffix_tokens,
-                )
-
-                # for key in tokenized.keys():
-                #     tokenized[key] = [items + tokenized_suffix[key] for items in tokenized[key]]
-
-                batch = [body + suffix for body in self.tokenizer.batch_decode(tokenized["input_ids"])]
-
-                # self.tokenizer.deprecation_warnings["Asking-to-pad-a-fast-tokenizer"] = True
-                # features = self.tokenizer.pad(
-                #     tokenized,
-                #     padding=True,
-                #     return_tensors="pt",
-                # )
-            # else:
-            # TODO: Add prompt on this level as well
-            # features = self.tokenizer(
-            #     batch,
-            #     padding=True,
-            #     truncation=True,
-            #     return_tensors="pt",
-            # )
-            # features = self.tokenize(batch, **kwargs)
-            # '''
             features = self.preprocess(batch, **kwargs)
-            features.to(device)
+            features = batch_to_device(features, device)
             out_features = self.forward(features, **kwargs)
             scores = out_features["scores"]
 
@@ -741,6 +733,8 @@ class CrossEncoder(BaseModel, FitMixin):
         documents: list[str],
         top_k: int | None = None,
         return_documents: bool = False,
+        prompt_name: str | None = None,
+        prompt: str | None = None,
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
         activation_fn: Callable | None = None,
@@ -759,6 +753,8 @@ class CrossEncoder(BaseModel, FitMixin):
             documents (List[str]): A list of documents.
             top_k (Optional[int], optional): Return the top-k documents. If None, all documents are returned. Defaults to None.
             return_documents (bool, optional): If True, also returns the documents. If False, only returns the indices and scores. Defaults to False.
+            prompt_name (Optional[str], optional): The name of the prompt to use for encoding.
+            prompt (Optional[str], optional): The prompt to use for encoding.
             batch_size (int, optional): Batch size for encoding. Defaults to 32.
             show_progress_bar (bool, optional): Output progress bar. Defaults to None.
             activation_fn ([type], optional): Activation function applied on the logits output of the CrossEncoder. If None, nn.Sigmoid() will be used if num_labels=1, else nn.Identity. Defaults to None.
@@ -821,6 +817,8 @@ class CrossEncoder(BaseModel, FitMixin):
         query_doc_pairs = [[query, doc] for doc in documents]
         scores = self.predict(
             sentences=query_doc_pairs,
+            prompt_name=prompt_name,
+            prompt=prompt,
             batch_size=batch_size,
             show_progress_bar=show_progress_bar,
             activation_fn=activation_fn,
@@ -841,23 +839,10 @@ class CrossEncoder(BaseModel, FitMixin):
         results = sorted(results, key=lambda x: x["score"], reverse=True)
         return results[:top_k]
 
-    def _get_tokenized_suffix(self, suffix):
-        # Cache tokenized suffix to avoid redundant tokenization
-        if not hasattr(self, "_cached_tokenized_suffix"):
-            self._cached_tokenized_suffix = {}
-        cache = self._cached_tokenized_suffix
-        if suffix not in cache:
-            cache[suffix] = self.tokenizer(
-                suffix,
-                add_special_tokens=False,
-                padding=False,
-                truncation=False,
-                return_attention_mask=True,
-            )
-        return cache[suffix]
-
     def _get_model_config(self) -> dict[str, Any]:
         return super()._get_model_config() | {
+            "prompts": self.prompts,
+            "default_prompt_name": self.default_prompt_name,
             "activation_fn": fullname(self.activation_fn),
         }
 

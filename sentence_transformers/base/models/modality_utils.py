@@ -173,6 +173,12 @@ def parse_inputs(inputs: list) -> tuple[str | tuple[str, ...], dict[str, list]]:
                     f"Unsupported tensor dimensionality: {item.ndim}D. Expected 1-2D for audio or 3-5D for video."
                 )
 
+        elif isinstance(item, list):
+            # Check for chat message format (has 'role' and 'content' keys)
+            if all(isinstance(subitem, dict) and "role" in subitem and "content" in subitem for subitem in item):
+                add_input("message", item)
+                continue
+
         else:
             raise ValueError(
                 f"Unsupported input type: {type(item).__name__}. "
