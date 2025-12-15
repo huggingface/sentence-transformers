@@ -768,6 +768,7 @@ Judge whether the Document meets the requirements based on the Query and the Ins
         prompts={"web_search": task},
         default_prompt_name="web_search",
         activation_fn=torch.nn.Identity(),
+        model_kwargs={"torch_dtype": torch.float32},
     )
     model.template = jinja_template
     model.true_token_id = model.tokenizer.convert_tokens_to_ids("yes")
