@@ -10,7 +10,9 @@ import numpy as np
 import pytest
 import torch
 from huggingface_hub import CommitInfo, HfApi, RepoUrl
+from packaging.version import Version, parse
 from pytest import FixtureRequest
+from transformers import __version__ as transformers_version
 
 from sentence_transformers import CrossEncoder
 from sentence_transformers.cross_encoder.util import (
@@ -205,9 +207,11 @@ def test_safe_serialization(safe_serialization: bool) -> None:
             model_files = list(Path(cache_folder).glob("**/model.safetensors"))
             assert 1 == len(model_files)
         else:
-            model.save_pretrained(cache_folder, safe_serialization=safe_serialization)
-            model_files = list(Path(cache_folder).glob("**/pytorch_model.bin"))
-            assert 1 == len(model_files)
+            # For transformers v5.0, safe_serialization is quietly ignored
+            if parse(transformers_version) < Version("5.0.0dev0"):
+                model.save_pretrained(cache_folder, safe_serialization=safe_serialization)
+                model_files = list(Path(cache_folder).glob("**/pytorch_model.bin"))
+                assert 1 == len(model_files)
 
 
 def test_bfloat16() -> None:
