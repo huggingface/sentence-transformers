@@ -1003,7 +1003,10 @@ class SentenceTransformerTrainer(Trainer):
         os.makedirs(output_dir, exist_ok=True)
         logger.info(f"Saving model checkpoint to {output_dir}")
 
-        self.model.save_pretrained(output_dir, safe_serialization=self.args.save_safetensors)
+        if hasattr(self.args, "save_safetensors"):
+            self.model.save_pretrained(output_dir, safe_serialization=self.args.save_safetensors)
+        else:
+            self.model.save_pretrained(output_dir)
 
         # Transformers v4.46.0 changed the `tokenizer` attribute to a more general `processing_class` attribute
         if parse_version(transformers_version) >= parse_version("4.46.0"):
