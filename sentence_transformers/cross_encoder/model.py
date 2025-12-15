@@ -859,3 +859,8 @@ class CrossEncoder(BaseModel, FitMixin):
                     "Please load the CrossEncoder with `trust_remote_code=True` to allow loading custom activation "
                     "functions via the configuration."
                 )
+        for prompt_name, prompt_text in model_config.get("prompts", {}).items():
+            if prompt_name not in self.prompts or not self.prompts[prompt_name]:
+                self.prompts[prompt_name] = prompt_text
+        if not self.default_prompt_name:
+            self.default_prompt_name = model_config.get("default_prompt_name", None)
