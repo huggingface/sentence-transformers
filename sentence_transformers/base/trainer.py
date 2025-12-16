@@ -1028,6 +1028,7 @@ class BaseTrainer(Trainer, ABC):
 
         # Transformers v5.0.0 removed the `save_safetensors` argument from the Training Arguments,
         # so we check for its existence first
+        # TODO: Consider hard-deprecating `safe_serialization` when moving to `transformers` v5 in this release.
         if hasattr(self.args, "save_safetensors"):
             self.model.save_pretrained(output_dir, safe_serialization=self.args.save_safetensors)
         else:
