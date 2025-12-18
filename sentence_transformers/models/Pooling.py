@@ -149,7 +149,7 @@ class Pooling(Module):
             if isinstance(prompt_length, torch.Tensor):
                 prompt_length = prompt_length[0].item()
 
-            # Check where left-padding ends, if it exists
+            # Check where the first non-pad token is located
             pad_lengths = attention_mask.to(torch.int32).argmax(dim=1)
             if pad_lengths.sum() == 0:
                 # If no left-padding, we can directly set the first `prompt_length` tokens to 0
