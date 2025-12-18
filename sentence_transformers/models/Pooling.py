@@ -149,11 +149,18 @@ class Pooling(Module):
             if isinstance(prompt_length, torch.Tensor):
                 prompt_length = prompt_length[0].item()
 
-            # We set the pad and prompt tokens to 0 in the attention mask, although padding tokens are already 0
+            # Check where left-padding ends, if it exists
             pad_lengths = attention_mask.to(torch.int32).argmax(dim=1)
-            prompt_and_pad_lengths = pad_lengths + prompt_length  # shape: (bs)
-            for i, length in enumerate(prompt_and_pad_lengths):
-                attention_mask[i, :length] = 0
+            if pad_lengths.sum() == 0:
+                # If no left-padding, we can directly set the first `prompt_length` tokens to 0
+                attention_mask[:, :prompt_length] = 0
+            else:
+                # Otherwise, we set all pad + prompt tokens to 0
+                prompt_and_pad_lengths = pad_lengths + prompt_length  # shape: (bs)
+                seq_len = attention_mask.size(1)
+                positions = torch.arange(seq_len, device=attention_mask.device).unsqueeze(0)  # shape: (1, seq_len)
+                mask = positions < prompt_and_pad_lengths.unsqueeze(1)  # shape: (bs, seq_len)
+                attention_mask[mask] = 0
 
         ## Pooling strategy
         output_vectors = []
