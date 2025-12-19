@@ -210,7 +210,7 @@ For example, we can create a custom pooling method by implementing a custom Modu
 
 .. note::
 
-   Adding ``**kwargs`` to the ``__init__``, ``forward``, ``save``, ``load``, and ``tokenize`` methods is recommended to ensure that the methods reemain compatible with future updates to the Sentence Transformers library.
+   Adding ``**kwargs`` to the ``__init__``, ``forward``, ``save``, ``load``, and ``tokenize`` methods is recommended to ensure that the methods remain compatible with future updates to the Sentence Transformers library.
 
 This can now be used as a module in a Sentence Transformer model::
    
