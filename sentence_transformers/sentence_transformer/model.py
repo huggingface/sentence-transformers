@@ -132,7 +132,6 @@ class SentenceTransformer(BaseModel, FitMixin):
         self.default_prompt_name = default_prompt_name
         self.similarity_fn_name = similarity_fn_name
         self.truncate_dim = truncate_dim
-        self._prompt_length_mapping = {}
 
         super().__init__(
             model_name_or_path=model_name_or_path,
@@ -567,13 +566,6 @@ class SentenceTransformer(BaseModel, FitMixin):
                     "Ignoring the `prompt_name` in favor of `prompt`."
                 )
 
-        extra_features = {}
-        if prompt is not None and len(prompt) > 0:
-            sentences = [prompt + sentence for sentence in sentences]
-            length = self._get_prompt_length(prompt, **kwargs)
-            if length is not None:
-                extra_features["prompt_length"] = length
-
         # Set device
         if device is None:
             device = self.device
@@ -585,7 +577,7 @@ class SentenceTransformer(BaseModel, FitMixin):
 
         for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
             sentences_batch = sentences[start_index : start_index + batch_size]
-            features = self.preprocess(sentences_batch, **kwargs)
+            features = self.preprocess(sentences_batch, prompt=prompt, **kwargs)
 
             # HPU-specific padding
             if self.device.type == "hpu":
@@ -616,7 +608,6 @@ class SentenceTransformer(BaseModel, FitMixin):
                         )
 
             features = batch_to_device(features, device)
-            features.update(extra_features)
 
             with torch.no_grad():
                 out_features = self.forward(features, **kwargs)
@@ -867,22 +858,6 @@ class SentenceTransformer(BaseModel, FitMixin):
             if isinstance(module, Pooling):
                 module.include_prompt = include_prompt
                 break
-
-    def _get_prompt_length(self, prompt: str, **kwargs) -> int:
-        """Return the length of the prompt in tokens, including the BOS token."""
-        if (prompt, *kwargs.values()) in self._prompt_length_mapping:
-            return self._prompt_length_mapping[(prompt, *kwargs.values())]
-
-        tokenized_prompt = self.preprocess([prompt], **kwargs)
-        if "input_ids" not in tokenized_prompt:
-            return None
-        prompt_length = tokenized_prompt["input_ids"].shape[-1]
-        # If the tokenizer adds a special EOS token, we do not count it as part of the prompt length
-        last_token = tokenized_prompt["input_ids"][..., -1].item()
-        if hasattr(self.tokenizer, "all_special_ids") and last_token in self.tokenizer.all_special_ids:
-            prompt_length -= 1
-        self._prompt_length_mapping[(prompt, *kwargs.values())] = prompt_length
-        return prompt_length
 
     def get_sentence_features(self, *features) -> dict[Literal["sentence_embedding"], Tensor]:
         """Get sentence features from the first module."""

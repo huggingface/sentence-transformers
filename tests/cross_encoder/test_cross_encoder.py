@@ -698,9 +698,9 @@ def test_qwen3_reranker_with_chat_template():
 <|im_start|>system
 Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>
 <|im_start|>user
-<Instruct>: {{ messages[0]["content"] | default("Given a web search query, retrieve relevant passages that answer the query", true) }}
-<Query>: {{ messages[1]["content"] }}
-<Document>: {{ messages[2]["content"] }}<|im_end|>
+<Instruct>: {{ messages | selectattr("role", "eq", "system") | map(attribute="content") | first | default("Given a web search query, retrieve relevant passages that answer the query") }}
+<Query>: {{ messages | selectattr("role", "eq", "query") | map(attribute="content") | first }}
+<Document>: {{ messages | selectattr("role", "eq", "document") | map(attribute="content") | first }}<|im_end|>
 <|im_start|>assistant
 <think>\n\n</think>\n\n\n"""
 
@@ -708,30 +708,23 @@ Judge whether the Document meets the requirements based on the Query and the Ins
     task = "Given a web search query, retrieve relevant passages that answer the query"
 
     model.tokenizer.chat_template = jinja_template
-    model[0].modality_config["message"] = model[0].modality_config["text"]
+    model[0].modality_config["message"] = model[0].modality_config.pop("text")
     model.prompts = {"web_search": task}
     model.default_prompt_name = "web_search"
 
-    queries = [
-        "Which planet is known as the Red Planet?",
-        "Which planet is known as the Red Planet?",
-        "Which planet is known as the Red Planet?",
-        "Which planet is known as the Red Planet?",
-    ]
-
+    query = "Which planet is known as the Red Planet?"
     documents = [
         "Venus is often called Earth's twin because of its similar size and proximity.",
         "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
         "Jupiter, the largest planet in our solar system, has a prominent red spot.",
         "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
     ]
-
-    pairs2 = list(zip(queries, documents))
-    scores2 = model.predict(pairs2)
+    pairs = [(query, doc) for doc in documents]
+    scores = model.predict(pairs)
     expected_scores = [-3.109297752380371, 7.120389938354492, -0.3787546157836914, 3.541637420654297]
 
     # Assert scores match expected values with tolerance
-    assert scores2 == pytest.approx(expected_scores, abs=1e-4)
+    assert scores == pytest.approx(expected_scores, abs=1e-4)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -741,9 +734,9 @@ def test_qwen3_reranker_original_with_identity_activation():
 <|im_start|>system
 Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>
 <|im_start|>user
-<Instruct>: {{ messages[0]["content"] | default("Given a web search query, retrieve relevant passages that answer the query", true) }}
-<Query>: {{ messages[1]["content"] }}
-<Document>: {{ messages[2]["content"] }}<|im_end|>
+<Instruct>: {{ messages | selectattr("role", "eq", "system") | map(attribute="content") | first | default("Given a web search query, retrieve relevant passages that answer the query") }}
+<Query>: {{ messages | selectattr("role", "eq", "query") | map(attribute="content") | first }}
+<Document>: {{ messages | selectattr("role", "eq", "document") | map(attribute="content") | first }}<|im_end|>
 <|im_start|>assistant
 <think>\n\n</think>\n\n\n"""
 
@@ -759,15 +752,9 @@ Judge whether the Document meets the requirements based on the Query and the Ins
     model.tokenizer.chat_template = chat_template
     # Because we're adding the chat template after loading, we need to adjust the modality config manually
     # This is not ideal
-    model[0].modality_config["message"] = model[0].modality_config["text"]
+    model[0].modality_config["message"] = model[0].modality_config.pop("text")
 
-    queries = [
-        "Which planet is known as the Red Planet?",
-        "Which planet is known as the Red Planet?",
-        "Which planet is known as the Red Planet?",
-        "Which planet is known as the Red Planet?",
-    ]
-
+    query = "Which planet is known as the Red Planet?"
     documents = [
         "Venus is often called Earth's twin because of its similar size and proximity.",
         "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
@@ -775,12 +762,12 @@ Judge whether the Document meets the requirements based on the Query and the Ins
         "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
     ]
 
-    pairs3 = list(zip(queries, documents))
-    scores3 = model.predict(pairs3)
+    pairs = [[query, doc] for doc in documents]
+    scores = model.predict(pairs)
     expected_scores = [-3.109297752380371, 7.120389938354492, -0.3787546157836914, 3.541637420654297]
 
     # Assert scores match expected values with tolerance
-    assert scores3 == pytest.approx(expected_scores, abs=1e-4)
+    assert scores == pytest.approx(expected_scores, abs=1e-4)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -790,9 +777,9 @@ def test_qwen3_reranker_original_without_prompt():
 <|im_start|>system
 Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>
 <|im_start|>user
-<Instruct>: {{ messages[0]["content"] | default("Given a web search query, retrieve relevant passages that answer the query", true) }}
-<Query>: {{ messages[1]["content"] }}
-<Document>: {{ messages[2]["content"] }}<|im_end|>
+<Instruct>: {{ messages | selectattr("role", "eq", "system") | map(attribute="content") | first | default("Given a web search query, retrieve relevant passages that answer the query") }}
+<Query>: {{ messages | selectattr("role", "eq", "query") | map(attribute="content") | first }}
+<Document>: {{ messages | selectattr("role", "eq", "document") | map(attribute="content") | first }}<|im_end|>
 <|im_start|>assistant
 <think>\n\n</think>\n\n\n"""
 
@@ -805,15 +792,9 @@ Judge whether the Document meets the requirements based on the Query and the Ins
     model.tokenizer.chat_template = chat_template
     # Because we're adding the chat template after loading, we need to adjust the modality config manually
     # This is not ideal
-    model[0].modality_config["message"] = model[0].modality_config["text"]
+    model[0].modality_config["message"] = model[0].modality_config.pop("text")
 
-    queries = [
-        "Which planet is known as the Red Planet?",
-        "Which planet is known as the Red Planet?",
-        "Which planet is known as the Red Planet?",
-        "Which planet is known as the Red Planet?",
-    ]
-
+    query = "Which planet is known as the Red Planet?"
     documents = [
         "Venus is often called Earth's twin because of its similar size and proximity.",
         "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
@@ -821,9 +802,9 @@ Judge whether the Document meets the requirements based on the Query and the Ins
         "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
     ]
 
-    pairs3 = list(zip(queries, documents))
-    scores3 = model.predict(pairs3)
+    pairs = [[query, doc] for doc in documents]
+    scores = model.predict(pairs)
     expected_scores = [-3.109297752380371, 7.120389938354492, -0.3787546157836914, 3.541637420654297]
 
     # Assert scores match expected values with tolerance
-    assert scores3 == pytest.approx(expected_scores, abs=1e-4)
+    assert scores == pytest.approx(expected_scores, abs=1e-4)

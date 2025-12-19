@@ -106,6 +106,7 @@ def parse_inputs(inputs: list) -> tuple[str | tuple[str, ...], dict[str, list]]:
         if check_modality:
             modality = set_modality(modality, modality_name)
 
+    # TODO: This is too naive, e.g. a single pair (for CrossEncoder) would not be wrapped correctly
     if not isinstance(inputs, list):
         inputs = [inputs]
 

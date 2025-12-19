@@ -475,7 +475,7 @@ def test_prompt_length_calculation(
     if has_bos_token:
         only_prompt_length += 1
 
-    assert model._prompt_length_mapping == {("Prompt: ", "query"): only_prompt_length}
+    assert model[0]._prompt_length_mapping == {("Prompt: ", "query"): only_prompt_length}
 
 
 @pytest.mark.skipif(

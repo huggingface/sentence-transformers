@@ -178,9 +178,10 @@ class CrossEncoder(BaseModel, FitMixin):
             else:
                 logger.info(f"{len(non_empty_keys)} prompts are loaded, with the keys: {non_empty_keys}")
         if self.default_prompt_name:
+            # TODO: warning_once via transformers? Idem. with SentenceTransformer
             logger.warning(
                 f"Default prompt name is set to '{self.default_prompt_name}'. "
-                "This prompt will be applied to all `encode()` calls, except if `encode()` "
+                "This prompt will be applied to all `predict()` calls, except if `predict()` "
                 "is called with `prompt` or `prompt_name` parameters."
             )
 
@@ -672,31 +673,7 @@ class CrossEncoder(BaseModel, FitMixin):
         self.eval()
         for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
             batch = sentences[start_index : start_index + batch_size]
-            # TODO: This is not robust enough, might not be compatible with other implementations (e.g. vLLM),
-            # and also might not work nicely if this is ever extended to pairwise and/or listwise ranking
-            # TODO: Perhaps only do this if there's text inputs and the model doesn't accept "text"?
-            # TODO: Perhaps use "role": "system" for the prompt and "role": "user" for all inputs (can be more
-            # than just 2 in the future)?
-            if self.tokenizer.chat_template:
-                batch = [
-                    [
-                        {
-                            "role": "prompt",
-                            "content": prompt,
-                        },
-                        {
-                            "role": "query",
-                            "content": pair[0],
-                        },
-                        {
-                            "role": "document",
-                            "content": pair[1],
-                        },
-                    ]
-                    for pair in batch
-                ]
-
-            features = self.preprocess(batch, **kwargs)
+            features = self.preprocess(batch, prompt=prompt, **kwargs)
             features = batch_to_device(features, device)
             out_features = self.forward(features, **kwargs)
             scores = out_features["scores"]
@@ -850,6 +827,11 @@ class CrossEncoder(BaseModel, FitMixin):
         }
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
+        for prompt_name, prompt_text in model_config.get("prompts", {}).items():
+            if prompt_name not in self.prompts or not self.prompts[prompt_name]:
+                self.prompts[prompt_name] = prompt_text
+        if not self.default_prompt_name:
+            self.default_prompt_name = model_config.get("default_prompt_name", None)
         if "activation_fn" in model_config:
             activation_fn_path = model_config["activation_fn"]
             # TODO: This is duplicate with get_default_activation_fn, definitely refactor
@@ -862,8 +844,3 @@ class CrossEncoder(BaseModel, FitMixin):
                     "Please load the CrossEncoder with `trust_remote_code=True` to allow loading custom activation "
                     "functions via the configuration."
                 )
-        for prompt_name, prompt_text in model_config.get("prompts", {}).items():
-            if prompt_name not in self.prompts or not self.prompts[prompt_name]:
-                self.prompts[prompt_name] = prompt_text
-        if not self.default_prompt_name:
-            self.default_prompt_name = model_config.get("default_prompt_name", None)

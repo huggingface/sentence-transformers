@@ -277,7 +277,9 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             input = module(input, **module_kwargs)
         return input
 
-    def preprocess(self, inputs: list[str] | list[dict] | list[tuple[str, str]], **kwargs) -> dict[str, Tensor]:
+    def preprocess(
+        self, inputs: list[str] | list[dict] | list[tuple[str, str]], prompt: str | None = None, **kwargs
+    ) -> dict[str, Tensor]:
         """
         Preprocesses the texts.
 
@@ -294,8 +296,9 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             except (ValueError, TypeError, ImportError):
                 pass
 
+        # TODO: When to pass via kwargs and when via explicit argument?
         try:
-            return self[0].preprocess(inputs, **kwargs)
+            return self[0].preprocess(inputs, prompt=prompt, **kwargs)
         except TypeError:
             return self[0].preprocess(inputs)
         except AttributeError:

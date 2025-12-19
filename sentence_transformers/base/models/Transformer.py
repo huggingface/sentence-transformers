@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import fields
 from typing import TYPE_CHECKING, Any, Literal, Union
 
@@ -187,6 +187,7 @@ class Transformer(InputModule):
             tokenizer_args = {}
         if config_args is None:
             config_args = {}
+        self._prompt_length_mapping = {}
 
         config, is_peft_model = self._load_config(model_name_or_path, cache_dir, backend, config_args)
 
@@ -851,8 +852,9 @@ class Transformer(InputModule):
     def preprocess(
         self,
         texts: list[str] | list[dict] | list[tuple[str, str]],
-        padding: str | bool = True,
+        prompt: str | None = None,
         modality: str | tuple[str, ...] | None = None,
+        padding: str | bool = True,
         **kwargs,
     ) -> dict[str, torch.Tensor]:
         """Preprocesses inputs and maps tokens to token-ids.
@@ -863,8 +865,9 @@ class Transformer(InputModule):
                 - dict: Dictionary with modality keys (text, image, audio, video) or chat messages
                 - PIL.Image.Image: Image inputs
                 - np.ndarray/torch.Tensor: Audio (1-2D) or video (3-5D) inputs
-            padding: Padding strategy for preprocessing
+            prompt: Optional system prompt to include in the input
             modality: Optional modality to use. If not provided, will be inferred from inputs.
+            padding: Padding strategy for preprocessing
 
         Returns:
             Dictionary containing preprocessed inputs with 'modality' key indicating the input type
@@ -879,15 +882,35 @@ class Transformer(InputModule):
             "image": {},
             "video": {},
         }
+        prompt_length = None
 
         # Parse inputs, throw error if multiple modalities are detected, and process the single modality
         modality, processor_inputs = parse_inputs(texts)
 
         if modality not in self.modality_config:
-            raise ValueError(
-                f"Modality '{modality}' is not supported by this model. "
-                f"Supported modalities: {list(self.modality_config.keys())}"
-            )
+            # If the input is text-based, but the model doesn't support the 'text' modality, but does support
+            # the 'message' modality, then we can try to convert the input to chat format
+            if modality == "text" and "message" in self.modality_config:
+                processor_inputs = {"message": list(self._convert_texts_to_chat_format(texts))}
+                modality = "message"
+            else:
+                raise ValueError(
+                    f"Modality '{modality}' is not supported by this model. "
+                    f"Supported modalities: {list(self.modality_config.keys())}"
+                )
+
+        # Incorporate prompt into chat message inputs if applicable
+        if modality == "message" and prompt:
+            processor_inputs["message"] = [
+                [{"role": "system", "content": prompt}] + messages for messages in processor_inputs["message"]
+            ]
+            # No need to track prompt length for chat messages, the length is only required for excluding prompt
+            # tokens from the Pooling layer in text embedding models, which isn't supported for chat message inputs
+
+        # Incorporate prompt into text inputs if applicable
+        if modality == "text" and prompt:
+            processor_inputs["text"] = self._prepend_prompt_to_texts(processor_inputs["text"], prompt=prompt)
+            prompt_length = self._get_prompt_length(prompt, **kwargs)
 
         # Tackle an edge case: audio sampling_rate must be passed via the modality_kwargs
         if "sampling_rate" in processor_inputs:
@@ -895,20 +918,82 @@ class Transformer(InputModule):
 
         processor_output = self._call_processor(modality, processor_inputs, modality_kwargs, common_kwargs)
         processor_output["modality"] = modality
+        if prompt_length is not None:
+            processor_output["prompt_length"] = prompt_length
 
         return processor_output
 
-    def _is_chat_format(self, inputs: list) -> bool:
-        """Check if inputs are in chat message format (list of dicts with 'role' and 'content')."""
-        if not inputs:
-            return False
+    def _convert_texts_to_chat_format(self, texts: str | list[str] | list[list[str]]) -> Iterator[list[dict]]:
+        """Convert plain text inputs to chat message format.
 
-        # Check the first item (could recursively check for nested lists)
-        first_item = inputs[0]
-        if isinstance(first_item, (list, tuple)) and len(first_item) > 0:
-            return self._is_chat_format(first_item)
+        For cross-encoder models, `texts` is expected to be a 1) text pair or 2) a list of text pairs, where each pair
+        is a list/tuple of strings: (query, document1, document2, ...). Currently, Sentence Transformers only supports
+        point-wise cross-encoders, so each pair contains exactly two texts, but the message format supports more.
 
-        return isinstance(first_item, dict) and "role" in first_item and "content" in first_item
+        The message format for cross-encoder models is a list of dictionaries with 'role' and 'content' keys, with
+        3 roles: 'system' (optional), 'query', and 'document'. The 'system' role contains the system prompt (if any),
+        the 'query' role denotes the query (first text in the pair), and each 'document' role contains one of the documents
+        (subsequent texts in the pair).
+
+        For other (dense or sparse embedding) models, `texts` is expected to be a single string or a list of strings.
+
+        The message format for these models is a list of dictionaries with 'role' and 'content' keys, with 2 roles:
+        'system' (optional) and 'user'. The 'system' role contains the system prompt (if any), and the 'user' role
+        contains the text to be processed.
+
+        Args:
+            texts: Input texts to transform to chat message format, either a single string, a list of strings,
+                a text pair (tuple/list of 2 strings), or a list of text pairs.
+
+        Yields:
+            Iterator[list[dict]]: An iterator over the converted chat message lists.
+        """
+        # TODO: This transformers_task checking for expected input format is a bit hacky. Also in _prepend_prompt_to_texts
+        if self.transformer_task in ("text-generation", "sequence-classification"):
+            # We're expecting pairs of inputs here, as these tasks are only used by the CrossEncoder for now
+            # Convert singular input to a list
+            if texts and isinstance(texts[0], str):
+                texts = [texts]
+            for pair in texts:
+                query, *documents = pair
+                messages = [{"role": "query", "content": query}]
+                for document in documents:
+                    messages.append({"role": "document", "content": document})
+                yield messages
+        else:
+            # Convert singular input to a list
+            if isinstance(texts, str):
+                texts = [texts]
+            for text in texts:
+                yield [{"role": "user", "content": text}]
+
+    def _prepend_prompt_to_texts(self, texts: str | list[str] | list[list[str]], prompt: str) -> list[str]:
+        """Prepend a system prompt to each text input."""
+        if self.transformer_task in ("text-generation", "sequence-classification"):
+            # Expecting pairs of inputs here, as these tasks are only used by the CrossEncoder for now
+            if texts and isinstance(texts[0], str):
+                texts = [texts]
+            return [[prompt + pair[0], *pair[1:]] for pair in texts]
+        # Single text inputs
+        if isinstance(texts, str):
+            texts = [texts]
+        return [prompt + text for text in texts]
+
+    def _get_prompt_length(self, prompt: str, **kwargs) -> int:
+        """Return the length of the prompt in tokens, including the BOS token."""
+        if (prompt, *kwargs.values()) in self._prompt_length_mapping:
+            return self._prompt_length_mapping[(prompt, *kwargs.values())]
+
+        tokenized_prompt = self.preprocess([prompt], modality="text", **kwargs)
+        if "input_ids" not in tokenized_prompt:
+            return None
+        prompt_length = tokenized_prompt["input_ids"].shape[-1]
+        # If the tokenizer adds a special EOS token, we do not count it as part of the prompt length
+        last_token = tokenized_prompt["input_ids"][..., -1].item()
+        if hasattr(self.tokenizer, "all_special_ids") and last_token in self.tokenizer.all_special_ids:
+            prompt_length -= 1
+        self._prompt_length_mapping[(prompt, *kwargs.values())] = prompt_length
+        return prompt_length
 
     def _process_chat_messages(
         self, messages: list, text_kwargs: dict, common_kwargs: dict
@@ -928,7 +1013,6 @@ class Transformer(InputModule):
                 f"Supported modalities: {list(self.modality_config.keys())}"
             )
 
-        processor_output["modality"] = "message"
         return processor_output
 
     def _call_processor(

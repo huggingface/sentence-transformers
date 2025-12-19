@@ -1189,7 +1189,7 @@ def test_mine_hard_negatives_with_prompt(paraphrase_distilroberta_base_v1_model:
     preprocess_calls = []
 
     def mock_preprocess(texts, **kwargs) -> dict[str, Tensor]:
-        preprocess_calls.append(texts)
+        preprocess_calls.append(kwargs)
         return original_preprocess(texts, **kwargs)
 
     # 2. Run without prompt - check that no prompt is added
@@ -1209,9 +1209,8 @@ def test_mine_hard_negatives_with_prompt(paraphrase_distilroberta_base_v1_model:
     )
 
     # Verify that preprocess was called without prompts for queries and corpus
-    assert any(data["anchor"][0] in str(calls) for calls in preprocess_calls)
-    assert not any(query_prompt + data["anchor"][0] in str(calls) for calls in preprocess_calls)
-    assert not any(query_prompt + data["positive"][0] in str(calls) for calls in preprocess_calls)
+    for kwargs in preprocess_calls:
+        assert kwargs == {"task": "query", "prompt": ""} or kwargs == {"task": "document", "prompt": ""}
 
     # Assert basic success criteria
     assert isinstance(result_no_prompt, Dataset)
@@ -1235,8 +1234,8 @@ def test_mine_hard_negatives_with_prompt(paraphrase_distilroberta_base_v1_model:
     )
 
     # Verify that tokenize was called with prompts, and the corpus without prompts
-    assert any(query_prompt + data["anchor"][0] in str(calls) for calls in preprocess_calls)
-    assert not any(query_prompt + data["positive"][0] in str(calls) for calls in preprocess_calls)
+    for kwargs in preprocess_calls:
+        assert kwargs == {"task": "query", "prompt": query_prompt} or kwargs == {"task": "document", "prompt": ""}
 
     # Assert basic success criteria
     assert isinstance(result_with_prompt, Dataset)
