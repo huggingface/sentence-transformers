@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.models import Pooling
+from sentence_transformers.sentence_transformer.models import Pooling
 
 
 @pytest.mark.parametrize("padding_side", ["right", "left"])
