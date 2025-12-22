@@ -1,116 +1,91 @@
 import logging
-import random
 from datetime import datetime
 
-import mlflow
+from datasets import DatasetDict, load_dataset
 
-from datasets import Dataset, load_dataset
 from sentence_transformers import SentenceTransformer, losses
 from sentence_transformers.evaluation import BinaryClassificationEvaluator
+from sentence_transformers.models import CLIPModel
 from sentence_transformers.trainer import SentenceTransformerTrainer
 from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 
-
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
-time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-model_name = "clip-ViT-B-32"
-dataset_name = "flickr8k-binary"
-train_batch_size = 4
-num_epochs = 4
-output_dir = f"data/output/models/{dataset_name}"
+# Any clip model (https://huggingface.co/models?other=clip)
+base_model_name = "openai/clip-vit-base-patch32"
+train_model_name = "clip-flickr8k"
+train_batch_size = 16  # Higher batch sizes give better results for the MultipleNegativesRankingLoss
+num_epochs = 1
+output_dir = f"models/{train_model_name}"
 
 
-def convert_binary_flickr8k(dataset_split: dict) -> list[dict]:
-    """
-    Converts a dataset of (image, 5 captions) into a binary classification format:
-    (image, matching_caption, label=1.0)
-    (image, non_matching_caption, label=0.0)
-
-    returns a dict {"image", "text", "label"}
-    """
-    output = []
-
-    for idx in range(len(dataset_split["image"])):
-       
-        current_image = dataset_split["image"][idx]
-        positive_caption = dataset_split["caption_0"][idx]
-        
-        # 1. Positive Example (Image matches its caption)
-        output.append({
-            "image": current_image,
-            "text": positive_caption,
-            "label": 1.0
-        })
-        
-        # 2. Negative Example
-
-        while True:
-            random_caption = random.choice(dataset_split["caption_0"])
-
-            if random_caption != positive_caption:
-                break
-
-        output.append({
-            "image": current_image,
-            "text": random_caption,
-            "label": 0.0
-        })
-    
+def to_binary_flickr8k(batch: dict) -> dict:
+    """Converts the Flickr8k dataset format to a binary classification format"""
+    output = {"image": [], "positive": [], "negative": []}
+    for idx in range(len(batch["image"])):
+        image = batch["image"][idx]
+        caption = batch["caption_0"][idx]
+        # Take the next caption as negative example (cyclic)
+        negative_caption = batch["caption_0"][(idx + 1) % len(batch["caption_0"])]
+        output["image"].append(image)
+        output["positive"].append(caption)
+        output["negative"].append(negative_caption)
     return output
 
+
 # 1. Load CLIP model
-model = SentenceTransformer(model_name)
+clip_model = CLIPModel(base_model_name)
+model = SentenceTransformer(modules=[clip_model])
 
 # 2. Prepare the dataset
-ds = load_dataset("jxie/flickr8k")
-train_split = ds["train"][:200]
-eval_split = ds["validation"][:20]
-
-# Create training data
-train_data = convert_binary_flickr8k(train_split)
-eval_data = convert_binary_flickr8k(eval_split)
-
-# Convert to HuggingFace Dataset format
-train_dataset = Dataset.from_list(train_data)
-eval_dataset = Dataset.from_list(eval_data)
+dataset: DatasetDict = load_dataset("jxie/flickr8k")
+dataset = dataset.map(to_binary_flickr8k, batched=True, remove_columns=dataset["train"].column_names)
+train_dataset = dataset["train"].select(range(1000))
+eval_dataset = dataset["validation"].select(range(400))
 
 logging.info(f"Training samples: {len(train_dataset)}")
 logging.info(f"Evaluation samples: {len(eval_dataset)}")
 logging.info(train_dataset)
 
 # 3. Define our training loss
-train_loss = losses.ContrastiveLoss(model=model)
+train_loss = losses.MultipleNegativesRankingLoss(model=model)
 
 
 # 4. Define an evaluator for use during training
 evaluator = BinaryClassificationEvaluator(
-    sentences1=[item["image"] for item in eval_data],
-    sentences2=[item["text"] for item in eval_data],
-    labels=[item["label"] for item in eval_data],
-    name="clip-dev",
+    sentences1=list(eval_dataset["image"]) + list(eval_dataset["image"]),
+    sentences2=list(eval_dataset["positive"]) + list(eval_dataset["negative"]),
+    labels=[1] * len(eval_dataset) + [0] * len(eval_dataset),
+    name="flickr8k-dev",
 )
+evaluator(model)  # Evaluate the untrained model
 
 # 5. Define the training arguments
+# If 'mlflow' is installed, it will be automatically used to log training parameters & evaluation.
+# We can make that explicit by setting report_to=["mlflow"]
 args = SentenceTransformerTrainingArguments(
     # Required parameter:
     output_dir=output_dir,
     # Optional training parameters:
     num_train_epochs=num_epochs,
+    learning_rate=2e-5,
     per_device_train_batch_size=train_batch_size,
     per_device_eval_batch_size=train_batch_size,
     warmup_ratio=0.1,
-    fp16=True, 
+    fp16=True,
     bf16=False,
     # Optional tracking/debugging parameters:
-    eval_steps=50,
-    save_steps=50,
+    eval_strategy="steps",
+    eval_steps=0.1,
+    save_strategy="steps",
+    save_steps=0.5,
     save_total_limit=2,
-    logging_steps=50,
-    run_name="clip-training",
-    report_to=["mlflow"]
+    logging_steps=0.02,
+    run_name=train_model_name,
+    report_to=["mlflow"],
 )
 
 # 6. Create the trainer & start training
@@ -123,24 +98,12 @@ trainer = SentenceTransformerTrainer(
     evaluator=evaluator,
 )
 
-# 7. Begin Training and Log results to MLFlow
-mlflow.set_experiment("CLIP")
-with mlflow.start_run(run_name=dataset_name):
+# 7. Begin Training and log results to MLFlow
+trainer.train()
 
-    mlflow.log_params({
-        "model_name": model_name,
-        "train_batch_size": train_batch_size,
-        "num_epochs": num_epochs,
-        "loss_function": train_loss.__class__.__name__,
-    })
-    
-    # Start training
-    trainer.train()
-
-    # 8. Evaluate the model performance on the evaluation dataset
-    metrics = evaluator(model)
-    mlflow.log_metrics(metrics)
+# 8. Evaluate the final model on the evaluation set
+evaluator(model)
 
 # 9. Save the trained & evaluated model locally
 final_output_dir = f"{output_dir}/final"
-model.save(final_output_dir)
+model.save_pretrained(final_output_dir)
