@@ -21,7 +21,7 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
         os: [ubuntu-latest, windows-latest]
-        transformers-version: [">=5.0.0"]  # No <5.0.0 tests as we'll require transformers v5+ when this is merged
+        transformers-version: ["<5.0.0", ">=5.0.0"]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:

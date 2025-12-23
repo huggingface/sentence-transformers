@@ -4,7 +4,7 @@ import inspect
 import logging
 from collections.abc import Callable, Iterator
 from dataclasses import fields
-from typing import TYPE_CHECKING, Any, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
 
 import torch
 
@@ -24,7 +24,6 @@ from transformers import (
     AutoModelForMaskedLM,
     AutoModelForSequenceClassification,
     AutoProcessor,
-    BaseVideoProcessor,
     FeatureExtractionMixin,
     ImageProcessingMixin,
     MT5Config,
@@ -41,13 +40,33 @@ from transformers.utils.peft_utils import find_adapter_config_file
 
 from sentence_transformers.base.models.InputModule import InputModule
 
+try:
+    from transformers import BaseVideoProcessor
+except ImportError:
+
+    class BaseVideoProcessor:
+        pass
+
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING and is_peft_available():
     from peft import PeftConfig
 
+MODALITY = (
+    Literal["text", "image", "audio", "video", "message"] | tuple[Literal["text", "image", "audio", "video"], ...]
+)
+TRANSFORMER_TASK = Literal["feature-extraction", "sequence-classification", "text-generation", "fill-mask"]
 
-TRANSFORMER_TASK_TO_AUTO_MODEL = {
+
+class MODALITY_PARAMS(TypedDict):
+    method: str
+    method_output_name: str | None
+
+
+MODALITY_CONFIG = dict[MODALITY, MODALITY_PARAMS]
+
+TRANSFORMER_TASK_TO_AUTO_MODEL: dict[TRANSFORMER_TASK, Any] = {
     "feature-extraction": AutoModel,
     "sequence-classification": AutoModelForSequenceClassification,
     "text-generation": AutoModelForCausalLM,
@@ -58,7 +77,9 @@ TRANSFORMER_TASK_TO_AUTO_MODEL = {
 # Structure: {task: {modality: {method_name: {model_output_field: module_feature_name}}}}
 # TODO: How about defaults? E.g. I want to support "image" for a model that traditionally only has ("text", "image")
 # by defaulting to a "text" input like an empty string or just a "<image>" token?
-TASK_MODALITY_METHOD_CONFIG = {
+INFER_MODALITY_CONFIG: dict[
+    TRANSFORMER_TASK, dict[MODALITY | Literal["multimodal"], dict[str, dict[str | None, str]]]
+] = {
     "feature-extraction": {
         "text": {
             "get_text_features": {None: "sentence_embedding"},
@@ -101,6 +122,45 @@ TASK_MODALITY_METHOD_CONFIG = {
     },
 }
 
+DEFAULT_MODALITY_CONFIG_MODULE_OUTPUT_NAME: dict[TRANSFORMER_TASK, tuple[MODALITY_CONFIG, str]] = {
+    "feature-extraction": (
+        {
+            "text": {
+                "method": "forward",
+                "method_output_name": "last_hidden_state",
+            },
+        },
+        "token_embeddings",
+    ),
+    "sequence-classification": (
+        {
+            "text": {
+                "method": "forward",
+                "method_output_name": "logits",
+            },
+        },
+        "scores",
+    ),
+    "text-generation": (
+        {
+            "text": {
+                "method": "forward",
+                "method_output_name": "logits",
+            },
+        },
+        "causal_logits",
+    ),
+    "fill-mask": (
+        {
+            "text": {
+                "method": "forward",
+                "method_output_name": "logits",
+            },
+        },
+        "token_embeddings",
+    ),
+}
+
 
 class Transformer(InputModule):
     """Hugging Face AutoModel to generate token embeddings.
@@ -138,12 +198,11 @@ class Transformer(InputModule):
     # TODO: Replace model_args with model_kwargs, perhaps replace tokenizer_args with processing_kwargs/processor_kwargs, config_args with config_kwargs?
     # TODO: Perhaps remove do_lower_case and put that in tokenizer_args?
     # TODO: Idem for max_seq_length?
+    # TODO: Fully deprecate tokenizer_name_or_path? Nobody (should) load a model with a different processor than model_name_or_path
     def __init__(
         self,
         model_name_or_path: str,
-        transformer_task: Literal[
-            "feature-extraction", "sequence-classification", "text-generation", "fill-mask"
-        ] = "feature-extraction",
+        transformer_task: TRANSFORMER_TASK = "feature-extraction",
         max_seq_length: int | None = None,
         model_args: dict[str, Any] | None = None,
         tokenizer_args: dict[str, Any] | None = None,
@@ -152,28 +211,11 @@ class Transformer(InputModule):
         do_lower_case: bool = False,
         tokenizer_name_or_path: str | None = None,
         backend: str = "torch",
-        modality_config: dict[str, dict[str, bool]] | None = None,
+        modality_config: MODALITY_CONFIG | None = None,
         module_output_name: str | None = None,
     ) -> None:
-        """
-        modalities:
-            {
-                "text": {
-                    "method": "get_text_features",
-                    "method_output_name": None,
-                },
-                "image": {
-                    "method": "forward",
-                    "method_output_name": "image_embeds",  # Can also be a tuple for nested dictionary keys like ("vision_outputs", "last_hidden_state"), e.g. for BLIP-2
-                },
-                ("text", "image"): {
-                    "method": "forward",
-                    "method_output_name": "last_hidden_state",
-                },
-            }
-        """
         super().__init__()
-        self.transformer_task = transformer_task
+        self.transformer_task: TRANSFORMER_TASK = transformer_task
         if transformer_task not in TRANSFORMER_TASK_TO_AUTO_MODEL:
             raise ValueError(
                 f"Unsupported transformer_task '{transformer_task}'. Supported tasks are: {list(TRANSFORMER_TASK_TO_AUTO_MODEL.keys())}"
@@ -379,7 +421,7 @@ class Transformer(InputModule):
         backend: str,
         is_peft_model: bool,
         **model_args,
-    ) -> None:
+    ) -> PreTrainedModel:
         """Loads the transformers or PEFT model into the `auto_model` attribute
 
         Args:
@@ -424,14 +466,18 @@ class Transformer(InputModule):
         else:
             raise ValueError(f"Unsupported backend '{backend}'. `backend` should be `torch`, `onnx`, or `openvino`.")
 
-    def _load_t5_model(self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args) -> None:
+    def _load_t5_model(
+        self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args
+    ) -> PreTrainedModel:
         """Loads the encoder model from T5"""
         from transformers import T5EncoderModel
 
         T5EncoderModel._keys_to_ignore_on_load_unexpected = ["decoder.*"]
         return T5EncoderModel.from_pretrained(model_name_or_path, config=config, cache_dir=cache_dir, **model_args)
 
-    def _load_mt5_model(self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args) -> None:
+    def _load_mt5_model(
+        self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args
+    ) -> PreTrainedModel:
         """Loads the encoder model from T5"""
         from transformers import MT5EncoderModel
 
@@ -442,10 +488,9 @@ class Transformer(InputModule):
         self,
         model: PreTrainedModel,
         method_to_output_mapping: dict[str, dict[str | None, str]],
-        output_field_extractor: Callable,
-        modality_name: str | tuple[str, ...],
+        modality_name: MODALITY,
         exclude_methods: set[str] | None = None,
-    ) -> tuple[dict[str, dict[str, str]], str] | None:
+    ) -> tuple[MODALITY_CONFIG, str] | None:
         """
         Find a valid method and output configuration for a modality.
 
@@ -463,7 +508,7 @@ class Transformer(InputModule):
             exclude_methods (set[str] | None): Set of method names to skip during iteration.
 
         Returns:
-            tuple[dict[str, dict[str, str]], str] | None: A tuple of (modality_config,
+            tuple[MODALITY_CONFIG, str] | None: A tuple of (modality_config,
                 module_output_name) if a valid configuration is found, otherwise None.
                 The modality_config maps the modality_name to a dict with 'method' and
                 'method_output_name' keys.
@@ -478,13 +523,13 @@ class Transformer(InputModule):
                 continue
 
             try:
-                available_output_fields = output_field_extractor(getattr(model, method_name))
+                available_output_fields = self._get_method_output_fields(getattr(model, method_name))
             except Exception:
                 continue
 
             for method_output_name, module_output_name in output_mapping.items():
                 if method_output_name is None or method_output_name in available_output_fields:
-                    modality_config = {
+                    modality_config: MODALITY_CONFIG = {
                         modality_name: {
                             "method": method_name,
                             "method_output_name": method_output_name,
@@ -492,20 +537,20 @@ class Transformer(InputModule):
                     }
                     return modality_config, module_output_name
                 else:
-                    logger.debug(
+                    logger.warning(
                         f"Method '{method_name}' output '{method_output_name}' not found in fields {available_output_fields} for modality {modality_name}"
                     )
 
         return None
 
-    def _handle_special_model_cases(self, model: PreTrainedModel) -> tuple[dict[str, dict[str, str]], str] | None:
+    def _handle_special_model_cases(self, model: PreTrainedModel) -> tuple[MODALITY_CONFIG, str] | None:
         """Handle special cases for specific model architectures.
 
         Args:
             model (PreTrainedModel): The Hugging Face transformers model.
 
         Returns:
-            tuple[dict[str, dict[str, str]], str] | None: Modality config and module output name if
+            tuple[MODALITY_CONFIG, str] | None: Modality config and module output name if
                 this is a special case model, otherwise None.
         """
         if not (hasattr(model, "config") and hasattr(model.config, "model_type")):
@@ -514,7 +559,7 @@ class Transformer(InputModule):
         model_type = model.config.model_type.lower()
 
         # Registry of special model types and their configurations
-        special_cases = {
+        special_cases: dict[str, tuple[MODALITY_CONFIG, str]] = {
             "deepseek_vl": (
                 {
                     "message": {
@@ -531,14 +576,14 @@ class Transformer(InputModule):
 
         return None
 
-    def _get_method_output_fields(self, method: Callable) -> list[str] | None:
+    def _get_method_output_fields(self, method: Callable) -> list[str]:
         """Extract the output field names from a method's return type annotation.
 
         Args:
             method (Callable): The method to inspect.
 
         Returns:
-            list[str] | None: List of output field names, or None if they cannot be determined.
+            list[str]: List of output field names, or raises ValueError if not found.
         """
 
         def find_model_output_class(type_annotation):
@@ -554,18 +599,14 @@ class Transformer(InputModule):
         return_annotation = inspect.signature(method).return_annotation
         output_class = find_model_output_class(return_annotation)
         if output_class is None:
-            return None
+            raise ValueError("Could not determine ModelOutput subclass from method return annotation.")
         return [field.name for field in fields(output_class)]
 
     def _infer_single_modality(
         self,
         model: PreTrainedModel,
-        processor: ProcessorMixin
-        | PreTrainedTokenizerBase
-        | FeatureExtractionMixin
-        | BaseVideoProcessor
-        | ImageProcessingMixin,
-    ) -> tuple[dict[str, dict[str, str]], str] | None:
+        processor: PreTrainedTokenizerBase | FeatureExtractionMixin | BaseVideoProcessor | ImageProcessingMixin,
+    ) -> tuple[MODALITY_CONFIG, str] | None:
         """Infer modality configuration for single-modality processors.
 
         Args:
@@ -573,27 +614,25 @@ class Transformer(InputModule):
             processor: The processor to check.
 
         Returns:
-            tuple[dict[str, dict[str, str]], str] | None: Modality config and module output name if
+            tuple[MODALITY_CONFIG, str] | None: Modality config and module output name if
                 a single modality is detected, otherwise None.
         """
-        task_modality_config = TASK_MODALITY_METHOD_CONFIG[self.transformer_task]
+        task_modality_config = INFER_MODALITY_CONFIG[self.transformer_task]
 
         # Check modalities in order, with video before image since BaseVideoProcessor subclasses ImageProcessingMixin
-        modality_checks = [
-            ("text", PreTrainedTokenizerBase),
-            ("audio", FeatureExtractionMixin),
-            ("video", BaseVideoProcessor),
-            ("image", ImageProcessingMixin),
-        ]
+        modality_checks: dict[MODALITY, type] = {
+            "text": PreTrainedTokenizerBase,
+            "audio": FeatureExtractionMixin,
+            "video": BaseVideoProcessor,
+            "image": ImageProcessingMixin,
+        }
 
-        for modality_name, processor_class in modality_checks:
+        for modality_name, processor_class in modality_checks.items():
             if not isinstance(processor, processor_class):
                 continue
 
             method_to_output_mapping = task_modality_config.get(modality_name, {})
-            result = self._find_valid_method_and_output(
-                model, method_to_output_mapping, self._get_method_output_fields, modality_name
-            )
+            result = self._find_valid_method_and_output(model, method_to_output_mapping, modality_name)
             if result is not None:
                 modality_config, module_output_name = result
                 if (
@@ -608,7 +647,7 @@ class Transformer(InputModule):
 
     def _infer_multimodal(
         self, model: PreTrainedModel, processor: ProcessorMixin
-    ) -> tuple[dict[str, dict[str, str]], str] | None:
+    ) -> tuple[MODALITY_CONFIG, str] | None:
         """Infer modality configuration for multi-modal processors.
 
         Args:
@@ -616,28 +655,29 @@ class Transformer(InputModule):
             processor (ProcessorMixin): The multi-modal processor.
 
         Returns:
-            tuple[dict[str, dict[str, str]], str] | None: Modality config and module output name if
+            tuple[MODALITY_CONFIG, str] | None: Modality config and module output name if
                 modalities are detected, otherwise None.
         """
         if not isinstance(processor, ProcessorMixin):
             return None
 
-        task_modality_config = TASK_MODALITY_METHOD_CONFIG[self.transformer_task]
+        task_modality_config = INFER_MODALITY_CONFIG[self.transformer_task]
 
-        modality_config = {}
-        module_output_name = None
-        detected_modalities = []
+        modality_config: MODALITY_CONFIG = {}
+        module_output_name: str | None = None
+        detected_modalities: list[MODALITY] = []
 
         # Check which modality processors are available
-        processor_attribute_mapping = [
-            ("tokenizer", "text"),
-            ("image_processor", "image"),
-            ("feature_extractor", "audio"),
-            ("video_processor", "video"),
-        ]
+        processor_attribute_mapping: dict[str, MODALITY] = {
+            "tokenizer": "text",
+            "image_processor": "image",
+            "feature_extractor": "audio",
+            "video_processor": "video",
+        }
 
-        for processor_attribute, modality_name in processor_attribute_mapping:
-            if processor_attribute not in processor.get_attributes():
+        processor_attributes = self._get_processor_attributes() or {}
+        for processor_attribute, modality_name in processor_attribute_mapping.items():
+            if processor_attribute not in processor_attributes:
                 continue
 
             detected_modalities.append(modality_name)
@@ -647,7 +687,6 @@ class Transformer(InputModule):
             result = self._find_valid_method_and_output(
                 model,
                 method_to_output_mapping,
-                self._get_method_output_fields,
                 modality_name,
                 exclude_methods={"forward"},
             )
@@ -661,7 +700,7 @@ class Transformer(InputModule):
         # Check if there's a method that handles all modalities together
         method_to_output_mapping = task_modality_config.get("multimodal", {})
         result = self._find_valid_method_and_output(
-            model, method_to_output_mapping, self._get_method_output_fields, tuple(detected_modalities)
+            model, method_to_output_mapping, modality_name=tuple(detected_modalities)
         )
         if result is not None:
             # Override single-modality configs with the multimodal method
@@ -685,7 +724,7 @@ class Transformer(InputModule):
         | FeatureExtractionMixin
         | BaseVideoProcessor
         | ImageProcessingMixin,
-    ) -> tuple[dict[str, dict[str, str]], str]:
+    ) -> tuple[MODALITY_CONFIG, str]:
         """Infers the modalities supported by the model based on its architecture and processor.
 
         This method attempts to automatically detect what input modalities (text, image, audio, video)
@@ -696,7 +735,7 @@ class Transformer(InputModule):
             processor: The processor (tokenizer, image processor, etc.) associated with the model.
 
         Returns:
-            tuple[dict[str, dict[str, str]], str]: A tuple of (modality_config, module_output_name).
+            tuple[MODALITY_CONFIG, str]: A tuple of (modality_config, module_output_name).
                 The modality_config maps modality keys to dicts with 'method' and 'method_output_name'.
                 The module_output_name is the name of the output feature this module creates.
 
@@ -718,12 +757,31 @@ class Transformer(InputModule):
             modality_config, module_output_name = result
             return modality_config, module_output_name
 
-        error_msg = (
-            f"Could not infer modalities from the processor (type: {type(processor).__name__}) or model. "
-            f"Processor attributes: {processor.get_attributes() if hasattr(processor, 'get_attributes') else 'N/A'}. "
-            "Please provide a custom modality_config and module_output_name when initializing the Transformer."
-        )
-        raise ValueError(error_msg)
+        # Fallback to default modality config for the task
+        return self._get_default_modality_config()
+
+    def _get_default_modality_config(self) -> tuple[MODALITY_CONFIG, str]:
+        """Get the default modality configuration for the current transformer task.
+
+        Returns:
+            tuple[MODALITY_CONFIG, str]: A tuple of (modality_config, module_output_name).
+                The modality_config maps modality keys to dicts with 'method' and 'method_output_name'.
+                The module_output_name is the name of the output feature this module creates.
+        """
+        return DEFAULT_MODALITY_CONFIG_MODULE_OUTPUT_NAME[self.transformer_task]
+
+    def _get_processor_attributes(self) -> dict[str, Any] | None:
+        """Get the attributes of the processor if available. Will be removed in the future as transformers v5
+        becomes the minimum requirement.
+
+        Returns:
+            dict[str, Any] | None: The attributes of the processor, or None if not available.
+        """
+        if hasattr(self.processor, "get_attributes"):  # Transformers v5+
+            return self.processor.get_attributes()
+        elif hasattr(self.processor, "attributes"):  # Transformers v4
+            return self.processor.attributes
+        return None
 
     def __repr__(self) -> str:
         return f"Transformer({dict(self.get_config_dict(), architecture=self.model.__class__.__name__)})"
@@ -752,7 +810,7 @@ class Transformer(InputModule):
         """
 
         # TODO: Should we pass along the modality in 'features'?
-        modality_name = features.get("modality", "text")
+        modality_name: MODALITY = features.get("modality", "text")
         modality_params = self.modality_config[modality_name]
         # TODO: Allow 'method' to be a tuple of methods to execute sequentially? A bit messy with the kwargs though
         method_name = modality_params["method"]
@@ -851,12 +909,16 @@ class Transformer(InputModule):
 
     def preprocess(
         self,
+        # TODO: Check whether we should/want to accept single inputs here
+        # Perhaps no, and let the BaseModel subclass handle wrap single inputs as it can recognize
+        # them better (e.g. list of 2 inputs is single text pair for cross-encoder, but two inputs for an embedding model)
+        # Remember edge cases like "unwrapping" the single input again after processing + the edge case of batch_size=1
         texts: list[str] | list[dict] | list[tuple[str, str]],
         prompt: str | None = None,
         modality: str | tuple[str, ...] | None = None,
         padding: str | bool = True,
         **kwargs,
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor | Any]:
         """Preprocesses inputs and maps tokens to token-ids.
 
         Args:
@@ -997,7 +1059,7 @@ class Transformer(InputModule):
 
     def _process_chat_messages(
         self, messages: list, text_kwargs: dict, common_kwargs: dict
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor | Any]:
         """Process chat messages using the processor's chat template."""
         processor_output = self.processor.apply_chat_template(
             messages,
@@ -1021,7 +1083,7 @@ class Transformer(InputModule):
         processor_inputs: dict[str, list],
         modality_kwargs: dict[str, dict],
         common_kwargs: dict,
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor | Any]:
         """Call the appropriate processor with the correct arguments.
 
         Args:
@@ -1074,7 +1136,7 @@ class Transformer(InputModule):
             f"for modality '{modality}'"
         )
 
-    def save(self, output_path: str, safe_serialization: bool = True, **kwargs) -> None:
+    def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
         self.model.save_pretrained(output_path, safe_serialization=safe_serialization)
         self.processor.save_pretrained(output_path)
         self.save_config(output_path)
