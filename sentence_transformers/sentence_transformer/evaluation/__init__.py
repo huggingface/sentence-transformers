@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# TODO: Is it okay to import from ... here? Or should we just require users to import from their full paths?
 from ...base.evaluation.SentenceEvaluator import SentenceEvaluator
 from ...base.evaluation.SequentialEvaluator import SequentialEvaluator
 from .BinaryClassificationEvaluator import BinaryClassificationEvaluator

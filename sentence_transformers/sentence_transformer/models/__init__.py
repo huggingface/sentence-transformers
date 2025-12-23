@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import sys
-
 from ...base.models.InputModule import InputModule
 from ...base.models.Module import Module
 from ...base.models.Router import Asym, Router
@@ -19,15 +17,6 @@ from .StaticEmbedding import StaticEmbedding
 from .WeightedLayerPooling import WeightedLayerPooling
 from .WordEmbeddings import WordEmbeddings
 from .WordWeights import WordWeights
-
-sys.modules["sentence_transformers.models.Asym"] = sys.modules["sentence_transformers.base.models.Router"]
-sys.modules["sentence_transformers.sentence_transformer.models.Asym"] = sys.modules[
-    "sentence_transformers.base.models.Router"
-]
-sys.modules["sentence_transformers.models.Router"] = sys.modules["sentence_transformers.base.models.Router"]
-sys.modules["sentence_transformers.sentence_transformer.models.Router"] = sys.modules[
-    "sentence_transformers.base.models.Router"
-]
 
 __all__ = [
     "Transformer",
