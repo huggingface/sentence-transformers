@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import importlib
 import sys
-import warnings
-from importlib.machinery import ModuleSpec
-from importlib.util import find_spec
 
 DEPRECATED_MODULE_PATHS = {
     # Moved in Sentence Transformers v5.4.0
@@ -66,7 +63,7 @@ DEPRECATED_MODULE_PATHS = {
     "sentence_transformers.losses.SoftmaxLoss": "sentence_transformers.sentence_transformer.losses.SoftmaxLoss",
     "sentence_transformers.losses.TripletLoss": "sentence_transformers.sentence_transformer.losses.TripletLoss",
     "sentence_transformers.models": "sentence_transformers.sentence_transformer.models",
-    "sentence_transformers.models.Asym": "sentence_transformers.base.models.Router",  # TODO: Should we allow importing from sentence_transformers.sentence_transformer.models?
+    "sentence_transformers.models.Asym": "sentence_transformers.base.models.Router",
     "sentence_transformers.models.BoW": "sentence_transformers.sentence_transformer.models.BoW",
     "sentence_transformers.models.CLIPModel": "sentence_transformers.sentence_transformer.models.CLIPModel",
     "sentence_transformers.models.CNN": "sentence_transformers.sentence_transformer.models.CNN",
@@ -96,90 +93,27 @@ DEPRECATED_MODULE_PATHS = {
     "sentence_transformers.readers.STSDataReader": "sentence_transformers.sentence_transformer.readers.STSDataReader",
     "sentence_transformers.readers.TripletReader": "sentence_transformers.sentence_transformer.readers.TripletReader",
     # Deprecated in Sentence Transformers v4.0.0
-    "sentence_transformers.evaluation.CEBinaryAccuracyEvaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
-    "sentence_transformers.evaluation.CEBinaryClassificationEvaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
-    "sentence_transformers.evaluation.CEF1Evaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
-    "sentence_transformers.evaluation.CESoftmaxAccuracyEvaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
-    "sentence_transformers.evaluation.CECorrelationEvaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
-    "sentence_transformers.evaluation.CERerankingEvaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
+    "sentence_transformers.cross_encoder.evaluation.CEBinaryAccuracyEvaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
+    "sentence_transformers.cross_encoder.evaluation.CEBinaryClassificationEvaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
+    "sentence_transformers.cross_encoder.evaluation.CEF1Evaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
+    "sentence_transformers.cross_encoder.evaluation.CESoftmaxAccuracyEvaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
+    "sentence_transformers.cross_encoder.evaluation.CECorrelationEvaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
+    "sentence_transformers.cross_encoder.evaluation.CERerankingEvaluator": "sentence_transformers.cross_encoder.evaluation.deprecated",
 }
-
-
-class _DeprecatedModuleFinder:
-    """
-    A meta_path finder that handles deprecated module imports.
-
-    This finder must be installed at position 0 in sys.meta_path to intercept imports of deprecated
-    module paths before other finders are consulted. When it recognizes a deprecated path, it:
-
-    1. Issues a DeprecationWarning to notify users of the path change
-    2. Queries other finders (via find_spec) to get the ModuleSpec for the new path
-    3. Creates a new ModuleSpec with the deprecated name but the new module's loader
-    4. Ensures sys.modules contains aliases for both the old and new paths
-
-    This design allows the standard import machinery (including PathFinder, editable install
-    finders, etc.) to handle the actual module loading, while this finder simply recognizes
-    deprecated paths and translates them to their new locations.
-
-    The finder returns a ModuleSpec (not None) to signal it can handle the import, allowing
-    Python's import system to proceed with loading using the returned spec.
-    """
-
-    def find_spec(self, fullname, path, target=None):
-        """
-        Find and return a ModuleSpec for deprecated module paths.
-
-        Args:
-            fullname: The fully qualified name of the module being imported (e.g.,
-                'sentence_transformers.datasets')
-            path: The parent package's __path__ attribute, used for submodule searches
-            target: The module object that will be the namespace for the loaded module (rarely used)
-
-        Returns:
-            ModuleSpec: A spec that will load the new module but install it as the deprecated name
-            None: If the module path is not in the deprecated paths dictionary
-        """
-        # Check if this exact path is deprecated
-        if fullname in DEPRECATED_MODULE_PATHS:
-            new_name = DEPRECATED_MODULE_PATHS[fullname]
-
-            # Issue deprecation warning
-            warnings.warn(
-                f"Importing from {fullname!r} is deprecated and will be removed in a future version. "
-                f"Please use {new_name!r} instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
-            # Find the spec for the new module path by asking other finders
-            new_spec = find_spec(new_name)
-
-            if new_spec is not None:
-                # Create a new spec with the deprecated name but using the new module's loader,
-                # i.e. "load using this spec, but install as fullname"
-                spec = ModuleSpec(
-                    name=fullname,
-                    loader=new_spec.loader,
-                    origin=new_spec.origin,
-                    is_package=new_spec.submodule_search_locations is not None,
-                )
-                spec.submodule_search_locations = new_spec.submodule_search_locations
-
-                # Also make sure the new module is available so we can alias it later
-                if new_name not in sys.modules:
-                    importlib.import_module(new_name)
-
-                # Set up the alias so both names point to the same module
-                if new_name in sys.modules:
-                    sys.modules[fullname] = sys.modules[new_name]
-
-                return spec
-        return None
 
 
 def setup_deprecated_module_imports() -> None:
     """
-    Install the deprecated module import handler, allowing old imports of renamed/moved
-    files to work with warnings.
+    Set up deprecated module imports by directly aliasing sys.modules entries.
     """
-    sys.meta_path.insert(0, _DeprecatedModuleFinder())
+
+    for old_path, new_path in DEPRECATED_MODULE_PATHS.items():
+        # Import the new module if not already imported
+        if new_path not in sys.modules:
+            try:
+                importlib.import_module(new_path)
+            except ImportError:
+                # If the new module doesn't exist, skip it
+                continue
+
+        sys.modules[old_path] = sys.modules[new_path]
