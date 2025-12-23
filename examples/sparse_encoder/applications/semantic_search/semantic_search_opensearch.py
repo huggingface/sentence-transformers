@@ -16,7 +16,7 @@ import time
 from datasets import load_dataset
 
 from sentence_transformers import SparseEncoder
-from sentence_transformers.models import Router
+from sentence_transformers.base.models import Router
 from sentence_transformers.sparse_encoder.models import MLMTransformer, SparseStaticEmbedding, SpladePooling
 from sentence_transformers.sparse_encoder.search_engines import semantic_search_opensearch
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.base.training_args import BaseTrainingArguments
 
 
-class CrossEncoderTrainingArguments(SentenceTransformerTrainingArguments):
+class CrossEncoderTrainingArguments(BaseTrainingArguments):
     r"""
     CrossEncoderTrainingArguments extends :class:`~transformers.TrainingArguments` with additional arguments
     specific to Sentence Transformers. See :class:`~transformers.TrainingArguments` for the complete list of

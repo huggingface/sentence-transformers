@@ -29,7 +29,7 @@ It is critical **that you choose the right model** for your type of task.
     The more general :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>` method differs in two ways from :meth:`SentenceTransformer.encode_query <sentence_transformers.SentenceTransformer.encode_query>` and :meth:`SentenceTransformer.encode_document <sentence_transformers.SentenceTransformer.encode_document>`:
 
     1. If no ``prompt_name`` or ``prompt`` is provided, it uses a predefined "query" or "document" prompt, if specified in the model's ``prompts`` dictionary.
-    2. It sets the ``task`` to "document". If the model has a :class:`~sentence_transformers.models.Router` module, it will use the "query" or "document" task type to route the input through the appropriate submodules.
+    2. It sets the ``task`` to "document". If the model has a :class:`~sentence_transformers.sentence_transformer.models.Router` module, it will use the "query" or "document" task type to route the input through the appropriate submodules.
 
     Note that :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>` is the most general method and can be used for any task, including Information Retrieval, and that if the model was not trained with predefined prompts and/or task types, then all three methods will return identical embeddings.
 

@@ -9,7 +9,7 @@ from tokenizers import Tokenizer
 from transformers import __version__ as transformers_version
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.models.StaticEmbedding import StaticEmbedding
+from sentence_transformers.sentence_transformer.models.StaticEmbedding import StaticEmbedding
 
 try:
     import model2vec
@@ -34,14 +34,14 @@ def test_initialization_with_embedding_dim(tokenizer: Tokenizer) -> None:
 
 def test_tokenize(static_embedding_model: StaticEmbedding) -> None:
     texts = ["Hello world!", "How are you?"]
-    tokens = static_embedding_model.tokenize(texts)
+    tokens = static_embedding_model.preprocess(texts)
     assert "input_ids" in tokens
     assert "offsets" in tokens
 
 
 def test_forward(static_embedding_model: StaticEmbedding) -> None:
     texts = ["Hello world!", "How are you?"]
-    tokens = static_embedding_model.tokenize(texts)
+    tokens = static_embedding_model.preprocess(texts)
     output = static_embedding_model(tokens)
     assert "sentence_embedding" in output
 

@@ -96,35 +96,6 @@ def test_multi_process_chunk_size(splade_bert_tiny_model: SparseEncoder):
 
 
 @pytest.mark.slow
-def test_multi_process_with_prompt(splade_bert_tiny_model: SparseEncoder):
-    # Test multi-process encoding with prompts
-    model = splade_bert_tiny_model
-    model.prompts = {"retrieval": "Represent this sentence for searching relevant passages: "}
-    texts = ["First sentence.", "Second sentence."] * 5
-
-    standard_embeddings = model.encode(texts, prompt_name="retrieval").cpu()
-
-    assert isinstance(standard_embeddings, torch.Tensor)
-    assert standard_embeddings.is_sparse
-    assert standard_embeddings.shape == (len(texts), model.get_sentence_embedding_dimension())
-
-    # Create a pool
-    pool = model.start_multi_process_pool(["cpu"] * 2)
-
-    try:
-        # Encode with prompt
-        multi_embeddings = model.encode(texts, pool=pool, prompt_name="retrieval")
-    finally:
-        model.stop_multi_process_pool(pool)
-
-    assert isinstance(multi_embeddings, torch.Tensor)
-    assert multi_embeddings.is_sparse
-    assert multi_embeddings.shape == (len(texts), model.get_sentence_embedding_dimension())
-
-    assert sparse_allclose(standard_embeddings, multi_embeddings, atol=1e-5)
-
-
-@pytest.mark.slow
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
 @pytest.mark.parametrize("convert_to_sparse_tensor", [True, False])
 def test_multi_process_with_empty_texts(

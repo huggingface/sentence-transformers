@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 from tqdm import tqdm
 
+from sentence_transformers.base.evaluation.SentenceEvaluator import SentenceEvaluator
 from sentence_transformers.cross_encoder.evaluation.reranking import CrossEncoderRerankingEvaluator
-from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
 from sentence_transformers.util import is_datasets_available
 
 if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+    from sentence_transformers.cross_encoder.model import CrossEncoder
 
 logger = logging.getLogger(__name__)
 

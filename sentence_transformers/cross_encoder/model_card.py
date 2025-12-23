@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from huggingface_hub import ModelCard
 
-from sentence_transformers.model_card import SentenceTransformerModelCardCallback, SentenceTransformerModelCardData
+from sentence_transformers.base.model_card import BaseModelCardCallback, BaseModelCardData
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -16,16 +16,16 @@ if is_datasets_available():
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+    from sentence_transformers.cross_encoder.model import CrossEncoder
 
 
-class CrossEncoderModelCardCallback(SentenceTransformerModelCardCallback):
+class CrossEncoderModelCardCallback(BaseModelCardCallback):
     def __init__(self, default_args_dict: dict[str, Any]) -> None:
         super().__init__(default_args_dict)
 
 
 @dataclass
-class CrossEncoderModelCardData(SentenceTransformerModelCardData):
+class CrossEncoderModelCardData(BaseModelCardData):
     """A dataclass storing data used in the model card.
 
     Args:
@@ -144,8 +144,8 @@ class CrossEncoderModelCardData(SentenceTransformerModelCardData):
         if self.pipeline_tag is None:
             self.pipeline_tag = "text-ranking" if model.num_labels == 1 else "text-classification"
 
-    def tokenize(self, text: str | list[str], **kwargs) -> dict[str, Any]:
-        return self.model.tokenizer(text)
+    # def tokenize(self, text: str | list[str], **kwargs) -> dict[str, Any]:
+    #     return self.model.tokenizer(text)
 
     def run_usage_snippet(self) -> dict[str, Any]:
         # At the moment, we don't run the usage snippet for CrossEncoder models,

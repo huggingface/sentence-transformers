@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor, nn
 
-from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+from sentence_transformers.cross_encoder.model import CrossEncoder
 from sentence_transformers.util import fullname
 
 

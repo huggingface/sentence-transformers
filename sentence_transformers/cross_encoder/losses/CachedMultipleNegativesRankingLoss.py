@@ -9,8 +9,8 @@ import tqdm
 from torch import Tensor, nn
 from torch.utils.checkpoint import get_device_states, set_device_states
 
-from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
 from sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss import MultipleNegativesRankingLoss
+from sentence_transformers.cross_encoder.model import CrossEncoder
 
 
 class RandContext:
