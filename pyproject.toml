@@ -92,6 +92,8 @@ ignore = [
 known-third-party = ["datasets"]
 required-imports = ["from __future__ import annotations"]
 
+[tool.ty.rules]
+unresolved-attribute = "ignore" # Not nicely compatible with 'torch' its custom __setattr__
 
 [tool.pytest.ini_options]
 testpaths = [
