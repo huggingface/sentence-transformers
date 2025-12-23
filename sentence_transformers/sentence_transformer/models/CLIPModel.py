@@ -28,5 +28,5 @@ class CLIPModel(Transformer):
                 "method_output_name": None,
             },
         }
-        module_output_name = "sentence_embeddings"
+        module_output_name = "sentence_embedding"
         return modality_config, module_output_name
