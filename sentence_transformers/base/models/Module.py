@@ -409,3 +409,6 @@ class Module(ABC, torch.nn.Module):
             save_safetensors_model(self, os.path.join(output_path, "model.safetensors"))
         else:
             torch.save(self.state_dict(), os.path.join(output_path, "pytorch_model.bin"))
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.get_config_dict()})"
