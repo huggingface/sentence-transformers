@@ -114,7 +114,7 @@ class MultipleNegativesRankingLoss(nn.Module):
 
         return self.compute_loss_from_embeddings(embeddings, labels)
 
-    def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
+    def compute_loss_from_embeddings(self, embeddings: list[Tensor]) -> Tensor:
         """
         Compute the multiple negatives ranking loss from embeddings.
 
