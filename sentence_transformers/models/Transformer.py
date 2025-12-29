@@ -315,9 +315,6 @@ class Transformer(InputModule):
         except AttributeError:
             text_config = self.model.config
 
-        if hasattr(text_config, "hidden_size"):
-            return text_config.hidden_size
-
         # Try hidden_sizes list (e.g., ResNet, some vision models)
         if hasattr(text_config, "hidden_sizes"):
             if isinstance(text_config.hidden_sizes, list):
