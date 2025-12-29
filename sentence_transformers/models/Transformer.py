@@ -15,7 +15,7 @@ except ImportError:
     from typing_extensions import Self
 
 import torch
-from transformers import AutoConfig, AutoModel, AutoTokenizer, MT5Config, PretrainedConfig, T5Config
+from transformers import AutoConfig, AutoModel, AutoTokenizer, MT5Config, PretrainedConfig, T5Config, T5Gemma2Config
 from transformers.utils.import_utils import is_peft_available
 from transformers.utils.peft_utils import find_adapter_config_file
 
@@ -193,6 +193,8 @@ class Transformer(InputModule):
                 self._load_t5_model(model_name_or_path, config, cache_dir, **model_args)
             elif isinstance(config, MT5Config):
                 self._load_mt5_model(model_name_or_path, config, cache_dir, **model_args)
+            elif isinstance(config, T5Gemma2Config):
+                self._load_mt5_model(model_name_or_path, config, cache_dir, **model_args)
             else:
                 self.auto_model = AutoModel.from_pretrained(
                     model_name_or_path, config=config, cache_dir=cache_dir, **model_args
@@ -229,6 +231,14 @@ class Transformer(InputModule):
 
         MT5EncoderModel._keys_to_ignore_on_load_unexpected = ["decoder.*"]
         self.auto_model = MT5EncoderModel.from_pretrained(
+            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+        )
+
+    def _load_t5gemma2_model(self, model_name_or_path: str, config: T5Gemma2Config, cache_dir: str, **model_args) -> None:
+        """Loads the encoder model from T5Gemma2"""
+        from sentence_transformers.models.overrides import T5Gemma2TextEncoder
+
+        self.auto_model = T5Gemma2TextEncoder.from_pretrained(
             model_name_or_path, config=config, cache_dir=cache_dir, **model_args
         )
 
