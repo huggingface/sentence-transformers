@@ -6,7 +6,7 @@ import math
 # TODO: OrderedDict from typing or typing_dict? Or collections?
 import queue
 from collections import OrderedDict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from multiprocessing import Queue
 from typing import Any, Literal, overload
 
@@ -115,7 +115,7 @@ class CrossEncoder(BaseModel, FitMixin):
         self,
         model_name_or_path: str,
         *,
-        modules: Iterable[nn.Module] | None = None,
+        modules: list[nn.Module] | None = None,
         device: str | None = None,
         cache_folder: str | None = None,
         trust_remote_code: bool = False,
@@ -164,6 +164,7 @@ class CrossEncoder(BaseModel, FitMixin):
             model_card_data=model_card_data,
             backend=backend,
         )
+        self.model_card_data: CrossEncoderModelCardData
 
         # Validate and log prompts
         if self.default_prompt_name is not None and self.default_prompt_name not in self.prompts:

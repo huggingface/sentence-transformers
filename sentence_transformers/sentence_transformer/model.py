@@ -149,6 +149,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             model_card_data=model_card_data,
             backend=backend,
         )
+        self.model_card_data: SentenceTransformerModelCardData
 
         # Validate and log prompts
         if self.default_prompt_name is not None and self.default_prompt_name not in self.prompts:

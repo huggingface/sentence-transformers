@@ -4,7 +4,7 @@ import logging
 import math
 import queue
 from collections import OrderedDict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from multiprocessing import Queue
 from typing import Any, Literal
 
@@ -138,7 +138,7 @@ class SparseEncoder(BaseModel):
         self,
         model_name_or_path: str | None = None,
         *,
-        modules: Iterable[nn.Module] | None = None,
+        modules: list[nn.Module] | None = None,
         device: str | None = None,
         cache_folder: str | None = None,
         trust_remote_code: bool = False,
@@ -169,6 +169,8 @@ class SparseEncoder(BaseModel):
             model_card_data=model_card_data,
             backend=backend,
         )
+        self.model_card_data: SparseEncoderModelCardData
+
         if max_active_dims is not None:
             self.max_active_dims = max_active_dims
         else:
