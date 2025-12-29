@@ -194,7 +194,7 @@ class Transformer(InputModule):
             elif isinstance(config, MT5Config):
                 self._load_mt5_model(model_name_or_path, config, cache_dir, **model_args)
             elif isinstance(config, T5Gemma2Config):
-                self._load_mt5_model(model_name_or_path, config, cache_dir, **model_args)
+                self._load_t5gemma2_model(model_name_or_path, config, cache_dir, **model_args)
             else:
                 self.auto_model = AutoModel.from_pretrained(
                     model_name_or_path, config=config, cache_dir=cache_dir, **model_args
@@ -236,9 +236,9 @@ class Transformer(InputModule):
 
     def _load_t5gemma2_model(self, model_name_or_path: str, config: T5Gemma2Config, cache_dir: str, **model_args) -> None:
         """Loads the encoder model from T5Gemma2"""
-        from sentence_transformers.models.overrides import T5Gemma2TextEncoder
+        from sentence_transformers.models.overrides import T5Gemma2TextEncoderModel
 
-        self.auto_model = T5Gemma2TextEncoder.from_pretrained(
+        self.auto_model = T5Gemma2TextEncoderModel.from_pretrained(
             model_name_or_path, config=config, cache_dir=cache_dir, **model_args
         )
 

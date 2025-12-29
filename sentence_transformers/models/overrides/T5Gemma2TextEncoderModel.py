@@ -1,87 +1,64 @@
 import torch
 import torch.nn as nn
 
-from transformers.utils.generic import check_model_inputs
-from transformers.modeling_outputs import BaseModelOutput
-from transformers.masking_utils import create_bidirectional_mask
-from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
-from transformers.utils.generic import OutputRecorder
 
-from transformers.models.t5gemma2.configuration_t5gemma2 import T5Gemma2Config, T5Gemma2EncoderConfig
+from transformers import  T5Gemma2Config, T5Gemma2EncoderConfig, T5Gemma2PreTrainedModel
+from transformers.utils import can_return_tuple
+from transformers.utils.generic import check_model_inputs
+from transformers.modeling_outputs import BaseModelOutput, Seq2SeqModelOutput
+from transformers.masking_utils import create_bidirectional_mask
+
 from transformers.models.t5gemma2.modeling_t5gemma2 import T5Gemma2SelfAttention, T5Gemma2EncoderLayer, T5Gemma2TextScaledWordEmbedding, T5Gemma2RMSNorm, T5Gemma2RotaryEmbedding, sliding_window_mask_function
 
+class T5Gemma2TextEncoderModel(T5Gemma2PreTrainedModel):
 
-class T5Gemma2PreTrainedModel(PreTrainedModel):
-    config: T5Gemma2Config
-    base_model_prefix = "model"
-    supports_gradient_checkpointing = True
+    def __init__(self, config: T5Gemma2Config):
+        super().__init__(config)
 
-    _no_split_modules = [
-        "T5Gemma2EncoderLayer"
-    ]
-    _skip_keys_device_placement = ["past_key_values"]
+        # setup encoder
+        self.encoder = T5Gemma2TextEncoder(config.encoder, config.eoi_token_index)
 
-    # Mask creation is incompatible
-    # FA due to non-default creation / SWA
-    _supports_flash_attn = False
-    _supports_sdpa = True
-    # Flex due to custom masks not compatible to be merged after creation
-    _supports_flex_attn = False
+        self.post_init()
 
-    _can_compile_fullgraph = True
-    _supports_attention_backend = True
-    _can_record_outputs = {
-        "hidden_states": [T5Gemma2EncoderLayer],
-        "attentions": [
-            OutputRecorder(T5Gemma2SelfAttention, index=1, layer_name="self_attn"),
-        ],
-    }
-    input_modalities = ("text")
+    def get_encoder(self):
+        return self.encoder
 
-    @torch.no_grad()
-    def _init_weights(self, module):
-        super()._init_weights(module)
-        elif isinstance(module, T5Gemma2TextScaledWordEmbedding):
-            init.zeros_(module.eoi_embedding)
-            init.constant_(module.embed_scale, module.scalar_embed_scale)
-        # We initialize with 0s to be 1 centered as the RMSNorm here does (1 + weight)
-        elif "RMSNorm" in module.__class__.__name__:
-            init.zeros_(module.weight)
-        elif isinstance(module, T5Gemma2RotaryEmbedding):
-            for layer_type in module.layer_types:
-                rope_init_fn = module.compute_default_rope_parameters
-                if module.rope_type[layer_type] != "default":
-                    rope_init_fn = ROPE_INIT_FUNCTIONS[module.rope_type[layer_type]]
-                curr_inv_freq, _ = rope_init_fn(module.config, layer_type=layer_type)
-                init.copy_(getattr(module, f"{layer_type}_inv_freq"), curr_inv_freq)
-                init.copy_(getattr(module, f"{layer_type}_original_inv_freq"), curr_inv_freq)
+    def get_input_embeddings(self):
+        return self.encoder.get_input_embeddings()
 
-    def prepare_decoder_input_ids_from_labels(self, input_ids):
+    def set_input_embeddings(self, new_embeddings):
+        return self.encoder.set_input_embeddings(new_embeddings)
+
+    @can_return_tuple
+    def forward(
+        self,
+        # encoder inputs
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        **kwargs: Unpack[TransformersKwargs],
+    ) -> Seq2SeqModelOutput:
+        r"""
+        decoder_position_ids (`torch.LongTensor` of shape `(batch_size, decoder_sequence_length)`, *optional*):
+            Indices of positions of each decoder input sequence tokens in the position embeddings. Selected in the range `[0,
+            config.decoder.n_positions - 1]`. [What are position IDs?](../glossary#position-ids)
         """
-        Shifts input_ids to the right, prepends the decoder_start_token_id, and handles
-        pad_token_id replacement for labels that were -100.
-        This is a common preparation step for decoder inputs in sequence-to-sequence models.
-        """
-        decoder_config = self.config.decoder
-        decoder_start_token_id = decoder_config.bos_token_id
-        pad_token_id = decoder_config.pad_token_id
+        # encoder
+        encoder_outputs = self.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            inputs_embeds=inputs_embeds,
+            return_dict=True,
+            **kwargs,
+        )
 
-        if decoder_start_token_id is None:
-            raise ValueError("self.model.config.decoder.bos_token_id has to be defined. ")
+        return Seq2SeqModelOutput(
+            last_hidden_state=encoder_outputs.last_hidden_state,
+            past_key_values=encoder_outputs.past_key_values,
+        )
 
-        # shift inputs to the right
-        shifted_input_ids = input_ids.new_zeros(input_ids.shape)
-        shifted_input_ids[..., 1:] = input_ids[..., :-1].clone()
-        shifted_input_ids[..., 0] = decoder_start_token_id
-
-        if pad_token_id is None:
-            raise ValueError("self.model.config.decoder.pad_token_id has to be defined.")
-
-        # Is this T5 specific?
-        # replace possible -100 values in labels by `pad_token_id`
-        shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
-
-        return shifted_input_ids
 
 
 class T5Gemma2TextEncoder(T5Gemma2PreTrainedModel):
@@ -130,12 +107,8 @@ class T5Gemma2TextEncoder(T5Gemma2PreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
-        pixel_values: Optional[torch.FloatTensor] = None,
-        # Unused for processor compatibility kept in signature.
-        token_type_ids: Optional[torch.Tensor] = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> BaseModelOutput:
-        del token_type_ids
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
@@ -144,11 +117,6 @@ class T5Gemma2TextEncoder(T5Gemma2PreTrainedModel):
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
-
-        if pixel_values is not None:
-            inputs_embeds = self.preprocess_image_features(
-                pixel_values, input_ids=input_ids, inputs_embeds=inputs_embeds
-            )
 
         if position_ids is None:
             position_ids = torch.arange(0, inputs_embeds.shape[1], device=inputs_embeds.device).unsqueeze(0)
@@ -189,6 +157,7 @@ class T5Gemma2TextEncoder(T5Gemma2PreTrainedModel):
 
         hidden_states = self.norm(hidden_states)
         hidden_states = self.dropout(hidden_states)
+
         return BaseModelOutput(
             last_hidden_state=hidden_states,
         )
