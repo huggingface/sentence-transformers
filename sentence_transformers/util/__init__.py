@@ -11,6 +11,7 @@ from .environment import (
 )
 from .file_io import disabled_tqdm, http_get, is_sentence_transformer_model, load_dir_path, load_file_path
 from .hard_negatives import mine_hard_negatives
+from .logging import LoggingHandler, install_logger
 from .misc import (
     ORIGINAL_TRANSFORMER_MODELS,
     append_to_last_row,
@@ -68,6 +69,9 @@ __all__ = [
     "load_file_path",
     "http_get",
     "disabled_tqdm",
+    # From logging.py
+    "LoggingHandler",
+    "install_logger",
     # From misc.py
     "fullname",
     "import_from_string",

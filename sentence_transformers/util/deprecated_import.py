@@ -16,6 +16,7 @@ DEPRECATED_MODULE_PATHS = {
     "sentence_transformers.peft_mixin": "sentence_transformers.base.peft_mixin",
     "sentence_transformers.model_card": "sentence_transformers.sentence_transformer.model_card",
     "sentence_transformers.data_collator": "sentence_transformers.sentence_transformer.data_collator",
+    "sentence_transformers.LoggingHandler": "sentence_transformers.util.logging",
     "sentence_transformers.datasets": "sentence_transformers.sentence_transformer.datasets",
     "sentence_transformers.datasets.DenoisingAutoEncoderDataset": "sentence_transformers.sentence_transformer.datasets.DenoisingAutoEncoderDataset",
     "sentence_transformers.datasets.NoDuplicatesDataLoader": "sentence_transformers.sentence_transformer.datasets.NoDuplicatesDataLoader",
