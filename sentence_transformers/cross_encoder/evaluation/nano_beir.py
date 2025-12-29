@@ -85,7 +85,7 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
 
         When not specifying the ``dataset_names`` manually, the evaluator will exclude the ``arguana`` and ``touche2020``
         datasets as their Argument Retrieval task differs meaningfully from the other datasets. This differs from
-        :class:`~sentence_transformers.evaluation.NanoBEIREvaluator` and
+        :class:`~sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator` and
         :class:`~sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator`, which include all datasets
         by default.
 

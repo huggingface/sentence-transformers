@@ -120,7 +120,7 @@ if __name__ == "__main__":
         default=DEFAULT_MODEL_NAMES,
         help=(
             "List of models which can be loaded using "
-            "sentence_transformers.SentenceTransformer(). Default: "
+            "sentence_transformers.model.SentenceTransformer(). Default: "
             f"{' '.join(DEFAULT_MODEL_NAMES)}"
         ),
     )

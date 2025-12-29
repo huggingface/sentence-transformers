@@ -48,7 +48,7 @@ Cross Encoder models are initialized by loading a pretrained `transformers <http
 
 .. sidebar:: Documentation
 
-    - :class:`sentence_transformers.cross_encoder.CrossEncoder`
+    - :class:`sentence_transformers.cross_encoder.model.CrossEncoder`
 
 ::
 
@@ -211,7 +211,7 @@ The strongest CrossEncoder models are generally trained to recognize hard negati
 
     * `sentence-transformers/gooaq <https://huggingface.co/datasets/sentence-transformers/gooaq>`_
     * `sentence-transformers/static-retrieval-mrl-en-v1 <https://huggingface.co/sentence-transformers/static-retrieval-mrl-en-v1>`_
-    * :class:`~sentence_transformers.SentenceTransformer`
+    * :class:`~sentence_transformers.model.SentenceTransformer`
     * :func:`~sentence_transformers.util.mine_hard_negatives`
 
 ::
@@ -291,7 +291,7 @@ Loss functions quantify how well a model performs for a given batch of data, all
 Sadly, there is no single loss function that works best for all use-cases. Instead, which loss function to use greatly depends on your available data and on your target task. See [Dataset Format](#dataset-format) to learn what datasets are valid for which loss functions. Additionally, the [Loss Overview](loss_overview) will be your best friend to learn about the options.
 
 ```{eval-rst}
-Most loss functions can be initialized with just the :class:`~sentence_transformers.cross_encoder.CrossEncoder` that you're training, alongside some optional parameters, e.g.:
+Most loss functions can be initialized with just the :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` that you're training, alongside some optional parameters, e.g.:
 
 .. sidebar:: Documentation
 
@@ -644,7 +644,7 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ol class="arabic simple">
-                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.CrossEncoder" title="sentence_transformers.cross_encoder.CrossEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoder</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder" title="sentence_transformers.cross_encoder.model.CrossEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoder</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model_card.CrossEncoderModelCardData" title="sentence_transformers.cross_encoder.model_card.CrossEncoderModelCardData"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderModelCardData</span></code></a></p></li>
                 <li><p><a class="reference external" href="https://huggingface.co/docs/datasets/main/en/package_reference/loading_methods#datasets.load_dataset" title="(in datasets vmain)"><code class="xref py py-func docutils literal notranslate"><span class="pre">load_dataset()</span></code></a></p></li>
                 <li><p><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/gooaq">sentence-transformers/gooaq</a></p></li>
@@ -653,8 +653,8 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/training_args.html#sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments" title="sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderTrainingArguments</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/trainer.html#sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer" title="sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderTrainer</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/trainer.html#sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer.train" title="sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer.train"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoderTrainer.train()</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.CrossEncoder.save_pretrained" title="sentence_transformers.cross_encoder.CrossEncoder.save_pretrained"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.save_pretrained()</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.CrossEncoder.push_to_hub" title="sentence_transformers.cross_encoder.CrossEncoder.push_to_hub"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.push_to_hub()</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained" title="sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.save_pretrained()</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub" title="sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.push_to_hub()</span></code></a></p></li>
             </ol>
         </div>
 
@@ -780,11 +780,11 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ol class="arabic simple">
-                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.CrossEncoder" title="sentence_transformers.cross_encoder.CrossEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoder</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder" title="sentence_transformers.cross_encoder.model.CrossEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoder</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model_card.CrossEncoderModelCardData" title="sentence_transformers.cross_encoder.model_card.CrossEncoderModelCardData"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderModelCardData</span></code></a></p></li>
                 <li><p><a class="reference external" href="https://huggingface.co/docs/datasets/main/en/package_reference/loading_methods#datasets.load_dataset" title="(in datasets vmain)"><code class="xref py py-func docutils literal notranslate"><span class="pre">load_dataset()</span></code></a></p></li>
                 <li><p><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/gooaq">sentence-transformers/gooaq</a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SentenceTransformer" title="sentence_transformers.SentenceTransformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">SentenceTransformer</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.model.SentenceTransformer" title="sentence_transformers.model.SentenceTransformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">SentenceTransformer</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/util.html#sentence_transformers.util.mine_hard_negatives" title="sentence_transformers.util.mine_hard_negatives"><code class="xref py py-class docutils literal notranslate"><span class="pre">mine_hard_negatives</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/losses.html#sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss" title="sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss"><code class="xref py py-class docutils literal notranslate"><span class="pre">BinaryCrossEntropyLoss</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/evaluation.html#sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator" title="sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderNanoBEIREvaluator</span></code></a></p></li>
@@ -793,8 +793,8 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/training_args.html#sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments" title="sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderTrainingArguments</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/trainer.html#sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer" title="sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderTrainer</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/trainer.html#sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer.train" title="sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer.train"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoderTrainer.train()</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.CrossEncoder.save_pretrained" title="sentence_transformers.cross_encoder.CrossEncoder.save_pretrained"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.save_pretrained()</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.CrossEncoder.push_to_hub" title="sentence_transformers.cross_encoder.CrossEncoder.push_to_hub"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.push_to_hub()</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained" title="sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.save_pretrained()</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub" title="sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.push_to_hub()</span></code></a></p></li>
             </ol>
         </div>
 
@@ -1005,7 +1005,7 @@ The top performing models are trained using many datasets at once. Normally, thi
 - Use a dictionary of :class:`~datasets.Dataset` instances (or a :class:`~datasets.DatasetDict`) as the ``train_dataset`` (and optionally also ``eval_dataset``).
 - (Optional) Use a dictionary of loss functions mapping dataset names to losses. Only required if you wish to use different loss function for different datasets.
 
-Each training/evaluation batch will only contain samples from one of the datasets. The order in which batches are samples from the multiple datasets is defined by the :class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers` enum, which can be passed to the :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments` via ``multi_dataset_batch_sampler``. Valid options are:
+Each training/evaluation batch will only contain samples from one of the datasets. The order in which batches are samples from the multiple datasets is defined by the :class:`~sentence_transformers.sentence_transformer.training_args.MultiDatasetBatchSamplers` enum, which can be passed to the :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments` via ``multi_dataset_batch_sampler``. Valid options are:
 
 - ``MultiDatasetBatchSamplers.ROUND_ROBIN``: Round-robin sampling from each dataset until one is exhausted. With this strategy, it’s likely that not all samples from each dataset are used, but each dataset is sampled from equally.
 - ``MultiDatasetBatchSamplers.PROPORTIONAL`` (default): Sample from each dataset in proportion to its size. With this strategy, all samples from each dataset are used and larger datasets are sampled from more frequently.
@@ -1016,17 +1016,17 @@ Each training/evaluation batch will only contain samples from one of the dataset
 ```{eval-rst}
 Cross Encoder models have their own unique quirks, so here's some tips to help you out:
 
-#. :class:`~sentence_transformers.cross_encoder.CrossEncoder` models overfit rather quickly, so it's recommended to use an evaluator like :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator` or :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator` together with the ``load_best_model_at_end`` and ``metric_for_best_model`` training arguments to load the model with the best evaluation performance after training.
-#. :class:`~sentence_transformers.cross_encoder.CrossEncoder` are particularly receptive to strong hard negatives (:func:`~sentence_transformers.util.mine_hard_negatives`). They teach the model to be very strict, useful e.g. when distinguishing between passages that answer a question or passages that relate to a question. 
+#. :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models overfit rather quickly, so it's recommended to use an evaluator like :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator` or :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator` together with the ``load_best_model_at_end`` and ``metric_for_best_model`` training arguments to load the model with the best evaluation performance after training.
+#. :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` are particularly receptive to strong hard negatives (:func:`~sentence_transformers.util.mine_hard_negatives`). They teach the model to be very strict, useful e.g. when distinguishing between passages that answer a question or passages that relate to a question. 
 
-    a. Note that if you only use hard negatives, `your model may unexpectedly perform worse for easier tasks <https://huggingface.co/papers/2411.11767>`_. This can mean that reranking the top 200 results from a first-stage retrieval system (e.g. with a :class:`~sentence_transformers.SentenceTransformer` model) can actually give worse top-10 results than reranking the top 100. Training using random negatives alongside hard negatives can mitigate this.
+    a. Note that if you only use hard negatives, `your model may unexpectedly perform worse for easier tasks <https://huggingface.co/papers/2411.11767>`_. This can mean that reranking the top 200 results from a first-stage retrieval system (e.g. with a :class:`~sentence_transformers.model.SentenceTransformer` model) can actually give worse top-10 results than reranking the top 100. Training using random negatives alongside hard negatives can mitigate this.
 #. Don't underestimate :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`, it remains a very strong option despite being simpler than learning-to-rank (:class:`~sentence_transformers.cross_encoder.losses.LambdaLoss`, :class:`~sentence_transformers.cross_encoder.losses.ListNetLoss`) or in-batch negatives (:class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`, :class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss`) losses, and its data is easy to prepare, especially using :func:`~sentence_transformers.util.mine_hard_negatives`.
 ```
 
 ## Deprecated Training
 
 ```{eval-rst}
-Prior to the Sentence Transformers v4.0 release, models would be trained with the :meth:`CrossEncoder.fit() <sentence_transformers.cross_encoder.CrossEncoder.fit>` method and a :class:`~torch.utils.data.DataLoader` of :class:`~sentence_transformers.sentence_transformer.readers.InputExample`, which looked something like this::
+Prior to the Sentence Transformers v4.0 release, models would be trained with the :meth:`CrossEncoder.fit() <sentence_transformers.cross_encoder.model.CrossEncoder.fit>` method and a :class:`~torch.utils.data.DataLoader` of :class:`~sentence_transformers.sentence_transformer.readers.InputExample`, which looked something like this::
 
     from sentence_transformers import CrossEncoder, InputExample
     from torch.utils.data import DataLoader
@@ -1046,19 +1046,19 @@ Prior to the Sentence Transformers v4.0 release, models would be trained with th
     # Tune the model
     model.fit(train_dataloader=train_dataloader, epochs=1, warmup_steps=100)
 
-Since the v4.0 release, using :meth:`CrossEncoder.fit() <sentence_transformers.cross_encoder.CrossEncoder.fit>` is still possible, but it will initialize a :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` behind the scenes. It is recommended to use the Trainer directly, as you will have more control via the :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments`, but existing training scripts relying on :meth:`CrossEncoder.fit() <sentence_transformers.cross_encoder.CrossEncoder.fit>` should still work.
+Since the v4.0 release, using :meth:`CrossEncoder.fit() <sentence_transformers.cross_encoder.model.CrossEncoder.fit>` is still possible, but it will initialize a :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` behind the scenes. It is recommended to use the Trainer directly, as you will have more control via the :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments`, but existing training scripts relying on :meth:`CrossEncoder.fit() <sentence_transformers.cross_encoder.model.CrossEncoder.fit>` should still work.
 
-In case there are issues with the updated :meth:`CrossEncoder.fit() <sentence_transformers.cross_encoder.CrossEncoder.fit>`, you can also get exactly the old behaviour by calling :meth:`CrossEncoder.old_fit() <sentence_transformers.cross_encoder.CrossEncoder.old_fit>` instead, but this method is planned to be deprecated fully in the future.
+In case there are issues with the updated :meth:`CrossEncoder.fit() <sentence_transformers.cross_encoder.model.CrossEncoder.fit>`, you can also get exactly the old behaviour by calling :meth:`CrossEncoder.old_fit() <sentence_transformers.cross_encoder.model.CrossEncoder.old_fit>` instead, but this method is planned to be deprecated fully in the future.
 
 ```
 
 ## Comparisons with SentenceTransformer Training
 
 ```{eval-rst}
-Training :class:`~sentence_transformers.cross_encoder.CrossEncoder` models is very similar as training :class:`~sentence_transformers.SentenceTransformer` models, with some key differences:
+Training :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models is very similar as training :class:`~sentence_transformers.model.SentenceTransformer` models, with some key differences:
 
-- In :class:`~sentence_transformers.SentenceTransformer` training, you cannot use lists of inputs (e.g. texts) in a column of the training/evaluation dataset(s). For :class:`~sentence_transformers.cross_encoder.CrossEncoder` training, you **can** use (variably sized) lists of texts in a column. This is required for the :class:`~sentence_transformers.cross_encoder.losses.ListNetLoss` class, for example.
+- In :class:`~sentence_transformers.model.SentenceTransformer` training, you cannot use lists of inputs (e.g. texts) in a column of the training/evaluation dataset(s). For :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` training, you **can** use (variably sized) lists of texts in a column. This is required for the :class:`~sentence_transformers.cross_encoder.losses.ListNetLoss` class, for example.
 
-See the `Sentence Transformer > Training Overview <../sentence_transformer/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.SentenceTransformer` models.
+See the `Sentence Transformer > Training Overview <../sentence_transformer/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.model.SentenceTransformer` models.
 
 ```

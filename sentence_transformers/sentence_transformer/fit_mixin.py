@@ -186,8 +186,8 @@ class FitMixin:
     ) -> None:
         """
         Deprecated training method from before Sentence Transformers v3.0, it is recommended to use
-        :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` instead. This method uses
-        :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` behind the scenes, but does
+        :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` instead. This method uses
+        :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` behind the scenes, but does
         not provide as much flexibility as the Trainer itself.
 
         This training approach uses a list of DataLoaders and Loss functions to train the model. Each DataLoader
@@ -196,7 +196,7 @@ class FitMixin:
 
         This method should produce equivalent results in v3.0+ as before v3.0, but if you encounter any issues
         with your existing training scripts, then you may wish to use
-        :meth:`SentenceTransformer.old_fit <sentence_transformers.SentenceTransformer.old_fit>` instead.
+        :meth:`SentenceTransformer.old_fit <sentence_transformers.model.SentenceTransformer.old_fit>` instead.
         That uses the old training method from before v3.0.
 
         Args:
@@ -489,7 +489,7 @@ class FitMixin:
     ) -> None:
         """
         Deprecated training method from before Sentence Transformers v3.0, it is recommended to use
-        :class:`sentence_transformers.trainer.SentenceTransformerTrainer` instead. This method should
+        :class:`sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` instead. This method should
         only be used if you encounter issues with your existing training scripts after upgrading to v3.0+.
 
         This training approach uses a list of DataLoaders and Loss functions to train the model. Each DataLoader

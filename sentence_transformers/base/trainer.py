@@ -72,11 +72,11 @@ class BaseTrainer(Trainer, ABC):
     documentation for more information on the integrated callbacks and how to write your own callbacks.
 
     Args:
-        model (:class:`~sentence_transformers.SentenceTransformer`, *optional*):
+        model (:class:`~sentence_transformers.model.SentenceTransformer`, *optional*):
             The model to train, evaluate or use for predictions. If not provided, a `model_init` must be passed.
-        args (:class:`~sentence_transformers.training_args.BaseTrainingArguments`, *optional*):
+        args (:class:`~sentence_transformers.sentence_transformer.training_args.BaseTrainingArguments`, *optional*):
             The arguments to tweak for training. Will default to a basic instance of
-            :class:`~sentence_transformers.training_args.BaseTrainingArguments` with the
+            :class:`~sentence_transformers.sentence_transformer.training_args.BaseTrainingArguments` with the
             `output_dir` set to a directory named *tmp_trainer* in the current directory if not provided.
         train_dataset (Union[:class:`datasets.Dataset`, :class:`datasets.DatasetDict`, :class:`datasets.IterableDataset`, Dict[str, :class:`datasets.Dataset`]], *optional*):
             The dataset to use for training. Must have a format accepted by your loss function, see
@@ -85,13 +85,13 @@ class BaseTrainer(Trainer, ABC):
             The dataset to use for evaluation. Must have a format accepted by your loss function, see
             `Training Overview > Dataset Format <../../../docs/sentence_transformer/training_overview.html#dataset-format>`_.
         loss (Optional[Union[:class:`torch.nn.Module`, Dict[str, :class:`torch.nn.Module`],\
-            Callable[[:class:`~sentence_transformers.SentenceTransformer`], :class:`torch.nn.Module`],\
-            Dict[str, Callable[[:class:`~sentence_transformers.SentenceTransformer`]]]], *optional*):
+            Callable[[:class:`~sentence_transformers.model.SentenceTransformer`], :class:`torch.nn.Module`],\
+            Dict[str, Callable[[:class:`~sentence_transformers.model.SentenceTransformer`]]]], *optional*):
             The loss function to use for training. Can either be a loss class instance, a dictionary mapping
             dataset names to loss class instances, a function that returns a loss class instance given a model,
             or a dictionary mapping dataset names to functions that return a loss class instance given a model.
             In practice, the latter two are primarily used for hyper-parameter optimization. Will default to
-            :class:`~sentence_transformers.losses.CoSENTLoss` if no ``loss`` is provided.
+            :class:`~sentence_transformers.sentence_transformer.losses.CoSENTLoss` if no ``loss`` is provided.
         evaluator (Union[:class:`~sentence_transformers.sentence_transformer.evaluation.SentenceEvaluator`,\
             List[:class:`~sentence_transformers.sentence_transformer.evaluation.SentenceEvaluator`]], *optional*):
             The evaluator instance for useful evaluation metrics during training. You can use an ``evaluator`` with
@@ -331,9 +331,9 @@ class BaseTrainer(Trainer, ABC):
         Load the data collator for the trainer.
 
         Args:
-            model (:class:`~sentence_transformers.SentenceTransformer`):
+            model (:class:`~sentence_transformers.model.SentenceTransformer`):
                 The model to train, evaluate or use for predictions.
-            args (:class:`~sentence_transformers.training_args.BaseTrainingArguments`):
+            args (:class:`~sentence_transformers.sentence_transformer.training_args.BaseTrainingArguments`):
                 The arguments to tweak for training.
             processing_class (Union[:class:`transformers.PreTrainedTokenizerBase`, :class:`transformers.BaseImageProcessor`, :class:`transformers.FeatureExtractionMixin`, :class:`transformers.ProcessorMixin`], *optional*):
                 The processing class to use for tokenization or image processing.
@@ -351,7 +351,7 @@ class BaseTrainer(Trainer, ABC):
         Add a callback responsible for automatically tracking data required for the automatic model card generation
 
         This method is called in the ``__init__`` method of the
-        :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` class.
+        :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` class.
 
         Args:
             default_args_dict (Dict[str, Any]): A dictionary of the default training arguments, so we can determine

@@ -103,7 +103,7 @@ class BatchHardTripletLoss(nn.Module):
             +------------------+--------+
 
         Recommendations:
-            - Use ``BatchSamplers.GROUP_BY_LABEL`` (:class:`docs <sentence_transformers.training_args.BatchSamplers>`) to
+            - Use ``BatchSamplers.GROUP_BY_LABEL`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`) to
               ensure that each batch contains 2+ examples per label class.
 
         Relations:

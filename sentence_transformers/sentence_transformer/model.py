@@ -22,7 +22,7 @@ from sentence_transformers.base.models import Transformer
 from sentence_transformers.sentence_transformer.models import Pooling
 from sentence_transformers.util import batch_to_device, truncate_embeddings
 from sentence_transformers.util.quantization import quantize_embeddings
-from sentence_transformers.util.similarity_functions import SimilarityFunction
+from sentence_transformers.util.similarity import SimilarityFunction
 
 from .fit_mixin import FitMixin
 from .model_card import SentenceTransformerModelCardData
@@ -64,7 +64,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         model_kwargs (Dict[str, Any], optional): Additional model configuration parameters to be passed to the Hugging Face Transformers model.
         tokenizer_kwargs (Dict[str, Any], optional): Additional tokenizer configuration parameters to be passed to the Hugging Face Transformers tokenizer.
         config_kwargs (Dict[str, Any], optional): Additional model configuration parameters to be passed to the Hugging Face Transformers config.
-        model_card_data (:class:`~sentence_transformers.model_card.SentenceTransformerModelCardData`, optional): A model
+        model_card_data (:class:`~sentence_transformers.sentence_transformer.model_card.SentenceTransformerModelCardData`, optional): A model
             card data object that contains information about the model. This is used to generate a model card when saving
             the model. If not set, a default model card data object is created.
         backend (str): The backend to use for inference. Can be one of "torch" (default), "onnx", or "openvino".
@@ -209,7 +209,7 @@ class SentenceTransformer(BaseModel, FitMixin):
 
         1. If no ``prompt_name`` or ``prompt`` is provided, it uses a predefined "query" prompt,
            if available in the model's ``prompts`` dictionary.
-        2. It sets the ``task`` to "query". If the model has a :class:`~sentence_transformers.sentence_transformer.models.Router`
+        2. It sets the ``task`` to "query". If the model has a :class:`~sentence_transformers.base.models.Router`
            module, it will use the "query" task type to route the input through the appropriate submodules.
         """
         if prompt_name is None and "query" in self.prompts and prompt is None:
@@ -259,7 +259,7 @@ class SentenceTransformer(BaseModel, FitMixin):
 
         1. If no ``prompt_name`` or ``prompt`` is provided, it uses a predefined "document" prompt,
            if available in the model's ``prompts`` dictionary.
-        2. It sets the ``task`` to "document". If the model has a :class:`~sentence_transformers.sentence_transformer.models.Router`
+        2. It sets the ``task`` to "document". If the model has a :class:`~sentence_transformers.base.models.Router`
            module, it will use the "document" task type to route the input through the appropriate submodules.
         """
         if prompt_name is None and prompt is None:

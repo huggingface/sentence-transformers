@@ -21,7 +21,7 @@ from sentence_transformers.sentence_transformer.models import Pooling, Transform
 from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCardData
 from sentence_transformers.sparse_encoder.models import SparseAutoEncoder, SpladePooling
 from sentence_transformers.util import batch_to_device, select_max_active_dims
-from sentence_transformers.util.similarity_functions import SimilarityFunction
+from sentence_transformers.util.similarity import SimilarityFunction
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +202,7 @@ class SparseEncoder(BaseModel):
 
         This method is a specialized version of :meth:`encode` that differs in exactly one way:
 
-        1. It sets the ``task`` to "query". If the model has a :class:`~sentence_transformers.sentence_transformer.models.Router`
+        1. It sets the ``task`` to "query". If the model has a :class:`~sentence_transformers.base.models.Router`
            module, it will use the "query" task type to route the input through the appropriate submodules.
 
         .. tip::
@@ -299,7 +299,7 @@ class SparseEncoder(BaseModel):
 
         This method is a specialized version of :meth:`encode` that differs in exactly one way:
 
-        1. It sets the ``task`` to "document". If the model has a :class:`~sentence_transformers.sentence_transformer.models.Router`
+        1. It sets the ``task`` to "document". If the model has a :class:`~sentence_transformers.base.models.Router`
            module, it will use the "document" task type to route the input through the appropriate submodules.
 
         .. tip::
@@ -761,7 +761,7 @@ class SparseEncoder(BaseModel):
 
     def get_sentence_embedding_dimension(self) -> int | None:
         """
-        Returns the number of dimensions in the output of :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.SparseEncoder.encode>`.
+        Returns the number of dimensions in the output of :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.model.SparseEncoder.encode>`.
         We override the function without updating regarding the truncate dim as for sparse model the dimension of the output
         is the same, only the active dimensions number changes.
 

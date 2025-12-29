@@ -60,7 +60,7 @@ The following table shows the speedup of DDP over DP and no parallelism given a 
 - Model being trained: `microsoft/mpnet-base <https://huggingface.co/microsoft/mpnet-base>`_ (133M parameters)
 - Maximum sequence length: 384 (following `all-mpnet-base-v2 <https://huggingface.co/sentence-transformers/all-mpnet-base-v2>`_)
 - Training datasets: MultiNLI, SNLI and STSB (note: these have short texts)
-- Losses: :class:`~sentence_transformers.losses.SoftmaxLoss` for MultiNLI and SNLI, :class:`~sentence_transformers.losses.CosineSimilarityLoss` for STSB
+- Losses: :class:`~sentence_transformers.sentence_transformer.losses.SoftmaxLoss` for MultiNLI and SNLI, :class:`~sentence_transformers.sentence_transformer.losses.CosineSimilarityLoss` for STSB
 - Batch size per device: 32
 
 .. list-table::

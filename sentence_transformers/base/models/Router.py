@@ -216,8 +216,8 @@ class Router(InputModule):
 
         .. note::
 
-            When training models with the :class:`~sentence_transformers.sentence_transformer.models.Router` module, you must use the
-            ``router_mapping`` argument in the :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`
+            When training models with the :class:`~sentence_transformers.base.models.Router` module, you must use the
+            ``router_mapping`` argument in the :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`
             or :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments` to map the
             training dataset columns to the correct route ("query" or "document"). For example, if your training dataset(s)
             have ``["question", "positive", "negative"]`` columns, then you can use the following mapping::
@@ -232,7 +232,7 @@ class Router(InputModule):
                 )
 
             Additionally, it is common to use a different learning rate for the different routes. For this, you should
-            use the ``learning_rate_mapping`` argument in the :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`
+            use the ``learning_rate_mapping`` argument in the :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`
             or :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments` to map parameter patterns
             to their learning rates. For example, if you want to use a learning rate of ``1e-3`` for an SparseStaticEmbedding module and
             ``2e-5`` for the rest of the model, you can do this::

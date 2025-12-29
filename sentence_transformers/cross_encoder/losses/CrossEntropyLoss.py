@@ -13,7 +13,7 @@ class CrossEntropyLoss(nn.Module):
         output labels.
 
         Args:
-            model (:class:`~sentence_transformers.cross_encoder.CrossEncoder`): A CrossEncoder model to be trained.
+            model (:class:`~sentence_transformers.cross_encoder.model.CrossEncoder`): A CrossEncoder model to be trained.
             activation_fn (:class:`~torch.nn.Module`): Activation function applied to the logits before computing the loss. Defaults to :class:`~torch.nn.Identity`.
             **kwargs: Additional keyword arguments passed to the underlying :class:`torch.nn.CrossEntropyLoss`.
 

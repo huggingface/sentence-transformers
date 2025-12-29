@@ -22,7 +22,7 @@ from sentence_transformers import (
 )
 from sentence_transformers.base.training_args import BatchSamplers
 from sentence_transformers.sparse_encoder import evaluation, losses
-from sentence_transformers.util.similarity_functions import SimilarityFunction
+from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)

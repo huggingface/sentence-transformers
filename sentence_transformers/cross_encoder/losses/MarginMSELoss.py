@@ -23,7 +23,7 @@ class MarginMSELoss(nn.Module):
             logits with Sigmoid to bound them to [0, 1], then you may wish to use a Sigmoid activation function in the loss.
 
         Args:
-            model (:class:`~sentence_transformers.cross_encoder.CrossEncoder`): A CrossEncoder model to be trained.
+            model (:class:`~sentence_transformers.cross_encoder.model.CrossEncoder`): A CrossEncoder model to be trained.
             activation_fn (:class:`~torch.nn.Module`): Activation function applied to the logits before computing the loss.
             **kwargs: Additional keyword arguments passed to the underlying :class:`torch.nn.MSELoss`.
 

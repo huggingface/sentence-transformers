@@ -1,6 +1,6 @@
 # quantization
 
-`sentence_transformers.quantization` defines different helpful functions to perform embedding quantization.
+`sentence_transformers.util.quantization` defines different helpful functions to perform embedding quantization.
 
 ```{eval-rst}
 .. note::
@@ -8,6 +8,6 @@
 ```
 
 ```{eval-rst}
-.. automodule:: sentence_transformers.quantization
+.. automodule:: sentence_transformers.util.quantization
    :members: quantize_embeddings, semantic_search_faiss, semantic_search_usearch
 ```

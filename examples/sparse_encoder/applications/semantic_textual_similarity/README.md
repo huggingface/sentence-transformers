@@ -5,9 +5,9 @@ For Semantic Textual Similarity (STS), we want to generate sparse embeddings for
 ```{eval-rst}
 .. sidebar:: Documentation
 
-   1. :class:`SparseEncoder <sentence_transformers.sparse_encoder.SparseEncoder>`
-   2. :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.SparseEncoder.encode>`
-   3. :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.SparseEncoder.similarity>`
+   1. :class:`SparseEncoder <sentence_transformers.sparse_encoder.model.SparseEncoder>`
+   2. :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.model.SparseEncoder.encode>`
+   3. :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity>`
 
 ::
 
@@ -58,13 +58,13 @@ For Semantic Textual Similarity (STS), we want to generate sparse embeddings for
     - The new movie is so great     : 0.0316
     - A woman watches TV            : 1.5672
 
-In this example, the :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.SparseEncoder.similarity>` method returns a 3x3 matrix with the respective cosine similarity scores for all possible pairs between ``embeddings1`` and ``embeddings2``.
+In this example, the :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity>` method returns a 3x3 matrix with the respective cosine similarity scores for all possible pairs between ``embeddings1`` and ``embeddings2``.
 ```
 
 ### Similarity Calculation
 
 ```{eval-rst}
-The similarity metric that is used is stored in the SparseEncoder instance under :attr:`SparseEncoder.similarity_fn_name <sentence_transformers.sparse_encoder.SparseEncoder.similarity_fn_name>`. Valid options are:
+The similarity metric that is used is stored in the SparseEncoder instance under :attr:`SparseEncoder.similarity_fn_name <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity_fn_name>`. Valid options are:
 
 - ``SimilarityFunction.DOT_PRODUCT`` (a.k.a `"dot"`): Dot Product (**default**)
 - ``SimilarityFunction.COSINE`` (a.k.a `"cosine"`): Cosine Similarity
@@ -73,7 +73,7 @@ The similarity metric that is used is stored in the SparseEncoder instance under
 
 This value can be changed in a handful of ways:
 
-1. By initializing the :class:`~sentence_transformers.sparse_encoder.SparseEncoder` instance with the desired similarity function::
+1. By initializing the :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` instance with the desired similarity function::
 
     from sentence_transformers import SparseEncoder, SimilarityFunction
 
@@ -82,7 +82,7 @@ This value can be changed in a handful of ways:
         similarity_fn_name=SimilarityFunction.COSINE,
     )
 
-2. By setting the value directly on the :class:`~sentence_transformers.sparse_encoder.SparseEncoder` instance::
+2. By setting the value directly on the :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` instance::
 
     from sentence_transformers import SparseEncoder, SimilarityFunction
 
@@ -92,10 +92,10 @@ This value can be changed in a handful of ways:
 
 3. By setting the value under the ``"similarity_fn_name"`` key in the ``config_sentence_transformers.json`` file of a saved model. When you save a Sparse Encoder model, this value will be automatically saved as well.
 
-The :class:`~sentence_transformers.sparse_encoder.SparseEncoder` class implements two methods to calculate the similarity between embeddings:
+The :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` class implements two methods to calculate the similarity between embeddings:
 
-- :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.SparseEncoder.similarity>`: Calculates the similarity between all pairs of embeddings.
-- :meth:`SparseEncoder.similarity_pairwise <sentence_transformers.sparse_encoder.SparseEncoder.similarity_pairwise>`: Calculates the similarity between embeddings in a pairwise fashion.
+- :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity>`: Calculates the similarity between all pairs of embeddings.
+- :meth:`SparseEncoder.similarity_pairwise <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity_pairwise>`: Calculates the similarity between embeddings in a pairwise fashion.
 
 ::
 

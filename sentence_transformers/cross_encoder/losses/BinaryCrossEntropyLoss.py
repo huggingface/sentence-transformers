@@ -22,7 +22,7 @@ class BinaryCrossEntropyLoss(nn.Module):
         It has been used to train many of the strong `CrossEncoder MS MARCO Reranker models <https://huggingface.co/models?author=cross-encoder&search=marco>`_.
 
         Args:
-            model (:class:`~sentence_transformers.cross_encoder.CrossEncoder`): A CrossEncoder model to be trained.
+            model (:class:`~sentence_transformers.cross_encoder.model.CrossEncoder`): A CrossEncoder model to be trained.
             activation_fn (:class:`~torch.nn.Module`): Activation function applied to the logits before computing the loss. Defaults to :class:`~torch.nn.Identity`.
             pos_weight (Tensor, optional): A weight of positive examples. Must be a :class:`torch.Tensor` like ``torch.tensor(4)`` for a weight of 4. Defaults to None.
             **kwargs: Additional keyword arguments passed to the underlying :class:`torch.nn.BCEWithLogitsLoss`.

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Union
 
+from sentence_transformers.base.sampler import BatchSamplers, MultiDatasetBatchSamplers
 from sentence_transformers.base.training_args import BaseTrainingArguments
 
 
@@ -16,11 +17,11 @@ class SentenceTransformerTrainingArguments(BaseTrainingArguments):
     Args:
         output_dir (`str`):
             The output directory where the model checkpoints will be written.
-        batch_sampler (Union[:class:`~sentence_transformers.training_args.BatchSamplers`, `str`, :class:`~sentence_transformers.sampler.DefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.sampler.DefaultBatchSampler`]], *optional*):
-            The batch sampler to use. See :class:`~sentence_transformers.training_args.BatchSamplers` for valid options.
+        batch_sampler (Union[:class:`~sentence_transformers.sentence_transformer.training_args.BatchSamplers`, `str`, :class:`~sentence_transformers.base.sampler.DefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.base.sampler.DefaultBatchSampler`]], *optional*):
+            The batch sampler to use. See :class:`~sentence_transformers.sentence_transformer.training_args.BatchSamplers` for valid options.
             Defaults to ``BatchSamplers.BATCH_SAMPLER``.
-        multi_dataset_batch_sampler (Union[:class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`, `str`, :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler`]], *optional*):
-            The multi-dataset batch sampler to use. See :class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`
+        multi_dataset_batch_sampler (Union[:class:`~sentence_transformers.sentence_transformer.training_args.MultiDatasetBatchSamplers`, `str`, :class:`~sentence_transformers.base.sampler.MultiDatasetDefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.base.sampler.MultiDatasetDefaultBatchSampler`]], *optional*):
+            The multi-dataset batch sampler to use. See :class:`~sentence_transformers.sentence_transformer.training_args.MultiDatasetBatchSamplers`
             for valid options. Defaults to ``MultiDatasetBatchSamplers.PROPORTIONAL``.
         learning_rate_mapping (`Dict[str, float] | None`, *optional*):
             A mapping of parameter name regular expressions to learning rates. This allows you to set different
@@ -83,3 +84,6 @@ class SentenceTransformerTrainingArguments(BaseTrainingArguments):
                 "The `router_mapping` argument must be a dictionary mapping dataset column names to Router routes, "
                 "like 'query' or 'document'. A stringified dictionary also works."
             )
+
+
+__all__ = ["SentenceTransformerTrainingArguments", "BatchSamplers", "MultiDatasetBatchSamplers"]

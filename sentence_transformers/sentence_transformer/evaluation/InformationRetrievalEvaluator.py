@@ -13,7 +13,7 @@ from torch import Tensor
 from tqdm import trange
 
 from sentence_transformers.base.evaluation.SentenceEvaluator import SentenceEvaluator
-from sentence_transformers.util.similarity_functions import SimilarityFunction
+from sentence_transformers.util.similarity import SimilarityFunction
 
 if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.model import SentenceTransformer

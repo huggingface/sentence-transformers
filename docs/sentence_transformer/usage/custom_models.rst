@@ -40,7 +40,7 @@ Whenever a Sentence Transformer model is saved, three types of files are generat
   
   means that the :class:`~sentence_transformers.sentence_transformer.models.Transformer` module will be initialized with ``max_seq_length=4096`` and ``do_lower_case=False``.
 
-As a result, if I call :meth:`SentenceTransformer.save_pretrained("local-all-MiniLM-L6-v2") <sentence_transformers.SentenceTransformer.save_pretrained>` on the ``model`` from the previous snippet, the following files are generated:
+As a result, if I call :meth:`SentenceTransformer.save_pretrained("local-all-MiniLM-L6-v2") <sentence_transformers.model.SentenceTransformer.save_pretrained>` on the ``model`` from the previous snippet, the following files are generated:
 
 .. code-block:: bash
 
@@ -242,7 +242,7 @@ This can now be used as a module in a Sentence Transformer model::
    print(embeddings.shape)
    # [5, 768]
 
-You can save this model with :meth:`SentenceTransformer.save_pretrained <sentence_transformers.SentenceTransformer.save_pretrained>`, resulting in a ``modules.json`` of::
+You can save this model with :meth:`SentenceTransformer.save_pretrained <sentence_transformers.model.SentenceTransformer.save_pretrained>`, resulting in a ``modules.json`` of::
 
    [
      {
@@ -265,7 +265,7 @@ You can save this model with :meth:`SentenceTransformer.save_pretrained <sentenc
      }
    ]
 
-To ensure that ``decay_pooling.DecayMeanPooling`` can be imported, you should copy over the ``decay_pooling.py`` file to the directory where you saved the model. If you push the model to the `Hugging Face Hub <https://huggingface.co/models>`_, then you should also upload the ``decay_pooling.py`` file to the model's repository. Then, everyone can use your custom module by calling :meth:`SentenceTransformer("your-username/your-model-id", trust_remote_code=True) <sentence_transformers.SentenceTransformer>`.
+To ensure that ``decay_pooling.DecayMeanPooling`` can be imported, you should copy over the ``decay_pooling.py`` file to the directory where you saved the model. If you push the model to the `Hugging Face Hub <https://huggingface.co/models>`_, then you should also upload the ``decay_pooling.py`` file to the model's repository. Then, everyone can use your custom module by calling :meth:`SentenceTransformer("your-username/your-model-id", trust_remote_code=True) <sentence_transformers.model.SentenceTransformer>`.
 
 .. note::
 
@@ -297,7 +297,7 @@ If you have your models and custom modelling code on the Hugging Face Hub, then 
 Advanced: Keyword argument passthrough in Custom Modules
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If you want your users to be able to specify custom keyword arguments via the :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>` method, then you can add their names to the ``modules.json`` file. For example, if my module should behave differently if your users specify a ``task`` keyword argument, then your ``modules.json`` might look like::
+If you want your users to be able to specify custom keyword arguments via the :meth:`SentenceTransformer.encode <sentence_transformers.model.SentenceTransformer.encode>` method, then you can add their names to the ``modules.json`` file. For example, if my module should behave differently if your users specify a ``task`` keyword argument, then your ``modules.json`` might look like::
 
    [
      {
@@ -333,7 +333,7 @@ Then, you can access the ``task`` keyword argument in the ``forward`` method of 
                # Do something else
            return features
 
-This way, users can specify the ``task`` keyword argument when calling :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>`::
+This way, users can specify the ``task`` keyword argument when calling :meth:`SentenceTransformer.encode <sentence_transformers.model.SentenceTransformer.encode>`::
 
    from sentence_transformers import SentenceTransformer
 

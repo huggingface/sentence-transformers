@@ -15,7 +15,7 @@ class MarginMSELoss(nn.Module):
         Compute the MSE loss between the ``|sim(Query, Pos) - sim(Query, Neg)|`` and ``|gold_sim(Query, Pos) - gold_sim(Query, Neg)|``.
         By default, sim() is the dot-product. The gold_sim is often the similarity score from a teacher model.
 
-        In contrast to :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, the two passages do not
+        In contrast to :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, the two passages do not
         have to be strictly positive and negative, both can be relevant or not relevant for a given query. This can be
         an advantage of MarginMSELoss over MultipleNegativesRankingLoss, but note that the MarginMSELoss is much slower
         to train. With MultipleNegativesRankingLoss, with a batch size of 64, we compare one query against 128 passages.

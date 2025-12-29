@@ -9,7 +9,7 @@
 .. autoclass:: sentence_transformers.sentence_transformer.models.Pooling
 .. autoclass:: sentence_transformers.sentence_transformer.models.Dense
 .. autoclass:: sentence_transformers.sentence_transformer.models.Normalize
-.. autoclass:: sentence_transformers.sentence_transformer.models.Router
+.. autoclass:: sentence_transformers.base.models.Router
     :members: for_query_document
 .. autoclass:: sentence_transformers.sentence_transformer.models.StaticEmbedding
     :members: from_model2vec, from_distillation

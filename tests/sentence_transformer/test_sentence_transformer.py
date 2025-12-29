@@ -41,7 +41,7 @@ from sentence_transformers.sentence_transformer.models import (
     Transformer,
     WeightedLayerPooling,
 )
-from sentence_transformers.util.similarity_functions import SimilarityFunction
+from sentence_transformers.util.similarity import SimilarityFunction
 from tests.utils import is_ci
 
 

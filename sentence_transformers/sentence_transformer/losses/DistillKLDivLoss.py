@@ -44,7 +44,7 @@ class DistillKLDivLoss(nn.Module):
             +------------------------------------------------+------------------------------------------------------------+
 
         Relations:
-            - Similar to :class:`~sentence_transformers.losses.MarginMSELoss` but uses KL divergence instead of MSE
+            - Similar to :class:`~sentence_transformers.sentence_transformer.losses.MarginMSELoss` but uses KL divergence instead of MSE
             - More suited for distillation tasks where preserving ranking is important
 
         Example:

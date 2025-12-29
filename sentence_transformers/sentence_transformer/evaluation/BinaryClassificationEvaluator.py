@@ -16,7 +16,7 @@ from sentence_transformers.util import (
     pairwise_euclidean_sim,
     pairwise_manhattan_sim,
 )
-from sentence_transformers.util.similarity_functions import SimilarityFunction
+from sentence_transformers.util.similarity import SimilarityFunction
 
 if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.model import SentenceTransformer

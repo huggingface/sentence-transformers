@@ -2,7 +2,7 @@
 Hyperparameter Optimization
 ===========================
 
-The :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` supports hyperparameter optimization using ``transformers``, which in turn supports four hyperparameter search backends: `optuna <https://optuna.org/>`_, `sigopt <https://sigopt.org/>`_, `raytune <https://docs.ray.io/en/latest/tune/index.html>`_, and `wandb <https://wandb.ai/site/sweeps>`_. You should install your backend of choice before using it::
+The :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` supports hyperparameter optimization using ``transformers``, which in turn supports four hyperparameter search backends: `optuna <https://optuna.org/>`_, `sigopt <https://sigopt.org/>`_, `raytune <https://docs.ray.io/en/latest/tune/index.html>`_, and `wandb <https://wandb.ai/site/sweeps>`_. You should install your backend of choice before using it::
 
     pip install optuna/sigopt/wandb/ray[tune] 
 
@@ -81,7 +81,7 @@ The compute objective function is a function that takes the evaluation ``metrics
 Putting It All Together
 ------------------------
 
-You can perform HPO on any regular training loop, the only difference being that you don't call :meth:`SentenceTransformerTrainer.train <sentence_transformers.trainer.SentenceTransformerTrainer.train>`, but :meth:`SentenceTransformerTrainer.hyperparameter_search <sentence_transformers.trainer.SentenceTransformerTrainer.hyperparameter_search>` instead. Here's an example of how to put it all together:
+You can perform HPO on any regular training loop, the only difference being that you don't call :meth:`SentenceTransformerTrainer.train <sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer.train>`, but :meth:`SentenceTransformerTrainer.hyperparameter_search <sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer.hyperparameter_search>` instead. Here's an example of how to put it all together:
 
 .. sidebar:: Documentation
 
@@ -91,16 +91,16 @@ You can perform HPO on any regular training loop, the only difference being that
     #. `Model Initialization <#model-initialization>`_
     #. `Loss Initialization <#loss-initialization>`_
     #. `Compute Objective <#compute-objective>`_
-    #. :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`
-    #. :class:`~sentence_transformers.trainer.SentenceTransformerTrainer`
-    #. :meth:`~sentence_transformers.trainer.SentenceTransformerTrainer.hyperparameter_search`
+    #. :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`
+    #. :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer`
+    #. :meth:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer.hyperparameter_search`
 
 ::
 
     from sentence_transformers import losses
     from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
     from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
-    from sentence_transformers.training_args import BatchSamplers
+    from sentence_transformers.sentence_transformer.training_args import BatchSamplers
     from datasets import load_dataset
 
     # 1. Load the AllNLI dataset: https://huggingface.co/datasets/sentence-transformers/all-nli, only 10k train and 1k dev

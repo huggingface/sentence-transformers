@@ -9,7 +9,7 @@ DEPRECATED_MODULE_PATHS = {
     "sentence_transformers.sparse_encoder.SparseEncoder": "sentence_transformers.sparse_encoder.model",
     "sentence_transformers.cross_encoder.CrossEncoder": "sentence_transformers.cross_encoder.model",
     "sentence_transformers.quantization": "sentence_transformers.util.quantization",
-    "sentence_transformers.similarity_functions": "sentence_transformers.util.similarity_functions",
+    "sentence_transformers.similarity_functions": "sentence_transformers.util.similarity",
     "sentence_transformers.training_args": "sentence_transformers.sentence_transformer.training_args",
     "sentence_transformers.trainer": "sentence_transformers.sentence_transformer.trainer",
     "sentence_transformers.sampler": "sentence_transformers.base.sampler",

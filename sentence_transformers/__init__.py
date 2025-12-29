@@ -35,7 +35,7 @@ from sentence_transformers.sparse_encoder import (
 from sentence_transformers.util import mine_hard_negatives
 from sentence_transformers.util.deprecated_import import setup_deprecated_module_imports
 from sentence_transformers.util.quantization import quantize_embeddings
-from sentence_transformers.util.similarity_functions import SimilarityFunction
+from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set up backward compatibility for moved/renamed modules
 setup_deprecated_module_imports()

@@ -33,7 +33,7 @@ from sentence_transformers import LoggingHandler, SentenceTransformer, evaluatio
 from sentence_transformers.base.trainer import SentenceTransformerTrainer
 from sentence_transformers.base.training_args import BaseTrainingArguments
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.util.similarity_functions import SimilarityFunction
+from sentence_transformers.util.similarity import SimilarityFunction
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(

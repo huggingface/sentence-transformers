@@ -97,7 +97,7 @@ class CrossEncoder(BaseModel, FitMixin):
             See the `AutoConfig.from_pretrained
             <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoConfig.from_pretrained>`_
             documentation for more details. For example, you can set ``classifier_dropout`` via this parameter.
-        model_card_data (:class:`~sentence_transformers.model_card.SentenceTransformerModelCardData`, optional): A model
+        model_card_data (:class:`~sentence_transformers.sentence_transformer.model_card.SentenceTransformerModelCardData`, optional): A model
             card data object that contains information about the model. This is used to generate a model card when saving
             the model. If not set, a default model card data object is created.
         backend (str): The backend to use for inference. Can be one of "torch" (default), "onnx", or "openvino".

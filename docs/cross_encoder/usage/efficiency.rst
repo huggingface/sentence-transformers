@@ -145,14 +145,14 @@ All keyword arguments passed via ``model_kwargs`` will be passed on to :meth:`OR
 
 .. tip::
 
-   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.cross_encoder.CrossEncoder.save_pretrained>` if your model was local:
+   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained>` if your model was local:
 
    .. code-block:: python
 
       model = CrossEncoder("path/to/my/model", backend="onnx")
       model.save_pretrained("path/to/my/model")
    
-   or with :meth:`model.push_to_hub() <sentence_transformers.cross_encoder.CrossEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
+   or with :meth:`model.push_to_hub() <sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
 
    .. code-block:: python
 
@@ -354,14 +354,14 @@ If the model path or repository already contains a model in OpenVINO format, Sen
 
 .. tip::
 
-   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.cross_encoder.CrossEncoder.save_pretrained>` if your model was local:
+   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained>` if your model was local:
 
    .. code-block:: python
 
       model = CrossEncoder("path/to/my/model", backend="openvino")
       model.save_pretrained("path/to/my/model")
    
-   or with :meth:`model.push_to_hub() <sentence_transformers.cross_encoder.CrossEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
+   or with :meth:`model.push_to_hub() <sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
 
    .. code-block:: python
 

@@ -14,7 +14,7 @@ from sentence_transformers.sentence_transformer.evaluation.InformationRetrievalE
     InformationRetrievalEvaluator,
 )
 from sentence_transformers.util import is_datasets_available
-from sentence_transformers.util.similarity_functions import SimilarityFunction
+from sentence_transformers.util.similarity import SimilarityFunction
 
 if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
@@ -64,7 +64,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
     which reformats the `original collection <https://huggingface.co/collections/zeta-alpha-ai/nanobeir>`_ from Zeta Alpha
     into the default `NanoBEIR-en <https://huggingface.co/datasets/sentence-transformers/NanoBEIR-en>`_ dataset,
     alongside many translated versions.
-    This evaluator reports the same metrics as the :class:`~sentence_transformers.evaluation.InformationRetrievalEvaluator`
+    This evaluator reports the same metrics as the :class:`~sentence_transformers.sentence_transformer.evaluation.InformationRetrievalEvaluator`
     (e.g., MRR, nDCG, Recall@k) for each dataset individually, as well as aggregated across all datasets.
 
     Args:
@@ -194,7 +194,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
             from pprint import pprint
 
             from sentence_transformers import SentenceTransformer
-            from sentence_transformers.evaluation import NanoBEIREvaluator
+            from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
 
             logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 

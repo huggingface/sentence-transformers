@@ -259,4 +259,4 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/package_reference/sentence_transformer/index
    docs/package_reference/cross_encoder/index
    docs/package_reference/sparse_encoder/index
-   docs/package_reference/util
+   docs/package_reference/util/index

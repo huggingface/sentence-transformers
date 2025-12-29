@@ -291,6 +291,7 @@ def test_router_backwards_compatibility(static_embedding_model):
                 "sentence_transformers.sentence_transformer.models.Asym",
                 "sentence_transformers.sentence_transformer.models.Router",
                 "sentence_transformers.sentence_transformer.models",
+                "sentence_transformers.base.models.Router",
             ],
             [Asym, Router],
         ),

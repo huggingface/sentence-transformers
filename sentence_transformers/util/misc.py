@@ -25,7 +25,7 @@ def fullname(obj) -> str:
         >>> model = SentenceTransformer('all-MiniLM-L6-v2')
         >>> loss = MultipleNegativesRankingLoss(model)
         >>> fullname(loss)
-        'sentence_transformers.losses.MultipleNegativesRankingLoss.MultipleNegativesRankingLoss'
+        'sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss.MultipleNegativesRankingLoss'
     """
     if not isclass(obj):
         obj = obj.__class__
@@ -50,8 +50,8 @@ def import_from_string(dotted_path: str) -> type:
         ImportError: If the import failed.
 
     Example:
-        >>> import_from_string('sentence_transformers.losses.MultipleNegativesRankingLoss')
-        <class 'sentence_transformers.losses.MultipleNegativesRankingLoss.MultipleNegativesRankingLoss'>
+        >>> import_from_string('sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss')
+        <class 'sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss.MultipleNegativesRankingLoss'>
     """
     try:
         module_path, class_name = dotted_path.rsplit(".", 1)

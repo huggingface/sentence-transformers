@@ -12,4 +12,3 @@ Sentence Transformer
    evaluation
    datasets
    models
-   quantization

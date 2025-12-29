@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     import numpy as np
 
     from sentence_transformers.sparse_encoder.model import SparseEncoder
-    from sentence_transformers.util.similarity_functions import SimilarityFunction
+    from sentence_transformers.util.similarity import SimilarityFunction
 
 
 logger = logging.getLogger(__name__)

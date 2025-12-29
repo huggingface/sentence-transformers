@@ -26,40 +26,40 @@ class BatchSamplers(ExplicitEnum):
     The batch sampler is responsible for determining how samples are grouped into batches during training.
     Valid options are:
 
-    - ``BatchSamplers.BATCH_SAMPLER``: **[default]** Uses :class:`~sentence_transformers.sampler.DefaultBatchSampler`, the default
+    - ``BatchSamplers.BATCH_SAMPLER``: **[default]** Uses :class:`~sentence_transformers.base.sampler.DefaultBatchSampler`, the default
       PyTorch batch sampler.
-    - ``BatchSamplers.NO_DUPLICATES``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`,
+    - ``BatchSamplers.NO_DUPLICATES``: Uses :class:`~sentence_transformers.base.sampler.NoDuplicatesBatchSampler`,
       ensuring no duplicate samples in a batch. Recommended for losses that use in-batch negatives, such as:
 
-        - :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`
-        - :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss`
-        - :class:`~sentence_transformers.losses.MultipleNegativesSymmetricRankingLoss`
-        - :class:`~sentence_transformers.losses.CachedMultipleNegativesSymmetricRankingLoss`
-        - :class:`~sentence_transformers.losses.MegaBatchMarginLoss`
-        - :class:`~sentence_transformers.losses.GISTEmbedLoss`
-        - :class:`~sentence_transformers.losses.CachedGISTEmbedLoss`
-    - ``BatchSamplers.GROUP_BY_LABEL``: Uses :class:`~sentence_transformers.sampler.GroupByLabelBatchSampler`,
+        - :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesSymmetricRankingLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesSymmetricRankingLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.MegaBatchMarginLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.GISTEmbedLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.CachedGISTEmbedLoss`
+    - ``BatchSamplers.GROUP_BY_LABEL``: Uses :class:`~sentence_transformers.base.sampler.GroupByLabelBatchSampler`,
       ensuring that each batch has 2+ samples from the same label. Recommended for losses that require multiple
       samples from the same label, such as:
 
-        - :class:`~sentence_transformers.losses.BatchAllTripletLoss`
-        - :class:`~sentence_transformers.losses.BatchHardSoftMarginTripletLoss`
-        - :class:`~sentence_transformers.losses.BatchHardTripletLoss`
-        - :class:`~sentence_transformers.losses.BatchSemiHardTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchAllTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchHardSoftMarginTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchHardTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchSemiHardTripletLoss`
 
     If you want to use a custom batch sampler, then you can subclass
-    :class:`~sentence_transformers.sampler.DefaultBatchSampler` and pass the class (not an instance) to the
-    ``batch_sampler`` argument in :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`
+    :class:`~sentence_transformers.base.sampler.DefaultBatchSampler` and pass the class (not an instance) to the
+    ``batch_sampler`` argument in :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`
     (or :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments`, etc.).
     Alternatively, you can pass a function that accepts ``dataset``, ``batch_size``, ``drop_last``,
     ``valid_label_columns``, ``generator``, and ``seed`` and returns a
-    :class:`~sentence_transformers.sampler.DefaultBatchSampler` instance.
+    :class:`~sentence_transformers.base.sampler.DefaultBatchSampler` instance.
 
     Usage:
         ::
 
             from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
-            from sentence_transformers.training_args import BatchSamplers
+            from sentence_transformers.sentence_transformer.training_args import BatchSamplers
             from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
             from datasets import Dataset
 
@@ -94,27 +94,27 @@ class MultiDatasetBatchSamplers(ExplicitEnum):
     The multi-dataset batch sampler is responsible for determining in what order batches are sampled from multiple
     datasets during training. Valid options are:
 
-    - ``MultiDatasetBatchSamplers.ROUND_ROBIN``: Uses :class:`~sentence_transformers.sampler.RoundRobinBatchSampler`,
+    - ``MultiDatasetBatchSamplers.ROUND_ROBIN``: Uses :class:`~sentence_transformers.base.sampler.RoundRobinBatchSampler`,
       which uses round-robin sampling from each dataset until one is exhausted.
       With this strategy, it's likely that not all samples from each dataset are used, but each dataset is sampled
       from equally.
-    - ``MultiDatasetBatchSamplers.PROPORTIONAL``: **[default]** Uses :class:`~sentence_transformers.sampler.ProportionalBatchSampler`,
+    - ``MultiDatasetBatchSamplers.PROPORTIONAL``: **[default]** Uses :class:`~sentence_transformers.base.sampler.ProportionalBatchSampler`,
       which samples from each dataset in proportion to its size.
       With this strategy, all samples from each dataset are used and larger datasets are sampled from more frequently.
 
     If you want to use a custom multi-dataset batch sampler, then you can subclass
-    :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler` and pass the class (not an instance) to the
-    ``multi_dataset_batch_sampler`` argument in :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`.
+    :class:`~sentence_transformers.base.sampler.MultiDatasetDefaultBatchSampler` and pass the class (not an instance) to the
+    ``multi_dataset_batch_sampler`` argument in :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`.
     (or :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments`, etc.). Alternatively,
     you can pass a function that accepts ``dataset`` (a :class:`~torch.utils.data.ConcatDataset`), ``batch_samplers``
     (i.e. a list of batch sampler for each of the datasets in the :class:`~torch.utils.data.ConcatDataset`), ``generator``,
-    and ``seed`` and returns a :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler` instance.
+    and ``seed`` and returns a :class:`~sentence_transformers.base.sampler.MultiDatasetDefaultBatchSampler` instance.
 
     Usage:
         ::
 
             from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
-            from sentence_transformers.training_args import MultiDatasetBatchSamplers
+            from sentence_transformers.sentence_transformer.training_args import MultiDatasetBatchSamplers
             from sentence_transformers.sentence_transformer.losses import CoSENTLoss
             from datasets import Dataset, DatasetDict
 
@@ -214,10 +214,10 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
     require that each batch contains at least 2 examples per label class.
 
     Recommended for:
-        - :class:`~sentence_transformers.losses.BatchAllTripletLoss`
-        - :class:`~sentence_transformers.losses.BatchHardSoftMarginTripletLoss`
-        - :class:`~sentence_transformers.losses.BatchHardTripletLoss`
-        - :class:`~sentence_transformers.losses.BatchSemiHardTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchAllTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchHardSoftMarginTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchHardTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchSemiHardTripletLoss`
 
     Args:
         dataset (Dataset): The dataset to sample from.
@@ -309,13 +309,13 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         negatives, and you want to ensure that the negatives are not duplicates of the anchor/positive sample.
 
         Recommended for:
-            - :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`
-            - :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss`
-            - :class:`~sentence_transformers.losses.MultipleNegativesSymmetricRankingLoss`
-            - :class:`~sentence_transformers.losses.CachedMultipleNegativesSymmetricRankingLoss`
-            - :class:`~sentence_transformers.losses.MegaBatchMarginLoss`
-            - :class:`~sentence_transformers.losses.GISTEmbedLoss`
-            - :class:`~sentence_transformers.losses.CachedGISTEmbedLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesSymmetricRankingLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesSymmetricRankingLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.MegaBatchMarginLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.GISTEmbedLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.CachedGISTEmbedLoss`
 
         Args:
             dataset (Dataset): The dataset to sample from.

@@ -124,7 +124,7 @@ new_num_layers = 3
 model.transformers_model.encoder.layer = model.transformers_model.encoder.layer[:new_num_layers]
 ```
 
-Then we can run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
+Then we can run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.model.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
 
 ```python
 from sentence_transformers import SentenceTransformer
