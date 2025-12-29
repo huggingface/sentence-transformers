@@ -236,11 +236,11 @@ class Transformer(InputModule):
 
     def _load_t5gemma2_model(self, model_name_or_path: str, config: T5Gemma2Config, cache_dir: str, **model_args) -> None:
         """Loads the encoder model from T5Gemma2"""
-        from sentence_transformers.models.overrides import T5Gemma2TextEncoderModel
+        from transformers import T5Gemma2Model
 
-        self.auto_model = T5Gemma2TextEncoderModel.from_pretrained(
+        self.auto_model = T5Gemma2Model.from_pretrained(
             model_name_or_path, config=config, cache_dir=cache_dir, **model_args
-        )
+        ).get_encoder()
 
     def __repr__(self) -> str:
         return f"Transformer({dict(self.get_config_dict(), architecture=self.auto_model.__class__.__name__)})"
