@@ -44,32 +44,56 @@ Training Cross Encoder models involves between 4 to 6 components, just like [tra
 
 ```{eval-rst}
 
-Cross Encoder models are initialized by loading a pretrained `transformers <https://huggingface.co/docs/transformers>`_ model using a sequence classification head. If the model itself does not have such a head, then it will be added automatically. Consequently, initializing a Cross Encoder model is rather simple:
+Cross Encoder models wrap pretrained `transformers <https://huggingface.co/docs/transformers>`_ models and add a small head that produces scores or labels for pairs of inputs. If you want to further finetune a CrossEncoder model (for example one from the `cross-encoder <https://huggingface.co/cross-encoder>`_ organization or another checkpoint that was already saved as a CrossEncoder), then you usually don't have to worry about the underlying architecture::
+
+    from sentence_transformers import CrossEncoder
+
+    model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
+
+But if instead you want to train from another checkpoint, or from scratch, then these are the most common architectures you can use:
 
 .. sidebar:: Documentation
 
     - :class:`sentence_transformers.cross_encoder.model.CrossEncoder`
 
-::
+.. tab:: Encoder / sequence-classification checkpoints
 
-    from sentence_transformers import CrossEncoder
+    You can initialize a CrossEncoder from encoder or sequence-classification models such as `BERT <https://huggingface.co/google-bert/bert-base-uncased>`_, `RoBERTa <https://huggingface.co/FacebookAI/roberta-base>`_, or `ModernBERT <https://huggingface.co/answerdotai/ModernBERT-base>`_. If the checkpoint already has a sequence-classification head, CrossEncoder will reuse it. Otherwise, a new head is added automatically, with the number of output labels taken from the model config or from the ``num_labels`` argument.
 
-    # This model already has a sequence classification head
-    model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
-    # And this model does not, so it will be added automatically
-    model = CrossEncoder("google-bert/bert-base-uncased")
+    ::
 
-.. tip::
+        from sentence_transformers import CrossEncoder
 
-    You can find pretrained reranker models in the `Cross Encoder > Pretrained Models <pretrained_models.html>`_ documentation.
+        # Single-label regression / reranking model
+        reranker = CrossEncoder("google-bert/bert-base-uncased", num_labels=1)
 
-    For other models, the strongest pretrained models are often "encoder models", i.e. models that are trained to produce a meaningful token embedding for inputs. You can find strong candidates here:
+        # Multi-class pair classification model (e.g. NLI)
+        classifier = CrossEncoder("xlm-roberta-base", num_labels=3)
 
-    - `fill-mask models <https://huggingface.co/models?pipeline_tag=fill-mask>`_ - trained for token embeddings
-    - `sentence similarity models <https://huggingface.co/models?pipeline_tag=sentence-similarity>`_ - trained for text embeddings
-    - `feature-extraction models <https://huggingface.co/models?pipeline_tag=feature-extraction>`_ - trained for text embeddings
+    For reranking or other regression-style tasks, use ``num_labels=1`` so that the model outputs a single score per pair, which works well with losses like :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`. For multi-class or multi-label pair classification, choose ``num_labels`` to match the number of classes and use a suitable classification loss.
 
-    Consider looking for base models that are designed on your language and/or domain of interest. For example, `klue/bert-base <https://huggingface.co/klue/bert-base>`_ will work much better than `google-bert/bert-base-uncased <https://huggingface.co/google-bert/bert-base-uncased>`_ for Korean.
+    .. tip::
+
+        The strongest base models are often "encoder models", i.e. models that are trained to produce a meaningful token embedding for inputs. You can find strong candidates here:
+
+        - `fill-mask models <https://huggingface.co/models?pipeline_tag=fill-mask>`_ - trained for token embeddings
+        - `sentence similarity models <https://huggingface.co/models?pipeline_tag=sentence-similarity>`_ - trained for text embeddings
+        - `feature-extraction models <https://huggingface.co/models?pipeline_tag=feature-extraction>`_ - trained for text embeddings
+
+        Consider looking for base models that are designed on your language and/or domain of interest. For example, `klue/bert-base <https://huggingface.co/klue/bert-base>`_ will work much better than `google-bert/bert-base-uncased <https://huggingface.co/google-bert/bert-base-uncased>`_ for Korean.
+
+.. tab:: Decoder / text-generation checkpoints
+
+    CrossEncoder can also wrap text-generation / causal language models whose configs end with ``ForCausalLM``. In this case, it uses a text-generation backbone and adds a :class:`sentence_transformers.cross_encoder.models.CausalScoreHead`, which looks at specific "true" / "false" tokens (for example "yes" and "no" or "1" or "0") and converts the causal logits into a single scalar score per input pair.
+
+    This causal-LM setup always behaves like a single-label scorer (effectively ``num_labels=1``): it is designed for scoring and reranking tasks (e.g. query–document relevance), **not** for multi-class classification where you need one logit per class. For classification problems with more than one label, you should prefer the encoder / sequence-classification checkpoints instead.
+
+    ::
+
+        from sentence_transformers import CrossEncoder
+
+        # Use a text-generation checkpoint as a reranker
+        model = CrossEncoder("google/gemma-2-2b-it")
 
 ```
 
