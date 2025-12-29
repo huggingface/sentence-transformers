@@ -182,7 +182,7 @@ class SparseEncoderTrainer(BaseTrainer):
         Load the data collator for the trainer.
 
         Args:
-            model (:class:`~sentence_transformers.model.SentenceTransformer`):
+            model (:class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`):
                 The model to train, evaluate or use for predictions.
             args (:class:`~sentence_transformers.sentence_transformer.training_args.BaseTrainingArguments`):
                 The arguments to tweak for training.

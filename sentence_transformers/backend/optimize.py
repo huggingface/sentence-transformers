@@ -28,7 +28,7 @@ def export_optimized_onnx_model(
     Export an optimized ONNX model from a SentenceTransformer, SparseEncoder, or CrossEncoder model.
 
     The O1-O4 optimization levels are defined by Optimum and are documented here:
-    https://huggingface.co/docs/optimum/main/en/onnxruntime/usage_guides/optimization
+    https://huggingface.co/docs/optimum-onnx/main/en/onnxruntime/usage_guides/optimization
 
     The optimization levels are:
 

@@ -232,6 +232,7 @@ class SparseEncoder(BaseModel):
                 - A list of device strings (e.g., ["cuda:0", "cuda:1"], ["cpu", "cpu", "cpu", "cpu"]) to distribute
                   encoding across multiple processes
                 - None to auto-detect available device for single-process encoding
+
                 If a list is provided, multi-process encoding will be used. Defaults to None.
             max_active_dims (int, optional): The maximum number of active (non-zero) dimensions in the output of the model. `None` means we will
                 used the value of the model's config. Defaults to None. If None in model's config it means there will be no limit on the number
@@ -329,6 +330,7 @@ class SparseEncoder(BaseModel):
                 - A list of device strings (e.g., ["cuda:0", "cuda:1"], ["cpu", "cpu", "cpu", "cpu"]) to distribute
                   encoding across multiple processes
                 - None to auto-detect available device for single-process encoding
+
                 If a list is provided, multi-process encoding will be used. Defaults to None.
             max_active_dims (int, optional): The maximum number of active (non-zero) dimensions in the output of the model. `None` means we will
                 used the value of the model's config. Defaults to None. If None in model's config it means there will be no limit on the number
@@ -429,6 +431,7 @@ class SparseEncoder(BaseModel):
                 - A list of device strings (e.g., ["cuda:0", "cuda:1"], ["cpu", "cpu", "cpu", "cpu"]) to distribute
                   encoding across multiple processes
                 - None to auto-detect available device for single-process encoding
+
                 If a list is provided, multi-process encoding will be used. Defaults to None.
             max_active_dims (int, optional): The maximum number of active (non-zero) dimensions in the output of the model. `None` means we will
                 used the value of the model's config. Defaults to None. If None in model's config it means there will be no limit on the number

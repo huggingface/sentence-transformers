@@ -253,7 +253,7 @@ Loss functions quantify how well a model performs for a given batch of data, all
 Sadly, there is no single loss function that works best for all use-cases. Instead, which loss function to use greatly depends on your available data and on your target task. See [Dataset Format](#dataset-format) to learn what datasets are valid for which loss functions. Additionally, the [Loss Overview](loss_overview) will be your best friend to learn about the options.
 
 ```{eval-rst}
-Most loss functions can be initialized with just the :class:`~sentence_transformers.model.SentenceTransformer` that you're training, alongside some optional parameters, e.g.:
+Most loss functions can be initialized with just the :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` that you're training, alongside some optional parameters, e.g.:
 
 .. sidebar:: Documentation
 
@@ -372,9 +372,9 @@ You can provide the :class:`~sentence_transformers.sentence_transformer.trainer.
 
 Here are the implemented Evaluators that come with Sentence Transformers:
 
-========================================================================  ===========================================================================================================================
-Evaluator                                                                 Required Data
-========================================================================  ===========================================================================================================================
+=============================================================================================  ===========================================================================================================================
+Evaluator                                                                                      Required Data
+=============================================================================================  ===========================================================================================================================
 :class:`~sentence_transformers.sentence_transformer.evaluation.BinaryClassificationEvaluator`  Pairs with class labels.
 :class:`~sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator`   Pairs with similarity scores.
 :class:`~sentence_transformers.sentence_transformer.evaluation.InformationRetrievalEvaluator`  Queries (qid => question), Corpus (cid => document), and relevant documents (qid => set[cid]).
@@ -384,7 +384,7 @@ Evaluator                                                                 Requir
 :class:`~sentence_transformers.sentence_transformer.evaluation.RerankingEvaluator`             List of ``{'query': '...', 'positive': [...], 'negative': [...]}`` dictionaries.
 :class:`~sentence_transformers.sentence_transformer.evaluation.TranslationEvaluator`           Pairs of sentences in two separate languages.
 :class:`~sentence_transformers.sentence_transformer.evaluation.TripletEvaluator`               (anchor, positive, negative) pairs.
-========================================================================  ===========================================================================================================================
+=============================================================================================  ===========================================================================================================================
 
 Additionally, :class:`~sentence_transformers.sentence_transformer.evaluation.SequentialEvaluator` should be used to combine multiple evaluators into one Evaluator that can be passed to the :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer`.
 
@@ -494,15 +494,15 @@ The :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransfor
 
 .. sidebar:: Documentation
 
-    #. :class:`~sentence_transformers.model.SentenceTransformer`
+    #. :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`
     #. :class:`~sentence_transformers.sentence_transformer.model_card.SentenceTransformerModelCardData`
     #. :func:`~datasets.load_dataset`
     #. :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`
     #. :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`
     #. :class:`~sentence_transformers.sentence_transformer.evaluation.TripletEvaluator`
     #. :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer`
-    #. :class:`SentenceTransformer.save_pretrained <sentence_transformers.model.SentenceTransformer.save_pretrained>`
-    #. :class:`SentenceTransformer.push_to_hub <sentence_transformers.model.SentenceTransformer.push_to_hub>`
+    #. :class:`SentenceTransformer.save_pretrained <sentence_transformers.sentence_transformer.model.SentenceTransformer.save_pretrained>`
+    #. :class:`SentenceTransformer.push_to_hub <sentence_transformers.sentence_transformer.model.SentenceTransformer.push_to_hub>`
 
     - `Training Examples <training/examples.html>`_
 
@@ -633,7 +633,7 @@ Training on multiple datasets looks like this:
 .. sidebar:: Documentation
 
     - :func:`datasets.load_dataset`
-    - :class:`~sentence_transformers.model.SentenceTransformer`
+    - :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`
     - :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer`
     - :class:`~sentence_transformers.sentence_transformer.losses.CoSENTLoss`
     - :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`
@@ -740,7 +740,7 @@ Training on multiple datasets looks like this:
 ## Deprecated Training
 
 ```{eval-rst}
-Prior to the Sentence Transformers v3.0 release, models would be trained with the :meth:`SentenceTransformer.fit() <sentence_transformers.model.SentenceTransformer.fit>` method and a :class:`~torch.utils.data.DataLoader` of :class:`~sentence_transformers.sentence_transformer.readers.InputExample`, which looked something like this::
+Prior to the Sentence Transformers v3.0 release, models would be trained with the :meth:`SentenceTransformer.fit() <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>` method and a :class:`~torch.utils.data.DataLoader` of :class:`~sentence_transformers.sentence_transformer.readers.InputExample`, which looked something like this::
 
     from sentence_transformers import SentenceTransformer, InputExample, losses
     from torch.utils.data import DataLoader
@@ -761,9 +761,9 @@ Prior to the Sentence Transformers v3.0 release, models would be trained with th
     # Tune the model
     model.fit(train_objectives=[(train_dataloader, train_loss)], epochs=1, warmup_steps=100)
 
-Since the v3.0 release, using :meth:`SentenceTransformer.fit() <sentence_transformers.model.SentenceTransformer.fit>` is still possible, but it will initialize a :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` behind the scenes. It is recommended to use the Trainer directly, as you will have more control via the :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`, but existing training scripts relying on :meth:`SentenceTransformer.fit() <sentence_transformers.model.SentenceTransformer.fit>` should still work.
+Since the v3.0 release, using :meth:`SentenceTransformer.fit() <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>` is still possible, but it will initialize a :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` behind the scenes. It is recommended to use the Trainer directly, as you will have more control via the :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`, but existing training scripts relying on :meth:`SentenceTransformer.fit() <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>` should still work.
 
-In case there are issues with the updated :meth:`SentenceTransformer.fit() <sentence_transformers.model.SentenceTransformer.fit>`, you can also get exactly the old behaviour by calling :meth:`SentenceTransformer.old_fit() <sentence_transformers.model.SentenceTransformer.old_fit>` instead, but this method is planned to be deprecated fully in the future.
+In case there are issues with the updated :meth:`SentenceTransformer.fit() <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>`, you can also get exactly the old behaviour by calling :meth:`SentenceTransformer.old_fit() <sentence_transformers.sentence_transformer.model.SentenceTransformer.old_fit>` instead, but this method is planned to be deprecated fully in the future.
 
 ```
 
@@ -794,9 +794,9 @@ In the following table you find the performance for different models and their p
 ## Comparisons with CrossEncoder Training
 
 ```{eval-rst}
-Training :class:`~sentence_transformers.model.SentenceTransformer` models is very similar as training :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models, with some key differences:
+Training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models is very similar as training :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models, with some key differences:
 
-- For :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` training, you can use (variably sized) lists of texts in a column. In :class:`~sentence_transformers.model.SentenceTransformer` training, you **cannot** use lists of inputs (e.g. texts) in a column of the training/evaluation dataset(s). In short: training with a variable number of negatives is not supported.
+- For :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` training, you can use (variably sized) lists of texts in a column. In :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` training, you **cannot** use lists of inputs (e.g. texts) in a column of the training/evaluation dataset(s). In short: training with a variable number of negatives is not supported.
 
 See the `Cross Encoder > Training Overview <../cross_encoder/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models.
 

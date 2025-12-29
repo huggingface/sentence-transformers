@@ -7,7 +7,7 @@ Semantic Textual Similarity (STS) assigns a score on the similarity of two texts
 - **[training_stsbenchmark.py](training_stsbenchmark.py)** - This example shows how to create and finetune a CrossEncoder model from a pre-trained transformer model (e.g. [`distilroberta-base`](https://huggingface.co/distilbert/distilroberta-base)).
 
 ```{eval-rst}
-You can also train and use :class:`~sentence_transformers.model.SentenceTransformer` models for this task. See `Sentence Transformer > Training Examples > Semantic Textual Similarity <../../../sentence_transformer/training/sts/README.html>`_ for more details.
+You can also train and use :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models for this task. See `Sentence Transformer > Training Examples > Semantic Textual Similarity <../../../sentence_transformer/training/sts/README.html>`_ for more details.
 ```
 
 ## Training data

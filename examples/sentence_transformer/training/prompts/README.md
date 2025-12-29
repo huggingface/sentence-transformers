@@ -90,7 +90,7 @@ Since the v3.3.0 Sentence Transformers release, it's possible to finetune embedd
         ...,
     )
 
-Additionally, some research papers (`INSTRUCTOR <https://huggingface.co/papers/2212.09741>`_, `NV-Embed <https://huggingface.co/papers/2405.17428>`_) exclude the prompt from the mean pooling step, such that it's only used in the Transformer blocks. In Sentence Transformers, this can be configured with the ``include_prompt`` argument/attribute in the :class:`~sentence_transformers.sentence_transformer.models.Pooling` module or via the :meth:`SentenceTransformer.set_pooling_include_prompt() <sentence_transformers.model.SentenceTransformer.set_pooling_include_prompt>` method. In my personal experience, models that include the prompt in the pooling tend to perform better.
+Additionally, some research papers (`INSTRUCTOR <https://huggingface.co/papers/2212.09741>`_, `NV-Embed <https://huggingface.co/papers/2405.17428>`_) exclude the prompt from the mean pooling step, such that it's only used in the Transformer blocks. In Sentence Transformers, this can be configured with the ``include_prompt`` argument/attribute in the :class:`~sentence_transformers.sentence_transformer.models.Pooling` module or via the :meth:`SentenceTransformer.set_pooling_include_prompt() <sentence_transformers.sentence_transformer.model.SentenceTransformer.set_pooling_include_prompt>` method. In my personal experience, models that include the prompt in the pooling tend to perform better.
 ```
 
 ### Training Script
@@ -122,7 +122,7 @@ This script has two variables that affect 1) whether prompts are used and 2) whe
     Additionally, the model trained with prompts includes these prompts in the training dataset details in the automatically generated model card: `tomaarsen/mpnet-base-nq-prompts#natural-questions <https://huggingface.co/tomaarsen/mpnet-base-nq-prompts#natural-questions>`_.
 
     .. important::
-        If you train with prompts, then it's heavily recommended to store prompts in the model configuration as a mapping of prompt names to prompt strings. You can do this by initializing the :class:`~sentence_transformers.model.SentenceTransformer` with a ``prompts`` dictionary before saving it, updating the ``model.prompts`` of a loaded model before saving it, and/or updating the `config_sentence_transformers.json <https://huggingface.co/tomaarsen/mpnet-base-nq-prompts/blob/main/config_sentence_transformers.json>`_ file of the saved model.
+        If you train with prompts, then it's heavily recommended to store prompts in the model configuration as a mapping of prompt names to prompt strings. You can do this by initializing the :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` with a ``prompts`` dictionary before saving it, updating the ``model.prompts`` of a loaded model before saving it, and/or updating the `config_sentence_transformers.json <https://huggingface.co/tomaarsen/mpnet-base-nq-prompts/blob/main/config_sentence_transformers.json>`_ file of the saved model.
 
     After adding the prompts in the model configuration, the final usage of the prompt-trained model becomes::
 
@@ -158,7 +158,7 @@ This script has two variables that affect 1) whether prompts are used and 2) whe
     Additionally, the model trained with prompts includes these prompts in the training dataset details in the automatically generated model card: `tomaarsen/bert-base-nq-prompts#natural-questions <https://huggingface.co/tomaarsen/bert-base-nq-prompts#natural-questions>`_.
     
     .. important::
-        If you train with prompts, then it's heavily recommended to store prompts in the model configuration as a mapping of prompt names to prompt strings. You can do this by initializing the :class:`~sentence_transformers.model.SentenceTransformer` with a ``prompts`` dictionary before saving it, updating the ``model.prompts`` of a loaded model before saving it, and/or updating the `config_sentence_transformers.json <https://huggingface.co/tomaarsen/mpnet-base-nq-prompts/blob/main/config_sentence_transformers.json>`_ file of the saved model.
+        If you train with prompts, then it's heavily recommended to store prompts in the model configuration as a mapping of prompt names to prompt strings. You can do this by initializing the :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` with a ``prompts`` dictionary before saving it, updating the ``model.prompts`` of a loaded model before saving it, and/or updating the `config_sentence_transformers.json <https://huggingface.co/tomaarsen/mpnet-base-nq-prompts/blob/main/config_sentence_transformers.json>`_ file of the saved model.
 
     After adding the prompts in the model configuration, the final usage of the prompt-trained model becomes::
     

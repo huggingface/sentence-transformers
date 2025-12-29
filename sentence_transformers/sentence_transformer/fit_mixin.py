@@ -196,7 +196,7 @@ class FitMixin:
 
         This method should produce equivalent results in v3.0+ as before v3.0, but if you encounter any issues
         with your existing training scripts, then you may wish to use
-        :meth:`SentenceTransformer.old_fit <sentence_transformers.model.SentenceTransformer.old_fit>` instead.
+        :meth:`SentenceTransformer.old_fit <sentence_transformers.sentence_transformer.model.SentenceTransformer.old_fit>` instead.
         That uses the old training method from before v3.0.
 
         Args:

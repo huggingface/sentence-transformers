@@ -1,8 +1,8 @@
-## Semantic Textual Similarity
+Semantic Textual Similarity
+===========================
 
 For Semantic Textual Similarity (STS), we want to generate sparse embeddings for all texts involved and calculate the similarities between them. The text pairs with the highest similarity score are most semantically similar.
 
-```{eval-rst}
 .. sidebar:: Documentation
 
    1. :class:`SparseEncoder <sentence_transformers.sparse_encoder.model.SparseEncoder>`
@@ -59,11 +59,10 @@ For Semantic Textual Similarity (STS), we want to generate sparse embeddings for
     - A woman watches TV            : 1.5672
 
 In this example, the :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity>` method returns a 3x3 matrix with the respective cosine similarity scores for all possible pairs between ``embeddings1`` and ``embeddings2``.
-```
 
-### Similarity Calculation
+Similarity Calculation
+----------------------
 
-```{eval-rst}
 The similarity metric that is used is stored in the SparseEncoder instance under :attr:`SparseEncoder.similarity_fn_name <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity_fn_name>`. Valid options are:
 
 - ``SimilarityFunction.DOT_PRODUCT`` (a.k.a `"dot"`): Dot Product (**default**)
@@ -130,5 +129,3 @@ The :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` class imp
     # tensor([[    1.000,     0.293,     0.003],
     #         [    0.293,     1.000,     0.001],
     #         [    0.003,     0.001,     1.000]])
-
-```

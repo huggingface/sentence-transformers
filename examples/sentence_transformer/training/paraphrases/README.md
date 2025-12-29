@@ -6,7 +6,9 @@ In our paper `Making Monolingual Sentence Embeddings Multilingual using Knowledg
 
 The [training.py](training.py) script loads various datasets from the [Dataset Overview](../../../../docs/sentence_transformer/dataset_overview.md#pre-existing-datasets). We construct batches by sampling examples from the respective dataset. So far, examples are not mixed between the datasets, i.e., a batch consists only of examples from a single dataset.
 
-As the dataset sizes are quite different in size, we perform [round-robin sampling](../../../../docs/package_reference/sentence_transformer/sampler.md#sentence_transformers.sentence_transformer.training_args.MultiDatasetBatchSamplers) to train using the same amount of batches from each dataset.
+```{eval-rst}
+As the dataset sizes are quite different in size, we perform round-robin sampling via :class:`~sentence_transformers.base.sampler.MultiDatasetBatchSamplers` to train using the same amount of batches from each dataset.
+```
 
 ## Pre-Trained Models
 

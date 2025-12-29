@@ -5,9 +5,9 @@ For Semantic Textual Similarity (STS), we want to produce embeddings for all tex
 
 .. sidebar:: Documentation
 
-   1. :class:`SentenceTransformer <sentence_transformers.model.SentenceTransformer>`
-   2. :meth:`SentenceTransformer.encode <sentence_transformers.model.SentenceTransformer.encode>`
-   3. :meth:`SentenceTransformer.similarity <sentence_transformers.model.SentenceTransformer.similarity>`
+   1. :class:`SentenceTransformer <sentence_transformers.sentence_transformer.model.SentenceTransformer>`
+   2. :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>`
+   3. :meth:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`
 
 ::
 
@@ -57,12 +57,12 @@ For Semantic Textual Similarity (STS), we want to produce embeddings for all tex
     - The new movie is so great     : -0.0136
     - A woman watches TV            : -0.0327
 
-In this example, the :meth:`SentenceTransformer.similarity <sentence_transformers.model.SentenceTransformer.similarity>` method returns a 3x3 matrix with the respective cosine similarity scores for all possible pairs between ``embeddings1`` and ``embeddings2``.
+In this example, the :meth:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>` method returns a 3x3 matrix with the respective cosine similarity scores for all possible pairs between ``embeddings1`` and ``embeddings2``.
 
 Similarity Calculation
 ----------------------
 
-The similarity metric that is used is stored in the SentenceTransformer instance under :attr:`SentenceTransformer.similarity_fn_name <sentence_transformers.model.SentenceTransformer.similarity_fn_name>`. Valid options are:
+The similarity metric that is used is stored in the SentenceTransformer instance under :attr:`SentenceTransformer.similarity_fn_name <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity_fn_name>`. Valid options are:
 
 - ``SimilarityFunction.COSINE`` (a.k.a `"cosine"`): Cosine Similarity (**default**)
 - ``SimilarityFunction.DOT_PRODUCT`` (a.k.a `"dot"`): Dot Product
@@ -88,8 +88,8 @@ This value can be changed in a handful of ways:
 
 Sentence Transformers implements two methods to calculate the similarity between embeddings:
 
-- :meth:`SentenceTransformer.similarity <sentence_transformers.model.SentenceTransformer.similarity>`: Calculates the similarity between all pairs of embeddings.
-- :meth:`SentenceTransformer.similarity_pairwise <sentence_transformers.model.SentenceTransformer.similarity_pairwise>`: Calculates the similarity between embeddings in a pairwise fashion.
+- :meth:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`: Calculates the similarity between all pairs of embeddings.
+- :meth:`SentenceTransformer.similarity_pairwise <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity_pairwise>`: Calculates the similarity between embeddings in a pairwise fashion.
 
 ::
 

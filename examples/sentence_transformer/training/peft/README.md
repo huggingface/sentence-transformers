@@ -28,23 +28,23 @@ print(similarities)
 ## Compatibility Methods
 
 ```{eval-rst}
-The :class:`~sentence_transformers.model.SentenceTransformer` supports 7 methods for interacting with the PEFT Adapters:
+The :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` supports 7 methods for interacting with the PEFT Adapters:
 
-   * :meth:`~sentence_transformers.model.SentenceTransformer.add_adapter`: Adds a fresh new adapter to the current model for training.
-   * :meth:`~sentence_transformers.model.SentenceTransformer.load_adapter`: Load adapter weights from a file or Hugging Face Hub repository.
-   * :meth:`~sentence_transformers.model.SentenceTransformer.active_adapters`: Gets the current active adapters.
-   * :meth:`~sentence_transformers.model.SentenceTransformer.set_adapter`: Tell your model to use a specific adapter and disable all others.
-   * :meth:`~sentence_transformers.model.SentenceTransformer.enable_adapters`: Enable all adapters.
-   * :meth:`~sentence_transformers.model.SentenceTransformer.disable_adapters`: Disable all adapters.
-   * :meth:`~sentence_transformers.model.SentenceTransformer.get_adapter_state_dict`: Get the adapter state dict with the weights.
-   * :meth:`~sentence_transformers.model.SentenceTransformer.delete_adapter`: Delete an adapter from the model.
+   * :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.add_adapter`: Adds a fresh new adapter to the current model for training.
+   * :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.load_adapter`: Load adapter weights from a file or Hugging Face Hub repository.
+   * :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.active_adapters`: Gets the current active adapters.
+   * :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.set_adapter`: Tell your model to use a specific adapter and disable all others.
+   * :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.enable_adapters`: Enable all adapters.
+   * :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.disable_adapters`: Disable all adapters.
+   * :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.get_adapter_state_dict`: Get the adapter state dict with the weights.
+   * :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.delete_adapter`: Delete an adapter from the model.
 
 ```
 
 ## Adding a New Adapter
 
 ```{eval-rst}
-Adding a new adapter to a model is as simple as calling :meth:`~sentence_transformers.model.SentenceTransformer.add_adapter` with a (subclass of) :class:`~peft.PeftConfig` on an initialized Sentence Transformer model. In the following example, we use a :class:`~peft.LoraConfig` instance.
+Adding a new adapter to a model is as simple as calling :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.add_adapter` with a (subclass of) :class:`~peft.PeftConfig` on an initialized Sentence Transformer model. In the following example, we use a :class:`~peft.LoraConfig` instance.
 ```
 
 ```python

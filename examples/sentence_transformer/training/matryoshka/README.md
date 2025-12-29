@@ -55,7 +55,7 @@ loss = Matryoshka2dLoss(model=model, loss=base_loss, matryoshka_dims=[768, 512, 
 
 ## Inference
 
-After a model has been trained using a Matryoshka loss, you can then run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.model.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
+After a model has been trained using a Matryoshka loss, you can then run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.sentence_transformer.model.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
 
 ```python
 from sentence_transformers import SentenceTransformer

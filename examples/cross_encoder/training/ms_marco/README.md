@@ -13,7 +13,7 @@ A `Cross Encoder <../../applications/README.html>`_ accepts both a query and a p
 ![CrossEncoder](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/CrossEncoder.png)
 
 ```{eval-rst}
-:class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models are often used for **re-ranking**: Given a list with possible relevant passages for a query, for example retrieved from a :class:`~sentence_transformers.model.SentenceTransformer` model / BM25 / Elasticsearch, the cross-encoder re-ranks this list so that the most relevant passages are the top of the result list. 
+:class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models are often used for **re-ranking**: Given a list with possible relevant passages for a query, for example retrieved from a :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` model / BM25 / Elasticsearch, the cross-encoder re-ranks this list so that the most relevant passages are the top of the result list. 
 ```
 
 ## Training Scripts

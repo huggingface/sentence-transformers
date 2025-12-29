@@ -211,7 +211,7 @@ The strongest CrossEncoder models are generally trained to recognize hard negati
 
     * `sentence-transformers/gooaq <https://huggingface.co/datasets/sentence-transformers/gooaq>`_
     * `sentence-transformers/static-retrieval-mrl-en-v1 <https://huggingface.co/sentence-transformers/static-retrieval-mrl-en-v1>`_
-    * :class:`~sentence_transformers.model.SentenceTransformer`
+    * :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`
     * :func:`~sentence_transformers.util.mine_hard_negatives`
 
 ::
@@ -784,7 +784,7 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model_card.CrossEncoderModelCardData" title="sentence_transformers.cross_encoder.model_card.CrossEncoderModelCardData"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderModelCardData</span></code></a></p></li>
                 <li><p><a class="reference external" href="https://huggingface.co/docs/datasets/main/en/package_reference/loading_methods#datasets.load_dataset" title="(in datasets vmain)"><code class="xref py py-func docutils literal notranslate"><span class="pre">load_dataset()</span></code></a></p></li>
                 <li><p><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/gooaq">sentence-transformers/gooaq</a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.model.SentenceTransformer" title="sentence_transformers.model.SentenceTransformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">SentenceTransformer</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.sentence_transformer.model.SentenceTransformer" title="sentence_transformers.sentence_transformer.model.SentenceTransformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">SentenceTransformer</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/util.html#sentence_transformers.util.mine_hard_negatives" title="sentence_transformers.util.mine_hard_negatives"><code class="xref py py-class docutils literal notranslate"><span class="pre">mine_hard_negatives</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/losses.html#sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss" title="sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss"><code class="xref py py-class docutils literal notranslate"><span class="pre">BinaryCrossEntropyLoss</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/evaluation.html#sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator" title="sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderNanoBEIREvaluator</span></code></a></p></li>
@@ -1019,7 +1019,7 @@ Cross Encoder models have their own unique quirks, so here's some tips to help y
 #. :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models overfit rather quickly, so it's recommended to use an evaluator like :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator` or :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator` together with the ``load_best_model_at_end`` and ``metric_for_best_model`` training arguments to load the model with the best evaluation performance after training.
 #. :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` are particularly receptive to strong hard negatives (:func:`~sentence_transformers.util.mine_hard_negatives`). They teach the model to be very strict, useful e.g. when distinguishing between passages that answer a question or passages that relate to a question. 
 
-    a. Note that if you only use hard negatives, `your model may unexpectedly perform worse for easier tasks <https://huggingface.co/papers/2411.11767>`_. This can mean that reranking the top 200 results from a first-stage retrieval system (e.g. with a :class:`~sentence_transformers.model.SentenceTransformer` model) can actually give worse top-10 results than reranking the top 100. Training using random negatives alongside hard negatives can mitigate this.
+    a. Note that if you only use hard negatives, `your model may unexpectedly perform worse for easier tasks <https://huggingface.co/papers/2411.11767>`_. This can mean that reranking the top 200 results from a first-stage retrieval system (e.g. with a :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` model) can actually give worse top-10 results than reranking the top 100. Training using random negatives alongside hard negatives can mitigate this.
 #. Don't underestimate :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`, it remains a very strong option despite being simpler than learning-to-rank (:class:`~sentence_transformers.cross_encoder.losses.LambdaLoss`, :class:`~sentence_transformers.cross_encoder.losses.ListNetLoss`) or in-batch negatives (:class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`, :class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss`) losses, and its data is easy to prepare, especially using :func:`~sentence_transformers.util.mine_hard_negatives`.
 ```
 
@@ -1055,10 +1055,10 @@ In case there are issues with the updated :meth:`CrossEncoder.fit() <sentence_tr
 ## Comparisons with SentenceTransformer Training
 
 ```{eval-rst}
-Training :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models is very similar as training :class:`~sentence_transformers.model.SentenceTransformer` models, with some key differences:
+Training :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models is very similar as training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models, with some key differences:
 
-- In :class:`~sentence_transformers.model.SentenceTransformer` training, you cannot use lists of inputs (e.g. texts) in a column of the training/evaluation dataset(s). For :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` training, you **can** use (variably sized) lists of texts in a column. This is required for the :class:`~sentence_transformers.cross_encoder.losses.ListNetLoss` class, for example.
+- In :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` training, you cannot use lists of inputs (e.g. texts) in a column of the training/evaluation dataset(s). For :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` training, you **can** use (variably sized) lists of texts in a column. This is required for the :class:`~sentence_transformers.cross_encoder.losses.ListNetLoss` class, for example.
 
-See the `Sentence Transformer > Training Overview <../sentence_transformer/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.model.SentenceTransformer` models.
+See the `Sentence Transformer > Training Overview <../sentence_transformer/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models.
 
 ```

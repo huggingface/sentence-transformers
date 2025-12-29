@@ -170,6 +170,7 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
     .. 
         Contrastive Sparse Representation (CSR) models usually use a sequence of :class:`~sentence_transformers.sentence_transformer.models.Transformer`, :class:`~sentence_transformers.sentence_transformer.models.Pooling` and :class:`~sentence_transformers.sparse_encoder.models.SparseAutoEncoder` modules to create sparse representations on top of an already trained dense Sentence Transformer model.
+
     Contrastive Sparse Representation (CSR) models apply a :class:`~sentence_transformers.sparse_encoder.models.SparseAutoEncoder` module on top of a dense Sentence Transformer model, which usually consist of a :class:`~sentence_transformers.sentence_transformer.models.Transformer` followed by a :class:`~sentence_transformers.sentence_transformer.models.Pooling` module. You can initialize one from scratch like so:
     
     .. 
@@ -592,7 +593,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
 
 .. warning::
 
-    When using `Distributed Training <../sentence_transformer/training/distributed.html>`_, the evaluator only runs on the first device, unlike the training and evaluation datasets, which are shared across all devices. 
+    When using `Distributed Training <../sentence_transformer/training/distributed.html>`_, the evaluator only runs on the first device, unlike the training and evaluation datasets, which are shared across all devices.
 ```
 
 ## Trainer 
@@ -898,9 +899,9 @@ Sparse Encoder models have a few quirks that you should be aware of when trainin
 ## Comparisons with SentenceTransformer Training
 
 ```{eval-rst}
-Training :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` models is very similar as training :class:`~sentence_transformers.model.SentenceTransformer` models. 
+Training :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` models is very similar as training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models. 
 
-See the `Sentence Transformer > Training Overview <../sentence_transformer/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.model.SentenceTransformer` models.
+See the `Sentence Transformer > Training Overview <../sentence_transformer/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models.
 
 ```
 -->

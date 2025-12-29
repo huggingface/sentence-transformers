@@ -19,6 +19,7 @@ Sentence Transformers was created by `UKP Lab <http://www.ukp.tu-darmstadt.de/>`
 
 Usage
 =====
+
 .. seealso::
   
    See the `Quickstart <docs/quickstart.html>`_ for more quick information on how to use Sentence Transformers.

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class SparseRerankingEvaluator(RerankingEvaluator):
     """
-    This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.RerankingEvaluator' but is specifically designed for sparse encoder models.
+    This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.RerankingEvaluator` but is specifically designed for sparse encoder models.
 
     This class evaluates a SparseEncoder model for the task of re-ranking.
 

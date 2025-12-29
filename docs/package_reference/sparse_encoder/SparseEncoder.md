@@ -13,9 +13,3 @@
 .. autoclass:: sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData
    :members:
 ```
-
-## SimilarityFunction
-```{eval-rst}
-.. autoclass:: sentence_transformers.SimilarityFunction
-   :members:
-``` 

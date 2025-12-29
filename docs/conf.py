@@ -19,7 +19,9 @@ import importlib
 import inspect
 import os
 import posixpath
+import re
 
+import sphinx.ext.autodoc
 from sphinx.application import Sphinx
 from sphinx.writers.html5 import HTML5Translator
 
@@ -66,6 +68,7 @@ intersphinx_mapping = {
     "transformers": ("https://huggingface.co/docs/transformers/main/en/", None),
     "huggingface_hub": ("https://huggingface.co/docs/huggingface_hub/main/en/", None),
     "optimum": ("https://huggingface.co/docs/optimum/main/en/", None),
+    "optimum-onnx": ("https://huggingface.co/docs/optimum-onnx/main/en/", None),
     "peft": ("https://huggingface.co/docs/peft/main/en/", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
 }
@@ -179,5 +182,127 @@ def visit_download_reference(self, node):
 HTML5Translator.visit_download_reference = visit_download_reference
 
 
+def preprocess_docstring(app, obj_type: str, name: str, obj, options: sphinx.ext.autodoc.Options, lines: list[str]):
+    # If we are documenting something under `sentence_transformers` but the
+    # underlying object actually lives in `transformers`, we treat the
+    # docstring as inherited from transformers and prepend a note that
+    # links back to the original API in the transformers docs.
+    origin_module = getattr(obj, "__module__", "")
+    if (
+        obj_type in {"function", "decorator", "method", "property", "attribute"}
+        and name.startswith("sentence_transformers.")
+        and origin_module.startswith("transformers")
+    ):
+        qualname = getattr(obj, "__qualname__", name.split(".")[-1])
+        target = f"transformers.{qualname}"
+        # Use a generic Python object reference so intersphinx can
+        # resolve it to the transformers docs.
+        lines.insert(0, "")
+        lines.insert(0, f".. note:: This docstring is inherited from :py:obj:`{target}`.")
+
+    # Convert Markdown-style fenced code blocks (```py ... ```)
+    # into rST ``.. code-block::`` directives so Sphinx renders them correctly.
+    new_lines = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.lstrip()
+
+        if stripped.startswith("```"):
+            # Opening fenced block
+            # Detect language, e.g. ```py or ```python
+            fence = stripped
+            lang = fence[3:].strip()  # part after ```
+            if not lang:
+                lang = "python"
+            elif lang == "py":
+                lang = "python"
+
+            # Keep the original indentation of the fence line
+            indent = line[: len(line) - len(stripped)]
+            new_lines.append(f"{indent}.. code-block:: {lang}")
+
+            # rST expects a blank indented line after the directive
+            new_lines.append(f"{indent}    ")
+
+            # Consume lines until the closing fence ```
+            i += 1
+            while i < len(lines):
+                inner = lines[i]
+                inner_stripped = inner.lstrip()
+
+                # Closing fence
+                if inner_stripped.startswith("```"):
+                    break
+
+                # Indent code at least 4 spaces more than directive
+                code_content = inner_stripped
+                new_lines.append(f"{indent}    {code_content}")
+                i += 1
+
+            # Skip the closing fence line itself (if present)
+            while i < len(lines):
+                if lines[i].lstrip().startswith("```"):
+                    i += 1
+                    break
+                i += 1
+
+            continue
+
+        # Non-fenced line: keep as-is
+        new_lines.append(line)
+        i += 1
+
+    # Replace original lines content in-place so autodoc sees updates
+    lines[:] = new_lines
+
+    # Replace <Tip> ... </Tip> with a proper rST ``.. tip::`` admonition.
+    tip_lines = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.lstrip()
+
+        if stripped.startswith("<Tip>"):
+            # Keep the original indentation of the <Tip> line
+            indent = line[: len(line) - len(stripped)]
+            tip_lines.append(f"{indent}.. tip::")
+
+            # Consume lines until closing </Tip>
+            i += 1
+            while i < len(lines):
+                inner = lines[i]
+                inner_stripped = inner.lstrip()
+
+                if inner_stripped.startswith("</Tip>"):
+                    break
+
+                # Indent tip body relative to the directive
+                tip_lines.append(f"{indent}   {inner_stripped}")
+                i += 1
+
+            # Skip the closing </Tip> line itself (if present)
+            while i < len(lines):
+                if lines[i].lstrip().startswith("</Tip>"):
+                    i += 1
+                    break
+                i += 1
+
+            continue
+
+        tip_lines.append(line)
+        i += 1
+
+    lines[:] = tip_lines
+
+    # Update the [`~transformers.TrainerCallback`] transformers style references to
+    # :py:obj:`transformers.TrainerCallback` so intersphinx can resolve them.
+    pattern = re.compile(r"\[`~?transformers\.([A-Za-z0-9_.]+)`\]")
+    for idx, line in enumerate(lines):
+        # First correct a common mistake in transformers
+        line = line.replace("[`~transformers.TrainerCallback]`", "[`~transformers.TrainerCallback`]")
+        lines[idx] = pattern.sub(r":py:obj:`transformers.\1`", line)
+
+
 def setup(app: Sphinx):
-    pass
+    app.connect("autodoc-process-docstring", preprocess_docstring)

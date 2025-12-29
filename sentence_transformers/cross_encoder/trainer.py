@@ -48,7 +48,7 @@ class CrossEncoderTrainer(BaseTrainer):
     documentation for more information on the integrated callbacks and how to write your own callbacks.
 
     Args:
-        model (:class:`~sentence_transformers.model.SentenceTransformer`, *optional*):
+        model (:class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`, *optional*):
             The model to train, evaluate or use for predictions. If not provided, a `model_init` must be passed.
         args (:class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`, *optional*):
             The arguments to tweak for training. Will default to a basic instance of
@@ -61,8 +61,8 @@ class CrossEncoderTrainer(BaseTrainer):
             The dataset to use for evaluation. Must have a format accepted by your loss function, see
             `Training Overview > Dataset Format <../../../docs/sentence_transformer/training_overview.html#dataset-format>`_.
         loss (Optional[Union[:class:`torch.nn.Module`, Dict[str, :class:`torch.nn.Module`],\
-            Callable[[:class:`~sentence_transformers.model.SentenceTransformer`], :class:`torch.nn.Module`],\
-            Dict[str, Callable[[:class:`~sentence_transformers.model.SentenceTransformer`]]]], *optional*):
+            Callable[[:class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`], :class:`torch.nn.Module`],\
+            Dict[str, Callable[[:class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`]]]], *optional*):
             The loss function to use for training. Can either be a loss class instance, a dictionary mapping
             dataset names to loss class instances, a function that returns a loss class instance given a model,
             or a dictionary mapping dataset names to functions that return a loss class instance given a model.

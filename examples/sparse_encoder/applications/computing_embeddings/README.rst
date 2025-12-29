@@ -41,7 +41,7 @@ Once you have `installed <../../../../docs/installation.html>`_ Sentence Transfo
    print(f"Avg non-zero dimensions per embedding: {stats['active_dims']:.2f}")
 
 .. note::
-   Even though we talk about sentence embeddings, you can use Sparse Encoder for shorter phrases as well as for longer texts with multiple sentences. See :ref:`input-sequence-length` for notes on embeddings for longer texts.
+   Even though we talk about sentence embeddings, you can use Sparse Encoder for shorter phrases as well as for longer texts with multiple sentences. See :ref:`sparse-input-sequence-length` for notes on embeddings for longer texts.
 
 
 Initializing a Sparse Encoder Model
@@ -68,7 +68,8 @@ Calculating Embeddings
 
 The method to calculate embeddings is :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.model.SparseEncoder.encode>`.
 
-.. _input-sequence-length:
+.. _sparse-input-sequence-length:
+
 Input Sequence Length
 ---------------------
 
@@ -168,7 +169,7 @@ One of the key benefits of controlling sparsity with ``max_active_dims`` is redu
 As shown in the example, limiting active dimensions to 32 reduced memory usage by approximately 43%. This efficiency becomes even more significant when working with large document collections but need to be put in balance with the possible loss of quality of the embeddings representations. Note that each of the `Evaluator classes <../../../../docs/package_reference/sparse_encoder/evaluation.html>`_ has a ``max_active_dims`` parameter that can be set to control the number of active dimensions during evaluation, so you can easily compare the performance of different settings.
 
 Interpretability with SPLADE Models
-----------------------------------
+-----------------------------------
 
 When using SPLADE models, a key advantage is interpretability. You can easily visualize which tokens contribute most to the embedding, providing insights into what the model considers important in the text:
 
