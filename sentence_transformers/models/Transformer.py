@@ -300,7 +300,37 @@ class Transformer(InputModule):
         return features
 
     def get_word_embedding_dimension(self) -> int:
-        return self.auto_model.config.hidden_size
+        """Get the output embedding dimension from the transformer model.
+
+        Returns:
+            int: The hidden dimension size of the model's embeddings.
+
+        Raises:
+            ValueError: If the embedding dimension cannot be determined from the model config.
+        """
+
+        # Get text config, e.g. for multi-modal models
+        try:
+            text_config = self.model.config.get_text_config()
+        except AttributeError:
+            text_config = self.model.config
+
+        if hasattr(text_config, "hidden_size"):
+            return text_config.hidden_size
+
+        # Try hidden_sizes list (e.g., ResNet, some vision models)
+        if hasattr(text_config, "hidden_sizes"):
+            if isinstance(text_config.hidden_sizes, list):
+                return text_config.hidden_sizes[-1]  # Use final layer dimension
+            return text_config.hidden_sizes
+
+        # Unable to determine dimension
+        raise ValueError(
+            f"Could not determine embedding dimension from model config. "
+            f"Config type: {type(text_config).__name__}. "
+            f"Available attributes: {[attr for attr in dir(text_config) if 'hidden' in attr.lower() or 'size' in attr.lower() or 'dim' in attr.lower()]}. "
+            f"Please report this issue with your model name: {self.model.config.model_type if hasattr(self.model.config, 'model_type') else 'unknown'}"
+        )
 
     def tokenize(
         self, texts: list[str] | list[dict] | list[tuple[str, str]], padding: str | bool = True
