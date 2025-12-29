@@ -30,7 +30,7 @@ class SparseStaticEmbedding(InputModule):
     into fixed-size embeddings based on the presence of tokens in the input.
 
     A common scenario is to use this module for encoding queries, and using a heavier module like
-    SPLADE (MLMTransformer + SpladePooling) for document encoding.
+    SPLADE (Transformer with "fill-mask" + SpladePooling) for document encoding.
 
     Args:
         tokenizer (PreTrainedTokenizer): PreTrainedTokenizer to tokenize input texts into input IDs.

@@ -486,7 +486,7 @@ def test_get_model_kwargs(splade_bert_tiny_model: SparseEncoder) -> None:
     model.encode_query("Test sentence")
     with pytest.raises(
         TypeError,
-        match=r"(MLMTransformer\.)?forward\(\) got an unexpected keyword argument '(foo|bar)'",
+        match=r"(Transformer\.)?forward\(\) got an unexpected keyword argument '(foo|bar)'",
     ):
         # This would run fine, except the model can't actually accept these arguments (we monkeypatched the modules'
         # forward_kwargs for this test, after all). The model does send the args down to the underlying modules, though!
@@ -525,7 +525,7 @@ def test_get_model_kwargs(splade_bert_tiny_model: SparseEncoder) -> None:
     model.encode_query("Test sentence")
     with pytest.raises(
         TypeError,
-        match=r"(MLMTransformer\.)?forward\(\) got an unexpected keyword argument '(foo|document_arg_1)'",
+        match=r"(Transformer\.)?forward\(\) got an unexpected keyword argument '(foo|document_arg_1)'",
     ):
         # This would run fine, except the model can't actually accept these arguments (we monkeypatched the modules'
         # forward_kwargs for this test, after all). The model does send the args down to the underlying modules, though!

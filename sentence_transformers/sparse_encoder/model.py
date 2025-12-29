@@ -905,7 +905,7 @@ class SparseEncoder(BaseModel):
     ) -> tuple[OrderedDict[str, nn.Module], OrderedDict[str, Any]]:
         """
         Creates a simple transformer-based model and returns the modules.
-        For MLMTransformer (models ending with ForMaskedLM), uses SpladePooling with 'max' strategy.
+        For models ending with ForMaskedLM, uses SpladePooling with 'max' strategy.
         For regular Transformer, uses CSR implementation by default.
 
         Args:
@@ -950,7 +950,7 @@ class SparseEncoder(BaseModel):
                     break
 
         if is_mlm_model:
-            # For MLM models like BERT, RoBERTa, etc., use MLMTransformer with SpladePooling
+            # For MLM models like BERT, RoBERTa, etc., use Transformer w. fill-mask with SpladePooling
             transformer_model = Transformer(
                 model_name_or_path,
                 transformer_task="fill-mask",

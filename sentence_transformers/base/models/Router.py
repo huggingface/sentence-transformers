@@ -21,6 +21,8 @@ logger = logging.get_logger(__name__)
 
 
 class Router(InputModule):
+    # TODO: Update the __repr__, it likely got overridden by (Input)Module instead of letting nn.Module handle it
+    # Also update sparse_encoder/training_overview 'Inference-free Splade' section
     forward_kwargs = {"task", "modality"}
     config_keys: list[str] = ["default_route", "allow_empty_key", "route_mappings"]
     config_file_name = "router_config.json"
@@ -90,12 +92,12 @@ class Router(InputModule):
 
             ::
 
-                from sentence_transformers.base.models import Router
+                from sentence_transformers.base.models import Router, Transformer
                 from sentence_transformers.sparse_encoder import SparseEncoder
-                from sentence_transformers.sparse_encoder.models import MLMTransformer, SparseStaticEmbedding, SpladePooling
+                from sentence_transformers.sparse_encoder.models import SparseStaticEmbedding, SpladePooling
 
                 # Load an asymmetric model with different encoders for queries and documents
-                doc_encoder = MLMTransformer("opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill")
+                doc_encoder = Transformer("opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill", transformer_task="fill-mask")
                 router = Router.for_query_document(
                     query_modules=[
                         SparseStaticEmbedding.from_json(

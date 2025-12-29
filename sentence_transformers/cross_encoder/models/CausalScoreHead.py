@@ -6,6 +6,7 @@ from sentence_transformers.base.models import Module
 
 
 class CausalScoreHead(Module):
+    # TODO: Documentation
     config_keys = ["true_token_id", "false_token_id"]
 
     def __init__(self, true_token_id: int, false_token_id: int | None = None):

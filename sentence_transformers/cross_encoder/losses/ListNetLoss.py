@@ -55,7 +55,7 @@ class ListNetLoss(nn.Module):
             +----------------------------------------+--------------------------------+-------------------------------+
 
         Recommendations:
-            - Use :class:`~sentence_transformers.util.mine_hard_negatives` with ``output_format="labeled-list"``
+            - Use :class:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` with ``output_format="labeled-list"``
               to convert question-answer pairs to the required input format with hard negatives.
 
         Relations:

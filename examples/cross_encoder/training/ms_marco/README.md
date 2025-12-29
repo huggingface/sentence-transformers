@@ -50,7 +50,7 @@ In all scripts, the model is evaluated on subsets of `MS MARCO <https://huggingf
   ```
 - **[training_ms_marco_lambda_hard_neg.py](training_ms_marco_lambda_hard_neg.py)**:
   ```{eval-rst}
-  This example extends the above example by increasing the size of the training dataset by mining hard negatives with :func:`~sentence_transformers.util.mine_hard_negatives`.
+  This example extends the above example by increasing the size of the training dataset by mining hard negatives with :func:`~sentence_transformers.util.hard_negatives.mine_hard_negatives`.
   ```
 - **[training_ms_marco_listmle.py](training_ms_marco_listmle.py)**:
   ```{eval-rst}

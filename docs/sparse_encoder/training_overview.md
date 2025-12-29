@@ -58,14 +58,14 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
 .. tab:: Splade
 
-    Splade models use the :class:`~sentence_transformers.sparse_encoder.models.MLMTransformer` followed by a :class:`~sentence_transformers.sparse_encoder.models.SpladePooling` modules. The former loads a pretrained `Masked Language Modeling transformer model <https://huggingface.co/models?pipeline_tag=fill-mask>`_ (e.g. `BERT <https://huggingface.co/google-bert/bert-base-uncased>`_, `RoBERTa <https://huggingface.co/FacebookAI/roberta-base>`_, `DistilBERT <https://huggingface.co/distilbert/distilbert-base-uncased>`_, `ModernBERT <https://huggingface.co/answerdotai/ModernBERT-base>`_, etc.) and the latter pools the output of the MLMHead to produce a single sparse embedding of the size of the vocabulary.
+    Splade models use the :class:`~sentence_transformers.base.models.Transformer` with ``transformer_task="fill-mask"`` followed by a :class:`~sentence_transformers.sparse_encoder.models.SpladePooling` modules. The former loads a pretrained `Masked Language Modeling transformer model <https://huggingface.co/models?pipeline_tag=fill-mask>`_ (e.g. `BERT <https://huggingface.co/google-bert/bert-base-uncased>`_, `RoBERTa <https://huggingface.co/FacebookAI/roberta-base>`_, `DistilBERT <https://huggingface.co/distilbert/distilbert-base-uncased>`_, `ModernBERT <https://huggingface.co/answerdotai/ModernBERT-base>`_, etc.) and the latter pools the output of the Masked Language Modeling Head to produce a single sparse embedding of the size of the vocabulary.
     
     .. raw:: html
 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.MLMTransformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.models.MLMTransformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/models.html#sentence_transformers.base.models.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.models.Transformer</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.models.SpladePooling</span></code></a></li>
             </ul>
         </div>
@@ -73,10 +73,11 @@ But if instead you want to train from another checkpoint, or from scratch, then 
     ::
 
         from sentence_transformers import models, SparseEncoder
-        from sentence_transformers.sparse_encoder.models import MLMTransformer, SpladePooling
+        from sentence_transformers.base.models import Transformer
+        from sentence_transformers.sparse_encoder.models import SpladePooling
 
-        # Initialize MLM Transformer (use a fill-mask model)
-        mlm_transformer = MLMTransformer("google-bert/bert-base-uncased")
+        # Initialize Transformer (use a fill-mask model)
+        mlm_transformer = Transformer("google-bert/bert-base-uncased", transformer_task="fill-mask")
         
         # Initialize SpladePooling module
         splade_pooling = SpladePooling(pooling_strategy="max")
@@ -92,22 +93,22 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
         model = SparseEncoder("google-bert/bert-base-uncased")
         # SparseEncoder(
-        #   (0): MLMTransformer({'max_seq_length': 512, 'do_lower_case': False, 'architecture': 'BertForMaskedLM'})
+        #   (0): Transformer({'transformer_task': 'fill-mask', 'modality_config': {'text': {'method': 'forward', 'method_output_name': 'logits'}}, 'module_output_name': 'token_embeddings', 'architecture': 'BertForMaskedLM'})
         #   (1): SpladePooling({'pooling_strategy': 'max', 'activation_function': 'relu', 'word_embedding_dimension': None})
         # )
 
 .. tab:: Inference-free Splade
 
-    Inference-free Splade uses a :class:`~sentence_transformers.base.models.Router` module with different modules for queries and documents. Usually for this type of architecture, the documents part is a traditional Splade architecture (a :class:`~sentence_transformers.sparse_encoder.models.MLMTransformer` followed by a :class:`~sentence_transformers.sparse_encoder.models.SpladePooling` module) and the query part is an :class:`~sentence_transformers.sparse_encoder.models.SparseStaticEmbedding` module, which just returns a pre-computed score for every token in the query.
+    Inference-free Splade uses a :class:`~sentence_transformers.base.models.Router` module with different modules for queries and documents. Usually for this type of architecture, the documents part is a traditional Splade architecture (a :class:`~sentence_transformers.base.models.Transformer` with ``transformer_task="fill-mask"`` followed by a :class:`~sentence_transformers.sparse_encoder.models.SpladePooling` module) and the query part is an :class:`~sentence_transformers.sparse_encoder.models.SparseStaticEmbedding` module, which just returns a pre-computed score for every token in the query.
 
     .. raw:: html
 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.base.models.Router"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.models.Router</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/models.html#sentence_transformers.base.models.Router"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.models.Router</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.SparseStaticEmbedding"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.models.SparseStaticEmbedding</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.MLMTransformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.models.MLMTransformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/models.html#sentence_transformers.base.models.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.models.Transformer</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.models.SpladePooling</span></code></a></li>
             </ul>
         </div>
@@ -115,11 +116,11 @@ But if instead you want to train from another checkpoint, or from scratch, then 
     ::
 
         from sentence_transformers import SparseEncoder
-        from sentence_transformers.base.models import Router
-        from sentence_transformers.sparse_encoder.models import MLMTransformer, SparseStaticEmbedding, SpladePooling
+        from sentence_transformers.base.models import Router, Transformer
+        from sentence_transformers.sparse_encoder.models import SparseStaticEmbedding, SpladePooling
 
         # Initialize MLM Transformer for document encoding
-        doc_encoder = MLMTransformer("google-bert/bert-base-uncased")
+        doc_encoder = Transformer("google-bert/bert-base-uncased", transformer_task="fill-mask")
 
         # Create a router model with different paths for queries and documents
         router = Router.for_query_document(
@@ -130,13 +131,6 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
         # Create the inference-free model
         model = SparseEncoder(modules=[router], similarity_fn_name="dot")
-        # SparseEncoder(
-        #   (0): Router(
-        #     (query_0_SparseStaticEmbedding): SparseStaticEmbedding({'frozen': False}, dim:30522, tokenizer: BertTokenizerFast)
-        #     (document_0_MLMTransformer): MLMTransformer({'max_seq_length': 512, 'do_lower_case': False, 'architecture': 'BertForMaskedLM'})
-        #     (document_1_SpladePooling): SpladePooling({'pooling_strategy': 'max', 'activation_function': 'relu', 'word_embedding_dimension': None})
-        #   )
-        # )
     
     This architecture allows for fast query-time processing using the lightweight SparseStaticEmbedding approach, that can be trained and seen as a linear weights, while documents are processed with the full MLM transformer and SpladePooling.
 
@@ -181,7 +175,7 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.sentence_transformer.models.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.models.Transformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/models.html#sentence_transformers.base.models.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.models.Transformer</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.sentence_transformer.models.Pooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.models.Pooling</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.SparseAutoEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.models.SparseAutoEncoder</span></code></a></li>
             </ul>
@@ -419,7 +413,6 @@ The :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTra
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.optim"><code>optim</code></a>
         <a href="../package_reference/sparse_encoder/training_args.html#sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments"><code>batch_sampler</code></a>
         <a href="../package_reference/sparse_encoder/training_args.html#sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments"><code>multi_dataset_batch_sampler</code></a>
-        <a href="../package_reference/sparse_encoder/training_args.html#sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments"><code>prompts</code></a>
         <a href="../package_reference/sparse_encoder/training_args.html#sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments"><code>router_mapping</code></a>
         <a href="../package_reference/sparse_encoder/training_args.html#sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments"><code>learning_rate_mapping</code></a>
     </div>
@@ -527,7 +520,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/stsb">sentence-transformers/stsb</a></li>
                 <li><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.SparseEmbeddingSimilarityEvaluator" title="sentence_transformers.sparse_encoder.evaluation.SparseEmbeddingSimilarityEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.evaluation.SparseEmbeddingSimilarityEvaluator</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SimilarityFunction" title="sentence_transformers.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.SimilarityFunction</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/util/similarity.html#sentence_transformers.util.similarity.SimilarityFunction" title="sentence_transformers.util.similarity.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.util.similarity.SimilarityFunction</span></code></a></li>
             </ul>
         </div>
 
@@ -560,7 +553,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/all-nli">sentence-transformers/all-nli</a></li>
                 <li><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator" title="sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SimilarityFunction" title="sentence_transformers.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.SimilarityFunction</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/util/similarity.html#sentence_transformers.util.similarity.SimilarityFunction" title="sentence_transformers.util.similarity.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.util.similarity.SimilarityFunction</span></code></a></li>
             </ul>
         </div>
 
@@ -610,7 +603,7 @@ The :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` 
             <ol class="arabic">
                 <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model.SparseEncoder" title="sentence_transformers.sparse_encoder.model.SparseEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder</span></code></a></p>
                 <ol class="loweralpha simple">
-                    <li><p><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.MLMTransformer" title="sentence_transformers.sparse_encoder.models.MLMTransformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">MLMTransformer</span></code></a></p></li>
+                    <li><p><a class="reference internal" href="../package_reference/base/models.html#sentence_transformers.base.models.Transformer" title="sentence_transformers.base.models.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Transformer</span></code></a></p></li>
                     <li><p><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.SpladePooling" title="sentence_transformers.sparse_encoder.models.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">SpladePooling</span></code></a></p></li>
                 </ol>
                 </li>
@@ -727,9 +720,9 @@ The :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` 
                 <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model.SparseEncoder" title="sentence_transformers.sparse_encoder.model.SparseEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder</span></code></a></p>
                 <ol class="loweralpha simple">
                     <li><p><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.SparseStaticEmbedding" title="sentence_transformers.sparse_encoder.models.SparseStaticEmbedding"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseStaticEmbedding</span></code></a></p></li>
-                    <li><p><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.MLMTransformer" title="sentence_transformers.sparse_encoder.models.MLMTransformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">MLMTransformer</span></code></a></p></li>
+                    <li><p><a class="reference internal" href="../package_reference/base/models.html#sentence_transformers.base.models.Transformer" title="sentence_transformers.base.models.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Transformer</span></code></a></p></li>
                     <li><p><a class="reference internal" href="../package_reference/sparse_encoder/models.html#sentence_transformers.sparse_encoder.models.SpladePooling" title="sentence_transformers.sparse_encoder.models.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">SpladePooling</span></code></a></p></li>
-                    <li><p><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.base.models.Router" title="sentence_transformers.base.models.Router"><code class="xref py py-class docutils literal notranslate"><span class="pre">Router</span></code></a></p></li>
+                    <li><p><a class="reference internal" href="../package_reference/base/models.html#sentence_transformers.base.models.Router" title="sentence_transformers.base.models.Router"><code class="xref py py-class docutils literal notranslate"><span class="pre">Router</span></code></a></p></li>
                 </ol>
                 </li>
                 <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData" title="sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoderModelCardData</span></code></a></p></li>
@@ -758,16 +751,20 @@ The :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` 
             SparseEncoderTrainer,
             SparseEncoderTrainingArguments,
         )
-        from sentence_transformers.base.models import Router
+        from sentence_transformers.base.models import Router, Transformer
         from sentence_transformers.sparse_encoder.evaluation import SparseNanoBEIREvaluator
         from sentence_transformers.sparse_encoder.losses import SparseMultipleNegativesRankingLoss, SpladeLoss
-        from sentence_transformers.sparse_encoder.models import MLMTransformer, SparseStaticEmbedding, SpladePooling
+        from sentence_transformers.sparse_encoder.models import SparseStaticEmbedding, SpladePooling
         from sentence_transformers.sentence_transformer.training_args import BatchSamplers
 
         logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
         # 1. Load a model to finetune with 2. (Optional) model card data
-        mlm_transformer = MLMTransformer("distilbert/distilbert-base-uncased", tokenizer_args={"model_max_length": 512})
+        mlm_transformer = Transformer(
+            "distilbert/distilbert-base-uncased",
+            transformer_task="fill-mask",
+            tokenizer_args={"model_max_length": 512},
+        )
         splade_pooling = SpladePooling(
             pooling_strategy="max", word_embedding_dimension=mlm_transformer.get_sentence_embedding_dimension()
         )

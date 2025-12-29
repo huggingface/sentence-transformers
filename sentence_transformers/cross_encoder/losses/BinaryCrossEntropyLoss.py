@@ -47,7 +47,7 @@ class BinaryCrossEntropyLoss(nn.Module):
             +-------------------------------------------------+----------------------------------------+-------------------------------+
 
         Recommendations:
-            - Use :class:`~sentence_transformers.util.mine_hard_negatives` with ``output_format="labeled-pair"``
+            - Use :class:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` with ``output_format="labeled-pair"``
               to convert question-answer pairs to the ``(anchor, positive/negative) pairs`` format with labels as 1 or 0,
               using hard negatives.
 

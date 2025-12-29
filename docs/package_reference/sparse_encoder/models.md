@@ -9,11 +9,6 @@ See also the modules from `sentence_transformers.base.models` in [Base > Modules
 .. autoclass:: sentence_transformers.sparse_encoder.models.SpladePooling
 ```
 
-## MLM Transformer
-```{eval-rst}
-.. autoclass:: sentence_transformers.sparse_encoder.models.MLMTransformer
-```
-
 ## SparseAutoEncoder
 ```{eval-rst}
 .. autoclass:: sentence_transformers.sparse_encoder.models.SparseAutoEncoder

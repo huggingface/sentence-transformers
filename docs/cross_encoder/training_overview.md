@@ -44,7 +44,7 @@ Training Cross Encoder models involves between 4 to 6 components, just like [tra
 
 ```{eval-rst}
 
-Cross Encoder models wrap pretrained `transformers <https://huggingface.co/docs/transformers>`_ models and add a small head that produces scores or labels for pairs of inputs. If you want to further finetune a CrossEncoder model (for example one from the `cross-encoder <https://huggingface.co/cross-encoder>`_ organization or another checkpoint that was already saved as a CrossEncoder), then you usually don't have to worry about the underlying architecture::
+Cross Encoder models wrap pretrained `transformers <https://huggingface.co/docs/transformers>`_ models and use or add a small head that produces scores or labels for pairs of inputs. If you want to further finetune a CrossEncoder model (for example one from the `cross-encoder <https://huggingface.co/cross-encoder>`_ organization or `another checkpoint that was already saved as a CrossEncoder <https://huggingface.co/models?library=sentence-transformers&pipeline_tag=text-ranking>`_), then you usually don't have to worry about the underlying architecture::
 
     from sentence_transformers import CrossEncoder
 
@@ -52,13 +52,18 @@ Cross Encoder models wrap pretrained `transformers <https://huggingface.co/docs/
 
 But if instead you want to train from another checkpoint, or from scratch, then these are the most common architectures you can use:
 
-.. sidebar:: Documentation
-
-    - :class:`sentence_transformers.cross_encoder.model.CrossEncoder`
-
 .. tab:: Encoder / sequence-classification checkpoints
 
     You can initialize a CrossEncoder from encoder or sequence-classification models such as `BERT <https://huggingface.co/google-bert/bert-base-uncased>`_, `RoBERTa <https://huggingface.co/FacebookAI/roberta-base>`_, or `ModernBERT <https://huggingface.co/answerdotai/ModernBERT-base>`_. If the checkpoint already has a sequence-classification head, CrossEncoder will reuse it. Otherwise, a new head is added automatically, with the number of output labels taken from the model config or from the ``num_labels`` argument.
+
+    .. raw:: html
+
+        <div class="sidebar">
+            <p class="sidebar-title">Documentation</p>
+            <ul class="simple">
+                <li><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.cross_encoder.model.CrossEncoder</span></code></a></li>
+            </ul>
+        </div>
 
     ::
 
@@ -86,7 +91,15 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
     CrossEncoder can also wrap text-generation / causal language models whose configs end with ``ForCausalLM``. In this case, it uses a text-generation backbone and adds a :class:`sentence_transformers.cross_encoder.models.CausalScoreHead`, which looks at specific "true" / "false" tokens (for example "yes" and "no" or "1" or "0") and converts the causal logits into a single scalar score per input pair.
 
-    This causal-LM setup always behaves like a single-label scorer (effectively ``num_labels=1``): it is designed for scoring and reranking tasks (e.g. query–document relevance), **not** for multi-class classification where you need one logit per class. For classification problems with more than one label, you should prefer the encoder / sequence-classification checkpoints instead.
+    .. raw:: html
+
+        <div class="sidebar">
+            <p class="sidebar-title">Documentation</p>
+            <ul class="simple">
+                <li><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.cross_encoder.model.CrossEncoder</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/cross_encoder/models.html#sentence_transformers.cross_encoder.models.CausalScoreHead"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.cross_encoder.models.CausalScoreHead</span></code></a></li>
+            </ul>
+        </div>
 
     ::
 
@@ -95,6 +108,7 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         # Use a text-generation checkpoint as a reranker
         model = CrossEncoder("google/gemma-2-2b-it")
 
+    This causal-LM setup always behaves like a single-label scorer (effectively ``num_labels=1``): it is designed for scoring and reranking tasks (e.g. query–document relevance), **not** for multi-class classification where you need one logit per class. For classification problems with more than one label, you should prefer the encoder / sequence-classification checkpoints instead.
 ```
 
 ## Dataset
@@ -229,14 +243,14 @@ A concise example is:
 - **Hard Negative**: The Fuji apple is an apple cultivar developed in the late 1930s, and brought to market in 1962.
 
 ```{eval-rst}
-The strongest CrossEncoder models are generally trained to recognize hard negatives, and so it's valuable to be able to "mine" hard negatives. Sentence Transformers supports a strong :func:`~sentence_transformers.util.mine_hard_negatives` function that can assist, given a dataset of query-answer pairs:
+The strongest CrossEncoder models are generally trained to recognize hard negatives, and so it's valuable to be able to "mine" hard negatives. Sentence Transformers supports a strong :func:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` function that can assist, given a dataset of query-answer pairs:
 
 .. sidebar:: Documentation
 
     * `sentence-transformers/gooaq <https://huggingface.co/datasets/sentence-transformers/gooaq>`_
     * `sentence-transformers/static-retrieval-mrl-en-v1 <https://huggingface.co/sentence-transformers/static-retrieval-mrl-en-v1>`_
     * :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`
-    * :func:`~sentence_transformers.util.mine_hard_negatives`
+    * :func:`~sentence_transformers.util.hard_negatives.mine_hard_negatives`
 
 ::
 
@@ -367,9 +381,9 @@ The :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrain
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.optim"><code>optim</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.dataloader_num_workers"><code>dataloader_num_workers</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.dataloader_prefetch_factor"><code>dataloader_prefetch_factor</code></a>
-        <a href="../package_reference/cross_encoder/training_args.html#sentence_transformers.cross_encoder.training_args.SentenceTransformerTrainingArguments"><code>batch_sampler</code></a>
-        <a href="../package_reference/cross_encoder/training_args.html#sentence_transformers.cross_encoder.training_args.SentenceTransformerTrainingArguments"><code>multi_dataset_batch_sampler</code></a>
-        <a href="../package_reference/cross_encoder/training_args.html#sentence_transformers.cross_encoder.training_args.SentenceTransformerTrainingArguments"><code>learning_rate_mapping</code></a>
+        <a href="../package_reference/cross_encoder/training_args.html#sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments"><code>batch_sampler</code></a>
+        <a href="../package_reference/cross_encoder/training_args.html#sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments"><code>multi_dataset_batch_sampler</code></a>
+        <a href="../package_reference/cross_encoder/training_args.html#sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments"><code>learning_rate_mapping</code></a>
     </div>
 </div>
 <br>
@@ -436,7 +450,7 @@ Evaluator                                                                       
 :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderClassificationEvaluator`   Pairs with class labels (binary or multiclass).
 :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderCorrelationEvaluator`      Pairs with similarity scores.
 :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator`         No data required.
-:class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator`        List of ``{'query': '...', 'positive': [...], 'negative': [...]}`` dictionaries. Negatives can be mined with :func:`~sentence_transformers.util.mine_hard_negatives`.
+:class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator`        List of ``{'query': '...', 'positive': [...], 'negative': [...]}`` dictionaries. Negatives can be mined with :func:`~sentence_transformers.util.hard_negatives.mine_hard_negatives`.
 =============================================================================================  ========================================================================================================================================================================
 
 Additionally, :class:`~sentence_transformers.sentence_transformer.evaluation.SequentialEvaluator` should be used to combine multiple evaluators into one Evaluator that can be passed to the :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer`.
@@ -451,7 +465,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2">cross-encoder/ms-marco-MiniLM-L6-v2</a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.sentence_transformer.evaluation.CrossEncoderNanoBEIREvaluator" title="sentence_transformers.sentence_transformer.evaluation.CrossEncoderNanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.evaluation.CrossEncoderNanoBEIREvaluator</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/cross_encoder/evaluation.html#sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator" title="sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator</span></code></a></li>
             </ul>
         </div>
 
@@ -473,7 +487,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
 
     Preparing data for :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator` can be difficult as you need negatives in addition to your query-positive data.
 
-    The :func:`~sentence_transformers.util.mine_hard_negatives` function has a convenient ``include_positives`` parameter, which can be set to ``True`` to also mine for the positive texts. When supplied as ``documents`` (which have to be 1. ranked and 2. contain positives) to :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator`, the evaluator will not just evaluate the reranking performance of the CrossEncoder, but also the original rankings by the embedding model used for mining.
+    The :func:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` function has a convenient ``include_positives`` parameter, which can be set to ``True`` to also mine for the positive texts. When supplied as ``documents`` (which have to be 1. ranked and 2. contain positives) to :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator`, the evaluator will not just evaluate the reranking performance of the CrossEncoder, but also the original rankings by the embedding model used for mining.
 
     For example::
 
@@ -502,7 +516,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2">cross-encoder/ms-marco-MiniLM-L6-v2</a></li>
                 <li><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/gooaq">sentence-transformers/gooaq</a></li>
-                <li><a class="reference internal" href="../package_reference/util.html#sentence_transformers.util.mine_hard_negatives" title="sentence_transformers.util.mine_hard_negatives"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.util.mine_hard_negatives</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/util/hard_negatives.html#sentence_transformers.util.hard_negatives.mine_hard_negatives" title="sentence_transformers.util.hard_negatives.mine_hard_negatives"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.util.hard_negatives.mine_hard_negatives</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/cross_encoder/evaluation.html#sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator" title="sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator</span></code></a></li>
             </ul>
         </div>
@@ -809,7 +823,7 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
                 <li><p><a class="reference external" href="https://huggingface.co/docs/datasets/main/en/package_reference/loading_methods#datasets.load_dataset" title="(in datasets vmain)"><code class="xref py py-func docutils literal notranslate"><span class="pre">load_dataset()</span></code></a></p></li>
                 <li><p><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/gooaq">sentence-transformers/gooaq</a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.sentence_transformer.model.SentenceTransformer" title="sentence_transformers.sentence_transformer.model.SentenceTransformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">SentenceTransformer</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/util.html#sentence_transformers.util.mine_hard_negatives" title="sentence_transformers.util.mine_hard_negatives"><code class="xref py py-class docutils literal notranslate"><span class="pre">mine_hard_negatives</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/util.html#sentence_transformers.util.hard_negatives.mine_hard_negatives" title="sentence_transformers.util.hard_negatives.mine_hard_negatives"><code class="xref py py-class docutils literal notranslate"><span class="pre">mine_hard_negatives</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/losses.html#sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss" title="sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss"><code class="xref py py-class docutils literal notranslate"><span class="pre">BinaryCrossEntropyLoss</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/evaluation.html#sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator" title="sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderNanoBEIREvaluator</span></code></a></p></li>
                 <li><p><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossEncoderRerankingEvaluators</span></code></p></li>
@@ -1041,10 +1055,10 @@ Each training/evaluation batch will only contain samples from one of the dataset
 Cross Encoder models have their own unique quirks, so here's some tips to help you out:
 
 #. :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models overfit rather quickly, so it's recommended to use an evaluator like :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator` or :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator` together with the ``load_best_model_at_end`` and ``metric_for_best_model`` training arguments to load the model with the best evaluation performance after training.
-#. :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` are particularly receptive to strong hard negatives (:func:`~sentence_transformers.util.mine_hard_negatives`). They teach the model to be very strict, useful e.g. when distinguishing between passages that answer a question or passages that relate to a question. 
+#. :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` are particularly receptive to strong hard negatives (:func:`~sentence_transformers.util.hard_negatives.mine_hard_negatives`). They teach the model to be very strict, useful e.g. when distinguishing between passages that answer a question or passages that relate to a question. 
 
     a. Note that if you only use hard negatives, `your model may unexpectedly perform worse for easier tasks <https://huggingface.co/papers/2411.11767>`_. This can mean that reranking the top 200 results from a first-stage retrieval system (e.g. with a :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` model) can actually give worse top-10 results than reranking the top 100. Training using random negatives alongside hard negatives can mitigate this.
-#. Don't underestimate :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`, it remains a very strong option despite being simpler than learning-to-rank (:class:`~sentence_transformers.cross_encoder.losses.LambdaLoss`, :class:`~sentence_transformers.cross_encoder.losses.ListNetLoss`) or in-batch negatives (:class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`, :class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss`) losses, and its data is easy to prepare, especially using :func:`~sentence_transformers.util.mine_hard_negatives`.
+#. Don't underestimate :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`, it remains a very strong option despite being simpler than learning-to-rank (:class:`~sentence_transformers.cross_encoder.losses.LambdaLoss`, :class:`~sentence_transformers.cross_encoder.losses.ListNetLoss`) or in-batch negatives (:class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`, :class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss`) losses, and its data is easy to prepare, especially using :func:`~sentence_transformers.util.hard_negatives.mine_hard_negatives`.
 ```
 
 ## Deprecated Training
