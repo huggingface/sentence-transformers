@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
+# TODO: Perhaps rename to BaseEvaluator?
 class SentenceEvaluator:
     """
     Base class for all evaluators. Notably, this class introduces the ``greater_is_better`` and ``primary_metric``

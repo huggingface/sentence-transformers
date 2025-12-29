@@ -1,7 +1,9 @@
 # Modules
 
 `sentence_transformers.sparse_encoder.models` defines different building blocks, that can be used to create SparseEncoder networks from scratch. For more details, see [Training Overview](../../sparse_encoder/training_overview.md).
-Note that modules from `sentence_transformers.sentence_transformer.models` can also be used for Sparse models, such as `sentence_transformers.sentence_transformer.models.Transformer` from [SentenceTransformer > Modules](../sentence_transformer/models.md)
+
+See also the modules from `sentence_transformers.base.models` in [Base > Modules](../base/models.rst).
+
 ## SPLADE Pooling
 ```{eval-rst}
 .. autoclass:: sentence_transformers.sparse_encoder.models.SpladePooling

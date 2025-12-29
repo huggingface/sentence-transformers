@@ -48,6 +48,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     Base class for SentenceTransformer, SparseEncoder, and CrossEncoder models.
 
     This class provides common functionality for:
+
     - Model loading (from Hub, local paths, or creating new models)
     - Model saving (to disk and Hub)
     - Device management

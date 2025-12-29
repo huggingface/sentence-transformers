@@ -2,6 +2,8 @@
 
 `sentence_transformers.sentence_transformer.evaluation` defines different classes, that can be used to evaluate the model during training.
 
+See also the modules from `sentence_transformers.base.evaluation` in [Base > Evaluation](../base/evaluation.rst).
+
 ## BinaryClassificationEvaluator
 
 ```{eval-rst}
@@ -42,18 +44,6 @@
 
 ```{eval-rst}
 .. autoclass:: sentence_transformers.sentence_transformer.evaluation.RerankingEvaluator
-```
-
-## SentenceEvaluator
-
-```{eval-rst}
-.. autoclass:: sentence_transformers.sentence_transformer.evaluation.SentenceEvaluator
-```
-
-## SequentialEvaluator
-
-```{eval-rst}
-.. autoclass:: sentence_transformers.sentence_transformer.evaluation.SequentialEvaluator
 ```
 
 ## TranslationEvaluator
