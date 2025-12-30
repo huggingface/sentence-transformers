@@ -13,7 +13,7 @@ from torch import Tensor, nn
 from transformers.utils import logging
 
 from sentence_transformers.base.models.InputModule import InputModule
-from sentence_transformers.base.models.modality_utils import Modality, infer_modality
+from sentence_transformers.base.models.modality_utils import MODALITY_TO_PROCESSOR_ARG, Modality, infer_modality
 from sentence_transformers.base.models.Module import Module
 from sentence_transformers.util import import_from_string, load_dir_path
 
@@ -508,7 +508,7 @@ class Router(InputModule):
         self,
         texts: list[str] | list[tuple[str, str]],
         task: str | None = None,
-        modality: str | tuple[str, ...] | None = None,
+        modality: Modality | None = None,
         **kwargs,
     ):
         """Preprocesses a text and maps tokens to token-ids"""
@@ -519,7 +519,7 @@ class Router(InputModule):
             # Extract the task type key from the dictionaries
             dict_keys = set(key for text in texts for key in text.keys())
             # If the input keys are not modalities, they might be task types from backwards compatibility
-            if not (dict_keys & set(Modality.all())):
+            if not (dict_keys & set(MODALITY_TO_PROCESSOR_ARG.keys())):
                 if len(dict_keys) > 1:
                     raise ValueError(
                         "You cannot pass a list of dictionaries with different task types. "
