@@ -999,7 +999,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         model_kwargs: dict[str, Any] | None = None,
         tokenizer_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
-    ) -> tuple[OrderedDict[str, nn.Module], OrderedDict[str, Any]]:
+    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """
         Creates a simple Transformer + Mean Pooling model and returns the modules.
         Subclasses should override this to provide their own model creation logic.
@@ -1078,7 +1078,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         tokenizer_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_type: str | None = None,
-    ) -> tuple[OrderedDict[str, nn.Module], OrderedDict[str, Any]]:
+    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         # If we're loading a CrossEncoder or SparseEncoder model, just load it with Transformer + Pooling
         return super()._load_default_modules(
             model_name_or_path,

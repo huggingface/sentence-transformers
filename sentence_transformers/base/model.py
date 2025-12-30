@@ -33,6 +33,7 @@ from sentence_transformers.base.models.modality_utils import (
     ArrayInputs,
     DictInputs,
     ImageInputs,
+    Modality,
     PairStrInputs,
     StrInputs,
     infer_modality,
@@ -74,7 +75,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self,
         model_name_or_path: str | None = None,
         *,
-        modules: list[nn.Module] | None = None,
+        modules: list[nn.Module] | OrderedDict[str, nn.Module] | None = None,
         device: str | None = None,
         cache_folder: str | None = None,
         trust_remote_code: bool = False,
@@ -195,7 +196,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         return self.backend
 
     @property
-    def modalities(self) -> list[str]:
+    def modalities(self) -> list[Modality]:
         """Return the list of modalities supported by this model."""
         if hasattr(self[0], "modalities"):
             return self[0].modalities
@@ -721,7 +722,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         model_kwargs: dict[str, Any] | None = None,
         tokenizer_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
-    ) -> list[nn.Module]:
+    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         load_kwargs = {
             "token": token,
             "cache_folder": cache_folder,
@@ -769,7 +770,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         model_kwargs: dict[str, Any] | None = None,
         tokenizer_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
-    ) -> tuple[OrderedDict[str, nn.Module], OrderedDict[str, Any]]:
+    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """
 
         Args:
@@ -799,7 +800,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         model_kwargs: dict[str, Any] | None = None,
         tokenizer_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
-    ) -> tuple[OrderedDict[str, nn.Module], OrderedDict[str, Any]]:
+    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """
         Loads a full model using the modules.json file.
 
@@ -973,7 +974,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         tokenizer_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_type: str | None = None,
-    ) -> tuple[OrderedDict[str, nn.Module], OrderedDict[str, Any]]:
+    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         return self._load_default_modules(
             model_name_or_path,
             token=token,

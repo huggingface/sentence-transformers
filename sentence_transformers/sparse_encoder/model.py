@@ -896,7 +896,7 @@ class SparseEncoder(BaseModel):
         model_kwargs: dict[str, Any] | None = None,
         tokenizer_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
-    ) -> tuple[OrderedDict[str, nn.Module], OrderedDict[str, Any]]:
+    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """
         Creates a simple transformer-based model and returns the modules.
         For models ending with ForMaskedLM, uses SpladePooling with 'max' strategy.
@@ -997,7 +997,7 @@ class SparseEncoder(BaseModel):
         tokenizer_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_type: str | None = None,
-    ) -> tuple[OrderedDict[str, nn.Module], OrderedDict[str, Any]]:
+    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         if model_type != "SentenceTransformer":
             return self._load_default_modules(
                 model_name_or_path,
@@ -1042,7 +1042,7 @@ class SparseEncoder(BaseModel):
             config_kwargs=config_kwargs,
         )
         # TODO: Surely we can access modules in a better way than this?
-        modules = [modules[str(i)] for i in range(len(modules.keys()))]
+        modules = list(modules.values())
         input_dim = modules[0].get_word_embedding_dimension()
         hidden_dim = 4 * input_dim
         k = input_dim // 4  # Number of top values to keep
