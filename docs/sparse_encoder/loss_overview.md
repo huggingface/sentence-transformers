@@ -2,7 +2,7 @@
 
 ```{eval-rst}
 .. warning:: 
-    To train a :class:`~sentence_transformers.sparse_encoder.SparseEncoder`, you need either :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss` or :class:`~sentence_transformers.sparse_encoder.losses.CSRLoss`, depending on the architecture. These are wrapper losses that add sparsity regularization on top of a main loss function, which must be provided as a parameter. The only loss that can be used independently is :class:`~sentence_transformers.sparse_encoder.losses.SparseMSELoss`, as it performs embedding-level distillation, ensuring sparsity by directly copying the teacher's sparse embedding.
+    To train a :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder`, you need either :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss` or :class:`~sentence_transformers.sparse_encoder.losses.CSRLoss`, depending on the architecture. These are wrapper losses that add sparsity regularization on top of a main loss function, which must be provided as a parameter. The only loss that can be used independently is :class:`~sentence_transformers.sparse_encoder.losses.SparseMSELoss`, as it performs embedding-level distillation, ensuring sparsity by directly copying the teacher's sparse embedding.
     
 ```
 
@@ -37,7 +37,7 @@ Loss functions play a critical role in the performance of your fine-tuned model.
  
  .. note:: 
 
-    The loss functions in `SentenceTransformer > Loss Overview <../sentence_transformer/loss_overview.html>`_ that appear here with the ``Sparse`` prefix are identical to their dense versions. The prefix is used only to indicate which losses can be used as main losses to train a :class:`~sentence_transformers.sparse_encoder.SparseEncoder`
+    The loss functions in `SentenceTransformer > Loss Overview <../sentence_transformer/loss_overview.html>`_ that appear here with the ``Sparse`` prefix are identical to their dense versions. The prefix is used only to indicate which losses can be used as main losses to train a :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder`
 ```
 
 | Inputs                                            | Labels                                   | Appropriate Loss Functions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |

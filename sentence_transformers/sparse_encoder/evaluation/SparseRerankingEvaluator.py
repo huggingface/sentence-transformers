@@ -8,20 +8,20 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 
-from sentence_transformers.evaluation import RerankingEvaluator
+from sentence_transformers.sentence_transformer.evaluation import RerankingEvaluator
 from sentence_transformers.util import append_to_last_row, cos_sim
 
 if TYPE_CHECKING:
     import numpy as np
 
-    from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+    from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 logger = logging.getLogger(__name__)
 
 
 class SparseRerankingEvaluator(RerankingEvaluator):
     """
-    This evaluator extends :class:`~sentence_transformers.evaluation.RerankingEvaluator' but is specifically designed for sparse encoder models.
+    This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.RerankingEvaluator` but is specifically designed for sparse encoder models.
 
     This class evaluates a SparseEncoder model for the task of re-ranking.
 

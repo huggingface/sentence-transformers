@@ -57,9 +57,9 @@ The following models have been specifically trained for **Semantic Search**: Giv
 .. sidebar:: Documentation
 
    #. `multi-qa-mpnet-base-cos-v1 <https://huggingface.co/sentence-transformers/multi-qa-mpnet-base-cos-v1>`_
-   #. :class:`SentenceTransformer <sentence_transformers.SentenceTransformer>`
-   #. :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>`
-   #. :meth:`SentenceTransformer.similarity <sentence_transformers.SentenceTransformer.similarity>`
+   #. :class:`SentenceTransformer <sentence_transformers.sentence_transformer.model.SentenceTransformer>`
+   #. :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>`
+   #. :meth:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`
 
 ```
 

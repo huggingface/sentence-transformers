@@ -1,7 +1,10 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.5
-    hooks:
-      - id: ruff
-        args: [--exit-non-zero-on-fix]
-      - id: ruff-format
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  # Ruff version.
+  rev: v0.14.10
+  hooks:
+    # Run the linter.
+    - id: ruff-check
+      args: [ --fix, --show-fixes ]
+    # Run the formatter.
+    - id: ruff-format

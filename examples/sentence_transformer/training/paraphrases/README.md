@@ -1,12 +1,14 @@
 # Paraphrase Data
 
 ```{eval-rst}
-In our paper `Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation <https://huggingface.co/papers/2004.09813>`_, we showed that paraphrase data together with :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` is a powerful combination to learn sentence embeddings models. Read `NLI > MultipleNegativesRankingLoss <../nli/README.html#multiplenegativesrankingloss>`_ for more information on this loss function.
+In our paper `Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation <https://huggingface.co/papers/2004.09813>`_, we showed that paraphrase data together with :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` is a powerful combination to learn sentence embeddings models. Read `NLI > MultipleNegativesRankingLoss <../nli/README.html#multiplenegativesrankingloss>`_ for more information on this loss function.
 ```
 
 The [training.py](training.py) script loads various datasets from the [Dataset Overview](../../../../docs/sentence_transformer/dataset_overview.md#pre-existing-datasets). We construct batches by sampling examples from the respective dataset. So far, examples are not mixed between the datasets, i.e., a batch consists only of examples from a single dataset.
 
-As the dataset sizes are quite different in size, we perform [round-robin sampling](../../../../docs/package_reference/sentence_transformer/sampler.md#sentence_transformers.training_args.MultiDatasetBatchSamplers) to train using the same amount of batches from each dataset.
+```{eval-rst}
+As the dataset sizes are quite different in size, we perform round-robin sampling via :class:`~sentence_transformers.base.sampler.MultiDatasetBatchSamplers` to train using the same amount of batches from each dataset.
+```
 
 ## Pre-Trained Models
 

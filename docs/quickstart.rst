@@ -15,13 +15,13 @@ Once you have `installed <installation.html>`_ Sentence Transformers, you can ea
 
 .. sidebar:: Documentation
 
-   1. :class:`SentenceTransformer <sentence_transformers.SentenceTransformer>`
-   2. :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>`
-   3. :meth:`SentenceTransformer.similarity <sentence_transformers.SentenceTransformer.similarity>`
+   1. :class:`SentenceTransformer <sentence_transformers.sentence_transformer.model.SentenceTransformer>`
+   2. :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>`
+   3. :meth:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`
 
    **Other useful methods and links:**
 
-   - :meth:`SentenceTransformer.similarity_pairwise <sentence_transformers.SentenceTransformer.similarity_pairwise>`
+   - :meth:`SentenceTransformer.similarity_pairwise <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity_pairwise>`
    - `SentenceTransformer > Usage <./sentence_transformer/usage/usage.html>`_
    - `SentenceTransformer > Usage > Speeding up Inference <./sentence_transformer/usage/efficiency.html>`_
    - `SentenceTransformer > Pretrained Models <./sentence_transformer/pretrained_models.html>`_
@@ -56,7 +56,7 @@ Once you have `installed <installation.html>`_ Sentence Transformers, you can ea
    #         [0.6660, 1.0000, 0.1411],
    #         [0.1046, 0.1411, 1.0000]])
 
-With ``SentenceTransformer("all-MiniLM-L6-v2")`` we pick which `Sentence Transformer model <https://huggingface.co/models?library=sentence-transformers>`_ we load. In this example, we load `all-MiniLM-L6-v2 <https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2>`_, which is a MiniLM model finetuned on a large dataset of over 1 billion training pairs. Using :meth:`SentenceTransformer.similarity() <sentence_transformers.SentenceTransformer.similarity>`, we compute the similarity between all pairs of sentences. As expected, the similarity between the first two sentences (0.6660) is higher than the similarity between the first and the third sentence (0.1046) or the second and the third sentence (0.1411).
+With ``SentenceTransformer("all-MiniLM-L6-v2")`` we pick which `Sentence Transformer model <https://huggingface.co/models?library=sentence-transformers>`_ we load. In this example, we load `all-MiniLM-L6-v2 <https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2>`_, which is a MiniLM model finetuned on a large dataset of over 1 billion training pairs. Using :meth:`SentenceTransformer.similarity() <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`, we compute the similarity between all pairs of sentences. As expected, the similarity between the first two sentences (0.6660) is higher than the similarity between the first and the third sentence (0.1046) or the second and the third sentence (0.1411).
 
 Finetuning Sentence Transformer models is easy and requires only a few lines of code. For more information, see the `Training Overview <./sentence_transformer/training_overview.html>`_ section.
 
@@ -152,7 +152,7 @@ The usage for Cross Encoder (a.k.a. reranker) models is similar to Sentence Tran
 With ``CrossEncoder("cross-encoder/stsb-distilroberta-base")`` we pick which `CrossEncoder model <./cross_encoder/pretrained_models.html>`_ we load. In this example, we load `cross-encoder/stsb-distilroberta-base <https://huggingface.co/cross-encoder/stsb-distilroberta-base>`_, which is a `DistilRoBERTa <https://huggingface.co/distilbert/distilroberta-base>`_ model finetuned on the `STS Benchmark <https://huggingface.co/datasets/sentence-transformers/stsb>`_ dataset.
 
 Sparse Encoder
--------------
+--------------
 
 Characteristics of Sparse Encoder models:
 

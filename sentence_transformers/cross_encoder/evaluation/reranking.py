@@ -9,10 +9,10 @@ import numpy as np
 from sklearn.metrics import average_precision_score, ndcg_score
 from tqdm import tqdm
 
-from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.SentenceEvaluator import SentenceEvaluator
 
 if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+    from sentence_transformers.cross_encoder.model import CrossEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +39,12 @@ class CrossEncoderRerankingEvaluator(SentenceEvaluator):
 
     Args:
         samples (list): A list of dictionaries, where each dictionary represents a sample and has the following keys:
+
             - 'query' (mandatory): The search query.
             - 'positive' (mandatory): A list of positive (relevant) documents.
             - 'negative' (optional): A list of negative (irrelevant) documents. Mutually exclusive with 'documents'.
             - 'documents' (optional): A list of all documents, including the positive ones. This list is assumed to be
-                ranked by similarity, with the most similar documents first. Mutually exclusive with 'negative'.
+              ranked by similarity, with the most similar documents first. Mutually exclusive with 'negative'.
         at_k (int, optional): Only consider the top k most similar documents to each query for the evaluation. Defaults to 10.
         always_rerank_positives (bool): If True, always evaluate with all positives included. If False, only include
             the positives that are already in the documents list. Always set to True if your ``samples`` contain ``negative``

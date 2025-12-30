@@ -15,8 +15,8 @@ import torch
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.similarity_functions import SimilarityFunction
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.util.similarity import SimilarityFunction
 
 script_folder_path = os.path.dirname(os.path.realpath(__file__))
 

@@ -1,13 +1,13 @@
 # Semantic Textual Similarity
 
 ```{eval-rst}
-Semantic Textual Similarity (STS) assigns a score on the similarity of two texts. In this example, we use the `stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_ dataset as training data to fine-tune a :class:`~sentence_transformers.cross_encoder.CrossEncoder` model. See the following example script how to tune :class:`~sentence_transformers.cross_encoder.CrossEncoder` models on STS data:
+Semantic Textual Similarity (STS) assigns a score on the similarity of two texts. In this example, we use the `stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_ dataset as training data to fine-tune a :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` model. See the following example script how to tune :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models on STS data:
 ```
 
 - **[training_stsbenchmark.py](training_stsbenchmark.py)** - This example shows how to create and finetune a CrossEncoder model from a pre-trained transformer model (e.g. [`distilroberta-base`](https://huggingface.co/distilbert/distilroberta-base)).
 
 ```{eval-rst}
-You can also train and use :class:`~sentence_transformers.SentenceTransformer` models for this task. See `Sentence Transformer > Training Examples > Semantic Textual Similarity <../../../sentence_transformer/training/sts/README.html>`_ for more details.
+You can also train and use :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models for this task. See `Sentence Transformer > Training Examples > Semantic Textual Similarity <../../../sentence_transformer/training/sts/README.html>`_ for more details.
 ```
 
 ## Training data

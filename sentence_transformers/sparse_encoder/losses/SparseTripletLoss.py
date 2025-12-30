@@ -4,8 +4,8 @@ from collections.abc import Iterable
 
 from torch import Tensor
 
-from sentence_transformers.losses.TripletLoss import TripletDistanceMetric, TripletLoss
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sentence_transformer.losses.TripletLoss import TripletDistanceMetric, TripletLoss
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 class SparseTripletLoss(TripletLoss):

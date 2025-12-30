@@ -7,7 +7,7 @@ from datetime import datetime
 from torch.utils.data import DataLoader
 
 from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models, util
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(
