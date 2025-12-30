@@ -24,6 +24,7 @@ from typing_extensions import deprecated
 
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.models import Transformer
+from sentence_transformers.base.models.modality_utils import PairInputs
 from sentence_transformers.cross_encoder.fit_mixin import FitMixin
 from sentence_transformers.cross_encoder.model_card import CrossEncoderModelCardData
 from sentence_transformers.cross_encoder.models.CausalScoreHead import CausalScoreHead
@@ -262,7 +263,7 @@ class CrossEncoder(BaseModel, FitMixin):
 
     def _multi_process(
         self,
-        inputs: list[tuple[str, str]] | list[list[str]],
+        inputs: list[PairInputs],
         show_progress_bar: bool | None = True,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         device: str | list[str | torch.device] | None = None,
@@ -410,7 +411,6 @@ class CrossEncoder(BaseModel, FitMixin):
 
     @property
     def config(self) -> PretrainedConfig:
-        # return self.model.config
         # TODO: This won't work nicely
         return self[0].model.config
 
@@ -469,7 +469,7 @@ class CrossEncoder(BaseModel, FitMixin):
     @overload
     def predict(
         self,
-        sentences: tuple[str, str] | list[str],
+        sentences: PairInputs,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -487,7 +487,7 @@ class CrossEncoder(BaseModel, FitMixin):
     @overload
     def predict(
         self,
-        sentences: list[tuple[str, str]] | list[list[str]] | tuple[str, str] | list[str],
+        sentences: list[PairInputs] | PairInputs,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -505,7 +505,7 @@ class CrossEncoder(BaseModel, FitMixin):
     @overload
     def predict(
         self,
-        sentences: list[tuple[str, str]] | list[list[str]] | tuple[str, str] | list[str],
+        sentences: list[PairInputs] | PairInputs,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -523,7 +523,7 @@ class CrossEncoder(BaseModel, FitMixin):
     @overload
     def predict(
         self,
-        sentences: list[tuple[str, str]] | list[list[str]],
+        sentences: list[PairInputs],
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -542,10 +542,7 @@ class CrossEncoder(BaseModel, FitMixin):
     @cross_encoder_predict_rank_args_decorator
     def predict(
         self,
-        sentences: list[tuple[str, str]]
-        | list[list[str]]
-        | tuple[str, str]
-        | list[str],  # TODO: Rename to 'inputs' with decorator
+        sentences: list[PairInputs] | PairInputs,  # TODO: Rename to 'inputs' with decorator
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
@@ -795,7 +792,7 @@ class CrossEncoder(BaseModel, FitMixin):
                 "CrossEncoder.rank() only works for models with num_labels=1. "
                 "Consider using CrossEncoder.predict() with input pairs instead."
             )
-        query_doc_pairs = [[query, doc] for doc in documents]
+        query_doc_pairs: list[PairInputs] = [[query, doc] for doc in documents]
         scores = self.predict(
             sentences=query_doc_pairs,
             prompt_name=prompt_name,
@@ -820,7 +817,7 @@ class CrossEncoder(BaseModel, FitMixin):
         results = sorted(results, key=lambda x: x["score"], reverse=True)
         return results[:top_k]
 
-    def is_singular_input(self, inputs: Any) -> bool:
+    def is_singular_input(self, inputs: PairInputs | list[PairInputs]) -> bool:
         """
         Check if the input represents a single example or a batch of examples.
 

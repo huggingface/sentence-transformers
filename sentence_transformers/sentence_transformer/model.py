@@ -19,6 +19,7 @@ from typing_extensions import deprecated
 
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.models import Transformer
+from sentence_transformers.base.models.modality_utils import ArrayInputs, DictInputs, ImageInputs, StrInputs
 from sentence_transformers.sentence_transformer.models import Pooling
 from sentence_transformers.util import batch_to_device, truncate_embeddings
 from sentence_transformers.util.quantization import quantize_embeddings
@@ -186,7 +187,11 @@ class SentenceTransformer(BaseModel, FitMixin):
 
     def encode_query(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: list[StrInputs | DictInputs | ImageInputs | ArrayInputs]
+        | StrInputs
+        | DictInputs
+        | ImageInputs
+        | ArrayInputs,
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
@@ -236,7 +241,11 @@ class SentenceTransformer(BaseModel, FitMixin):
 
     def encode_document(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: list[StrInputs | DictInputs | ImageInputs | ArrayInputs]
+        | StrInputs
+        | DictInputs
+        | ImageInputs
+        | ArrayInputs,
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
@@ -291,7 +300,7 @@ class SentenceTransformer(BaseModel, FitMixin):
     @overload
     def encode(
         self,
-        sentences: str,
+        sentences: StrInputs | DictInputs | ImageInputs | ArrayInputs,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -311,7 +320,11 @@ class SentenceTransformer(BaseModel, FitMixin):
     @overload
     def encode(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: list[StrInputs | DictInputs | ImageInputs | ArrayInputs]
+        | StrInputs
+        | DictInputs
+        | ImageInputs
+        | ArrayInputs,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -331,7 +344,11 @@ class SentenceTransformer(BaseModel, FitMixin):
     @overload
     def encode(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: list[StrInputs | DictInputs | ImageInputs | ArrayInputs]
+        | StrInputs
+        | DictInputs
+        | ImageInputs
+        | ArrayInputs,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -351,7 +368,7 @@ class SentenceTransformer(BaseModel, FitMixin):
     @overload
     def encode(
         self,
-        sentences: list[str] | np.ndarray,
+        sentences: list[StrInputs | DictInputs | ImageInputs | ArrayInputs],
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -371,7 +388,7 @@ class SentenceTransformer(BaseModel, FitMixin):
     @overload
     def encode(
         self,
-        sentences: list[str] | np.ndarray,
+        sentences: list[StrInputs | DictInputs | ImageInputs | ArrayInputs],
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -391,7 +408,7 @@ class SentenceTransformer(BaseModel, FitMixin):
     @overload
     def encode(
         self,
-        sentences: str,
+        sentences: StrInputs | DictInputs | ImageInputs | ArrayInputs,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -411,7 +428,7 @@ class SentenceTransformer(BaseModel, FitMixin):
     @overload
     def encode(
         self,
-        sentences: str,
+        sentences: StrInputs | DictInputs | ImageInputs | ArrayInputs,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -431,7 +448,11 @@ class SentenceTransformer(BaseModel, FitMixin):
     @torch.inference_mode()
     def encode(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: list[StrInputs | DictInputs | ImageInputs | ArrayInputs]
+        | StrInputs
+        | DictInputs
+        | ImageInputs
+        | ArrayInputs,
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
@@ -762,7 +783,7 @@ class SentenceTransformer(BaseModel, FitMixin):
 
     def _multi_process(
         self,
-        inputs: list[str],
+        inputs: list[StrInputs | DictInputs | ImageInputs | ArrayInputs],
         show_progress_bar: bool | None = True,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         device: str | list[str | torch.device] | None = None,

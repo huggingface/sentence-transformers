@@ -9,7 +9,14 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
 import torch
 
 from sentence_transformers.backend import load_onnx_model, load_openvino_model
-from sentence_transformers.base.models.modality_utils import parse_inputs
+from sentence_transformers.base.models.modality_utils import (
+    ArrayInputs,
+    DictInputs,
+    ImageInputs,
+    PairStrInputs,
+    StrInputs,
+    parse_inputs,
+)
 
 try:
     from typing import Self
@@ -39,6 +46,7 @@ from transformers.utils.import_utils import is_peft_available
 from transformers.utils.peft_utils import find_adapter_config_file
 
 from sentence_transformers.base.models.InputModule import InputModule
+from sentence_transformers.base.models.modality_utils import Modality
 
 try:
     from transformers import BaseVideoProcessor
@@ -53,20 +61,17 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING and is_peft_available():
     from peft import PeftConfig
 
-MODALITY = (
-    Literal["text", "image", "audio", "video", "message"] | tuple[Literal["text", "image", "audio", "video"], ...]
-)
-TRANSFORMER_TASK = Literal["feature-extraction", "sequence-classification", "text-generation", "fill-mask"]
+TransformerTask = Literal["feature-extraction", "sequence-classification", "text-generation", "fill-mask"]
 
 
-class MODALITY_PARAMS(TypedDict):
+class ModalityParams(TypedDict):
     method: str
     method_output_name: str | None
 
 
-MODALITY_CONFIG = dict[MODALITY, MODALITY_PARAMS]
+ModalityConfig = dict[Modality, ModalityParams]
 
-TRANSFORMER_TASK_TO_AUTO_MODEL: dict[TRANSFORMER_TASK, Any] = {
+TRANSFORMER_TASK_TO_AUTO_MODEL: dict[TransformerTask, Any] = {
     "feature-extraction": AutoModel,
     "sequence-classification": AutoModelForSequenceClassification,
     "text-generation": AutoModelForCausalLM,
@@ -78,7 +83,7 @@ TRANSFORMER_TASK_TO_AUTO_MODEL: dict[TRANSFORMER_TASK, Any] = {
 # TODO: How about defaults? E.g. I want to support "image" for a model that traditionally only has ("text", "image")
 # by defaulting to a "text" input like an empty string or just a "<image>" token?
 INFER_MODALITY_CONFIG: dict[
-    TRANSFORMER_TASK, dict[MODALITY | Literal["multimodal"], dict[str, dict[str | None, str]]]
+    TransformerTask, dict[Modality | Literal["multimodal"], dict[str, dict[str | None, str]]]
 ] = {
     "feature-extraction": {
         "text": {
@@ -122,7 +127,7 @@ INFER_MODALITY_CONFIG: dict[
     },
 }
 
-DEFAULT_MODALITY_CONFIG_MODULE_OUTPUT_NAME: dict[TRANSFORMER_TASK, tuple[MODALITY_CONFIG, str]] = {
+DEFAULT_MODALITY_CONFIG_MODULE_OUTPUT_NAME: dict[TransformerTask, tuple[ModalityConfig, str]] = {
     "feature-extraction": (
         {
             "text": {
@@ -202,7 +207,7 @@ class Transformer(InputModule):
     def __init__(
         self,
         model_name_or_path: str,
-        transformer_task: TRANSFORMER_TASK = "feature-extraction",
+        transformer_task: TransformerTask = "feature-extraction",
         max_seq_length: int | None = None,
         model_args: dict[str, Any] | None = None,
         tokenizer_args: dict[str, Any] | None = None,
@@ -211,11 +216,11 @@ class Transformer(InputModule):
         do_lower_case: bool = False,
         tokenizer_name_or_path: str | None = None,
         backend: str = "torch",
-        modality_config: MODALITY_CONFIG | None = None,
+        modality_config: ModalityConfig | None = None,
         module_output_name: str | None = None,
     ) -> None:
         super().__init__()
-        self.transformer_task: TRANSFORMER_TASK = transformer_task
+        self.transformer_task: TransformerTask = transformer_task
         if transformer_task not in TRANSFORMER_TASK_TO_AUTO_MODEL:
             raise ValueError(
                 f"Unsupported transformer_task '{transformer_task}'. Supported tasks are: {list(TRANSFORMER_TASK_TO_AUTO_MODEL.keys())}"
@@ -488,9 +493,9 @@ class Transformer(InputModule):
         self,
         model: PreTrainedModel,
         method_to_output_mapping: dict[str, dict[str | None, str]],
-        modality_name: MODALITY,
+        modality_name: Modality,
         exclude_methods: set[str] | None = None,
-    ) -> tuple[MODALITY_CONFIG, str] | None:
+    ) -> tuple[ModalityConfig, str] | None:
         """
         Find a valid method and output configuration for a modality.
 
@@ -529,7 +534,7 @@ class Transformer(InputModule):
 
             for method_output_name, module_output_name in output_mapping.items():
                 if method_output_name is None or method_output_name in available_output_fields:
-                    modality_config: MODALITY_CONFIG = {
+                    modality_config: ModalityConfig = {
                         modality_name: {
                             "method": method_name,
                             "method_output_name": method_output_name,
@@ -543,7 +548,7 @@ class Transformer(InputModule):
 
         return None
 
-    def _handle_special_model_cases(self, model: PreTrainedModel) -> tuple[MODALITY_CONFIG, str] | None:
+    def _handle_special_model_cases(self, model: PreTrainedModel) -> tuple[ModalityConfig, str] | None:
         """Handle special cases for specific model architectures.
 
         Args:
@@ -559,7 +564,7 @@ class Transformer(InputModule):
         model_type = model.config.model_type.lower()
 
         # Registry of special model types and their configurations
-        special_cases: dict[str, tuple[MODALITY_CONFIG, str]] = {
+        special_cases: dict[str, tuple[ModalityConfig, str]] = {
             "deepseek_vl": (
                 {
                     "message": {
@@ -606,7 +611,7 @@ class Transformer(InputModule):
         self,
         model: PreTrainedModel,
         processor: PreTrainedTokenizerBase | FeatureExtractionMixin | BaseVideoProcessor | ImageProcessingMixin,
-    ) -> tuple[MODALITY_CONFIG, str] | None:
+    ) -> tuple[ModalityConfig, str] | None:
         """Infer modality configuration for single-modality processors.
 
         Args:
@@ -620,7 +625,7 @@ class Transformer(InputModule):
         task_modality_config = INFER_MODALITY_CONFIG[self.transformer_task]
 
         # Check modalities in order, with video before image since BaseVideoProcessor subclasses ImageProcessingMixin
-        modality_checks: dict[MODALITY, type] = {
+        modality_checks: dict[Modality, type] = {
             "text": PreTrainedTokenizerBase,
             "audio": FeatureExtractionMixin,
             "video": BaseVideoProcessor,
@@ -647,7 +652,7 @@ class Transformer(InputModule):
 
     def _infer_multimodal(
         self, model: PreTrainedModel, processor: ProcessorMixin
-    ) -> tuple[MODALITY_CONFIG, str] | None:
+    ) -> tuple[ModalityConfig, str] | None:
         """Infer modality configuration for multi-modal processors.
 
         Args:
@@ -663,12 +668,12 @@ class Transformer(InputModule):
 
         task_modality_config = INFER_MODALITY_CONFIG[self.transformer_task]
 
-        modality_config: MODALITY_CONFIG = {}
+        modality_config: ModalityConfig = {}
         module_output_name: str | None = None
-        detected_modalities: list[MODALITY] = []
+        detected_modalities: list[Modality] = []
 
         # Check which modality processors are available
-        processor_attribute_mapping: dict[str, MODALITY] = {
+        processor_attribute_mapping: dict[str, Modality] = {
             "tokenizer": "text",
             "image_processor": "image",
             "feature_extractor": "audio",
@@ -724,7 +729,7 @@ class Transformer(InputModule):
         | FeatureExtractionMixin
         | BaseVideoProcessor
         | ImageProcessingMixin,
-    ) -> tuple[MODALITY_CONFIG, str]:
+    ) -> tuple[ModalityConfig, str]:
         """Infers the modalities supported by the model based on its architecture and processor.
 
         This method attempts to automatically detect what input modalities (text, image, audio, video)
@@ -760,7 +765,7 @@ class Transformer(InputModule):
         # Fallback to default modality config for the task
         return self._get_default_modality_config()
 
-    def _get_default_modality_config(self) -> tuple[MODALITY_CONFIG, str]:
+    def _get_default_modality_config(self) -> tuple[ModalityConfig, str]:
         """Get the default modality configuration for the current transformer task.
 
         Returns:
@@ -810,7 +815,7 @@ class Transformer(InputModule):
         """
 
         # TODO: Should we pass along the modality in 'features'?
-        modality_name: MODALITY = features.get("modality", "text")
+        modality_name: Modality = features.get("modality", "text")
         modality_params = self.modality_config[modality_name]
         # TODO: Allow 'method' to be a tuple of methods to execute sequentially? A bit messy with the kwargs though
         method_name = modality_params["method"]
@@ -909,7 +914,12 @@ class Transformer(InputModule):
 
     def preprocess(
         self,
-        texts: list[str] | list[dict] | list[tuple[str, str]],  # TODO: Rename to inputs?
+        texts: list[StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs]
+        | StrInputs
+        | PairStrInputs
+        | DictInputs
+        | ImageInputs
+        | ArrayInputs,  # TODO: Rename to inputs?
         prompt: str | None = None,
         modality: str | tuple[str, ...] | None = None,
         padding: str | bool = True,
@@ -951,7 +961,7 @@ class Transformer(InputModule):
             # If the input is text-based, but the model doesn't support the 'text' modality, but does support
             # the 'message' modality, then we can try to convert the input to chat format
             if modality == "text" and "message" in self.modality_config:
-                texts: list[str] | list[list[str]]  # List of string inputs or list of text pairs
+                texts: list[StrInputs | PairStrInputs]
                 processor_inputs = {"message": list(self._convert_texts_to_chat_format(texts=texts))}
                 modality = "message"
             else:
@@ -986,7 +996,7 @@ class Transformer(InputModule):
 
         return processor_output
 
-    def _convert_texts_to_chat_format(self, texts: str | list[str] | list[list[str]]) -> Iterator[list[dict]]:
+    def _convert_texts_to_chat_format(self, texts: list[StrInputs | PairStrInputs]) -> Iterator[list[dict]]:
         """Convert plain text inputs to chat message format.
 
         For cross-encoder models, `texts` is expected to be a list of text pairs, where each pair is a list/tuple
@@ -1023,8 +1033,8 @@ class Transformer(InputModule):
                 yield messages
 
     def _prepend_prompt_to_texts(
-        self, texts: list[str] | list[list[str]], prompt: str
-    ) -> Iterator[list[str] | list[list[str]]]:
+        self, texts: list[StrInputs | PairStrInputs], prompt: str
+    ) -> Iterator[StrInputs | PairStrInputs]:
         """Prepend a system prompt to each text input.
 
         For cross-encoder model inputs, which are expected to be a list of text pairs,
@@ -1065,7 +1075,7 @@ class Transformer(InputModule):
         return prompt_length
 
     def _process_chat_messages(
-        self, messages: list, text_kwargs: dict, common_kwargs: dict
+        self, messages: list[DictInputs], text_kwargs: dict[str, Any], common_kwargs: dict[str, Any]
     ) -> dict[str, torch.Tensor | Any]:
         """Process chat messages using the processor's chat template."""
         processor_output = self.processor.apply_chat_template(
@@ -1086,10 +1096,10 @@ class Transformer(InputModule):
 
     def _call_processor(
         self,
-        modality: str | tuple[str, ...],
+        modality: Modality,
         processor_inputs: dict[str, list],
         modality_kwargs: dict[str, dict],
-        common_kwargs: dict,
+        common_kwargs: dict[str, Any],
     ) -> dict[str, torch.Tensor | Any]:
         """Call the appropriate processor with the correct arguments.
 

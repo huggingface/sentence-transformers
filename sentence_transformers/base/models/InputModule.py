@@ -6,6 +6,13 @@ import torch
 from tokenizers import Tokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
+from sentence_transformers.base.models.modality_utils import (
+    ArrayInputs,
+    DictInputs,
+    ImageInputs,
+    PairStrInputs,
+    StrInputs,
+)
 from sentence_transformers.base.models.Module import Module
 
 
@@ -56,7 +63,16 @@ class InputModule(Module):
     ``tokenizers`` library.
     """
 
-    def preprocess(self, inputs: list[str], **kwargs) -> dict[str, torch.Tensor | Any]:
+    def preprocess(
+        self,
+        inputs: list[StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs]
+        | StrInputs
+        | PairStrInputs
+        | DictInputs
+        | ImageInputs
+        | ArrayInputs,
+        **kwargs,
+    ) -> dict[str, torch.Tensor | Any]:
         """
         Preprocesses the input texts and returns a dictionary of preprocessed features.
 
@@ -68,6 +84,7 @@ class InputModule(Module):
             dict[str, torch.Tensor | Any]: Dictionary containing preprocessed features, e.g.
                 ``{"input_ids": ..., "attention_mask": ...}``
         """
+        # Should be overridden by subclasses, and otherwise just default to 'tokenize'
         return self.tokenize(inputs, **kwargs)
 
     def tokenize(self, texts: list[str], **kwargs) -> dict[str, torch.Tensor | Any]:

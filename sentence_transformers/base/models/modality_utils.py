@@ -5,33 +5,38 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from enum import Enum
-from typing import Any
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 import torch
-from PIL.Image import Image
+from PIL.Image import Image  # TODO: PIL should be an optional dependency
 
 logger = logging.getLogger(__name__)
 
+# Pair of texts
+PairStrInputs: TypeAlias = tuple[str, str] | list[str]
+# Single string input
+StrInputs: TypeAlias = str
+# Dictionary with:
+# 1. modality keys (deprecated),
+# 2. chat message format (with 'role' and 'content' keys),
+# 3. audio data format (with 'array' and 'sampling_rate' keys)
+DictInputs: TypeAlias = dict[str, Any]
+# Image input
+ImageInputs: TypeAlias = Image
+# Audio or video input as numpy array or torch tensor
+ArrayInputs: TypeAlias = np.ndarray | torch.Tensor
 
-class Modality(Enum):
-    """Enum representing different input modalities."""
-
-    TEXT = "text"
-    IMAGE = "image"
-    AUDIO = "audio"
-    VIDEO = "video"
-    MESSAGE = "message"  # For chat models, e.g. with text+image inputs
-
-    @classmethod
-    def all(cls) -> list[str]:
-        """Return a list of all modality values as strings."""
-        return [m.value for m in cls.__members__.values()]
+# TODO: Duplicate across this file and Transformer.py
+# TODO: Is the ordering of modalities going to be problematic with model modality_config vs inference?
+Modality: TypeAlias = (
+    Literal["text", "image", "audio", "video", "message"] | tuple[Literal["text", "image", "audio", "video"], ...]
+)
+ModalityArgs: TypeAlias = Literal["text", "images", "audio", "videos", "message"]  # Note: plural for images/videos
 
 
 # Mapping from singular modality names to processor argument names
-MODALITY_TO_PROCESSOR_ARG = {
+MODALITY_TO_PROCESSOR_ARG: dict[Modality, ModalityArgs] = {
     "text": "text",
     "image": "images",
     "audio": "audio",
@@ -58,7 +63,9 @@ inputs = processor(text=prompt, images=[image], return_tensors="pt")
 """
 
 
-def parse_inputs(inputs: list) -> tuple[str | tuple[str, ...], dict[str, list]]:
+def parse_inputs(
+    inputs: list[StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs],
+) -> tuple[Modality, dict[ModalityArgs, list[StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs]]]:
     """
     Parse input list and group by modality.
 
@@ -84,9 +91,7 @@ def parse_inputs(inputs: list) -> tuple[str | tuple[str, ...], dict[str, list]]:
     modality = None
     processor_inputs = defaultdict(list)
 
-    def set_modality(
-        current_modality: str | tuple[str, ...] | None, new_modality: str | tuple[str, ...]
-    ) -> str | tuple[str, ...]:
+    def set_modality(current_modality: Modality | None, new_modality: Modality) -> Modality:
         """Validate and set the modality, ensuring consistency across all inputs."""
         if current_modality is None:
             return new_modality
@@ -100,9 +105,14 @@ def parse_inputs(inputs: list) -> tuple[str | tuple[str, ...], dict[str, list]]:
             )
         return current_modality
 
-    def add_input(modality_name: str, value: Any, check_modality: bool = True) -> None:
+    def add_input(
+        modality_name: Modality,
+        value: StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs,
+        check_modality: bool = True,
+    ) -> None:
         """Add an input value for a given modality and update the current modality."""
         nonlocal modality
+        nonlocal processor_inputs
         processor_arg = MODALITY_TO_PROCESSOR_ARG[modality_name]
         processor_inputs[processor_arg].append(value)
         if check_modality:
@@ -130,19 +140,21 @@ def parse_inputs(inputs: list) -> tuple[str | tuple[str, ...], dict[str, list]]:
                 continue
 
             # Dictionary input, e.g. multimodal: extract modalities from keys
-            modality_names = tuple(modality_name for modality_name in Modality.all() if modality_name in item)
+            modality_names = tuple(
+                modality_name for modality_name in MODALITY_TO_PROCESSOR_ARG.keys() if modality_name in item
+            )
 
             # Warn about unused keys in the dictionary
             unused_keys = set(item.keys()) - set(modality_names)
             if unused_keys:
                 logger.warning(
-                    f"Ignoring unexpected keys in input dictionary: {unused_keys}. Valid modality keys are: {Modality.all()}"
+                    f"Ignoring unexpected keys in input dictionary: {unused_keys}. Valid modality keys are: {list(MODALITY_TO_PROCESSOR_ARG.keys())}"
                 )
 
             if not modality_names:
                 raise ValueError(
                     f"Dictionary input must contain at least one modality key. "
-                    f"Valid keys are {Modality.all()}, but found: {list(item.keys())}"
+                    f"Valid keys are {list(MODALITY_TO_PROCESSOR_ARG.keys())}, but found: {list(item.keys())}"
                 )
 
             for modality_name in modality_names:
@@ -190,7 +202,7 @@ def parse_inputs(inputs: list) -> tuple[str | tuple[str, ...], dict[str, list]]:
     return modality, processor_inputs
 
 
-def infer_modality(inputs: list) -> str | tuple[str, ...]:
+def infer_modality(inputs: list[StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs]) -> Modality:
     """
     Infer the modality from a list of inputs.
 

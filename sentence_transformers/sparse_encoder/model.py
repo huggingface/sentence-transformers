@@ -17,6 +17,7 @@ from transformers import AutoConfig, PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
 
 from sentence_transformers.base import BaseModel
+from sentence_transformers.base.models.modality_utils import StrInputs
 from sentence_transformers.sentence_transformer.models import Pooling, Transformer
 from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCardData
 from sentence_transformers.sparse_encoder.models import SparseAutoEncoder, SpladePooling
@@ -185,7 +186,7 @@ class SparseEncoder(BaseModel):
 
     def encode_query(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: list[StrInputs] | StrInputs,
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
         convert_to_tensor: bool = True,
@@ -283,7 +284,7 @@ class SparseEncoder(BaseModel):
 
     def encode_document(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: list[StrInputs] | StrInputs,
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
         convert_to_tensor: bool = True,
@@ -381,7 +382,7 @@ class SparseEncoder(BaseModel):
 
     def encode(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: list[StrInputs] | StrInputs,
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
         convert_to_tensor: bool = True,
@@ -676,7 +677,7 @@ class SparseEncoder(BaseModel):
 
     def _multi_process(
         self,
-        inputs: list[str],
+        inputs: list[StrInputs],
         show_progress_bar: bool | None = True,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         device: str | list[str | torch.device] | None = None,

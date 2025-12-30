@@ -29,7 +29,14 @@ from sentence_transformers import __version__
 from sentence_transformers.base.evaluation import SentenceEvaluator
 from sentence_transformers.base.model_card import BaseModelCardData, generate_model_card
 from sentence_transformers.base.models import Module, Router, Transformer
-from sentence_transformers.base.models.modality_utils import infer_modality
+from sentence_transformers.base.models.modality_utils import (
+    ArrayInputs,
+    DictInputs,
+    ImageInputs,
+    PairStrInputs,
+    StrInputs,
+    infer_modality,
+)
 from sentence_transformers.base.peft_mixin import PeftAdapterMixin
 from sentence_transformers.util import (
     get_device_name,
@@ -278,13 +285,17 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             input = module(input, **module_kwargs)
         return input
 
-    # TODO: Exactly define the inputs type
-    def preprocess(self, inputs: list, prompt: str | None = None, **kwargs) -> dict[str, Tensor]:
+    def preprocess(
+        self,
+        inputs: list[StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs],
+        prompt: str | None = None,
+        **kwargs,
+    ) -> dict[str, Tensor | Any]:
         """
         Preprocesses the texts.
 
         Args:
-            inputs (Union[List[str], List[Dict], List[Tuple[str, str]]]): A list of inputs to be preprocessed.
+            inputs (list[str | list[str] | tuple[str, str] | dict[str, Any] | PIL.Image | np.ndarray | torch.Tensor]): A list of inputs to be preprocessed.
                 If a single input is provided, it must be wrapped in a list.
 
         Returns:
