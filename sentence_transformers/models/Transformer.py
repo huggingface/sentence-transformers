@@ -322,6 +322,8 @@ class Transformer(InputModule):
             if isinstance(text_config.hidden_sizes, list):
                 return text_config.hidden_sizes[-1]  # Use final layer dimension
             return text_config.hidden_sizes
+        elif hasattr(text_config, "hidden_size"):
+            return text_config.hidden_size
 
         # Unable to determine dimension
         raise ValueError(
