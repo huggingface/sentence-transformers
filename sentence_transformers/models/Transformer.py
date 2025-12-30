@@ -15,7 +15,9 @@ except ImportError:
     from typing_extensions import Self
 
 import torch
+from packaging.version import parse as parse_version
 from transformers import AutoConfig, AutoModel, AutoTokenizer, MT5Config, PretrainedConfig, T5Config
+from transformers import __version__ as transformers_version
 from transformers.utils.import_utils import is_peft_available
 from transformers.utils.peft_utils import find_adapter_config_file
 
