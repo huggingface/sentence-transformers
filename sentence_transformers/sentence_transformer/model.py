@@ -498,15 +498,9 @@ class SentenceTransformer(BaseModel, FitMixin):
             convert_to_numpy = False
 
         # Cast an individual input to a list with length 1
-        input_was_singular = False
-        if (
-            isinstance(sentences, str)
-            or not hasattr(sentences, "__len__")
-            or (isinstance(sentences, np.ndarray) and sentences.ndim == 0)
-            or isinstance(sentences, dict)
-        ):
+        is_singular_input = self.is_singular_input(sentences)
+        if is_singular_input:
             sentences = [sentences]
-            input_was_singular = True
 
         # Validate kwargs
         model_kwargs = self.get_model_kwargs()
@@ -522,11 +516,10 @@ class SentenceTransformer(BaseModel, FitMixin):
 
         # If pool or a list of devices is provided, use multi-process encoding
         if pool is not None or (isinstance(device, list) and len(device) > 0):
-            return self._multi_process(
+            embeddings = self._multi_process(
                 sentences,
                 # Utility and post-processing parameters
                 show_progress_bar=show_progress_bar,
-                input_was_singular=input_was_singular,
                 # Multi-process encoding parameters
                 pool=pool,
                 device=device,
@@ -543,6 +536,9 @@ class SentenceTransformer(BaseModel, FitMixin):
                 truncate_dim=truncate_dim,
                 **kwargs,
             )
+            if is_singular_input:
+                embeddings = embeddings[0]
+            return embeddings
 
         # Validate precision
         allowed_precisions = {"float32", "int8", "uint8", "binary", "ubinary"}
@@ -667,7 +663,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         elif isinstance(all_embeddings, np.ndarray):
             all_embeddings = [torch.from_numpy(embedding) for embedding in all_embeddings]
 
-        if input_was_singular:
+        if is_singular_input:
             all_embeddings = all_embeddings[0]
 
         return all_embeddings
@@ -768,7 +764,6 @@ class SentenceTransformer(BaseModel, FitMixin):
         self,
         inputs: list[str],
         show_progress_bar: bool | None = True,
-        input_was_singular: bool = False,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         device: str | list[str | torch.device] | None = None,
         chunk_size: int | None = None,
@@ -805,8 +800,6 @@ class SentenceTransformer(BaseModel, FitMixin):
                 [output_queue.get() for _ in trange(chunk_id + 1, desc="Chunks", disable=not show_progress_bar)],
                 key=lambda x: x[0],
             )
-            if input_was_singular:
-                return output_list[0][1][0]
 
             # Handle the various output formats
             embeddings = [output[1] for output in output_list]

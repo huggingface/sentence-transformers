@@ -18,6 +18,7 @@ from transformers import (
     AutoConfig,
     PretrainedConfig,
     PreTrainedModel,
+    is_datasets_available,
 )
 from typing_extensions import deprecated
 
@@ -261,9 +262,8 @@ class CrossEncoder(BaseModel, FitMixin):
 
     def _multi_process(
         self,
-        sentence_pairs: list[tuple[str, str]] | list[list[str]],
+        inputs: list[tuple[str, str]] | list[list[str]],
         show_progress_bar: bool | None = True,
-        input_was_singular: bool = False,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         device: str | list[str | torch.device] | None = None,
         chunk_size: int | None = None,
@@ -282,7 +282,7 @@ class CrossEncoder(BaseModel, FitMixin):
         try:
             # Determine chunk size if not provided. As a default, aim for 10 chunks per process, with a maximum of 5000 sentences per chunk.
             if chunk_size is None:
-                chunk_size = min(math.ceil(len(sentence_pairs) / len(pool["processes"]) / 10), 5000)
+                chunk_size = min(math.ceil(len(inputs) / len(pool["processes"]) / 10), 5000)
                 chunk_size = max(chunk_size, 1)  # Ensure at least 1
 
             input_queue: torch.multiprocessing.Queue = pool["input"]
@@ -290,8 +290,8 @@ class CrossEncoder(BaseModel, FitMixin):
 
             # Send inputs to the input queue in chunks
             chunk_id = -1  # We default to -1 to handle empty input gracefully
-            for chunk_id, chunk_start in enumerate(range(0, len(sentence_pairs), chunk_size)):
-                chunk = sentence_pairs[chunk_start : chunk_start + chunk_size]
+            for chunk_id, chunk_start in enumerate(range(0, len(inputs), chunk_size)):
+                chunk = inputs[chunk_start : chunk_start + chunk_size]
                 input_queue.put([chunk_id, chunk, predict_kwargs])
 
             # Collect results from output queue
@@ -299,10 +299,6 @@ class CrossEncoder(BaseModel, FitMixin):
                 [output_queue.get() for _ in trange(chunk_id + 1, desc="Chunks", disable=not show_progress_bar)],
                 key=lambda x: x[0],  # Sort by chunk_id
             )
-
-            # Handle singular input case -> return the first (only) result directly
-            if input_was_singular and output_list:
-                return output_list[0][1][0] if len(output_list[0][1]) > 0 else output_list[0][1]
 
             # Handle the various output formats: torch tensors, numpy arrays, or
             # list of dictionaries, also when empty.
@@ -546,7 +542,10 @@ class CrossEncoder(BaseModel, FitMixin):
     @cross_encoder_predict_rank_args_decorator
     def predict(
         self,
-        sentences: list[tuple[str, str]] | list[list[str]] | tuple[str, str] | list[str],
+        sentences: list[tuple[str, str]]
+        | list[list[str]]
+        | tuple[str, str]
+        | list[str],  # TODO: Rename to 'inputs' with decorator
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
@@ -615,18 +614,16 @@ class CrossEncoder(BaseModel, FitMixin):
                 model.stop_multi_process_pool(pool)
         """
         # Cast an individual pair to a list with length 1
-        input_was_singular = False
-        if sentences and isinstance(sentences, (list, tuple)) and isinstance(sentences[0], str):
+        is_singular_input = self.is_singular_input(sentences)
+        if is_singular_input:
             sentences = [sentences]
-            input_was_singular = True
 
         # If pool or a list of devices is provided, use multi-process prediction
         if pool is not None or (isinstance(device, list) and len(device) > 0):
-            return self._multi_process(
-                sentence_pairs=sentences,
+            pred_scores = self._multi_process(
+                inputs=sentences,
                 # Utility and post-processing parameters
                 show_progress_bar=show_progress_bar,
-                input_was_singular=input_was_singular,
                 # Multi-process encoding parameters
                 pool=pool,
                 device=device,
@@ -641,6 +638,9 @@ class CrossEncoder(BaseModel, FitMixin):
                 convert_to_tensor=convert_to_tensor,
                 **kwargs,
             )
+            if is_singular_input:
+                pred_scores = pred_scores[0]
+            return pred_scores
 
         if show_progress_bar is None:
             show_progress_bar = (
@@ -702,7 +702,7 @@ class CrossEncoder(BaseModel, FitMixin):
         elif convert_to_numpy:
             pred_scores = np.asarray([score.cpu().detach().float().numpy() for score in pred_scores])
 
-        if input_was_singular:
+        if is_singular_input:
             pred_scores = pred_scores[0]
 
         return pred_scores
@@ -819,6 +819,22 @@ class CrossEncoder(BaseModel, FitMixin):
 
         results = sorted(results, key=lambda x: x["score"], reverse=True)
         return results[:top_k]
+
+    def is_singular_input(self, inputs: Any) -> bool:
+        """
+        Check if the input represents a single example or a batch of examples.
+
+        Args:
+            inputs: The input to check.
+        Returns:
+            bool: True if the input is a single example, False if it is a batch.
+        """
+        list_types = (list, tuple)
+        if is_datasets_available():
+            from datasets import Column
+
+            list_types += (Column,)
+        return (not isinstance(inputs, list_types)) or (len(inputs) > 0 and not isinstance(inputs[0], list_types))
 
     def _get_model_config(self) -> dict[str, Any]:
         return super()._get_model_config() | {

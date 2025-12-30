@@ -909,11 +909,7 @@ class Transformer(InputModule):
 
     def preprocess(
         self,
-        # TODO: Check whether we should/want to accept single inputs here
-        # Perhaps no, and let the BaseModel subclass handle wrap single inputs as it can recognize
-        # them better (e.g. list of 2 inputs is single text pair for cross-encoder, but two inputs for an embedding model)
-        # Remember edge cases like "unwrapping" the single input again after processing + the edge case of batch_size=1
-        texts: list[str] | list[dict] | list[tuple[str, str]],
+        texts: list[str] | list[dict] | list[tuple[str, str]],  # TODO: Rename to inputs?
         prompt: str | None = None,
         modality: str | tuple[str, ...] | None = None,
         padding: str | bool = True,
@@ -927,6 +923,8 @@ class Transformer(InputModule):
                 - dict: Dictionary with modality keys (text, image, audio, video) or chat messages
                 - PIL.Image.Image: Image inputs
                 - np.ndarray/torch.Tensor: Audio (1-2D) or video (3-5D) inputs
+
+                If a single input is provided, it must be wrapped in a list.
             prompt: Optional system prompt to include in the input
             modality: Optional modality to use. If not provided, will be inferred from inputs.
             padding: Padding strategy for preprocessing
@@ -940,20 +938,21 @@ class Transformer(InputModule):
             "text": {"padding": padding, "truncation": "longest_first"},
             "audio": {
                 "padding": padding
-            },  # Note: padding can be counterproductive for some audio models (e.g., Whisper)
+            },  # TODO: padding can be counterproductive for some audio models (e.g., Whisper)
             "image": {},
             "video": {},
         }
         prompt_length = None
 
         # Parse inputs, throw error if multiple modalities are detected, and process the single modality
-        modality, processor_inputs = parse_inputs(texts)
+        modality, processor_inputs = parse_inputs(inputs=texts)
 
         if modality not in self.modality_config:
             # If the input is text-based, but the model doesn't support the 'text' modality, but does support
             # the 'message' modality, then we can try to convert the input to chat format
             if modality == "text" and "message" in self.modality_config:
-                processor_inputs = {"message": list(self._convert_texts_to_chat_format(texts))}
+                texts: list[str] | list[list[str]]  # List of string inputs or list of text pairs
+                processor_inputs = {"message": list(self._convert_texts_to_chat_format(texts=texts))}
                 modality = "message"
             else:
                 raise ValueError(
@@ -971,7 +970,9 @@ class Transformer(InputModule):
 
         # Incorporate prompt into text inputs if applicable
         if modality == "text" and prompt:
-            processor_inputs["text"] = self._prepend_prompt_to_texts(processor_inputs["text"], prompt=prompt)
+            processor_inputs["text"] = list(
+                self._prepend_prompt_to_texts(texts=processor_inputs["text"], prompt=prompt)
+            )
             prompt_length = self._get_prompt_length(prompt, **kwargs)
 
         # Tackle an edge case: audio sampling_rate must be passed via the modality_kwargs
@@ -988,8 +989,8 @@ class Transformer(InputModule):
     def _convert_texts_to_chat_format(self, texts: str | list[str] | list[list[str]]) -> Iterator[list[dict]]:
         """Convert plain text inputs to chat message format.
 
-        For cross-encoder models, `texts` is expected to be a 1) text pair or 2) a list of text pairs, where each pair
-        is a list/tuple of strings: (query, document1, document2, ...). Currently, Sentence Transformers only supports
+        For cross-encoder models, `texts` is expected to be a list of text pairs, where each pair is a list/tuple
+        of strings: (query, document1, document2, ...). Currently, Sentence Transformers only supports
         point-wise cross-encoders, so each pair contains exactly two texts, but the message format supports more.
 
         The message format for cross-encoder models is a list of dictionaries with 'role' and 'content' keys, with
@@ -997,49 +998,55 @@ class Transformer(InputModule):
         the 'query' role denotes the query (first text in the pair), and each 'document' role contains one of the documents
         (subsequent texts in the pair).
 
-        For other (dense or sparse embedding) models, `texts` is expected to be a single string or a list of strings.
+        For other (dense or sparse embedding) models, `texts` is expected to be a list of strings.
 
         The message format for these models is a list of dictionaries with 'role' and 'content' keys, with 2 roles:
         'system' (optional) and 'user'. The 'system' role contains the system prompt (if any), and the 'user' role
         contains the text to be processed.
 
         Args:
-            texts: Input texts to transform to chat message format, either a single string, a list of strings,
-                a text pair (tuple/list of 2 strings), or a list of text pairs.
+            texts: Input texts to transform to chat message format, either a list of strings or a list of text pairs.
 
         Yields:
             Iterator[list[dict]]: An iterator over the converted chat message lists.
         """
-        # TODO: This transformers_task checking for expected input format is a bit hacky. Also in _prepend_prompt_to_texts
-        if self.transformer_task in ("text-generation", "sequence-classification"):
-            # We're expecting pairs of inputs here, as these tasks are only used by the CrossEncoder for now
-            # Convert singular input to a list
-            if texts and isinstance(texts[0], str):
-                texts = [texts]
-            for pair in texts:
-                query, *documents = pair
+        for text in texts:
+            if isinstance(text, str):
+                # dense or sparse embedding model inputs: list of strings
+                yield [{"role": "user", "content": text}]
+            else:
+                # cross-encoder model inputs: list of text pairs, consider the first text as the query and the rest as documents
+                query, *documents = text
                 messages = [{"role": "query", "content": query}]
                 for document in documents:
                     messages.append({"role": "document", "content": document})
                 yield messages
-        else:
-            # Convert singular input to a list
-            if isinstance(texts, str):
-                texts = [texts]
-            for text in texts:
-                yield [{"role": "user", "content": text}]
 
-    def _prepend_prompt_to_texts(self, texts: str | list[str] | list[list[str]], prompt: str) -> list[str]:
-        """Prepend a system prompt to each text input."""
-        if self.transformer_task in ("text-generation", "sequence-classification"):
-            # Expecting pairs of inputs here, as these tasks are only used by the CrossEncoder for now
-            if texts and isinstance(texts[0], str):
-                texts = [texts]
-            return [[prompt + pair[0], *pair[1:]] for pair in texts]
-        # Single text inputs
-        if isinstance(texts, str):
-            texts = [texts]
-        return [prompt + text for text in texts]
+    def _prepend_prompt_to_texts(
+        self, texts: list[str] | list[list[str]], prompt: str
+    ) -> Iterator[list[str] | list[list[str]]]:
+        """Prepend a system prompt to each text input.
+
+        For cross-encoder model inputs, which are expected to be a list of text pairs,
+        the prompt is prepended only to the first text in each pair.
+
+        For other (dense or sparse embedding) models, which expect a list of strings,
+        the prompt is prepended to each string.
+
+        Args:
+            texts: Input texts to prepend the prompt to, either a list of strings or a list of text pairs.
+                prompt: The system prompt to prepend.
+
+        Yields:
+            Iterator[list[str] | list[list[str]]]: An iterator over the texts with the prompt prepended.
+        """
+        for text in texts:
+            if isinstance(text, str):
+                # dense or sparse embedding model inputs: list of strings
+                yield prompt + text
+            else:
+                # cross-encoder model inputs: list of text pairs, prepend only to the first text
+                yield [prompt + text[0]] + list(text[1:])
 
     def _get_prompt_length(self, prompt: str, **kwargs) -> int:
         """Return the length of the prompt in tokens, including the BOS token."""
@@ -1101,12 +1108,18 @@ class Transformer(InputModule):
 
         if isinstance(self.processor, ProcessorMixin):
             # Multi-modal processor: pass modality-specific kwargs
-            return self.processor(
-                **processor_inputs,
-                text_kwargs=modality_kwargs["text"],
-                audio_kwargs=modality_kwargs["audio"],
-                common_kwargs=common_kwargs,
-            )
+            signature = inspect.signature(self.processor.__call__)
+            if "common_kwargs" in signature.parameters:
+                # This is the much cleaner transformers v5 approach
+                return self.processor(
+                    **processor_inputs,
+                    text_kwargs=modality_kwargs["text"],
+                    audio_kwargs=modality_kwargs["audio"],
+                    common_kwargs=common_kwargs,
+                )
+            else:
+                # TODO: Will/would I miss parameters here?
+                return self.processor(**processor_inputs, **modality_kwargs["text"], **common_kwargs)
 
         # Single-modality processor: determine type and call appropriately
         # Check in order: text, audio, video, image (video before image due to inheritance)

@@ -22,7 +22,7 @@ import transformers
 from huggingface_hub import CardData, HfApi
 from packaging import version
 from torch import Tensor, device, nn
-from transformers import PreTrainedModel, is_torch_npu_available
+from transformers import PreTrainedModel, is_datasets_available, is_torch_npu_available
 from transformers.dynamic_module_utils import get_class_from_dynamic_module, get_relative_import_files
 
 from sentence_transformers import __version__
@@ -278,14 +278,14 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             input = module(input, **module_kwargs)
         return input
 
-    def preprocess(
-        self, inputs: list[str] | list[dict] | list[tuple[str, str]], prompt: str | None = None, **kwargs
-    ) -> dict[str, Tensor]:
+    # TODO: Exactly define the inputs type
+    def preprocess(self, inputs: list, prompt: str | None = None, **kwargs) -> dict[str, Tensor]:
         """
         Preprocesses the texts.
 
         Args:
-            texts (Union[List[str], List[Dict], List[Tuple[str, str]]]): A list of texts to be preprocessed.
+            inputs (Union[List[str], List[Dict], List[Tuple[str, str]]]): A list of inputs to be preprocessed.
+                If a single input is provided, it must be wrapped in a list.
 
         Returns:
             Dict[str, Tensor]: A dictionary of tensors with the preprocessed texts.
@@ -298,15 +298,18 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 pass
 
         # TODO: When to pass via kwargs and when via explicit argument?
+        # TODO: Perhaps just call 'preprocess' and expect InputModule to handle forwarding to tokenize?
         try:
-            return self[0].preprocess(inputs, prompt=prompt, **kwargs)
+            preprocessed = self[0].preprocess(inputs, prompt=prompt, **kwargs)
         except TypeError:
-            return self[0].preprocess(inputs)
+            preprocessed = self[0].preprocess(inputs)
         except AttributeError:
             try:
-                return self[0].tokenize(inputs, **kwargs)
+                preprocessed = self[0].tokenize(inputs, **kwargs)
             except TypeError:
-                return self[0].tokenize(inputs)
+                preprocessed = self[0].tokenize(inputs)
+
+        return preprocessed
 
     def tokenize(self, texts: list[str] | list[dict] | list[tuple[str, str]], **kwargs) -> dict[str, Tensor]:
         """
@@ -321,7 +324,23 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             FutureWarning,
             stacklevel=2,
         )
-        return self.preprocess(texts, **kwargs)
+        return self.preprocess(inputs=texts, **kwargs)
+
+    def is_singular_input(self, inputs: Any) -> bool:
+        """
+        Check if the input represents a single example or a batch of examples.
+
+        Args:
+            inputs: The input to check.
+        Returns:
+            bool: True if the input is a single example, False if it is a batch.
+        """
+        list_types = (list, tuple)
+        if is_datasets_available():
+            from datasets import Column
+
+            list_types += (Column,)
+        return not isinstance(inputs, list_types)
 
     def save(
         self,

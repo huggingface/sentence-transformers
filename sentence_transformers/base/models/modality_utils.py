@@ -70,6 +70,8 @@ def parse_inputs(inputs: list) -> tuple[str | tuple[str, ...], dict[str, list]]:
             - PIL.Image.Image: Image inputs
             - np.ndarray/torch.Tensor: Audio (1-2D) or video (3-5D) inputs
 
+            If a single input is provided, it must be wrapped in a list.
+
     Returns:
         A tuple containing:
         - The inferred modality as a string (e.g., "text", "image", "message") or tuple of strings
@@ -105,10 +107,6 @@ def parse_inputs(inputs: list) -> tuple[str | tuple[str, ...], dict[str, list]]:
         processor_inputs[processor_arg].append(value)
         if check_modality:
             modality = set_modality(modality, modality_name)
-
-    # TODO: This is too naive, e.g. a single pair (for CrossEncoder) would not be wrapped correctly
-    if not isinstance(inputs, list):
-        inputs = [inputs]
 
     for item in inputs:
         if isinstance(item, dict):
@@ -197,7 +195,8 @@ def infer_modality(inputs: list) -> str | tuple[str, ...]:
     Infer the modality from a list of inputs.
 
     Args:
-        inputs: List of inputs to infer modality from.
+        inputs: List of inputs to infer modality from. If a single input is provided,
+            it must be wrapped in a list.
 
     Returns:
         The inferred modality as a string (e.g., "text", "image") or tuple of strings
@@ -206,7 +205,5 @@ def infer_modality(inputs: list) -> str | tuple[str, ...]:
     Raises:
         ValueError: If inputs are empty or contain mixed modalities.
     """
-    if not isinstance(inputs, list):
-        inputs = [inputs]
-    modality, _ = parse_inputs(inputs[0])
+    modality, _ = parse_inputs(inputs[:1])
     return modality
