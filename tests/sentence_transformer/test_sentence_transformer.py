@@ -1272,3 +1272,28 @@ def test_get_model_kwargs(stsb_bert_tiny_model: SentenceTransformer) -> None:
         # This would run fine, except the model can't actually accept these arguments (we monkeypatched the modules'
         # forward_kwargs for this test, after all). The model does send the args down to the underlying modules, though!
         model.encode("Test sentence", task="document", foo=True, document_arg_1=12)
+
+
+def test_transformers_model_property(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Test that the transformers_model property returns the underlying transformers model."""
+    model = stsb_bert_tiny_model
+    # The underlying model should be a BertModel
+    from transformers import BertModel
+
+    assert isinstance(model.transformers_model, BertModel)
+
+
+def test_router_transformers_model_property(
+    stsb_bert_tiny_model: SentenceTransformer, static_embedding_model: SentenceTransformer
+) -> None:
+    """Test that the transformers_model property works with a Router."""
+    # Create a Router with mixed modules
+    router = Router(
+        {"query": list(static_embedding_model.children()), "document": list(stsb_bert_tiny_model.children())}
+    )
+    model = SentenceTransformer(modules=[router])
+
+    # The underlying model should be a BertModel
+    from transformers import BertModel
+
+    assert isinstance(model.transformers_model, BertModel)

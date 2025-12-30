@@ -1218,10 +1218,19 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         Note that it's possible for a model to have multiple underlying transformers models, but this property
         will return the first one it finds in the module hierarchy.
 
+        .. note::
+
+            This property can also return e.g. ORTModelForFeatureExtraction or OVModelForFeatureExtraction instances
+            from the optimum-intel and optimum-onnx libraries, if the model is loaded using ``backend="onnx"`` or
+            ``backend="openvino"``.
+
         Returns:
             PreTrainedModel or None: The underlying transformers model or None if not found.
         """
         for module in self.modules():
+            # The Transformer check allows for returning underlying models with backend="onnx" or "openvino"
+            if isinstance(module, Transformer):
+                return module.model
             if isinstance(module, PreTrainedModel):
                 return module
         return None
