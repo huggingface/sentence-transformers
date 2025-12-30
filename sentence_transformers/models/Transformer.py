@@ -313,9 +313,9 @@ class Transformer(InputModule):
 
         # Get text config, e.g. for multi-modal models
         try:
-            text_config = self.model.config.get_text_config()
+            text_config = self.auto_model.config.get_text_config()
         except AttributeError:
-            text_config = self.model.config
+            text_config = self.auto_model.config
 
         # Try hidden_sizes list (e.g., ResNet, some vision models)
         if hasattr(text_config, "hidden_sizes"):
@@ -328,7 +328,7 @@ class Transformer(InputModule):
             f"Could not determine embedding dimension from model config. "
             f"Config type: {type(text_config).__name__}. "
             f"Available attributes: {[attr for attr in dir(text_config) if 'hidden' in attr.lower() or 'size' in attr.lower() or 'dim' in attr.lower()]}. "
-            f"Please report this issue with your model name: {self.model.config.model_type if hasattr(self.model.config, 'model_type') else 'unknown'}"
+            f"Please report this issue with your model name: {self.auto_model.config.model_type if hasattr(self.auto_model.config, 'model_type') else 'unknown'}"
         )
 
     def tokenize(
