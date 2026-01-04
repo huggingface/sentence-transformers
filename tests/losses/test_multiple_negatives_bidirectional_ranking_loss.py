@@ -17,6 +17,33 @@ class _DummyModel:
         return object()
 
 
+def _manual_bidirectional_loss_with_negatives(
+    queries: torch.Tensor,
+    positives: torch.Tensor,
+    negatives: list[torch.Tensor],
+) -> torch.Tensor:
+    # Manual InfoNCE with q->d, q->q (j!=i), d->q, d->d (j!=i) and hard negatives as extra docs.
+    docs = torch.cat([positives] + negatives, dim=0) if negatives else positives
+    sim_qd = util.dot_score(queries, docs)
+    sim_qq = util.dot_score(queries, queries)
+    sim_dd = util.dot_score(docs, docs)
+
+    losses = []
+    for i in range(queries.size(0)):
+        qd_row = sim_qd[i]
+        qq_row = sim_qq[i].clone()
+        qq_row[i] = -torch.inf
+        qd_col = sim_qd[:, i]
+        dd_col = sim_dd[:, i].clone()
+        dd_col[i] = -torch.inf
+        scores = torch.cat([qd_row, qq_row, qd_col, dd_col], dim=0)
+        log_z = torch.logsumexp(scores, dim=0)
+        pos_score = sim_qd[i, i]
+        losses.append(-(pos_score - log_z))
+
+    return torch.stack(losses).mean()
+
+
 def test_temperature_default_scale_property():
     loss = losses.MultipleNegativesBidirectionalRankingLoss(model=Mock(spec=SentenceTransformer))
     assert pytest.approx(loss.temperature) == 0.01
@@ -69,6 +96,25 @@ def test_bidirectional_info_nce_temperature_value():
     assert pytest.approx(computed.item(), rel=1e-6) == expected
 
 
+def test_bidirectional_info_nce_manual_formula_with_hard_negatives():
+    loss = losses.MultipleNegativesBidirectionalRankingLoss(
+        model=Mock(spec=SentenceTransformer),
+        temperature=1.0,
+        similarity_fct=util.dot_score,
+    )
+    queries = torch.tensor([[1.0, 0.5], [-0.3, 0.8]])
+    positives = torch.tensor([[0.2, -0.1], [0.4, 0.6]])
+    negatives = torch.tensor([[-0.5, 0.7], [0.1, -0.9]])
+
+    computed = loss.compute_loss_from_embeddings([queries, positives, negatives], labels=None)
+    # Manual check (dot similarity, temperature=1.0, with hard negatives):
+    # L_i = -log( exp(s(q_i,d_i)) / Z_i ),
+    # with Z_i summing q->d (including hard negatives), q->q (j!=i), d->q, d->d (j!=i).
+    expected = _manual_bidirectional_loss_with_negatives(queries, positives, [negatives])
+
+    assert pytest.approx(computed.item(), rel=1e-6) == expected.item()
+
+
 @pytest.mark.parametrize(
     ["train_samples", "scaler", "precision"],
     [
@@ -90,6 +136,44 @@ def test_cached_bidirectional_info_nce_same_grad(
     scaler: float,
     precision: float,
 ):
+    sbert = SentenceTransformer("distilbert-base-uncased")
+    sbert.to("cpu")
+    optimizer = Adam(sbert.parameters())
+
+    set_seed(42)
+    optimizer.zero_grad()
+    loss_base = losses.MultipleNegativesBidirectionalRankingLoss(sbert)
+    loss_base_value: torch.Tensor = loss_base.forward(*sbert.smart_batching_collate(train_samples)) * scaler
+    loss_base_value.backward()
+    grad_expected = {name: p.grad.clone() for name, p in loss_base.named_parameters() if p.grad is not None}
+
+    set_seed(42)
+    optimizer.zero_grad()
+    loss_cached = losses.CachedMultipleNegativesBidirectionalRankingLoss(sbert, mini_batch_size=2)
+    loss_cached_value: torch.Tensor = loss_cached.forward(*sbert.smart_batching_collate(train_samples)) * scaler
+    loss_cached_value.backward()
+    grad = {name: p.grad.clone() for name, p in loss_cached.named_parameters() if p.grad is not None}
+
+    assert pytest.approx(loss_base_value.item()) == loss_cached_value.item()
+
+    nclose = 0
+    for name in tqdm.tqdm(grad_expected):
+        nclose += torch.allclose(grad[name], grad_expected[name], precision, precision)
+
+    assert nclose == len(grad_expected)
+
+
+def test_cached_bidirectional_info_nce_same_grad_with_hard_negatives():
+    train_samples = [
+        InputExample(texts=[q, p, n])
+        for q, p, n in zip(
+            ["aaa", "bbb", "ccc", "ddd"],
+            ["aas", "bbs", "ccs", "dds"],
+            ["zzz", "yyy", "xxx", "www"],
+        )
+    ]
+    scaler = 1.0
+    precision = 1e-5
     sbert = SentenceTransformer("distilbert-base-uncased")
     sbert.to("cpu")
     optimizer = Adam(sbert.parameters())

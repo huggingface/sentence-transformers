@@ -75,23 +75,28 @@ class CachedMultipleNegativesBidirectionalRankingLoss(nn.Module):
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
 
         Requirements:
-            1. (anchor, positive) pairs
+            1. (anchor, positive) pairs or (anchor, positive, negative) triplets
             2. Should be used with large `per_device_train_batch_size` and low `mini_batch_size` for superior performance,
                but slower training time than :class:`MultipleNegativesBidirectionalRankingLoss`.
 
         Inputs:
-            +---------------------------------------+--------+
-            | Texts                                 | Labels |
-            +=======================================+========+
-            | (anchor, positive) pairs              | none   |
-            +---------------------------------------+--------+
+            +-------------------------------------------------+--------+
+            | Texts                                           | Labels |
+            +=================================================+========+
+            | (anchor, positive) pairs                        | none   |
+            +-------------------------------------------------+--------+
+            | (anchor, positive, negative) triplets           | none   |
+            +-------------------------------------------------+--------+
+            | (anchor, positive, negative_1, ..., negative_n) | none   |
+            +-------------------------------------------------+--------+
 
         Recommendations:
             - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.training_args.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
 
         Notes:
-            - If you pass triplets, the negative entry will be ignored. The loss only uses the (anchor, positive) pairs.
+            - Optional negatives are treated as additional documents (hard negatives) and are included in the
+              query-document and document-document terms. They are not treated as queries.
 
         Relations:
             - Equivalent to :class:`MultipleNegativesBidirectionalRankingLoss`, but with caching that allows for much higher batch sizes
@@ -207,18 +212,20 @@ class CachedMultipleNegativesBidirectionalRankingLoss(nn.Module):
             raise ValueError(f"Expected at least 2 embeddings, got {len(reps)}")
 
         queries = torch.cat(reps[0])
-        docs = torch.cat(reps[1])
+        docs = [torch.cat(r) for r in reps[1:]]
         batch_size = len(queries)
         offset = 0
 
         if self.gather_across_devices:
             queries = all_gather_with_grad(queries)
-            docs = all_gather_with_grad(docs)
+            docs = [all_gather_with_grad(doc) for doc in docs]
             if torch.distributed.is_initialized():
                 rank = torch.distributed.get_rank()
                 offset = rank * batch_size
 
-        total_size = queries.size(0)
+        docs = torch.cat(docs, dim=0)
+        total_queries = queries.size(0)
+        total_docs = docs.size(0)
         local_indices = torch.arange(offset, offset + batch_size, device=queries.device)
 
         losses: list[torch.Tensor] = []
@@ -237,11 +244,13 @@ class CachedMultipleNegativesBidirectionalRankingLoss(nn.Module):
             sim_qd_cols: Tensor = (self.similarity_fct(queries, docs[local_batch]) * self.scale).T
             sim_dd_cols: Tensor = (self.similarity_fct(docs, docs[local_batch]) * self.scale).T
 
-            diag_mask = torch.zeros((len(local_batch), total_size), dtype=torch.bool, device=queries.device)
-            diag_mask.scatter_(1, local_batch.view(-1, 1), True)
+            diag_mask_qq = torch.zeros((len(local_batch), total_queries), dtype=torch.bool, device=queries.device)
+            diag_mask_qq.scatter_(1, local_batch.view(-1, 1), True)
+            diag_mask_dd = torch.zeros((len(local_batch), total_docs), dtype=torch.bool, device=queries.device)
+            diag_mask_dd.scatter_(1, local_batch.view(-1, 1), True)
 
-            sim_qq_rows = sim_qq_rows.masked_fill(diag_mask, -torch.inf)
-            sim_dd_cols = sim_dd_cols.masked_fill(diag_mask, -torch.inf)
+            sim_qq_rows = sim_qq_rows.masked_fill(diag_mask_qq, -torch.inf)
+            sim_dd_cols = sim_dd_cols.masked_fill(diag_mask_dd, -torch.inf)
 
             scores = torch.cat([sim_qd_rows, sim_qq_rows, sim_qd_cols, sim_dd_cols], dim=1)
             log_z = torch.logsumexp(scores, dim=1)
@@ -260,8 +269,6 @@ class CachedMultipleNegativesBidirectionalRankingLoss(nn.Module):
         sentence_features = list(sentence_features)
         if len(sentence_features) < 2:
             raise ValueError(f"Expected at least 2 inputs, got {len(sentence_features)}")
-        sentence_features = sentence_features[:2]
-
         reps = []
         self.random_states = []
         for sentence_feature in sentence_features:

@@ -23,7 +23,8 @@ class MultipleNegativesBidirectionalRankingLoss(nn.Module):
         Improved contrastive loss that adds query-query and document-document negatives, inspired by the
         GTE (General Text Embeddings) paper.
 
-        Given a list of (anchor, positive) pairs, this loss optimizes the following objective:
+        Given a list of (anchor, positive) pairs or (anchor, positive, negative) triplets, this loss optimizes the
+        following objective:
 
         For each pair i in the batch, let q_i be the anchor (query) and d_i be the positive (document).
         The loss is:
@@ -47,21 +48,26 @@ class MultipleNegativesBidirectionalRankingLoss(nn.Module):
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
 
         Requirements:
-            1. (anchor, positive) pairs
+            1. (anchor, positive) pairs or (anchor, positive, negative) triplets
 
         Inputs:
-            +---------------------------------------+--------+
-            | Texts                                 | Labels |
-            +=======================================+========+
-            | (anchor, positive) pairs              | none   |
-            +---------------------------------------+--------+
+            +-------------------------------------------------+--------+
+            | Texts                                           | Labels |
+            +=================================================+========+
+            | (anchor, positive) pairs                        | none   |
+            +-------------------------------------------------+--------+
+            | (anchor, positive, negative) triplets           | none   |
+            +-------------------------------------------------+--------+
+            | (anchor, positive, negative_1, ..., negative_n) | none   |
+            +-------------------------------------------------+--------+
 
         Recommendations:
             - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.training_args.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
 
         Notes:
-            - If you pass triplets, the negative entry will be ignored. The loss only uses the (anchor, positive) pairs.
+            - Optional negatives are treated as additional documents (hard negatives) and are included in the
+              query-document and document-document terms. They are not treated as queries.
 
         Relations:
             - Like :class:`MultipleNegativesRankingLoss`, but with additional query-query and document-document
@@ -106,7 +112,7 @@ class MultipleNegativesBidirectionalRankingLoss(nn.Module):
         sentence_features = list(sentence_features)
         if len(sentence_features) < 2:
             raise ValueError(f"Expected at least 2 inputs, got {len(sentence_features)}")
-        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features[:2]]
+        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
         return self.compute_loss_from_embeddings(embeddings, labels)
 
     def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
@@ -114,18 +120,20 @@ class MultipleNegativesBidirectionalRankingLoss(nn.Module):
             raise ValueError(f"Expected at least 2 embeddings, got {len(embeddings)}")
 
         queries = embeddings[0]
-        docs = embeddings[1]
+        docs = embeddings[1:]
         batch_size = queries.size(0)
         offset = 0
 
         if self.gather_across_devices:
             queries = all_gather_with_grad(queries)
-            docs = all_gather_with_grad(docs)
+            docs = [all_gather_with_grad(doc) for doc in docs]
             if torch.distributed.is_initialized():
                 rank = torch.distributed.get_rank()
                 offset = rank * batch_size
 
-        total_size = queries.size(0)
+        docs = torch.cat(docs, dim=0)
+        total_queries = queries.size(0)
+        total_docs = docs.size(0)
         local_indices = torch.arange(offset, offset + batch_size, device=queries.device)
 
         sim_qd = self.similarity_fct(queries, docs) * self.scale
@@ -137,11 +145,13 @@ class MultipleNegativesBidirectionalRankingLoss(nn.Module):
         sim_qd_cols = sim_qd[:, local_indices].T
         sim_dd_cols = sim_dd[:, local_indices].T
 
-        diag_mask = torch.zeros((batch_size, total_size), dtype=torch.bool, device=queries.device)
-        diag_mask.scatter_(1, local_indices.view(-1, 1), True)
+        diag_mask_qq = torch.zeros((batch_size, total_queries), dtype=torch.bool, device=queries.device)
+        diag_mask_qq.scatter_(1, local_indices.view(-1, 1), True)
+        diag_mask_dd = torch.zeros((batch_size, total_docs), dtype=torch.bool, device=queries.device)
+        diag_mask_dd.scatter_(1, local_indices.view(-1, 1), True)
 
-        sim_qq_rows = sim_qq_rows.masked_fill(diag_mask, -torch.inf)
-        sim_dd_cols = sim_dd_cols.masked_fill(diag_mask, -torch.inf)
+        sim_qq_rows = sim_qq_rows.masked_fill(diag_mask_qq, -torch.inf)
+        sim_dd_cols = sim_dd_cols.masked_fill(diag_mask_dd, -torch.inf)
 
         scores = torch.cat([sim_qd_rows, sim_qq_rows, sim_qd_cols, sim_dd_cols], dim=1)
         log_z = torch.logsumexp(scores, dim=1)
