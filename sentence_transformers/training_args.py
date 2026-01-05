@@ -28,6 +28,8 @@ class BatchSamplers(ExplicitEnum):
 
         - :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`
         - :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss`
+        - :class:`~sentence_transformers.losses.MultipleNegativesBidirectionalRankingLoss`
+        - :class:`~sentence_transformers.losses.CachedMultipleNegativesBidirectionalRankingLoss`
         - :class:`~sentence_transformers.losses.MultipleNegativesSymmetricRankingLoss`
         - :class:`~sentence_transformers.losses.CachedMultipleNegativesSymmetricRankingLoss`
         - :class:`~sentence_transformers.losses.MegaBatchMarginLoss`

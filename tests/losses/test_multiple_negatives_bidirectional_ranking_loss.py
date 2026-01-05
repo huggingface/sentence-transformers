@@ -17,6 +17,14 @@ class _DummyModel:
         return object()
 
 
+@pytest.fixture(scope="module")
+def shared_sbert() -> SentenceTransformer:
+    # Reuse a single model instance to avoid repeated downloads and initialization in CI.
+    model = SentenceTransformer("distilbert-base-uncased")
+    model.to("cpu")
+    return model
+
+
 def _manual_bidirectional_loss_with_negatives(
     queries: torch.Tensor,
     positives: torch.Tensor,
@@ -135,22 +143,21 @@ def test_cached_bidirectional_info_nce_same_grad(
     train_samples: list[InputExample],
     scaler: float,
     precision: float,
+    shared_sbert: SentenceTransformer,
 ):
-    sbert = SentenceTransformer("distilbert-base-uncased")
-    sbert.to("cpu")
-    optimizer = Adam(sbert.parameters())
+    optimizer = Adam(shared_sbert.parameters())
 
     set_seed(42)
     optimizer.zero_grad()
-    loss_base = losses.MultipleNegativesBidirectionalRankingLoss(sbert)
-    loss_base_value: torch.Tensor = loss_base.forward(*sbert.smart_batching_collate(train_samples)) * scaler
+    loss_base = losses.MultipleNegativesBidirectionalRankingLoss(shared_sbert)
+    loss_base_value: torch.Tensor = loss_base.forward(*shared_sbert.smart_batching_collate(train_samples)) * scaler
     loss_base_value.backward()
     grad_expected = {name: p.grad.clone() for name, p in loss_base.named_parameters() if p.grad is not None}
 
     set_seed(42)
     optimizer.zero_grad()
-    loss_cached = losses.CachedMultipleNegativesBidirectionalRankingLoss(sbert, mini_batch_size=2)
-    loss_cached_value: torch.Tensor = loss_cached.forward(*sbert.smart_batching_collate(train_samples)) * scaler
+    loss_cached = losses.CachedMultipleNegativesBidirectionalRankingLoss(shared_sbert, mini_batch_size=2)
+    loss_cached_value: torch.Tensor = loss_cached.forward(*shared_sbert.smart_batching_collate(train_samples)) * scaler
     loss_cached_value.backward()
     grad = {name: p.grad.clone() for name, p in loss_cached.named_parameters() if p.grad is not None}
 
@@ -163,7 +170,7 @@ def test_cached_bidirectional_info_nce_same_grad(
     assert nclose == len(grad_expected)
 
 
-def test_cached_bidirectional_info_nce_same_grad_with_hard_negatives():
+def test_cached_bidirectional_info_nce_same_grad_with_hard_negatives(shared_sbert: SentenceTransformer):
     train_samples = [
         InputExample(texts=[q, p, n])
         for q, p, n in zip(
@@ -174,21 +181,19 @@ def test_cached_bidirectional_info_nce_same_grad_with_hard_negatives():
     ]
     scaler = 1.0
     precision = 1e-5
-    sbert = SentenceTransformer("distilbert-base-uncased")
-    sbert.to("cpu")
-    optimizer = Adam(sbert.parameters())
+    optimizer = Adam(shared_sbert.parameters())
 
     set_seed(42)
     optimizer.zero_grad()
-    loss_base = losses.MultipleNegativesBidirectionalRankingLoss(sbert)
-    loss_base_value: torch.Tensor = loss_base.forward(*sbert.smart_batching_collate(train_samples)) * scaler
+    loss_base = losses.MultipleNegativesBidirectionalRankingLoss(shared_sbert)
+    loss_base_value: torch.Tensor = loss_base.forward(*shared_sbert.smart_batching_collate(train_samples)) * scaler
     loss_base_value.backward()
     grad_expected = {name: p.grad.clone() for name, p in loss_base.named_parameters() if p.grad is not None}
 
     set_seed(42)
     optimizer.zero_grad()
-    loss_cached = losses.CachedMultipleNegativesBidirectionalRankingLoss(sbert, mini_batch_size=2)
-    loss_cached_value: torch.Tensor = loss_cached.forward(*sbert.smart_batching_collate(train_samples)) * scaler
+    loss_cached = losses.CachedMultipleNegativesBidirectionalRankingLoss(shared_sbert, mini_batch_size=2)
+    loss_cached_value: torch.Tensor = loss_cached.forward(*shared_sbert.smart_batching_collate(train_samples)) * scaler
     loss_cached_value.backward()
     grad = {name: p.grad.clone() for name, p in loss_cached.named_parameters() if p.grad is not None}
 
