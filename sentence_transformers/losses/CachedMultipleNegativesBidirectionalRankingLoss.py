@@ -124,7 +124,7 @@ class CachedMultipleNegativesBidirectionalRankingLoss(nn.Module):
 
         References:
             - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup: https://huggingface.co/papers/2101.06983
-            - GTE: https://arxiv.org/abs/2308.03281
+            - GTE: https://huggingface.co/papers/2308.03281
         """
         super().__init__()
         if isinstance(model[0], StaticEmbedding):

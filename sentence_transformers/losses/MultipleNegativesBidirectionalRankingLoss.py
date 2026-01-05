@@ -98,7 +98,7 @@ class MultipleNegativesBidirectionalRankingLoss(nn.Module):
                 trainer.train()
 
         References:
-            - GTE: https://arxiv.org/abs/2308.03281
+            - GTE: https://huggingface.co/papers/2308.03281
         """
         super().__init__()
         self.model = model
