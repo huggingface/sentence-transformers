@@ -11,12 +11,12 @@ from torch.nn import functional as F
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.losses.CachedGISTEmbedLoss import CachedGISTEmbedLoss
+from sentence_transformers.losses.CachedMultipleNegativesBidirectionalRankingLoss import (
+    CachedMultipleNegativesBidirectionalRankingLoss,
+)
 from sentence_transformers.losses.CachedMultipleNegativesRankingLoss import CachedMultipleNegativesRankingLoss
 from sentence_transformers.losses.CachedMultipleNegativesSymmetricRankingLoss import (
     CachedMultipleNegativesSymmetricRankingLoss,
-)
-from sentence_transformers.losses.CachedMultipleNegativesBidirectionalRankingLoss import (
-    CachedMultipleNegativesBidirectionalRankingLoss,
 )
 from sentence_transformers.models import Transformer
 

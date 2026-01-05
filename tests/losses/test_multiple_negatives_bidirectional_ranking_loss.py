@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from unittest.mock import Mock
 
 import pytest
