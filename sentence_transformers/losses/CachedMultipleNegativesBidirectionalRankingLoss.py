@@ -225,8 +225,6 @@ class CachedMultipleNegativesBidirectionalRankingLoss(nn.Module):
                 offset = rank * batch_size
 
         docs = torch.cat(docs, dim=0)
-        total_queries = queries.size(0)
-        total_docs = docs.size(0)
         local_indices = torch.arange(offset, offset + batch_size, device=queries.device)
 
         losses: list[torch.Tensor] = []
@@ -239,24 +237,23 @@ class CachedMultipleNegativesBidirectionalRankingLoss(nn.Module):
         ):
             end = min(begin + self.mini_batch_size, batch_size)
             local_batch = local_indices[begin:end]
+            local_queries = queries[local_batch]
+            local_docs = docs[local_batch]
 
-            sim_qd_rows: Tensor = self.similarity_fct(queries[local_batch], docs) * self.scale
-            sim_qq_rows: Tensor = self.similarity_fct(queries[local_batch], queries) * self.scale
-            sim_qd_cols: Tensor = (self.similarity_fct(queries, docs[local_batch]) * self.scale).T
-            sim_dd_cols: Tensor = (self.similarity_fct(docs, docs[local_batch]) * self.scale).T
+            sim_qd = self.similarity_fct(local_queries, docs) * self.scale  # (mbs, bs * ws * (1 + nn))
+            sim_qq = self.similarity_fct(local_queries, queries) * self.scale  # (mbs, bs * ws)
+            sim_dq = (self.similarity_fct(queries, local_docs) * self.scale).T  # (mbs, bs * ws)
+            sim_dd = (self.similarity_fct(docs, local_docs) * self.scale).T  # (mbs, bs * ws * (1 + nn))
 
-            diag_mask_qq = torch.zeros((len(local_batch), total_queries), dtype=torch.bool, device=queries.device)
-            diag_mask_qq.scatter_(1, local_batch.view(-1, 1), True)
-            diag_mask_dd = torch.zeros((len(local_batch), total_docs), dtype=torch.bool, device=queries.device)
-            diag_mask_dd.scatter_(1, local_batch.view(-1, 1), True)
+            # Remove self-similarity entries q_i -> q_i and d_i -> d_i for local pairs
+            row_indices = torch.arange(len(local_batch), device=queries.device)
+            sim_qq[row_indices, local_batch] = -torch.inf
+            sim_dd[row_indices, local_batch] = -torch.inf
 
-            sim_qq_rows = sim_qq_rows.masked_fill(diag_mask_qq, -torch.inf)
-            sim_dd_cols = sim_dd_cols.masked_fill(diag_mask_dd, -torch.inf)
-
-            scores = torch.cat([sim_qd_rows, sim_qq_rows, sim_qd_cols, sim_dd_cols], dim=1)
+            scores = torch.cat([sim_qd, sim_qq, sim_dq, sim_dd], dim=1)
             log_z = torch.logsumexp(scores, dim=1)
-            positive_scores = sim_qd_rows.gather(1, local_batch.view(-1, 1)).squeeze(1)
 
+            positive_scores = sim_qd[row_indices, local_batch]
             loss_mbatch = -(positive_scores - log_z).mean()
             loss_mbatch = loss_mbatch * len(local_batch) / batch_size
             if with_backward:
