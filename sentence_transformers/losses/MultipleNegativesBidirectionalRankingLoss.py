@@ -126,6 +126,9 @@ class MultipleNegativesBidirectionalRankingLoss(nn.Module):
         offset = 0
 
         if self.gather_across_devices:
+            # Gather the anchors and candidates across all devices, with gradients. We compute only this device's anchors
+            # with all candidates from all devices, and only this device's candidates with all anchors from all devices.
+            # We do this in such a way that the backward pass on the embeddings can flow back to the original devices.
             queries = all_gather_with_grad(queries)
             docs = [all_gather_with_grad(doc) for doc in docs]
             if torch.distributed.is_initialized():
@@ -133,31 +136,25 @@ class MultipleNegativesBidirectionalRankingLoss(nn.Module):
                 offset = rank * batch_size
 
         docs = torch.cat(docs, dim=0)
-        total_queries = queries.size(0)
-        total_docs = docs.size(0)
+        # (batch_size * world_size * (1 + num_negatives), embedding_dim)
         local_indices = torch.arange(offset, offset + batch_size, device=queries.device)
+        local_queries = queries[local_indices]
+        local_docs = docs[local_indices]
 
-        sim_qd = self.similarity_fct(queries, docs) * self.scale
-        sim_qq = self.similarity_fct(queries, queries) * self.scale
-        sim_dd = self.similarity_fct(docs, docs) * self.scale
+        sim_qd = self.similarity_fct(local_queries, docs) * self.scale  # (batch_size, batch_size * world_size * (1 + num_negatives))
+        sim_qq = self.similarity_fct(local_queries, queries) * self.scale  # (batch_size, batch_size * world_size)
+        sim_dq = (self.similarity_fct(queries, local_docs) * self.scale).T  # (batch_size, batch_size * world_size)
+        sim_dd = (self.similarity_fct(docs, local_docs) * self.scale).T  # (batch_size, batch_size * world_size * (1 + num_negatives))
 
-        sim_qd_rows = sim_qd[local_indices]
-        sim_qq_rows = sim_qq[local_indices]
-        sim_qd_cols = sim_qd[:, local_indices].T
-        sim_dd_cols = sim_dd[:, local_indices].T
+        # Remove self-similarity entries q_i -> q_i and d_i -> d_i for local pairs
+        row_indices = torch.arange(batch_size, device=queries.device)
+        sim_qq[row_indices, local_indices] = -torch.inf
+        sim_dd[row_indices, local_indices] = -torch.inf
 
-        diag_mask_qq = torch.zeros((batch_size, total_queries), dtype=torch.bool, device=queries.device)
-        diag_mask_qq.scatter_(1, local_indices.view(-1, 1), True)
-        diag_mask_dd = torch.zeros((batch_size, total_docs), dtype=torch.bool, device=queries.device)
-        diag_mask_dd.scatter_(1, local_indices.view(-1, 1), True)
-
-        sim_qq_rows = sim_qq_rows.masked_fill(diag_mask_qq, -torch.inf)
-        sim_dd_cols = sim_dd_cols.masked_fill(diag_mask_dd, -torch.inf)
-
-        scores = torch.cat([sim_qd_rows, sim_qq_rows, sim_qd_cols, sim_dd_cols], dim=1)
+        scores = torch.cat([sim_qd, sim_qq, sim_dq, sim_dd], dim=1)
         log_z = torch.logsumexp(scores, dim=1)
 
-        positive_scores = sim_qd_rows.gather(1, local_indices.view(-1, 1)).squeeze(1)
+        positive_scores = sim_qd[row_indices, local_indices]
         loss = -(positive_scores - log_z).mean()
         return loss
 
