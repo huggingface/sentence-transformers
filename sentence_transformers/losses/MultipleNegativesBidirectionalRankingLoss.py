@@ -34,8 +34,8 @@ class MultipleNegativesBidirectionalRankingLoss(nn.Module):
         where Z_i sums four sets of in-batch negatives:
             1) q_i -> all documents d_j
             2) q_i -> all other queries q_j (j != i)
-            3) all queries q_j -> d_i
-            4) all other documents d_j -> d_i (j != i)
+            3) d_i -> all queries q_j
+            4) d_i -> all other documents d_j (j != i)
 
         Args:
             model: SentenceTransformer model
@@ -141,10 +141,10 @@ class MultipleNegativesBidirectionalRankingLoss(nn.Module):
         local_queries = queries[local_indices]
         local_docs = docs[local_indices]
 
-        sim_qd = self.similarity_fct(local_queries, docs) * self.scale  # (batch_size, batch_size * world_size * (1 + num_negatives))
-        sim_qq = self.similarity_fct(local_queries, queries) * self.scale  # (batch_size, batch_size * world_size)
-        sim_dq = (self.similarity_fct(queries, local_docs) * self.scale).T  # (batch_size, batch_size * world_size)
-        sim_dd = (self.similarity_fct(docs, local_docs) * self.scale).T  # (batch_size, batch_size * world_size * (1 + num_negatives))
+        sim_qd = self.similarity_fct(local_queries, docs) * self.scale  # (bs, bs * ws * (1 + nn))
+        sim_qq = self.similarity_fct(local_queries, queries) * self.scale  # (bs, bs * ws)
+        sim_dq = (self.similarity_fct(queries, local_docs) * self.scale).T  # (bs, bs * ws)
+        sim_dd = (self.similarity_fct(docs, local_docs) * self.scale).T  # (bs, bs * ws * (1 + nn))
 
         # Remove self-similarity entries q_i -> q_i and d_i -> d_i for local pairs
         row_indices = torch.arange(batch_size, device=queries.device)
