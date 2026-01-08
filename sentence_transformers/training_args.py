@@ -24,7 +24,11 @@ class BatchSamplers(ExplicitEnum):
     - ``BatchSamplers.BATCH_SAMPLER``: **[default]** Uses :class:`~sentence_transformers.sampler.DefaultBatchSampler`, the default
       PyTorch batch sampler.
     - ``BatchSamplers.NO_DUPLICATES``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`,
-      ensuring no duplicate samples in a batch. Recommended for losses that use in-batch negatives, such as:
+      ensuring no duplicate samples in a batch.
+    - ``BatchSamplers.NO_DUPLICATES_FAST``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesFastBatchSampler`,
+      a faster sampler that also ensures no duplicate samples in a batch.
+
+      Both are recommended for losses that use in-batch negatives, such as:
 
         - :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`
         - :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss`
@@ -79,6 +83,7 @@ class BatchSamplers(ExplicitEnum):
 
     BATCH_SAMPLER = "batch_sampler"
     NO_DUPLICATES = "no_duplicates"
+    NO_DUPLICATES_FAST = "no_duplicates_fast"
     GROUP_BY_LABEL = "group_by_label"
 
 

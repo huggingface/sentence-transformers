@@ -31,6 +31,7 @@ from sentence_transformers.sampler import (
     GroupByLabelBatchSampler,
     MultiDatasetDefaultBatchSampler,
     NoDuplicatesBatchSampler,
+    NoDuplicatesFastBatchSampler,
     ProportionalBatchSampler,
     RoundRobinBatchSampler,
 )
@@ -678,6 +679,9 @@ class SentenceTransformerTrainer(Trainer):
         # Lastly, use the samplers that match the enum values
         if self.args.batch_sampler == BatchSamplers.NO_DUPLICATES:
             return NoDuplicatesBatchSampler(dataset, **batch_sampler_kwargs)
+
+        if self.args.batch_sampler == BatchSamplers.NO_DUPLICATES_FAST:
+            return NoDuplicatesFastBatchSampler(dataset, **batch_sampler_kwargs)
 
         if self.args.batch_sampler == BatchSamplers.GROUP_BY_LABEL:
             return GroupByLabelBatchSampler(dataset, **batch_sampler_kwargs)

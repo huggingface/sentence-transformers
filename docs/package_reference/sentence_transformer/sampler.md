@@ -18,6 +18,11 @@
 ```
 
 ```{eval-rst}
+.. autoclass:: sentence_transformers.sampler.NoDuplicatesFastBatchSampler
+    :members:
+```
+
+```{eval-rst}
 .. autoclass:: sentence_transformers.sampler.GroupByLabelBatchSampler
     :members:
 ```
