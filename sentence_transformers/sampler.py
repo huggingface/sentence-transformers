@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import logging
+import os
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Iterator
 from itertools import accumulate, cycle
 from typing import Any
 
+import numpy as np
 import torch
 from torch.utils.data import BatchSampler, ConcatDataset, SubsetRandomSampler
+
+try:
+    import xxhash
+except ImportError:  # pragma: no cover - optional dependency
+    xxhash = None
 
 from sentence_transformers.util import is_datasets_available
 
@@ -16,6 +23,87 @@ if is_datasets_available():
     from datasets import Dataset
 
 logger = logging.getLogger(__name__)
+
+_XXHASH_INT64_MAX = 1 << 63
+_XXHASH_UINT64_MAX = 1 << 64
+
+
+def _xxhash_int64(value: str) -> int:
+    # Convert uint64 -> int64 to keep values compatible with Arrow int64 storage.
+    hashed = xxhash.xxh64_intdigest(value)
+    if hashed >= _XXHASH_INT64_MAX:
+        hashed -= _XXHASH_UINT64_MAX
+    return hashed
+
+
+def _hash_batch(
+    batch: dict[str, list[Any]],
+    columns: list[str],
+    exclude_columns: set[str],
+) -> dict[str, list[list[int]]]:
+    # Must be defined at module scope because datasets.map with num_proc pickles this function.
+    # Build per-row hash lists so we can later do fast overlap checks without re-reading the dataset.
+    active_columns = [column for column in columns if column not in exclude_columns]
+    batch_size = len(batch[active_columns[0]]) if active_columns else len(next(iter(batch.values()), []))
+    if not active_columns:
+        return {"__hashes": [[] for _ in range(batch_size)]}
+    hashes: list[list[int]] = []
+    for row_idx in range(batch_size):
+        row_hashes: list[int] = []
+        for column in active_columns:
+            value = batch[column][row_idx]
+            if isinstance(value, list):
+                for item in value:
+                    row_hashes.append(_xxhash_int64(str(item)))
+            else:
+                row_hashes.append(_xxhash_int64(str(value)))
+        hashes.append(row_hashes)
+    return {"__hashes": hashes}
+
+
+def _remove_label_columns(dataset: Dataset, valid_label_columns: list[str] | None) -> Dataset:
+    # Drop label columns so they don't participate in duplicate checks.
+    if label_columns := set(dataset.column_names) & set(valid_label_columns or []):
+        return dataset.remove_columns(list(label_columns))
+    return dataset
+
+
+def _has_overlap(sample_values, batch_values: set[Any]) -> bool:
+    # Avoid materializing a set if we already have one.
+    if isinstance(sample_values, set):
+        return bool(sample_values & batch_values)
+    return any(value in batch_values for value in sample_values)
+
+
+def _iter_no_duplicate_batches(
+    remaining_indices: dict[int, None],
+    get_sample_values,
+    batch_size: int,
+    drop_last: bool,
+) -> Iterator[list[int]]:
+    # Shared batch construction loop for both samplers; keeps behavior consistent.
+    while remaining_indices:
+        batch_values: set[Any] = set()
+        batch_indices: list[int] = []
+        for index in remaining_indices:
+            sample_values = get_sample_values(index)
+            if _has_overlap(sample_values, batch_values):
+                continue
+
+            batch_indices.append(index)
+            if len(batch_indices) == batch_size:
+                yield batch_indices
+                break
+
+            batch_values.update(sample_values)
+
+        else:
+            # NOTE: some indices might still have been ignored here
+            if not drop_last:
+                yield batch_indices
+
+        for index in batch_indices:
+            del remaining_indices[index]
 
 
 class SetEpochMixin:
@@ -197,9 +285,7 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
             generator=generator,
             seed=seed,
         )
-        if label_columns := set(dataset.column_names) & set(self.valid_label_columns or []):
-            dataset = dataset.remove_columns(list(label_columns))
-        self.dataset = dataset
+        self.dataset = _remove_label_columns(dataset, self.valid_label_columns)
 
     def __iter__(self) -> Iterator[list[int]]:
         """
@@ -214,28 +300,156 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         # 1. Allows for cheap removal of elements
         # 2. Preserves the order of elements, i.e. remains random
         remaining_indices = dict.fromkeys(torch.randperm(len(self.dataset), generator=self.generator).tolist())
-        while remaining_indices:
-            batch_values = set()
-            batch_indices = []
-            for index in remaining_indices:
-                sample_values = {str(value) for key, value in self.dataset[index].items() if key != "dataset_name"}
-                if sample_values & batch_values:
-                    continue
 
-                batch_indices.append(index)
-                if len(batch_indices) == self.batch_size:
-                    yield batch_indices
-                    break
+        def get_sample_values(index: int) -> set[str]:
+            return {str(value) for key, value in self.dataset[index].items() if key != "dataset_name"}
 
-                batch_values.update(sample_values)
+        yield from _iter_no_duplicate_batches(
+            remaining_indices,
+            get_sample_values,
+            self.batch_size,
+            self.drop_last,
+        )
 
+    def __len__(self) -> int:
+        if self.drop_last:
+            return len(self.dataset) // self.batch_size
+        else:
+            return (len(self.dataset) + self.batch_size - 1) // self.batch_size
+
+
+class NoDuplicatesFastBatchSampler(DefaultBatchSampler):
+    def __init__(
+        self,
+        dataset: Dataset,
+        batch_size: int,
+        drop_last: bool,
+        valid_label_columns: list[str] | None = None,
+        generator: torch.Generator | None = None,
+        seed: int = 0,
+        hash_num_proc: int | None = None,
+        ds_map_batch_size: int = 1000,
+    ) -> None:
+        """
+        This sampler creates batches such that each batch contains samples where the values are unique,
+        even across columns. It uses the same batch construction approach as NoDuplicatesBatchSampler,
+        but speeds up duplicate checks by caching per-row xxhash 64-bit values computed with datasets.map.
+
+        Recommended for:
+            - :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`
+            - :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss`
+            - :class:`~sentence_transformers.losses.MultipleNegativesSymmetricRankingLoss`
+            - :class:`~sentence_transformers.losses.CachedMultipleNegativesSymmetricRankingLoss`
+            - :class:`~sentence_transformers.losses.MegaBatchMarginLoss`
+            - :class:`~sentence_transformers.losses.GISTEmbedLoss`
+            - :class:`~sentence_transformers.losses.CachedGISTEmbedLoss`
+
+        Args:
+            dataset (Dataset): The dataset to sample from.
+            batch_size (int): Number of samples per batch.
+            drop_last (bool): If True, drop the last incomplete batch if the dataset size
+                is not divisible by the batch size.
+            valid_label_columns (List[str], optional): List of column names to check for labels.
+                The first column name from ``valid_label_columns`` found in the dataset will
+                be used as the label column.
+            generator (torch.Generator, optional): Optional random number generator for shuffling
+                the indices.
+            seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+            hash_num_proc (int, optional): Number of processes for hashing with datasets.map. Defaults to min(8, cpu-1).
+            ds_map_batch_size (int, optional): Batch size for datasets.map hashing. Defaults to 1000.
+        """
+        super().__init__(
+            dataset,
+            batch_size=batch_size,
+            drop_last=drop_last,
+            valid_label_columns=valid_label_columns,
+            generator=generator,
+            seed=seed,
+        )
+        if xxhash is None:
+            raise ImportError(
+                "NoDuplicatesFastBatchSampler requires `xxhash`. Install it via `pip install xxhash` "
+                "or use the `train` extra."
+            )
+        self.dataset = _remove_label_columns(dataset, self.valid_label_columns)
+        cpu_count = os.cpu_count() or 1
+        # Leave one core free to avoid saturating the system when hashing.
+        default_workers = max(1, min(8, cpu_count - 1))
+        self.hash_num_proc = hash_num_proc or default_workers
+        self.ds_map_batch_size = ds_map_batch_size
+        self._row_hashes: np.ndarray | list[list[int]] | None = None
+
+    def _build_hashes(self) -> None:
+        if self._row_hashes is not None:
+            return
+        exclude_columns = set(self.valid_label_columns or []) | {"dataset_name"}
+        columns = list(self.dataset.column_names)
+        # Precompute hash values once to avoid repeated string processing per batch.
+        # Use num_proc to parallelize hashing across CPU cores.
+        hash_ds = self.dataset.map(
+            _hash_batch,
+            batched=True,
+            batch_size=self.ds_map_batch_size,
+            num_proc=self.hash_num_proc,
+            remove_columns=columns,
+            fn_kwargs={"columns": columns, "exclude_columns": exclude_columns},
+            desc="Hashing dataset values",
+        )
+        try:
+            import pyarrow as pa
+
+            column = hash_ds.data.column("__hashes")
+            if isinstance(column, pa.ChunkedArray):
+                column = column.combine_chunks()
+            if not isinstance(column, (pa.ListArray, pa.LargeListArray)):
+                raise ValueError("Expected a list column for hashed values.")
+
+            row_count = len(column)
+            if row_count == 0:
+                row_hashes = np.zeros((0, 0), dtype=np.int64)
             else:
-                # NOTE: some indices might still have been ignored here
-                if not self.drop_last:
-                    yield batch_indices
+                offsets = column.offsets.to_numpy(zero_copy_only=False)
+                row_size = int(offsets[1] - offsets[0])
+                if row_size < 0 or not np.all(np.diff(offsets) == row_size):
+                    raise ValueError("Hashed rows have varying lengths.")
+                # If every row has the same length, store as a dense ndarray to reduce overhead.
+                values = column.values.to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
+                if values.size != row_count * row_size:
+                    raise ValueError("Unexpected hashed value buffer size.")
+                row_hashes = values.reshape((row_count, row_size))
+        except Exception as exc:
+            # Surface failures explicitly; the fast sampler expects fixed-length rows.
+            del hash_ds
+            raise ValueError(
+                "NoDuplicatesFastBatchSampler requires fixed-length hash rows. "
+                "Ensure each sample has the same number of values across columns."
+            ) from exc
 
-            for index in batch_indices:
-                del remaining_indices[index]
+        self._row_hashes = row_hashes
+        # Drop the temporary dataset to release Arrow buffers promptly.
+        del hash_ds
+
+    def __iter__(self) -> Iterator[list[int]]:
+        if self.generator and self.seed is not None:
+            self.generator.manual_seed(self.seed + self.epoch)
+
+        self._build_hashes()
+        row_hashes = self._row_hashes if self._row_hashes is not None else []
+
+        # We create a dictionary to None because we need a data structure that:
+        # 1. Allows for cheap removal of elements
+        # 2. Preserves the order of elements, i.e. remains random
+        remaining_indices = dict.fromkeys(torch.randperm(len(self.dataset), generator=self.generator).tolist())
+
+        def get_sample_values(index: int):
+            return row_hashes[index]
+
+        yield from _iter_no_duplicate_batches(
+            remaining_indices,
+            get_sample_values,
+            self.batch_size,
+            self.drop_last,
+        )
 
     def __len__(self) -> int:
         if self.drop_last:
