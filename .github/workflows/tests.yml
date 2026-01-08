@@ -4,11 +4,11 @@ on:
   push:
     branches:
       - main
-      - v*-release
+      - "*-release"
   pull_request:
     branches:
       - main
-      - v*-release
+      - "*-release"
   workflow_dispatch:
 
 env:
