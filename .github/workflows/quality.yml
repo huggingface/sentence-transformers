@@ -4,13 +4,13 @@ on:
   push:
     branches:
       - main
-      - *-release
-      - *-pre
+      - "*-release"
+      - "*-pre"
   pull_request:
     branches:
       - main
-      - *-release
-      - *-pre
+      - "*-release"
+      - "*-pre"
   workflow_dispatch:
 
 jobs:
