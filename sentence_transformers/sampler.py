@@ -327,7 +327,7 @@ class NoDuplicatesFastBatchSampler(DefaultBatchSampler):
         valid_label_columns: list[str] | None = None,
         generator: torch.Generator | None = None,
         seed: int = 0,
-        hash_num_proc: int | None = None,
+        num_proc: int | None = None,
         ds_map_batch_size: int = 1000,
     ) -> None:
         """
@@ -355,7 +355,7 @@ class NoDuplicatesFastBatchSampler(DefaultBatchSampler):
             generator (torch.Generator, optional): Optional random number generator for shuffling
                 the indices.
             seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
-            hash_num_proc (int, optional): Number of processes for hashing with datasets.map. Defaults to min(8, cpu-1).
+            num_proc (int, optional): Number of processes for hashing with datasets.map. Defaults to min(8, cpu-1).
             ds_map_batch_size (int, optional): Batch size for datasets.map hashing. Defaults to 1000.
         """
         super().__init__(
@@ -375,7 +375,7 @@ class NoDuplicatesFastBatchSampler(DefaultBatchSampler):
         cpu_count = os.cpu_count() or 1
         # Leave one core free to avoid saturating the system when hashing.
         default_workers = max(1, min(8, cpu_count - 1))
-        self.hash_num_proc = hash_num_proc or default_workers
+        self.num_proc = num_proc or default_workers
         self.ds_map_batch_size = ds_map_batch_size
         self._row_hashes: np.ndarray | list[list[int]] | None = None
 
@@ -391,7 +391,7 @@ class NoDuplicatesFastBatchSampler(DefaultBatchSampler):
             _hash_batch,
             batched=True,
             batch_size=self.ds_map_batch_size,
-            num_proc=self.hash_num_proc,
+            num_proc=self.num_proc,
             remove_columns=columns,
             fn_kwargs={"columns": columns, "exclude_columns": exclude_columns},
             desc="Hashing dataset values",

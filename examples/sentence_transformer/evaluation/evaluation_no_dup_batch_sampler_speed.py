@@ -190,7 +190,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--measure-hash-rss", action="store_true", help="Measure hash RSS via psutil.")
     parser.add_argument("--measure-hash-uss", action="store_true", help="Measure hash USS via psutil.")
     parser.add_argument(
-        "--hash-num-proc",
+        "--num-proc",
         type=int,
         help="Processes used for hashing (NoDuplicatesFastBatchSampler only).",
     )
@@ -446,8 +446,8 @@ def main() -> None:
 
     targets = args.target or ["default", "fast"]
     fast_kwargs = {}
-    if args.hash_num_proc is not None:
-        fast_kwargs["hash_num_proc"] = args.hash_num_proc
+    if args.num_proc is not None:
+        fast_kwargs["num_proc"] = args.num_proc
     if args.ds_map_batch_size is not None:
         fast_kwargs["ds_map_batch_size"] = args.ds_map_batch_size
     target_map = {
