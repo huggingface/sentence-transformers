@@ -21,9 +21,9 @@ from sentence_transformers import (
     SparseEncoderTrainingArguments,
     util,
 )
-from sentence_transformers.evaluation import SequentialEvaluator
+from sentence_transformers.base.training_args import BatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import SequentialEvaluator
 from sentence_transformers.sparse_encoder import evaluation, losses
-from sentence_transformers.training_args import BatchSamplers
 
 # Set up logging
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)

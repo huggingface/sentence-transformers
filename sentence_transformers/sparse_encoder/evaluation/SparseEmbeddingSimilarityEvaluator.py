@@ -5,15 +5,15 @@ import os
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Literal
 
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.util import append_to_last_row
 
 if TYPE_CHECKING:
     import numpy as np
     from torch import Tensor
 
-    from sentence_transformers.similarity_functions import SimilarityFunction
-    from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+    from sentence_transformers.sparse_encoder.model import SparseEncoder
+    from sentence_transformers.util.similarity import SimilarityFunction
 
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class SparseEmbeddingSimilarityEvaluator(EmbeddingSimilarityEvaluator):
     """
-    This evaluator extends :class:`~sentence_transformers.evaluation.EmbeddingSimilarityEvaluator` but is specifically designed for sparse encoder models.
+    This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator` but is specifically designed for sparse encoder models.
 
     Evaluate a model based on the similarity of the embeddings by calculating the Spearman and Pearson rank correlation
     in comparison to the gold standard labels.

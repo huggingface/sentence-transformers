@@ -46,9 +46,13 @@ class ForwardMethodWrapper:
                 "decoded_embedding_4k",
                 "decoded_embedding_aux",
                 "decoded_embedding_k_pre_bias",
+                "modality",
             },
         ),
-        (True, {"input_ids", "attention_mask", "token_type_ids", "token_embeddings", "sentence_embedding"}),
+        (
+            True,
+            {"input_ids", "attention_mask", "token_type_ids", "token_embeddings", "sentence_embedding", "modality"},
+        ),
     ],
 )
 def test_csr_outputs(csr_bert_tiny_model: SparseEncoder, is_inference: bool, expected_keys: set) -> None:
@@ -59,8 +63,10 @@ def test_csr_outputs(csr_bert_tiny_model: SparseEncoder, is_inference: bool, exp
     model.forward = wrapper
 
     # Run the encode method which should call forward internally
-    inputs = model.tokenize(["This is a test sentence."])
-    inputs = {key: value.to(model.device) for key, value in inputs.items()}
+    inputs = model.preprocess(["This is a test sentence."])
+    inputs = {
+        key: value.to(model.device) if isinstance(value, torch.Tensor) else value for key, value in inputs.items()
+    }
     model(inputs)
 
     # Check that the model was called in the correct mode, and that the outputs contain the expected keys

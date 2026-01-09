@@ -4,7 +4,7 @@ import importlib
 
 import pytest
 
-from sentence_transformers.cross_encoder.evaluation import (
+from sentence_transformers.cross_encoder.evaluation.deprecated import (
     CEBinaryAccuracyEvaluator,
     CEBinaryClassificationEvaluator,
     CECorrelationEvaluator,

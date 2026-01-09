@@ -9,7 +9,7 @@ import pytest
 from torch import Tensor
 
 from sentence_transformers import CrossEncoder
-from sentence_transformers.SentenceTransformer import SentenceTransformer
+from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.util import is_datasets_available, mine_hard_negatives
 
 if is_datasets_available():
@@ -1185,16 +1185,16 @@ def test_mine_hard_negatives_with_prompt(paraphrase_distilroberta_base_v1_model:
     num_negatives = 1
 
     # Set up monkeypatching to verify prompt usage
-    original_tokenize = model.tokenize
-    tokenize_calls = []
+    original_preprocess = model.preprocess
+    preprocess_calls = []
 
-    def mock_tokenize(texts, **kwargs) -> dict[str, Tensor]:
-        tokenize_calls.append(texts)
-        return original_tokenize(texts, **kwargs)
+    def mock_preprocess(texts, **kwargs) -> dict[str, Tensor]:
+        preprocess_calls.append(kwargs)
+        return original_preprocess(texts, **kwargs)
 
     # 2. Run without prompt - check that no prompt is added
-    model.tokenize = mock_tokenize
-    tokenize_calls.clear()
+    model.preprocess = mock_preprocess
+    preprocess_calls.clear()
 
     result_no_prompt = mine_hard_negatives(
         dataset=dataset,
@@ -1208,10 +1208,9 @@ def test_mine_hard_negatives_with_prompt(paraphrase_distilroberta_base_v1_model:
         output_format="triplet",
     )
 
-    # Verify that tokenize was called without prompts for queries and corpus
-    assert any(data["anchor"][0] in str(calls) for calls in tokenize_calls)
-    assert not any(query_prompt + data["anchor"][0] in str(calls) for calls in tokenize_calls)
-    assert not any(query_prompt + data["positive"][0] in str(calls) for calls in tokenize_calls)
+    # Verify that preprocess was called without prompts for queries and corpus
+    for kwargs in preprocess_calls:
+        assert kwargs == {"task": "query", "prompt": ""} or kwargs == {"task": "document", "prompt": ""}
 
     # Assert basic success criteria
     assert isinstance(result_no_prompt, Dataset)
@@ -1219,7 +1218,7 @@ def test_mine_hard_negatives_with_prompt(paraphrase_distilroberta_base_v1_model:
     assert len(result_no_prompt) > 0  # Check that some negatives were found
 
     # 3. Run with prompt - check that prompt is actually added
-    tokenize_calls.clear()
+    preprocess_calls.clear()
 
     result_with_prompt = mine_hard_negatives(
         dataset=dataset,
@@ -1235,16 +1234,16 @@ def test_mine_hard_negatives_with_prompt(paraphrase_distilroberta_base_v1_model:
     )
 
     # Verify that tokenize was called with prompts, and the corpus without prompts
-    assert any(query_prompt + data["anchor"][0] in str(calls) for calls in tokenize_calls)
-    assert not any(query_prompt + data["positive"][0] in str(calls) for calls in tokenize_calls)
+    for kwargs in preprocess_calls:
+        assert kwargs == {"task": "query", "prompt": query_prompt} or kwargs == {"task": "document", "prompt": ""}
 
     # Assert basic success criteria
     assert isinstance(result_with_prompt, Dataset)
     assert "negative" in result_with_prompt.column_names
     assert len(result_with_prompt) > 0
 
-    # Restore original tokenize function
-    model.tokenize = original_tokenize
+    # Restore original preprocess function
+    model.preprocess = original_preprocess
 
 
 @pytest.mark.parametrize("output_format", ["triplet", "labeled-pair", "n-tuple", "n-tuple-scores", "labeled-list"])

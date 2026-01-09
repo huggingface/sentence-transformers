@@ -13,7 +13,7 @@ except ImportError:
 import torch
 from transformers import AutoTokenizer
 
-from sentence_transformers.models.InputModule import InputModule
+from sentence_transformers.base.models.InputModule import InputModule
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizer
@@ -30,7 +30,7 @@ class SparseStaticEmbedding(InputModule):
     into fixed-size embeddings based on the presence of tokens in the input.
 
     A common scenario is to use this module for encoding queries, and using a heavier module like
-    SPLADE (MLMTransformer + SpladePooling) for document encoding.
+    SPLADE (Transformer with "fill-mask" + SpladePooling) for document encoding.
 
     Args:
         tokenizer (PreTrainedTokenizer): PreTrainedTokenizer to tokenize input texts into input IDs.
@@ -113,6 +113,7 @@ class SparseStaticEmbedding(InputModule):
         Returns:
             SparseStaticEmbedding: An initialized SparseStaticEmbedding model.
         """
+        # TODO: Use utils instead of "manually" downloading from hub
         if not os.path.exists(json_path):
             try:
                 from huggingface_hub import hf_hub_download
@@ -220,9 +221,9 @@ class SparseStaticEmbedding(InputModule):
     def get_sentence_embedding_dimension(self) -> int:
         return self.num_dimensions
 
-    def tokenize(
-        self, texts: list[str] | list[dict] | list[tuple[str, str]], padding: str | bool = True
+    def preprocess(
+        self, inputs: list[str] | list[dict] | list[tuple[str, str]], padding: str | bool = True, **kwargs
     ) -> dict[str, torch.Tensor]:
         return dict(
-            self.tokenizer(texts, padding=padding, truncation=True, return_tensors="pt", add_special_tokens=False)
+            self.tokenizer(inputs, padding=padding, truncation=True, return_tensors="pt", add_special_tokens=False)
         )

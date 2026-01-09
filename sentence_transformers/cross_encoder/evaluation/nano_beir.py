@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 from tqdm import tqdm
 
+from sentence_transformers.base.evaluation.SentenceEvaluator import SentenceEvaluator
 from sentence_transformers.cross_encoder.evaluation.reranking import CrossEncoderRerankingEvaluator
-from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
 from sentence_transformers.util import is_datasets_available
 
 if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+    from sentence_transformers.cross_encoder.model import CrossEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
 
         When not specifying the ``dataset_names`` manually, the evaluator will exclude the ``arguana`` and ``touche2020``
         datasets as their Argument Retrieval task differs meaningfully from the other datasets. This differs from
-        :class:`~sentence_transformers.evaluation.NanoBEIREvaluator` and
+        :class:`~sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator` and
         :class:`~sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator`, which include all datasets
         by default.
 

@@ -1,7 +1,7 @@
 # Rerankers
 
 ```{eval-rst}
-Reranker models are often :class:`~sentence_transformers.cross_encoder.CrossEncoder` models with 1 output class, i.e. given a pair of texts (query, answer), the model outputs one score. This score, either a float score that reasonably ranges between -10.0 and 10.0, or a score that's bound to 0...1, denotes to what extent the answer can help answer the query.
+Reranker models are often :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models with 1 output class, i.e. given a pair of texts (query, answer), the model outputs one score. This score, either a float score that reasonably ranges between -10.0 and 10.0, or a score that's bound to 0...1, denotes to what extent the answer can help answer the query.
 
 Many reranker models are trained on MS MARCO:
 
@@ -37,7 +37,7 @@ But most likely, you will get the best results when training on your dataset. Be
 ## BinaryCrossEntropyLoss
 
 ```{eval-rst}
-The :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss` is a very strong yet simple loss. Given pairs of texts (e.g. (query, answer) pairs), this loss uses the :class:`~sentence_transformers.cross_encoder.CrossEncoder` model to compute prediction scores. It compares these against the gold (or silver, a.k.a. determined with some model) labels, and computes a lower loss the better the model is doing.
+The :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss` is a very strong yet simple loss. Given pairs of texts (e.g. (query, answer) pairs), this loss uses the :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` model to compute prediction scores. It compares these against the gold (or silver, a.k.a. determined with some model) labels, and computes a lower loss the better the model is doing.
 ```
 
 ## CachedMultipleNegativesRankingLoss

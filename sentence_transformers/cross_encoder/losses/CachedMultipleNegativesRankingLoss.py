@@ -9,8 +9,8 @@ import tqdm
 from torch import Tensor, nn
 from torch.utils.checkpoint import get_device_states, set_device_states
 
-from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
 from sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss import MultipleNegativesRankingLoss
+from sentence_transformers.cross_encoder.model import CrossEncoder
 
 
 class RandContext:
@@ -99,7 +99,7 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
         This loss is also known as InfoNCE loss with GradCache.
 
         Args:
-            model (:class:`~sentence_transformers.cross_encoder.CrossEncoder`): A CrossEncoder model to be trained.
+            model (:class:`~sentence_transformers.cross_encoder.model.CrossEncoder`): A CrossEncoder model to be trained.
             num_negatives (int, optional): Number of in-batch negatives to sample for each anchor. Defaults to 4.
             scale (int, optional): Output of similarity function is multiplied by scale value. Defaults to 10.0.
             activation_fn (:class:`~torch.nn.Module`): Activation function applied to the logits before computing the loss. Defaults to :class:`~torch.nn.Sigmoid`.
@@ -133,9 +133,9 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
             +-------------------------------------------------+--------+-------------------------------+
 
         Recommendations:
-            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.training_args.BatchSamplers>`) to
+            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
-            - Use :class:`~sentence_transformers.util.mine_hard_negatives` with ``output_format="n-tuple"`` or
+            - Use :class:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` with ``output_format="n-tuple"`` or
               ``output_format="triplet"`` to convert question-answer pairs to triplets with hard negatives.
 
         Relations:

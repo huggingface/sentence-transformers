@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from sentence_transformers.models.Module import Module
+from sentence_transformers.base.models.Module import Module
 
 
 class TiedTranspose(nn.Module):

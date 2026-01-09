@@ -61,15 +61,15 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
 .. tab:: Transformers
 
-    Most Sentence Transformer models use the :class:`~sentence_transformers.models.Transformer` and :class:`~sentence_transformers.models.Pooling` modules. The former loads a pretrained transformer model (e.g. `BERT <https://huggingface.co/google-bert/bert-base-uncased>`_, `RoBERTa <https://huggingface.co/FacebookAI/roberta-base>`_, `DistilBERT <https://huggingface.co/distilbert/distilbert-base-uncased>`_, `ModernBERT <https://huggingface.co/answerdotai/ModernBERT-base>`_, etc.) and the latter pools the output of the transformer to produce a single vector representation for each input sentence.
+    Most Sentence Transformer models use the :class:`~sentence_transformers.sentence_transformer.models.Transformer` and :class:`~sentence_transformers.sentence_transformer.models.Pooling` modules. The former loads a pretrained transformer model (e.g. `BERT <https://huggingface.co/google-bert/bert-base-uncased>`_, `RoBERTa <https://huggingface.co/FacebookAI/roberta-base>`_, `DistilBERT <https://huggingface.co/distilbert/distilbert-base-uncased>`_, `ModernBERT <https://huggingface.co/answerdotai/ModernBERT-base>`_, etc.) and the latter pools the output of the transformer to produce a single vector representation for each input sentence.
 
     .. raw:: html
 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.models.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.models.Transformer</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.models.Pooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.models.Pooling</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/models.html#sentence_transformers.base.models.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.models.Transformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.sentence_transformer.models.Pooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.models.Pooling</span></code></a></li>
             </ul>
         </div>
 
@@ -102,7 +102,7 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
 .. tab:: Static
 
-    Static Embedding models (`blogpost <https://huggingface.co/blog/static-embeddings>`_) use the :class:`~sentence_transformers.models.StaticEmbedding` module, and are encoder models that don't use slow transformers or attention mechanisms. For these models, computing embeddings is simply: given the input token, return the pre-computed token embedding. These models are orders of magnitude faster, but cannot capture complex semantics as token embeddings are computed separate from the context.
+    Static Embedding models (`blogpost <https://huggingface.co/blog/static-embeddings>`_) use the :class:`~sentence_transformers.sentence_transformer.models.StaticEmbedding` module, and are encoder models that don't use slow transformers or attention mechanisms. For these models, computing embeddings is simply: given the input token, return the pre-computed token embedding. These models are orders of magnitude faster, but cannot capture complex semantics as token embeddings are computed separate from the context.
 
     .. raw:: html
 
@@ -110,9 +110,9 @@ But if instead you want to train from another checkpoint, or from scratch, then 
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/blog/static-embeddings">Static Embedding Models</a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.models.StaticEmbedding"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.models.StaticEmbedding</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.models.StaticEmbedding.from_model2vec"><code class="xref py py-meth docutils literal notranslate"><span class="pre">sentence_transformers.models.StaticEmbedding.from_model2vec</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.models.StaticEmbedding.from_distillation"><code class="xref py py-meth docutils literal notranslate"><span class="pre">sentence_transformers.models.StaticEmbedding.from_distillation</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.sentence_transformer.models.StaticEmbedding"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.models.StaticEmbedding</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.sentence_transformer.models.StaticEmbedding.from_model2vec"><code class="xref py py-meth docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.models.StaticEmbedding.from_model2vec</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/models.html#sentence_transformers.sentence_transformer.models.StaticEmbedding.from_distillation"><code class="xref py py-meth docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.models.StaticEmbedding.from_distillation</span></code></a></li>
             </ul>
         </div>
 
@@ -236,7 +236,7 @@ It is important that your dataset format matches your loss function (or that you
 1. If your loss function requires a *Label* according to the `Loss Overview <loss_overview.html>`_ table, then your dataset must have a **column named "label", "labels", "score" or "scores"**. This column is automatically taken as the label.
 2. All columns not named "label", "labels", "score" or "scores" are considered *Inputs* according to the `Loss Overview <loss_overview.html>`_ table. The number of remaining columns must match the number of valid inputs for your chosen loss. The names of these columns are **irrelevant**, only the **order matters**. 
 
-For example, given a dataset with columns ``["text1", "text2", "label"]`` where the "label" column has float similarity score between 0 and 1, we can use it with :class:`~sentence_transformers.losses.CoSENTLoss`, :class:`~sentence_transformers.losses.AnglELoss`, and :class:`~sentence_transformers.losses.CosineSimilarityLoss` because it:
+For example, given a dataset with columns ``["text1", "text2", "label"]`` where the "label" column has float similarity score between 0 and 1, we can use it with :class:`~sentence_transformers.sentence_transformer.losses.CoSENTLoss`, :class:`~sentence_transformers.sentence_transformer.losses.AnglELoss`, and :class:`~sentence_transformers.sentence_transformer.losses.CosineSimilarityLoss` because it:
 
 1. has a "label" column as is required for these loss functions.
 2. has 2 non-label columns, exactly the amount required by these loss functions.
@@ -253,11 +253,11 @@ Loss functions quantify how well a model performs for a given batch of data, all
 Sadly, there is no single loss function that works best for all use-cases. Instead, which loss function to use greatly depends on your available data and on your target task. See [Dataset Format](#dataset-format) to learn what datasets are valid for which loss functions. Additionally, the [Loss Overview](loss_overview) will be your best friend to learn about the options.
 
 ```{eval-rst}
-Most loss functions can be initialized with just the :class:`~sentence_transformers.SentenceTransformer` that you're training, alongside some optional parameters, e.g.:
+Most loss functions can be initialized with just the :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` that you're training, alongside some optional parameters, e.g.:
 
 .. sidebar:: Documentation
 
-    - :class:`sentence_transformers.losses.CoSENTLoss`
+    - :class:`sentence_transformers.sentence_transformer.losses.CoSENTLoss`
     - `Losses API Reference <../package_reference/sentence_transformer/losses.html>`_
     - `Loss Overview <loss_overview.html>`_
 
@@ -265,7 +265,7 @@ Most loss functions can be initialized with just the :class:`~sentence_transform
 
     from datasets import load_dataset
     from sentence_transformers import SentenceTransformer
-    from sentence_transformers.losses import CoSENTLoss
+    from sentence_transformers.sentence_transformer.losses import CoSENTLoss
 
     # Load a model to train/finetune
     model = SentenceTransformer("xlm-roberta-base")
@@ -287,7 +287,7 @@ Most loss functions can be initialized with just the :class:`~sentence_transform
 ## Training Arguments
 
 ```{eval-rst}
-The :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments` class can be used to specify parameters for influencing training performance as well as defining the tracking/debugging parameters. Although it is optional, it is heavily recommended to experiment with the various useful arguments.
+The :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments` class can be used to specify parameters for influencing training performance as well as defining the tracking/debugging parameters. Although it is optional, it is heavily recommended to experiment with the various useful arguments.
 ```
 
 <div class="training-arguments">
@@ -295,7 +295,7 @@ The :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArgu
     <div class="table">
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.learning_rate"><code>learning_rate</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.lr_scheduler_type"><code>lr_scheduler_type</code></a>
-        <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.warmup_ratio"><code>warmup_ratio</code></a>
+        <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.warmup_steps"><code>warmup_steps</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.num_train_epochs"><code>num_train_epochs</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.max_steps"><code>max_steps</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.per_device_train_batch_size"><code>per_device_train_batch_size</code></a>
@@ -309,11 +309,11 @@ The :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArgu
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.gradient_checkpointing"><code>gradient_checkpointing</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.eval_accumulation_steps"><code>eval_accumulation_steps</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.optim"><code>optim</code></a>
-        <a href="../package_reference/sentence_transformer/training_args.html#sentence_transformers.training_args.SentenceTransformerTrainingArguments"><code>batch_sampler</code></a>
-        <a href="../package_reference/sentence_transformer/training_args.html#sentence_transformers.training_args.SentenceTransformerTrainingArguments"><code>multi_dataset_batch_sampler</code></a>
-        <a href="../package_reference/sentence_transformer/training_args.html#sentence_transformers.training_args.SentenceTransformerTrainingArguments"><code>prompts</code></a>
-        <a href="../package_reference/sentence_transformer/training_args.html#sentence_transformers.training_args.SentenceTransformerTrainingArguments"><code>router_mapping</code></a>
-        <a href="../package_reference/sentence_transformer/training_args.html#sentence_transformers.training_args.SentenceTransformerTrainingArguments"><code>learning_rate_mapping</code></a>
+        <a href="../package_reference/sentence_transformer/training_args.html#sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments"><code>batch_sampler</code></a>
+        <a href="../package_reference/sentence_transformer/training_args.html#sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments"><code>multi_dataset_batch_sampler</code></a>
+        <a href="../package_reference/sentence_transformer/training_args.html#sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments"><code>prompts</code></a>
+        <a href="../package_reference/sentence_transformer/training_args.html#sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments"><code>router_mapping</code></a>
+        <a href="../package_reference/sentence_transformer/training_args.html#sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments"><code>learning_rate_mapping</code></a>
     </div>
 </div>
 <br>
@@ -338,7 +338,7 @@ The :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArgu
 <br>
 
 ```{eval-rst}
-Here is an example of how :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments` can be initialized:
+Here is an example of how :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments` can be initialized:
 ```
 
 ```python
@@ -350,7 +350,7 @@ args = SentenceTransformerTrainingArguments(
     per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
     learning_rate=2e-5,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     batch_sampler=BatchSamplers.NO_DUPLICATES,  # losses that use "in-batch negatives" benefit from no duplicates
@@ -368,25 +368,25 @@ args = SentenceTransformerTrainingArguments(
 ## Evaluator
 
 ```{eval-rst}
-You can provide the :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` with an ``eval_dataset`` to get the evaluation loss during training, but it may be useful to get more concrete metrics during training, too. For this, you can use evaluators to assess the model's performance with useful metrics before, during, or after training. You can use both an ``eval_dataset`` and an evaluator, one or the other, or neither. They evaluate based on the ``eval_strategy`` and ``eval_steps`` `Training Arguments <#training-arguments>`_.
+You can provide the :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` with an ``eval_dataset`` to get the evaluation loss during training, but it may be useful to get more concrete metrics during training, too. For this, you can use evaluators to assess the model's performance with useful metrics before, during, or after training. You can use both an ``eval_dataset`` and an evaluator, one or the other, or neither. They evaluate based on the ``eval_strategy`` and ``eval_steps`` `Training Arguments <#training-arguments>`_.
 
 Here are the implemented Evaluators that come with Sentence Transformers:
 
-========================================================================  ===========================================================================================================================
-Evaluator                                                                 Required Data
-========================================================================  ===========================================================================================================================
-:class:`~sentence_transformers.evaluation.BinaryClassificationEvaluator`  Pairs with class labels.
-:class:`~sentence_transformers.evaluation.EmbeddingSimilarityEvaluator`   Pairs with similarity scores.
-:class:`~sentence_transformers.evaluation.InformationRetrievalEvaluator`  Queries (qid => question), Corpus (cid => document), and relevant documents (qid => set[cid]).
-:class:`~sentence_transformers.evaluation.NanoBEIREvaluator`              No data required.
-:class:`~sentence_transformers.evaluation.MSEEvaluator`                   Source sentences to embed with a teacher model and target sentences to embed with the student model. Can be the same texts.
-:class:`~sentence_transformers.evaluation.ParaphraseMiningEvaluator`      Mapping of IDs to sentences & pairs with IDs of duplicate sentences.
-:class:`~sentence_transformers.evaluation.RerankingEvaluator`             List of ``{'query': '...', 'positive': [...], 'negative': [...]}`` dictionaries.
-:class:`~sentence_transformers.evaluation.TranslationEvaluator`           Pairs of sentences in two separate languages.
-:class:`~sentence_transformers.evaluation.TripletEvaluator`               (anchor, positive, negative) pairs.
-========================================================================  ===========================================================================================================================
+=============================================================================================  ===========================================================================================================================
+Evaluator                                                                                      Required Data
+=============================================================================================  ===========================================================================================================================
+:class:`~sentence_transformers.sentence_transformer.evaluation.BinaryClassificationEvaluator`  Pairs with class labels.
+:class:`~sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator`   Pairs with similarity scores.
+:class:`~sentence_transformers.sentence_transformer.evaluation.InformationRetrievalEvaluator`  Queries (qid => question), Corpus (cid => document), and relevant documents (qid => set[cid]).
+:class:`~sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator`              No data required.
+:class:`~sentence_transformers.sentence_transformer.evaluation.MSEEvaluator`                   Source sentences to embed with a teacher model and target sentences to embed with the student model. Can be the same texts.
+:class:`~sentence_transformers.sentence_transformer.evaluation.ParaphraseMiningEvaluator`      Mapping of IDs to sentences & pairs with IDs of duplicate sentences.
+:class:`~sentence_transformers.sentence_transformer.evaluation.RerankingEvaluator`             List of ``{'query': '...', 'positive': [...], 'negative': [...]}`` dictionaries.
+:class:`~sentence_transformers.sentence_transformer.evaluation.TranslationEvaluator`           Pairs of sentences in two separate languages.
+:class:`~sentence_transformers.sentence_transformer.evaluation.TripletEvaluator`               (anchor, positive, negative) pairs.
+=============================================================================================  ===========================================================================================================================
 
-Additionally, :class:`~sentence_transformers.evaluation.SequentialEvaluator` should be used to combine multiple evaluators into one Evaluator that can be passed to the :class:`~sentence_transformers.trainer.SentenceTransformerTrainer`.
+Additionally, :class:`~sentence_transformers.sentence_transformer.evaluation.SequentialEvaluator` should be used to combine multiple evaluators into one Evaluator that can be passed to the :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer`.
 
 Sometimes you don't have the required evaluation data to prepare one of these evaluators on your own, but you still want to track how well the model performs on some common benchmarks. In that case, you can use these evaluators with data from Hugging Face.
 
@@ -398,15 +398,15 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/stsb">sentence-transformers/stsb</a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.evaluation.EmbeddingSimilarityEvaluator" title="sentence_transformers.evaluation.EmbeddingSimilarityEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.evaluation.EmbeddingSimilarityEvaluator</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SimilarityFunction" title="sentence_transformers.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.SimilarityFunction</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator" title="sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/util/similarity.html#sentence_transformers.util.similarity.SimilarityFunction" title="sentence_transformers.util.similarity.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.util.similarity.SimilarityFunction</span></code></a></li>
             </ul>
         </div>
 
     ::
 
         from datasets import load_dataset
-        from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
+        from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
 
         # Load the STSB dataset (https://huggingface.co/datasets/sentence-transformers/stsb)
         eval_dataset = load_dataset("sentence-transformers/stsb", split="validation")
@@ -430,15 +430,15 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/all-nli">sentence-transformers/all-nli</a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.evaluation.TripletEvaluator" title="sentence_transformers.evaluation.TripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.evaluation.TripletEvaluator</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SimilarityFunction" title="sentence_transformers.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.SimilarityFunction</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.sentence_transformer.evaluation.TripletEvaluator" title="sentence_transformers.sentence_transformer.evaluation.TripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.evaluation.TripletEvaluator</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/util/similarity.html#sentence_transformers.util.similarity.SimilarityFunction" title="sentence_transformers.util.similarity.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.util.similarity.SimilarityFunction</span></code></a></li>
             </ul>
         </div>
 
     ::
 
         from datasets import load_dataset
-        from sentence_transformers.evaluation import TripletEvaluator, SimilarityFunction
+        from sentence_transformers.sentence_transformer.evaluation import TripletEvaluator, SimilarityFunction
 
         # Load triplets from the AllNLI dataset (https://huggingface.co/datasets/sentence-transformers/all-nli)
         max_samples = 1000
@@ -462,13 +462,13 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.evaluation.NanoBEIREvaluator" title="sentence_transformers.evaluation.NanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.evaluation.NanoBEIREvaluator</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator" title="sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator</span></code></a></li>
             </ul>
         </div>
 
     ::
 
-        from sentence_transformers.evaluation import NanoBEIREvaluator
+        from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
 
         # Initialize the evaluator. Unlike most other evaluators, this one loads the relevant datasets
         # directly from Hugging Face, so there's no mandatory arguments
@@ -490,19 +490,19 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
 ## Trainer
 
 ```{eval-rst}
-The :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` is where all previous components come together. We only have to specify the trainer with the model, training arguments (optional), training dataset, evaluation dataset (optional), loss function, evaluator (optional) and we can start training. Let's have a look at a script where all of these components come together:
+The :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` is where all previous components come together. We only have to specify the trainer with the model, training arguments (optional), training dataset, evaluation dataset (optional), loss function, evaluator (optional) and we can start training. Let's have a look at a script where all of these components come together:
 
 .. sidebar:: Documentation
 
-    #. :class:`~sentence_transformers.SentenceTransformer`
-    #. :class:`~sentence_transformers.model_card.SentenceTransformerModelCardData`
+    #. :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`
+    #. :class:`~sentence_transformers.sentence_transformer.model_card.SentenceTransformerModelCardData`
     #. :func:`~datasets.load_dataset`
-    #. :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`
-    #. :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`
-    #. :class:`~sentence_transformers.evaluation.TripletEvaluator`
-    #. :class:`~sentence_transformers.trainer.SentenceTransformerTrainer`
-    #. :class:`SentenceTransformer.save_pretrained <sentence_transformers.SentenceTransformer.save_pretrained>`
-    #. :class:`SentenceTransformer.push_to_hub <sentence_transformers.SentenceTransformer.push_to_hub>`
+    #. :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`
+    #. :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`
+    #. :class:`~sentence_transformers.sentence_transformer.evaluation.TripletEvaluator`
+    #. :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer`
+    #. :class:`SentenceTransformer.save_pretrained <sentence_transformers.sentence_transformer.model.SentenceTransformer.save_pretrained>`
+    #. :class:`SentenceTransformer.push_to_hub <sentence_transformers.sentence_transformer.model.SentenceTransformer.push_to_hub>`
 
     - `Training Examples <training/examples.html>`_
 
@@ -515,9 +515,9 @@ The :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` is where 
         SentenceTransformerTrainingArguments,
         SentenceTransformerModelCardData,
     )
-    from sentence_transformers.losses import MultipleNegativesRankingLoss
-    from sentence_transformers.training_args import BatchSamplers
-    from sentence_transformers.evaluation import TripletEvaluator
+    from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
+    from sentence_transformers.sentence_transformer.training_args import BatchSamplers
+    from sentence_transformers.sentence_transformer.evaluation import TripletEvaluator
 
     # 1. Load a model to finetune with 2. (Optional) model card data
     model = SentenceTransformer(
@@ -547,7 +547,7 @@ The :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` is where 
         per_device_train_batch_size=16,
         per_device_eval_batch_size=16,
         learning_rate=2e-5,
-        warmup_ratio=0.1,
+        warmup_steps=0.1,
         fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=False,  # Set to True if you have a GPU that supports BF16
         batch_sampler=BatchSamplers.NO_DUPLICATES,  # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch
@@ -616,28 +616,28 @@ documentation for more information on the integrated callbacks and how to write 
 ## Multi-Dataset Training
 
 ```{eval-rst}
-The top performing models are trained using many datasets at once. Normally, this is rather tricky, as each dataset has a different format. However, :class:`sentence_transformers.trainer.SentenceTransformerTrainer` can train with multiple datasets without having to convert each dataset to the same format. It can even apply different loss functions to each of the datasets. The steps to train with multiple datasets are:
+The top performing models are trained using many datasets at once. Normally, this is rather tricky, as each dataset has a different format. However, :class:`sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` can train with multiple datasets without having to convert each dataset to the same format. It can even apply different loss functions to each of the datasets. The steps to train with multiple datasets are:
 
 - Use a dictionary of :class:`~datasets.Dataset` instances (or a :class:`~datasets.DatasetDict`) as the ``train_dataset``  (and optionally also ``eval_dataset``).
 - (Optional) Use a dictionary of loss functions mapping dataset names to losses. Only required if you wish to use different loss function for different datasets.
 
-Each training/evaluation batch will only contain samples from one of the datasets. The order in which batches are samples from the multiple datasets is defined by the :class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers` enum, which can be passed to the :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments` via ``multi_dataset_batch_sampler``. Valid options are:
+Each training/evaluation batch will only contain samples from one of the datasets. The order in which batches are samples from the multiple datasets is defined by the :class:`~sentence_transformers.sentence_transformer.training_args.MultiDatasetBatchSamplers` enum, which can be passed to the :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments` via ``multi_dataset_batch_sampler``. Valid options are:
 
 - ``MultiDatasetBatchSamplers.ROUND_ROBIN``: Round-robin sampling from each dataset until one is exhausted. With this strategy, it’s likely that not all samples from each dataset are used, but each dataset is sampled from equally.
 - ``MultiDatasetBatchSamplers.PROPORTIONAL`` (default): Sample from each dataset in proportion to its size. With this strategy, all samples from each dataset are used and larger datasets are sampled from more frequently.
 
-This multi-task training has been shown to be very effective, e.g. `Huang et al. <https://huggingface.co/papers/2405.06932>`_ employed :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, :class:`~sentence_transformers.losses.CoSENTLoss`, and a variation on :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` without in-batch negatives and only hard negatives to reach state-of-the-art performance on Chinese. They even applied :class:`~sentence_transformers.losses.MatryoshkaLoss` to allow the model to produce `Matryoshka Embeddings <../../examples/sentence_transformer/training/matryoshka/README.html>`_.
+This multi-task training has been shown to be very effective, e.g. `Huang et al. <https://huggingface.co/papers/2405.06932>`_ employed :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, :class:`~sentence_transformers.sentence_transformer.losses.CoSENTLoss`, and a variation on :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` without in-batch negatives and only hard negatives to reach state-of-the-art performance on Chinese. They even applied :class:`~sentence_transformers.sentence_transformer.losses.MatryoshkaLoss` to allow the model to produce `Matryoshka Embeddings <../../examples/sentence_transformer/training/matryoshka/README.html>`_.
 
 Training on multiple datasets looks like this:
 
 .. sidebar:: Documentation
 
     - :func:`datasets.load_dataset`
-    - :class:`~sentence_transformers.SentenceTransformer`
-    - :class:`~sentence_transformers.trainer.SentenceTransformerTrainer`
-    - :class:`~sentence_transformers.losses.CoSENTLoss`
-    - :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`
-    - :class:`~sentence_transformers.losses.SoftmaxLoss`
+    - :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`
+    - :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer`
+    - :class:`~sentence_transformers.sentence_transformer.losses.CoSENTLoss`
+    - :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`
+    - :class:`~sentence_transformers.sentence_transformer.losses.SoftmaxLoss`
     - `sentence-transformers/all-nli <https://huggingface.co/datasets/sentence-transformers/all-nli>`_
     - `sentence-transformers/stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_
     - `sentence-transformers/quora-duplicates <https://huggingface.co/datasets/sentence-transformers/quora-duplicates>`_
@@ -652,7 +652,7 @@ Training on multiple datasets looks like this:
 
     from datasets import load_dataset
     from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
-    from sentence_transformers.losses import CoSENTLoss, MultipleNegativesRankingLoss, SoftmaxLoss
+    from sentence_transformers.sentence_transformer.losses import CoSENTLoss, MultipleNegativesRankingLoss, SoftmaxLoss
 
     # 1. Load a model to finetune
     model = SentenceTransformer("bert-base-uncased")
@@ -740,7 +740,7 @@ Training on multiple datasets looks like this:
 ## Deprecated Training
 
 ```{eval-rst}
-Prior to the Sentence Transformers v3.0 release, models would be trained with the :meth:`SentenceTransformer.fit() <sentence_transformers.SentenceTransformer.fit>` method and a :class:`~torch.utils.data.DataLoader` of :class:`~sentence_transformers.readers.InputExample`, which looked something like this::
+Prior to the Sentence Transformers v3.0 release, models would be trained with the :meth:`SentenceTransformer.fit() <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>` method and a :class:`~torch.utils.data.DataLoader` of :class:`~sentence_transformers.sentence_transformer.readers.InputExample`, which looked something like this::
 
     from sentence_transformers import SentenceTransformer, InputExample, losses
     from torch.utils.data import DataLoader
@@ -761,9 +761,9 @@ Prior to the Sentence Transformers v3.0 release, models would be trained with th
     # Tune the model
     model.fit(train_objectives=[(train_dataloader, train_loss)], epochs=1, warmup_steps=100)
 
-Since the v3.0 release, using :meth:`SentenceTransformer.fit() <sentence_transformers.SentenceTransformer.fit>` is still possible, but it will initialize a :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` behind the scenes. It is recommended to use the Trainer directly, as you will have more control via the :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`, but existing training scripts relying on :meth:`SentenceTransformer.fit() <sentence_transformers.SentenceTransformer.fit>` should still work.
+Since the v3.0 release, using :meth:`SentenceTransformer.fit() <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>` is still possible, but it will initialize a :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` behind the scenes. It is recommended to use the Trainer directly, as you will have more control via the :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`, but existing training scripts relying on :meth:`SentenceTransformer.fit() <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>` should still work.
 
-In case there are issues with the updated :meth:`SentenceTransformer.fit() <sentence_transformers.SentenceTransformer.fit>`, you can also get exactly the old behaviour by calling :meth:`SentenceTransformer.old_fit() <sentence_transformers.SentenceTransformer.old_fit>` instead, but this method is planned to be deprecated fully in the future.
+In case there are issues with the updated :meth:`SentenceTransformer.fit() <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>`, you can also get exactly the old behaviour by calling :meth:`SentenceTransformer.old_fit() <sentence_transformers.sentence_transformer.model.SentenceTransformer.old_fit>` instead, but this method is planned to be deprecated fully in the future.
 
 ```
 
@@ -794,10 +794,10 @@ In the following table you find the performance for different models and their p
 ## Comparisons with CrossEncoder Training
 
 ```{eval-rst}
-Training :class:`~sentence_transformers.SentenceTransformer` models is very similar as training :class:`~sentence_transformers.cross_encoder.CrossEncoder` models, with some key differences:
+Training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models is very similar as training :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models, with some key differences:
 
-- For :class:`~sentence_transformers.cross_encoder.CrossEncoder` training, you can use (variably sized) lists of texts in a column. In :class:`~sentence_transformers.SentenceTransformer` training, you **cannot** use lists of inputs (e.g. texts) in a column of the training/evaluation dataset(s). In short: training with a variable number of negatives is not supported.
+- For :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` training, you can use (variably sized) lists of texts in a column. In :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` training, you **cannot** use lists of inputs (e.g. texts) in a column of the training/evaluation dataset(s). In short: training with a variable number of negatives is not supported.
 
-See the `Cross Encoder > Training Overview <../cross_encoder/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.cross_encoder.CrossEncoder` models.
+See the `Cross Encoder > Training Overview <../cross_encoder/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models.
 
 ```

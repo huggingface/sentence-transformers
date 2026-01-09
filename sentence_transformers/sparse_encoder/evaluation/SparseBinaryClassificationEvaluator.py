@@ -5,14 +5,14 @@ import os
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Literal
 
-from sentence_transformers.evaluation import BinaryClassificationEvaluator
+from sentence_transformers.sentence_transformer.evaluation import BinaryClassificationEvaluator
 from sentence_transformers.util import append_to_last_row
 
 if TYPE_CHECKING:
     import numpy as np
     from torch import Tensor
 
-    from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+    from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class SparseBinaryClassificationEvaluator(BinaryClassificationEvaluator):
     """
-    This evaluator extends :class:`~sentence_transformers.evaluation.BinaryClassificationEvaluator` but is specifically designed for sparse encoder models.
+    This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.BinaryClassificationEvaluator` but is specifically designed for sparse encoder models.
 
     Evaluate a model based on the similarity of the embeddings by calculating the accuracy of identifying similar and
     dissimilar sentences.
