@@ -6,7 +6,11 @@ import pytest
 import torch
 from torch.utils.data import ConcatDataset
 
-from sentence_transformers.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler
+from sentence_transformers.sampler import (
+    NoDuplicatesBatchSampler,
+    NoDuplicatesFastBatchSampler,
+    ProportionalBatchSampler,
+)
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -50,10 +54,11 @@ def dummy_duplicates_dataset() -> Dataset:
     return Dataset.from_list(values)
 
 
-def test_group_by_label_batch_sampler_label_a(dummy_dataset: Dataset) -> None:
+@pytest.mark.parametrize("sampler_cls", [NoDuplicatesBatchSampler, NoDuplicatesFastBatchSampler])
+def test_group_by_label_batch_sampler_label_a(dummy_dataset: Dataset, sampler_cls) -> None:
     batch_size = 10
 
-    sampler = NoDuplicatesBatchSampler(
+    sampler = sampler_cls(
         dataset=dummy_dataset, batch_size=batch_size, drop_last=True, valid_label_columns=["label"]
     )
 
@@ -68,13 +73,14 @@ def test_group_by_label_batch_sampler_label_a(dummy_dataset: Dataset) -> None:
         assert len(batch_values) == len(set(batch_values)), f"Batch {batch} contains duplicate values: {batch_values}"
 
 
+@pytest.mark.parametrize("sampler_cls", [NoDuplicatesBatchSampler, NoDuplicatesFastBatchSampler])
 @pytest.mark.parametrize("drop_last", [True, False])
-def test_proportional_no_duplicates(dummy_duplicates_dataset: Dataset, drop_last: bool) -> None:
+def test_proportional_no_duplicates(dummy_duplicates_dataset: Dataset, drop_last: bool, sampler_cls) -> None:
     batch_size = 2
-    sampler_1 = NoDuplicatesBatchSampler(
+    sampler_1 = sampler_cls(
         dataset=dummy_duplicates_dataset, batch_size=batch_size, drop_last=drop_last, valid_label_columns=["anchor"]
     )
-    sampler_2 = NoDuplicatesBatchSampler(
+    sampler_2 = sampler_cls(
         dataset=dummy_duplicates_dataset, batch_size=batch_size, drop_last=drop_last, valid_label_columns=["positive"]
     )
 
