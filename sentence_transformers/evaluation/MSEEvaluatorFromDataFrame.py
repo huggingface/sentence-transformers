@@ -48,6 +48,7 @@ class MSEEvaluatorFromDataFrame(SentenceEvaluator):
         name: str = "",
         write_csv: bool = True,
         truncate_dim: int | None = None,
+        encode_args: dict = {},
     ):
         super().__init__()
         self.combinations = combinations
@@ -81,11 +82,16 @@ class MSEEvaluatorFromDataFrame(SentenceEvaluator):
 
         all_source_sentences = list(all_source_sentences)
 
-        all_src_embeddings = self.embed_inputs(teacher_model, all_source_sentences)
+        all_src_embeddings = self.embed_inputs(teacher_model, all_source_sentences, **encode_args)
         self.teacher_embeddings = {sent: emb for sent, emb in zip(all_source_sentences, all_src_embeddings)}
 
     def __call__(
-        self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
+        self,
+        model: SentenceTransformer,
+        output_path: str | None = None,
+        epoch: int = -1,
+        steps: int = -1,
+        encode_args: dict = {},
     ) -> dict[str, float]:
         model.eval()
 
@@ -94,7 +100,7 @@ class MSEEvaluatorFromDataFrame(SentenceEvaluator):
             src_sentences, trg_sentences = self.data[(src_lang, trg_lang)]
 
             src_embeddings = np.asarray([self.teacher_embeddings[sent] for sent in src_sentences])
-            trg_embeddings = np.asarray(self.embed_inputs(model, trg_sentences))
+            trg_embeddings = np.asarray(self.embed_inputs(model, trg_sentences, **encode_args))
 
             mse = ((src_embeddings - trg_embeddings) ** 2).mean()
             mse *= 100
