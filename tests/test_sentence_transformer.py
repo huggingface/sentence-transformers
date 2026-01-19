@@ -5,6 +5,7 @@ Tests general behaviour of the SentenceTransformer class
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import logging
 import os
@@ -112,6 +113,11 @@ def test_torch_dtype(torch_dtype) -> None:
 
 
 def test_push_to_hub(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    def build_commit_info(**kwargs):
+        if "_endpoint" in inspect.signature(CommitInfo).parameters:
+            return CommitInfo("https://huggingface.co", **kwargs)
+        return CommitInfo(**kwargs)
+
     def mock_create_repo(self, repo_id, **kwargs):
         return RepoUrl(f"https://huggingface.co/{repo_id}")
 
@@ -121,14 +127,14 @@ def test_push_to_hub(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureF
         nonlocal mock_upload_folder_kwargs
         mock_upload_folder_kwargs = kwargs
         if kwargs.get("revision") is None:
-            return CommitInfo(
+            return build_commit_info(
                 commit_url=f"https://huggingface.co/{kwargs.get('repo_id')}/commit/123456",
                 commit_message="commit_message",
                 commit_description="commit_description",
                 oid="oid",
             )
         else:
-            return CommitInfo(
+            return build_commit_info(
                 commit_url=f"https://huggingface.co/{kwargs.get('repo_id')}/commit/678901",
                 commit_message="commit_message",
                 commit_description="commit_description",

@@ -57,6 +57,14 @@ except ImportError:
     TrackioCallback = None
 
 
+class _LossCacheResetCallback(TrainerCallback):
+    def __init__(self, trainer: SentenceTransformerTrainer) -> None:
+        self.trainer = trainer
+
+    def on_step_end(self, args, state, control, **kwargs):
+        self.trainer._loss_on_optimizer_step()
+
+
 class SentenceTransformerTrainer(Trainer):
     """
     SentenceTransformerTrainer is a simple but feature-complete training and eval loop for PyTorch
@@ -312,6 +320,8 @@ class SentenceTransformerTrainer(Trainer):
         else:
             self.loss = self.prepare_loss(loss, model)
 
+        self.add_callback(_LossCacheResetCallback(self))
+
         # If evaluator is a list, we wrap it in a SequentialEvaluator
         if evaluator is not None and not isinstance(evaluator, SentenceEvaluator):
             evaluator = SequentialEvaluator(evaluator)
@@ -442,6 +452,12 @@ class SentenceTransformerTrainer(Trainer):
             # `prediction_loss_only=True` which means that the output is not used.
             return loss, {}
         return loss
+
+    def _loss_on_optimizer_step(self) -> None:
+        losses = self.loss.values() if isinstance(self.loss, dict) else [self.loss]
+        for loss_fn in losses:
+            if hasattr(loss_fn, "on_optimizer_step"):
+                loss_fn.on_optimizer_step()
 
     def track_loss_components(self, loss: dict[str, torch.Tensor]) -> None:
         training_type = "train" if self.model.training else "eval"

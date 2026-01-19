@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import re
@@ -267,6 +268,11 @@ def test_push_to_hub(
 ) -> None:
     model = reranker_bert_tiny_model
 
+    def build_commit_info(**kwargs):
+        if "_endpoint" in inspect.signature(CommitInfo).parameters:
+            return CommitInfo("https://huggingface.co", **kwargs)
+        return CommitInfo(**kwargs)
+
     def mock_create_repo(self, repo_id, **kwargs):
         return RepoUrl(f"https://huggingface.co/{repo_id}")
 
@@ -279,7 +285,7 @@ def test_push_to_hub(
             revision = "123456"
         else:
             revision = "678901"
-        return CommitInfo(
+        return build_commit_info(
             commit_url=f"https://huggingface.co/{kwargs.get('repo_id')}/commit/{revision}",
             commit_message="commit_message",
             commit_description="commit_description",
