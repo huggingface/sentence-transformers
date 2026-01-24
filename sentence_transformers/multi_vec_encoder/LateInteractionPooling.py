@@ -149,7 +149,7 @@ class LateInteractionPooling(Module):
         revision: str | None = None,
         local_files_only: bool = False,
         **kwargs,
-    ) -> "LateInteractionPooling":
+    ) -> LateInteractionPooling:
         """Load the LateInteractionPooling module from a checkpoint."""
         config = cls.load_config(
             model_name_or_path,

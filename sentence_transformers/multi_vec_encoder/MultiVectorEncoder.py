@@ -9,10 +9,9 @@ import torch
 from torch import Tensor, nn
 
 from sentence_transformers.models import Transformer
-from sentence_transformers.SentenceTransformer import SentenceTransformer
-
 from sentence_transformers.multi_vec_encoder import LateInteractionPooling
 from sentence_transformers.multi_vec_encoder.similarity import maxsim, maxsim_pairwise
+from sentence_transformers.SentenceTransformer import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 

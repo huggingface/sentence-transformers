@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 from torch import Tensor
 
@@ -84,10 +86,10 @@ def maxsim_pairwise(
     batch_size, num_query_tokens, dim = query_embeddings.shape
     batch_d, num_doc_tokens, _ = document_embeddings.shape
 
-    assert batch_size == batch_d , (
-            f"Batch sizes must match for pairwise computation. "
-            f"Got query batch size {batch_size} and document batch size {batch_d}. "
-            f"Fallback to maxsim() for computing all query-document pairs."
+    assert batch_size == batch_d, (
+        f"Batch sizes must match for pairwise computation. "
+        f"Got query batch size {batch_size} and document batch size {batch_d}. "
+        f"Fallback to maxsim() for computing all query-document pairs."
     )
 
     # Compute token-level similarity for each pair: [batch, num_query_tokens, num_doc_tokens]

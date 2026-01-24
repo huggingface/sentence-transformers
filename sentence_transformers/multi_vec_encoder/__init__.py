@@ -5,7 +5,6 @@ from __future__ import annotations
 from sentence_transformers.multi_vec_encoder.LateInteractionPooling import LateInteractionPooling
 from sentence_transformers.multi_vec_encoder.MultiVectorEncoder import MultiVectorEncoder
 
-
 __all__ = [
     "MultiVectorEncoder",
     "LateInteractionPooling",
