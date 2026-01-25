@@ -54,11 +54,11 @@ class TestLateInteractionPooling:
     @pytest.mark.parametrize(
         ("skip_cls", "skip_sep", "attention_mask", "expected_mask"),
         [
-            (True, False, [[1, 1, 1, 0]], [[0, 1, 1, 0]]),
-            (False, True, [[1, 1, 1, 0]], [[1, 1, 0, 0]]),
-            (True, True, [[1, 1, 1, 0]], [[0, 0, 1, 0]]),
-            (False, False, [[1, 1, 1, 0]], [[1, 1, 1, 0]]),
-            (True, True, [[1, 1, 1, 1]], [[0, 1, 0, 1]]),
+            (True, False, [[1, 1, 1, 0]], [[0, 1, 1, 0]]),  # CLS at 0 masked
+            (False, True, [[1, 1, 1, 0]], [[1, 1, 0, 0]]),  # SEP at 2 masked (last non-padding)
+            (True, True, [[1, 1, 1, 0]], [[0, 1, 0, 0]]),  # CLS at 0, SEP at 2 masked
+            (False, False, [[1, 1, 1, 0]], [[1, 1, 1, 0]]),  # No masking
+            (True, True, [[1, 1, 1, 1]], [[0, 1, 1, 0]]),  # CLS at 0, SEP at 3 masked
         ],
     )
     def test_skip_tokens(self, skip_cls: bool, skip_sep: bool, attention_mask: list, expected_mask: list) -> None:

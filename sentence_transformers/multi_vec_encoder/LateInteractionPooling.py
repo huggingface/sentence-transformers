@@ -17,11 +17,16 @@ class LateInteractionPooling(Module):
     Unlike standard Pooling which collapses token embeddings into a single sentence embedding,
     LateInteractionPooling keeps all token embeddings but optionally:
     - Projects them to a lower dimension (e.g., 768 → 128)
-    - Masks out special tokens ([CLS], [SEP], [PAD])
+    - Masks out special tokens ([CLS], [SEP])
     - Applies L2 normalization per token
 
     This is used for multi-vector encoder models where the similarity between
     a query and document is computed via MaxSim over token embeddings.
+
+    Note:
+        The special token masking (skip_cls_token, skip_sep_token) assumes BERT-style tokenization
+        with right-padding, where [CLS] is at position 0 and [SEP] is the last non-padding token.
+        This covers most encoder models (BERT, RoBERTa, DistilBERT, etc.).
 
     Args:
         word_embedding_dimension: Dimension of the input word embeddings (e.g., 768 for BERT-based models).
@@ -29,7 +34,9 @@ class LateInteractionPooling(Module):
             Common values are 128 or the original embedding dimension.
         normalize: Whether to L2-normalize each token embedding. Default: True.
         skip_cls_token: Whether to exclude the [CLS] token from the output. Default: False.
+            Assumes [CLS] is at position 0.
         skip_sep_token: Whether to exclude the [SEP] token from the output. Default: False.
+            Assumes [SEP] is the last non-padding token (right-padding).
     """
 
     config_keys = [
@@ -91,6 +98,8 @@ class LateInteractionPooling(Module):
 
         # Modify attention mask to skip special tokens if configured
         if self.skip_cls_token or self.skip_sep_token:
+            # Compute seq_lengths from original mask BEFORE any modifications
+            seq_lengths = attention_mask.sum(dim=1)  # [batch]
             attention_mask = attention_mask.clone()
 
             if self.skip_cls_token:
@@ -99,15 +108,11 @@ class LateInteractionPooling(Module):
 
             if self.skip_sep_token:
                 # Mask out the last non-padding token (SEP) for each sequence
-                # Find the position of the last 1 in attention_mask for each sequence
-                batch_size, seq_len = attention_mask.shape
-                # Get the sum of attention mask to find sequence lengths
-                seq_lengths = attention_mask.sum(dim=1)  # [batch]
-                # The SEP token is at position seq_length - 1 for each sequence
-                for i in range(batch_size):
-                    if seq_lengths[i] > 0:
-                        sep_pos = int(seq_lengths[i].item()) - 1
-                        attention_mask[i, sep_pos] = 0
+                # SEP is at position (seq_length - 1) for right-padded sequences
+                batch_size = attention_mask.shape[0]
+                batch_indices = torch.arange(batch_size, device=attention_mask.device)
+                sep_positions = (seq_lengths - 1).clamp(min=0)
+                attention_mask[batch_indices, sep_positions] = 0
 
         # Apply L2 normalization per token if configured
         if self.normalize:
