@@ -92,13 +92,12 @@ class LateInteractionPooling(Module):
             torch.ones(token_embeddings.shape[:-1], device=token_embeddings.device, dtype=torch.long),
         )
 
-        # Apply linear projection if configured
+        # Linear projection
         if self.linear is not None:
             token_embeddings = self.linear(token_embeddings)
 
-        # Modify attention mask to skip special tokens if configured
+        # Skip special tokens if configured
         if self.skip_cls_token or self.skip_sep_token:
-            # Compute seq_lengths from original mask BEFORE any modifications
             seq_lengths = attention_mask.sum(dim=1)  # [batch]
             attention_mask = attention_mask.clone()
 
@@ -107,8 +106,7 @@ class LateInteractionPooling(Module):
                 attention_mask[:, 0] = 0
 
             if self.skip_sep_token:
-                # Mask out the last non-padding token (SEP) for each sequence
-                # SEP is at position (seq_length - 1) for right-padded sequences
+                # Mask out the last non-padding token (SEP) for each sequence at position (seq_length - 1)
                 batch_size = attention_mask.shape[0]
                 batch_indices = torch.arange(batch_size, device=attention_mask.device)
                 sep_positions = (seq_lengths - 1).clamp(min=0)
@@ -179,7 +177,7 @@ class LateInteractionPooling(Module):
                     model=model,
                 )
             except ValueError:
-                # No weights file found, which is fine if the model was just created
+                # No weights file found
                 pass
 
         return model
