@@ -33,12 +33,13 @@ classifiers = [
 ]
 dependencies = [
     "transformers>=4.41.0,<6.0.0",
-    "tqdm",
+    "huggingface-hub>=0.20.0",
     "torch>=1.11.0",
+    "numpy",
     "scikit-learn",
     "scipy",
-    "huggingface-hub>=0.20.0",
     "typing_extensions>=4.5.0",
+    "tqdm",
 ]
 
 [project.urls]
