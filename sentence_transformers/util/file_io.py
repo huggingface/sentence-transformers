@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
-import requests
 from huggingface_hub import hf_hub_download, snapshot_download
 from tqdm.autonotebook import tqdm
 
@@ -166,29 +164,25 @@ def http_get(url: str, path: str) -> None:
         path (str): The path to save the downloaded file.
 
     Raises:
-        requests.HTTPError: If the HTTP request returns a non-200 status code.
+        httpx.HTTPStatusError: If the HTTP request returns a non-200 status code.
 
     Returns:
         None
     """
+    try:
+        import httpx
+    except ImportError:
+        raise ImportError("httpx is required to use this function. Please install it via `pip install httpx`.")
+
     if os.path.dirname(path) != "":
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    req = requests.get(url, stream=True)
-    if req.status_code != 200:
-        print(f"Exception when trying to download {url}. Response {req.status_code}", file=sys.stderr)
-        req.raise_for_status()
-        return
-
     download_filepath = path + "_part"
-    with open(download_filepath, "wb") as file_binary:
-        content_length = req.headers.get("Content-Length")
-        total = int(content_length) if content_length is not None else None
-        progress = tqdm(unit="B", total=total, unit_scale=True)
-        for chunk in req.iter_content(chunk_size=1024):
-            if chunk:  # filter out keep-alive new chunks
-                progress.update(len(chunk))
-                file_binary.write(chunk)
+    with httpx.get(url, follow_redirects=True) as response:
+        if response.status_code != 200:
+            response.raise_for_status()
 
-    os.rename(download_filepath, path)
-    progress.close()
+        with open(download_filepath, "wb") as file_binary:
+            file_binary.write(response.content)
+
+    os.replace(download_filepath, path)
