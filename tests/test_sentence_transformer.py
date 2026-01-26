@@ -126,6 +126,7 @@ def test_push_to_hub(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureF
                 commit_message="commit_message",
                 commit_description="commit_description",
                 oid="oid",
+                _endpoint=None,
             )
         else:
             return CommitInfo(
@@ -133,6 +134,7 @@ def test_push_to_hub(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureF
                 commit_message="commit_message",
                 commit_description="commit_description",
                 oid="oid",
+                _endpoint=None,
             )
 
     def mock_create_branch(self, repo_id, branch, revision=None, **kwargs):

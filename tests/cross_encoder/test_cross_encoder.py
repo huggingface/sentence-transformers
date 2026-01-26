@@ -284,6 +284,7 @@ def test_push_to_hub(
             commit_message="commit_message",
             commit_description="commit_description",
             oid="oid",
+            _endpoint=None,
             pr_url=f"https://huggingface.co/{kwargs.get('repo_id')}/discussions/123",
         )
 
