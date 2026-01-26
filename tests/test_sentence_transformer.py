@@ -473,10 +473,6 @@ def test_prompt_length_calculation(
     assert model._prompt_length_mapping == {("Prompt: ", "query"): only_prompt_length}
 
 
-@pytest.mark.skipif(
-    parse(transformers_version) == Version("5.0.0rc01"),
-    reason="Transformers 5.0.0rc01 has a bug with saving models modified with model.half().",
-)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test float16 support.")
 def test_load_with_torch_dtype(stsb_bert_tiny_model: SentenceTransformer) -> None:
     model = stsb_bert_tiny_model
