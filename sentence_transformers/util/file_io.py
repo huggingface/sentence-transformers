@@ -198,10 +198,10 @@ def http_get(url: str, path: str) -> None:
                     if chunk:
                         progress.update(len(chunk))
                         file_binary.write(chunk)
+            os.replace(download_filepath, path)
         except Exception:
             if os.path.exists(download_filepath):
                 os.remove(download_filepath)
             raise
         finally:
             progress.close()
-    os.replace(download_filepath, path)
