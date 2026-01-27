@@ -192,9 +192,16 @@ def http_get(url: str, path: str) -> None:
             unit="B", total=total, unit_scale=True, leave=False, desc=f"Downloading {os.path.basename(path)}"
         )
 
-        with open(download_filepath, "wb") as file_binary:
-            for chunk in response.iter_bytes(chunk_size=1024):
-                progress.update(len(chunk))
-                file_binary.write(chunk)
-        progress.close()
+        try:
+            with open(download_filepath, "wb") as file_binary:
+                for chunk in response.iter_bytes(chunk_size=1024):
+                    if chunk:
+                        progress.update(len(chunk))
+                        file_binary.write(chunk)
+        except Exception:
+            if os.path.exists(download_filepath):
+                os.remove(download_filepath)
+            raise
+        finally:
+            progress.close()
     os.replace(download_filepath, path)
