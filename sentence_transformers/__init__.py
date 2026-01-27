@@ -21,6 +21,7 @@ from sentence_transformers.cross_encoder import (
 from sentence_transformers.datasets import ParallelSentencesDataset, SentencesDataset
 from sentence_transformers.LoggingHandler import LoggingHandler
 from sentence_transformers.model_card import SentenceTransformerModelCardData
+from sentence_transformers.multi_vec_encoder import MultiVectorEncoder
 from sentence_transformers.quantization import quantize_embeddings
 from sentence_transformers.readers import InputExample
 from sentence_transformers.sampler import DefaultBatchSampler, MultiDatasetDefaultBatchSampler
@@ -32,7 +33,6 @@ from sentence_transformers.sparse_encoder import (
     SparseEncoderTrainer,
     SparseEncoderTrainingArguments,
 )
-from sentence_transformers.multi_vec_encoder import MultiVectorEncoder
 from sentence_transformers.trainer import SentenceTransformerTrainer
 from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util import mine_hard_negatives
