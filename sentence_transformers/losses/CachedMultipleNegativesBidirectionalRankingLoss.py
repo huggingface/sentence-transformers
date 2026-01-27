@@ -1,48 +1,25 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import nullcontext
 from functools import partial
-from typing import Any, Literal
+from typing import Any
 
 import torch
 import tqdm
 from torch import Tensor, nn
-from torch.utils.checkpoint import get_device_states, set_device_states
 
 from sentence_transformers import util
+from sentence_transformers.losses.CachedMultipleNegativesRankingLoss import RandContext
 from sentence_transformers.models import StaticEmbedding
 from sentence_transformers.SentenceTransformer import SentenceTransformer
 from sentence_transformers.util import all_gather_with_grad
 
 
-class RandContext:
-    """
-    Random-state context manager class. Reference: https://github.com/luyug/GradCache.
-
-    This class will back up the pytorch's random state during initialization. Then when the context is activated,
-    the class will set up the random state with the backed-up one.
-    """
-
-    def __init__(self, *tensors) -> None:
-        self.fwd_cpu_state = torch.get_rng_state()
-        self.fwd_gpu_devices, self.fwd_gpu_states = get_device_states(*tensors)
-
-    def __enter__(self) -> None:
-        self._fork = torch.random.fork_rng(devices=self.fwd_gpu_devices, enabled=True)
-        self._fork.__enter__()
-        torch.set_rng_state(self.fwd_cpu_state)
-        set_device_states(self.fwd_gpu_devices, self.fwd_gpu_states)
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self._fork.__exit__(exc_type, exc_val, exc_tb)
-        self._fork = None
-
-
 def _backward_hook(
     grad_output: Tensor,
     sentence_features: Iterable[dict[str, Tensor]],
-    loss_obj: CachedMultipleNegativesRankingLoss,
+    loss_obj: CachedMultipleNegativesBidirectionalRankingLoss,
 ) -> None:
     """A backward hook to backpropagate the cached gradients mini-batch by mini-batch."""
     assert loss_obj.cache is not None
@@ -66,48 +43,26 @@ def _backward_hook(
                     surrogate.backward()
 
 
-class CachedMultipleNegativesRankingLoss(nn.Module):
+class CachedMultipleNegativesBidirectionalRankingLoss(nn.Module):
     def __init__(
         self,
         model: SentenceTransformer,
-        scale: float = 20.0,
-        similarity_fct: Callable[[Tensor, Tensor], Tensor] = util.cos_sim,
+        temperature: float = 0.01,
+        similarity_fct: callable[[Tensor, Tensor], Tensor] = util.cos_sim,
         mini_batch_size: int = 32,
         gather_across_devices: bool = False,
-        directions: tuple[
-            Literal["query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"],
-            ...,
-        ] = ("query_to_doc",),
-        partition_mode: Literal["joint", "per_direction"] = "joint",
         show_progress_bar: bool = False,
     ) -> None:
         """
-        Boosted version of :class:`MultipleNegativesRankingLoss` (https://huggingface.co/papers/1705.00652) by GradCache (https://huggingface.co/papers/2101.06983).
+        Cached variant of :class:`MultipleNegativesBidirectionalRankingLoss` using GradCache.
 
-        Constrastive learning (here our MNRL loss) with in-batch negatives is usually hard to work with large batch sizes due to (GPU) memory limitation.
-        Even with batch-scaling methods like gradient-scaling, it cannot work either. This is because the in-batch negatives make the data points within
-        the same batch non-independent and thus the batch cannot be broke down into mini-batches. GradCache is a smart way to solve this problem.
-        It achieves the goal by dividing the computation into two stages of embedding and loss calculation, which both can be scaled by mini-batches.
-        As a result, memory of constant size (e.g. that works with batch size = 32) can now process much larger batches (e.g. 65536).
-
-        In detail:
-
-            (1) It first does a quick embedding step without gradients/computation graphs to get all the embeddings;
-            (2) Calculate the loss, backward up to the embeddings and cache the gradients wrt. to the embeddings;
-            (3) A 2nd embedding step with gradients/computation graphs and connect the cached gradients into the backward chain.
-
-        Notes: All steps are done with mini-batches. In the original implementation of GradCache, (2) is not done in mini-batches and
-        requires a lot memory when the batch size is large. One drawback is about the speed. Gradient caching will sacrifice
-        around 20% computation time according to the paper.
-
-        See :class:`MultipleNegativesRankingLoss` for more details about the underlying loss itself.
+        This loss mirrors the improved contrastive loss inspired by the GTE paper, but uses gradient caching to enable
+        much larger batch sizes with constant memory usage.
 
         Args:
             model: SentenceTransformer model
-            scale: Output of similarity function is multiplied by scale value. In some literature, the scaling parameter
-                is referred to as temperature, which is the inverse of the scale. In short: ``scale = 1 / temperature``, so
-                ``scale=20.0`` is equivalent to ``temperature=0.05``. A higher scale (lower temperature) puts more emphasis
-                on the positive example, and values between 10 and 100 are common.
+            temperature: Temperature parameter to scale the similarities. The internal scale is derived as
+                ``scale = 1 / temperature``, so temperature=0.01 is equivalent to scale=100.0.
             similarity_fct: similarity function between sentence embeddings. By default, cos_sim. Can also be set to dot
                 product (and then set scale to 1)
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
@@ -117,26 +72,13 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
-            directions: Which similarity interaction terms to include in the loss. Options:
-
-                - "query_to_doc": query -> all documents (always included as it covers the paired positive).
-                - "query_to_query": query -> all other queries in the batch.
-                - "doc_to_query": document -> all queries (symmetric term).
-                - "doc_to_doc": document -> all other documents in the batch, excluding those belonging to the same query.
-
-                The default ("query_to_doc",) matches the standard MultipleNegativesRankingLoss / InfoNCE behavior.
-            partition_mode: How to normalize the scores (the softmax denominator):
-                - "joint": One joint softmax over all selected directions.
-                - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
 
-        References:
-            - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
-            - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup: https://huggingface.co/papers/2101.06983
-
         Requirements:
-            1. (anchor, positive) pairs, (anchor, positive, negative) triplets, or (anchor, positive, negative_1, ..., negative_n) n-tuples
-            2. Should be used with large `per_device_train_batch_size` and low `mini_batch_size` for superior performance, but slower training time than :class:`MultipleNegativesRankingLoss`.
+            1. (anchor, positive) pairs or (anchor, positive, negative) triplets
+            2. Optional negatives are supported as hard negatives (additional documents).
+            3. Should be used with large `per_device_train_batch_size` and low `mini_batch_size` for superior performance,
+               but slower training time than :class:`MultipleNegativesBidirectionalRankingLoss`.
 
         Inputs:
             +-------------------------------------------------+--------+
@@ -153,10 +95,14 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.training_args.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
 
+        Notes:
+            - Optional negatives are treated as additional documents (hard negatives) for the query-document term and
+              are not treated as queries.
+            - The document-document term excludes documents that belong to the same query (including hard negatives).
+
         Relations:
-            - Equivalent to :class:`MultipleNegativesRankingLoss`, but with caching that allows for much higher batch sizes
-              (and thus better performance) without extra memory usage. This loss also trains roughly 2x to 2.4x slower than
-              :class:`MultipleNegativesRankingLoss`.
+            - Equivalent to :class:`MultipleNegativesBidirectionalRankingLoss`, but with caching that allows for much higher batch sizes
+              without extra memory usage. This loss also trains slower than the non-cached version.
 
         Example:
             ::
@@ -169,7 +115,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                     "anchor": ["It's nice weather outside today.", "He drove to work."],
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
-                loss = losses.CachedMultipleNegativesRankingLoss(model, mini_batch_size=64)
+                loss = losses.CachedMultipleNegativesBidirectionalRankingLoss(model, mini_batch_size=32)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
@@ -177,31 +123,25 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                     loss=loss,
                 )
                 trainer.train()
+
+        References:
+            - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup: https://huggingface.co/papers/2101.06983
+            - GTE: https://huggingface.co/papers/2308.03281
         """
         super().__init__()
         if isinstance(model[0], StaticEmbedding):
             raise ValueError(
-                "CachedMultipleNegativesRankingLoss is not compatible with a SentenceTransformer model based on a StaticEmbedding. "
-                "Consider using MultipleNegativesRankingLoss instead."
+                "CachedMultipleNegativesBidirectionalRankingLoss is not compatible with a SentenceTransformer model based on a StaticEmbedding. "
+                "Consider using MultipleNegativesBidirectionalRankingLoss instead."
             )
 
         self.model = model
-        self.scale = scale
+        if temperature <= 0:
+            raise ValueError("temperature must be > 0.")
+        self.temperature = temperature
         self.similarity_fct = similarity_fct
         self.mini_batch_size = mini_batch_size
         self.gather_across_devices = gather_across_devices
-        valid_directions = {"query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"}
-        if not directions:
-            raise ValueError("At least one direction must be specified.")
-        if not set(directions).issubset(valid_directions):
-            raise ValueError(f"Invalid directions: {set(directions) - valid_directions}. Valid: {valid_directions}")
-        if "query_to_doc" not in directions:
-            raise ValueError("'query_to_doc' direction is required (contains the positive pair).")
-        self.directions = tuple(directions)
-
-        if partition_mode not in ("joint", "per_direction"):
-            raise ValueError(f"partition_mode must be 'joint' or 'per_direction', got {partition_mode}")
-        self.partition_mode = partition_mode
         self.show_progress_bar = show_progress_bar
 
         self.cache: list[list[Tensor]] | None = None
@@ -226,7 +166,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         with random_state_context:
             with grad_context():
                 random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
-                reps = self.model(sentence_feature_minibatch)["sentence_embedding"]  # (mini_batch_size, dim)
+                reps = self.model(sentence_feature_minibatch)["sentence_embedding"]
         return reps, random_state
 
     def embed_minibatch_iter(
@@ -260,7 +200,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             yield reps, random_state
 
     def calculate_loss_and_cache_gradients(self, reps: list[list[Tensor]]) -> Tensor:
-        """Calculate the cross-entropy loss and cache the gradients wrt. the embeddings."""
+        """Calculate the loss and cache gradients."""
         loss = self.calculate_loss(reps, with_backward=True)
         loss = loss.detach().requires_grad_()
 
@@ -270,21 +210,17 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
 
     def calculate_loss(self, reps: list[list[Tensor]], with_backward: bool = False) -> Tensor:
         """Calculate the all-pairs InfoNCE loss without caching gradients (for evaluation)."""
+        if len(reps) < 2:
+            raise ValueError(f"Expected at least 2 embeddings, got {len(reps)}")
+
         queries = torch.cat(reps[0])
         docs = [torch.cat(r) for r in reps[1:]]
         batch_size = len(queries)
         offset = 0
 
         if self.gather_across_devices:
-            # Gather the anchors and candidates across all devices, with gradients. Regardless of the chosen directions,
-            # we only compute the anchors/candidates from this device versus all candidates/anchors from all devices.
-            # We do this in such a way that the backward pass on the embeddings can flow back to the original devices.
-
             queries = all_gather_with_grad(queries)
             docs = [all_gather_with_grad(doc) for doc in docs]
-            # (1 + num_negatives) tensors of shape (batch_size * world_size, embedding_dim)
-
-            # Adjust the offset to account for the gathered candidates, so that each device computes the correct local indices.
             if torch.distributed.is_initialized():
                 rank = torch.distributed.get_rank()
                 offset = rank * batch_size
@@ -306,46 +242,26 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         ):
             end = min(begin + self.mini_batch_size, batch_size)
             local_batch = local_indices[begin:end]
-            row_indices = torch.arange(len(local_batch), device=queries.device)
-            # (mini_batch_size, embedding_dim)
             local_queries = queries[local_batch]
             local_docs = docs_pos[local_batch]
 
-            sim_matrices = {}
-            # (mbs, bs * ws * (1 + nn))
-            sim_matrices["query_to_doc"] = self.similarity_fct(local_queries, docs_all) * self.scale
+            sim_qd = self.similarity_fct(local_queries, docs_all) * self.scale  # (mbs, bs * ws * (1 + nn))
+            sim_qq = self.similarity_fct(local_queries, queries) * self.scale  # (mbs, bs * ws)
+            sim_dq = (self.similarity_fct(queries, local_docs) * self.scale).T  # (mbs, bs * ws)
+            sim_dd = (self.similarity_fct(docs_all, local_docs) * self.scale).T
 
-            if "query_to_query" in self.directions:
-                # (mbs, bs * ws)
-                sim_matrices["query_to_query"] = self.similarity_fct(local_queries, queries) * self.scale
-                # Remove self-similarity entries q_i -> q_i
-                sim_matrices["query_to_query"][row_indices, local_batch] = -torch.inf
+            # Remove self-similarity entries q_i -> q_i
+            row_indices = torch.arange(len(local_batch), device=queries.device)
+            sim_qq[row_indices, local_batch] = -torch.inf
 
-            if "doc_to_query" in self.directions:
-                # (mbs, bs * ws)
-                sim_matrices["doc_to_query"] = (self.similarity_fct(queries, local_docs) * self.scale).T
+            # Remove d_i_a -> d_i_b for all documents belonging to the same query
+            same_query_doc_mask = identity[local_batch].repeat(1, num_docs).bool()
+            sim_dd.masked_fill_(same_query_doc_mask, -torch.inf)
 
-            if "doc_to_doc" in self.directions:
-                # (mbs, bs * ws * (1 + nn))
-                sim_matrices["doc_to_doc"] = (self.similarity_fct(docs_all, local_docs) * self.scale).T
-                # Remove d_i_a -> d_i_b for all documents belonging to the same query
-                same_query_doc_mask = identity[local_batch].repeat(1, num_docs).bool()
-                sim_matrices["doc_to_doc"].masked_fill_(same_query_doc_mask, -torch.inf)
+            scores = torch.cat([sim_qd, sim_qq, sim_dq, sim_dd], dim=1)
+            log_z = torch.logsumexp(scores, dim=1)
 
-            # Positive scores (always from query_to_doc)
-            positive_scores = sim_matrices["query_to_doc"][row_indices, local_batch]
-
-            if self.partition_mode == "joint":
-                # Single softmax over all selected directions
-                all_scores = torch.cat(list(sim_matrices.values()), dim=1)
-                log_z = torch.logsumexp(all_scores, dim=1)
-            else:
-                # Separate softmax for each direction, averaged
-                log_z = 0.0
-                for sim_matrix in sim_matrices.values():
-                    log_z += torch.logsumexp(sim_matrix, dim=1)
-                log_z /= len(sim_matrices)
-
+            positive_scores = sim_qd[row_indices, local_batch]
             loss_mbatch = -(positive_scores - log_z).mean()
             loss_mbatch = loss_mbatch * len(local_batch) / batch_size
             if with_backward:
@@ -356,11 +272,9 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         return sum(losses)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
-        # Step (1): A quick embedding step without gradients/computation graphs to get all the embeddings
         sentence_features = list(sentence_features)
         if len(sentence_features) < 2:
             raise ValueError(f"Expected at least 2 inputs, got {len(sentence_features)}")
-
         reps = []
         self.random_states = []
         for sentence_feature in sentence_features:
@@ -377,25 +291,21 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             self.random_states.append(random_state_mbs)
 
         if torch.is_grad_enabled():
-            # Step (2): Calculate the loss, backward up to the embeddings and cache the gradients wrt. to the embeddings
             loss = self.calculate_loss_and_cache_gradients(reps)
-
-            # Step (3): A 2nd embedding step with gradients/computation graphs and connect the cached gradients into the backward chain
             loss.register_hook(partial(_backward_hook, sentence_features=sentence_features, loss_obj=self))
         else:
-            # If grad is not enabled (e.g. in evaluation), then we don't have to worry about the gradients or backward hook
             loss = self.calculate_loss(reps)
 
         return loss
 
     def get_config_dict(self) -> dict[str, Any]:
         return {
-            "scale": self.scale,
+            "temperature": self.temperature,
             "similarity_fct": self.similarity_fct.__name__,
             "mini_batch_size": self.mini_batch_size,
             "gather_across_devices": self.gather_across_devices,
         }
 
     @property
-    def temperature(self) -> float:
-        return 1.0 / self.scale
+    def scale(self) -> float:
+        return 1.0 / self.temperature

@@ -11,6 +11,7 @@ from torch import Tensor, nn
 
 from sentence_transformers.losses import (
     CachedGISTEmbedLoss,
+    CachedMultipleNegativesBidirectionalRankingLoss,
     CachedMultipleNegativesRankingLoss,
     CachedMultipleNegativesSymmetricRankingLoss,
 )
@@ -226,6 +227,7 @@ class MatryoshkaLoss(nn.Module):
             CachedMultipleNegativesRankingLoss,
             CachedGISTEmbedLoss,
             CachedMultipleNegativesSymmetricRankingLoss,
+            CachedMultipleNegativesBidirectionalRankingLoss,
         )
         if isinstance(loss, self.cached_losses):
             loss.calculate_loss = CachedLossDecorator(

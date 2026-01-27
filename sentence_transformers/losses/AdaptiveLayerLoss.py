@@ -11,6 +11,9 @@ from torch.nn import functional as F
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.losses.CachedGISTEmbedLoss import CachedGISTEmbedLoss
+from sentence_transformers.losses.CachedMultipleNegativesBidirectionalRankingLoss import (
+    CachedMultipleNegativesBidirectionalRankingLoss,
+)
 from sentence_transformers.losses.CachedMultipleNegativesRankingLoss import CachedMultipleNegativesRankingLoss
 from sentence_transformers.losses.CachedMultipleNegativesSymmetricRankingLoss import (
     CachedMultipleNegativesSymmetricRankingLoss,
@@ -132,7 +135,8 @@ class AdaptiveLayerLoss(nn.Module):
 
         Requirements:
             1. The base loss cannot be :class:`CachedMultipleNegativesRankingLoss`,
-               :class:`CachedMultipleNegativesSymmetricRankingLoss`, or :class:`CachedGISTEmbedLoss`.
+               :class:`CachedMultipleNegativesSymmetricRankingLoss`,
+               :class:`CachedMultipleNegativesBidirectionalRankingLoss`, or :class:`CachedGISTEmbedLoss`.
 
         Inputs:
             +---------------------------------------+--------+
@@ -177,7 +181,12 @@ class AdaptiveLayerLoss(nn.Module):
         assert isinstance(self.model[0], Transformer)
         if isinstance(
             loss,
-            (CachedMultipleNegativesRankingLoss, CachedMultipleNegativesSymmetricRankingLoss, CachedGISTEmbedLoss),
+            (
+                CachedMultipleNegativesRankingLoss,
+                CachedMultipleNegativesSymmetricRankingLoss,
+                CachedMultipleNegativesBidirectionalRankingLoss,
+                CachedGISTEmbedLoss,
+            ),
         ):
             warnings.warn(f"MatryoshkaLoss is not compatible with {loss.__class__.__name__}.", stacklevel=2)
 
