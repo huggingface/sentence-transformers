@@ -156,15 +156,21 @@ def load_dir_path(
 
 
 def http_get(url: str, path: str) -> None:
-    """
-    Downloads a URL to a given path on disk.
+    """Download a URL to a local file with a progress bar.
+
+    The content is streamed in chunks and first written to a temporary
+    ``"<path>_part"`` file, which is atomically moved to ``path`` once the
+    download has completed successfully. Parent directories of ``path`` are
+    created automatically if they do not exist.
 
     Args:
-        url (str): The URL to download.
-        path (str): The path to save the downloaded file.
+        url (str): The HTTP(S) URL to download.
+        path (str): Destination file path on the local filesystem.
 
     Raises:
-        httpx.HTTPStatusError: If the HTTP request returns a non-200 status code.
+        ImportError: If the optional ``httpx`` dependency is not installed.
+        httpx.HTTPStatusError: If the HTTP request returns a non-success status code.
+        OSError: If the file cannot be written to ``path``.
 
     Returns:
         None
@@ -178,11 +184,17 @@ def http_get(url: str, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
     download_filepath = path + "_part"
-    with httpx.get(url, follow_redirects=True) as response:
-        if response.status_code != 200:
-            response.raise_for_status()
+    with httpx.stream("GET", url, follow_redirects=True) as response:
+        response.raise_for_status()
+        content_length = response.headers.get("Content-Length")
+        total = int(content_length) if content_length is not None else None
+        progress = tqdm(
+            unit="B", total=total, unit_scale=True, leave=False, desc=f"Downloading {os.path.basename(path)}"
+        )
 
         with open(download_filepath, "wb") as file_binary:
-            file_binary.write(response.content)
-
+            for chunk in response.iter_bytes(chunk_size=1024):
+                progress.update(len(chunk))
+                file_binary.write(chunk)
+        progress.close()
     os.replace(download_filepath, path)
