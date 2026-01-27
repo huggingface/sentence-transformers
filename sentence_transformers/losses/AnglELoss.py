@@ -27,6 +27,9 @@ class AnglELoss(losses.CoSENTLoss):
         pairs of input pairs in the batch that match this condition. This is the same as CoSENTLoss, with a different
         similarity function.
 
+        It is recommended to use this loss in conjunction with :class:`MultipleNegativesRankingLoss`, as done in
+        the original paper.
+
         Args:
             model: SentenceTransformerModel
             scale: Output of similarity function is multiplied by scale
@@ -76,16 +79,23 @@ class AnglELoss(losses.CoSENTLoss):
         """
         super().__init__(model, scale, similarity_fct=util.pairwise_angle_sim)
 
-    def compute_loss_from_embeddings(self, embeddings: list[torch.Tensor], labels: torch.Tensor) -> torch.Tensor:
+    def compute_loss_from_embeddings(
+        self, embeddings: list[torch.Tensor], labels: torch.Tensor | None
+    ) -> torch.Tensor:
         if len(embeddings) > 2:
             # Anchor-positive-negative-... n-tuples case, convert to pairwise comparisons again, but with `labels` (or 1s)
             # for the positive pairs and `1 - labels` for the negatives.
             anchor_embeddings = embeddings[0]
             combined_embeddings = [anchor_embeddings.repeat(len(embeddings) - 1, 1), torch.cat(embeddings[1:], dim=0)]
 
-            labels = labels or torch.ones(anchor_embeddings.size(0), device=anchor_embeddings.device)
+            if labels is None:
+                labels = torch.ones(anchor_embeddings.size(0), device=anchor_embeddings.device)
+
             combined_labels = torch.cat([labels, (1 - labels).repeat(len(embeddings) - 2)], dim=0)
             return super().compute_loss_from_embeddings(combined_embeddings, combined_labels)
+
+        if labels is None:
+            raise ValueError("AnglELoss requires labels for datasets with pairs.")
 
         return super().compute_loss_from_embeddings(embeddings, labels)
 

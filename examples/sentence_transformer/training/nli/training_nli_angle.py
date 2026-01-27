@@ -49,8 +49,9 @@ eval_dataset = load_dataset("sentence-transformers/all-nli", "triplet", split="d
 logging.info(train_dataset)
 
 # 3. Define our training loss: https://sbert.net/docs/package_reference/sentence_transformer/losses.html#angleloss
-# The guiding model
 train_loss = losses.AnglELoss(model)
+# It is recommended to use AnglELoss together with MultipleNegativesRankingLoss, e.g. by creating a small class
+# that initializes both losses, computes both losses in `forward` and returns the (optionally weighted) sum.
 
 # 4. Define an evaluator for use during training. This is useful to keep track of alongside the evaluation loss.
 stsb_eval_dataset = load_dataset("sentence-transformers/stsb", split="validation")
