@@ -13,19 +13,19 @@ In:
 
 import os
 
-from sentence_transformers import InputExample, SentenceTransformer, datasets, losses, models
+from datasets import Dataset
+
+from sentence_transformers import SentenceTransformer, losses, models
+from sentence_transformers.trainer import SentenceTransformerTrainer
+from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
 
 train_examples = []
 with open("generated_queries.tsv") as fIn:
     for line in fIn:
         query, paragraph = line.strip().split("\t", maxsplit=1)
-        train_examples.append(InputExample(texts=[query, paragraph]))
+        train_examples.append({"sentence1": query, "sentence2": paragraph})
 
-# For the MultipleNegativesRankingLoss, it is important
-# that the batch does not contain duplicate entries, i.e.
-# no two equal queries and no two equal paragraphs.
-# To ensure this, we use a special data loader
-train_dataloader = datasets.NoDuplicatesDataLoader(train_examples, batch_size=64)
+train_dataset = Dataset.from_list(train_examples)
 
 # Now we create a SentenceTransformer model from scratch
 word_emb = models.Transformer("distilbert-base-uncased")
@@ -39,13 +39,31 @@ train_loss = losses.MultipleNegativesRankingLoss(model)
 
 # Tune the model
 num_epochs = 3
-warmup_steps = int(len(train_dataloader) * num_epochs * 0.1)
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    epochs=num_epochs,
+batch_size = 64
+steps_per_epoch = len(train_dataset) // batch_size
+warmup_steps = int(steps_per_epoch * num_epochs * 0.1)
+
+# Prepare the training arguments
+args = SentenceTransformerTrainingArguments(
+    output_dir="output/programming-model",
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=batch_size,
     warmup_steps=warmup_steps,
-    show_progress_bar=True,
+    learning_rate=2e-5,
+    save_strategy="no",
+    logging_steps=100,
+    batch_sampler=BatchSamplers.NO_DUPLICATES,
 )
+
+# Train the model
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+)
+
+trainer.train()
 
 os.makedirs("output", exist_ok=True)
 model.save("output/programming-model")
