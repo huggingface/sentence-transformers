@@ -53,8 +53,7 @@ def _hash_batch(
         for column in active_columns:
             value = batch[column][row_idx]
             if isinstance(value, list):
-                for item in value:
-                    row_hashes.append(_xxhash_int64(str(item)))
+                row_hashes.extend(_xxhash_int64(str(item)) for item in value)
             else:
                 row_hashes.append(_xxhash_int64(str(value)))
         hashes.append(row_hashes)
@@ -71,7 +70,7 @@ def _remove_label_columns(dataset: Dataset, valid_label_columns: list[str] | Non
 def _has_overlap(sample_values, batch_values: set[Any]) -> bool:
     # Avoid materializing a set if we already have one.
     if isinstance(sample_values, set):
-        return bool(sample_values & batch_values)
+        return not sample_values.isdisjoint(batch_values)
     return any(value in batch_values for value in sample_values)
 
 
@@ -280,10 +279,13 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 the indices.
             seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
             precompute_hashes (bool, optional): If True, precompute xxhash 64-bit values for dataset
-                fields using ``datasets.map`` to speed up duplicate checks. Requires ``xxhash`` and
-                uses additional memory. Defaults to False.
+                fields using ``datasets.map`` to speed up duplicate checks. Requires ``xxhash`` to
+                be installed and uses additional memory: in theory roughly
+                ``len(dataset) * num_columns * 8`` bytes for the dense int64 hash matrix,
+                although actual memory usage may therefore differ in practice. Defaults to False.
             precompute_num_proc (int, optional): Number of processes for hashing with ``datasets.map``.
-                Defaults to ``min(8, cpu_count - 1)`` when precomputing.
+                If set to ``None``, defaults to ``min(8, cpu_count - 1)`` when ``precompute_hashes``
+                is True.
             precompute_batch_size (int, optional): Batch size for ``datasets.map`` hashing.
                 Defaults to 1000.
         """
@@ -299,7 +301,7 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         self.precompute_hashes = precompute_hashes
         self.precompute_num_proc = precompute_num_proc
         self.precompute_batch_size = precompute_batch_size
-        self._row_hashes: np.ndarray | list[list[int]] | None = None
+        self._row_hashes: np.ndarray | None = None
         if self.precompute_hashes:
             if xxhash is None:
                 raise ImportError(
@@ -376,7 +378,7 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
 
         if self.precompute_hashes:
             self._build_hashes()
-            row_hashes = self._row_hashes if self._row_hashes is not None else []
+            row_hashes: np.ndarray = self._row_hashes
 
         # We create a dictionary to None because we need a data structure that:
         # 1. Allows for cheap removal of elements

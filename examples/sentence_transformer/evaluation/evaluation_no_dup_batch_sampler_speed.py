@@ -3,7 +3,7 @@ from __future__ import annotations
 """Benchmark NoDuplicates batch samplers on Hugging Face datasets.
 
 Quick run:
-    python examples/sentence_transformer/evaluation/evaluation_no_dup_batch_sampler_speed.py --target fast
+    python examples/sentence_transformer/evaluation/evaluation_no_dup_batch_sampler_speed.py --target hashed
 
 Run examples:
     python examples/sentence_transformer/evaluation/evaluation_no_dup_batch_sampler_speed.py \
@@ -189,16 +189,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--measure-hash-mem", action="store_true", help="Measure hash memory via tracemalloc.")
     parser.add_argument("--measure-hash-rss", action="store_true", help="Measure hash RSS via psutil.")
     parser.add_argument("--measure-hash-uss", action="store_true", help="Measure hash USS via psutil.")
-    parser.add_argument("--precompute-num-proc", type=int, help="Processes used for hashing (fast target only).")
+    parser.add_argument("--precompute-num-proc", type=int, help="Processes used for hashing (hashed target only).")
     parser.add_argument(
         "--precompute-batch-size",
         type=int,
-        help="datasets.map batch size for hashing (fast target only).",
+        help="datasets.map batch size for hashing (hashed target only).",
     )
     parser.add_argument(
         "--target",
         action="append",
-        choices=["default", "fast"],
+        choices=["default", "hashed"],
         help="Which sampler to run (can be passed multiple times).",
     )
     return parser.parse_args()
@@ -443,15 +443,15 @@ def main() -> None:
             dup_rate = dup / total if total else 0.0
             print(f"  uniqueness: total={total} unique={unique} dup={dup} dup_rate={dup_rate:.6f}")
 
-    targets = args.target or ["default", "fast"]
-    fast_kwargs = {"precompute_hashes": True}
+    targets = args.target or ["default", "hashed"]
+    hashed_kwargs = {"precompute_hashes": True}
     if args.precompute_num_proc is not None:
-        fast_kwargs["precompute_num_proc"] = args.precompute_num_proc
+        hashed_kwargs["precompute_num_proc"] = args.precompute_num_proc
     if args.precompute_batch_size is not None:
-        fast_kwargs["precompute_batch_size"] = args.precompute_batch_size
+        hashed_kwargs["precompute_batch_size"] = args.precompute_batch_size
     target_map = {
         "default": ("NoDuplicatesBatchSampler", NoDuplicatesBatchSampler, {}),
-        "fast": ("NoDuplicatesBatchSampler (precompute)", NoDuplicatesBatchSampler, fast_kwargs),
+        "hashed": ("NoDuplicatesBatchSampler (hashed)", NoDuplicatesBatchSampler, hashed_kwargs),
     }
     for target in targets:
         name, sampler_cls, sampler_kwargs = target_map[target]
