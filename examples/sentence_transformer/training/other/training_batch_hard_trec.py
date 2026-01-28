@@ -141,13 +141,12 @@ logging.info("Load model")
 model = SentenceTransformer(model_name)
 
 
-### Triplet losses ####################
-### There are 4 triplet loss variants:
-### - BatchHardTripletLoss
-### - BatchHardSoftMarginTripletLoss
-### - BatchSemiHardTripletLoss
-### - BatchAllTripletLoss
-#######################################
+# Triplet losses
+# There are 4 triplet loss variants:
+# - BatchHardTripletLoss
+# - BatchHardSoftMarginTripletLoss
+# - BatchSemiHardTripletLoss
+# - BatchAllTripletLoss
 
 train_loss = losses.BatchAllTripletLoss(model=model)
 # train_loss = losses.BatchHardTripletLoss(model=model)
@@ -192,11 +191,7 @@ trainer = SentenceTransformerTrainer(
 )
 trainer.train()
 
-##############################################################################
-#
 # Load the stored model and evaluate its performance on TREC dataset
-#
-##############################################################################
 
 logging.info("Evaluating model on test set")
 test_evaluator = TripletEvaluator.from_input_examples(test_set, name="trec-test")
