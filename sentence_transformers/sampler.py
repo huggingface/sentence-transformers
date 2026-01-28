@@ -250,6 +250,9 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         valid_label_columns: list[str] | None = None,
         generator: torch.Generator | None = None,
         seed: int = 0,
+        precompute_hashes: bool = False,
+        precompute_num_proc: int | None = None,
+        precompute_batch_size: int = 1000,
     ) -> None:
         """
         This sampler creates batches such that each batch contains samples where the values are unique,
@@ -276,6 +279,13 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
             generator (torch.Generator, optional): Optional random number generator for shuffling
                 the indices.
             seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+            precompute_hashes (bool, optional): If True, precompute xxhash 64-bit values for dataset
+                fields using ``datasets.map`` to speed up duplicate checks. Requires ``xxhash`` and
+                uses additional memory. Defaults to False.
+            precompute_num_proc (int, optional): Number of processes for hashing with ``datasets.map``.
+                Defaults to ``min(8, cpu_count - 1)`` when precomputing.
+            precompute_batch_size (int, optional): Batch size for ``datasets.map`` hashing.
+                Defaults to 1000.
         """
         super().__init__(
             dataset,
@@ -286,98 +296,24 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
             seed=seed,
         )
         self.dataset = _remove_label_columns(dataset, self.valid_label_columns)
-
-    def __iter__(self) -> Iterator[list[int]]:
-        """
-        Iterate over the remaining non-yielded indices. For each index, check if the sample values are already in the
-        batch. If not, add the sample values to the batch keep going until the batch is full. If the batch is full, yield
-        the batch indices and continue with the next batch.
-        """
-        if self.generator and self.seed is not None:
-            self.generator.manual_seed(self.seed + self.epoch)
-
-        # We create a dictionary to None because we need a data structure that:
-        # 1. Allows for cheap removal of elements
-        # 2. Preserves the order of elements, i.e. remains random
-        remaining_indices = dict.fromkeys(torch.randperm(len(self.dataset), generator=self.generator).tolist())
-
-        def get_sample_values(index: int) -> set[str]:
-            return {str(value) for key, value in self.dataset[index].items() if key != "dataset_name"}
-
-        yield from _iter_no_duplicate_batches(
-            remaining_indices,
-            get_sample_values,
-            self.batch_size,
-            self.drop_last,
-        )
-
-    def __len__(self) -> int:
-        if self.drop_last:
-            return len(self.dataset) // self.batch_size
-        else:
-            return (len(self.dataset) + self.batch_size - 1) // self.batch_size
-
-
-class NoDuplicatesFastBatchSampler(DefaultBatchSampler):
-    def __init__(
-        self,
-        dataset: Dataset,
-        batch_size: int,
-        drop_last: bool,
-        valid_label_columns: list[str] | None = None,
-        generator: torch.Generator | None = None,
-        seed: int = 0,
-        num_proc: int | None = None,
-        ds_map_batch_size: int = 1000,
-    ) -> None:
-        """
-        This sampler creates batches such that each batch contains samples where the values are unique,
-        even across columns. It uses the same batch construction approach as NoDuplicatesBatchSampler,
-        but speeds up duplicate checks by caching per-row xxhash 64-bit values computed with datasets.map.
-
-        Recommended for:
-            - :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`
-            - :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss`
-            - :class:`~sentence_transformers.losses.MultipleNegativesSymmetricRankingLoss`
-            - :class:`~sentence_transformers.losses.CachedMultipleNegativesSymmetricRankingLoss`
-            - :class:`~sentence_transformers.losses.MegaBatchMarginLoss`
-            - :class:`~sentence_transformers.losses.GISTEmbedLoss`
-            - :class:`~sentence_transformers.losses.CachedGISTEmbedLoss`
-
-        Args:
-            dataset (Dataset): The dataset to sample from.
-            batch_size (int): Number of samples per batch.
-            drop_last (bool): If True, drop the last incomplete batch if the dataset size
-                is not divisible by the batch size.
-            valid_label_columns (List[str], optional): List of column names to check for labels.
-                The first column name from ``valid_label_columns`` found in the dataset will
-                be used as the label column.
-            generator (torch.Generator, optional): Optional random number generator for shuffling
-                the indices.
-            seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
-            num_proc (int, optional): Number of processes for hashing with datasets.map. Defaults to min(8, cpu-1).
-            ds_map_batch_size (int, optional): Batch size for datasets.map hashing. Defaults to 1000.
-        """
-        super().__init__(
-            dataset,
-            batch_size=batch_size,
-            drop_last=drop_last,
-            valid_label_columns=valid_label_columns,
-            generator=generator,
-            seed=seed,
-        )
-        if xxhash is None:
-            raise ImportError("NoDuplicatesFastBatchSampler requires `xxhash`. Install `xxhash` to use this sampler.")
-        self.dataset = _remove_label_columns(dataset, self.valid_label_columns)
-        cpu_count = os.cpu_count() or 1
-        # Leave one core free to avoid saturating the system when hashing.
-        default_workers = max(1, min(8, cpu_count - 1))
-        self.num_proc = num_proc or default_workers
-        self.ds_map_batch_size = ds_map_batch_size
+        self.precompute_hashes = precompute_hashes
+        self.precompute_num_proc = precompute_num_proc
+        self.precompute_batch_size = precompute_batch_size
         self._row_hashes: np.ndarray | list[list[int]] | None = None
+        if self.precompute_hashes:
+            if xxhash is None:
+                raise ImportError(
+                    "NoDuplicatesBatchSampler with precompute_hashes=True requires `xxhash`. "
+                    "Install `xxhash` to use this option."
+                )
+            cpu_count = os.cpu_count() or 1
+            # Leave one core free to avoid saturating the system when hashing.
+            default_workers = max(1, min(8, cpu_count - 1))
+            if self.precompute_num_proc is None:
+                self.precompute_num_proc = default_workers
 
     def _build_hashes(self) -> None:
-        if self._row_hashes is not None:
+        if not self.precompute_hashes or self._row_hashes is not None:
             return
         exclude_columns = set(self.valid_label_columns or []) | {"dataset_name"}
         columns = list(self.dataset.column_names)
@@ -387,8 +323,8 @@ class NoDuplicatesFastBatchSampler(DefaultBatchSampler):
         hash_ds = self.dataset.map(
             _hash_batch,
             batched=True,
-            batch_size=self.ds_map_batch_size,
-            num_proc=self.num_proc,
+            batch_size=self.precompute_batch_size,
+            num_proc=self.precompute_num_proc,
             remove_columns=columns,
             fn_kwargs={"columns": columns, "exclude_columns": exclude_columns},
             desc="Hashing dataset values",
@@ -416,11 +352,11 @@ class NoDuplicatesFastBatchSampler(DefaultBatchSampler):
                     raise ValueError("Unexpected hashed value buffer size.")
                 row_hashes = values.reshape((row_count, row_size))
         except Exception as exc:
-            # Surface failures explicitly; the fast sampler expects fixed-length rows.
+            # Surface failures explicitly; the precompute option expects fixed-length rows.
             if hash_ds is not None:
                 del hash_ds
             raise ValueError(
-                "NoDuplicatesFastBatchSampler requires fixed-length hash rows. "
+                "NoDuplicatesBatchSampler with precompute_hashes=True requires fixed-length hash rows. "
                 "Ensure each sample has the same number of values across columns."
             ) from exc
 
@@ -430,19 +366,32 @@ class NoDuplicatesFastBatchSampler(DefaultBatchSampler):
             del hash_ds
 
     def __iter__(self) -> Iterator[list[int]]:
+        """
+        Iterate over the remaining non-yielded indices. For each index, check if the sample values are already in the
+        batch. If not, add the sample values to the batch keep going until the batch is full. If the batch is full, yield
+        the batch indices and continue with the next batch.
+        """
         if self.generator and self.seed is not None:
             self.generator.manual_seed(self.seed + self.epoch)
 
-        self._build_hashes()
-        row_hashes = self._row_hashes if self._row_hashes is not None else []
+        if self.precompute_hashes:
+            self._build_hashes()
+            row_hashes = self._row_hashes if self._row_hashes is not None else []
 
         # We create a dictionary to None because we need a data structure that:
         # 1. Allows for cheap removal of elements
         # 2. Preserves the order of elements, i.e. remains random
         remaining_indices = dict.fromkeys(torch.randperm(len(self.dataset), generator=self.generator).tolist())
 
-        def get_sample_values(index: int):
-            return row_hashes[index]
+        if self.precompute_hashes:
+
+            def get_sample_values(index: int):
+                return row_hashes[index]
+
+        else:
+
+            def get_sample_values(index: int) -> set[str]:
+                return {str(value) for key, value in self.dataset[index].items() if key != "dataset_name"}
 
         yield from _iter_no_duplicate_batches(
             remaining_indices,

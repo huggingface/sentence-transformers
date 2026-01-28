@@ -6,11 +6,8 @@ import pytest
 import torch
 from torch.utils.data import ConcatDataset
 
-from sentence_transformers.sampler import (
-    NoDuplicatesBatchSampler,
-    NoDuplicatesFastBatchSampler,
-    ProportionalBatchSampler,
-)
+from sentence_transformers import sampler as sampler_module
+from sentence_transformers.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -54,11 +51,27 @@ def dummy_duplicates_dataset() -> Dataset:
     return Dataset.from_list(values)
 
 
-@pytest.mark.parametrize("sampler_cls", [NoDuplicatesBatchSampler, NoDuplicatesFastBatchSampler])
-def test_group_by_label_batch_sampler_label_a(dummy_dataset: Dataset, sampler_cls) -> None:
+@pytest.mark.parametrize("precompute_hashes", [False, True])
+def test_group_by_label_batch_sampler_label_a(dummy_dataset: Dataset, precompute_hashes: bool) -> None:
     batch_size = 10
 
-    sampler = sampler_cls(dataset=dummy_dataset, batch_size=batch_size, drop_last=True, valid_label_columns=["label"])
+    sampler_kwargs = {}
+    if precompute_hashes:
+        if sampler_module.xxhash is None:
+            pytest.skip("xxhash not installed")
+        sampler_kwargs = {
+            "precompute_hashes": True,
+            "precompute_num_proc": 1,
+            "precompute_batch_size": 10,
+        }
+
+    sampler = NoDuplicatesBatchSampler(
+        dataset=dummy_dataset,
+        batch_size=batch_size,
+        drop_last=True,
+        valid_label_columns=["label"],
+        **sampler_kwargs,
+    )
 
     batches = list(iter(sampler))
 
@@ -71,15 +84,34 @@ def test_group_by_label_batch_sampler_label_a(dummy_dataset: Dataset, sampler_cl
         assert len(batch_values) == len(set(batch_values)), f"Batch {batch} contains duplicate values: {batch_values}"
 
 
-@pytest.mark.parametrize("sampler_cls", [NoDuplicatesBatchSampler, NoDuplicatesFastBatchSampler])
 @pytest.mark.parametrize("drop_last", [True, False])
-def test_proportional_no_duplicates(dummy_duplicates_dataset: Dataset, drop_last: bool, sampler_cls) -> None:
+@pytest.mark.parametrize("precompute_hashes", [False, True])
+def test_proportional_no_duplicates(
+    dummy_duplicates_dataset: Dataset, drop_last: bool, precompute_hashes: bool
+) -> None:
     batch_size = 2
-    sampler_1 = sampler_cls(
-        dataset=dummy_duplicates_dataset, batch_size=batch_size, drop_last=drop_last, valid_label_columns=["anchor"]
+    sampler_kwargs = {}
+    if precompute_hashes:
+        if sampler_module.xxhash is None:
+            pytest.skip("xxhash not installed")
+        sampler_kwargs = {
+            "precompute_hashes": True,
+            "precompute_num_proc": 1,
+            "precompute_batch_size": 10,
+        }
+    sampler_1 = NoDuplicatesBatchSampler(
+        dataset=dummy_duplicates_dataset,
+        batch_size=batch_size,
+        drop_last=drop_last,
+        valid_label_columns=["anchor"],
+        **sampler_kwargs,
     )
-    sampler_2 = sampler_cls(
-        dataset=dummy_duplicates_dataset, batch_size=batch_size, drop_last=drop_last, valid_label_columns=["positive"]
+    sampler_2 = NoDuplicatesBatchSampler(
+        dataset=dummy_duplicates_dataset,
+        batch_size=batch_size,
+        drop_last=drop_last,
+        valid_label_columns=["positive"],
+        **sampler_kwargs,
     )
 
     concat_dataset = ConcatDataset([dummy_duplicates_dataset, dummy_duplicates_dataset])

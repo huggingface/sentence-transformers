@@ -25,8 +25,8 @@ class BatchSamplers(ExplicitEnum):
       PyTorch batch sampler.
     - ``BatchSamplers.NO_DUPLICATES``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`,
       ensuring no duplicate samples in a batch.
-    - ``BatchSamplers.NO_DUPLICATES_FAST``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesFastBatchSampler`,
-      a faster sampler that also ensures no duplicate samples in a batch.
+    - ``BatchSamplers.NO_DUPLICATES_FAST``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`
+      with ``precompute_hashes=True``, a faster option that also ensures no duplicate samples in a batch.
 
       Both are recommended for losses that use in-batch negatives, such as:
 

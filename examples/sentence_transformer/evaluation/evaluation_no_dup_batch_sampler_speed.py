@@ -32,7 +32,7 @@ import datasets
 import torch
 from datasets import Dataset, load_dataset
 
-from sentence_transformers.sampler import NoDuplicatesBatchSampler, NoDuplicatesFastBatchSampler
+from sentence_transformers.sampler import NoDuplicatesBatchSampler
 
 try:
     from tqdm import tqdm
@@ -84,7 +84,7 @@ def run_sampler(
     uss_sampler = None
     # Optionally precompute hashes and measure their memory cost.
     if measure_hash_mem or measure_hash_rss or measure_hash_uss:
-        if hasattr(sampler, "_build_hashes"):
+        if getattr(sampler, "precompute_hashes", False):
             gc.collect()
             if measure_hash_mem:
                 tracemalloc.start()
@@ -132,11 +132,11 @@ def run_sampler(
                 )
         else:
             if measure_hash_rss:
-                print(f"{name} hash_rss: n/a (no precomputed hashes)")
+                print(f"{name} hash_rss: n/a (precompute_hashes disabled)")
             if measure_hash_uss:
-                print(f"{name} hash_uss: n/a (no precomputed hashes)")
+                print(f"{name} hash_uss: n/a (precompute_hashes disabled)")
             if measure_hash_mem:
-                print(f"{name} hash_mem: n/a (no precomputed hashes)")
+                print(f"{name} hash_mem: n/a (precompute_hashes disabled)")
 
     # Warm up to reduce first-iteration overhead if requested.
     if warmup:
@@ -189,15 +189,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--measure-hash-mem", action="store_true", help="Measure hash memory via tracemalloc.")
     parser.add_argument("--measure-hash-rss", action="store_true", help="Measure hash RSS via psutil.")
     parser.add_argument("--measure-hash-uss", action="store_true", help="Measure hash USS via psutil.")
+    parser.add_argument("--precompute-num-proc", type=int, help="Processes used for hashing (fast target only).")
     parser.add_argument(
-        "--num-proc",
+        "--precompute-batch-size",
         type=int,
-        help="Processes used for hashing (NoDuplicatesFastBatchSampler only).",
-    )
-    parser.add_argument(
-        "--ds-map-batch-size",
-        type=int,
-        help="datasets.map batch size for hashing (NoDuplicatesFastBatchSampler only).",
+        help="datasets.map batch size for hashing (fast target only).",
     )
     parser.add_argument(
         "--target",
@@ -448,14 +444,14 @@ def main() -> None:
             print(f"  uniqueness: total={total} unique={unique} dup={dup} dup_rate={dup_rate:.6f}")
 
     targets = args.target or ["default", "fast"]
-    fast_kwargs = {}
-    if args.num_proc is not None:
-        fast_kwargs["num_proc"] = args.num_proc
-    if args.ds_map_batch_size is not None:
-        fast_kwargs["ds_map_batch_size"] = args.ds_map_batch_size
+    fast_kwargs = {"precompute_hashes": True}
+    if args.precompute_num_proc is not None:
+        fast_kwargs["precompute_num_proc"] = args.precompute_num_proc
+    if args.precompute_batch_size is not None:
+        fast_kwargs["precompute_batch_size"] = args.precompute_batch_size
     target_map = {
         "default": ("NoDuplicatesBatchSampler", NoDuplicatesBatchSampler, {}),
-        "fast": ("NoDuplicatesFastBatchSampler", NoDuplicatesFastBatchSampler, fast_kwargs),
+        "fast": ("NoDuplicatesBatchSampler (precompute)", NoDuplicatesBatchSampler, fast_kwargs),
     }
     for target in targets:
         name, sampler_cls, sampler_kwargs = target_map[target]
