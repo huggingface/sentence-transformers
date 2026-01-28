@@ -22,13 +22,13 @@ from sentence_transformers import LoggingHandler, SentenceTransformer, losses, m
 from sentence_transformers.trainer import SentenceTransformerTrainer
 from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
-#### /print debug information to stdout
+# print debug information to stdout
 
-## Training parameters
+# Training parameters
 model_name = "distilbert-base-uncased"
 batch_size = 16
 pos_neg_ratio = 8  # batch_size must be devisible by pos_neg_ratio
@@ -57,7 +57,7 @@ word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_len
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
-################# Read the train corpus  #################
+# Read the train corpus
 train_sentences = []
 with (
     gzip.open(filepath, "rt", encoding="utf8") if filepath.endswith(".gz") else open(filepath, encoding="utf8") as fIn
