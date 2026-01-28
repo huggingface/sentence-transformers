@@ -15,15 +15,20 @@ import sys
 from datetime import datetime
 
 import tqdm
-from torch.utils.data import DataLoader
+from datasets import Dataset
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models
+from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models
+from sentence_transformers.trainer import SentenceTransformerTrainer
+from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
+    format="%(asctime)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+    handlers=[LoggingHandler()],
 )
-#### /print debug information to stdout
+# /print debug information to stdout
 
 # Training parameters
 model_name = "distilroberta-base"
@@ -53,33 +58,49 @@ word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_len
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
-################# Read the train corpus  #################
+# Read the train corpus #################
 train_samples = []
 with (
-    gzip.open(filepath, "rt", encoding="utf8") if filepath.endswith(".gz") else open(filepath, encoding="utf8") as fIn
-):
+    gzip.open(filepath, "rt", encoding="utf8") if filepath.endswith(".gz") else open(filepath, encoding="utf8")
+) as fIn:
     for line in tqdm.tqdm(fIn, desc="Read file"):
         line = line.strip()
         if len(line) >= 10:
-            train_samples.append(InputExample(texts=[line, line]))
-
+            train_samples.append({"sentence1": line, "sentence2": line})
 
 logging.info(f"Train sentences: {len(train_samples)}")
+train_dataset = Dataset.from_list(train_samples)
 
 # We train our model using the MultipleNegativesRankingLoss
-train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=train_batch_size, drop_last=True)
 train_loss = losses.MultipleNegativesRankingLoss(model)
 
-warmup_steps = math.ceil(len(train_dataloader) * num_epochs * 0.1)  # 10% of train data for warm-up
+# 10% of train data for warm-up
+num_train_samples = len(train_dataset)
+steps_per_epoch = num_train_samples // train_batch_size
+total_steps = steps_per_epoch * num_epochs
+warmup_steps = math.ceil(total_steps * 0.1)
 logging.info(f"Warmup-steps: {warmup_steps}")
 
-# Train the model
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    epochs=num_epochs,
+# Prepare training arguments
+args = SentenceTransformerTrainingArguments(
+    output_dir=model_output_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=train_batch_size,
     warmup_steps=warmup_steps,
-    optimizer_params={"lr": 5e-5},
-    checkpoint_path=model_output_path,
-    show_progress_bar=True,
-    use_amp=False,  # Set to True, if your GPU supports FP16 cores
+    learning_rate=5e-5,
+    save_strategy="steps",
+    save_steps=500,
+    logging_steps=100,
+    fp16=False,  # Set to True, if your GPU supports FP16 cores
+    optim="adamw_torch",
 )
+
+# Train the model
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+)
+
+trainer.train()
