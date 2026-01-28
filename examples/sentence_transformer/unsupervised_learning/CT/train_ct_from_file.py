@@ -11,12 +11,16 @@ python train_ct_from_file.py path/to/sentences.txt
 import gzip
 import logging
 import math
+import random
 import sys
 from datetime import datetime
 
 import tqdm
+from datasets import Dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models
+from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models, util
+from sentence_transformers.trainer import SentenceTransformerTrainer
+from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(
@@ -66,25 +70,88 @@ with (
 
 logging.info(f"Train sentences: {len(train_sentences)}")
 
-# For ContrastiveTension we need a special data loader to construct batches with the desired properties
-train_dataloader = losses.ContrastiveTensionDataLoader(
-    train_sentences, batch_size=batch_size, pos_neg_ratio=pos_neg_ratio
-)
 
-# As loss, we losses.ContrastiveTensionLoss
+# Generate sentence pairs for ContrastiveTensionLoss
+# For CT, we need pairs: positive pairs (same sentence) and negative pairs (different sentences)
+# The ratio is controlled by pos_neg_ratio
+def generate_ct_pairs(sentences, pos_neg_ratio):
+    """Generate sentence pairs for ContrastiveTensionLoss with the specified pos_neg_ratio.
+
+    This exactly replicates the logic of ContrastiveTensionDataLoader.__iter__():
+    - Uses len(batch) % pos_neg_ratio to determine if pair is positive (0) or negative (>0)
+    - For positive: (s1, s1) with label=1
+    - For negative: (s1, s2) with label=0 where s2 is next sentence
+    - Increments sentence_idx after each pair
+    """
+    pairs = []
+    random.shuffle(sentences)
+    sentence_idx = 0
+
+    while sentence_idx + 1 < len(sentences):
+        s1 = sentences[sentence_idx]
+        if len(pairs) % pos_neg_ratio > 0:  # Negative (different) pair
+            sentence_idx += 1
+            if sentence_idx < len(sentences):
+                s2 = sentences[sentence_idx]
+                label = 0
+            else:
+                break
+        else:  # Positive (identical pair)
+            s2 = sentences[sentence_idx]
+            label = 1
+
+        sentence_idx += 1
+        pairs.append({"sentence1": s1, "sentence2": s2, "label": label})
+
+    return pairs
+
+
+logging.info("Generating training pairs...")
+train_pairs = generate_ct_pairs(train_sentences, pos_neg_ratio)
+train_dataset = Dataset.from_list(train_pairs)
+logging.info(f"Generated {len(train_dataset)} training pairs")
+
+# As loss, we use ContrastiveTensionLoss
 train_loss = losses.ContrastiveTensionLoss(model)
 
-
-warmup_steps = math.ceil(len(train_dataloader) * num_epochs * 0.1)  # 10% of train data for warm-up
+# 10% of train data for warm-up
+num_train_samples = len(train_dataset)
+steps_per_epoch = num_train_samples // batch_size
+total_steps = steps_per_epoch * num_epochs
+warmup_steps = math.ceil(total_steps * 0.1)
 logging.info(f"Warmup-steps: {warmup_steps}")
 
-# Train the model
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    epochs=num_epochs,
+# Prepare the training arguments
+args = SentenceTransformerTrainingArguments(
+    output_dir=model_output_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=batch_size,
     warmup_steps=warmup_steps,
-    optimizer_params={"lr": 5e-5},
-    checkpoint_path=model_output_path,
-    show_progress_bar=True,
-    use_amp=False,  # Set to True, if your GPU supports FP16 cores
+    learning_rate=5e-5,
+    save_strategy="steps",
+    save_steps=500,
+    logging_steps=100,
+    fp16=False,  # Set to True, if your GPU supports FP16 cores
+    optim="adamw_torch",
 )
+
+# Train the model
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+)
+trainer.train()
+
+# Show similarity between first two sentences as an example
+if len(train_sentences) >= 2:
+    logging.info("\nExample similarity calculation:")
+    sentence1 = train_sentences[0]
+    sentence2 = train_sentences[1]
+    embedding1 = model.encode(sentence1, convert_to_tensor=True)
+    embedding2 = model.encode(sentence2, convert_to_tensor=True)
+    similarity = util.cos_sim(embedding1, embedding2).item()
+    logging.info(f"  Sentence 1: {sentence1[:60]}...")
+    logging.info(f"  Sentence 2: {sentence2[:60]}...")
+    logging.info(f"  Cosine similarity: {similarity:.4f}")
