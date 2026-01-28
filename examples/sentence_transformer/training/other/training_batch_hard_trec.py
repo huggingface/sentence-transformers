@@ -22,12 +22,13 @@ import random
 from collections import defaultdict
 from datetime import datetime
 
-from torch.utils.data import DataLoader
+from datasets import Dataset
 
 from sentence_transformers import LoggingHandler, SentenceTransformer, losses, util
-from sentence_transformers.datasets import SentenceLabelDataset
 from sentence_transformers.evaluation import TripletEvaluator
 from sentence_transformers.readers import InputExample
+from sentence_transformers.trainer import SentenceTransformerTrainer
+from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
 
 logging.basicConfig(
     format="%(asctime)s - %(message)s",
@@ -118,7 +119,7 @@ def triplets_from_labeled_dataset(input_examples):
 # You can specify any huggingface/transformers pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
 model_name = "all-distilroberta-v1"
 
-### Create a torch.DataLoader that passes training batch instances to our model
+# Create training dataset
 train_batch_size = 32
 output_path = "output/finetune-batch-hard-trec-" + model_name + "-" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 num_epochs = 1
@@ -126,11 +127,14 @@ num_epochs = 1
 logging.info("Loading TREC dataset")
 train_set, dev_set, test_set = trec_dataset()
 
-# We create a special dataset "SentenceLabelDataset" to wrap out train_set
-# It will yield batches that contain at least two samples with the same label
-train_data_sampler = SentenceLabelDataset(train_set)
-train_dataloader = DataLoader(train_data_sampler, batch_size=32, drop_last=True)
-
+# Convert InputExample list to HuggingFace Dataset with label column
+# Each InputExample has texts=[text] and label=label_id
+train_texts = [example.texts[0] for example in train_set]
+train_labels = [example.label for example in train_set]
+train_dataset = Dataset.from_dict({
+    "sentence": train_texts,
+    "label": train_labels,
+})
 
 # Load pretrained model
 logging.info("Load model")
@@ -157,17 +161,36 @@ dev_evaluator = TripletEvaluator.from_input_examples(dev_set, name="trec-dev")
 logging.info("Performance before fine-tuning:")
 dev_evaluator(model)
 
-warmup_steps = int(len(train_dataloader) * num_epochs * 0.1)  # 10% of train data
+# 10% of train data
+num_train_samples = len(train_dataset)
+steps_per_epoch = num_train_samples // train_batch_size
+total_steps = steps_per_epoch * num_epochs
+warmup_steps = int(total_steps * 0.1)
+
+# Prepare the training arguments
+args = SentenceTransformerTrainingArguments(
+    output_dir=output_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=train_batch_size,
+    warmup_steps=warmup_steps,
+    # Use GROUP_BY_LABEL batch sampler for triplet losses that require multiple samples per label
+    batch_sampler=BatchSamplers.GROUP_BY_LABEL,
+    eval_strategy="steps",
+    eval_steps=1000,
+    save_strategy="steps",
+    save_steps=1000,
+    logging_steps=100,
+)
 
 # Train the model
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    loss=train_loss,
     evaluator=dev_evaluator,
-    epochs=num_epochs,
-    evaluation_steps=1000,
-    warmup_steps=warmup_steps,
-    output_path=output_path,
 )
+trainer.train()
 
 ##############################################################################
 #
