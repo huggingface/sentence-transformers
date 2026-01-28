@@ -13,47 +13,68 @@ During training, TSDAE encodes damaged sentences into fixed-sized vectors and re
 Training with TSDAE is simple. You just need a set of sentences:
 
 ```python
-from sentence_transformers import SentenceTransformer, LoggingHandler
-from sentence_transformers import models, util, datasets, evaluation, losses
-from torch.utils.data import DataLoader
+import random
 
-# Define your sentence transformer model using CLS pooling
-model_name = "bert-base-uncased"
-word_embedding_model = models.Transformer(model_name)
-pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(), "cls")
-model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
+from datasets import Dataset
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.losses import DenoisingAutoEncoderLoss
+from sentence_transformers.trainer import SentenceTransformerTrainer
+from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 
-# Define a list with sentences (1k - 100k sentences)
-train_sentences = [
-    "Your set of sentences",
-    "Model will automatically add the noise",
-    "And re-construct it",
-    "You should provide at least 1k sentences",
+# 1. Define a SentenceTransformer model
+model = SentenceTransformer("bert-base-uncased")
+
+# 2. Some example sentences
+sentences = [
+    "This is an example sentence.",
+    "Each sentence will be noised and reconstructed.",
+    "TSDAE learns good sentence embeddings.",
+    "Sentence Transformers make it easy to train models.",
 ]
 
-# Create the special denoising dataset that adds noise on-the-fly
-train_dataset = datasets.DenoisingAutoEncoderDataset(train_sentences)
+dataset = Dataset.from_dict({"text": sentences})
 
-# DataLoader to batch your data
-train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True)
 
-# Use the denoising auto-encoder loss
-train_loss = losses.DenoisingAutoEncoderLoss(
-    model, decoder_name_or_path=model_name, tie_encoder_decoder=True
+def noise_transform(batch, del_ratio=0.6):
+    noisy = []
+    for text in batch["text"]:
+        words = text.split()
+        keep_prob = 1.0 - del_ratio
+        kept_words = [w for w in words if random.random() < keep_prob]
+        noisy.append(" ".join(kept_words))
+    return {"noisy": noisy, "text": batch["text"]}
+
+
+# 3. Add a lazy transform that adds noise to the sentences on-the-fly
+dataset.set_transform(transform=lambda batch: noise_transform(batch), columns=["text"], output_all_columns=True)
+
+# 4. Define the TSDAE loss
+train_loss = DenoisingAutoEncoderLoss(
+    model,
+    decoder_name_or_path="bert-base-uncased",
+    tie_encoder_decoder=True,
 )
 
-# Call the fit method
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    epochs=1,
-    weight_decay=0,
-    scheduler="constantlr",
-    optimizer_params={"lr": 3e-5},
-    show_progress_bar=True,
+# 5. Initialize a simple training arguments & trainer
+args = SentenceTransformerTrainingArguments(
+    output_dir="output/tsdae-example",
+    num_train_epochs=1,
+    per_device_train_batch_size=4,
 )
 
-model.save("output/tsdae-model")
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=dataset,
+    loss=train_loss,
+)
+
+# 6. Train and save the model
+trainer.train()
+model.save_pretrained("output/tsdae-example/final")
 ```
+
+See **[train_stsb_tsdae.py](train_stsb_tsdae.py)** for the complete code.
 
 ## TSDAE from Sentences File
 
