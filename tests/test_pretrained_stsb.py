@@ -21,8 +21,7 @@ def pretrained_model_score(
 
     test_samples = []
     for row in sts_dataset["test"]:
-        score = float(row["score"]) / 5.0  # Normalize score to range 0 ... 1
-        test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+        test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 
         if max_test_samples != -1 and len(test_samples) >= max_test_samples:
             break

@@ -35,11 +35,11 @@ from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelati
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.readers import InputExample
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
-#### /print debug information to stdout
+# /print debug information to stdout
 
 
 # You can specify any huggingface/transformers pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
@@ -50,7 +50,7 @@ batch_size = 16
 num_epochs = 1
 max_seq_length = 128
 
-###### Read Datasets ######
+# Read Datasets ######
 
 dataset = load_dataset("sentence-transformers/stsb")
 
@@ -68,13 +68,13 @@ bi_encoder_path = (
     + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 )
 
-###### Cross-encoder (simpletransformers) ######
+# Cross-encoder (simpletransformers) ######
 logging.info(f"Loading cross-encoder model: {model_name}")
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for cross-encoder model
 cross_encoder = CrossEncoder(model_name, num_labels=1)
 
 
-###### Bi-encoder (sentence-transformers) ######
+# Bi-encoder (sentence-transformers) ######
 logging.info(f"Loading bi-encoder model: {model_name}")
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for mapping tokens to embeddings
 word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
@@ -103,17 +103,14 @@ dev_samples = []
 test_samples = []
 
 for row in dataset["validation"]:
-    score = float(row["score"]) / 5.0  # Normalize score to range 0 ... 1
-    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 
 for row in dataset["test"]:
-    score = float(row["score"]) / 5.0
-    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 for row in dataset["train"]:
-    score = float(row["score"]) / 5.0
     # As we want to get symmetric scores, i.e. CrossEncoder(A,B) = CrossEncoder(B,A), we pass both combinations to the train set
-    gold_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
-    gold_samples.append(InputExample(texts=[row["sentence2"], row["sentence1"]], label=score))
+    gold_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
+    gold_samples.append(InputExample(texts=[row["sentence2"], row["sentence1"]], label=row["score"]))
 
 
 # We wrap gold_samples (which is a List[InputExample]) into a pytorch DataLoader
@@ -143,8 +140,8 @@ cross_encoder.fit(
 #
 ############################################################################
 
-#### Top k similar sentences to be retrieved ####
-#### Larger the k, bigger the silver dataset ####
+# Top k similar sentences to be retrieved ####
+# Larger the k, bigger the silver dataset ####
 
 logging.info(
     f"Step 2.1: Generate STSbenchmark (silver dataset) using pretrained SBERT \

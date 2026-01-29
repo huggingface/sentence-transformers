@@ -26,12 +26,10 @@ def sts_resource() -> Generator[tuple[list[InputExample], list[InputExample]], N
     stsb_train_samples = []
     stsb_test_samples = []
     for row in sts_dataset["test"]:
-        score = float(row["score"]) / 5.0  # Normalize score to range 0 ... 1
-        stsb_test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+        stsb_test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 
     for row in sts_dataset["train"]:
-        score = float(row["score"]) / 5.0
-        stsb_train_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+        stsb_train_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
     yield stsb_train_samples, stsb_test_samples
 
 

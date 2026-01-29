@@ -8,11 +8,11 @@ from torch.utils.data import DataLoader
 from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
-#### /print debug information to stdout
+# /print debug information to stdout
 
 # Training parameters
 model_name = "distilbert-base-uncased"
@@ -49,12 +49,10 @@ dev_samples = []
 test_samples = []
 
 for row in sts_dataset["validation"]:
-    score = float(row["score"]) / 5.0  # Normalize score to range 0 ... 1
-    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 
 for row in sts_dataset["test"]:
-    score = float(row["score"]) / 5.0
-    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 
 dev_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(
     dev_samples, batch_size=train_batch_size, name="sts-dev"

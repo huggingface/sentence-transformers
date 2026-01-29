@@ -35,11 +35,11 @@ from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelati
 from sentence_transformers.evaluation import BinaryClassificationEvaluator
 from sentence_transformers.readers import InputExample
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
-#### /print debug information to stdout
+# /print debug information to stdout
 
 # You can specify any huggingface/transformers pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
 model_name = sys.argv[1] if len(sys.argv) > 1 else "bert-base-uncased"
@@ -48,7 +48,7 @@ num_epochs = 1
 max_seq_length = 128
 use_cuda = torch.cuda.is_available()
 
-###### Read Datasets ######
+# Read Datasets ######
 qqp_dataset_path = "quora-IR-dataset"
 
 dataset = load_dataset("sentence-transformers/stsb")
@@ -76,13 +76,13 @@ bi_encoder_path = (
     + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 )
 
-###### Cross-encoder (simpletransformers) ######
+# Cross-encoder (simpletransformers) ######
 
 logging.info(f"Loading cross-encoder model: {model_name}")
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for cross-encoder model
 cross_encoder = CrossEncoder(model_name, num_labels=1)
 
-###### Bi-encoder (sentence-transformers) ######
+# Bi-encoder (sentence-transformers) ######
 
 logging.info(f"Loading bi-encoder model: {model_name}")
 
@@ -113,18 +113,15 @@ dev_samples = []
 test_samples = []
 
 for row in dataset["validation"]:
-    score = float(row["score"]) / 5.0  # Normalize score to range 0 ... 1
-    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 
 for row in dataset["test"]:
-    score = float(row["score"]) / 5.0
-    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 
 for row in dataset["train"]:
-    score = float(row["score"]) / 5.0
     # As we want to get symmetric scores, i.e. CrossEncoder(A,B) = CrossEncoder(B,A), we pass both combinations to the train set
-    gold_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
-    gold_samples.append(InputExample(texts=[row["sentence2"], row["sentence1"]], label=score))
+    gold_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
+    gold_samples.append(InputExample(texts=[row["sentence2"], row["sentence1"]], label=row["score"]))
 
 
 # We wrap gold_samples (which is a List[InputExample]) into a pytorch DataLoader
@@ -191,7 +188,7 @@ qqp_train_data = list(
 train_dataloader = DataLoader(qqp_train_data, shuffle=True, batch_size=batch_size)
 train_loss = losses.MultipleNegativesRankingLoss(bi_encoder)
 
-###### Classification ######
+# Classification ######
 # Given (quesiton1, question2), is this a duplicate or not?
 # The evaluator will compute the embeddings for both questions and then compute
 # a cosine similarity. If the similarity is above a threshold, we have a duplicate.
