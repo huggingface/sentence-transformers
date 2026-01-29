@@ -26,12 +26,6 @@ model_save_path = "output/training_stsb_simcse-{}-{}-{}".format(
     model_name, train_batch_size, datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 )
 
-# Check if dataset exists. If not, download and extract  it
-sts_dataset_path = "data/stsbenchmark.tsv.gz"
-
-if not os.path.exists(sts_dataset_path):
-    util.http_get("https://sbert.net/datasets/stsbenchmark.tsv.gz", sts_dataset_path)
-
 # Here we define our SentenceTransformer model
 word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
