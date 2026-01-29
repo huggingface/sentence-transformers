@@ -32,7 +32,7 @@ wikipedia_dataset = load_dataset("sentence-transformers/wiki1m-for-simcse", spli
 
 # train_sentences are simply your list of sentences
 train_sentences = [
-    InputExample(texts=[example["text"].strip(), example["text"].strip()]) for example in wikipedia_dataset["train"]
+    InputExample(texts=[example["text"].strip(), example["text"].strip()]) for example in wikipedia_dataset
 ]
 
 ################## Download and load STSb #################
