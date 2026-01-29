@@ -10,7 +10,6 @@ python train_simcse_from_file.py path/to/sentences.txt
 
 import gzip
 import logging
-import math
 import sys
 from datetime import datetime
 
@@ -28,7 +27,6 @@ logging.basicConfig(
     level=logging.INFO,
     handlers=[LoggingHandler()],
 )
-# /print debug information to stdout
 
 # Training parameters
 model_name = "distilroberta-base"
@@ -58,7 +56,7 @@ word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_len
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
-# Read the train corpus #################
+# Read the train corpus
 train_samples = []
 with (
     gzip.open(filepath, "rt", encoding="utf8") if filepath.endswith(".gz") else open(filepath, encoding="utf8")
@@ -74,23 +72,16 @@ train_dataset = Dataset.from_list(train_samples)
 # We train our model using the MultipleNegativesRankingLoss
 train_loss = losses.MultipleNegativesRankingLoss(model)
 
-# 10% of train data for warm-up
-num_train_samples = len(train_dataset)
-steps_per_epoch = num_train_samples // train_batch_size
-total_steps = steps_per_epoch * num_epochs
-warmup_steps = math.ceil(total_steps * 0.1)
-logging.info(f"Warmup-steps: {warmup_steps}")
-
 # Prepare training arguments
 args = SentenceTransformerTrainingArguments(
     output_dir=model_output_path,
     num_train_epochs=num_epochs,
     per_device_train_batch_size=train_batch_size,
-    warmup_steps=warmup_steps,
+    warmup_steps=0.1,
+    save_steps=0.1,
+    logging_steps=0.01,
     learning_rate=5e-5,
     save_strategy="steps",
-    save_steps=500,
-    logging_steps=100,
     fp16=False,  # Set to True, if your GPU supports FP16 cores
     optim="adamw_torch",
 )
@@ -104,3 +95,19 @@ trainer = SentenceTransformerTrainer(
 )
 
 trainer.train()
+
+# Save the trained & evaluated model locally
+final_output_dir = f"{model_output_path}/final"
+model.save_pretrained(final_output_dir)
+
+# (Optional) save the model to the Hugging Face Hub!
+# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
+try:
+    model.push_to_hub(f"{model_name}-simcse")
+except Exception:
+    logging.error(
+        f"Error uploading model to the Hugging Face Hub:\nTo upload it manually, you can run "
+        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
+        f"and saving it using `model.push_to_hub('{model_name}-simcse')`."
+    )
