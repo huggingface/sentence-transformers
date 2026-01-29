@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 
+from packaging.version import Version, parse
 from torch import Tensor, nn
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
+from transformers import __version__ as transformers_version
 
 from sentence_transformers.models import StaticEmbedding
 from sentence_transformers.SentenceTransformer import SentenceTransformer
@@ -119,6 +121,12 @@ class DenoisingAutoEncoderLoss(nn.Module):
             )
 
         if tie_encoder_decoder:
+            if parse(transformers_version) >= Version("5.0.0"):
+                raise RuntimeError(
+                    "Tying encoder and decoder weights is not currently supported for transformers version >= 5.0.0. "
+                    "Please either install transformers<5.0.0 or set tie_encoder_decoder=False."
+                )
+
             assert not self.need_retokenization, "The tokenizers should be the same when tie_encoder_decoder=True."
             if len(self.tokenizer_encoder) != len(self.tokenizer_decoder):  # The vocabulary has been changed.
                 self.tokenizer_decoder = self.tokenizer_encoder

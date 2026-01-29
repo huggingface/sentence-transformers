@@ -1,12 +1,10 @@
-import csv
-import gzip
 import logging
-import os
 from datetime import datetime
 
 import torch
+from datasets import load_dataset
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models, util
+from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
 
 #### Just some code to print debug information to stdout
@@ -28,41 +26,22 @@ model_save_path = "output/train_stsb_ct-{}-{}".format(model_name, datetime.now()
 
 ################# Train sentences #################
 # We use 1 Million sentences from Wikipedia to train our model
-wikipedia_dataset_path = "data/wiki1m_for_simcse.txt"
-if not os.path.exists(wikipedia_dataset_path):
-    util.http_get(
-        "https://huggingface.co/datasets/princeton-nlp/datasets-for-simcse/resolve/main/wiki1m_for_simcse.txt",
-        wikipedia_dataset_path,
-    )
+wikipedia_dataset = load_dataset("sentence-transformers/wiki1m-for-simcse", split="train")
 
 # train_sentences are simply your list of sentences
-train_sentences = []
-with open(wikipedia_dataset_path, encoding="utf8") as fIn:
-    for line in fIn:
-        line = line.strip()
-        if len(line) >= 10:
-            train_sentences.append(line)
+train_sentences = [example["text"].strip() for example in wikipedia_dataset if len(example["text"].strip()) >= 10]
 
 ################# Download and load STSb #################
-data_folder = "data/stsbenchmark"
-sts_dataset_path = f"{data_folder}/stsbenchmark.tsv.gz"
-
-if not os.path.exists(sts_dataset_path):
-    util.http_get("https://sbert.net/datasets/stsbenchmark.tsv.gz", sts_dataset_path)
-
+sts_dataset = load_dataset("sentence-transformers/stsb")
 
 dev_samples = []
 test_samples = []
-with gzip.open(sts_dataset_path, "rt", encoding="utf8") as fIn:
-    reader = csv.DictReader(fIn, delimiter="\t", quoting=csv.QUOTE_NONE)
-    for row in reader:
-        score = float(row["score"]) / 5.0  # Normalize score to range 0 ... 1
-        inp_example = InputExample(texts=[row["sentence1"], row["sentence2"]], label=score)
 
-        if row["split"] == "dev":
-            dev_samples.append(inp_example)
-        elif row["split"] == "test":
-            test_samples.append(inp_example)
+for row in sts_dataset["validation"]:
+    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
+
+for row in sts_dataset["test"]:
+    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 
 dev_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(dev_samples, name="sts-dev")
 test_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(test_samples, name="sts-test")
