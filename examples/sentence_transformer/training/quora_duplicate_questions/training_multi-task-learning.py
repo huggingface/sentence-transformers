@@ -7,8 +7,12 @@ questions mining, but it has some issues with classification as it does not push
 
 This script combines both losses to get the best of both worlds.
 
-Multi task learning is achieved quite easily by calling the model.fit method like this:
-model.fit(train_objectives=[(train_dataloader_MultipleNegativesRankingLoss, train_loss_MultipleNegativesRankingLoss), (train_dataloader_constrative_loss, train_loss_constrative_loss)] ...)
+Multi task learning is achieved quite easily by initializing the SentenceTransformerTrainer like this:
+SentenceTransformerTrainer(
+    train_dataset={"mnrl": MultipleNegativesRankingLoss_train_dataset, "cl": ContrastiveLoss_train_dataset},
+    loss={"mnrl": MultipleNegativesRankingLoss(model=model), "cl": ContrastiveLoss(model=model)},
+    ...
+)
 """
 
 import logging
