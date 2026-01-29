@@ -40,18 +40,16 @@ train_loss = losses.MultipleNegativesRankingLoss(model)
 # Tune the model
 num_epochs = 3
 batch_size = 64
-steps_per_epoch = len(train_dataset) // batch_size
-warmup_steps = int(steps_per_epoch * num_epochs * 0.1)
 
 # Prepare the training arguments
 args = SentenceTransformerTrainingArguments(
     output_dir="output/programming-model",
     num_train_epochs=num_epochs,
     per_device_train_batch_size=batch_size,
-    warmup_steps=warmup_steps,
+    warmup_steps=0.1,
     learning_rate=2e-5,
     save_strategy="no",
-    logging_steps=100,
+    logging_steps=0.01,
     batch_sampler=BatchSamplers.NO_DUPLICATES,
 )
 
