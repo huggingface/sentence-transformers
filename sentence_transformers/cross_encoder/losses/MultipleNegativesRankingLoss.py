@@ -144,7 +144,7 @@ class MultipleNegativesRankingLoss(nn.Module):
         else:
             # If num_negatives is None or larger than the number of candidates, we select all negatives
             # by using the mask as a slicer to get the indices of the negative candidates
-            all_indices = torch.arange(batch_size).repeat(batch_size * num_columns, 1)
+            all_indices = torch.arange(batch_size * num_columns).repeat(batch_size, 1)
             negative_indices = all_indices[mask].reshape(batch_size, -1)
 
         for negative_indices_row in negative_indices.T:
