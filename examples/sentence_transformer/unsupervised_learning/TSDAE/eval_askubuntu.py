@@ -10,7 +10,7 @@ import logging
 import os
 import sys
 
-from datasets import Dataset
+from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer, util
 from sentence_transformers.evaluation import RerankingEvaluator
@@ -21,12 +21,12 @@ logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:
 model = SentenceTransformer(sys.argv[1])
 
 
-################# Download AskUbuntu and extract training corpus  #################
+# Download AskUbuntu and extract training corpus
 askubuntu_folder = "data/askubuntu"
 training_corpus = os.path.join(askubuntu_folder, "train.unsupervised.txt")
 
 
-## Download the AskUbuntu dataset from https://github.com/taolei87/askubuntu
+# Download the AskUbuntu dataset from https://github.com/taolei87/askubuntu
 for filename in ["text_tokenized.txt.gz", "dev.txt", "test.txt", "train_random.txt"]:
     filepath = os.path.join(askubuntu_folder, filename)
     if not os.path.exists(filepath):
@@ -42,32 +42,9 @@ with gzip.open(os.path.join(askubuntu_folder, "text_tokenized.txt.gz"), "rt", en
 
 
 # Read dev & test dataset
-def read_eval_dataset(filepath) -> Dataset:
-    data = {
-        "query": [],
-        "positive": [],
-        "negative": [],
-    }
-    with open(filepath) as fIn:
-        for line in fIn:
-            query_id, relevant_id, candidate_ids, bm25_scores = line.strip().split("\t")
-            if len(relevant_id) == 0:  # Skip examples without relevant entries
-                continue
-
-            relevant_id = relevant_id.split(" ")
-            candidate_ids = candidate_ids.split(" ")
-            negative_ids = set(candidate_ids) - set(relevant_id)
-            data["query"].append(corpus[query_id])
-            data["positive"].append([corpus[pid] for pid in relevant_id])
-            data["negative"].append([corpus[pid] for pid in negative_ids])
-            dev_test_ids.add(query_id)
-            dev_test_ids.update(candidate_ids)
-    dataset = Dataset.from_dict(data)
-    return dataset
-
-
-dev_dataset = read_eval_dataset(os.path.join(askubuntu_folder, "dev.txt"))
-test_dataset = read_eval_dataset(os.path.join(askubuntu_folder, "test.txt"))
+dataset = load_dataset("sentence-transformers/askubuntu")
+dev_dataset = dataset["dev"]
+test_dataset = dataset["test"]
 
 
 # Create a dev evaluator

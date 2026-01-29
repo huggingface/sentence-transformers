@@ -5,7 +5,7 @@ import random
 import traceback
 from datetime import datetime
 
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 
 from sentence_transformers import SentenceTransformer, models, util
 from sentence_transformers.evaluation import RerankingEvaluator
@@ -53,35 +53,12 @@ with gzip.open(os.path.join(askubuntu_folder, "text_tokenized.txt.gz"), "rt", en
 
 
 # Read dev & test dataset
-def read_eval_dataset(filepath) -> Dataset:
-    data = {
-        "query": [],
-        "positive": [],
-        "negative": [],
-    }
-    with open(filepath) as fIn:
-        for line in fIn:
-            query_id, relevant_id, candidate_ids, bm25_scores = line.strip().split("\t")
-            if len(relevant_id) == 0:  # Skip examples without relevant entries
-                continue
+dataset = load_dataset("sentence-transformers/askubuntu")
+dev_dataset = dataset["dev"]
+test_dataset = dataset["test"]
 
-            relevant_id = relevant_id.split(" ")
-            candidate_ids = candidate_ids.split(" ")
-            negative_ids = set(candidate_ids) - set(relevant_id)
-            data["query"].append(corpus[query_id])
-            data["positive"].append([corpus[pid] for pid in relevant_id])
-            data["negative"].append([corpus[pid] for pid in negative_ids])
-            dev_test_ids.add(query_id)
-            dev_test_ids.update(candidate_ids)
-    dataset = Dataset.from_dict(data)
-    return dataset
-
-
-eval_dataset = read_eval_dataset(os.path.join(askubuntu_folder, "dev.txt"))
-test_dataset = read_eval_dataset(os.path.join(askubuntu_folder, "test.txt"))
-
-## Now we need a list of train sentences.
-## In this example we simply use all sentences that don't appear in the train/dev set
+# Now we need a list of train sentences.
+# In this example we simply use all sentences that don't appear in the train/dev set
 train_sentences = [sentence for id, sentence in corpus.items() if id not in dev_test_ids]
 train_dataset = Dataset.from_dict({"text": train_sentences})
 
