@@ -53,7 +53,7 @@ train = ["datasets", "accelerate>=0.20.3"]
 onnx = ["optimum-onnx[onnxruntime]"]
 onnx-gpu = ["optimum-onnx[onnxruntime-gpu]"]
 openvino = ["optimum-intel[openvino]"]
-dev = ["datasets", "accelerate>=0.20.3", "pre-commit", "pytest", "pytest-cov", "peft", "Pillow"]
+dev = ["datasets", "accelerate>=0.20.3", "pre-commit", "pytest", "pytest-cov", "pytest-env", "peft", "Pillow"]
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
@@ -102,4 +102,9 @@ addopts = "--strict-markers -m 'not slow and not custom'"
 markers = [
     "slow: marks tests as slow",
     "custom: marks tests for third-party models with custom modules"
+]
+env = [
+    # Avoid any ReadTimeout when making requests to the Hub (default is 10)
+    # Note: 'D:' means default value from laptop or CI won't be overwritten
+    "D:HF_HUB_DOWNLOAD_TIMEOUT=60",
 ]
