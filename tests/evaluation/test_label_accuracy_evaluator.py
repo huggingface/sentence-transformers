@@ -4,12 +4,10 @@ Tests the correct computation of evaluation scores from BinaryClassificationEval
 
 from __future__ import annotations
 
-import csv
-import gzip
-import os
 from pathlib import Path
 
 import pytest
+from datasets import load_dataset
 from torch.utils.data import DataLoader
 
 from sentence_transformers import (
@@ -17,7 +15,6 @@ from sentence_transformers import (
     SentenceTransformer,
     evaluation,
     losses,
-    util,
 )
 
 
@@ -25,20 +22,25 @@ from sentence_transformers import (
 def test_LabelAccuracyEvaluator(paraphrase_distilroberta_base_v1_model: SentenceTransformer, tmp_path: Path) -> None:
     """Tests that the LabelAccuracyEvaluator can be loaded correctly"""
     model = paraphrase_distilroberta_base_v1_model
-    nli_dataset_path = "datasets/AllNLI.tsv.gz"
-    if not os.path.exists(nli_dataset_path):
-        util.http_get("https://sbert.net/datasets/AllNLI.tsv.gz", nli_dataset_path)
+    nli_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split="train")
+    # We are converting the integer labels to the string labels becausethe dataset labels and function labels are different.
+    int2label = {0: "entailment", 1: "neutral", 2: "contradiction"}
 
     label2int = {"contradiction": 0, "entailment": 1, "neutral": 2}
     dev_samples = []
-    with gzip.open(nli_dataset_path, "rt", encoding="utf8") as fIn:
-        reader = csv.DictReader(fIn, delimiter="\t", quoting=csv.QUOTE_NONE)
-        for row in reader:
-            if row["split"] == "train":
-                label_id = label2int[row["label"]]
-                dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=label_id))
-                if len(dev_samples) >= 100:
-                    break
+    for row in nli_dataset["train"]:
+        label_name = int2label[row["label"]]
+        label_id = label2int[label_name]
+
+        dev_samples.append(
+            InputExample(
+                texts=[row["sentence1"], row["sentence2"]],
+                label=label_id,
+            )
+        )
+
+        if len(dev_samples) >= 100:
+            break
 
     train_loss = losses.SoftmaxLoss(
         model=model,
