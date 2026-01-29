@@ -68,13 +68,11 @@ def read_eval_dataset(filepath):
             relevant_id = relevant_id.split(" ")
             candidate_ids = candidate_ids.split(" ")
             negative_ids = set(candidate_ids) - set(relevant_id)
-            dataset.append(
-                {
-                    "query": corpus[query_id],
-                    "positive": [corpus[pid] for pid in relevant_id],
-                    "negative": [corpus[pid] for pid in negative_ids],
-                }
-            )
+            dataset.append({
+                "query": corpus[query_id],
+                "positive": [corpus[pid] for pid in relevant_id],
+                "negative": [corpus[pid] for pid in negative_ids],
+            })
             dev_test_ids.add(query_id)
             dev_test_ids.update(candidate_ids)
     return dataset
@@ -114,12 +112,12 @@ args = SentenceTransformerTrainingArguments(
     output_dir=output_path,
     num_train_epochs=epochs,
     per_device_train_batch_size=batch_size,
-    warmup_steps=100,
+    warmup_steps=0.1,
+    eval_steps=0.1,
+    logging_steps=0.01,
     learning_rate=5e-5,
-    eval_steps=100,
     save_strategy="no",
     fp16=True,
-    logging_steps=50,
 )
 
 
@@ -136,8 +134,20 @@ logging.info("Start training")
 trainer.train()
 
 latest_output_path = output_path + "-latest"
-model.save(latest_output_path)
 
 # Run test evaluation on the latest model. This is equivalent to not having a dev dataset
-model = SentenceTransformer(latest_output_path)
 test_evaluator(model)
+
+model.save_pretrained(latest_output_path)
+
+# (Optional) save the model to the Hugging Face Hub!
+# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
+try:
+    model.push_to_hub(f"{model_name}-ct-improved")
+except Exception:
+    logging.error(
+        f"Error uploading model to the Hugging Face Hub:\nTo upload it manually, you can run "
+        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({latest_output_path!r})` "
+        f"and saving it using `model.push_to_hub('{model_name}-ct-improved')`."
+    )
