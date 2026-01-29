@@ -18,7 +18,6 @@ python train_sts_qqp_crossdomain.py pretrained_transformer_model_name
 """
 
 import csv
-import gzip
 import logging
 import math
 import os
@@ -27,6 +26,7 @@ from datetime import datetime
 from zipfile import ZipFile
 
 import torch
+from datasets import load_dataset
 from torch.utils.data import DataLoader
 
 from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models, util
@@ -49,13 +49,9 @@ max_seq_length = 128
 use_cuda = torch.cuda.is_available()
 
 ###### Read Datasets ######
-sts_dataset_path = "datasets/stsbenchmark.tsv.gz"
 qqp_dataset_path = "quora-IR-dataset"
 
-
-# Check if the STSb dataset exists. If not, download and extract it
-if not os.path.exists(sts_dataset_path):
-    util.http_get("https://sbert.net/datasets/stsbenchmark.tsv.gz", sts_dataset_path)
+dataset = load_dataset("sentence-transformers/stsb")
 
 
 # Check if the QQP dataset exists. If not, download and extract
@@ -116,19 +112,19 @@ gold_samples = []
 dev_samples = []
 test_samples = []
 
-with gzip.open(sts_dataset_path, "rt", encoding="utf8") as fIn:
-    reader = csv.DictReader(fIn, delimiter="\t", quoting=csv.QUOTE_NONE)
-    for row in reader:
-        score = float(row["score"]) / 5.0  # Normalize score to range 0 ... 1
+for row in dataset["validation"]:
+    score = float(row["score"]) / 5.0  # Normalize score to range 0 ... 1
+    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
 
-        if row["split"] == "dev":
-            dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
-        elif row["split"] == "test":
-            test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
-        else:
-            # As we want to get symmetric scores, i.e. CrossEncoder(A,B) = CrossEncoder(B,A), we pass both combinations to the train set
-            gold_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
-            gold_samples.append(InputExample(texts=[row["sentence2"], row["sentence1"]], label=score))
+for row in dataset["test"]:
+    score = float(row["score"]) / 5.0
+    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+
+for row in dataset["train"]:
+    score = float(row["score"]) / 5.0
+    # As we want to get symmetric scores, i.e. CrossEncoder(A,B) = CrossEncoder(B,A), we pass both combinations to the train set
+    gold_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
+    gold_samples.append(InputExample(texts=[row["sentence2"], row["sentence1"]], label=score))
 
 
 # We wrap gold_samples (which is a List[InputExample]) into a pytorch DataLoader
