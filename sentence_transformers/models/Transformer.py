@@ -15,9 +15,7 @@ except ImportError:
     from typing_extensions import Self
 
 import torch
-from packaging.version import parse as parse_version
 from transformers import AutoConfig, AutoModel, AutoTokenizer, MT5Config, PretrainedConfig, T5Config
-from transformers import __version__ as transformers_version
 from transformers.utils.import_utils import is_peft_available
 from transformers.utils.peft_utils import find_adapter_config_file
 
@@ -26,13 +24,24 @@ from sentence_transformers.models.InputModule import InputModule
 if TYPE_CHECKING and is_peft_available():
     from peft import PeftConfig
 
-if parse_version(transformers_version) >= parse_version("5.0.0dev0"):
+try:
     from transformers import T5Gemma2Config
-else:
+except ImportError:
+
     class T5Gemma2Config:
         pass
 
+
+try:
+    from transformers import T5GemmaConfig
+except ImportError:
+
+    class T5GemmaConfig:
+        pass
+
+
 logger = logging.getLogger(__name__)
+
 
 def _save_pretrained_wrapper(_save_pretrained_fn: Callable, subfolder: str) -> Callable[..., None]:
     def wrapper(save_directory: str | Path, **kwargs) -> None:
@@ -200,6 +209,8 @@ class Transformer(InputModule):
                 self._load_t5_model(model_name_or_path, config, cache_dir, **model_args)
             elif isinstance(config, MT5Config):
                 self._load_mt5_model(model_name_or_path, config, cache_dir, **model_args)
+            elif isinstance(config, T5GemmaConfig):
+                self._load_t5gemma_model(model_name_or_path, config, cache_dir, **model_args)
             elif isinstance(config, T5Gemma2Config):
                 self._load_t5gemma2_model(model_name_or_path, config, cache_dir, **model_args)
             else:
@@ -241,13 +252,28 @@ class Transformer(InputModule):
             model_name_or_path, config=config, cache_dir=cache_dir, **model_args
         )
 
-    def _load_t5gemma2_model(self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args) -> None:
-        """Loads the encoder model from T5Gemma2"""
-        from transformers import T5Gemma2Model
+    def _load_t5gemma_model(
+        self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args
+    ) -> None:
+        """Loads the encoder model from T5Gemma"""
+        from transformers import T5GemmaEncoderModel
 
-        self.auto_model = T5Gemma2Model.from_pretrained(
+        config.is_encoder_decoder = False
+        T5GemmaEncoderModel._keys_to_ignore_on_load_unexpected = ["decoder.*"]
+        self.auto_model = T5GemmaEncoderModel.from_pretrained(
             model_name_or_path, config=config, cache_dir=cache_dir, **model_args
-        ).get_encoder()
+        )
+
+    def _load_t5gemma2_model(
+        self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args
+    ) -> None:
+        """Loads the encoder model from T5Gemma2"""
+        from transformers import T5Gemma2Encoder
+
+        T5Gemma2Encoder._keys_to_ignore_on_load_unexpected = ["decoder.*"]
+        self.auto_model = T5Gemma2Encoder.from_pretrained(
+            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+        )
 
     def __repr__(self) -> str:
         return f"Transformer({dict(self.get_config_dict(), architecture=self.auto_model.__class__.__name__)})"
@@ -317,21 +343,7 @@ class Transformer(InputModule):
         except AttributeError:
             text_config = self.auto_model.config
 
-        # Try hidden_sizes list (e.g., ResNet, some vision models)
-        if hasattr(text_config, "hidden_sizes"):
-            if isinstance(text_config.hidden_sizes, list):
-                return text_config.hidden_sizes[-1]  # Use final layer dimension
-            return text_config.hidden_sizes
-        elif hasattr(text_config, "hidden_size"):
-            return text_config.hidden_size
-
-        # Unable to determine dimension
-        raise ValueError(
-            f"Could not determine embedding dimension from model config. "
-            f"Config type: {type(text_config).__name__}. "
-            f"Available attributes: {[attr for attr in dir(text_config) if 'hidden' in attr.lower() or 'size' in attr.lower() or 'dim' in attr.lower()]}. "
-            f"Please report this issue with your model name: {self.auto_model.config.model_type if hasattr(self.auto_model.config, 'model_type') else 'unknown'}"
-        )
+        return text_config.hidden_size
 
     def tokenize(
         self, texts: list[str] | list[dict] | list[tuple[str, str]], padding: str | bool = True
