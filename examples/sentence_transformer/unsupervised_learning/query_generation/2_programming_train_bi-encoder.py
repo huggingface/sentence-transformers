@@ -20,7 +20,7 @@ from sentence_transformers.trainer import SentenceTransformerTrainer
 from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
 
 train_examples = []
-with open("generated_queries.tsv") as fIn:
+with open("generated_queries.tsv", encoding="utf-8") as fIn:
     for line in fIn:
         query, paragraph = line.strip().split("\t", maxsplit=1)
         train_examples.append({"sentence1": query, "sentence2": paragraph})
@@ -46,7 +46,7 @@ args = SentenceTransformerTrainingArguments(
     output_dir="output/programming-model",
     num_train_epochs=num_epochs,
     per_device_train_batch_size=batch_size,
-    warmup_steps=0.1,
+    warmup_ratio=0.1,
     learning_rate=2e-5,
     save_strategy="no",
     logging_steps=0.01,
