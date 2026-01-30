@@ -5,14 +5,12 @@ Usage:
 python eval_askubuntu.py [sbert_model_name_or_path]
 """
 
-import gzip
 import logging
-import os
 import sys
 
 from datasets import load_dataset
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.evaluation import RerankingEvaluator
 
 # Set the log level to INFO to get more information
@@ -21,34 +19,13 @@ logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:
 model = SentenceTransformer(sys.argv[1])
 
 
-# Download AskUbuntu and extract training corpus
-askubuntu_folder = "data/askubuntu"
-training_corpus = os.path.join(askubuntu_folder, "train.unsupervised.txt")
-
-
-# Download the AskUbuntu dataset from https://github.com/taolei87/askubuntu
-for filename in ["text_tokenized.txt.gz", "dev.txt", "test.txt", "train_random.txt"]:
-    filepath = os.path.join(askubuntu_folder, filename)
-    if not os.path.exists(filepath):
-        util.http_get("https://github.com/taolei87/askubuntu/raw/master/" + filename, filepath)
-
-# Read the corpus
-corpus = {}
-dev_test_ids = set()
-with gzip.open(os.path.join(askubuntu_folder, "text_tokenized.txt.gz"), "rt", encoding="utf8") as fIn:
-    for line in fIn:
-        id, title, *_ = line.strip().split("\t")
-        corpus[id] = title
-
-
-# Read dev & test dataset
-dataset = load_dataset("sentence-transformers/askubuntu")
-dev_dataset = dataset["dev"]
-test_dataset = dataset["test"]
-
+# Read datasets
+train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train")
+test_dataset = load_dataset("sentence-transformers/askubuntu", split="test")
+eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev")
 
 # Create a dev evaluator
-dev_evaluator = RerankingEvaluator(dev_dataset, name="AskUbuntu dev")
+dev_evaluator = RerankingEvaluator(eval_dataset, name="AskUbuntu dev")
 
 logging.info("Dev performance")
 dev_evaluator(model)

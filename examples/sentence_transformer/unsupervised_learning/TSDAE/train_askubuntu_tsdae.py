@@ -5,7 +5,7 @@ import random
 import traceback
 from datetime import datetime
 
-from datasets import Dataset, load_dataset
+from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer, models, util
 from sentence_transformers.evaluation import RerankingEvaluator
@@ -33,34 +33,10 @@ model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 # model.max_seq_length = max_seq_length
 
 
-# 2. Download the AskUbuntu dataset from https://github.com/taolei87/askubuntu
-askubuntu_folder = "data/askubuntu"
-result_folder = "output/askubuntu-tsdae-" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-batch_size = 8
-
-for filename in ["text_tokenized.txt.gz", "dev.txt", "test.txt", "train_random.txt"]:
-    filepath = os.path.join(askubuntu_folder, filename)
-    if not os.path.exists(filepath):
-        util.http_get("https://github.com/taolei87/askubuntu/raw/master/" + filename, filepath)
-
-# Read the corpus
-corpus = {}
-dev_test_ids = set()
-with gzip.open(os.path.join(askubuntu_folder, "text_tokenized.txt.gz"), "rt", encoding="utf8") as fIn:
-    for line in fIn:
-        id, title, *_ = line.strip().split("\t")
-        corpus[id] = title
-
-
-# Read dev & test dataset
-dataset = load_dataset("sentence-transformers/askubuntu")
-dev_dataset = dataset["dev"]
-test_dataset = dataset["test"]
-
-# Now we need a list of train sentences.
-# In this example we simply use all sentences that don't appear in the train/dev set
-train_sentences = [sentence for id, sentence in corpus.items() if id not in dev_test_ids]
-train_dataset = Dataset.from_dict({"text": train_sentences})
+# 2. Read datasets
+train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train")
+test_dataset = load_dataset("sentence-transformers/askubuntu", split="test")
+eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev")
 
 
 def noise_transform(batch, del_ratio=0.6):

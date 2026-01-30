@@ -1,12 +1,10 @@
-import gzip
 import logging
-import os
 from datetime import datetime
 
 import torch
 from datasets import load_dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation, losses, models, util
+from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation, losses, models
 
 # Just some code to print debug information to stdout
 logging.basicConfig(
@@ -22,43 +20,15 @@ pos_neg_ratio = 8  # batch_size must be devisible by pos_neg_ratio
 max_seq_length = 75
 num_epochs = 1
 
-# Download AskUbuntu and extract training corpus
-askubuntu_folder = "askubuntu"
 output_path = "output/train_askubuntu_ct-{}-{}-{}".format(
     model_name, batch_size, datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 )
+# Read datasets
+train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train")
+test_dataset = load_dataset("sentence-transformers/askubuntu", split="test")
+eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev")
 
-# Download the AskUbuntu dataset from https://github.com/taolei87/askubuntu
-for filename in ["text_tokenized.txt.gz", "dev.txt", "test.txt", "train_random.txt"]:
-    filepath = os.path.join(askubuntu_folder, filename)
-    if not os.path.exists(filepath):
-        util.http_get("https://github.com/taolei87/askubuntu/raw/master/" + filename, filepath)
-
-# Read the corpus
-corpus = {}
-dev_test_ids = set()
-with gzip.open(os.path.join(askubuntu_folder, "text_tokenized.txt.gz"), "rt", encoding="utf8") as fIn:
-    for line in fIn:
-        splits = line.strip().split("\t")
-        id = splits[0]
-        title = splits[1]
-        corpus[id] = title
-
-
-# Read dev & test dataset
-dataset = load_dataset("sentence-transformers/askubuntu")
-dev_dataset = dataset["dev"]
-test_dataset = dataset["test"]
-
-
-# Now we need a list of train sentences.
-# In this example we simply use all sentences that don't appear in the train/dev set
-train_sentences = []
-for id, sentence in corpus.items():
-    if id not in dev_test_ids:
-        train_sentences.append(sentence)
-
-logging.info(f"{len(train_sentences)} train sentences")
+logging.info(f"{len(train_dataset)} train sentences")
 
 # Initialize an SBERT model
 
@@ -70,14 +40,14 @@ model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 # For ContrastiveTension we need a special data loader to construct batches with the desired properties
 train_dataloader = losses.ContrastiveTensionDataLoader(
-    train_sentences, batch_size=batch_size, pos_neg_ratio=pos_neg_ratio
+    train_dataset, batch_size=batch_size, pos_neg_ratio=pos_neg_ratio
 )
 
 # As loss, we losses.ContrastiveTensionLoss
 train_loss = losses.ContrastiveTensionLoss(model)
 
 # Create a dev evaluator
-dev_evaluator = evaluation.RerankingEvaluator(dev_dataset, name="AskUbuntu dev")
+dev_evaluator = evaluation.RerankingEvaluator(eval_dataset, name="AskUbuntu dev")
 test_evaluator = evaluation.RerankingEvaluator(test_dataset, name="AskUbuntu test")
 
 
