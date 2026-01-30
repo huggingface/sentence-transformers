@@ -6,25 +6,27 @@ from datasets import load_dataset
 
 from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.trainer import SentenceTransformerTrainer
+from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
-#### /print debug information to stdout
+# /print debug information to stdout
 
-## Training parameters
+# Training parameters
 model_name = "distilbert-base-uncased"
 batch_size = 16
 pos_neg_ratio = 8  # batch_size must be divisible by pos_neg_ratio
-epochs = 1
+num_epochs = 1
 max_seq_length = 75
 
 # Save path to store our model
-model_save_path = "output/train_stsb_ct-{}-{}".format(model_name, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+output_dir = "output/train_stsb_ct-{}-{}".format(model_name, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
 
 
-################# Train sentences #################
+# Train sentences
 # We use 1 Million sentences from Wikipedia to train our model
 wikipedia_dataset = load_dataset("sentence-transformers/wiki1m-for-simcse", split="train")
 
@@ -46,35 +48,40 @@ for row in sts_dataset["test"]:
 dev_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(dev_samples, name="sts-dev")
 test_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(test_samples, name="sts-test")
 
-################# Initialize an SBERT model #################
+# Initialize an SBERT model
 word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
-
-# For ContrastiveTension we need a special data loader to construct batches with the desired properties
-train_dataloader = losses.ContrastiveTensionDataLoader(
-    train_sentences, batch_size=batch_size, pos_neg_ratio=pos_neg_ratio
-)
-
-# As loss, we losses.ContrastiveTensionLoss
+# As loss, we use ContrastiveTensionLoss
 train_loss = losses.ContrastiveTensionLoss(model)
 
-
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    evaluator=dev_evaluator,
-    epochs=1,
-    evaluation_steps=1000,
-    weight_decay=0,
+# Prepare the training arguments
+args = SentenceTransformerTrainingArguments(
+    output_dir=output_dir,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=batch_size,
     warmup_steps=0,
-    optimizer_class=torch.optim.RMSprop,
-    optimizer_params={"lr": 1e-5},
-    output_path=model_save_path,
-    use_amp=False,  # Set to True, if your GPU has optimized FP16 cores
+    learning_rate=1e-5,
+    weight_decay=0,
+    eval_strategy="steps",
+    eval_steps=1000,
+    save_strategy="steps",
+    save_steps=1000,
+    logging_steps=100,
+    fp16=False,  # Set to True, if your GPU has optimized FP16 cores
+    optim="rmsprop",
 )
 
-########### Load the model and evaluate on test set
+# Train the model
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+    evaluator=dev_evaluator,
+)
+trainer.train()
 
-model = SentenceTransformer(model_save_path)
+logging.info("Evaluating on test set")
 test_evaluator(model)
