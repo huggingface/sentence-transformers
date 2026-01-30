@@ -138,11 +138,16 @@ class MultipleNegativesRankingLoss(nn.Module):
         # Create a mask for each anchor to each candidate index, where the matching positive
         # and hard negatives are masked out.
         mask = ~torch.eye(batch_size, dtype=torch.bool).repeat(1, num_columns)
-        if self.num_negatives is not None and self.num_negatives < len(candidates_flattened):
+
+        # Valid negatives for each anchor are all candidates except the ones that are the positive or hard negatives
+        # And num_columns = 1(positive) + num_hard_negatives
+        valid_negative_num = len(candidates_flattened) - num_columns
+
+        if self.num_negatives is not None and self.num_negatives < valid_negative_num:
             # From the remaining options, we randomly select num_negatives indices.
             negative_indices = torch.multinomial(mask.float(), self.num_negatives)
         else:
-            # If num_negatives is None or larger than the number of candidates, we select all negatives
+            # If num_negatives is None or larger than the number of valid negatives, we select all negatives
             # by using the mask as a slicer to get the indices of the negative candidates
             all_indices = torch.arange(batch_size * num_columns).repeat(batch_size, 1)
             negative_indices = all_indices[mask].reshape(batch_size, -1)
