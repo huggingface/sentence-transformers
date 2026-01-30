@@ -192,6 +192,27 @@ def to_scipy_coo(x: Tensor) -> coo_matrix:
     return coo_matrix((values, (indices[0], indices[1])), shape=x.shape)
 
 
+def pad_and_stack(tensors, pad_value):
+    """
+    Given a list of 1D tensors, pads tokens to maximum seq len in the batch with pad_value
+
+    Args:
+        tensors: Input ids tensor to pad
+        pad_value: PAD token id
+
+    Returns:
+        torch.Tensor: A 2D padded tensor of input ids
+    """
+    if not tensors:
+        return None
+    if tensors[0].dim() == 1:
+        return torch.nn.utils.rnn.pad_sequence(tensors, batch_first=True, padding_value=pad_value)
+    sizes = [t.size(0) for t in tensors]
+    maxL = max(sizes)
+    padded = [torch.nn.functional.pad(t, (0, maxL - t.size(0), 0, maxL - t.size(0)), value=pad_value) for t in tensors]
+    return torch.stack(padded, dim=0)
+
+
 def compute_count_vector(embeddings: torch.Tensor) -> torch.Tensor:
     """
     Compute count vector from sparse embeddings indicating how many samples have non-zero values in each dimension.
