@@ -3,15 +3,19 @@ import logging
 import os
 from datetime import datetime
 
-from torch.utils.data import DataLoader
+from datasets import Dataset
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, evaluation, losses, models, util
+from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation, losses, models, util
+from sentence_transformers.trainer import SentenceTransformerTrainer
+from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
+    format="%(asctime)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+    handlers=[LoggingHandler()],
 )
-#### /print debug information to stdout
 
 # Some training parameters. For the example, we use a batch_size of 128, a max sentence length (max_seq_length)
 # of 32 word pieces and as model roberta-base
@@ -20,13 +24,13 @@ batch_size = 128
 max_seq_length = 32
 num_epochs = 1
 
-################# Download AskUbuntu and extract training corpus  #################
+# Download AskUbuntu and extract training corpus
 askubuntu_folder = "data/askubuntu"
 output_path = "output/askubuntu-simcse-{}-{}-{}".format(
     model_name, batch_size, datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 )
 
-## Download the AskUbuntu dataset from https://github.com/taolei87/askubuntu
+# Download the AskUbuntu dataset from https://github.com/taolei87/askubuntu
 for filename in ["text_tokenized.txt.gz", "dev.txt", "test.txt", "train_random.txt"]:
     filepath = os.path.join(askubuntu_folder, filename)
     if not os.path.exists(filepath):
@@ -55,13 +59,11 @@ def read_eval_dataset(filepath):
             relevant_id = relevant_id.split(" ")
             candidate_ids = candidate_ids.split(" ")
             negative_ids = set(candidate_ids) - set(relevant_id)
-            dataset.append(
-                {
-                    "query": corpus[query_id],
-                    "positive": [corpus[pid] for pid in relevant_id],
-                    "negative": [corpus[pid] for pid in negative_ids],
-                }
-            )
+            dataset.append({
+                "query": corpus[query_id],
+                "positive": [corpus[pid] for pid in relevant_id],
+                "negative": [corpus[pid] for pid in negative_ids],
+            })
             dev_test_ids.add(query_id)
             dev_test_ids.update(candidate_ids)
     return dataset
@@ -71,16 +73,17 @@ dev_dataset = read_eval_dataset(os.path.join(askubuntu_folder, "dev.txt"))
 test_dataset = read_eval_dataset(os.path.join(askubuntu_folder, "test.txt"))
 
 
-## Now we need a list of train sentences.
-## In this example we simply use all sentences that don't appear in the train/dev set
+# Now we need a list of train sentences.
+# In this example we simply use all sentences that don't appear in the train/dev set
 train_sentences = []
 for id, sentence in corpus.items():
     if id not in dev_test_ids:
-        train_sentences.append(InputExample(texts=[sentence, sentence]))
+        train_sentences.append({"sentence1": sentence, "sentence2": sentence})
 
 logging.info(f"{len(train_sentences)} train sentences")
+train_dataset = Dataset.from_list(train_sentences)
 
-################# Initialize an SBERT model #################
+# Initialize an SBERT model
 
 
 word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
@@ -94,10 +97,8 @@ pooling_model = models.Pooling(
 )
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
-################# Train the model #################
 
 # As Loss function, we use MultipleNegativesRankingLoss
-train_dataloader = DataLoader(train_sentences, batch_size=batch_size, shuffle=True, drop_last=True)
 train_loss = losses.MultipleNegativesRankingLoss(model)
 
 # Create a dev evaluator
@@ -107,23 +108,49 @@ test_evaluator = evaluation.RerankingEvaluator(test_dataset, name="AskUbuntu tes
 logging.info("Dev performance before training")
 dev_evaluator(model)
 
-warmup_steps = int(num_epochs * len(train_dataloader) * 0.1)
+# Warmup: 10% of steps
+steps_per_epoch = len(train_dataset) // batch_size
+warmup_steps = int(num_epochs * steps_per_epoch * 0.1)
 
-logging.info("Start training")
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    evaluator=dev_evaluator,
-    evaluation_steps=100,
-    epochs=num_epochs,
-    warmup_steps=warmup_steps,
-    output_path=output_path,
-    show_progress_bar=True,
-    use_amp=True,  # If your GPU does not have FP16 cores, set use_amp=False
+# Prepare training arguments
+args = SentenceTransformerTrainingArguments(
+    output_dir=output_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=batch_size,
+    warmup_steps=0.1,
+    eval_steps=0.1,
+    logging_steps=0.01,
+    learning_rate=5e-5,
+    save_strategy="no",
+    fp16=True,  # If your GPU does not have FP16 cores, set fp16=False
 )
 
-latest_output_path = output_path + "-latest"
-model.save(latest_output_path)
+# Train the model
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    evaluator=dev_evaluator,
+    loss=train_loss,
+)
 
-### Run test evaluation on the latest model. This is equivalent to not having a dev dataset
-model = SentenceTransformer(latest_output_path)
+logging.info("Start training")
+trainer.train()
+
+# Run test evaluation
 test_evaluator(model)
+
+latest_output_path = output_path + "-latest"
+model.save_pretrained(latest_output_path)
+
+# (Optional) save the model to the Hugging Face Hub!
+# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
+try:
+    model.push_to_hub(f"{model_name}-simcse")
+except Exception:
+    logging.error(
+        f"Error uploading model to the Hugging Face Hub:\nTo upload it manually, you can run "
+        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({latest_output_path!r})` "
+        f"and saving it using `model.push_to_hub('{model_name}-simcse')`."
+    )
