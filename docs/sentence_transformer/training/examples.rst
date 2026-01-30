@@ -18,6 +18,7 @@ Training Examples
    ../../../examples/sentence_transformer/training/data_augmentation/README
    ../../../examples/sentence_transformer/training/prompts/README
    ../../../examples/sentence_transformer/training/peft/README
+   ../../../examples/sentence_transformer/training/unsloth/README
 
 .. toctree::
    :maxdepth: 1
