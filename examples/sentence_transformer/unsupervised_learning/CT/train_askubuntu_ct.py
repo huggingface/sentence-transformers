@@ -23,10 +23,22 @@ num_epochs = 1
 output_path = "output/train_askubuntu_ct-{}-{}-{}".format(
     model_name, batch_size, datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 )
+
+
 # Read datasets
-train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train")
-test_dataset = load_dataset("sentence-transformers/askubuntu", split="test")
-eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev")
+test_dataset = load_dataset("sentence-transformers/askubuntu", split="test").filter(lambda x: x["positive"])
+eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev").filter(lambda x: x["positive"])
+
+dev_or_test_questions = set()
+
+for df in (eval_dataset, test_dataset):
+    dev_or_test_questions.update(df["query"])
+    dev_or_test_questions.update(q for xs in df["positive"] for q in xs)
+    dev_or_test_questions.update(q for xs in df["negative"] for q in xs)
+
+train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train").filter(
+    lambda x: x["text"] not in dev_or_test_questions
+)
 
 logging.info(f"{len(train_dataset)} train sentences")
 

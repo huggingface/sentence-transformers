@@ -1,13 +1,11 @@
-import gzip
 import logging
-import os
 import random
 import traceback
 from datetime import datetime
 
 from datasets import load_dataset
 
-from sentence_transformers import SentenceTransformer, models, util
+from sentence_transformers import SentenceTransformer, models
 from sentence_transformers.evaluation import RerankingEvaluator
 from sentence_transformers.losses import DenoisingAutoEncoderLoss
 from sentence_transformers.trainer import SentenceTransformerTrainer
@@ -34,9 +32,21 @@ model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 
 # 2. Read datasets
-train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train")
-test_dataset = load_dataset("sentence-transformers/askubuntu", split="test")
-eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev")
+test_dataset = load_dataset("sentence-transformers/askubuntu", split="test").filter(lambda x: x["positive"])
+eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev").filter(lambda x: x["positive"])
+
+dev_or_test_questions = set()
+
+for df in (eval_dataset, test_dataset):
+    dev_or_test_questions.update(df["query"])
+    dev_or_test_questions.update(q for xs in df["positive"] for q in xs)
+    dev_or_test_questions.update(q for xs in df["negative"] for q in xs)
+
+train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train").filter(
+    lambda x: x["text"] not in dev_or_test_questions
+)
+
+logging.info(f"{len(train_dataset)} train sentences")
 
 
 def noise_transform(batch, del_ratio=0.6):

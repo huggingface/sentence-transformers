@@ -20,9 +20,8 @@ model = SentenceTransformer(sys.argv[1])
 
 
 # Read datasets
-train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train")
-test_dataset = load_dataset("sentence-transformers/askubuntu", split="test")
-eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev")
+test_dataset = load_dataset("sentence-transformers/askubuntu", split="test").filter(lambda x: x["positive"])
+eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev").filter(lambda x: x["positive"])
 
 # Create a dev evaluator
 dev_evaluator = RerankingEvaluator(eval_dataset, name="AskUbuntu dev")
