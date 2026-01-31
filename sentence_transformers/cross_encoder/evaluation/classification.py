@@ -108,7 +108,10 @@ class CrossEncoderClassificationEvaluator(SentenceEvaluator):
 
         logger.info(f"CrossEncoderClassificationEvaluator: Evaluating the model on {self.name} dataset{out_txt}:")
         pred_scores = model.predict(
-            self.sentence_pairs, convert_to_numpy=True, show_progress_bar=self.show_progress_bar
+            self.sentence_pairs,
+            batch_size=self.batch_size,
+            convert_to_numpy=True,
+            show_progress_bar=self.show_progress_bar,
         )
 
         if model.num_labels == 1:
