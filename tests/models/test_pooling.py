@@ -89,8 +89,19 @@ def test_pooling_forward_all_strategies(pooling_mode: str) -> None:
         dtype=torch.int64,
     )
 
+    # Set input IDs to a mix of 0/1/−1 to test LMK pooling. Since the default LMK token ID is −1, pooling should occur over positions with value −1.
+    input_ids = torch.tensor(
+        [
+            [1, 1, -1, 0, 0],
+            [0, 1, -1, 1, 0],
+            [1, -1, 1, -1, 1],
+        ],
+        dtype=torch.int64,
+    )
+
     features = {
         "token_embeddings": token_embeddings,
+        "input_ids": input_ids,
         "attention_mask": attention_mask,
     }
 
@@ -122,6 +133,46 @@ def test_pooling_cls_uses_cls_token_embeddings() -> None:
     sentence_embedding = outputs["sentence_embedding"]
 
     assert torch.allclose(sentence_embedding, cls_token_embeddings)
+
+
+def test_pooling_lmk_uses_lmk_token_embeddings() -> None:
+    dim = 4
+    lmk_token_id = 69
+    pooling = Pooling(word_embedding_dimension=dim, pooling_mode="lmk", lmk_token_id=lmk_token_id)
+
+    batch_size, seq_len = 3, 3
+    token_embeddings = torch.randn(batch_size, seq_len, dim)
+    attention_mask = torch.ones(batch_size, seq_len, dtype=torch.int64)
+    # Set input IDs to a mix of 0/1/lmk_token_id to test LMK pooling. LMK Pooling should pool embeddings over lmk_token_id
+    input_ids = torch.tensor(
+        [
+            [lmk_token_id, 0, 1],
+            [0, lmk_token_id, lmk_token_id],
+            [lmk_token_id, lmk_token_id, lmk_token_id],
+        ],
+        dtype=torch.int64,
+    )
+
+    features = {
+        "token_embeddings": token_embeddings,
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+    }
+
+    outputs = pooling(features)
+    sentence_embedding = outputs["sentence_embedding"]
+
+    # LMK Expected Embeddings: mean over LMK token embeddings per sample
+    lmk_token_embeddings = torch.stack(
+        [
+            token_embeddings[0, [0]].mean(dim=0),  # sample 0: pos [0]
+            token_embeddings[1, [1, 2]].mean(dim=0),  # sample 1: pos [1, 2]
+            token_embeddings[2, [0, 1, 2]].mean(dim=0),  # sample 2: pos [0, 1, 2]
+        ],
+        dim=0,
+    )
+
+    assert torch.allclose(sentence_embedding, lmk_token_embeddings)
 
 
 def test_pooling_max_respects_attention_mask() -> None:
