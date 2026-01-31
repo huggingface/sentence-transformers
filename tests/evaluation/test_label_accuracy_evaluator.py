@@ -22,15 +22,23 @@ from sentence_transformers import (
 def test_LabelAccuracyEvaluator(paraphrase_distilroberta_base_v1_model: SentenceTransformer, tmp_path: Path) -> None:
     """Tests that the LabelAccuracyEvaluator can be loaded correctly"""
     model = paraphrase_distilroberta_base_v1_model
-    nli_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split="train")
-    # We are converting the integer labels to the string labels becausethe dataset labels and function labels are different.
-    int2label = {0: "entailment", 1: "neutral", 2: "contradiction"}
 
+    max_dev_samples = 100
+    nli_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split="train").select(
+        range(max_dev_samples)
+    )
+
+    # HF dataset label IDs differ from legacy label IDs used by the classifier head,
+    # so we remap HF labels to legacy IDs explicitly.
+    hf_int2label = {0: "entailment", 1: "neutral", 2: "contradiction"}
     label2int = {"contradiction": 0, "entailment": 1, "neutral": 2}
+
+    def hf_label_to_legacy(hf_label: int) -> int:
+        return label2int[hf_int2label[hf_label]]
+
     dev_samples = []
     for row in nli_dataset["train"]:
-        label_name = int2label[row["label"]]
-        label_id = label2int[label_name]
+        label_id = hf_label_to_legacy(row["label"])
 
         dev_samples.append(
             InputExample(
@@ -38,9 +46,6 @@ def test_LabelAccuracyEvaluator(paraphrase_distilroberta_base_v1_model: Sentence
                 label=label_id,
             )
         )
-
-        if len(dev_samples) >= 100:
-            break
 
     train_loss = losses.SoftmaxLoss(
         model=model,
