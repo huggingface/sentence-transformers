@@ -114,7 +114,7 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
         are sampled from the batch. Using in-batch negative sampling gives a stronger training signal than the original :class:`ContrastiveTensionLoss`.
         The performance usually increases with increasing batch sizes.
 
-        Each `InputExample` instance must contain a single text.
+        The training :class:`datasets.Dataset` must contain one text column.
 
         Args:
             model: SentenceTransformer model
