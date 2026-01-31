@@ -35,11 +35,11 @@ class ContrastiveTensionLoss(nn.Module):
         * `Unsupervised Learning > CT <../../../examples/sentence_transformer/unsupervised_learning/CT/README.html>`_
 
     Inputs:
-        +------------------+--------+
-        | Texts            | Labels |
-        +==================+========+
-        | single sentences | none   |
-        +------------------+--------+
+        +================================+=========+
+        | (sentence_A, sentence_B) pairs | Labels  |
+        +================================+=========+
+        | (sentence_A, sentence_B) pairs | None    |
+        +================================+=========+
 
     Relations:
         * :class:`ContrastiveTensionLossInBatchNegatives` uses in-batch negative sampling, which gives a stronger training signal than this loss.
@@ -49,28 +49,39 @@ class ContrastiveTensionLoss(nn.Module):
 
             from sentence_transformers import SentenceTransformer, losses
             from sentence_transformers.losses import ContrastiveTensionDataLoader
+            from datasets import Dataset
+            from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+            from sentence_transformers.trainer import SentenceTransformerTrainer
 
             model = SentenceTransformer('all-MiniLM-L6-v2')
-            train_examples = [
-                'This is the 1st sentence',
-                'This is the 2nd sentence',
-                'This is the 3rd sentence',
-                'This is the 4th sentence',
-                'This is the 5th sentence',
-                'This is the 6th sentence',
-                'This is the 7th sentence',
-                'This is the 8th sentence',
-                'This is the 9th sentence',
-                'This is the final sentence',
-            ]
+            train_dataset = Dataset.from_dict({
+                "sentence_A": [
+                    "It's nice weather outside today.",
+                    "He drove to work.",
+                    "It's so sunny.",
+                ]
+                "sentence_B": [
+                    "It's nice weather outside today.",
+                    "He drove to work.",
+                    "It's so sunny.",
+                ]
+                })
 
-            train_dataloader = ContrastiveTensionDataLoader(train_examples, batch_size=3, pos_neg_ratio=3)
+            train_dataloader = ContrastiveTensionDataLoader(train_dataset, batch_size=3, pos_neg_ratio=3)
             train_loss = losses.ContrastiveTensionLoss(model=model)
 
-            model.fit(
-                [(train_dataloader, train_loss)],
-                epochs=10,
+            args = SentenceTransformerTrainingArguments(
+                num_train_epochs=10,
+                per_device_train_batch_size=32,
+                warmup_steps=0.1,
+                eval_steps=0.1,
+                logging_steps=0.01,
+                learning_rate=5e-5,
+                save_strategy="no",
+                fp16=True,
             )
+            trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=train_dataset, loss=train_loss)
+            trainer.train()
     """
 
     def __init__(self, model: SentenceTransformer) -> None:
@@ -79,7 +90,7 @@ class ContrastiveTensionLoss(nn.Module):
         self.model1 = copy.deepcopy(model)
         self.criterion = nn.BCEWithLogitsLoss(reduction="sum")
 
-    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
+    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor = None) -> Tensor:
         sentence_features1, sentence_features2 = tuple(sentence_features)
         reps_1 = self.model1(sentence_features1)["sentence_embedding"]  # (bsz, hdim)
         reps_2 = self.model2(sentence_features2)["sentence_embedding"]
@@ -87,6 +98,13 @@ class ContrastiveTensionLoss(nn.Module):
         sim_scores = (
             torch.matmul(reps_1[:, None], reps_2[:, :, None]).squeeze(-1).squeeze(-1)
         )  # (bsz,) dot product, i.e. S1S2^T
+
+        if labels is None:
+            input_ids1 = sentence_features1["input_ids"]
+            input_ids2 = sentence_features2["input_ids"]
+
+            # identical sentence → 1, different → 0
+            labels = (input_ids1 == input_ids2).all(dim=1).float()
 
         loss = self.criterion(sim_scores, labels.type_as(sim_scores))
         return loss
@@ -114,8 +132,7 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
         are sampled from the batch. Using in-batch negative sampling gives a stronger training signal than the original :class:`ContrastiveTensionLoss`.
         The performance usually increases with increasing batch sizes.
 
-        Note that you should not use the `ContrastiveTensionDataLoader` for this loss, but just a normal DataLoader with `InputExample` instances.
-        The two texts of each `InputExample` instance should be identical.
+        The training :class:`datasets.Dataset` must contain one text column.
 
         Args:
             model: SentenceTransformer model
@@ -133,11 +150,11 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
             * :class:`ContrastiveTensionLoss` does not select negative pairs in-batch, resulting in a weaker training signal than this loss.
 
         Inputs:
-            +------------------------+--------+
-            | Texts                  | Labels |
-            +========================+========+
-            | (anchor, anchor) pairs | none   |
-            +------------------------+--------+
+            +------------------+--------+
+            | Texts            | Labels |
+            +==================+========+
+            | single sentences | none   |
+            +------------------+--------+
 
         Example:
             ::
@@ -146,25 +163,35 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
                 from torch.utils.data import DataLoader
 
                 model = SentenceTransformer('all-MiniLM-L6-v2')
-                train_examples = [
-                    InputExample(texts=['This is a positive pair', 'Where the distance will be minimized'], label=1),
-                    InputExample(texts=['This is a negative pair', 'Their distance will be increased'], label=0),
-                ]
-                train_examples = [
-                    InputExample(texts=['This is the 1st sentence', 'This is the 1st sentence']),
-                    InputExample(texts=['This is the 2nd sentence', 'This is the 2nd sentence']),
-                    InputExample(texts=['This is the 3rd sentence', 'This is the 3rd sentence']),
-                    InputExample(texts=['This is the 4th sentence', 'This is the 4th sentence']),
-                    InputExample(texts=['This is the 5th sentence', 'This is the 5th sentence']),
-                ]
 
-                train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=32)
+                train_dataset = Dataset.from_dict({
+                    "sentence": [
+                       "It's nice weather outside today.",
+                       "He drove to work.",
+                       "It's so sunny.",
+                    ]
+                })
+
                 train_loss = losses.ContrastiveTensionLossInBatchNegatives(model=model)
 
-                model.fit(
-                    [(train_dataloader, train_loss)],
-                    epochs=10,
+                args = SentenceTransformerTrainingArguments(
+                    num_train_epochs=10,
+                    per_device_train_batch_size=32,
+                    warmup_steps=0.1,
+                    eval_steps=0.1,
+                    logging_steps=0.01,
+                    learning_rate=5e-5,
+                    save_strategy="no",
+                    fp16=True,
                 )
+
+                trainer = SentenceTransformerTrainer(
+                    model=model,
+                    args=args,
+                    train_dataset=train_dataset,
+                    loss=train_loss,
+                )
+                trainer.train()
         """
         super().__init__()
         self.model2 = model  # This will be the final model used during the inference time.
@@ -174,9 +201,9 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(scale))
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
-        sentence_features1, sentence_features2 = tuple(sentence_features)
-        embeddings_a = self.model1(sentence_features1)["sentence_embedding"]  # (bsz, hdim)
-        embeddings_b = self.model2(sentence_features2)["sentence_embedding"]
+        sentence_features = sentence_features[0]
+        embeddings_a = self.model1(sentence_features)["sentence_embedding"]  # (bsz, hdim)
+        embeddings_b = self.model2(sentence_features)["sentence_embedding"]
 
         scores = self.similarity_fct(embeddings_a, embeddings_b) * self.logit_scale.exp()  # self.scale
         labels = torch.arange(len(scores), dtype=torch.long, device=scores.device)
@@ -195,7 +222,7 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
 """
 
 
-################# CT Data Loader #################
+# CT Data Loader
 # For CT, we need batches in a specific format
 # In each batch, we have one positive pair (i.e. [sentA, sentA]) and 7 negative pairs (i.e. [sentA, sentB]).
 # To achieve this, we create a custom DataLoader that produces batches with this property
