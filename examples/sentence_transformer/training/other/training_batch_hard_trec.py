@@ -73,7 +73,7 @@ def triplets_from_labeled_dataset(dataset):
 
     # Filter out labels with < 2 samples
     valid_labels = {k: v for k, v in label_to_indices.items() if len(v) >= 2}
-    other_labels_map = {k: [l for l in valid_labels if l != k] for k in valid_labels}
+    other_labels_map = {k: [label for label in valid_labels if label != k] for k in valid_labels}
 
     triplets = []
     for idx, (text, label) in enumerate(zip(dataset["text"], dataset["label"])):
