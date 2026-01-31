@@ -146,9 +146,9 @@ def test_pooling_lmk_uses_lmk_token_embeddings() -> None:
     # Set input IDs to a mix of 0/1/lmk_token_id to test LMK pooling. LMK Pooling should pool embeddings over lmk_token_id
     input_ids = torch.tensor(
         [
-            [69, 0, 1],
-            [0, 69, 69],
-            [69, 69, 69],
+            [lmk_token_id, 0, 1],
+            [0, lmk_token_id, lmk_token_id],
+            [lmk_token_id, lmk_token_id, lmk_token_id],
         ],
         dtype=torch.int64,
     )
