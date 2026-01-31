@@ -66,7 +66,7 @@ class LandmarkTransformer(Transformer):
             config_args=config_args,
             cache_dir=cache_dir,
         )
-        config_args = kwargs.get("config_args", {})
+        config_args = config_args or {}
 
         self.splitter_type = config_args.get("splitter_type", "fixed")
         if self.splitter_type not in {"fixed", "variable"}:
