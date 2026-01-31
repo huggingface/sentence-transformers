@@ -4,8 +4,6 @@ Tests that the pretrained models produce the correct scores on the STSbenchmark 
 
 from __future__ import annotations
 
-import csv
-import gzip
 import os
 from collections.abc import Generator
 
@@ -18,7 +16,6 @@ from sentence_transformers import (
     SentencesDataset,
     SentenceTransformer,
     losses,
-    util,
 )
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.readers import InputExample
@@ -47,21 +44,30 @@ def sts_resource() -> Generator[tuple[list[InputExample], list[InputExample]], N
 
 @pytest.fixture()
 def nli_resource() -> Generator[list[InputExample], None, None]:
-    nli_dataset_path = "datasets/AllNLI.tsv.gz"
-    if not os.path.exists(nli_dataset_path):
-        util.http_get("https://sbert.net/datasets/AllNLI.tsv.gz", nli_dataset_path)
-
-    label2int = {"contradiction": 0, "entailment": 1, "neutral": 2}
-    nli_train_samples = []
     max_train_samples = 10000
-    with gzip.open(nli_dataset_path, "rt", encoding="utf8") as f:
-        reader = csv.DictReader(f, delimiter="\t", quoting=csv.QUOTE_NONE)
-        for row in reader:
-            if row["split"] == "train":
-                label_id = label2int[row["label"]]
-                nli_train_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=label_id))
-                if len(nli_train_samples) >= max_train_samples:
-                    break
+    nli_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split="train").select(
+        range(max_train_samples)
+    )
+    # HF dataset label IDs differ from legacy label IDs used by the classifier head,
+    # so we remap HF labels to legacy IDs explicitly.
+    hf_int2label = {0: "entailment", 1: "neutral", 2: "contradiction"}
+    label2int = {"contradiction": 0, "entailment": 1, "neutral": 2}
+
+    def hf_label_to_legacy(hf_label: int) -> int:
+        return label2int[hf_int2label[hf_label]]
+
+    nli_train_samples = []
+
+    for row in nli_dataset["train"]:
+        label_id = hf_label_to_legacy(row["label"])
+
+        nli_train_samples.append(
+            InputExample(
+                texts=[row["sentence1"], row["sentence2"]],
+                label=label_id,
+            )
+        )
+
     yield nli_train_samples
 
 
