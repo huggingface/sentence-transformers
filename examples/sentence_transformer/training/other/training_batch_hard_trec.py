@@ -17,16 +17,14 @@ all sentences with the same label should be close and sentences for different la
 """
 
 import logging
-import os
 import random
 from collections import defaultdict
 from datetime import datetime
 
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, losses, util
+from sentence_transformers import LoggingHandler, SentenceTransformer, losses
 from sentence_transformers.evaluation import TripletEvaluator
-from sentence_transformers.readers import InputExample
 from sentence_transformers.trainer import SentenceTransformerTrainer
 from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
 
@@ -38,47 +36,22 @@ logging.basicConfig(
 )
 
 
-# Inspired from torchnlp
 def trec_dataset(
-    directory="datasets/trec/",
-    train_filename="train_5500.label",
-    test_filename="TREC_10.label",
     validation_dataset_nb=500,
-    urls=[
-        "https://cogcomp.seas.upenn.edu/Data/QA/QC/train_5500.label",
-        "https://cogcomp.seas.upenn.edu/Data/QA/QC/TREC_10.label",
-    ],
 ):
-    os.makedirs(directory, exist_ok=True)
+    dataset = load_dataset("omkar334/trec")
 
-    ret = []
-    for url, filename in zip(urls, [train_filename, test_filename]):
-        full_path = os.path.join(directory, filename)
-        if not os.path.exists(full_path):
-            util.http_get(url, full_path)
+    train_set = dataset["train"].remove_columns(["coarse_label"]).rename_column("fine_label", "label")
 
-        examples = []
-        label_map = {}
-        guid = 1
-        for line in open(full_path, "rb"):
-            # there is one non-ASCII byte: sisterBADBYTEcity; replaced with space
-            label, _, text = line.replace(b"\xf0", b" ").strip().decode().partition(" ")
-
-            if label not in label_map:
-                label_map[label] = len(label_map)
-
-            label_id = label_map[label]
-            guid += 1
-            examples.append(InputExample(guid=guid, texts=[text], label=label_id))
-        ret.append(examples)
-
-    train_set, test_set = ret
-    dev_set = None
+    test_set = dataset["test"].remove_columns(["coarse_label"]).rename_column("fine_label", "label")
 
     # Create a dev set from train set
     if validation_dataset_nb > 0:
-        dev_set = train_set[-validation_dataset_nb:]
-        train_set = train_set[:-validation_dataset_nb]
+        dev_set = train_set.select(range(len(train_set) - validation_dataset_nb, len(train_set)))
+        train_set = train_set.select(range(len(train_set) - validation_dataset_nb))
+
+    # Rename "text" to "sentence" for training (required by loss function)
+    train_set = train_set.rename_column("text", "sentence")
 
     # For dev & test set, we return triplets (anchor, positive, negative)
     random.seed(42)  # Fix seed, so that we always get the same triplets
@@ -88,32 +61,32 @@ def trec_dataset(
     return train_set, dev_triplets, test_triplets
 
 
-def triplets_from_labeled_dataset(input_examples):
+def triplets_from_labeled_dataset(dataset):
     # Create triplets for a [(label, sentence), (label, sentence)...] dataset
     # by using each example as an anchor and selecting randomly a
     # positive instance with the same label and a negative instance with a different label
+
+    # Pre-compute label groupings
+    label_to_indices = defaultdict(list)
+    for idx, label in enumerate(dataset["label"]):
+        label_to_indices[label].append(idx)
+
+    # Filter out labels with < 2 samples
+    valid_labels = {k: v for k, v in label_to_indices.items() if len(v) >= 2}
+    other_labels_map = {k: [l for l in valid_labels if l != k] for k in valid_labels}
+
     triplets = []
-    label2sentence = defaultdict(list)
-    for inp_example in input_examples:
-        label2sentence[inp_example.label].append(inp_example)
-
-    for inp_example in input_examples:
-        anchor = inp_example
-
-        if len(label2sentence[inp_example.label]) < 2:  # We need at least 2 examples per label to create a triplet
+    for idx, (text, label) in enumerate(zip(dataset["text"], dataset["label"])):
+        if label not in valid_labels:
             continue
 
-        positive = None
-        while positive is None or positive.guid == anchor.guid:
-            positive = random.choice(label2sentence[inp_example.label])
+        pos_idx = random.choice([i for i in valid_labels[label] if i != idx])
+        neg_label = random.choice(other_labels_map[label])
+        neg_idx = random.choice(valid_labels[neg_label])
 
-        negative = None
-        while negative is None or negative.label == anchor.label:
-            negative = random.choice(input_examples)
+        triplets.append({"anchor": text, "positive": dataset[pos_idx]["text"], "negative": dataset[neg_idx]["text"]})
 
-        triplets.append(InputExample(texts=[anchor.texts[0], positive.texts[0], negative.texts[0]]))
-
-    return triplets
+    return Dataset.from_list(triplets)
 
 
 # You can specify any huggingface/transformers pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
@@ -126,15 +99,6 @@ num_epochs = 1
 
 logging.info("Loading TREC dataset")
 train_set, dev_set, test_set = trec_dataset()
-
-# Convert InputExample list to HuggingFace Dataset with label column
-# Each InputExample has texts=[text] and label=label_id
-train_texts = [example.texts[0] for example in train_set]
-train_labels = [example.label for example in train_set]
-train_dataset = Dataset.from_dict({
-    "sentence": train_texts,
-    "label": train_labels,
-})
 
 # Load pretrained model
 logging.info("Load model")
@@ -155,37 +119,37 @@ train_loss = losses.BatchAllTripletLoss(model=model)
 
 
 logging.info("Read TREC val dataset")
-dev_evaluator = TripletEvaluator.from_input_examples(dev_set, name="trec-dev")
+dev_evaluator = TripletEvaluator(
+    anchors=dev_set["anchor"],
+    positives=dev_set["positive"],
+    negatives=dev_set["negative"],
+    name="trec-dev",
+)
 
 logging.info("Performance before fine-tuning:")
-dev_evaluator(model)
+model.evaluate(dev_evaluator)
 
-# 10% of train data
-num_train_samples = len(train_dataset)
-steps_per_epoch = num_train_samples // train_batch_size
-total_steps = steps_per_epoch * num_epochs
-warmup_steps = int(total_steps * 0.1)
 
 # Prepare the training arguments
 args = SentenceTransformerTrainingArguments(
     output_dir=output_path,
     num_train_epochs=num_epochs,
     per_device_train_batch_size=train_batch_size,
-    warmup_steps=warmup_steps,
+    warmup_ratio=0.1,
     # Use GROUP_BY_LABEL batch sampler for triplet losses that require multiple samples per label
     batch_sampler=BatchSamplers.GROUP_BY_LABEL,
     eval_strategy="steps",
     eval_steps=1000,
-    save_strategy="steps",
-    save_steps=1000,
-    logging_steps=100,
+    # save_strategy="steps",
+    # save_steps=0.001,
+    logging_steps=0.01,
 )
 
 # Train the model
 trainer = SentenceTransformerTrainer(
     model=model,
     args=args,
-    train_dataset=train_dataset,
+    train_dataset=train_set,
     loss=train_loss,
     evaluator=dev_evaluator,
 )
@@ -194,5 +158,10 @@ trainer.train()
 # Load the stored model and evaluate its performance on TREC dataset
 
 logging.info("Evaluating model on test set")
-test_evaluator = TripletEvaluator.from_input_examples(test_set, name="trec-test")
+test_evaluator = TripletEvaluator(
+    anchors=test_set["anchor"],
+    positives=test_set["positive"],
+    negatives=test_set["negative"],
+    name="trec-test",
+)
 model.evaluate(test_evaluator)
