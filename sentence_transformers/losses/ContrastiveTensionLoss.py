@@ -22,9 +22,6 @@ class ContrastiveTensionLoss(nn.Module):
     second sentence. The embeddings are compared and scored using the generated labels (1 if positive, 0 if negative) using the binary cross
     entropy objective.
 
-    Note that you must use the `ContrastiveTensionDataLoader` for this loss. The `pos_neg_ratio` of the ContrastiveTensionDataLoader can be
-    used to determine the number of negative pairs per positive pair.
-
     Generally, :class:`ContrastiveTensionLossInBatchNegatives` is recommended over this loss, as it gives a stronger training signal.
 
     Args:
@@ -36,7 +33,7 @@ class ContrastiveTensionLoss(nn.Module):
 
     Inputs:
         +================================+=========+
-        | (sentence_A, sentence_B) pairs | Labels  |
+        | Texts                          | Labels  |
         +================================+=========+
         | (sentence_A, sentence_B) pairs | None    |
         +================================+=========+
@@ -45,15 +42,19 @@ class ContrastiveTensionLoss(nn.Module):
         * :class:`ContrastiveTensionLossInBatchNegatives` uses in-batch negative sampling, which gives a stronger training signal than this loss.
 
     Example:
+
+        Using a dataset with sentence pairs that sometimes are identical (positive pairs) and sometimes different (negative pairs):
+
         ::
 
-            from sentence_transformers import SentenceTransformer, losses
-            from sentence_transformers.losses import ContrastiveTensionDataLoader
+            import random
             from datasets import Dataset
+            from sentence_transformers import SentenceTransformer, losses
             from sentence_transformers.training_args import SentenceTransformerTrainingArguments
             from sentence_transformers.trainer import SentenceTransformerTrainer
 
             model = SentenceTransformer('all-MiniLM-L6-v2')
+            # The dataset pairs must sometimes contain identical sentences (positive pairs) and sometimes different sentences (negative pairs).
             train_dataset = Dataset.from_dict({
                 "sentence_A": [
                     "It's nice weather outside today.",
@@ -65,15 +66,54 @@ class ContrastiveTensionLoss(nn.Module):
                     "He drove to work.",
                     "It's so sunny.",
                 ]
-                })
-
-            train_dataloader = ContrastiveTensionDataLoader(train_dataset, batch_size=3, pos_neg_ratio=3)
+            })
             train_loss = losses.ContrastiveTensionLoss(model=model)
 
             args = SentenceTransformerTrainingArguments(
                 num_train_epochs=10,
                 per_device_train_batch_size=32,
-                warmup_steps=0.1,
+                eval_steps=0.1,
+                logging_steps=0.01,
+                learning_rate=5e-5,
+                save_strategy="no",
+                fp16=True,
+            )
+            trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=train_dataset, loss=train_loss)
+            trainer.train()
+
+        With a dataset with single sentence pairs:
+
+        ::
+
+            import random
+            from datasets import Dataset
+            from sentence_transformers import SentenceTransformer, losses
+            from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+            from sentence_transformers.trainer import SentenceTransformerTrainer
+
+            model = SentenceTransformer('all-MiniLM-L6-v2')
+            train_dataset = Dataset.from_dict({
+                "text1": [
+                    "It's nice weather outside today.",
+                    "He drove to work.",
+                    "It's so sunny.",
+                ]
+            })
+            sentences = train_dataset['text1']
+
+            def to_ct_pairs(sample, pos_neg_ratio=8):
+                pos_neg_ratio = 1 / pos_neg_ratio
+                sample["text2"] = sample["text1"] if random.random() < pos_neg_ratio else random.choice(sentences)
+                return sample
+
+            pos_neg_ratio = 8  # 1 positive pair for 7 negative pairs
+            train_dataset = train_dataset.map(to_ct_pairs, fn_kwargs={"pos_neg_ratio": pos_neg_ratio})
+
+            train_loss = losses.ContrastiveTensionLoss(model=model)
+
+            args = SentenceTransformerTrainingArguments(
+                num_train_epochs=10,
+                per_device_train_batch_size=32,
                 eval_steps=0.1,
                 logging_steps=0.01,
                 learning_rate=5e-5,
@@ -90,7 +130,7 @@ class ContrastiveTensionLoss(nn.Module):
         self.model1 = copy.deepcopy(model)
         self.criterion = nn.BCEWithLogitsLoss(reduction="sum")
 
-    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor = None) -> Tensor:
+    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None) -> Tensor:
         sentence_features1, sentence_features2 = tuple(sentence_features)
         reps_1 = self.model1(sentence_features1)["sentence_embedding"]  # (bsz, hdim)
         reps_2 = self.model2(sentence_features2)["sentence_embedding"]
@@ -100,11 +140,26 @@ class ContrastiveTensionLoss(nn.Module):
         )  # (bsz,) dot product, i.e. S1S2^T
 
         if labels is None:
+            # identical sentence -> 1, different -> 0
             input_ids1 = sentence_features1["input_ids"]
             input_ids2 = sentence_features2["input_ids"]
+            attention_mask1 = sentence_features1.get("attention_mask")
+            attention_mask2 = sentence_features2.get("attention_mask")
 
-            # identical sentence → 1, different → 0
-            labels = (input_ids1 == input_ids2).all(dim=1).float()
+            if attention_mask1 is not None and attention_mask2 is not None:
+                # Compare only non-padded tokens so sentences are considered identical even if they differ by left/right padding.
+                labels = torch.as_tensor(
+                    [
+                        torch.equal(inputs1[mask1], inputs2[mask2])
+                        for inputs1, mask1, inputs2, mask2 in zip(
+                            input_ids1, attention_mask1.bool(), input_ids2, attention_mask2.bool()
+                        )
+                    ],
+                    device=sim_scores.device,
+                    dtype=sim_scores.dtype,
+                )
+            else:
+                labels = (input_ids1 == input_ids2).all(dim=1).float()
 
         loss = self.criterion(sim_scores, labels.type_as(sim_scores))
         return loss
@@ -136,10 +191,8 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
 
         Args:
             model: SentenceTransformer model
-            scale: Output of similarity function is multiplied by scale
-                value
-            similarity_fct: similarity function between sentence
-                embeddings. By default, cos_sim. Can also be set to dot
+            scale: Output of similarity function is multiplied by scale value
+            similarity_fct: similarity function between sentence embeddings. By default, cos_sim. Can also be set to dot
                 product (and then set scale to 1)
 
         References:
@@ -160,7 +213,7 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
             ::
 
                 from sentence_transformers import SentenceTransformer, losses
-                from torch.utils.data import DataLoader
+                from datasets import Dataset
 
                 model = SentenceTransformer('all-MiniLM-L6-v2')
 
@@ -177,7 +230,6 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
                 args = SentenceTransformerTrainingArguments(
                     num_train_epochs=10,
                     per_device_train_batch_size=32,
-                    warmup_steps=0.1,
                     eval_steps=0.1,
                     logging_steps=0.01,
                     learning_rate=5e-5,
