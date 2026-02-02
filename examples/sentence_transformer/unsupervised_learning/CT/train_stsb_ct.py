@@ -1,8 +1,8 @@
 import logging
+import random
 from datetime import datetime
 
-import torch
-from datasets import load_dataset
+from datasets import Dataset, load_dataset
 
 from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
@@ -32,8 +32,21 @@ wikipedia_dataset = load_dataset("sentence-transformers/wiki1m-for-simcse", spli
 
 # train_sentences are simply your list of sentences
 train_sentences = [example["text"].strip() for example in wikipedia_dataset if len(example["text"].strip()) >= 10]
+train_dataset = Dataset.from_dict({"text1": train_sentences})
+logging.info(f"Train sentences: {len(train_sentences)}")
 
-################# Download and load STSb #################
+
+# Generate sentence pairs for ContrastiveTensionLoss
+def to_ct_pairs(sample, pos_neg_ratio=8):
+    pos_neg_ratio = 1 / pos_neg_ratio
+    sample["text2"] = sample["text1"] if random.random() < pos_neg_ratio else random.choice(train_sentences)
+    return sample
+
+
+train_dataset = train_dataset.map(to_ct_pairs, fn_kwargs={"pos_neg_ratio": pos_neg_ratio})
+logging.info(f"Generated {len(train_dataset)} training pairs")
+
+# Download and load STSb
 sts_dataset = load_dataset("sentence-transformers/stsb")
 
 dev_samples = []
@@ -52,6 +65,7 @@ test_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(test_samples, 
 word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
+
 
 # As loss, we use ContrastiveTensionLoss
 train_loss = losses.ContrastiveTensionLoss(model)
