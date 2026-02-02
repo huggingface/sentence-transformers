@@ -67,48 +67,16 @@ with (
         if len(line) >= 10:
             train_sentences.append(line)
 
-
+train_dataset = Dataset.from_dict({"text1": train_sentences})
 logging.info(f"Train sentences: {len(train_sentences)}")
 
 
 # Generate sentence pairs for ContrastiveTensionLoss
-# For CT, we need pairs: positive pairs (same sentence) and negative pairs (different sentences)
-# The ratio is controlled by pos_neg_ratio
-def generate_ct_pairs(sentences, pos_neg_ratio):
-    """Generate sentence pairs for ContrastiveTensionLoss with the specified pos_neg_ratio.
+def to_ct_pairs(sample, pos_neg_ratio=0.3):
+    sample["text2"] = sample["text1"] if random.random() < pos_neg_ratio else random.choice(train_sentences)
+    return sample
 
-    This exactly replicates the logic of ContrastiveTensionDataLoader.__iter__():
-    - Uses len(batch) % pos_neg_ratio to determine if pair is positive (0) or negative (>0)
-    - For positive: (s1, s1) with label=1
-    - For negative: (s1, s2) with label=0 where s2 is next sentence
-    - Increments sentence_idx after each pair
-    """
-    pairs = []
-    random.shuffle(sentences)
-    sentence_idx = 0
-
-    while sentence_idx + 1 < len(sentences):
-        s1 = sentences[sentence_idx]
-        if len(pairs) % pos_neg_ratio > 0:  # Negative (different) pair
-            sentence_idx += 1
-            if sentence_idx < len(sentences):
-                s2 = sentences[sentence_idx]
-                label = 0
-            else:
-                break
-        else:  # Positive (identical pair)
-            s2 = sentences[sentence_idx]
-            label = 1
-
-        sentence_idx += 1
-        pairs.append({"sentence1": s1, "sentence2": s2, "label": label})
-
-    return pairs
-
-
-logging.info("Generating training pairs...")
-train_pairs = generate_ct_pairs(train_sentences, pos_neg_ratio)
-train_dataset = Dataset.from_list(train_pairs)
+train_dataset = train_dataset.map(to_ct_pairs, fn_kwargs={"pos_neg_ratio": pos_neg_ratio})
 logging.info(f"Generated {len(train_dataset)} training pairs")
 
 # As loss, we use ContrastiveTensionLoss
