@@ -105,7 +105,12 @@ class CrossEncoderCorrelationEvaluator(SentenceEvaluator):
             out_txt = ""
 
         logger.info(f"CrossEncoderCorrelationEvaluator: Evaluating the model on {self.name} dataset{out_txt}:")
-        pred_scores = model.predict(self.sentence_pairs, convert_to_numpy=True, show_progress_bar=False)
+        pred_scores = model.predict(
+            self.sentence_pairs,
+            batch_size=self.batch_size,
+            convert_to_numpy=True,
+            show_progress_bar=False,
+        )
 
         eval_pearson, _ = pearsonr(self.scores, pred_scores)
         eval_spearman, _ = spearmanr(self.scores, pred_scores)
