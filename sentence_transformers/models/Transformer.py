@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def _temporary_class_attrs(cls, **overrides):
+def set_temporary_class_attrs(cls, **overrides):
     originals = {name: getattr(cls, name, None) for name in overrides}
     try:
         for name, value in overrides.items():
@@ -225,7 +225,7 @@ class Transformer(InputModule):
                 # Loads the encoder model from T5
                 from transformers import T5EncoderModel
 
-                with _temporary_class_attrs(T5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                with set_temporary_class_attrs(T5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
                     self.auto_model = T5EncoderModel.from_pretrained(
                         model_name_or_path, config=config, cache_dir=cache_dir, **model_args
                     )
@@ -233,7 +233,7 @@ class Transformer(InputModule):
                 # Loads the encoder model from mT5
                 from transformers import MT5EncoderModel
 
-                with _temporary_class_attrs(MT5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                with set_temporary_class_attrs(MT5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
                     self.auto_model = MT5EncoderModel.from_pretrained(
                         model_name_or_path, config=config, cache_dir=cache_dir, **model_args
                     )
@@ -242,7 +242,7 @@ class Transformer(InputModule):
                 from transformers import T5GemmaEncoderModel
 
                 config.is_encoder_decoder = False
-                with _temporary_class_attrs(T5GemmaEncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                with set_temporary_class_attrs(T5GemmaEncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
                     self.auto_model = T5GemmaEncoderModel.from_pretrained(
                         model_name_or_path, config=config, cache_dir=cache_dir, **model_args
                     )
@@ -250,7 +250,7 @@ class Transformer(InputModule):
                 # Loads the encoder part from T5Gemma2
                 from transformers.models.t5gemma2.modeling_t5gemma2 import T5Gemma2Encoder
 
-                with _temporary_class_attrs(
+                with set_temporary_class_attrs(
                     T5Gemma2Encoder,
                     base_model_prefix="model.encoder",
                     _keys_to_ignore_on_load_unexpected=["decoder.*"],
