@@ -1,5 +1,6 @@
 import logging
 import random
+import traceback
 from datetime import datetime
 
 from datasets import Dataset, load_dataset
@@ -98,4 +99,21 @@ trainer = SentenceTransformerTrainer(
 trainer.train()
 
 logging.info("Evaluating on test set")
-test_evaluator(model)
+model.evaluate(test_evaluator)
+
+
+# Save the trained & evaluated model locally
+final_output_dir = f"{output_dir}/final"
+model.save_pretrained(final_output_dir)
+
+# (Optional) save the model to the Hugging Face Hub!
+# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
+try:
+    model.push_to_hub(f"{model_name}-stsb-ct")
+except Exception:
+    logging.error(
+        f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
+        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
+        f"and saving it using `model.push_to_hub('{model_name}-multi-task')`."
+    )
