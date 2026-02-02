@@ -48,18 +48,11 @@ def nli_resource() -> Generator[list[InputExample], None, None]:
     nli_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split="train").select(
         range(max_train_samples)
     )
-    # HF dataset label IDs differ from legacy label IDs used by the classifier head,
-    # so we remap HF labels to legacy IDs explicitly.
-    hf_int2label = {0: "entailment", 1: "neutral", 2: "contradiction"}
-    label2int = {"contradiction": 0, "entailment": 1, "neutral": 2}
-
-    def hf_label_to_legacy(hf_label: int) -> int:
-        return label2int[hf_int2label[hf_label]]
 
     nli_train_samples = []
 
     for row in nli_dataset["train"]:
-        label_id = hf_label_to_legacy(row["label"])
+        label_id = int(row["label"])
 
         nli_train_samples.append(
             InputExample(
