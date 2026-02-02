@@ -28,17 +28,9 @@ def test_LabelAccuracyEvaluator(paraphrase_distilroberta_base_v1_model: Sentence
         range(max_dev_samples)
     )
 
-    # HF dataset label IDs differ from legacy label IDs used by the classifier head,
-    # so we remap HF labels to legacy IDs explicitly.
-    hf_int2label = {0: "entailment", 1: "neutral", 2: "contradiction"}
-    label2int = {"contradiction": 0, "entailment": 1, "neutral": 2}
-
-    def hf_label_to_legacy(hf_label: int) -> int:
-        return label2int[hf_int2label[hf_label]]
-
     dev_samples = []
     for row in nli_dataset["train"]:
-        label_id = hf_label_to_legacy(row["label"])
+        label_id = int(row["label"])
 
         dev_samples.append(
             InputExample(
@@ -50,7 +42,7 @@ def test_LabelAccuracyEvaluator(paraphrase_distilroberta_base_v1_model: Sentence
     train_loss = losses.SoftmaxLoss(
         model=model,
         sentence_embedding_dimension=model.get_sentence_embedding_dimension(),
-        num_labels=len(label2int),
+        num_labels=3,
     )
 
     dev_dataloader = DataLoader(dev_samples, shuffle=False, batch_size=16)
