@@ -4,6 +4,7 @@ import inspect
 import logging
 import os
 from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -25,10 +26,13 @@ if TYPE_CHECKING and is_peft_available():
     from peft import PeftConfig
 
 try:
-    from transformers import T5Gemma2Config
+    from transformers import T5Gemma2Config, T5Gemma2TextConfig
 except ImportError:
 
     class T5Gemma2Config:
+        pass
+
+    class T5Gemma2TextConfig:
         pass
 
 
@@ -41,6 +45,18 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _temporary_class_attrs(cls, **overrides):
+    originals = {name: getattr(cls, name, None) for name in overrides}
+    try:
+        for name, value in overrides.items():
+            setattr(cls, name, value)
+        yield
+    finally:
+        for name, value in originals.items():
+            setattr(cls, name, value)
 
 
 def _save_pretrained_wrapper(_save_pretrained_fn: Callable, subfolder: str) -> Callable[..., None]:
@@ -206,13 +222,50 @@ class Transformer(InputModule):
                     model_args.pop(adapter_only_kwarg, None)
 
             if isinstance(config, T5Config):
-                self._load_t5_model(model_name_or_path, config, cache_dir, **model_args)
+                # Loads the encoder model from T5
+                from transformers import T5EncoderModel
+
+                with _temporary_class_attrs(T5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                    self.auto_model = T5EncoderModel.from_pretrained(
+                        model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                    )
             elif isinstance(config, MT5Config):
-                self._load_mt5_model(model_name_or_path, config, cache_dir, **model_args)
+                # Loads the encoder model from mT5
+                from transformers import MT5EncoderModel
+
+                with _temporary_class_attrs(MT5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                    self.auto_model = MT5EncoderModel.from_pretrained(
+                        model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                    )
             elif isinstance(config, T5GemmaConfig):
-                self._load_t5gemma_model(model_name_or_path, config, cache_dir, **model_args)
-            elif isinstance(config, T5Gemma2Config):
-                self._load_t5gemma2_model(model_name_or_path, config, cache_dir, **model_args)
+                # Loads the encoder model from T5Gemma
+                from transformers import T5GemmaEncoderModel
+
+                config.is_encoder_decoder = False
+                with _temporary_class_attrs(T5GemmaEncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                    self.auto_model = T5GemmaEncoderModel.from_pretrained(
+                        model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                    )
+            elif isinstance(config, T5Gemma2TextConfig):
+                # Loads the encoder part from T5Gemma2
+                from transformers.models.t5gemma2.modeling_t5gemma2 import T5Gemma2Encoder
+
+                with _temporary_class_attrs(
+                    T5Gemma2Encoder,
+                    base_model_prefix="model.encoder",
+                    _keys_to_ignore_on_load_unexpected=["decoder.*"],
+                ):
+                    self.auto_model = T5Gemma2Encoder.from_pretrained(
+                        model_name_or_path, config=config.encoder, cache_dir=cache_dir, **model_args
+                    )
+
+            elif isinstance(config, T5Gemma2TextConfig):
+                # This class is not exposed in transformers __init__, nor registered in AutoModel
+                from transformers.models.t5gemma2.modeling_t5gemma2 import T5Gemma2Encoder
+
+                self.auto_model = T5Gemma2Encoder.from_pretrained(
+                    model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                )
             else:
                 self.auto_model = AutoModel.from_pretrained(
                     model_name_or_path, config=config, cache_dir=cache_dir, **model_args
@@ -233,47 +286,6 @@ class Transformer(InputModule):
             )
         else:
             raise ValueError(f"Unsupported backend '{backend}'. `backend` should be `torch`, `onnx`, or `openvino`.")
-
-    def _load_t5_model(self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args) -> None:
-        """Loads the encoder model from T5"""
-        from transformers import T5EncoderModel
-
-        T5EncoderModel._keys_to_ignore_on_load_unexpected = ["decoder.*"]
-        self.auto_model = T5EncoderModel.from_pretrained(
-            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
-        )
-
-    def _load_mt5_model(self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args) -> None:
-        """Loads the encoder model from T5"""
-        from transformers import MT5EncoderModel
-
-        MT5EncoderModel._keys_to_ignore_on_load_unexpected = ["decoder.*"]
-        self.auto_model = MT5EncoderModel.from_pretrained(
-            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
-        )
-
-    def _load_t5gemma_model(
-        self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args
-    ) -> None:
-        """Loads the encoder model from T5Gemma"""
-        from transformers import T5GemmaEncoderModel
-
-        config.is_encoder_decoder = False
-        T5GemmaEncoderModel._keys_to_ignore_on_load_unexpected = ["decoder.*"]
-        self.auto_model = T5GemmaEncoderModel.from_pretrained(
-            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
-        )
-
-    def _load_t5gemma2_model(
-        self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args
-    ) -> None:
-        """Loads the encoder model from T5Gemma2"""
-        from transformers import T5Gemma2Encoder
-
-        T5Gemma2Encoder._keys_to_ignore_on_load_unexpected = ["decoder.*"]
-        self.auto_model = T5Gemma2Encoder.from_pretrained(
-            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
-        )
 
     def __repr__(self) -> str:
         return f"Transformer({dict(self.get_config_dict(), architecture=self.auto_model.__class__.__name__)})"
