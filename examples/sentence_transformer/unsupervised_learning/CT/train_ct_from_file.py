@@ -72,9 +72,11 @@ logging.info(f"Train sentences: {len(train_sentences)}")
 
 
 # Generate sentence pairs for ContrastiveTensionLoss
-def to_ct_pairs(sample, pos_neg_ratio=0.3):
+def to_ct_pairs(sample, pos_neg_ratio=8):
+    pos_neg_ratio = 1 / pos_neg_ratio
     sample["text2"] = sample["text1"] if random.random() < pos_neg_ratio else random.choice(train_sentences)
     return sample
+
 
 train_dataset = train_dataset.map(to_ct_pairs, fn_kwargs={"pos_neg_ratio": pos_neg_ratio})
 logging.info(f"Generated {len(train_dataset)} training pairs")
