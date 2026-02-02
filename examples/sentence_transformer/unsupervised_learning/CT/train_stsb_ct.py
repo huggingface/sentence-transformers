@@ -3,9 +3,9 @@ import random
 import traceback
 from datetime import datetime
 
-from datasets import Dataset, load_dataset
+from datasets import load_dataset
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models
+from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.trainer import SentenceTransformerTrainer
 from sentence_transformers.training_args import SentenceTransformerTrainingArguments
@@ -26,47 +26,50 @@ max_seq_length = 75
 # Save path to store our model
 output_dir = "output/train_stsb_ct-{}-{}".format(model_name, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
 
-
-# Train sentences
 # We use 1 Million sentences from Wikipedia to train our model
-wikipedia_dataset = load_dataset("sentence-transformers/wiki1m-for-simcse", split="train")
-
-# train_sentences are simply your list of sentences
-train_sentences = [example["text"].strip() for example in wikipedia_dataset if len(example["text"].strip()) >= 10]
-train_dataset = Dataset.from_dict({"text1": train_sentences})
-logging.info(f"Train sentences: {len(train_sentences)}")
+train_dataset = load_dataset("sentence-transformers/wiki1m-for-simcse", split="train")
+train_dataset = train_dataset.filter(lambda example: len(example["text"].strip()) >= 10)
+logging.info(train_dataset)
 
 
 # Generate sentence pairs for ContrastiveTensionLoss
 def to_ct_pairs(sample, pos_neg_ratio=8):
     pos_neg_ratio = 1 / pos_neg_ratio
-    sample["text2"] = sample["text1"] if random.random() < pos_neg_ratio else random.choice(train_sentences)
-    return sample
+    return {
+        "text1": sample["text"],
+        "text2": sample["text"] if random.random() < pos_neg_ratio else random.choice(train_dataset)["text"],
+    }
 
 
-train_dataset = train_dataset.map(to_ct_pairs, fn_kwargs={"pos_neg_ratio": pos_neg_ratio})
-logging.info(f"Generated {len(train_dataset)} training pairs")
+train_dataset = train_dataset.map(to_ct_pairs, fn_kwargs={"pos_neg_ratio": pos_neg_ratio}, remove_columns=["text"])
+logging.info(train_dataset)
+logging.info(train_dataset[0])
 
 # Download and load STSb
-sts_dataset = load_dataset("sentence-transformers/stsb")
+eval_sts_dataset = load_dataset("sentence-transformers/stsb", split="validation")
+test_sts_dataset = load_dataset("sentence-transformers/stsb", split="test")
 
-dev_samples = []
-test_samples = []
-
-for row in sts_dataset["validation"]:
-    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
-
-for row in sts_dataset["test"]:
-    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
-
-dev_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(dev_samples, name="sts-dev")
-test_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(test_samples, name="sts-test")
+dev_evaluator = EmbeddingSimilarityEvaluator(
+    sentences1=eval_sts_dataset["sentence1"],
+    sentences2=eval_sts_dataset["sentence2"],
+    scores=eval_sts_dataset["score"],
+    name="sts-dev",
+)
+test_evaluator = EmbeddingSimilarityEvaluator(
+    sentences1=test_sts_dataset["sentence1"],
+    sentences2=test_sts_dataset["sentence2"],
+    scores=test_sts_dataset["score"],
+    name="sts-test",
+)
 
 # Initialize an SBERT model
 word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
+# Let's evaluate the model before training
+dev_evaluator(model)
+test_evaluator(model)
 
 # As loss, we use ContrastiveTensionLoss
 train_loss = losses.ContrastiveTensionLoss(model)
@@ -98,9 +101,9 @@ trainer = SentenceTransformerTrainer(
 )
 trainer.train()
 
-logging.info("Evaluating on test set")
-model.evaluate(test_evaluator)
-
+logging.info("Evaluating after training")
+dev_evaluator(model)
+test_evaluator(model)
 
 # Save the trained & evaluated model locally
 final_output_dir = f"{output_dir}/final"
@@ -115,5 +118,5 @@ except Exception:
     logging.error(
         f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
         f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
-        f"and saving it using `model.push_to_hub('{model_name}-multi-task')`."
+        f"and saving it using `model.push_to_hub('{model_name}-stsb-ct')`."
     )
