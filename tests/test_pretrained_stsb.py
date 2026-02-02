@@ -9,25 +9,23 @@ from functools import partial
 import pytest
 from datasets import load_dataset
 
-from sentence_transformers import InputExample, SentenceTransformer
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.evaluation.EmbeddingSimilarityEvaluator import EmbeddingSimilarityEvaluator
 
 
 def pretrained_model_score(
     model_name, expected_score: float, max_test_samples: int = 100, cache_dir: str | None = None
 ) -> None:
     model = SentenceTransformer(model_name, cache_folder=cache_dir)
-    sts_dataset = load_dataset("sentence-transformers/stsb")
+    sts_dataset = load_dataset("sentence-transformers/stsb", split="test")
 
-    test_samples = []
-    for row in sts_dataset["test"]:
-        test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
+    if max_test_samples != -1:
+        sts_dataset = sts_dataset.select(range(max_test_samples))
 
-        if max_test_samples != -1 and len(test_samples) >= max_test_samples:
-            break
-
-    evaluator = EmbeddingSimilarityEvaluator.from_input_examples(
-        test_samples,
+    evaluator = EmbeddingSimilarityEvaluator(
+        sentences1=sts_dataset["sentence1"],
+        sentences2=sts_dataset["sentence2"],
+        scores=sts_dataset["score"],
         name="sts-test",
         similarity_fn_names=["cosine", "euclidean", "manhattan", "dot"],
     )
