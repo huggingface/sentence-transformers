@@ -346,7 +346,7 @@ class Transformer(InputModule):
             int: The hidden dimension size of the model's embeddings.
 
         Raises:
-            ValueError: If the embedding dimension cannot be determined from the model config.
+            AttributeError: If the embedding dimension cannot be determined from the model config.
         """
 
         # Get text config, e.g. for multi-modal models
