@@ -252,11 +252,12 @@ class SentenceTransformerTrainingArguments(TransformersTrainingArguments):
         },
     )
     # Explicitly add warmup_ratio as transformers will remove it in the future, and I'd like to keep it until Sentence
-    # Transformers drops support for transformers < 5.0.0
+    # Transformers drops support for transformers v4
     warmup_ratio: float | None = field(
         default=None,
         metadata={
-            "help": "This argument is deprecated and will be removed in the future. Use `warmup_steps` instead as it also works with float values."
+            "help": "This argument is deprecated and will be removed in the future. If you're on Transformers v5+, "
+            "then you should use `warmup_steps` instead as it also works with float values."
         },
     )
 
