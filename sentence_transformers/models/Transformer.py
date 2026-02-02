@@ -246,7 +246,7 @@ class Transformer(InputModule):
                     self.auto_model = T5GemmaEncoderModel.from_pretrained(
                         model_name_or_path, config=config, cache_dir=cache_dir, **model_args
                     )
-            elif isinstance(config, T5Gemma2TextConfig):
+            elif isinstance(config, T5Gemma2Config):
                 # Loads the encoder part from T5Gemma2
                 from transformers.models.t5gemma2.modeling_t5gemma2 import T5Gemma2Encoder
 
@@ -260,7 +260,7 @@ class Transformer(InputModule):
                     )
 
             elif isinstance(config, T5Gemma2TextConfig):
-                # This class is not exposed in transformers __init__, nor registered in AutoModel
+                # This class is not currently registered in AutoModel
                 from transformers.models.t5gemma2.modeling_t5gemma2 import T5Gemma2Encoder
 
                 self.auto_model = T5Gemma2Encoder.from_pretrained(
