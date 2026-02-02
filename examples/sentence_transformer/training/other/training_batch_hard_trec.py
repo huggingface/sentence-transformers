@@ -18,6 +18,7 @@ all sentences with the same label should be close and sentences for different la
 
 import logging
 import random
+import traceback
 from collections import defaultdict
 from datetime import datetime
 
@@ -42,16 +43,12 @@ def trec_dataset(
     dataset = load_dataset("omkar334/trec")
 
     train_set = dataset["train"].remove_columns(["coarse_label"]).rename_column("fine_label", "label")
-
     test_set = dataset["test"].remove_columns(["coarse_label"]).rename_column("fine_label", "label")
 
     # Create a dev set from train set
     if validation_dataset_nb > 0:
         dev_set = train_set.select(range(len(train_set) - validation_dataset_nb, len(train_set)))
         train_set = train_set.select(range(len(train_set) - validation_dataset_nb))
-
-    # Rename "text" to "sentence" for training (required by loss function)
-    train_set = train_set.rename_column("text", "sentence")
 
     # For dev & test set, we return triplets (anchor, positive, negative)
     random.seed(42)  # Fix seed, so that we always get the same triplets
@@ -139,10 +136,8 @@ args = SentenceTransformerTrainingArguments(
     # Use GROUP_BY_LABEL batch sampler for triplet losses that require multiple samples per label
     batch_sampler=BatchSamplers.GROUP_BY_LABEL,
     eval_strategy="steps",
-    eval_steps=1000,
-    # save_strategy="steps",
-    # save_steps=0.001,
-    logging_steps=0.01,
+    eval_steps=0.2,
+    logging_steps=0.1,
 )
 
 # Train the model
@@ -165,3 +160,19 @@ test_evaluator = TripletEvaluator(
     name="trec-test",
 )
 model.evaluate(test_evaluator)
+
+# Save the trained & evaluated model locally
+final_output_dir = f"{output_path}/final"
+model.save_pretrained(final_output_dir)
+
+# (Optional) save the model to the Hugging Face Hub!
+# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
+try:
+    model.push_to_hub(f"{model_name}-trec")
+except Exception:
+    logging.error(
+        f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
+        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
+        f"and saving it using `model.push_to_hub('{model_name}-multi-task')`."
+    )
