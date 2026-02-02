@@ -45,14 +45,13 @@ def sts_resource() -> Generator[tuple[list[InputExample], list[InputExample]], N
 @pytest.fixture()
 def nli_resource() -> Generator[list[InputExample], None, None]:
     max_train_samples = 10000
-    nli_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split="train").select(
-        range(max_train_samples)
+    nli_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split="train", streaming=True).take(
+        max_train_samples
     )
 
     nli_train_samples = []
     for row in nli_dataset:
-        label_id = int(row["label"])
-        nli_train_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=label_id))
+        nli_train_samples.append(InputExample(texts=[row["premise"], row["hypothesis"]], label=int(row["label"])))
     yield nli_train_samples
 
 
