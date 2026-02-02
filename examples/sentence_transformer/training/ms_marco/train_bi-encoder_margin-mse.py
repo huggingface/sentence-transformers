@@ -1,4 +1,3 @@
-import argparse
 import gzip
 import json
 import logging
@@ -13,59 +12,39 @@ from shutil import copyfile
 import tqdm
 from torch.utils.data import DataLoader, Dataset
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models, util
+from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, util
+from sentence_transformers.models import Pooling, Transformer
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
-#### /print debug information to stdout
+# print debug information to stdout
 
+train_batch_size = 64  # Increasing the train batch size improves the model performance, but requires more GPU memory
+max_seq_length = 300  # Max length for passages. Increasing it, requires more GPU memory
+model_name = "microsoft/mpnet-base"
+max_passages = 0
+num_epochs = 30  # Number of epochs we want to train
+pooling_mode = "mean"
+negs_to_use = None
+warmup_steps = 1000
+lr = 2e-5
+# We used different systems to mine hard negatives. Number of hard negatives to add from each system
+num_negs_per_system = 5
+use_pretrained_model = False
+use_all_queries = False
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--train_batch_size", default=64, type=int)
-parser.add_argument("--max_seq_length", default=300, type=int)
-parser.add_argument("--model_name", required=True)
-parser.add_argument("--max_passages", default=0, type=int)
-parser.add_argument("--epochs", default=30, type=int)
-parser.add_argument("--pooling", default="mean")
-parser.add_argument(
-    "--negs_to_use",
-    default=None,
-    help="From which systems should negatives be used? Multiple systems separated by comma. None = all",
-)
-parser.add_argument("--warmup_steps", default=1000, type=int)
-parser.add_argument("--lr", default=2e-5, type=float)
-parser.add_argument("--num_negs_per_system", default=5, type=int)
-parser.add_argument("--use_pre_trained_model", default=False, action="store_true")
-parser.add_argument("--use_all_queries", default=False, action="store_true")
-args = parser.parse_args()
-
-logging.info(str(args))
-
-
-# The  model we want to fine-tune
-train_batch_size = (
-    args.train_batch_size
-)  # Increasing the train batch size improves the model performance, but requires more GPU memory
-model_name = args.model_name
-max_passages = args.max_passages
-max_seq_length = args.max_seq_length  # Max length for passages. Increasing it, requires more GPU memory
-
-num_negs_per_system = (
-    args.num_negs_per_system
-)  # We used different systems to mine hard negatives. Number of hard negatives to add from each system
-num_epochs = args.epochs  # Number of epochs we want to train
 
 # Load our embedding model
-if args.use_pre_trained_model:
+if use_pretrained_model:
     logging.info("use pretrained SBERT model")
     model = SentenceTransformer(model_name)
     model.max_seq_length = max_seq_length
 else:
     logging.info("Create new SBERT model")
-    word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
-    pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(), args.pooling)
+    word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
+    pooling_model = Pooling(word_embedding_model.get_word_embedding_dimension(), pooling_mode)
     model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 model_save_path = f"output/train_bi-encoder-margin_mse-{model_name.replace('/', '-')}-batch_size_{train_batch_size}-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
@@ -80,10 +59,10 @@ with open(train_script_path, "a") as fOut:
     fOut.write("\n\n# Script was called via:\n#python " + " ".join(sys.argv))
 
 
-### Now we read the MS Marco dataset
+# Now we read the MS Marco dataset
 data_folder = "msmarco-data"
 
-#### Read the corpus files, that contain all the passages. Store them in the corpus dict
+# Read the corpus files, that contain all the passages. Store them in the corpus dict
 corpus = {}  # dict in the format: passage_id -> passage. Stores all existent passages
 collection_filepath = os.path.join(data_folder, "collection.tsv")
 if not os.path.exists(collection_filepath):
@@ -103,7 +82,7 @@ with open(collection_filepath, encoding="utf8") as fIn:
         corpus[pid] = passage
 
 
-### Read the train queries, store in queries dict
+# Read the train queries, store in queries dict
 queries = {}  # dict in the format: query_id -> query. Stores all training queries
 queries_filepath = os.path.join(data_folder, "queries.train.tsv")
 if not os.path.exists(queries_filepath):
@@ -162,8 +141,8 @@ with gzip.open(hard_negatives_filepath, "rt") as fIn:
         # Get the hard negatives
         neg_pids = set()
         if negs_to_use is None:
-            if args.negs_to_use is not None:  # Use specific system for negatives
-                negs_to_use = args.negs_to_use.split(",")
+            if negs_to_use is not None:  # Use specific system for negatives
+                negs_to_use = negs_to_use.split(",")
             else:  # Use all systems
                 negs_to_use = list(data["neg"].keys())
             logging.info("Using negatives from the following systems: {}".format(", ".join(negs_to_use)))
@@ -181,7 +160,7 @@ with gzip.open(hard_negatives_filepath, "rt") as fIn:
                     if negs_added >= num_negs_per_system:
                         break
 
-        if args.use_all_queries or (len(pos_pids) > 0 and len(neg_pids) > 0):
+        if use_all_queries or (len(pos_pids) > 0 and len(neg_pids) > 0):
             train_queries[data["qid"]] = {
                 "qid": data["qid"],
                 "query": queries[data["qid"]],
@@ -243,11 +222,11 @@ train_loss = losses.MarginMSELoss(model=model)
 model.fit(
     train_objectives=[(train_dataloader, train_loss)],
     epochs=num_epochs,
-    warmup_steps=args.warmup_steps,
+    warmup_steps=warmup_steps,
     use_amp=True,
     checkpoint_path=model_save_path,
     checkpoint_save_steps=10000,
-    optimizer_params={"lr": args.lr},
+    optimizer_params={"lr": lr},
 )
 
 # Train latest model
