@@ -31,22 +31,21 @@ model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 # model.max_seq_length = max_seq_length
 
 
-# 2. Read datasets
+# 2. Read eval/test datasets, skipping samples without positive examples
 test_dataset = load_dataset("sentence-transformers/askubuntu", split="test").filter(lambda x: x["positive"])
 eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev").filter(lambda x: x["positive"])
 
 dev_or_test_questions = set()
+for dataset in (eval_dataset, test_dataset):
+    dev_or_test_questions.update(dataset["query"])
+    dev_or_test_questions.update(question for question_list in dataset["positive"] for question in question_list)
+    dev_or_test_questions.update(question for question_list in dataset["negative"] for question in question_list)
 
-for df in (eval_dataset, test_dataset):
-    dev_or_test_questions.update(df["query"])
-    dev_or_test_questions.update(q for xs in df["positive"] for q in xs)
-    dev_or_test_questions.update(q for xs in df["negative"] for q in xs)
-
+# Load questions for training, skipping those that are part of dev or test sets
 train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train").filter(
     lambda x: x["text"] not in dev_or_test_questions
 )
-
-logging.info(f"{len(train_dataset)} train sentences")
+logging.info(train_dataset)
 
 
 def noise_transform(batch, del_ratio=0.6):
@@ -142,11 +141,11 @@ args = SentenceTransformerTrainingArguments(
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:
     eval_strategy="steps",
-    eval_steps=5000,
+    eval_steps=100,
     save_strategy="steps",
-    save_steps=5000,
+    save_steps=500,
     save_total_limit=2,
-    logging_steps=1000,
+    logging_steps=10,
     run_name="tsdae-askubuntu",  # Will be used in W&B if `wandb` is installed
 )
 

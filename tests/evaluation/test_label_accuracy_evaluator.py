@@ -10,12 +10,10 @@ import pytest
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 
-from sentence_transformers import (
-    InputExample,
-    SentenceTransformer,
-    evaluation,
-    losses,
-)
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.evaluation.LabelAccuracyEvaluator import LabelAccuracyEvaluator
+from sentence_transformers.losses import SoftmaxLoss
+from sentence_transformers.readers import InputExample
 
 
 @pytest.mark.skip(reason="This test is rather slow, and the LabelAccuracyEvaluator is not commonly used.")
@@ -29,7 +27,7 @@ def test_LabelAccuracyEvaluator(paraphrase_distilroberta_base_v1_model: Sentence
     )
 
     dev_samples = []
-    for row in nli_dataset["train"]:
+    for row in nli_dataset:
         label_id = int(row["label"])
 
         dev_samples.append(
@@ -39,14 +37,14 @@ def test_LabelAccuracyEvaluator(paraphrase_distilroberta_base_v1_model: Sentence
             )
         )
 
-    train_loss = losses.SoftmaxLoss(
+    train_loss = SoftmaxLoss(
         model=model,
         sentence_embedding_dimension=model.get_sentence_embedding_dimension(),
         num_labels=3,
     )
 
     dev_dataloader = DataLoader(dev_samples, shuffle=False, batch_size=16)
-    evaluator = evaluation.LabelAccuracyEvaluator(dev_dataloader, softmax_model=train_loss)
+    evaluator = LabelAccuracyEvaluator(dev_dataloader, softmax_model=train_loss)
     metrics = evaluator(model, output_path=str(tmp_path))
     assert "accuracy" in metrics
     assert metrics["accuracy"] > 0.2

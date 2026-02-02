@@ -50,17 +50,9 @@ def nli_resource() -> Generator[list[InputExample], None, None]:
     )
 
     nli_train_samples = []
-
-    for row in nli_dataset["train"]:
+    for row in nli_dataset:
         label_id = int(row["label"])
-
-        nli_train_samples.append(
-            InputExample(
-                texts=[row["sentence1"], row["sentence2"]],
-                label=label_id,
-            )
-        )
-
+        nli_train_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=label_id))
     yield nli_train_samples
 
 

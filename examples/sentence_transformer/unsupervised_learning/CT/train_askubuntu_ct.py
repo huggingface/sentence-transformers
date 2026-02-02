@@ -25,25 +25,23 @@ output_path = "output/train_askubuntu_ct-{}-{}-{}".format(
 )
 
 
-# Read datasets
+# Read eval/test datasets, skipping samples without positive examples
 test_dataset = load_dataset("sentence-transformers/askubuntu", split="test").filter(lambda x: x["positive"])
 eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev").filter(lambda x: x["positive"])
 
 dev_or_test_questions = set()
+for dataset in (eval_dataset, test_dataset):
+    dev_or_test_questions.update(dataset["query"])
+    dev_or_test_questions.update(question for question_list in dataset["positive"] for question in question_list)
+    dev_or_test_questions.update(question for question_list in dataset["negative"] for question in question_list)
 
-for df in (eval_dataset, test_dataset):
-    dev_or_test_questions.update(df["query"])
-    dev_or_test_questions.update(q for xs in df["positive"] for q in xs)
-    dev_or_test_questions.update(q for xs in df["negative"] for q in xs)
-
+# Load questions for training, skipping those that are part of dev or test sets
 train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train").filter(
     lambda x: x["text"] not in dev_or_test_questions
 )
-
-logging.info(f"{len(train_dataset)} train sentences")
+logging.info(train_dataset)
 
 # Initialize an SBERT model
-
 word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
