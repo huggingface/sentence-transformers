@@ -147,12 +147,12 @@ def test_warmup_arguments_are_compatible_across_transformers_versions(
     expected_warmup_steps = 0 if expected_steps_raw == "default" else expected_steps_raw
     expected_warmup_ratio = None if expected_ratio_raw == "default" else expected_ratio_raw
 
-    if isinstance(expected_warmup_steps, (int, float)) and expected_warmup_steps is not None:
+    if isinstance(expected_warmup_steps, (int, float)):
         assert args.warmup_steps == pytest.approx(expected_warmup_steps)
     else:
         assert args.warmup_steps == expected_warmup_steps
 
-    if isinstance(expected_warmup_ratio, (int, float)) and expected_warmup_ratio is not None:
+    if isinstance(expected_warmup_ratio, (int, float)):
         assert args.warmup_ratio == pytest.approx(expected_warmup_ratio)
     else:
         assert args.warmup_ratio == expected_warmup_ratio

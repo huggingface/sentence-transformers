@@ -262,7 +262,7 @@ class SentenceTransformerTrainingArguments(TransformersTrainingArguments):
     )
 
     def __post_init__(self):
-        # Handle compatibility for warmup arguments across different transformers versions. Transformers >v5 only
+        # Handle compatibility for warmup arguments across different transformers versions. Transformers v5+ only
         # supports warmup_steps (which can be an int or a float ratio) and removes warmup_ratio, while older versions
         # only support warmup_ratio and warmup_steps as an int number of steps. The logic here ensures that users can
         # use either argument across transformers versions, until we drop support for transformers <v5, at which point
