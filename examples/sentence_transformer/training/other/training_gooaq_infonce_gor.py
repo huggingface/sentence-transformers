@@ -15,7 +15,6 @@ import logging
 import random
 import traceback
 from collections.abc import Iterable
-from datetime import datetime
 
 import torch
 from datasets import Dataset, load_dataset
@@ -72,12 +71,6 @@ num_train_samples = 100_000
 num_eval_samples = 10_000
 train_batch_size = 64
 num_epochs = 1
-output_dir = (
-    "output/training-gooaq-infonce-gor-"
-    + model_name.replace("/", "-")
-    + "-"
-    + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-)
 
 # 1. Load a model to finetune with optional model card data
 logging.info(f"Loading model: {model_name}")
