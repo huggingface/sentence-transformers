@@ -65,24 +65,25 @@ word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
 pooling_model = Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
-
 # As loss, we use ContrastiveTensionLoss
 train_loss = ContrastiveTensionLoss(model)
 
 # Create a dev evaluator
-dev_evaluator = RerankingEvaluator(eval_dataset, name="AskUbuntu dev")
-test_evaluator = RerankingEvaluator(test_dataset, name="AskUbuntu test")
+dev_evaluator = RerankingEvaluator(eval_dataset, name="askubuntu-dev")
+test_evaluator = RerankingEvaluator(test_dataset, name="askubuntu-test")
 
+# Evaluate the model before training
+dev_evaluator(model)
+test_evaluator(model)
 
 logging.info("Start training")
-
 # Prepare the training arguments
 args = SentenceTransformerTrainingArguments(
     output_dir=output_path,
     num_train_epochs=num_epochs,
     per_device_train_batch_size=batch_size,
     warmup_steps=0,
-    learning_rate=1e-5,
+    learning_rate=2e-6,
     weight_decay=0,
     eval_strategy="steps",
     eval_steps=1000,
@@ -120,5 +121,5 @@ except Exception:
     logging.error(
         f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
         f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
-        f"and saving it using `model.push_to_hub('{model_name}-stsb-ct')`."
+        f"and saving it using `model.push_to_hub('{model_name}-askubuntu-ct')`."
     )
