@@ -74,12 +74,12 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
             Dictionary containing the weighted mean term and second moment term losses
         """
         mean_terms, second_moment_terms = zip(*[self.compute_gor(embedding) for embedding in embeddings])
-        mean_terms = sum(mean_terms) / len(mean_terms)
-        second_moment_terms = sum(second_moment_terms) / len(second_moment_terms)
-        return {
-            "gor_mean": self.mean_weight * mean_terms,
-            "gor_second_moment": self.second_moment_weight * second_moment_terms,
-        }
+        results = {}
+        if self.mean_weight:
+            results["gor_mean"] = self.mean_weight * torch.stack(mean_terms).mean()
+        if self.second_moment_weight:
+            results["gor_second_moment"] = self.second_moment_weight * torch.stack(second_moment_terms).mean()
+        return results
 
     def compute_gor(self, embeddings: Tensor) -> tuple[Tensor, Tensor]:
         """
