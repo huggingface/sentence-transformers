@@ -5,20 +5,15 @@ Tests that the pretrained models produce the correct scores on the STSbenchmark 
 from __future__ import annotations
 
 import os
+import tempfile
 from collections.abc import Generator
 
 import pytest
-import torch
-from datasets import load_dataset
-from torch.utils.data import DataLoader
+from datasets import Dataset, load_dataset
 
-from sentence_transformers import (
-    SentencesDataset,
-    SentenceTransformer,
-    losses,
-)
+from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.readers import InputExample
+from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util import is_training_available
 
 if not is_training_available():
@@ -29,34 +24,27 @@ if not is_training_available():
 
 
 @pytest.fixture()
-def sts_resource() -> Generator[tuple[list[InputExample], list[InputExample]], None, None]:
+def sts_resource() -> Generator[tuple[Dataset, Dataset], None, None]:
     sts_dataset = load_dataset("sentence-transformers/stsb")
-
-    stsb_train_samples = []
-    stsb_test_samples = []
-    for row in sts_dataset["test"]:
-        stsb_test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
-
-    for row in sts_dataset["train"]:
-        stsb_train_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
-    yield stsb_train_samples, stsb_test_samples
+    yield sts_dataset["train"], sts_dataset["test"]
 
 
 @pytest.fixture()
-def nli_resource() -> Generator[list[InputExample], None, None]:
+def nli_resource() -> Generator[Dataset, None, None]:
     max_train_samples = 10000
-    nli_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split="train", streaming=True).take(
-        max_train_samples
+    nli_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split="train")
+    nli_dataset = nli_dataset.select(range(min(max_train_samples, len(nli_dataset))))
+    nli_dataset = nli_dataset.rename_columns({"premise": "sentence1", "hypothesis": "sentence2"})
+    yield nli_dataset
+
+
+def evaluate_stsb_test(model: SentenceTransformer, expected_score: float, test_dataset: Dataset) -> None:
+    evaluator = EmbeddingSimilarityEvaluator(
+        sentences1=test_dataset["sentence1"],
+        sentences2=test_dataset["sentence2"],
+        scores=test_dataset["score"],
+        name="sts-test",
     )
-
-    nli_train_samples = []
-    for row in nli_dataset:
-        nli_train_samples.append(InputExample(texts=[row["premise"], row["hypothesis"]], label=int(row["label"])))
-    yield nli_train_samples
-
-
-def evaluate_stsb_test(model, expected_score, test_samples) -> None:
-    evaluator = EmbeddingSimilarityEvaluator.from_input_examples(test_samples, name="sts-test")
     scores = model.evaluate(evaluator)
     score = scores[evaluator.primary_metric] * 100
     print(f"STS-Test Performance: {score:.2f} vs. exp: {expected_score:.2f}")
@@ -69,22 +57,26 @@ def evaluate_stsb_test(model, expected_score, test_samples) -> None:
     reason='Sentence Transformers was not installed with the `["train"]` extra.',
 )
 def test_train_stsb_slow(
-    distilbert_base_uncased_model: SentenceTransformer, sts_resource: tuple[list[InputExample], list[InputExample]]
+    distilbert_base_uncased_model: SentenceTransformer, sts_resource: tuple[Dataset, Dataset]
 ) -> None:
     model = distilbert_base_uncased_model
-    sts_train_samples, sts_test_samples = sts_resource
-    train_dataset = SentencesDataset(sts_train_samples, model)
-    train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=16)
+    train_dataset, test_dataset = sts_resource
     train_loss = losses.CosineSimilarityLoss(model=model)
-    model.fit(
-        train_objectives=[(train_dataloader, train_loss)],
-        evaluator=None,
-        epochs=1,
-        warmup_steps=int(len(train_dataloader) * 0.1),
-        use_amp=torch.cuda.is_available(),
-    )
-
-    evaluate_stsb_test(model, 80.0, sts_test_samples)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        args = SentenceTransformerTrainingArguments(
+            output_dir=tmp_dir,
+            num_train_epochs=1,
+            per_device_train_batch_size=16,
+            warmup_ratio=0.1,
+        )
+        trainer = SentenceTransformerTrainer(
+            model=model,
+            args=args,
+            train_dataset=train_dataset,
+            loss=train_loss,
+        )
+        trainer.train()
+    evaluate_stsb_test(model, 80.0, test_dataset)
 
 
 @pytest.mark.skipif("CI" in os.environ, reason="This test is too slow for the CI (~8 minutes)")
@@ -92,23 +84,26 @@ def test_train_stsb_slow(
     not is_training_available(),
     reason='Sentence Transformers was not installed with the `["train"]` extra.',
 )
-def test_train_stsb(
-    distilbert_base_uncased_model: SentenceTransformer, sts_resource: tuple[list[InputExample], list[InputExample]]
-) -> None:
+def test_train_stsb(distilbert_base_uncased_model: SentenceTransformer, sts_resource: tuple[Dataset, Dataset]) -> None:
     model = distilbert_base_uncased_model
-    sts_train_samples, sts_test_samples = sts_resource
-    train_dataset = SentencesDataset(sts_train_samples[:100], model)
-    train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=16)
+    train_dataset, test_dataset = sts_resource
+    train_dataset = train_dataset.select(range(100))
     train_loss = losses.CosineSimilarityLoss(model=model)
-    model.fit(
-        train_objectives=[(train_dataloader, train_loss)],
-        evaluator=None,
-        epochs=1,
-        warmup_steps=int(len(train_dataloader) * 0.1),
-        use_amp=torch.cuda.is_available(),
-    )
-
-    evaluate_stsb_test(model, 60.0, sts_test_samples)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        args = SentenceTransformerTrainingArguments(
+            output_dir=tmp_dir,
+            num_train_epochs=1,
+            per_device_train_batch_size=16,
+            warmup_ratio=0.1,
+        )
+        trainer = SentenceTransformerTrainer(
+            model=model,
+            args=args,
+            train_dataset=train_dataset,
+            loss=train_loss,
+        )
+        trainer.train()
+    evaluate_stsb_test(model, 60.0, test_dataset)
 
 
 @pytest.mark.slow
@@ -118,27 +113,31 @@ def test_train_stsb(
 )
 def test_train_nli_slow(
     distilbert_base_uncased_model: SentenceTransformer,
-    nli_resource: list[InputExample],
-    sts_resource: tuple[list[InputExample], list[InputExample]],
-):
+    nli_resource: Dataset,
+    sts_resource: tuple[Dataset, Dataset],
+) -> None:
     model = distilbert_base_uncased_model
-    _, sts_test_samples = sts_resource
-    train_dataset = SentencesDataset(nli_resource, model=model)
-    train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=16)
+    _, test_dataset = sts_resource
     train_loss = losses.SoftmaxLoss(
         model=model,
         sentence_embedding_dimension=model.get_sentence_embedding_dimension(),
         num_labels=3,
     )
-    model.fit(
-        train_objectives=[(train_dataloader, train_loss)],
-        evaluator=None,
-        epochs=1,
-        warmup_steps=int(len(train_dataloader) * 0.1),
-        use_amp=torch.cuda.is_available(),
-    )
-
-    evaluate_stsb_test(model, 50.0, sts_test_samples)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        args = SentenceTransformerTrainingArguments(
+            output_dir=tmp_dir,
+            num_train_epochs=1,
+            per_device_train_batch_size=16,
+            warmup_ratio=0.1,
+        )
+        trainer = SentenceTransformerTrainer(
+            model=model,
+            args=args,
+            train_dataset=nli_resource,
+            loss=train_loss,
+        )
+        trainer.train()
+    evaluate_stsb_test(model, 50.0, test_dataset)
 
 
 @pytest.mark.skipif("CI" in os.environ, reason="This test is too slow for the CI (~25 minutes)")
@@ -148,24 +147,29 @@ def test_train_nli_slow(
 )
 def test_train_nli(
     distilbert_base_uncased_model: SentenceTransformer,
-    nli_resource: list[InputExample],
-    sts_resource: tuple[list[InputExample], list[InputExample]],
-):
+    nli_resource: Dataset,
+    sts_resource: tuple[Dataset, Dataset],
+) -> None:
     model = distilbert_base_uncased_model
-    _, sts_test_samples = sts_resource
-    train_dataset = SentencesDataset(nli_resource[:100], model=model)
-    train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=16)
+    _, test_dataset = sts_resource
+    train_dataset = nli_resource.select(range(100))
     train_loss = losses.SoftmaxLoss(
         model=model,
         sentence_embedding_dimension=model.get_sentence_embedding_dimension(),
         num_labels=3,
     )
-    model.fit(
-        train_objectives=[(train_dataloader, train_loss)],
-        evaluator=None,
-        epochs=1,
-        warmup_steps=int(len(train_dataloader) * 0.1),
-        use_amp=torch.cuda.is_available(),
-    )
-
-    evaluate_stsb_test(model, 50.0, sts_test_samples)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        args = SentenceTransformerTrainingArguments(
+            output_dir=tmp_dir,
+            num_train_epochs=1,
+            per_device_train_batch_size=16,
+            warmup_ratio=0.1,
+        )
+        trainer = SentenceTransformerTrainer(
+            model=model,
+            args=args,
+            train_dataset=train_dataset,
+            loss=train_loss,
+        )
+        trainer.train()
+    evaluate_stsb_test(model, 50.0, test_dataset)
