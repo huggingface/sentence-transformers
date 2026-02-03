@@ -262,3 +262,44 @@ class MultipleNegativesRankingLoss(nn.Module):
     @property
     def temperature(self) -> float:
         return 1.0 / self.scale
+
+    @property
+    def citation(self) -> str:
+        if (
+            set(self.directions) == {"query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"}
+            and self.partition_mode == "joint"
+        ):
+            return """
+@misc{li2023generaltextembeddingsmultistage,
+      title={Towards General Text Embeddings with Multi-stage Contrastive Learning},
+      author={Zehan Li and Xin Zhang and Yanzhao Zhang and Dingkun Long and Pengjun Xie and Meishan Zhang},
+      year={2023},
+      eprint={2308.03281},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2308.03281},
+}
+"""
+        if set(self.directions) == {"query_to_doc", "doc_to_query"} and self.partition_mode == "per_direction":
+            return """
+@misc{günther2024jinaembeddings28192token,
+      title={Jina Embeddings 2: 8192-Token General-Purpose Text Embeddings for Long Documents},
+      author={Michael Günther and Jackmin Ong and Isabelle Mohr and Alaeddine Abdessalem and Tanguy Abel and Mohammad Kalim Akram and Susana Guzman and Georgios Mastrapas and Saba Sturua and Bo Wang and Maximilian Werk and Nan Wang and Han Xiao},
+      year={2024},
+      eprint={2310.19923},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2310.19923},
+}
+"""
+        return """
+@misc{oord2019representationlearningcontrastivepredictive,
+      title={Representation Learning with Contrastive Predictive Coding},
+      author={Aaron van den Oord and Yazhe Li and Oriol Vinyals},
+      year={2019},
+      eprint={1807.03748},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/1807.03748},
+}
+"""

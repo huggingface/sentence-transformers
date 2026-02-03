@@ -394,8 +394,23 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             "similarity_fct": self.similarity_fct.__name__,
             "mini_batch_size": self.mini_batch_size,
             "gather_across_devices": self.gather_across_devices,
+            "directions": self.directions,
+            "partition_mode": self.partition_mode,
         }
 
     @property
     def temperature(self) -> float:
         return 1.0 / self.scale
+
+    @property
+    def citation(self) -> str:
+        return """
+@misc{gao2021scaling,
+    title={Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup},
+    author={Luyu Gao and Yunyi Zhang and Jiawei Han and Jamie Callan},
+    year={2021},
+    eprint={2101.06983},
+    archivePrefix={arXiv},
+    primaryClass={cs.LG}
+}
+"""
