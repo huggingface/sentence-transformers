@@ -214,6 +214,11 @@ def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:
     x = _convert_to_tensor(x)
     y = _convert_to_tensor(y)
 
+    # Pad tensors if the embedding dimension is odd, as torch.chunk requires even dimensions
+    if x.shape[1] % 2 != 0:
+        x = torch.nn.functional.pad(x, (0, 1), mode="constant", value=0)
+        y = torch.nn.functional.pad(y, (0, 1), mode="constant", value=0)
+
     # modified from https://github.com/SeanLee97/AnglE/blob/main/angle_emb/angle.py
     # chunk both tensors to obtain complex components
     a, b = torch.chunk(x, 2, dim=1)

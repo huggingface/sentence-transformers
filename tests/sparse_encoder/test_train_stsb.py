@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import csv
-import gzip
 import os
 from collections.abc import Generator
 
 import pytest
+from datasets import load_dataset
 
-from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments, util
+from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments
 from sentence_transformers.readers import InputExample
 from sentence_transformers.sparse_encoder import losses
 from sentence_transformers.sparse_encoder.evaluation import SparseEmbeddingSimilarityEvaluator
@@ -25,22 +24,15 @@ if not is_training_available():
 
 @pytest.fixture()
 def sts_resource() -> Generator[tuple[list[InputExample], list[InputExample]], None, None]:
-    sts_dataset_path = "datasets/stsbenchmark.tsv.gz"
-    if not os.path.exists(sts_dataset_path):
-        util.http_get("https://sbert.net/datasets/stsbenchmark.tsv.gz", sts_dataset_path)
+    sts_dataset = load_dataset("sentence-transformers/stsb")
 
     stsb_train_samples = []
     stsb_test_samples = []
-    with gzip.open(sts_dataset_path, "rt", encoding="utf8") as fIn:
-        reader = csv.DictReader(fIn, delimiter="\t", quoting=csv.QUOTE_NONE)
-        for row in reader:
-            score = float(row["score"]) / 5.0
-            inp_example = InputExample(texts=[row["sentence1"], row["sentence2"]], label=score)
+    for row in sts_dataset["test"]:
+        stsb_test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 
-            if row["split"] == "test":
-                stsb_test_samples.append(inp_example)
-            elif row["split"] == "train":
-                stsb_train_samples.append(inp_example)
+    for row in sts_dataset["train"]:
+        stsb_train_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
     yield stsb_train_samples, stsb_test_samples
 
 

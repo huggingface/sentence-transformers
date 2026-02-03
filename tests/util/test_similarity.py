@@ -7,11 +7,13 @@ import pytest
 import sklearn
 import torch
 
+from sentence_transformers.sparse_encoder import SparseEncoder
 from sentence_transformers.util.similarity import (
     cos_sim,
     dot_score,
     euclidean_sim,
     manhattan_sim,
+    pairwise_angle_sim,
     pairwise_cos_sim,
     pairwise_dot_score,
     pairwise_euclidean_sim,
@@ -321,3 +323,35 @@ def test_performance_with_large_vectors():
     print(f"Average speedup: {avg_speedup:.2f}x")
 
     assert sparse_time_avg < 0.1, "Sparse operations took too long!"
+
+
+def test_pairwise_angle_sim_even_and_odd_sparse_embeddings(splade_bert_tiny_model: SparseEncoder) -> None:
+    """Ensure pairwise_angle_sim works for even and artificially odd dims."""
+
+    model = splade_bert_tiny_model
+    sentences = [
+        "The weather is nice today.",
+        "It's sunny outside.",
+        "I love going for walks in the park.",
+        "Let's have a picnic this weekend.",
+    ]
+    embeddings_even_dense = model.encode(
+        sentences,
+        convert_to_tensor=True,
+        convert_to_sparse_tensor=False,
+    )
+    assert embeddings_even_dense.shape[1] % 2 == 0, "Test setup error: expected even-dimensional sparse embeddings."
+
+    # Baseline with the model's normal (even-dimensional) sparse embeddings
+    sim_even = pairwise_angle_sim(embeddings_even_dense[:2].to_sparse(), embeddings_even_dense[2:].to_sparse())
+
+    # Convert to dense, append a trailing zero column to make the embedding
+    # dimension odd while keeping the representation identical, then convert
+    # back to sparse so we continue testing the sparse input path.
+    embeddings_odd = torch.nn.functional.pad(embeddings_even_dense, (0, 1), mode="constant", value=0)
+    assert embeddings_odd.shape[1] % 2 == 1, "Test setup error: expected odd-dimensional sparse embeddings."
+
+    sim_odd = pairwise_angle_sim(embeddings_odd[:2].to_sparse(), embeddings_odd[2:].to_sparse())
+
+    assert sim_even.shape == sim_odd.shape
+    assert torch.allclose(sim_even, sim_odd, rtol=1e-5, atol=1e-5)

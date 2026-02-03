@@ -4,40 +4,28 @@ Tests that the pretrained models produce the correct scores on the STSbenchmark 
 
 from __future__ import annotations
 
-import csv
-import gzip
-import os
 from functools import partial
 
 import pytest
+from datasets import load_dataset
 
-from sentence_transformers import InputExample, SentenceTransformer, util
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.evaluation.EmbeddingSimilarityEvaluator import EmbeddingSimilarityEvaluator
 
 
 def pretrained_model_score(
     model_name, expected_score: float, max_test_samples: int = 100, cache_dir: str | None = None
 ) -> None:
     model = SentenceTransformer(model_name, cache_folder=cache_dir)
-    sts_dataset_path = "datasets/stsbenchmark.tsv.gz"
+    sts_dataset = load_dataset("sentence-transformers/stsb", split="test")
 
-    if not os.path.exists(sts_dataset_path):
-        util.http_get("https://sbert.net/datasets/stsbenchmark.tsv.gz", sts_dataset_path)
+    if max_test_samples != -1:
+        sts_dataset = sts_dataset.select(range(max_test_samples))
 
-    test_samples = []
-    with gzip.open(sts_dataset_path, "rt", encoding="utf8") as fIn:
-        reader = csv.DictReader(fIn, delimiter="\t", quoting=csv.QUOTE_NONE)
-        for row in reader:
-            score = float(row["score"]) / 5.0  # Normalize score to range 0 ... 1
-            inp_example = InputExample(texts=[row["sentence1"], row["sentence2"]], label=score)
-
-            if row["split"] == "test":
-                test_samples.append(inp_example)
-            if max_test_samples != -1 and len(test_samples) >= max_test_samples:
-                break
-
-    evaluator = EmbeddingSimilarityEvaluator.from_input_examples(
-        test_samples,
+    evaluator = EmbeddingSimilarityEvaluator(
+        sentences1=sts_dataset["sentence1"],
+        sentences2=sts_dataset["sentence2"],
+        scores=sts_dataset["score"],
         name="sts-test",
         similarity_fn_names=["cosine", "euclidean", "manhattan", "dot"],
     )

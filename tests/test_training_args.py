@@ -46,6 +46,20 @@ def test_hf_argument_parser():
     assert args.learning_rate == 0.0005
 
 
+def test_hf_argument_parser_no_duplicates_hashed():
+    parser = HfArgumentParser((SentenceTransformerTrainingArguments,))
+    dataclasses = parser.parse_args_into_dataclasses(
+        args=[
+            "--output_dir",
+            "test_output_dir",
+            "--batch_sampler",
+            "no_duplicates_hashed",
+        ]
+    )
+    args = dataclasses[0]
+    assert args.batch_sampler == BatchSamplers.NO_DUPLICATES_HASHED
+
+
 @pytest.mark.parametrize("argument_name", ["router_mapping", "learning_rate_mapping"])
 def test_hf_argument_parser_incorrect_string_arguments(argument_name):
     parser = HfArgumentParser((SentenceTransformerTrainingArguments,))

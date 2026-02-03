@@ -11,6 +11,7 @@ from tokenizers import Tokenizer
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.models import Pooling, StaticEmbedding, Transformer
+from sentence_transformers.sparse_encoder import SparseEncoder
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -108,6 +109,30 @@ def _reranker_bert_tiny_model() -> CrossEncoder:
 @pytest.fixture()
 def reranker_bert_tiny_model(_reranker_bert_tiny_model) -> CrossEncoder:
     return deepcopy(_reranker_bert_tiny_model)
+
+
+@pytest.fixture(scope="session")
+def _splade_bert_tiny_model() -> SparseEncoder:
+    model = SparseEncoder("sparse-encoder-testing/splade-bert-tiny-nq")
+    model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
+    return model
+
+
+@pytest.fixture()
+def splade_bert_tiny_model(_splade_bert_tiny_model: SparseEncoder) -> SparseEncoder:
+    return deepcopy(_splade_bert_tiny_model)
+
+
+@pytest.fixture(scope="session")
+def _inference_free_splade_bert_tiny_model() -> SparseEncoder:
+    model = SparseEncoder("sparse-encoder-testing/inference-free-splade-bert-tiny-nq")
+    model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
+    return model
+
+
+@pytest.fixture()
+def inference_free_splade_bert_tiny_model(_inference_free_splade_bert_tiny_model: SparseEncoder) -> SparseEncoder:
+    return deepcopy(_inference_free_splade_bert_tiny_model)
 
 
 @pytest.fixture()

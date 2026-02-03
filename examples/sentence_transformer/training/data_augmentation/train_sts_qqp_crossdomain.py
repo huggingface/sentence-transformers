@@ -18,7 +18,6 @@ python train_sts_qqp_crossdomain.py pretrained_transformer_model_name
 """
 
 import csv
-import gzip
 import logging
 import math
 import os
@@ -27,6 +26,7 @@ from datetime import datetime
 from zipfile import ZipFile
 
 import torch
+from datasets import load_dataset
 from torch.utils.data import DataLoader
 
 from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models, util
@@ -35,11 +35,11 @@ from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelati
 from sentence_transformers.evaluation import BinaryClassificationEvaluator
 from sentence_transformers.readers import InputExample
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
-#### /print debug information to stdout
+# /print debug information to stdout
 
 # You can specify any huggingface/transformers pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
 model_name = sys.argv[1] if len(sys.argv) > 1 else "bert-base-uncased"
@@ -48,14 +48,10 @@ num_epochs = 1
 max_seq_length = 128
 use_cuda = torch.cuda.is_available()
 
-###### Read Datasets ######
-sts_dataset_path = "datasets/stsbenchmark.tsv.gz"
+# Read Datasets ######
 qqp_dataset_path = "quora-IR-dataset"
 
-
-# Check if the STSb dataset exists. If not, download and extract it
-if not os.path.exists(sts_dataset_path):
-    util.http_get("https://sbert.net/datasets/stsbenchmark.tsv.gz", sts_dataset_path)
+dataset = load_dataset("sentence-transformers/stsb")
 
 
 # Check if the QQP dataset exists. If not, download and extract
@@ -80,13 +76,13 @@ bi_encoder_path = (
     + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 )
 
-###### Cross-encoder (simpletransformers) ######
+# Cross-encoder (simpletransformers) ######
 
 logging.info(f"Loading cross-encoder model: {model_name}")
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for cross-encoder model
 cross_encoder = CrossEncoder(model_name, num_labels=1)
 
-###### Bi-encoder (sentence-transformers) ######
+# Bi-encoder (sentence-transformers) ######
 
 logging.info(f"Loading bi-encoder model: {model_name}")
 
@@ -116,19 +112,16 @@ gold_samples = []
 dev_samples = []
 test_samples = []
 
-with gzip.open(sts_dataset_path, "rt", encoding="utf8") as fIn:
-    reader = csv.DictReader(fIn, delimiter="\t", quoting=csv.QUOTE_NONE)
-    for row in reader:
-        score = float(row["score"]) / 5.0  # Normalize score to range 0 ... 1
+for row in dataset["validation"]:
+    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
 
-        if row["split"] == "dev":
-            dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
-        elif row["split"] == "test":
-            test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
-        else:
-            # As we want to get symmetric scores, i.e. CrossEncoder(A,B) = CrossEncoder(B,A), we pass both combinations to the train set
-            gold_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=score))
-            gold_samples.append(InputExample(texts=[row["sentence2"], row["sentence1"]], label=score))
+for row in dataset["test"]:
+    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
+
+for row in dataset["train"]:
+    # As we want to get symmetric scores, i.e. CrossEncoder(A,B) = CrossEncoder(B,A), we pass both combinations to the train set
+    gold_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
+    gold_samples.append(InputExample(texts=[row["sentence2"], row["sentence1"]], label=row["score"]))
 
 
 # We wrap gold_samples (which is a List[InputExample]) into a pytorch DataLoader
@@ -195,7 +188,7 @@ qqp_train_data = list(
 train_dataloader = DataLoader(qqp_train_data, shuffle=True, batch_size=batch_size)
 train_loss = losses.MultipleNegativesRankingLoss(bi_encoder)
 
-###### Classification ######
+# Classification ######
 # Given (quesiton1, question2), is this a duplicate or not?
 # The evaluator will compute the embeddings for both questions and then compute
 # a cosine similarity. If the similarity is above a threshold, we have a duplicate.

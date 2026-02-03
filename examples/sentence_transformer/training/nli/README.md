@@ -18,6 +18,10 @@ To train on NLI, see the following example files:
    ```{eval-rst}
    Following the `GISTEmbed <https://huggingface.co/papers/2402.16829>`_ paper, we can modify the in-batch negative selection from :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` using a guiding model. Candidate negative pairs are ignored during training if the guiding model considers the pair to be too similar. In practice, the :class:`~sentence_transformers.losses.GISTEmbedLoss` tends to produce a stronger training signal than :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` at the cost of some training overhead for running inference on the guiding model.
    ```
+1. **[training_nli_angle.py](training_nli_angle.py)**
+   ```{eval-rst}
+   This example uses :class:`~sentence_transformers.losses.AnglELoss` on the `triplet subset of AllNLI <https://huggingface.co/datasets/sentence-transformers/all-nli/viewer/triplet>`_. Each example consists of (premise, entailment, contradiction), where the entailment sentence is treated as a positive and the contradiction sentence as a hard negative. Internally, :class:`~sentence_transformers.losses.AnglELoss` converts these triplets (and more generally, n-tuples of the form (anchor, positive, negative_1, ..., negative_n)) into pairwise comparisons so that the anchor–positive pairs are ranked above the anchor–negative pairs.
+   ```
 
 ```{eval-rst}
 You can also train and use :class:`~sentence_transformers.cross_encoder.CrossEncoder` models for this task. See `Cross Encoder > Training Examples > Natural Language Inference <../../../cross_encoder/training/nli/README.html>`_ for more details.

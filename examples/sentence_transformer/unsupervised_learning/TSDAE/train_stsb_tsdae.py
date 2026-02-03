@@ -32,8 +32,8 @@ model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 # model.max_seq_length = max_seq_length
 
 # 2. We use 1 Million sentences from Wikipedia to train our model:
-# https://huggingface.co/datasets/princeton-nlp/datasets-for-simcse
-dataset = load_dataset("princeton-nlp/datasets-for-simcse", split="train")
+# https://huggingface.co/datasets/sentence-transformers/wiki1m-for-simcse
+dataset = load_dataset("sentence-transformers/wiki1m-for-simcse", split="train")
 
 
 def noise_transform(batch, del_ratio=0.6):
