@@ -109,7 +109,7 @@ class MultipleNegativesRankingLoss(nn.Module):
                     partition_mode="joint",  # default
                 )
 
-              This variant is recommended if train with (anchor, positive, negative_1, ..., negative_n) n-tuples.
+              This variant is recommended if you are training with (anchor, positive, negative_1, ..., negative_n) n-tuples.
 
             - Symmetric InfoNCE (query -> doc and doc -> query), e.g. as in `Günther et al. 2024 <https://arxiv.org/abs/2310.19923>`_::
 
@@ -129,7 +129,7 @@ class MultipleNegativesRankingLoss(nn.Module):
                     partition_mode="joint",  # single softmax over all selected interaction terms
                 )
 
-              This variant is recommended if training with only (anchor, positive) pairs or (anchor, positive, negative)
+              This variant is recommended if you are training with only (anchor, positive) pairs or (anchor, positive, negative)
               triplets, as it may provide a stronger training signal.
 
         Example:
