@@ -16,6 +16,7 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         similarity_fct=cos_sim,
         mean_weight: float = 1.0,
         second_moment_weight: float = 1.0,
+        aggregation: str = "mean",
     ) -> None:
         """
         Global Orthogonal Regularization (GOR) Loss that encourages embeddings to be well-distributed
@@ -26,8 +27,9 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         1. Mean term: Penalizes when the mean similarity across embeddings is far from zero
         2. Second moment term: Penalizes when the variance of similarities is too high
 
-        The loss is called independently on each input column (e.g., queries and passages) and averages the results.
-        This is why the loss can be used on any dataset configuration (e.g., single inputs, pairs, triplets, etc.).
+        The loss is called independently on each input column (e.g., queries and passages) and combines the results
+        using either mean or sum aggregation. This is why the loss can be used on any dataset configuration
+        (e.g., single inputs, pairs, triplets, etc.).
 
         It's recommended to combine this loss with a primary loss function, such as :class:`MultipleNegativesRankingLoss`.
 
@@ -36,10 +38,12 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
             similarity_fct: Function to compute similarity between embeddings (default: cosine similarity)
             mean_weight: Weight for the mean term loss component (default: 1.0)
             second_moment_weight: Weight for the second moment term loss component (default: 1.0)
+            aggregation: How to combine losses across input columns. Either "mean" or "sum" (default: "mean").
+                The EmbeddingGemma paper uses "sum".
 
         References:
             - For further details, see: https://arxiv.org/abs/1708.06320 or https://arxiv.org/abs/2509.20354.
-              The latter paper uses the equivalent of GOR with ``mean_weight=0.0``.
+              The latter paper uses the equivalent of GOR with ``mean_weight=0.0`` and ``aggregation="sum"``.
 
         Inputs:
             +-------+--------+
@@ -53,6 +57,9 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         self.similarity_fct = similarity_fct
         self.mean_weight = mean_weight
         self.second_moment_weight = second_moment_weight
+        if aggregation not in ["mean", "sum"]:
+            raise ValueError(f"aggregation must be 'mean' or 'sum', got '{aggregation}'")
+        self.aggregation = aggregation
 
     def forward(
         self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None
@@ -76,9 +83,15 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         mean_terms, second_moment_terms = zip(*[self.compute_gor(embedding) for embedding in embeddings])
         results = {}
         if self.mean_weight:
-            results["gor_mean"] = self.mean_weight * torch.stack(mean_terms).mean()
+            stacked_mean = torch.stack(mean_terms)
+            aggregated_mean = stacked_mean.sum() if self.aggregation == "sum" else stacked_mean.mean()
+            results["gor_mean"] = self.mean_weight * aggregated_mean
         if self.second_moment_weight:
-            results["gor_second_moment"] = self.second_moment_weight * torch.stack(second_moment_terms).mean()
+            stacked_second_moment = torch.stack(second_moment_terms)
+            aggregated_second_moment = (
+                stacked_second_moment.sum() if self.aggregation == "sum" else stacked_second_moment.mean()
+            )
+            results["gor_second_moment"] = self.second_moment_weight * aggregated_second_moment
         return results
 
     def compute_gor(self, embeddings: Tensor) -> tuple[Tensor, Tensor]:
