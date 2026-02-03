@@ -1,11 +1,9 @@
 """
 This file loads sentences from a provided text file. It is expected, that the there is one sentence per line in that text file.
-
-CT will be training using these sentences. Checkpoints are stored every 500 steps to the output folder.
+CT will be training using these sentences.
 
 Usage:
-python train_ct_from_file.py path/to/sentences.txt
-
+python train_ct-improved_from_file.py path/to/sentences.txt
 """
 
 import gzip
@@ -94,6 +92,7 @@ trainer = SentenceTransformerTrainer(
     loss=train_loss,
 )
 trainer.train()
+
 # Show similarity between first two sentences as an example
 if len(train_sentences) >= 2:
     logging.info("\nExample similarity calculation:")
@@ -109,6 +108,7 @@ if len(train_sentences) >= 2:
 # Save the trained & evaluated model locally
 final_output_dir = f"{model_output_path}/final"
 model.save_pretrained(final_output_dir)
+
 # (Optional) save the model to the Hugging Face Hub!
 # It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
 model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
