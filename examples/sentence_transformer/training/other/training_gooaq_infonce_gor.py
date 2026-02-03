@@ -56,7 +56,7 @@ class InfoNCEGORLoss(torch.nn.Module):
         self,
         sentence_features: Iterable[dict[str, Tensor]],
         labels: Tensor | None = None,
-    ) -> dict[str | Tensor]:
+    ) -> dict[str, Tensor]:
         embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
         info_nce_loss: dict[str, Tensor] = {
             "info_nce": self.info_nce_loss.compute_loss_from_embeddings(embeddings, labels)
