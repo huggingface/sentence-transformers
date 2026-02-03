@@ -106,7 +106,7 @@ class MultipleNegativesRankingLoss(nn.Module):
                 loss = MultipleNegativesRankingLoss(
                     model,
                     directions=("query_to_doc",),  # default
-                    partition_mode="joint",
+                    partition_mode="joint",  # default
                 )
 
               This variant is recommended if train with (anchor, positive, negative_1, ..., negative_n) n-tuples.
