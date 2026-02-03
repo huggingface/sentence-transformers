@@ -34,6 +34,14 @@ For example, models trained with <a href="../package_reference/sentence_transfor
 |-------|--------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `any` | `any`  | <a href="../package_reference/sentence_transformer/losses.html#matryoshkaloss">`MatryoshkaLoss`</a><br><a href="../package_reference/sentence_transformer/losses.html#adaptivelayerloss">`AdaptiveLayerLoss`</a><br><a href="../package_reference/sentence_transformer/losses.html#matryoshka2dloss">`Matryoshka2dLoss`</a> |
 
+## Regularization
+
+These losses are designed to regularize the embedding space during training, encouraging certain properties in the learned embeddings. They can often be applied to any dataset configuration.
+
+| Texts | Labels | Appropriate Loss Functions                                                                                                                  |
+|-------|--------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| `any` | `none` | <a href="../package_reference/sentence_transformer/losses.html#globalorthogonalregularizationloss">`GlobalOrthogonalRegularizationLoss`</a> |
+
 ## Distillation
 These loss functions are specifically designed to be used when distilling the knowledge from one model into another.
 For example, when finetuning a small model to behave more like a larger & stronger one, or when finetuning a model to become multi-lingual.

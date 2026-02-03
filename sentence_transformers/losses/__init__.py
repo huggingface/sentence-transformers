@@ -27,6 +27,7 @@ from .CosineSimilarityLoss import CosineSimilarityLoss
 from .DenoisingAutoEncoderLoss import DenoisingAutoEncoderLoss
 from .DistillKLDivLoss import DistillKLDivLoss
 from .GISTEmbedLoss import GISTEmbedLoss
+from .GlobalOrthogonalRegularizationLoss import GlobalOrthogonalRegularizationLoss
 from .MarginMSELoss import MarginMSELoss
 from .Matryoshka2dLoss import Matryoshka2dLoss
 from .MatryoshkaLoss import MatryoshkaLoss
@@ -64,6 +65,7 @@ __all__ = [
     "MegaBatchMarginLoss",
     "DenoisingAutoEncoderLoss",
     "GISTEmbedLoss",
+    "GlobalOrthogonalRegularizationLoss",
     "BatchHardTripletLoss",
     "BatchHardTripletLossDistanceFunction",
     "BatchHardSoftMarginTripletLoss",
