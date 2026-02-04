@@ -175,6 +175,16 @@ class EmbeddingSimilarityEvaluator(SentenceEvaluator):
             embeddings1 = np.unpackbits(embeddings1, axis=1)
             embeddings2 = np.unpackbits(embeddings2, axis=1)
 
+        # Convert quantized embeddings to float32 for similarity computations
+        # int8/uint8 need to be converted, and binary/ubinary are already converted via unpackbits
+        if self.precision in ("int8", "uint8"):
+            embeddings1 = embeddings1.astype(np.float32)
+            embeddings2 = embeddings2.astype(np.float32)
+        elif self.precision in ("binary", "ubinary"):
+            # After unpacking, convert from uint8 to float32
+            embeddings1 = embeddings1.astype(np.float32)
+            embeddings2 = embeddings2.astype(np.float32)
+
         labels = self.scores
 
         if not self.similarity_fn_names:
