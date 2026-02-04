@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .decorators import save_to_hub_args_decorator
 from .distributed import all_gather, all_gather_with_grad
+from .embedding_cache import EmbeddingCache
 from .environment import (
     check_package_availability,
     get_device_name,
@@ -49,6 +50,8 @@ __all__ = [
     # From distributed.py
     "all_gather",
     "all_gather_with_grad",
+    # From embedding_cache.py
+    "EmbeddingCache",
     # From environment.py
     "get_device_name",
     "check_package_availability",
