@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
-import requests
 from huggingface_hub import hf_hub_download, snapshot_download
 from tqdm.autonotebook import tqdm
 
@@ -158,37 +156,52 @@ def load_dir_path(
 
 
 def http_get(url: str, path: str) -> None:
-    """
-    Downloads a URL to a given path on disk.
+    """Download a URL to a local file with a progress bar.
+
+    The content is streamed in chunks and first written to a temporary
+    ``"<path>_part"`` file, which is atomically moved to ``path`` once the
+    download has completed successfully. Parent directories of ``path`` are
+    created automatically if they do not exist.
 
     Args:
-        url (str): The URL to download.
-        path (str): The path to save the downloaded file.
+        url (str): The HTTP(S) URL to download.
+        path (str): Destination file path on the local filesystem.
 
     Raises:
-        requests.HTTPError: If the HTTP request returns a non-200 status code.
+        ImportError: If the optional ``httpx`` dependency is not installed.
+        httpx.HTTPStatusError: If the HTTP request returns a non-success status code.
+        OSError: If the file cannot be written to ``path``.
 
     Returns:
         None
     """
+    try:
+        import httpx
+    except ImportError:
+        raise ImportError("httpx is required to use this function. Please install it via `pip install httpx`.")
+
     if os.path.dirname(path) != "":
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    req = requests.get(url, stream=True)
-    if req.status_code != 200:
-        print(f"Exception when trying to download {url}. Response {req.status_code}", file=sys.stderr)
-        req.raise_for_status()
-        return
-
     download_filepath = path + "_part"
-    with open(download_filepath, "wb") as file_binary:
-        content_length = req.headers.get("Content-Length")
+    with httpx.stream("GET", url, follow_redirects=True) as response:
+        response.raise_for_status()
+        content_length = response.headers.get("Content-Length")
         total = int(content_length) if content_length is not None else None
-        progress = tqdm(unit="B", total=total, unit_scale=True)
-        for chunk in req.iter_content(chunk_size=1024):
-            if chunk:  # filter out keep-alive new chunks
-                progress.update(len(chunk))
-                file_binary.write(chunk)
+        progress = tqdm(
+            unit="B", total=total, unit_scale=True, leave=False, desc=f"Downloading {os.path.basename(path)}"
+        )
 
-    os.rename(download_filepath, path)
-    progress.close()
+        try:
+            with open(download_filepath, "wb") as file_binary:
+                for chunk in response.iter_bytes(chunk_size=1024):
+                    if chunk:
+                        progress.update(len(chunk))
+                        file_binary.write(chunk)
+            os.replace(download_filepath, path)
+        except Exception:
+            if os.path.exists(download_filepath):
+                os.remove(download_filepath)
+            raise
+        finally:
+            progress.close()

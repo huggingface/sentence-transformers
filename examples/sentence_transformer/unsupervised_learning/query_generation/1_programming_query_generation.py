@@ -58,7 +58,7 @@ max_length_paragraph = 300  # Max length for paragraph
 max_length_query = 64  # Max length for output query
 
 # Now for every paragraph in our corpus, we generate the queries
-with open("generated_queries.tsv", "w") as fOut:
+with open("generated_queries.tsv", "w", encoding="utf-8") as fOut:
     for start_idx in tqdm.trange(0, len(paragraphs), batch_size):
         sub_paragraphs = paragraphs[start_idx : start_idx + batch_size]
         inputs = tokenizer.prepare_seq2seq_batch(

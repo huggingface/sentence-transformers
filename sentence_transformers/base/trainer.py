@@ -702,6 +702,9 @@ class BaseTrainer(Trainer, ABC):
         if self.args.batch_sampler == BatchSamplers.NO_DUPLICATES:
             return NoDuplicatesBatchSampler(dataset, **batch_sampler_kwargs)
 
+        if self.args.batch_sampler == BatchSamplers.NO_DUPLICATES_HASHED:
+            return NoDuplicatesBatchSampler(dataset, precompute_hashes=True, **batch_sampler_kwargs)
+
         if self.args.batch_sampler == BatchSamplers.GROUP_BY_LABEL:
             return GroupByLabelBatchSampler(dataset, **batch_sampler_kwargs)
 

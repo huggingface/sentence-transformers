@@ -4,11 +4,11 @@ on:
   push:
     branches:
       - main
-      - v*-release
+      - "*-release"
   pull_request:
     branches:
       - main
-      - v*-release
+      - "*-release"
   workflow_dispatch:
 
 env:
@@ -77,7 +77,7 @@ jobs:
           # even in environments where system-managed packages might otherwise block such operations.
           python -m pip install --upgrade pip --break-system-packages
           # We require the not-yet-released https://github.com/huggingface/accelerate/pull/3850, so install from GitHub for now
-          python -m pip install '.[train, dev]' 'transformers>=5.0.0rc0' 'git+https://github.com/huggingface/accelerate'
+          python -m pip install '.[train, dev]' 'transformers>=5.0.0' 'git+https://github.com/huggingface/accelerate'
 
       - name: Install model2vec
         run: python -m pip install model2vec

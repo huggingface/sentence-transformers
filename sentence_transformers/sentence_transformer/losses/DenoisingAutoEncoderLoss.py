@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 
+from packaging.version import Version, parse
 from torch import Tensor, nn
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
+from transformers import __version__ as transformers_version
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.models import StaticEmbedding
@@ -53,25 +55,45 @@ class DenoisingAutoEncoderLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, losses
-                from sentence_transformers.sentence_transformer.datasets import DenoisingAutoEncoderDataset
-                from torch.utils.data import DataLoader
+                import random
+                from datasets import Dataset
+                from nltk import word_tokenize
+                from nltk.tokenize.treebank import TreebankWordDetokenizer
+                from sentence_transformers import SentenceTransformer
+                from sentence_transformers.sentence_transformer.losses import DenoisingAutoEncoderLoss
+                from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
 
                 model_name = "bert-base-cased"
                 model = SentenceTransformer(model_name)
+
+                def noise_transform(batch, del_ratio=0.6):
+                    texts = batch["text"]
+                    noisy_texts = []
+                    for text in texts:
+                        words = word_tokenize(text)
+                        n = len(words)
+                        if n == 0:
+                            noisy_texts.append(text)
+                            continue
+
+                        kept_words = [word for word in words if random.random() < del_ratio]
+                        # Guarantee that at least one word remains
+                        if len(kept_words) == 0:
+                            noisy_texts.append(random.choice(words))
+                            continue
+
+                        noisy_texts.append(TreebankWordDetokenizer().detokenize(kept_words))
+                    return {"noisy": noisy_texts, "text": texts}
+
                 train_sentences = [
                     "First training sentence", "Second training sentence", "Third training sentence", "Fourth training sentence",
                 ]
-                batch_size = 2
-                train_dataset = DenoisingAutoEncoderDataset(train_sentences)
-                train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-                train_loss = losses.DenoisingAutoEncoderLoss(
-                    model, decoder_name_or_path=model_name, tie_encoder_decoder=True
-                )
-                model.fit(
-                    train_objectives=[(train_dataloader, train_loss)],
-                    epochs=10,
-                )
+
+                train_dataset = Dataset.from_dict({"text": train_sentences})
+                train_dataset.set_transform(transform=lambda batch: noise_transform(batch), columns=["text"], output_all_columns=True)
+                train_loss = DenoisingAutoEncoderLoss(model, decoder_name_or_path=model_name, tie_encoder_decoder=True)
+                trainer = SentenceTransformerTrainer(model=model, train_dataset=train_dataset, loss=train_loss)
+                trainer.train()
         """
         super().__init__()
 
@@ -119,6 +141,12 @@ class DenoisingAutoEncoderLoss(nn.Module):
             )
 
         if tie_encoder_decoder:
+            if parse(transformers_version) >= Version("5.0.0"):
+                raise RuntimeError(
+                    "Tying encoder and decoder weights is not currently supported for transformers version >= 5.0.0. "
+                    "Please either install transformers<5.0.0 or set tie_encoder_decoder=False."
+                )
+
             assert not self.need_retokenization, "The tokenizers should be the same when tie_encoder_decoder=True."
             if len(self.tokenizer_encoder) != len(self.tokenizer_decoder):  # The vocabulary has been changed.
                 self.tokenizer_decoder = self.tokenizer_encoder

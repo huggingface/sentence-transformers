@@ -124,6 +124,18 @@ def stsb_dataset_dict() -> DatasetDict:
     return load_dataset("sentence-transformers/stsb")
 
 
+@pytest.fixture(scope="session")
+def _inference_free_splade_bert_tiny_model() -> SparseEncoder:
+    model = SparseEncoder("sparse-encoder-testing/inference-free-splade-bert-tiny-nq")
+    model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
+    return model
+
+
+@pytest.fixture()
+def inference_free_splade_bert_tiny_model(_inference_free_splade_bert_tiny_model: SparseEncoder) -> SparseEncoder:
+    return deepcopy(_inference_free_splade_bert_tiny_model)
+
+
 @pytest.fixture()
 def cache_dir():
     """

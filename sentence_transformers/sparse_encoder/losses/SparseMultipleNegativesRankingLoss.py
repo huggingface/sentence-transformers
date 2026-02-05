@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Literal
 
 from torch import Tensor
 
@@ -16,22 +17,43 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
         scale: float = 1.0,
         similarity_fct=util.dot_score,
         gather_across_devices: bool = False,
+        directions: tuple[
+            Literal["query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"],
+            ...,
+        ] = ("query_to_doc",),
+        partition_mode: Literal["joint", "per_direction"] = "joint",
     ) -> None:
         """
-        Given a list of (anchor, positive) pairs or (anchor, positive, negative) triplets, this loss optimizes the following:
+        Given a dataset of (anchor, positive) pairs, (anchor, positive, negative) triplets, or (anchor, positive, negative_1, ..., negative_n)
+        n-tuples, this loss implements a contrastive learning objective that encourages the model to produce similar
+        embeddings for the anchor and positive samples, while producing dissimilar embeddings for the negative samples.
 
-        1. Given an anchor (e.g. a question), assign the highest similarity to the corresponding positive (i.e. answer)
-           out of every single positive and negative (e.g. all answers) in the batch.
+        In plain terms, the loss works as follows:
 
-        If you provide the optional negatives, they will all be used as extra options from which the model must pick the
-        correct positive. Within reason, the harder this "picking" is, the stronger the model will become. Because of
-        this, a higher batch size results in more in-batch negatives, which then increases performance (to a point).
+        1. For each anchor (often a query) in the batch, we want the similarity to its matched positive
+           (often a document) to be higher than the similarity to all other documents in the batch (including
+           optional hard negatives). This is the standard forward MultipleNegativesRankingLoss / InfoNCE term,
+           denoted with "query_to_doc".
+        2. Optionally, we can also require the opposite: for each document, its matched query should have higher
+           similarity than all other queries in the batch. This is the symmetric backward term, denoted with
+           "doc_to_query".
+        3. Optionally, we can further require that for each query, its similarity to all other queries in the batch
+           is lower than to its matched document. This is the "query_to_query" term.
+        4. Optionally, we can also require that for each document, its similarity to all other documents in the batch
+           is lower than to its matched query. This excludes documents that belong to the same query in the case of
+           hard negatives (i.e. columns beyond the first two in the input). This is the "doc_to_doc" term.
 
-        This loss function works great to train embeddings for retrieval setups where you have positive pairs
-        (e.g. (query, answer)) as it will sample in each batch ``n-1`` negative docs randomly.
+        All of these are implemented via different choices of interaction directions and how we normalize
+        the scores, but they all share the same core idea: the correct pair (query, positive) should have
+        the highest similarity compared to all in-batch alternatives.
 
-        This loss is also known as InfoNCE loss, SimCSE loss, Cross-Entropy Loss with in-batch negatives, or simply
-        in-batch negatives loss.
+        All of these are expressed via the same underlying formulation by choosing different
+        ``directions`` and ``partition_mode`` values. Optional negatives in the input are treated as
+        additional hard-negative documents for the corresponding query.
+
+        See :class:`MultipleNegativesRankingLoss` for more details on the different modes and their
+        implications. The default configuration is also known as the InfoNCE loss, SimCSE loss, cross-entropy
+        loss with in-batch negatives, or simply in-batch negatives loss.
 
         Args:
             model: SparseEncoder model
@@ -44,6 +66,17 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
+            directions: Which similarity interaction terms to include in the loss. Options:
+
+                - "query_to_doc": query -> all documents (always included as it covers the paired positive).
+                - "query_to_query": query -> all other queries in the batch.
+                - "doc_to_query": document -> all queries (symmetric term).
+                - "doc_to_doc": document -> all other documents in the batch, excluding those belonging to the same query.
+
+                The default ("query_to_doc",) matches the standard MultipleNegativesRankingLoss / InfoNCE behavior.
+            partition_mode: How to normalize the scores (the softmax denominator):
+                - "joint": One joint softmax over all selected directions.
+                - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
 
         Requirements:
             1. Need to be used in SpladeLoss or CSRLoss as a loss function.
@@ -93,7 +126,12 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
                 trainer.train()
         """
         return super().__init__(
-            model, scale=scale, similarity_fct=similarity_fct, gather_across_devices=gather_across_devices
+            model,
+            scale=scale,
+            similarity_fct=similarity_fct,
+            gather_across_devices=gather_across_devices,
+            directions=directions,
+            partition_mode=partition_mode,
         )
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:

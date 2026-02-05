@@ -275,17 +275,19 @@ def test_push_to_hub(
     def mock_upload_folder(self, **kwargs):
         nonlocal mock_upload_folder_kwargs
         mock_upload_folder_kwargs = kwargs
-        if kwargs.get("revision") is None:
-            revision = "123456"
-        else:
-            revision = "678901"
-        return CommitInfo(
-            commit_url=f"https://huggingface.co/{kwargs.get('repo_id')}/commit/{revision}",
-            commit_message="commit_message",
-            commit_description="commit_description",
-            oid="oid",
-            pr_url=f"https://huggingface.co/{kwargs.get('repo_id')}/discussions/123",
-        )
+        commit_hash = "123456" if kwargs.get("revision") is None else "678901"
+        commit_info_kwargs = {
+            "commit_url": f"https://huggingface.co/{kwargs.get('repo_id')}/commit/{commit_hash}",
+            "commit_message": "commit_message",
+            "commit_description": "commit_description",
+            "oid": "oid",
+            "pr_url": f"https://huggingface.co/{kwargs.get('repo_id')}/discussions/123",
+        }
+        try:
+            return CommitInfo(**commit_info_kwargs)
+        except TypeError:
+            # Required as of https://github.com/huggingface/huggingface_hub/pull/3679
+            return CommitInfo(**commit_info_kwargs, _endpoint=None)
 
     def mock_create_branch(self, repo_id, branch, revision=None, **kwargs):
         return None
