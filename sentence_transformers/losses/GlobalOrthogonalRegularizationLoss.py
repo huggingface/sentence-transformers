@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Literal
 
 import torch
 from torch import Tensor, nn
@@ -16,16 +17,21 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         similarity_fct=cos_sim,
         mean_weight: float = 1.0,
         second_moment_weight: float = 1.0,
-        aggregation: str = "mean",
+        aggregation: Literal["mean", "sum"] = "mean",
     ) -> None:
         """
         Global Orthogonal Regularization (GOR) Loss that encourages embeddings to be well-distributed
-        in the embedding space by penalizing high mean similarities and high variance in similarities.
+        in the embedding space by penalizing high mean similarities and high second moments of similarities
+        across unrelated inputs.
 
         The loss consists of two terms:
 
-        1. Mean term: Penalizes when the mean similarity across embeddings is far from zero
-        2. Second moment term: Penalizes when the variance of similarities is too high
+        1. Mean term: Penalizes when the mean similarity across unrelated embeddings is high
+        2. Second moment term: Penalizes when the second moment of similarities is high
+
+        A high second moment indicates that some embeddings have very high similarities, suggesting clustering
+        or concentration in certain regions of the embedding space. A low second moment indicates that
+        similarities are more uniformly distributed.
 
         The loss is called independently on each input column (e.g., queries and passages) and combines the results
         using either mean or sum aggregation. This is why the loss can be used on any dataset configuration
@@ -100,7 +106,7 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
 
         The GOR loss encourages embeddings to be well-distributed by:
         1. Mean term (M_1^2): Penalizes high mean similarity, pushing embeddings apart
-        2. Second moment term (M_2 - 1/d): Penalizes high variance, ensuring uniform distribution
+        2. Second moment term (M_2 - 1/d): Penalizes when the second moment exceeds 1/d, encouraging uniform distribution
 
         Args:
             embeddings: Tensor of shape (batch_size, embedding_dim)
