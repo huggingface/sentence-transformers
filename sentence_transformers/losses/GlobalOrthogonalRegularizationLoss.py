@@ -96,6 +96,28 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
                     loss=loss,
                 )
                 trainer.train()
+
+            Alternatively, you can use multi-task learning to train with both losses:
+            ::
+
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.losses import GlobalOrthogonalRegularizationLoss, MultipleNegativesRankingLoss
+                from datasets import Dataset
+
+                model = SentenceTransformer("microsoft/mpnet-base")
+                train_dataset = Dataset.from_dict({
+                    "anchor": ["It's nice weather outside today.", "He drove to work."],
+                    "positive": ["It's so sunny.", "He took the car to the office."],
+                })
+                mnrl_loss = MultipleNegativesRankingLoss(model)
+                gor_loss = GlobalOrthogonalRegularizationLoss(model)
+
+                trainer = SentenceTransformerTrainer(
+                    model=model,
+                    train_dataset={"main": train_dataset, "gor": train_dataset},
+                    loss={"main": mnrl_loss, "gor": gor_loss},
+                )
+                trainer.train()
         """
         super().__init__()
         self.model = model
