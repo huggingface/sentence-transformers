@@ -284,7 +284,7 @@ class SentenceTransformerTrainingArguments(TransformersTrainingArguments):
             # For transformers < 5: allow users to pass a float in warmup_steps to
             # denote a warmup ratio (0 < ratio < 1) and convert it into warmup_ratio.
             # NOTE: For transformers v4, warmup_ratio defaults to 0.0, while in v5 it defaults to None.
-            if isinstance(self.warmup_steps, float) and 0.0 <= self.warmup_steps < 1.0 and self.warmup_ratio == 0.0:
+            if isinstance(self.warmup_steps, float) and 0.0 < self.warmup_steps < 1.0 and self.warmup_ratio == 0.0:
                 self.warmup_ratio = self.warmup_steps
                 self.warmup_steps = 0  # Set to default
 
