@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Literal
+from typing import Any, Literal
 
 import torch
 from torch import Tensor, nn
@@ -15,8 +15,8 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         self,
         model: SentenceTransformer,
         similarity_fct=cos_sim,
-        mean_weight: float = 1.0,
-        second_moment_weight: float = 1.0,
+        mean_weight: float | None = 1.0,
+        second_moment_weight: float | None = 1.0,
         aggregation: Literal["mean", "sum"] = "mean",
     ) -> None:
         """
@@ -42,8 +42,8 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         Args:
             model: SentenceTransformer model
             similarity_fct: Function to compute similarity between embeddings (default: cosine similarity)
-            mean_weight: Weight for the mean term loss component (default: 1.0)
-            second_moment_weight: Weight for the second moment term loss component (default: 1.0)
+            mean_weight: Weight for the mean term loss component. None or 0 can be used to disable this term (default: 1.0)
+            second_moment_weight: Weight for the second moment term loss component. None or 0 can be used to disable this term (default: 1.0)
             aggregation: How to combine losses across input columns. Either "mean" or "sum" (default: "mean").
                 The EmbeddingGemma paper uses "sum".
 
@@ -57,12 +57,53 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
             +=======+========+
             | any   | none   |
             +-------+--------+
+
+        Example:
+            ::
+
+                import torch
+                from datasets import Dataset
+                from torch import Tensor
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.losses import GlobalOrthogonalRegularizationLoss, MultipleNegativesRankingLoss
+                from sentence_transformers.util import cos_sim
+
+                model = SentenceTransformer("microsoft/mpnet-base")
+                train_dataset = Dataset.from_dict({
+                    "anchor": ["It's nice weather outside today.", "He drove to work."],
+                    "positive": ["It's so sunny.", "He took the car to the office."],
+                })
+
+                class InfoNCEGORLoss(torch.nn.Module):
+                    def __init__(self, model: SentenceTransformer, similarity_fct=cos_sim, scale=20.0) -> None:
+                        super().__init__()
+                        self.model = model
+                        self.info_nce_loss = MultipleNegativesRankingLoss(model, similarity_fct=similarity_fct, scale=scale)
+                        self.gor_loss = GlobalOrthogonalRegularizationLoss(model, similarity_fct=similarity_fct)
+
+                    def forward(self, sentence_features: list[dict[str, Tensor]], labels: Tensor | None = None) -> Tensor:
+                        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+                        info_nce_loss: dict[str, Tensor] = {
+                            "info_nce": self.info_nce_loss.compute_loss_from_embeddings(embeddings, labels)
+                        }
+                        gor_loss: dict[str, Tensor] = self.gor_loss.compute_loss_from_embeddings(embeddings, labels)
+                        return {**info_nce_loss, **gor_loss}
+
+                loss = InfoNCEGORLoss(model)
+                trainer = SentenceTransformerTrainer(
+                    model=model,
+                    train_dataset=train_dataset,
+                    loss=loss,
+                )
+                trainer.train()
         """
         super().__init__()
         self.model = model
         self.similarity_fct = similarity_fct
         self.mean_weight = mean_weight
         self.second_moment_weight = second_moment_weight
+        if not mean_weight and not second_moment_weight:
+            raise ValueError("At least one of mean_weight or second_moment_weight must be non-zero")
         if aggregation not in ["mean", "sum"]:
             raise ValueError(f"aggregation must be 'mean' or 'sum', got '{aggregation}'")
         self.aggregation = aggregation
@@ -132,6 +173,14 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         second_moment_term = torch.relu(second_moment - (1.0 / hidden_dim))
 
         return mean_term, second_moment_term
+
+    def get_config_dict(self) -> dict[str, Any]:
+        return {
+            "similarity_fct": self.similarity_fct.__name__,
+            "mean_weight": self.mean_weight,
+            "second_moment_weight": self.second_moment_weight,
+            "aggregation": self.aggregation,
+        }
 
     @property
     def citation(self) -> str:
