@@ -13,7 +13,7 @@ question-answer pairs from Google's "People Also Ask" feature. The model learns 
 such that matching pairs are close in embedding space, while remaining robust to quantization.
 
 Usage:
-python qat_gooaq.py
+python train_qat_gooaq.py
 """
 
 import logging

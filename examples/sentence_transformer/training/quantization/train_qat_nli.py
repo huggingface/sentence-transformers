@@ -6,10 +6,10 @@ This script trains a model on the AllNLI dataset, which is a concatenation of SN
 The model learns to distinguish between entailment, neutral, and contradiction sentences.
 
 Usage:
-python qat_nli.py
+python train_qat_nli.py
 
 OR
-python qat_nli.py pretrained_transformer_model_name
+python train_qat_nli.py pretrained_transformer_model_name
 """
 
 import logging

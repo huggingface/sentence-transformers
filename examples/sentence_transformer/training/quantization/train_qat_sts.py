@@ -4,10 +4,10 @@ It uses QuantizationAwareLoss with the powerful CoSENTLoss to train models that 
 It generates sentence embeddings that can be compared using cosine-similarity to measure the similarity.
 
 Usage:
-python qat_sts.py
+python train_qat_sts.py
 
 OR
-python qat_sts.py pretrained_transformer_model_name
+python train_qat_sts.py pretrained_transformer_model_name
 """
 
 import logging
