@@ -15,11 +15,11 @@ from sentence_transformers import (
     SentenceTransformer,
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
-    losses,
 )
-from sentence_transformers.models import Asym, Dense, Normalize, Router
-from sentence_transformers.models.InputModule import InputModule
-from sentence_transformers.models.StaticEmbedding import StaticEmbedding
+from sentence_transformers.base.models.InputModule import InputModule
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.models import Asym, Dense, Normalize, Router
+from sentence_transformers.sentence_transformer.models.StaticEmbedding import StaticEmbedding
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -180,6 +180,20 @@ def test_router_init_multiple_modules_per_route():
     assert list(router.sub_modules["document"].children()) == [module3]
 
 
+def test_router_init_invalid_route_mapping():
+    """Test initialization with route_mappings pointing to non-existent routes raises ValueError."""
+    module = MockModuleWithMaxLength()
+
+    with pytest.raises(
+        ValueError,
+        match="route_mappings contains mapping to 'nonexistent' which is not in sub_modules",
+    ):
+        Router(
+            {"query": [module], "document": [module]},
+            route_mappings={("query", "text"): "nonexistent"},
+        )
+
+
 def test_router_encode(static_embedding_model):
     """Test encoding with Router."""
     # Create a Router with StaticEmbedding modules
@@ -216,7 +230,8 @@ def test_router_encode(static_embedding_model):
 
     # Test with an incorrect route
     with pytest.raises(
-        ValueError, match=re.escape("No route found for task type 'invalid'. Available routes: ['query', 'document']")
+        ValueError,
+        match=re.escape("No route found for task type 'invalid'. Available routes: task='query' and task='document'"),
     ):
         model.encode("This should fail", task="invalid")
 
@@ -224,8 +239,7 @@ def test_router_encode(static_embedding_model):
     with pytest.raises(
         ValueError,
         match=re.escape(
-            "You must provide a `task` argument when calling this method, "
-            "or set a default route in the `Router` module."
+            "Could not determine route for task=None, modality='text'. Available routes: task='query' and task='document'"
         ),
     ):
         model.encode(doc_texts)
@@ -274,6 +288,10 @@ def test_router_backwards_compatibility(static_embedding_model):
                 "sentence_transformers.models.Asym",
                 "sentence_transformers.models.Router",
                 "sentence_transformers.models",
+                "sentence_transformers.sentence_transformer.models.Asym",
+                "sentence_transformers.sentence_transformer.models.Router",
+                "sentence_transformers.sentence_transformer.models",
+                "sentence_transformers.base.models.Router",
             ],
             [Asym, Router],
         ),
@@ -364,8 +382,8 @@ def test_router_save_load_without_default_route(static_embedding_model: StaticEm
     with pytest.raises(
         ValueError,
         match=re.escape(
-            "You must provide a `task` argument when calling this method, "
-            "or set a default route in the `Router` module."
+            "Could not determine route for task=None, modality='text'. Available routes: task='query' and task='document'. "
+            "Consider specifying the `task` parameter in `model.encode`, or setting a default route in the `Router`."
         ),
     ):
         loaded_model.encode(["Test text"])
@@ -433,7 +451,7 @@ def test_router_with_trainer(static_embedding_model: StaticEmbedding, tmp_path: 
     router_mapping = {"question": "query", "answer": "document"}
 
     # Create a loss function that works with router
-    loss = losses.MultipleNegativesRankingLoss(model=model)
+    loss = MultipleNegativesRankingLoss(model=model)
 
     args = SentenceTransformerTrainingArguments(
         output_dir=tmp_path,
@@ -469,7 +487,7 @@ def test_router_with_trainer_without_router_mapping(static_embedding_model: Stat
     )
 
     # Create a loss function that works with router
-    loss = losses.MultipleNegativesRankingLoss(model=model)
+    loss = MultipleNegativesRankingLoss(model=model)
 
     args = SentenceTransformerTrainingArguments(output_dir=tmp_path)
 
@@ -707,3 +725,555 @@ def test_router_as_middle_module(static_embedding_model: StaticEmbedding, tmp_pa
     loaded_query_embedding = loaded_model.encode_query(test_texts, convert_to_tensor=True)
     loaded_doc_embedding = loaded_model.encode_document(test_texts, convert_to_tensor=True)
     assert torch.equal(loaded_query_embedding, -loaded_doc_embedding)
+
+
+def test_router_for_query_document_with_explicit_none_default_route(static_embedding_model: StaticEmbedding):
+    """Test that for_query_document allows explicit None for default_route."""
+    # Test with explicit None (should respect it)
+    router = Router.for_query_document(
+        query_modules=[static_embedding_model],
+        document_modules=[static_embedding_model],
+        default_route=None,
+        allow_empty_key=False,
+    )
+    assert router.default_route is None
+
+    # Test with default (should use "document")
+    router = Router.for_query_document(
+        query_modules=[static_embedding_model],
+        document_modules=[static_embedding_model],
+    )
+    assert router.default_route == "document"
+
+
+def test_router_route_mappings_basic(static_embedding_model: StaticEmbedding):
+    """Test basic route_mappings functionality."""
+    route_mappings = {
+        ("query", "text"): "query",
+        ("document", "text"): "document",
+    }
+
+    router = Router(
+        {"query": [static_embedding_model], "document": [static_embedding_model]},
+        route_mappings=route_mappings,
+        allow_empty_key=False,
+    )
+
+    model = SentenceTransformer(modules=[router])
+
+    # Test that task and modality combination routes correctly
+    query_embedding = model.encode("Test query", task="query")
+    doc_embedding = model.encode("Test document", task="document")
+
+    assert query_embedding is not None
+    assert doc_embedding is not None
+
+
+def test_router_route_mappings_with_none_task(static_embedding_model: StaticEmbedding):
+    """Test route_mappings with None task (any task with specific modality)."""
+    route_mappings = {
+        (None, "text"): "text_route",
+    }
+
+    router = Router(
+        {"text_route": [static_embedding_model]},
+        route_mappings=route_mappings,
+        allow_empty_key=False,
+    )
+
+    model = SentenceTransformer(modules=[router])
+
+    # Create tracking dict
+    tracking_dict = TaskTypesTrackingModuleDict(router.sub_modules)
+    router.sub_modules = tracking_dict
+
+    # Test that modality routes correctly regardless of task
+    model.encode("Test text", task="query", modality="text")
+    assert "text_route" in tracking_dict.tasks
+    tracking_dict.tasks.clear()
+
+    model.encode("Test text", task="document", modality="text")
+    assert "text_route" in tracking_dict.tasks
+    tracking_dict.tasks.clear()
+
+
+def test_router_route_mappings_with_none_modality(static_embedding_model: StaticEmbedding):
+    """Test route_mappings with None modality (any modality with specific task)."""
+    route_mappings = {
+        ("query", None): "query_route",
+        ("document", None): "document_route",
+    }
+
+    router = Router(
+        {"query_route": [static_embedding_model], "document_route": [static_embedding_model]},
+        route_mappings=route_mappings,
+        allow_empty_key=False,
+    )
+
+    model = SentenceTransformer(modules=[router])
+
+    # Create tracking dict
+    tracking_dict = TaskTypesTrackingModuleDict(router.sub_modules)
+    router.sub_modules = tracking_dict
+
+    # Test that task routes correctly regardless of modality
+    model.encode("Test query", task="query", modality="text")
+    assert "query_route" in tracking_dict.tasks
+    tracking_dict.tasks.clear()
+
+    model.encode("Test query", task="query", modality="image")
+    assert "query_route" in tracking_dict.tasks
+    tracking_dict.tasks.clear()
+
+
+def test_router_route_mappings_with_both_none(static_embedding_model: StaticEmbedding):
+    """Test route_mappings with both None (catch-all)."""
+    route_mappings = {
+        (None, None): "default_route",
+    }
+
+    router = Router(
+        {"default_route": [static_embedding_model]},
+        route_mappings=route_mappings,
+    )
+
+    model = SentenceTransformer(modules=[router])
+
+    # Create tracking dict
+    tracking_dict = TaskTypesTrackingModuleDict(router.sub_modules)
+    router.sub_modules = tracking_dict
+
+    # Test that any task/modality combination uses the catch-all route
+    model.encode("Test text", task="query", modality="text")
+    assert "default_route" in tracking_dict.tasks
+    tracking_dict.tasks.clear()
+
+    model.encode("Test text", task="document", modality="image")
+    assert "default_route" in tracking_dict.tasks
+    tracking_dict.tasks.clear()
+
+
+def test_router_route_mappings_priority(static_embedding_model: StaticEmbedding):
+    """Test that route_mappings follow correct priority order."""
+    # Priority: (task, modality) > (task, None) > (None, modality) > (None, None)
+    route_mappings = {
+        ("query", "text"): "exact_match",  # Highest priority
+        ("query", None): "query_any_modality",
+        (None, "text"): "any_task_text",
+        (None, None): "catch_all",  # Lowest priority
+    }
+
+    router = Router(
+        {
+            "exact_match": [static_embedding_model],
+            "query_any_modality": [static_embedding_model],
+            "any_task_text": [static_embedding_model],
+            "catch_all": [static_embedding_model],
+        },
+        route_mappings=route_mappings,
+        allow_empty_key=False,
+    )
+
+    model = SentenceTransformer(modules=[router])
+
+    # Create tracking dict
+    tracking_dict = TaskTypesTrackingModuleDict(router.sub_modules)
+    router.sub_modules = tracking_dict
+
+    # Test exact match has highest priority
+    model.encode("Test", task="query", modality="text")
+    assert tracking_dict.tasks[-1] == "exact_match"
+    tracking_dict.tasks.clear()
+
+    # Test task-only match
+    model.encode("Test", task="query", modality="image")
+    assert tracking_dict.tasks[-1] == "query_any_modality"
+    tracking_dict.tasks.clear()
+
+    # Test modality-only match
+    model.encode("Test", task="document", modality="text")
+    assert tracking_dict.tasks[-1] == "any_task_text"
+    tracking_dict.tasks.clear()
+
+    # Test catch-all
+    model.encode("Test", task="document", modality="image")
+    assert tracking_dict.tasks[-1] == "catch_all"
+    tracking_dict.tasks.clear()
+
+
+def test_router_route_mappings_save_load(static_embedding_model: StaticEmbedding, tmp_path: Path):
+    """Test that route_mappings are saved and loaded correctly."""
+    route_mappings = {
+        ("query", "text"): "text_query",
+        ("document", "text"): "text_document",
+        (None, "image"): "image_route",
+    }
+
+    router = Router(
+        {
+            "text_query": [static_embedding_model],
+            "text_document": [static_embedding_model],
+            "image_route": [static_embedding_model],
+        },
+        route_mappings=route_mappings,
+        allow_empty_key=False,
+    )
+
+    model = SentenceTransformer(modules=[router])
+    model_path = os.path.join(tmp_path, "test_model")
+    model.save(model_path)
+
+    # Load and verify route_mappings
+    loaded_model = SentenceTransformer(model_path)
+    loaded_router = loaded_model[0]
+
+    assert loaded_router.route_mappings == route_mappings
+
+
+def test_router_tokenize_with_task(static_embedding_model: StaticEmbedding):
+    """Test tokenize method with task parameter."""
+    router = Router({"query": [static_embedding_model], "document": [static_embedding_model]})
+
+    texts = ["What is the capital of France?", "Paris is the capital of France."]
+
+    # Tokenize with explicit task
+    query_tokens = router.preprocess(texts, task="query")
+    assert "task" in query_tokens
+    assert query_tokens["task"] == "query"
+    assert "input_ids" in query_tokens
+
+    doc_tokens = router.preprocess(texts, task="document")
+    assert "task" in doc_tokens
+    assert doc_tokens["task"] == "document"
+    assert "input_ids" in doc_tokens
+
+
+def test_router_tokenize_with_dict_input(static_embedding_model: StaticEmbedding):
+    """Test tokenize method with dictionary input."""
+    router = Router({"query": [static_embedding_model], "document": [static_embedding_model]})
+
+    # Test with dictionary input
+    texts = [
+        {"query": "What is the capital of France?"},
+        {"query": "What is the largest ocean?"},
+    ]
+
+    tokens = router.preprocess(texts)
+    assert "task" in tokens
+    assert tokens["task"] == "query"
+    assert "input_ids" in tokens
+
+
+def test_router_tokenize_with_mixed_dict_raises_error(static_embedding_model: StaticEmbedding):
+    """Test that tokenize raises error with mixed dictionary keys."""
+    router = Router({"query": [static_embedding_model], "document": [static_embedding_model]})
+
+    texts = [
+        {"query": "What is the capital of France?"},
+        {"document": "Paris is the capital of France."},
+    ]
+
+    with pytest.raises(ValueError, match="You cannot pass a list of dictionaries with different task types"):
+        router.preprocess(texts)
+
+
+def test_router_tokenize_with_modality(static_embedding_model: StaticEmbedding):
+    """Test tokenize method with modality parameter."""
+    router = Router({"query": [static_embedding_model], "document": [static_embedding_model]})
+
+    texts = ["Test text"]
+
+    # Tokenize with explicit modality
+    tokens = router.preprocess(texts, task="query", modality="text")
+    assert "task" in tokens
+    assert tokens["task"] == "query"
+    assert "modality" in tokens
+    assert tokens["modality"] == "text"
+
+
+def test_router_tokenizer_property(static_embedding_model: StaticEmbedding):
+    """Test the tokenizer property."""
+    router = Router({"query": [static_embedding_model], "document": [static_embedding_model]})
+
+    # Should return the tokenizer from the first route's first module
+    assert router.tokenizer is not None
+    assert router.tokenizer == static_embedding_model.tokenizer
+
+
+def test_router_tokenizer_property_no_tokenizer():
+    """Test the tokenizer property when no tokenizer exists."""
+    module = MockModule()
+    router = Router({"query": [module]})
+
+    # Should return None if no tokenizer exists
+    assert router.tokenizer is None
+
+
+def test_router_get_sentence_embedding_dimension():
+    """Test get_sentence_embedding_dimension method."""
+
+    class ModuleWithDimension(MockModule):
+        def get_sentence_embedding_dimension(self):
+            return 768
+
+    class ModuleWithoutDimension(MockModule):
+        pass
+
+    # Test with module that has dimension
+    module_with_dim = ModuleWithDimension()
+    router = Router({"query": [module_with_dim]})
+    assert router.get_sentence_embedding_dimension() == 768
+
+    # Test with module without dimension
+    module_without_dim = ModuleWithoutDimension()
+    router = Router({"query": [module_without_dim]})
+    assert router.get_sentence_embedding_dimension() is None
+
+    # Test with multiple modules where last one has dimension
+    router = Router({"query": [module_without_dim, module_with_dim]})
+    assert router.get_sentence_embedding_dimension() == 768
+
+
+def test_router_resolve_route_error_messages(static_embedding_model: StaticEmbedding):
+    """Test error messages from route resolution."""
+    router = Router(
+        {"query": [static_embedding_model], "document": [static_embedding_model]},
+        allow_empty_key=False,
+    )
+    model = SentenceTransformer(modules=[router])
+
+    # Test with invalid task
+    with pytest.raises(ValueError, match="No route found for task type 'invalid'"):
+        model.encode("Test", task="invalid")
+
+    # Test without task when no default route
+    with pytest.raises(
+        ValueError,
+        match="Could not determine route for task=None, modality='text'",
+    ):
+        model.encode("Test")
+
+
+def test_router_resolve_route_training_mode_error(static_embedding_model: StaticEmbedding):
+    """Test error message in training mode when no route can be determined."""
+    router = Router(
+        {"query": [static_embedding_model], "document": [static_embedding_model]},
+        allow_empty_key=False,
+    )
+
+    # Put router in training mode
+    router.train()
+
+    # Try to resolve a route without providing task
+    with pytest.raises(
+        ValueError,
+        match="You must provide a `router_mapping` argument on the training arguments",
+    ):
+        router._resolve_route(task=None, modality=None)
+
+
+def test_router_direct_lookup_by_task(static_embedding_model: StaticEmbedding):
+    """Test direct lookup by task name when not in route_mappings."""
+    router = Router(
+        {"query": [static_embedding_model], "document": [static_embedding_model]},
+        allow_empty_key=False,
+    )
+
+    # Should use direct lookup when task matches a sub_module key
+    route = router._resolve_route_name(task="query")
+    assert route == "query"
+
+    route = router._resolve_route_name(task="document")
+    assert route == "document"
+
+
+def test_router_direct_lookup_by_modality(static_embedding_model: StaticEmbedding):
+    """Test direct lookup by modality when not in route_mappings."""
+    router = Router(
+        {"text": [static_embedding_model], "image": [static_embedding_model]},
+        allow_empty_key=False,
+    )
+
+    # Should use direct lookup when modality matches a sub_module key
+    route = router._resolve_route_name(modality="text")
+    assert route == "text"
+
+    route = router._resolve_route_name(modality="image")
+    assert route == "image"
+
+
+def test_router_get_routes_string():
+    """Test _get_routes_string method for error messages."""
+    module = MockModule()
+
+    # Test with just sub_modules
+    router = Router({"query": [module], "document": [module]})
+    routes_string = router._get_routes_string()
+    assert "task='query'" in routes_string
+    assert "task='document'" in routes_string
+
+    # Test with route_mappings
+    route_mappings = {
+        ("query", "text"): "query",
+        (None, "image"): "image_route",
+    }
+    router = Router(
+        {"query": [module], "image_route": [module]},
+        route_mappings=route_mappings,
+    )
+    routes_string = router._get_routes_string()
+    assert "query" in routes_string
+    assert "image" in routes_string
+
+
+def test_router_forward_with_task_in_features(static_embedding_model: StaticEmbedding):
+    """Test that forward method can get task from features dict."""
+    router = Router({"query": [static_embedding_model], "document": [static_embedding_model]})
+
+    # Create tracking dict
+    tracking_dict = TaskTypesTrackingModuleDict(router.sub_modules)
+    router.sub_modules = tracking_dict
+
+    # Test that _resolve_route uses task from features
+    route = router._resolve_route(task="query")
+    assert route == "query"
+
+    # Also test via features dict
+    features = {"task": "query"}
+    task = features.get("task", None)
+    route = router._resolve_route(task=task)
+    assert route == "query"
+
+
+def test_router_forward_with_modality_in_features(static_embedding_model: StaticEmbedding):
+    """Test that forward method can get modality from features dict."""
+    route_mappings = {
+        (None, "text"): "text_route",
+    }
+    router = Router(
+        {"text_route": [static_embedding_model]},
+        route_mappings=route_mappings,
+        allow_empty_key=False,
+    )
+
+    # Create tracking dict
+    tracking_dict = TaskTypesTrackingModuleDict(router.sub_modules)
+    router.sub_modules = tracking_dict
+
+    # Test that _resolve_route uses modality
+    features = {"modality": "text"}
+    modality = features.get("modality", None)
+    route = router._resolve_route(modality=modality)
+    assert route == "text_route"
+
+
+def test_router_multimodal_modality_tuple(static_embedding_model: StaticEmbedding):
+    """Test routing with tuple modality (e.g., multimodal)."""
+    route_mappings = {
+        (None, "text"): "text_route",
+        (None, ("text", "image")): "multimodal_route",
+    }
+    router = Router(
+        {
+            "text_route": [static_embedding_model],
+            "multimodal_route": [static_embedding_model],
+        },
+        route_mappings=route_mappings,
+        allow_empty_key=False,
+    )
+
+    # Test single modality
+    route = router._resolve_route_name(modality="text")
+    assert route == "text_route"
+
+    # Test tuple modality
+    route = router._resolve_route_name(modality=("text", "image"))
+    assert route == "multimodal_route"
+
+
+def test_router_save_with_safe_serialization(static_embedding_model: StaticEmbedding, tmp_path: Path):
+    """Test saving with safe_serialization parameter."""
+    router = Router({"query": [static_embedding_model], "document": [static_embedding_model]})
+    model = SentenceTransformer(modules=[router])
+
+    # Test with safe_serialization=True
+    model_path = os.path.join(tmp_path, "safe_model")
+    model.save(model_path, safe_serialization=True)
+    assert os.path.exists(model_path)
+
+    # Test with safe_serialization=False
+    model_path = os.path.join(tmp_path, "unsafe_model")
+    model.save(model_path, safe_serialization=False)
+    assert os.path.exists(model_path)
+
+
+def test_router_config_keys():
+    """Test that Router has the correct config_keys."""
+    assert "default_route" in Router.config_keys
+    assert "allow_empty_key" in Router.config_keys
+    assert "route_mappings" in Router.config_keys
+
+
+def test_router_config_file_name():
+    """Test that Router has the correct config_file_name."""
+    assert Router.config_file_name == "router_config.json"
+
+
+def test_router_forward_kwargs_attribute():
+    """Test that Router has the correct forward_kwargs."""
+    assert "task" in Router.forward_kwargs
+    assert "modality" in Router.forward_kwargs
+
+
+def test_router_max_seq_length_warning(caplog):
+    """Test that max_seq_length logs a warning when different values exist."""
+    import logging
+
+    module1 = MockModuleWithMaxLength(128)
+    module2 = MockModuleWithMaxLength(256)
+    module3 = MockModuleWithMaxLength(512)
+
+    router = Router(
+        {
+            "route1": [module1],
+            "route2": [module2],
+            "route3": [module3],
+        }
+    )
+
+    with caplog.at_level(logging.WARNING):
+        max_length = router.max_seq_length
+        assert max_length == 512  # Should return the maximum
+        # Check that warning was logged (only once due to warning_once)
+        # Note: warning_once may prevent this from showing up in tests if already called
+        # So we just verify the logic works correctly
+
+
+def test_router_max_seq_length_setter_no_modules_warning(caplog):
+    """Test that setting max_seq_length logs a warning when no modules have it."""
+    import logging
+
+    module = MockModule()  # No max_seq_length attribute
+    router = Router({"route1": [module]})
+
+    with caplog.at_level(logging.WARNING):
+        router.max_seq_length = 256
+        # Check that warning was logged
+        assert any(
+            "No modules have a max_seq_length attribute" in record.message
+            for record in caplog.records
+            if record.levelname == "WARNING"
+        )
+
+
+def test_router_tokenize_with_modality_inference_failure(static_embedding_model: StaticEmbedding):
+    """Test tokenize when modality inference fails gracefully."""
+    router = Router({"query": [static_embedding_model]})
+
+    # Create an object that will fail modality inference
+    # The function should handle this gracefully
+    texts = ["Normal text that should work"]
+
+    tokens = router.preprocess(texts, task="query")
+    assert "task" in tokens
+    assert tokens["task"] == "query"

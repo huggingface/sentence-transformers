@@ -16,21 +16,21 @@ from tqdm.autonotebook import tqdm, trange
 from transformers import TrainerCallback, TrainerControl, TrainerState, is_torch_npu_available
 from transformers.tokenization_utils_base import BatchEncoding
 
+from sentence_transformers.base.evaluation.SentenceEvaluator import SentenceEvaluator
+from sentence_transformers.base.training_args import BatchSamplers
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
-from sentence_transformers.datasets.NoDuplicatesDataLoader import NoDuplicatesDataLoader
-from sentence_transformers.datasets.SentenceLabelDataset import SentenceLabelDataset
-from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
-from sentence_transformers.readers import InputExample
-from sentence_transformers.SentenceTransformer import SentenceTransformer
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.sentence_transformer.datasets.NoDuplicatesDataLoader import NoDuplicatesDataLoader
+from sentence_transformers.sentence_transformer.datasets.SentenceLabelDataset import SentenceLabelDataset
+from sentence_transformers.sentence_transformer.model import SentenceTransformer
+from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
     from datasets import Dataset
 
 if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
-    from sentence_transformers.readers.InputExample import InputExample
+    from sentence_transformers.cross_encoder.model import CrossEncoder
+    from sentence_transformers.sentence_transformer.readers.InputExample import InputExample
 
 
 logger = logging.getLogger(__name__)
@@ -201,15 +201,15 @@ class FitMixin:
     ) -> None:
         """
         Deprecated training method from before Sentence Transformers v4.0, it is recommended to use
-        :class:`~sentence_transformers.trainer.CrossEncoderTrainer` instead. This method uses
-        :class:`~sentence_transformers.trainer.CrossEncoderTrainer` behind the scenes, but does
+        :class:`~sentence_transformers.sentence_transformer.trainer.CrossEncoderTrainer` instead. This method uses
+        :class:`~sentence_transformers.sentence_transformer.trainer.CrossEncoderTrainer` behind the scenes, but does
         not provide as much flexibility as the Trainer itself.
 
         This training approach uses a DataLoader and Loss function to train the model.
 
         This method should produce equivalent results in v4.0 as before v4.0, but if you encounter any issues
         with your existing training scripts, then you may wish to use
-        :meth:`CrossEncoder.old_fit <sentence_transformers.cross_encoder.CrossEncoder.old_fit>` instead.
+        :meth:`CrossEncoder.old_fit <sentence_transformers.cross_encoder.model.CrossEncoder.old_fit>` instead.
         That uses the old training method from before v4.0.
 
         Args:
@@ -436,7 +436,7 @@ class FitMixin:
     ) -> None:
         """
         Deprecated training method from before Sentence Transformers v4.0, it is recommended to use
-        :class:`~sentence_transformers.trainer.CrossEncoderTrainer` instead. This method should
+        :class:`~sentence_transformers.sentence_transformer.trainer.CrossEncoderTrainer` instead. This method should
         only be used if you encounter issues with your existing training scripts after upgrading to v4.0.
 
         This training approach uses a DataLoader and Loss function to train the model.

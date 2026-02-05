@@ -5,7 +5,7 @@ Tests the correct computation of evaluation scores from TripletEvaluator
 from __future__ import annotations
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import TripletEvaluator
+from sentence_transformers.sentence_transformer.evaluation import TripletEvaluator
 
 
 def test_TripletEvaluator(stsb_bert_tiny_model: SentenceTransformer) -> None:

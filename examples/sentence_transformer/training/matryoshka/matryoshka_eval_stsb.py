@@ -13,7 +13,7 @@ from datasets import load_dataset
 from tqdm.auto import tqdm
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import (
+from sentence_transformers.sentence_transformer.evaluation import (
     EmbeddingSimilarityEvaluator,
     SimilarityFunction,
 )
@@ -120,7 +120,7 @@ if __name__ == "__main__":
         default=DEFAULT_MODEL_NAMES,
         help=(
             "List of models which can be loaded using "
-            "sentence_transformers.SentenceTransformer(). Default: "
+            "sentence_transformers.sentence_transformer.model.SentenceTransformer(). Default: "
             f"{' '.join(DEFAULT_MODEL_NAMES)}"
         ),
     )

@@ -61,7 +61,7 @@ args = CrossEncoderTrainingArguments(
     num_train_epochs=num_epochs,
     per_device_train_batch_size=train_batch_size,
     per_device_eval_batch_size=train_batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=True,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:

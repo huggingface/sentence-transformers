@@ -7,14 +7,14 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 
-from sentence_transformers.evaluation import TranslationEvaluator
+from sentence_transformers.sentence_transformer.evaluation import TranslationEvaluator
 from sentence_transformers.util import append_to_last_row
 
 if TYPE_CHECKING:
     import numpy as np
     from torch import Tensor
 
-    from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+    from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class SparseTranslationEvaluator(TranslationEvaluator):
     """
-    This evaluator extends :class:`~sentence_transformers.evaluation.TranslationEvaluator` but is specifically designed for sparse encoder models.
+    This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.TranslationEvaluator` but is specifically designed for sparse encoder models.
 
     Given two sets of sentences in different languages, e.g. (en_1, en_2, en_3...) and (fr_1, fr_2, fr_3, ...),
     and assuming that fr_i is the translation of en_i.

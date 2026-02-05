@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from datasets import Dataset
 
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
-    from sentence_transformers.SentenceTransformer import SentenceTransformer
+    from sentence_transformers.cross_encoder.model import CrossEncoder
+    from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
 def mine_hard_negatives(

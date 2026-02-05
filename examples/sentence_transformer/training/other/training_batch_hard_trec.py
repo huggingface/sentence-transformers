@@ -25,9 +25,10 @@ from datetime import datetime
 from datasets import Dataset, load_dataset
 
 from sentence_transformers import LoggingHandler, SentenceTransformer, losses
-from sentence_transformers.evaluation import TripletEvaluator
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
+from sentence_transformers.base.sampler import BatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import TripletEvaluator
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 logging.basicConfig(
     format="%(asctime)s - %(message)s",

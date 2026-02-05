@@ -25,15 +25,15 @@ import numpy as np
 from datasets import DatasetDict, load_dataset
 
 from sentence_transformers import LoggingHandler, SentenceTransformer
-from sentence_transformers.evaluation import (
+from sentence_transformers.base.trainer import SentenceTransformerTrainer
+from sentence_transformers.base.training_args import BaseTrainingArguments
+from sentence_transformers.sentence_transformer.evaluation import (
     EmbeddingSimilarityEvaluator,
     MSEEvaluator,
     SequentialEvaluator,
     TranslationEvaluator,
 )
-from sentence_transformers.losses import MSELoss
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.sentence_transformer.losses import MSELoss
 
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
@@ -196,14 +196,14 @@ evaluator = SequentialEvaluator(evaluators, main_score_function=lambda scores: n
 eval_dataset_dict = eval_dataset_dict.map(prepare_dataset, batched=True, batch_size=30000, remove_columns=column_names)
 
 # 5. Define the training arguments
-args = SentenceTransformerTrainingArguments(
+args = BaseTrainingArguments(
     # Required parameter:
     output_dir=output_dir,
     # Optional training parameters:
     num_train_epochs=num_train_epochs,
     per_device_train_batch_size=train_batch_size,
     per_device_eval_batch_size=train_batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     learning_rate=2e-5,

@@ -32,7 +32,7 @@ import datasets
 import torch
 from datasets import Dataset, load_dataset
 
-from sentence_transformers.sampler import NoDuplicatesBatchSampler
+from sentence_transformers.base.sampler import NoDuplicatesBatchSampler
 
 try:
     from tqdm import tqdm

@@ -71,6 +71,10 @@ Redirect 301 /examples/unsupervised_learning/README.html /examples/sentence_tran
 Redirect 301 /examples/unsupervised_learning/SimCSE/README.html /examples/sentence_transformer/unsupervised_learning/SimCSE/README.html
 Redirect 301 /examples/unsupervised_learning/TSDAE/README.html /examples/sentence_transformer/unsupervised_learning/TSDAE/README.html
 
+# Moved API Reference pages for v5.3.0
+Redirect 301 /docs/package_reference/sentence_transformer/quantization.html /docs/package_reference/util/quantization.html
+Redirect 301 /docs/package_reference/util.html /docs/package_reference/util/index.html
+
 # Redirect to index.html when request file does not exist
 # RewriteCond %{REQUEST_FILENAME} !-f
 # RewriteCond %{REQUEST_FILENAME} !-d

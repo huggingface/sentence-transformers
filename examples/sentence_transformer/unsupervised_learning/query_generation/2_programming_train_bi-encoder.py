@@ -16,8 +16,9 @@ import os
 from datasets import Dataset
 
 from sentence_transformers import SentenceTransformer, losses, models
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
+from sentence_transformers.base.sampler import BatchSamplers
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 train_examples = []
 with open("generated_queries.tsv", encoding="utf-8") as fIn:

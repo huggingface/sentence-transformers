@@ -9,7 +9,7 @@ The following pipeline for Information Retrieval / Question Answering Retrieval 
 ![InformationRetrieval](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/InformationRetrieval.png)
 
 ```{eval-rst}
-Given a search query, we first use a **retrieval system** that retrieves a large list of e.g. 100 possible hits which are potentially relevant for the query. For the retrieval, we can use either lexical search, e.g. with a vector engine like Elasticsearch, or we can use dense retrieval with a :class:`~sentence_transformers.SentenceTransformer` (a.k.a. bi-encoder).  However, the retrieval system might retrieve documents that are not that relevant for the search query. Hence, in a second stage, we use a **re-ranker** based on a :class:`~sentence_transformers.cross_encoder.CrossEncoder` that scores the relevancy of all candidates for the given search query. The output will be a ranked list of hits we can present to the user.
+Given a search query, we first use a **retrieval system** that retrieves a large list of e.g. 100 possible hits which are potentially relevant for the query. For the retrieval, we can use either lexical search, e.g. with a vector engine like Elasticsearch, or we can use dense retrieval with a :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` (a.k.a. bi-encoder).  However, the retrieval system might retrieve documents that are not that relevant for the search query. Hence, in a second stage, we use a **re-ranker** based on a :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` that scores the relevancy of all candidates for the given search query. The output will be a ranked list of hits we can present to the user.
 ```
 
 ## Retrieval: Bi-Encoder

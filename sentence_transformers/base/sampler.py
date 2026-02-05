@@ -1,0 +1,649 @@
+from __future__ import annotations
+
+import logging
+import os
+from abc import ABC, abstractmethod
+from collections import defaultdict
+from collections.abc import Iterator
+from itertools import accumulate, cycle
+from typing import Any
+
+import numpy as np
+import torch
+from torch.utils.data import BatchSampler, ConcatDataset, SubsetRandomSampler
+from transformers.utils import ExplicitEnum
+
+try:
+    import xxhash
+except ImportError:  # pragma: no cover - optional dependency
+    xxhash = None
+
+from sentence_transformers.util import is_datasets_available
+
+if is_datasets_available():
+    from datasets import Dataset
+
+logger = logging.getLogger(__name__)
+
+_XXHASH_INT64_MAX = 1 << 63
+_XXHASH_UINT64_MAX = 1 << 64
+
+
+class BatchSamplers(ExplicitEnum):
+    """
+    Stores the acceptable string identifiers for batch samplers.
+
+    The batch sampler is responsible for determining how samples are grouped into batches during training.
+    Valid options are:
+
+    - ``BatchSamplers.BATCH_SAMPLER``: **[default]** Uses :class:`~sentence_transformers.base.sampler.DefaultBatchSampler`, the default
+      PyTorch batch sampler.
+    - ``BatchSamplers.NO_DUPLICATES``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`,
+      ensuring no duplicate samples in a batch.
+    - ``BatchSamplers.NO_DUPLICATES_HASHED``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`
+      with ``precompute_hashes=True``, a variant that precomputes hashes for faster duplicate checks at a small memory cost.
+      Requires the ``xxhash`` library to be installed.
+
+      Both are recommended for losses that use in-batch negatives, such as:
+
+        - :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesSymmetricRankingLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesSymmetricRankingLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.MegaBatchMarginLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.GISTEmbedLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.CachedGISTEmbedLoss`
+    - ``BatchSamplers.GROUP_BY_LABEL``: Uses :class:`~sentence_transformers.base.sampler.GroupByLabelBatchSampler`,
+      ensuring that each batch has 2+ samples from the same label. Recommended for losses that require multiple
+      samples from the same label, such as:
+
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchAllTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchHardSoftMarginTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchHardTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchSemiHardTripletLoss`
+
+    If you want to use a custom batch sampler, then you can subclass
+    :class:`~sentence_transformers.base.sampler.DefaultBatchSampler` and pass the class (not an instance) to the
+    ``batch_sampler`` argument in :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`
+    (or :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments`, etc.).
+    Alternatively, you can pass a function that accepts ``dataset``, ``batch_size``, ``drop_last``,
+    ``valid_label_columns``, ``generator``, and ``seed`` and returns a
+    :class:`~sentence_transformers.base.sampler.DefaultBatchSampler` instance.
+
+    Usage:
+        ::
+
+            from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
+            from sentence_transformers.sentence_transformer.training_args import BatchSamplers
+            from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
+            from datasets import Dataset
+
+            model = SentenceTransformer("microsoft/mpnet-base")
+            train_dataset = Dataset.from_dict({
+                "anchor": ["It's nice weather outside today.", "He drove to work."],
+                "positive": ["It's so sunny.", "He took the car to the office."],
+            })
+            loss = MultipleNegativesRankingLoss(model)
+            args = SentenceTransformerTrainingArguments(
+                output_dir="checkpoints",
+                batch_sampler=BatchSamplers.NO_DUPLICATES,
+            )
+            trainer = SentenceTransformerTrainer(
+                model=model,
+                args=args,
+                train_dataset=train_dataset,
+                loss=loss,
+            )
+            trainer.train()
+    """
+
+    BATCH_SAMPLER = "batch_sampler"
+    NO_DUPLICATES = "no_duplicates"
+    NO_DUPLICATES_HASHED = "no_duplicates_hashed"
+    GROUP_BY_LABEL = "group_by_label"
+
+
+class MultiDatasetBatchSamplers(ExplicitEnum):
+    """
+    Stores the acceptable string identifiers for multi-dataset batch samplers.
+
+    The multi-dataset batch sampler is responsible for determining in what order batches are sampled from multiple
+    datasets during training. Valid options are:
+
+    - ``MultiDatasetBatchSamplers.ROUND_ROBIN``: Uses :class:`~sentence_transformers.base.sampler.RoundRobinBatchSampler`,
+      which uses round-robin sampling from each dataset until one is exhausted.
+      With this strategy, it's likely that not all samples from each dataset are used, but each dataset is sampled
+      from equally.
+    - ``MultiDatasetBatchSamplers.PROPORTIONAL``: **[default]** Uses :class:`~sentence_transformers.base.sampler.ProportionalBatchSampler`,
+      which samples from each dataset in proportion to its size.
+      With this strategy, all samples from each dataset are used and larger datasets are sampled from more frequently.
+
+    If you want to use a custom multi-dataset batch sampler, then you can subclass
+    :class:`~sentence_transformers.base.sampler.MultiDatasetDefaultBatchSampler` and pass the class (not an instance) to the
+    ``multi_dataset_batch_sampler`` argument in :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`.
+    (or :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments`, etc.). Alternatively,
+    you can pass a function that accepts ``dataset`` (a :class:`~torch.utils.data.ConcatDataset`), ``batch_samplers``
+    (i.e. a list of batch sampler for each of the datasets in the :class:`~torch.utils.data.ConcatDataset`), ``generator``,
+    and ``seed`` and returns a :class:`~sentence_transformers.base.sampler.MultiDatasetDefaultBatchSampler` instance.
+
+    Usage:
+        ::
+
+            from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
+            from sentence_transformers.sentence_transformer.training_args import MultiDatasetBatchSamplers
+            from sentence_transformers.sentence_transformer.losses import CoSENTLoss
+            from datasets import Dataset, DatasetDict
+
+            model = SentenceTransformer("microsoft/mpnet-base")
+            train_general = Dataset.from_dict({
+                "sentence_A": ["It's nice weather outside today.", "He drove to work."],
+                "sentence_B": ["It's so sunny.", "He took the car to the bank."],
+                "score": [0.9, 0.4],
+            })
+            train_medical = Dataset.from_dict({
+                "sentence_A": ["The patient has a fever.", "The doctor prescribed medication.", "The patient is sweating."],
+                "sentence_B": ["The patient feels hot.", "The medication was given to the patient.", "The patient is perspiring."],
+                "score": [0.8, 0.6, 0.7],
+            })
+            train_legal = Dataset.from_dict({
+                "sentence_A": ["This contract is legally binding.", "The parties agree to the terms and conditions."],
+                "sentence_B": ["Both parties acknowledge their obligations.", "By signing this agreement, the parties enter into a legal relationship."],
+                "score": [0.7, 0.8],
+            })
+            train_dataset = DatasetDict({
+                "general": train_general,
+                "medical": train_medical,
+                "legal": train_legal,
+            })
+
+            loss = CoSENTLoss(model)
+            args = SentenceTransformerTrainingArguments(
+                output_dir="checkpoints",
+                multi_dataset_batch_sampler=MultiDatasetBatchSamplers.PROPORTIONAL,
+            )
+            trainer = SentenceTransformerTrainer(
+                model=model,
+                args=args,
+                train_dataset=train_dataset,
+                loss=loss,
+            )
+            trainer.train()
+    """
+
+    ROUND_ROBIN = "round_robin"  # Round-robin sampling from each dataset
+    PROPORTIONAL = "proportional"  # Sample from each dataset in proportion to its size [default]
+
+
+class SetEpochMixin:
+    """
+    Required for a BatchSampler as the Trainer will call set_epoch on the BatchSampler at the beginning of each epoch.
+    The BatchSampler can then set the generator seed accordingly.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.epoch = 0
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+
+class DefaultBatchSampler(SetEpochMixin, BatchSampler):
+    """
+    This sampler is the default batch sampler used in the SentenceTransformer library.
+    It is equivalent to the PyTorch BatchSampler.
+
+    Args:
+        sampler (Sampler or Iterable): The sampler used for sampling elements from the dataset,
+            such as SubsetRandomSampler.
+        batch_size (int): Number of samples per batch.
+        drop_last (bool): If True, drop the last incomplete batch if the dataset size
+            is not divisible by the batch size.
+        valid_label_columns (List[str], optional): List of column names to check for labels.
+            The first column name from ``valid_label_columns`` found in the dataset will
+            be used as the label column.
+        generator (torch.Generator, optional): Optional random number generator for shuffling
+            the indices.
+        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+    """
+
+    def __init__(
+        self,
+        dataset: Dataset,
+        batch_size: int,
+        drop_last: bool,
+        valid_label_columns: list[str] | None = None,
+        generator: torch.Generator | None = None,
+        seed: int = 0,
+    ) -> None:
+        super().__init__(dataset, batch_size=batch_size, drop_last=drop_last)
+        self.valid_label_columns = valid_label_columns
+        self.generator = generator
+        self.seed = seed
+
+
+class GroupByLabelBatchSampler(DefaultBatchSampler):
+    """
+    This sampler groups samples by their labels and aims to create batches such that
+    each batch contains samples where the labels are as homogeneous as possible.
+    This sampler is meant to be used alongside the ``Batch...TripletLoss`` classes, which
+    require that each batch contains at least 2 examples per label class.
+
+    Recommended for:
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchAllTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchHardSoftMarginTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchHardTripletLoss`
+        - :class:`~sentence_transformers.sentence_transformer.losses.BatchSemiHardTripletLoss`
+
+    Args:
+        dataset (Dataset): The dataset to sample from.
+        batch_size (int): Number of samples per batch. Must be divisible by 2.
+        drop_last (bool): If True, drop the last incomplete batch if the dataset size
+            is not divisible by the batch size.
+        valid_label_columns (List[str], optional): List of column names to check for labels.
+            The first column name from ``valid_label_columns`` found in the dataset will
+            be used as the label column.
+        generator (torch.Generator, optional): Optional random number generator for shuffling
+            the indices.
+        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+    """
+
+    def __init__(
+        self,
+        dataset: Dataset,
+        batch_size: int,
+        drop_last: bool,
+        valid_label_columns: list[str] | None = None,
+        generator: torch.Generator | None = None,
+        seed: int = 0,
+    ) -> None:
+        super().__init__(
+            dataset,
+            batch_size=batch_size,
+            drop_last=drop_last,
+            valid_label_columns=valid_label_columns,
+            generator=generator,
+            seed=seed,
+        )
+        self.dataset = dataset
+
+        if self.batch_size % 2 == 1:
+            raise ValueError("The batch size for `GroupByLabelBatchSampler` must be divisible by 2.")
+
+        labels = self._determine_labels_to_use(dataset, self.valid_label_columns)
+        groups = defaultdict(list)
+        for sample_idx, label in enumerate(labels):
+            groups[label].append(sample_idx)
+
+        self.groups = {
+            label: sample_indices[:num_samples]
+            for label, sample_indices in groups.items()
+            if (num_samples := len(sample_indices) // 2 * 2)
+        }
+
+    @staticmethod
+    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[Any]:
+        for column_name in valid_label_columns or []:
+            if column_name in dataset.column_names:
+                return dataset[column_name]
+        raise ValueError(
+            f"None of the valid_label_columns {valid_label_columns} are in the dataset, "
+            f"which only has these columns: {dataset.column_names}."
+        )
+
+    def __iter__(self) -> Iterator[list[int]]:
+        if self.generator and self.seed is not None:
+            self.generator.manual_seed(self.seed + self.epoch)
+
+        partial_batch = []
+        unique_labels = list(self.groups.keys())
+        for label_idx in torch.randperm(len(self.groups), generator=self.generator):
+            label = unique_labels[label_idx]
+            samples = self.groups[label]
+            partial_batch.extend(samples)
+            while len(partial_batch) >= self.batch_size:
+                yield partial_batch[: self.batch_size]
+                partial_batch = partial_batch[self.batch_size :]
+
+        if not self.drop_last and partial_batch:
+            yield partial_batch
+
+
+def _xxhash_int64(value: str) -> int:
+    # Convert uint64 -> int64 to keep values compatible with Arrow int64 storage.
+    hashed = xxhash.xxh64_intdigest(value)
+    if hashed >= _XXHASH_INT64_MAX:
+        hashed -= _XXHASH_UINT64_MAX
+    return hashed
+
+
+def _hash_batch(
+    batch: dict[str, list[Any]],
+    columns: list[str],
+    exclude_columns: set[str],
+) -> dict[str, list[list[int]]]:
+    # Must be defined at module scope because datasets.map with num_proc pickles this function.
+    # Build per-row hash lists so we can later do fast overlap checks without re-reading the dataset.
+    active_columns = [column for column in columns if column not in exclude_columns]
+    batch_size = len(batch[active_columns[0]]) if active_columns else len(next(iter(batch.values()), []))
+    if not active_columns:
+        return {"__hashes": [[] for _ in range(batch_size)]}
+    hashes: list[list[int]] = []
+    for row_idx in range(batch_size):
+        row_hashes: list[int] = []
+        for column in active_columns:
+            value = batch[column][row_idx]
+            if isinstance(value, list):
+                row_hashes.extend(_xxhash_int64(str(item)) for item in value)
+            else:
+                row_hashes.append(_xxhash_int64(str(value)))
+        hashes.append(row_hashes)
+    return {"__hashes": hashes}
+
+
+class NoDuplicatesBatchSampler(DefaultBatchSampler):
+    def __init__(
+        self,
+        dataset: Dataset,
+        batch_size: int,
+        drop_last: bool,
+        valid_label_columns: list[str] | None = None,
+        generator: torch.Generator | None = None,
+        seed: int = 0,
+        precompute_hashes: bool = False,
+        precompute_num_proc: int | None = None,
+        precompute_batch_size: int = 1000,
+    ) -> None:
+        """
+        This sampler creates batches such that each batch contains samples where the values are unique,
+        even across columns. This is useful when losses consider other samples in a batch to be in-batch
+        negatives, and you want to ensure that the negatives are not duplicates of the anchor/positive sample.
+
+        Recommended for:
+            - :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesSymmetricRankingLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesSymmetricRankingLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.MegaBatchMarginLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.GISTEmbedLoss`
+            - :class:`~sentence_transformers.sentence_transformer.losses.CachedGISTEmbedLoss`
+
+        Args:
+            dataset (Dataset): The dataset to sample from.
+            batch_size (int): Number of samples per batch.
+            drop_last (bool): If True, drop the last incomplete batch if the dataset size
+                is not divisible by the batch size.
+            valid_label_columns (List[str], optional): List of column names to check for labels.
+                The first column name from ``valid_label_columns`` found in the dataset will
+                be used as the label column.
+            generator (torch.Generator, optional): Optional random number generator for shuffling
+                the indices.
+            seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+            precompute_hashes (bool, optional): If True, precompute xxhash 64-bit values for dataset
+                fields using ``datasets.map`` to speed up duplicate checks. Requires ``xxhash`` to
+                be installed and uses additional memory: in theory roughly
+                ``len(dataset) * num_columns * 8`` bytes for the dense int64 hash matrix,
+                although actual memory usage may therefore differ in practice. Defaults to False.
+            precompute_num_proc (int, optional): Number of processes for hashing with ``datasets.map``.
+                If set to ``None``, defaults to ``min(8, cpu_count - 1)`` when ``precompute_hashes``
+                is True.
+            precompute_batch_size (int, optional): Batch size for ``datasets.map`` hashing.
+                Defaults to 1000.
+        """
+        super().__init__(
+            dataset,
+            batch_size=batch_size,
+            drop_last=drop_last,
+            valid_label_columns=valid_label_columns,
+            generator=generator,
+            seed=seed,
+        )
+        if label_columns := set(dataset.column_names) & set(self.valid_label_columns or []):
+            dataset = dataset.remove_columns(list(label_columns))
+        self.dataset = dataset
+        self.precompute_hashes = precompute_hashes
+        self.precompute_num_proc = precompute_num_proc
+        self.precompute_batch_size = precompute_batch_size
+        self._row_hashes: np.ndarray | None = None
+        if self.precompute_hashes:
+            if xxhash is None:
+                raise ImportError(
+                    "NoDuplicatesBatchSampler with precompute_hashes=True requires `xxhash`. "
+                    "Install `xxhash` to use this option."
+                )
+            if self.precompute_num_proc is None:
+                cpu_count = os.cpu_count() or 1
+                # Leave one core free to avoid saturating the system when hashing.
+                default_workers = max(1, min(8, cpu_count - 1))
+                self.precompute_num_proc = default_workers
+
+    def _build_hashes(self) -> None:
+        if not self.precompute_hashes or self._row_hashes is not None:
+            return
+        exclude_columns = {"dataset_name"}
+        columns = list(self.dataset.column_names)
+        # Precompute hash values once to avoid repeated string processing per batch.
+        # Use num_proc to parallelize hashing across CPU cores.
+        hash_ds: Dataset | None = None
+        hash_ds = self.dataset.map(
+            _hash_batch,
+            batched=True,
+            batch_size=self.precompute_batch_size,
+            num_proc=self.precompute_num_proc,
+            remove_columns=columns,
+            fn_kwargs={"columns": columns, "exclude_columns": exclude_columns},
+            desc="Hashing dataset values",
+        )
+        try:
+            import pyarrow as pa
+
+            column = hash_ds.data.column("__hashes")
+            if isinstance(column, pa.ChunkedArray):
+                column = column.combine_chunks()
+            if not isinstance(column, (pa.ListArray, pa.LargeListArray)):
+                raise ValueError("Expected a list column for hashed values.")
+
+            row_count = len(column)
+            if row_count == 0:
+                row_hashes = np.zeros((0, 0), dtype=np.int64)
+            else:
+                offsets = column.offsets.to_numpy(zero_copy_only=False)
+                row_size = int(offsets[1] - offsets[0])
+                if row_size < 0 or not np.all(np.diff(offsets) == row_size):
+                    raise ValueError("Hashed rows have varying lengths.")
+                # If every row has the same length, store as a dense ndarray to reduce overhead.
+                values = column.values.to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
+                if values.size != row_count * row_size:
+                    raise ValueError("Unexpected hashed value buffer size.")
+                row_hashes = values.reshape((row_count, row_size))
+        except Exception as exc:
+            # Surface failures explicitly; the precompute option expects fixed-length rows.
+            if hash_ds is not None:
+                del hash_ds
+            raise ValueError(
+                "NoDuplicatesBatchSampler with precompute_hashes=True requires fixed-length hash rows. "
+                "Ensure each sample has the same number of values across columns."
+            ) from exc
+
+        self._row_hashes = row_hashes
+        # Drop the temporary dataset to release Arrow buffers promptly.
+        if hash_ds is not None:
+            del hash_ds
+
+    def __iter__(self) -> Iterator[list[int]]:
+        """
+        Iterate over the remaining non-yielded indices. For each index, check if the sample values are already in the
+        batch. If not, add the sample values to the batch keep going until the batch is full. If the batch is full, yield
+        the batch indices and continue with the next batch.
+        """
+        if self.generator and self.seed is not None:
+            self.generator.manual_seed(self.seed + self.epoch)
+
+        if self.precompute_hashes:
+            self._build_hashes()
+            row_hashes: np.ndarray = self._row_hashes
+
+            def get_sample_values(index: int):
+                return row_hashes[index]
+
+        else:
+
+            def get_sample_values(index: int) -> set[str]:
+                return {str(value) for key, value in self.dataset[index].items() if key != "dataset_name"}
+
+        def _has_overlap(sample_values, batch_values: set[Any]) -> bool:
+            # Avoid materializing a set if we already have one.
+            if isinstance(sample_values, set):
+                return not sample_values.isdisjoint(batch_values)
+            return any(value in batch_values for value in sample_values)
+
+        # We create a dictionary mapping indices to None because we need a data structure that:
+        # 1. Allows for cheap removal of elements
+        # 2. Preserves the order of elements, i.e. remains random
+        remaining_indices = dict.fromkeys(torch.randperm(len(self.dataset), generator=self.generator).tolist())
+        while remaining_indices:
+            batch_values: set[Any] = set()
+            batch_indices: list[int] = []
+            for index in remaining_indices:
+                sample_values = get_sample_values(index)
+                if _has_overlap(sample_values, batch_values):
+                    continue
+
+                batch_indices.append(index)
+                if len(batch_indices) == self.batch_size:
+                    yield batch_indices
+                    break
+
+                batch_values.update(sample_values)
+
+            else:
+                # NOTE: some indices might still have been ignored here
+                if not self.drop_last:
+                    yield batch_indices
+
+            for index in batch_indices:
+                del remaining_indices[index]
+
+    def __len__(self) -> int:
+        if self.drop_last:
+            return len(self.dataset) // self.batch_size
+        else:
+            return (len(self.dataset) + self.batch_size - 1) // self.batch_size
+
+
+class MultiDatasetDefaultBatchSampler(SetEpochMixin, BatchSampler, ABC):
+    """
+    Abstract base batch sampler that yields batches from multiple batch samplers.
+    This class must be subclassed to implement specific sampling strategies, and
+    cannot be used directly.
+
+    Args:
+        dataset (ConcatDataset): A concatenation of multiple datasets.
+        batch_samplers (List[BatchSampler]): A list of batch samplers, one for each dataset in the ConcatDataset.
+        generator (torch.Generator, optional): A generator for reproducible sampling. Defaults to None.
+        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+    """
+
+    def __init__(
+        self,
+        dataset: ConcatDataset,
+        batch_samplers: list[BatchSampler],
+        generator: torch.Generator | None = None,
+        seed: int = 0,
+    ) -> None:
+        if len(dataset.datasets) != len(batch_samplers):
+            raise ValueError("The number of batch samplers must match the number of datasets in the ConcatDataset.")
+        super().__init__(dataset, batch_size=batch_samplers[0].batch_size, drop_last=batch_samplers[0].drop_last)
+        self.dataset = dataset
+        self.batch_samplers = batch_samplers
+        self.generator = generator
+        self.seed = seed
+
+    @abstractmethod
+    def __iter__(self) -> Iterator[list[int]]:
+        """Yield batches from the underlying datasets in a specific order."""
+        pass
+
+    @abstractmethod
+    def __len__(self) -> int:
+        """Return the number of batches in the sampler."""
+        pass
+
+
+class RoundRobinBatchSampler(MultiDatasetDefaultBatchSampler):
+    """
+    Batch sampler that yields batches in a round-robin fashion from multiple batch samplers, until one is exhausted.
+    With this sampler, it's unlikely that all samples from each dataset are used, but we do ensure that each dataset
+    is sampled from equally.
+
+    Args:
+        dataset (ConcatDataset): A concatenation of multiple datasets.
+        batch_samplers (List[BatchSampler]): A list of batch samplers, one for each dataset in the ConcatDataset.
+        generator (torch.Generator, optional): A generator for reproducible sampling. Defaults to None.
+        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+    """
+
+    def __iter__(self) -> Iterator[list[int]]:
+        if self.generator and self.seed is not None:
+            self.generator.manual_seed(self.seed + self.epoch)
+
+        num_samples = [len(dataset) for dataset in self.dataset.datasets]
+        sample_offsets = [0] + list(accumulate(num_samples))
+
+        batch_samplers = [iter(sampler) for sampler in self.batch_samplers]
+        for dataset_idx in cycle(range(len(batch_samplers))):
+            sample_offset = sample_offsets[dataset_idx]
+            try:
+                yield [idx + sample_offset for idx in next(batch_samplers[dataset_idx])]
+            except StopIteration:
+                # current iterator is apparently exhausted
+                break
+
+    def __len__(self) -> int:
+        return min(len(sampler) for sampler in self.batch_samplers) * len(self.batch_samplers)
+
+
+class ProportionalBatchSampler(MultiDatasetDefaultBatchSampler):
+    """
+    Batch sampler that samples from each dataset in proportion to its size, until all are exhausted simultaneously.
+    With this sampler, all samples from each dataset are used and larger datasets are sampled from more frequently.
+
+    Args:
+        dataset (ConcatDataset): A concatenation of multiple datasets.
+        batch_samplers (List[BatchSampler]): A list of batch samplers, one for each dataset in the ConcatDataset.
+        generator (torch.Generator, optional): A generator for reproducible sampling. Defaults to None.
+        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+    """
+
+    def __iter__(self) -> Iterator[list[int]]:
+        self.generator.manual_seed(self.seed + self.epoch)
+
+        num_samples = [len(dataset) for dataset in self.dataset.datasets]
+        sample_offsets = [0] + list(accumulate(num_samples))
+
+        num_batches = [len(sampler) for sampler in self.batch_samplers]
+        dataset_indices = [idx for idx, length in enumerate(num_batches) for _ in range(length)]
+        dataset_idx_sampler = SubsetRandomSampler(dataset_indices, generator=self.generator)
+
+        batch_samplers = [iter(sampler) for sampler in self.batch_samplers]
+        for dataset_idx in dataset_idx_sampler:
+            sample_offset = sample_offsets[dataset_idx]
+            try:
+                yield [idx + sample_offset for idx in next(batch_samplers[dataset_idx])]
+            except StopIteration:
+                continue
+
+    def __len__(self) -> int:
+        return sum([len(sampler) for sampler in self.batch_samplers])
+
+
+__all__ = [
+    "DefaultBatchSampler",
+    "GroupByLabelBatchSampler",
+    "NoDuplicatesBatchSampler",
+    "MultiDatasetDefaultBatchSampler",
+    "RoundRobinBatchSampler",
+    "ProportionalBatchSampler",
+    "BatchSamplers",
+    "MultiDatasetBatchSamplers",
+]

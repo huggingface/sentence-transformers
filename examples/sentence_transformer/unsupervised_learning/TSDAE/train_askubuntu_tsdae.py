@@ -5,11 +5,13 @@ from datetime import datetime
 
 from datasets import load_dataset
 
-from sentence_transformers import SentenceTransformer, models
-from sentence_transformers.evaluation import RerankingEvaluator
-from sentence_transformers.losses import DenoisingAutoEncoderLoss
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.base.models import Transformer
+from sentence_transformers.sentence_transformer.evaluation import RerankingEvaluator
+from sentence_transformers.sentence_transformer.losses import DenoisingAutoEncoderLoss
+from sentence_transformers.sentence_transformer.models import Pooling
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -23,8 +25,8 @@ max_seq_length = 75
 output_dir = f"output/training_stsb_tsdae-{model_name.replace('/', '-')}-{train_batch_size}-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
 # 1. Defining our sentence transformer model
-word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
-pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(), "cls")
+word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
+pooling_model = Pooling(word_embedding_model.get_word_embedding_dimension(), "cls")
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 # or to load a pre-trained SentenceTransformer model OR use mean pooling
 # model = SentenceTransformer(model_name)
@@ -136,7 +138,7 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=num_epochs,
     per_device_train_batch_size=train_batch_size,
     per_device_eval_batch_size=train_batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:

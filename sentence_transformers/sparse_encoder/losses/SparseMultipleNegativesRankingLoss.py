@@ -6,8 +6,8 @@ from typing import Literal
 from torch import Tensor
 
 from sentence_transformers import util
-from sentence_transformers.losses.MultipleNegativesRankingLoss import MultipleNegativesRankingLoss
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss import MultipleNegativesRankingLoss
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
@@ -94,7 +94,7 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
             +-------------------------------------------------+--------+
 
         Recommendations:
-            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.training_args.BatchSamplers>`) to
+            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
 
         Relations:

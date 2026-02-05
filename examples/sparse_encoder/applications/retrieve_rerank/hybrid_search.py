@@ -5,11 +5,12 @@ import torch
 from datasets import load_dataset
 
 from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
+from sentence_transformers.base.models import Transformer
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderRerankingEvaluator
-from sentence_transformers.evaluation import InformationRetrievalEvaluator
+from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
 from sentence_transformers.sparse_encoder.evaluation import SparseInformationRetrievalEvaluator
 from sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator import ReciprocalRankFusionEvaluator
-from sentence_transformers.sparse_encoder.models import MLMTransformer, SpladePooling
+from sentence_transformers.sparse_encoder.models import SpladePooling
 
 # Configure logging
 logging.basicConfig(format="%(message)s", level=logging.INFO)
@@ -54,7 +55,9 @@ logger.info("=" * 80)
 
 sparse_encoder_model_name = "ibm-granite/granite-embedding-30m-sparse"
 logger.info(f"Loading sparse encoder model: {sparse_encoder_model_name}")
-sparse_encoder = SparseEncoder(modules=[MLMTransformer(sparse_encoder_model_name), SpladePooling("max")])
+sparse_encoder = SparseEncoder(
+    modules=[Transformer(sparse_encoder_model_name, transformer_task="fill-mask"), SpladePooling("max")]
+)
 sparse_encoder_similarity_fn_name = sparse_encoder.similarity_fn_name
 
 # Create output directory

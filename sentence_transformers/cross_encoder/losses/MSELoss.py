@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from torch import Tensor, nn
 
-from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+from sentence_transformers.cross_encoder.model import CrossEncoder
 from sentence_transformers.util import fullname
 
 
@@ -13,7 +13,7 @@ class MSELoss(nn.Module):
         is used to distill a cross-encoder model from a teacher cross-encoder model or gold labels.
 
         Args:
-            model (:class:`~sentence_transformers.cross_encoder.CrossEncoder`): A CrossEncoder model to be trained.
+            model (:class:`~sentence_transformers.cross_encoder.model.CrossEncoder`): A CrossEncoder model to be trained.
             activation_fn (:class:`~torch.nn.Module`): Activation function applied to the logits before computing the loss.
             **kwargs: Additional keyword arguments passed to the underlying :class:`torch.nn.MSELoss`.
 

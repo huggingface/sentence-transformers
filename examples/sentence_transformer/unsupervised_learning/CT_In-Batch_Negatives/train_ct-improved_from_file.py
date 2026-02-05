@@ -16,10 +16,10 @@ import tqdm
 from datasets import Dataset
 
 from sentence_transformers import LoggingHandler, SentenceTransformer
-from sentence_transformers.losses import ContrastiveTensionLossInBatchNegatives
-from sentence_transformers.models import Pooling, Transformer
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.sentence_transformer.losses import ContrastiveTensionLossInBatchNegatives
+from sentence_transformers.sentence_transformer.models import Pooling, Transformer
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 # Just some code to print debug information to stdout
 logging.basicConfig(

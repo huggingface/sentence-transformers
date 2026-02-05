@@ -3,21 +3,21 @@
 ## Migrating from v4.x to v5.x
 
 ```{eval-rst}
-The v5 Sentence Transformers release introduced :class:`~sentence_transformers.sparse_encoder.SparseEncoder` embedding models (see the `Sparse Encoder Usage <sparse_encoder/usage/usage.html>`_ for more details on them) alongside an extensive training suite for them, including :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` and :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments`. Unlike with v3 (updated :class:`~sentence_transformers.SentenceTransformer`) and v4 (updated :class:`~sentence_transformers.cross_encoder.CrossEncoder`), this update does not deprecate any training methods.
+The v5 Sentence Transformers release introduced :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` embedding models (see the `Sparse Encoder Usage <sparse_encoder/usage/usage.html>`_ for more details on them) alongside an extensive training suite for them, including :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` and :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments`. Unlike with v3 (updated :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`) and v4 (updated :class:`~sentence_transformers.cross_encoder.model.CrossEncoder`), this update does not deprecate any training methods.
 ```
 
 ### Migration for model.encode
 
 ```{eval-rst}
 
-We introduce two new methods, :meth:`~sentence_transformers.SentenceTransformer.encode_query` and :meth:`~sentence_transformers.SentenceTransformer.encode_document`, which are recommended to use instead of the :meth:`~sentence_transformers.SentenceTransformer.encode` method when working with information retrieval tasks. These methods are specialized version of :meth:`~sentence_transformers.SentenceTransformer.encode` that differs in exactly two ways:
+We introduce two new methods, :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_query` and :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_document`, which are recommended to use instead of the :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode` method when working with information retrieval tasks. These methods are specialized version of :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode` that differs in exactly two ways:
 
 1. If no ``prompt_name`` or ``prompt`` is provided, it uses a predefined "query" prompt,
    if available in the model's ``prompts`` dictionary.
-2. It sets the ``task`` to "query". If the model has a :class:`~sentence_transformers.models.Router`
+2. It sets the ``task`` to "query". If the model has a :class:`~sentence_transformers.base.models.Router`
    module, it will use the "query" task type to route the input through the appropriate submodules.
 
-The same methods apply to the :class:`~sentence_transformers.sparse_encoder.SparseEncoder` models.
+The same methods apply to the :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` models.
 
 .. list-table:: encode_query and encode_document
    :widths: 50 50
@@ -60,7 +60,7 @@ The same methods apply to the :class:`~sentence_transformers.sparse_encoder.Spar
          print(query_embedding.shape, document_embedding.shape)
          # => (1, 768) (1, 768)
 
-We also deprecated the :meth:`~sentence_transformers.SentenceTransformer.encode_multi_process` method, which was used to encode large datasets in parallel using multiple processes. This method has now been subsumed by the :meth:`~sentence_transformers.SentenceTransformer.encode` method with the ``device``, ``pool``, and ``chunk_size`` arguments. Provide a list of devices to the ``device`` argument to use multiple processes, or a single device to use a single process. The ``pool`` argument can be used to pass a multiprocessing pool that gets reused across calls, and the ``chunk_size`` argument can be used to control the size of the chunks that are sent to each process in parallel.
+We also deprecated the :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_multi_process` method, which was used to encode large datasets in parallel using multiple processes. This method has now been subsumed by the :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode` method with the ``device``, ``pool``, and ``chunk_size`` arguments. Provide a list of devices to the ``device`` argument to use multiple processes, or a single device to use a single process. The ``pool`` argument can be used to pass a multiprocessing pool that gets reused across calls, and the ``chunk_size`` argument can be used to control the size of the chunks that are sent to each process in parallel.
 
 .. list-table:: encode_multi_process deprecation -> encode
    :widths: 50 50
@@ -157,9 +157,9 @@ The ``truncate_dim`` parameter allows you to reduce the dimensionality of embedd
 
 ```{eval-rst}
 
-The ``Asym`` module has been renamed and updated to the new :class:`~sentence_transformers.models.Router` module, which provides the same functionality but with a more consistent API and additional features. The new :class:`~sentence_transformers.models.Router` module allows for more flexible routing of different tasks, such as query and document embeddings, and is recommended when working with asymmetric models that require different processing for different tasks, notably queries and documents.
+The ``Asym`` module has been renamed and updated to the new :class:`~sentence_transformers.base.models.Router` module, which provides the same functionality but with a more consistent API and additional features. The new :class:`~sentence_transformers.base.models.Router` module allows for more flexible routing of different tasks, such as query and document embeddings, and is recommended when working with asymmetric models that require different processing for different tasks, notably queries and documents.
 
-The :meth:`~sentence_transformers.SentenceTransformer.encode_query` and :meth:`~sentence_transformers.SentenceTransformer.encode_document` methods automatically set the ``task`` parameter that is used by the :class:`~sentence_transformers.models.Router` module to route the input to the query or document submodules, respectively.
+The :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_query` and :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_document` methods automatically set the ``task`` parameter that is used by the :class:`~sentence_transformers.base.models.Router` module to route the input to the query or document submodules, respectively.
 
 .. collapse:: Asym -> Router
 
@@ -211,7 +211,7 @@ The :meth:`~sentence_transformers.SentenceTransformer.encode_query` and :meth:`~
            :emphasize-lines: 8-11, 22-23
 
            from sentence_transformers import SentenceTransformer
-           from sentence_transformers.models import Router, Normalize
+           from sentence_transformers.base.models import Router, Normalize
 
            # Use a regular SentenceTransformer for the document embeddings,
            # and a static embedding model for the query embeddings
@@ -238,7 +238,7 @@ The :meth:`~sentence_transformers.SentenceTransformer.encode_query` and :meth:`~
            :emphasize-lines: 8-11, 22-23
 
            from sentence_transformers import SentenceTransformer
-           from sentence_transformers.models import Router, Normalize
+           from sentence_transformers.base.models import Router, Normalize
 
            # Use a regular SentenceTransformer for the document embeddings,
            # and a static embedding model for the query embeddings
@@ -421,7 +421,7 @@ The :meth:`~sentence_transformers.SentenceTransformer.encode_query` and :meth:`~
            :emphasize-lines: 4-9
 
            from sentence_transformers import SentenceTransformer
-           from sentence_transformers.models import Module, InputModule
+           from sentence_transformers.base.models import Module, InputModule
 
            # The new Module and InputModule superclasses provide convenience methods
            # like 'load', 'load_file_path', 'load_dir_path', 'load_torch_weights',
@@ -473,7 +473,7 @@ The :meth:`~sentence_transformers.SentenceTransformer.encode_query` and :meth:`~
         - .. code-block:: python
 
              from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
-             from sentence_transformers.sampler import DefaultBatchSampler
+             from sentence_transformers.base.sampler import DefaultBatchSampler
              import torch
 
              class CustomBatchSampler(DefaultBatchSampler):
@@ -560,7 +560,7 @@ The :meth:`~sentence_transformers.SentenceTransformer.encode_query` and :meth:`~
         - .. code-block:: python
 
              from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
-             from sentence_transformers.sampler import MultiDatasetDefaultBatchSampler
+             from sentence_transformers.base.sampler import MultiDatasetDefaultBatchSampler
              import torch
 
              class CustomMultiDatasetBatchSampler(MultiDatasetDefaultBatchSampler):
@@ -738,10 +738,10 @@ The :meth:`~sentence_transformers.SentenceTransformer.encode_query` and :meth:`~
 ## Migrating from v3.x to v4.x
 
 ```{eval-rst}
-The v4 Sentence Transformers release refactored the training of :class:`~sentence_transformers.cross_encoder.CrossEncoder` reranker/pair classification models, replacing :meth:`CrossEncoder.fit <sentence_transformers.SentenceTransformer.fit>` with a :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` and :class:`~sentence_transformers.cross_encoder..training_args.CrossEncoderTrainingArguments`. Like with v3 and :class:`~sentence_transformers.SentenceTransformer` models, this update softly deprecated :meth:`CrossEncoder.fit <sentence_transformers.cross_encoder.CrossEncoder.fit>`, meaning that it still works, but it's recommended to switch to the new v4.x training format. Behind the scenes, this method now uses the new trainer.
+The v4 Sentence Transformers release refactored the training of :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` reranker/pair classification models, replacing :meth:`CrossEncoder.fit <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>` with a :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` and :class:`~sentence_transformers.cross_encoder..training_args.CrossEncoderTrainingArguments`. Like with v3 and :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models, this update softly deprecated :meth:`CrossEncoder.fit <sentence_transformers.cross_encoder.model.CrossEncoder.fit>`, meaning that it still works, but it's recommended to switch to the new v4.x training format. Behind the scenes, this method now uses the new trainer.
 
 .. warning::
-    If you don't have code that uses :meth:`CrossEncoder.fit <sentence_transformers.cross_encoder.CrossEncoder.fit>`, then you will not have to make any changes to your code to update from v3.x to v4.x.
+    If you don't have code that uses :meth:`CrossEncoder.fit <sentence_transformers.cross_encoder.model.CrossEncoder.fit>`, then you will not have to make any changes to your code to update from v3.x to v4.x.
 
     If you do, your code still works, but it is recommended to switch to the new v4.x training format, as it allows more training arguments and functionality. See the `Training Overview <cross_encoder/training_overview.html>`_ for more details.
 
@@ -1457,7 +1457,7 @@ The v4 Sentence Transformers release refactored the training of :class:`~sentenc
 
 .. note::
 
-   The old :meth:`CrossEncoder.fit <sentence_transformers.cross_encoder.CrossEncoder.fit>` method still works, it was only softly deprecated. It now uses the new :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` behind the scenes.
+   The old :meth:`CrossEncoder.fit <sentence_transformers.cross_encoder.model.CrossEncoder.fit>` method still works, it was only softly deprecated. It now uses the new :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` behind the scenes.
 ```
 
 ### Migration for CrossEncoder evaluators
@@ -1490,10 +1490,10 @@ The v4 Sentence Transformers release refactored the training of :class:`~sentenc
 ## Migrating from v2.x to v3.x
 
 ```{eval-rst}
-The v3 Sentence Transformers release refactored the training of :class:`~sentence_transformers.SentenceTransformer` embedding models, replacing :meth:`SentenceTransformer.fit <sentence_transformers.SentenceTransformer.fit>` with a :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` and :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`. This update softly deprecated :meth:`SentenceTransformer.fit <sentence_transformers.SentenceTransformer.fit>`, meaning that it still works, but it's recommended to switch to the new v3.x training format. Behind the scenes, this method now uses the new trainer.
+The v3 Sentence Transformers release refactored the training of :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` embedding models, replacing :meth:`SentenceTransformer.fit <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>` with a :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` and :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`. This update softly deprecated :meth:`SentenceTransformer.fit <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>`, meaning that it still works, but it's recommended to switch to the new v3.x training format. Behind the scenes, this method now uses the new trainer.
 
 .. warning::
-    If you don't have code that uses :meth:`SentenceTransformer.fit <sentence_transformers.SentenceTransformer.fit>`, then you will not have to make any changes to your code to update from v2.x to v3.x.
+    If you don't have code that uses :meth:`SentenceTransformer.fit <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>`, then you will not have to make any changes to your code to update from v2.x to v3.x.
 
     If you do, your code still works, but it is recommended to switch to the new v3.x training format, as it allows more training arguments and functionality. See the `Training Overview <sentence_transformer/training_overview.html>`_ for more details.
 
@@ -1542,7 +1542,7 @@ The v3 Sentence Transformers release refactored the training of :class:`~sentenc
 
         from datasets import load_dataset
         from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
-        from sentence_transformers.losses import MultipleNegativesRankingLoss
+        from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 
         # 1. Define the model. Either from scratch of by loading a pre-trained model
         model = SentenceTransformer("microsoft/mpnet-base")
@@ -1611,7 +1611,7 @@ The v3 Sentence Transformers release refactored the training of :class:`~sentenc
 
            from datasets import Dataset
            from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
-           from sentence_transformers.losses import MultipleNegativesRankingLoss
+           from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 
            # Define a training dataset
            train_examples = [
@@ -2203,9 +2203,9 @@ The v3 Sentence Transformers release refactored the training of :class:`~sentenc
    * - ``ParallelSentencesDataset``
      - Manually creating a :class:`~datasets.Dataset` and adding a ``label`` column for embeddings. Alternatively, consider loading one of our pre-provided `Parallel Sentences Datasets <https://huggingface.co/collections/sentence-transformers/parallel-sentences-datasets-6644d644123d31ba5b1c8785>`_.
    * - ``SentenceLabelDataset``
-     - Loading or creating a :class:`~datasets.Dataset` and using ``SentenceTransformerTrainingArguments(batch_sampler=BatchSamplers.GROUP_BY_LABEL)`` (uses the :class:`~sentence_transformers.sampler.GroupByLabelBatchSampler`). Recommended for the BatchTripletLosses.
+     - Loading or creating a :class:`~datasets.Dataset` and using ``SentenceTransformerTrainingArguments(batch_sampler=BatchSamplers.GROUP_BY_LABEL)`` (uses the :class:`~sentence_transformers.base.sampler.GroupByLabelBatchSampler`). Recommended for the BatchTripletLosses.
    * - ``DenoisingAutoEncoderDataset``
      - Manually adding a column with noisy text to a :class:`~datasets.Dataset` with texts, e.g. with :func:`Dataset.map <datasets.Dataset.map>`.
    * - ``NoDuplicatesDataLoader``
-     - Loading or creating a :class:`~datasets.Dataset` and using ``SentenceTransformerTrainingArguments(batch_sampler=BatchSamplers.NO_DUPLICATES)`` (uses the :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`). Recommended for :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`.
+     - Loading or creating a :class:`~datasets.Dataset` and using ``SentenceTransformerTrainingArguments(batch_sampler=BatchSamplers.NO_DUPLICATES)`` (uses the :class:`~sentence_transformers.base.sampler.NoDuplicatesBatchSampler`). Recommended for :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`.
 ```

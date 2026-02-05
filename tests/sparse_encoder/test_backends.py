@@ -1,5 +1,5 @@
 """
-Test different backends (PyTorch, ONNX, OpenVINO) for the MLMTransformer class and SparseEncoder.
+Test different backends (PyTorch, ONNX, OpenVINO) for the Transformer class with transformer_task="fill-mask" and SparseEncoder.
 
 This module tests loading and using models with different inference backends.
 """

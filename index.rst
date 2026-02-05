@@ -1,7 +1,7 @@
 
 .. note::
 
-   Sentence Transformers v5.2 recently released, introducing multi-processing for CrossEncoder, multilingual NanoBEIR evaluators, similarity score outputs in :class:`~sentence_transformers.util.mine_hard_negatives`, Transformers v5 support, and more. Read the `v5.2 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.2.0>`_ for more information.
+   Sentence Transformers v5.2 recently released, introducing multi-processing for CrossEncoder, multilingual NanoBEIR evaluators, similarity score outputs in :class:`~sentence_transformers.util.hard_negatives.mine_hard_negatives`, Transformers v5 support, and more. Read the `v5.2 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.2.0>`_ for more information.
 
 .. attention::
 
@@ -19,6 +19,7 @@ Sentence Transformers was created by `UKP Lab <http://www.ukp.tu-darmstadt.de/>`
 
 Usage
 =====
+
 .. seealso::
   
    See the `Quickstart <docs/quickstart.html>`_ for more quick information on how to use Sentence Transformers.
@@ -259,4 +260,5 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/package_reference/sentence_transformer/index
    docs/package_reference/cross_encoder/index
    docs/package_reference/sparse_encoder/index
-   docs/package_reference/util
+   docs/package_reference/base/index
+   docs/package_reference/util/index

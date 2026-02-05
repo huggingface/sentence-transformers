@@ -26,6 +26,7 @@ def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name
         import onnxruntime as ort
         from optimum.onnxruntime import (
             ONNX_WEIGHTS_NAME,
+            ORTModelForCausalLM,
             ORTModelForFeatureExtraction,
             ORTModelForMaskedLM,
             ORTModelForSequenceClassification,
@@ -36,6 +37,7 @@ def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name
             "feature-extraction": ORTModelForFeatureExtraction,
             "fill-mask": ORTModelForMaskedLM,
             "sequence-classification": ORTModelForSequenceClassification,
+            "text-generation": ORTModelForCausalLM,
         }
 
         # Get the appropriate model class based on the task name
@@ -101,6 +103,7 @@ def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_
     try:
         from optimum.intel.openvino import (
             OV_XML_FILE_NAME,
+            OVModelForCausalLM,
             OVModelForFeatureExtraction,
             OVModelForMaskedLM,
             OVModelForSequenceClassification,
@@ -111,6 +114,7 @@ def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_
             "feature-extraction": OVModelForFeatureExtraction,
             "fill-mask": OVModelForMaskedLM,
             "sequence-classification": OVModelForSequenceClassification,
+            "text-generation": OVModelForCausalLM,
         }
 
         # Get the appropriate model class based on the task name
