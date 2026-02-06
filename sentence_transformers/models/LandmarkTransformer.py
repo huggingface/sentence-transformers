@@ -47,6 +47,15 @@ class LandmarkTransformer(Transformer):
             - int: Use this fixed value during training
             - list[int]: Randomly sample granularity from this list for each text
             - None: Use `eval_splitter_granularity` (default)
+        lmk_token_id (int | None):
+            Token ID to use for landmark (LMK) tokens. If None (default), automatically infers
+            from the tokenizer by preferring `sep_token_id` (for BERT-style models) or falling
+            back to `eos_token_id` (for GPT-style models). When loading a saved model, this value
+            is restored from the saved configuration.
+    Note:
+        This class inherits all arguments from :class:`sentence_transformers.models.Transformer`,
+        including `model_name_or_path` (the model identifier or path), `cache_dir`, `model_args`,
+        `tokenizer_args`, `config_args`, and others. See the parent class documentation for details.
 
     Example:
     ```python
@@ -90,6 +99,7 @@ class LandmarkTransformer(Transformer):
         *args,
         eval_splitter_granularity: int = 32,
         train_splitter_granularity: int | list[int] | None = None,
+        lmk_token_id: int | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -112,12 +122,16 @@ class LandmarkTransformer(Transformer):
             else:
                 raise ValueError("train_splitter_granularity must be an int, a list of ints, or None")
 
-        # Determine LMK token: prefer SEP (BERT-style), fallback to EOS (GPT-style)
-        self.lmk_token_id = (
-            self.tokenizer.sep_token_id
-            if getattr(self.tokenizer, "sep_token_id", None) is not None
-            else self.tokenizer.eos_token_id
-        )
+        # Set lmk_token_id: use provided value, or infer from tokenizer
+        if lmk_token_id is not None:
+            self.lmk_token_id = lmk_token_id
+        else:
+            # Determine LMK token: prefer SEP (BERT-style), fallback to EOS (GPT-style)
+            self.lmk_token_id = (
+                self.tokenizer.sep_token_id
+                if getattr(self.tokenizer, "sep_token_id", None) is not None
+                else self.tokenizer.eos_token_id
+            )
 
         # Determine CLS token: prefer CLS (BERT-style), fallback to BOS (GPT-style)
         self.cls_token_id = (
