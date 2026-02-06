@@ -26,7 +26,7 @@ train_batch_size = 64  # Increasing the train batch size improves the model perf
 max_seq_length = 300  # Max length for passages. Increasing it, requires more GPU memory
 model_name = "microsoft/mpnet-base"
 max_passages = 0
-num_epochs = 30  # Number of epochs we want to train
+num_epochs = 1  # Number of epochs we want to train
 pooling_mode = "mean"
 negs_to_use = None
 warmup_steps = 1000
@@ -64,20 +64,27 @@ with open(train_script_path, "a") as fOut:
 data_folder = "msmarco-data"
 
 # Read the corpus files, that contain all the passages.
-collection_train_hf = load_dataset("sentence-transformers/msmarco-corpus", "passage", split="train")
+corpus_hf = load_dataset("sentence-transformers/msmarco-corpus", "passage", split="train")
 
-corpus = dict(zip(collection_train_hf["pid"], collection_train_hf["text"]))
+corpus = dict(zip(corpus_hf["pid"], corpus_hf["text"]))
 
 
 # Read the train queries.
-queries_train_hf = load_dataset("omkar334/msmarcoranking-queries", split="train")
+queries_hf = load_dataset("sentence-transformers/msmarco-corpus", "query", split="train")
 
-queries = dict(zip(queries_train_hf["query_id"], queries_train_hf["query"]))
+queries = dict(zip(queries_hf["query_id"], queries_hf["query"]))
 
 # Load a dict (qid, pid) -> ce_score that maps query-ids (qid) and paragraph-ids (pid) to the CrossEncoder score computed by the cross-encoder/ms-marco-MiniLM-L6-v2 model
-ds = load_dataset("sentence-transformers/msmarco-scores-ms-marco-MiniLM-L6-v2", "list", split="train")
+ce_scores_hf = load_dataset("sentence-transformers/msmarco-scores-ms-marco-MiniLM-L6-v2", "list", split="train")
 
-ce_scores = {qid: dict(zip(cids, scores)) for qid, cids, scores in zip(ds["query_id"], ds["corpus_id"], ds["score"])}
+ce_scores = {
+    qid: dict(zip(cids, scores))
+    for qid, cids, scores in zip(
+        ce_scores_hf["query_id"],
+        ce_scores_hf["corpus_id"],
+        ce_scores_hf["score"],
+    )
+}
 logging.info("Load CrossEncoder scores dict")
 
 # As training data we use hard-negatives that have been mined using various systems
