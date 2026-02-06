@@ -7,11 +7,14 @@ from datetime import datetime
 from shutil import copyfile
 
 from datasets import load_dataset
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses
+from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer
+from sentence_transformers.losses import MarginMSELoss
 from sentence_transformers.models import Pooling, Transformer
+from sentence_transformers.trainer import SentenceTransformerTrainer
+from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
 
 # Just some code to print debug information to stdout
 logging.basicConfig(
@@ -172,19 +175,40 @@ class MSMARCODataset(Dataset):
 
 # For training the SentenceTransformer model, we need a dataset, a dataloader, and a loss used for training.
 train_dataset = MSMARCODataset(queries=train_queries, corpus=corpus, ce_scores=ce_scores)
-train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=train_batch_size, drop_last=True)
-train_loss = losses.MarginMSELoss(model=model)
+train_loss = MarginMSELoss(model=model)
 
-# Train the model
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    epochs=num_epochs,
-    warmup_steps=warmup_steps,
-    use_amp=True,
-    checkpoint_path=model_save_path,
-    checkpoint_save_steps=10000,
-    optimizer_params={"lr": lr},
+args = SentenceTransformerTrainingArguments(
+    output_dir=model_save_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=train_batch_size,
+    warmup_ratio=0.1,
+    learning_rate=lr,
+    save_strategy="steps",
+    save_steps=10000,
+    logging_steps=0.01,
+    batch_sampler=BatchSamplers.NO_DUPLICATES,
 )
 
-# Train latest model
-model.save(model_save_path)
+# Train the model
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+)
+
+trainer.train()
+
+model.save_pretrained(model_save_path)
+
+# (Optional) save the model to the Hugging Face Hub!
+# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
+try:
+    model.push_to_hub(f"{model_name}-bi-encoder-margin-mse")
+except Exception:
+    logging.error(
+        f"Error uploading model to the Hugging Face Hub:\nTo upload it manually, you can run "
+        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({model_save_path!r})` "
+        f"and saving it using `model.push_to_hub('{model_name}-bi-encoder-margin-mse')`."
+    )
