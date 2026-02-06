@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import nullcontext
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 
 import torch
 import tqdm
@@ -71,13 +71,18 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         self,
         model: SentenceTransformer,
         scale: float = 20.0,
-        similarity_fct: callable[[Tensor, Tensor], Tensor] = util.cos_sim,
+        similarity_fct: Callable[[Tensor, Tensor], Tensor] = util.cos_sim,
         mini_batch_size: int = 32,
         gather_across_devices: bool = False,
+        directions: tuple[
+            Literal["query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"],
+            ...,
+        ] = ("query_to_doc",),
+        partition_mode: Literal["joint", "per_direction"] = "joint",
         show_progress_bar: bool = False,
     ) -> None:
         """
-        Boosted version of MultipleNegativesRankingLoss (https://huggingface.co/papers/1705.00652) by GradCache (https://huggingface.co/papers/2101.06983).
+        Boosted version of :class:`MultipleNegativesRankingLoss` (https://huggingface.co/papers/1705.00652) by GradCache (https://huggingface.co/papers/2101.06983).
 
         Constrastive learning (here our MNRL loss) with in-batch negatives is usually hard to work with large batch sizes due to (GPU) memory limitation.
         Even with batch-scaling methods like gradient-scaling, it cannot work either. This is because the in-batch negatives make the data points within
@@ -95,11 +100,14 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         requires a lot memory when the batch size is large. One drawback is about the speed. Gradient caching will sacrifice
         around 20% computation time according to the paper.
 
+        See :class:`MultipleNegativesRankingLoss` for more details about the underlying loss itself.
+
         Args:
             model: SentenceTransformer model
             scale: Output of similarity function is multiplied by scale value. In some literature, the scaling parameter
-                is referred to as temperature, which is the inverse of the scale. In short: scale = 1 / temperature, so
-                scale=20.0 is equivalent to temperature=0.05.
+                is referred to as temperature, which is the inverse of the scale. In short: ``scale = 1 / temperature``, so
+                ``scale=20.0`` is equivalent to ``temperature=0.05``. A higher scale (lower temperature) puts more emphasis
+                on the positive example, and values between 10 and 100 are common.
             similarity_fct: similarity function between sentence embeddings. By default, cos_sim. Can also be set to dot
                 product (and then set scale to 1)
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
@@ -109,6 +117,17 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
+            directions: Which similarity interaction terms to include in the loss. Options:
+
+                - "query_to_doc": query -> all documents (always included as it covers the paired positive).
+                - "query_to_query": query -> all other queries in the batch.
+                - "doc_to_query": document -> all queries (symmetric term).
+                - "doc_to_doc": document -> all other documents in the batch, excluding those belonging to the same query.
+
+                The default ("query_to_doc",) matches the standard MultipleNegativesRankingLoss / InfoNCE behavior.
+            partition_mode: How to normalize the scores (the softmax denominator):
+                - "joint": One joint softmax over all selected directions.
+                - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
 
         References:
@@ -116,7 +135,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup: https://huggingface.co/papers/2101.06983
 
         Requirements:
-            1. (anchor, positive) pairs or (anchor, positive, negative pairs)
+            1. (anchor, positive) pairs, (anchor, positive, negative) triplets, or (anchor, positive, negative_1, ..., negative_n) n-tuples
             2. Should be used with large `per_device_train_batch_size` and low `mini_batch_size` for superior performance, but slower training time than :class:`MultipleNegativesRankingLoss`.
 
         Inputs:
@@ -171,9 +190,20 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         self.similarity_fct = similarity_fct
         self.mini_batch_size = mini_batch_size
         self.gather_across_devices = gather_across_devices
+        valid_directions = {"query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"}
+        if not directions:
+            raise ValueError("At least one direction must be specified.")
+        if not set(directions).issubset(valid_directions):
+            raise ValueError(f"Invalid directions: {set(directions) - valid_directions}. Valid: {valid_directions}")
+        if "query_to_doc" not in directions:
+            raise ValueError("'query_to_doc' direction is required (contains the positive pair).")
+        self.directions = tuple(directions)
+
+        if partition_mode not in ("joint", "per_direction"):
+            raise ValueError(f"partition_mode must be 'joint' or 'per_direction', got {partition_mode}")
+        self.partition_mode = partition_mode
         self.show_progress_bar = show_progress_bar
 
-        self.cross_entropy_loss = nn.CrossEntropyLoss()
         self.cache: list[list[Tensor]] | None = None
         self.random_states: list[list[RandContext]] | None = None
 
@@ -186,7 +216,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         copy_random_state: bool,
         random_state: RandContext | None = None,
     ) -> tuple[Tensor, RandContext | None]:
-        """Do forward pass on a minibatch of the input features and return corresponding embeddings."""
+        """Embed a mini-batch of sentences."""
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
         sentence_feature_minibatch = {
@@ -196,7 +226,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         with random_state_context:
             with grad_context():
                 random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
-                reps = self.model(sentence_feature_minibatch)["sentence_embedding"]  # (mbsz, hdim)
+                reps = self.model(sentence_feature_minibatch)["sentence_embedding"]  # (mini_batch_size, dim)
         return reps, random_state
 
     def embed_minibatch_iter(
@@ -206,87 +236,133 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
-        """Do forward pass on all the minibatches of the input features and yield corresponding embeddings."""
+        """Iterate over mini-batches of sentences for embedding."""
         input_ids: Tensor = sentence_feature["input_ids"]
-        bsz, _ = input_ids.shape
-        for i, b in enumerate(
+        batch_size, _ = input_ids.shape
+        for i, begin in enumerate(
             tqdm.trange(
                 0,
-                bsz,
+                batch_size,
                 self.mini_batch_size,
                 desc="Embed mini-batches",
                 disable=not self.show_progress_bar,
             )
         ):
-            e = b + self.mini_batch_size
+            end = begin + self.mini_batch_size
             reps, random_state = self.embed_minibatch(
                 sentence_feature=sentence_feature,
-                begin=b,
-                end=e,
+                begin=begin,
+                end=end,
                 with_grad=with_grad,
                 copy_random_state=copy_random_state,
                 random_state=None if random_states is None else random_states[i],
             )
-            yield reps, random_state  # reps: (mbsz, hdim)
+            yield reps, random_state
 
     def calculate_loss_and_cache_gradients(self, reps: list[list[Tensor]]) -> Tensor:
         """Calculate the cross-entropy loss and cache the gradients wrt. the embeddings."""
         loss = self.calculate_loss(reps, with_backward=True)
         loss = loss.detach().requires_grad_()
 
-        self.cache = [[r.grad for r in rs] for rs in reps]  # e.g. 3 * bsz/mbsz * (mbsz, hdim)
+        self.cache = [[r.grad for r in rs] for rs in reps]
 
         return loss
 
     def calculate_loss(self, reps: list[list[Tensor]], with_backward: bool = False) -> Tensor:
-        """Calculate the cross-entropy loss. No need to cache the gradients."""
-        anchors = torch.cat(reps[0])  # (batch_size, embedding_dim)
-        candidates = [torch.cat(r) for r in reps[1:]]  # (1 + num_neg) tensors of shape (batch_size, embedding_dim)
-        batch_size = len(anchors)
+        """Calculate the all-pairs InfoNCE loss without caching gradients (for evaluation)."""
+        queries = torch.cat(reps[0])
+        docs = [torch.cat(r) for r in reps[1:]]
+        batch_size = len(queries)
         offset = 0
 
         if self.gather_across_devices:
-            # Gather the positives and negatives across all devices, with gradients, but not the anchors. We compute
-            # only this device's anchors with all candidates from all devices, such that the backward pass on the document
-            # embeddings can flow back to the original devices.
-            candidates = [all_gather_with_grad(embedding_column) for embedding_column in candidates]
+            # Gather the anchors and candidates across all devices, with gradients. Regardless of the chosen directions,
+            # we only compute the anchors/candidates from this device versus all candidates/anchors from all devices.
+            # We do this in such a way that the backward pass on the embeddings can flow back to the original devices.
+
+            queries = all_gather_with_grad(queries)
+            docs = [all_gather_with_grad(doc) for doc in docs]
             # (1 + num_negatives) tensors of shape (batch_size * world_size, embedding_dim)
 
-            # Adjust the range_labels to account for the gathered candidates
+            # Adjust the offset to account for the gathered candidates, so that each device computes the correct local indices.
             if torch.distributed.is_initialized():
                 rank = torch.distributed.get_rank()
                 offset = rank * batch_size
 
-        candidates = torch.cat(candidates, dim=0)
-        # (batch_size * world_size * (1 + num_negatives), embedding_dim)
-
-        # anchor[i] should be most similar to candidates[i], as that is the paired positive,
-        # so the label for anchor[i] is i, but adjusted for the rank offset if gathered across devices
-        labels = torch.arange(offset, offset + batch_size, device=anchors.device)
+        world_batch_size = queries.size(0)
+        docs_all = torch.cat(docs, dim=0)
+        docs_pos = docs[0]
+        local_indices = torch.arange(offset, offset + batch_size, device=queries.device)
+        identity = torch.eye(world_batch_size, device=queries.device)
+        num_docs = len(docs)
 
         losses: list[torch.Tensor] = []
-        for b in tqdm.trange(
+        for begin in tqdm.trange(
             0,
             batch_size,
             self.mini_batch_size,
-            desc="Preparing caches",
+            desc="Calculating loss",
             disable=not self.show_progress_bar,
         ):
-            e = b + self.mini_batch_size
-            scores: Tensor = self.similarity_fct(anchors[b:e], candidates) * self.scale
-            loss_mbatch: torch.Tensor = self.cross_entropy_loss(scores, labels[b:e]) * len(scores) / batch_size
+            end = min(begin + self.mini_batch_size, batch_size)
+            local_batch = local_indices[begin:end]
+            row_indices = torch.arange(len(local_batch), device=queries.device)
+            # (mini_batch_size, embedding_dim)
+            local_queries = queries[local_batch]
+            local_docs = docs_pos[local_batch]
+
+            sim_matrices = {}
+            # (mbs, bs * ws * (1 + nn))
+            sim_matrices["query_to_doc"] = self.similarity_fct(local_queries, docs_all) * self.scale
+
+            if "query_to_query" in self.directions:
+                # (mbs, bs * ws)
+                sim_matrices["query_to_query"] = self.similarity_fct(local_queries, queries) * self.scale
+                # Remove self-similarity entries q_i -> q_i
+                sim_matrices["query_to_query"][row_indices, local_batch] = -torch.inf
+
+            if "doc_to_query" in self.directions:
+                # (mbs, bs * ws)
+                sim_matrices["doc_to_query"] = (self.similarity_fct(queries, local_docs) * self.scale).T
+
+            if "doc_to_doc" in self.directions:
+                # (mbs, bs * ws * (1 + nn))
+                sim_matrices["doc_to_doc"] = (self.similarity_fct(docs_all, local_docs) * self.scale).T
+                # Remove d_i_a -> d_i_b for all documents belonging to the same query
+                same_query_doc_mask = identity[local_batch].repeat(1, num_docs).bool()
+                sim_matrices["doc_to_doc"].masked_fill_(same_query_doc_mask, -torch.inf)
+
+            # Positive scores (always from query_to_doc)
+            positive_scores = sim_matrices["query_to_doc"][row_indices, local_batch]
+
+            if self.partition_mode == "joint":
+                # Single softmax over all selected directions
+                all_scores = torch.cat(list(sim_matrices.values()), dim=1)
+                log_z = torch.logsumexp(all_scores, dim=1)
+            else:
+                # Separate softmax for each direction, averaged
+                log_z = 0.0
+                for sim_matrix in sim_matrices.values():
+                    log_z += torch.logsumexp(sim_matrix, dim=1)
+                log_z /= len(sim_matrices)
+
+            loss_mbatch = -(positive_scores - log_z).mean()
+            loss_mbatch = loss_mbatch * len(local_batch) / batch_size
             if with_backward:
                 loss_mbatch.backward()
                 loss_mbatch = loss_mbatch.detach()
             losses.append(loss_mbatch)
 
-        loss = sum(losses)
-        return loss
+        return sum(losses)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         # Step (1): A quick embedding step without gradients/computation graphs to get all the embeddings
+        sentence_features = list(sentence_features)
+        if len(sentence_features) < 2:
+            raise ValueError(f"Expected at least 2 inputs, got {len(sentence_features)}")
+
         reps = []
-        self.random_states = []  # Copy random states to guarantee exact reproduction of the embeddings during the second forward pass, i.e. step (3)
+        self.random_states = []
         for sentence_feature in sentence_features:
             reps_mbs = []
             random_state_mbs = []
@@ -318,7 +394,13 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             "similarity_fct": self.similarity_fct.__name__,
             "mini_batch_size": self.mini_batch_size,
             "gather_across_devices": self.gather_across_devices,
+            "directions": self.directions,
+            "partition_mode": self.partition_mode,
         }
+
+    @property
+    def temperature(self) -> float:
+        return 1.0 / self.scale
 
     @property
     def citation(self) -> str:

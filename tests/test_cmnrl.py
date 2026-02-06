@@ -115,9 +115,9 @@ def test_cmnrl_same_grad(
 
     # Then:
     if same_grad:
-        assert pytest.approx(loss_mnrl_value.item()) == loss_cmnrl_value.item()
+        assert pytest.approx(loss_mnrl_value.item(), rel=precision, abs=precision) == loss_cmnrl_value.item()
     else:
-        assert pytest.approx(loss_mnrl_value.item()) != loss_cmnrl_value.item()
+        assert pytest.approx(loss_mnrl_value.item(), rel=precision, abs=precision) != loss_cmnrl_value.item()
 
     nclose = 0
     for name in tqdm.tqdm(grad_expected):

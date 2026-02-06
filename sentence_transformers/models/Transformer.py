@@ -4,6 +4,7 @@ import inspect
 import logging
 import os
 from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,10 +22,41 @@ from transformers.utils.peft_utils import find_adapter_config_file
 
 from sentence_transformers.models.InputModule import InputModule
 
-logger = logging.getLogger(__name__)
-
 if TYPE_CHECKING and is_peft_available():
     from peft import PeftConfig
+
+try:
+    from transformers import T5Gemma2Config, T5Gemma2TextConfig
+except ImportError:
+
+    class T5Gemma2Config:
+        pass
+
+    class T5Gemma2TextConfig:
+        pass
+
+
+try:
+    from transformers import T5GemmaConfig
+except ImportError:
+
+    class T5GemmaConfig:
+        pass
+
+
+logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def set_temporary_class_attrs(cls, **overrides):
+    originals = {name: getattr(cls, name, None) for name in overrides}
+    try:
+        for name, value in overrides.items():
+            setattr(cls, name, value)
+        yield
+    finally:
+        for name, value in originals.items():
+            setattr(cls, name, value)
 
 
 def _save_pretrained_wrapper(_save_pretrained_fn: Callable, subfolder: str) -> Callable[..., None]:
@@ -190,9 +222,50 @@ class Transformer(InputModule):
                     model_args.pop(adapter_only_kwarg, None)
 
             if isinstance(config, T5Config):
-                self._load_t5_model(model_name_or_path, config, cache_dir, **model_args)
+                # Loads the encoder model from T5
+                from transformers import T5EncoderModel
+
+                with set_temporary_class_attrs(T5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                    self.auto_model = T5EncoderModel.from_pretrained(
+                        model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                    )
             elif isinstance(config, MT5Config):
-                self._load_mt5_model(model_name_or_path, config, cache_dir, **model_args)
+                # Loads the encoder model from mT5
+                from transformers import MT5EncoderModel
+
+                with set_temporary_class_attrs(MT5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                    self.auto_model = MT5EncoderModel.from_pretrained(
+                        model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                    )
+            elif isinstance(config, T5GemmaConfig):
+                # Loads the encoder model from T5Gemma
+                from transformers import T5GemmaEncoderModel
+
+                config.is_encoder_decoder = False
+                with set_temporary_class_attrs(T5GemmaEncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                    self.auto_model = T5GemmaEncoderModel.from_pretrained(
+                        model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                    )
+            elif isinstance(config, T5Gemma2Config):
+                # Loads the encoder part from T5Gemma2
+                from transformers.models.t5gemma2.modeling_t5gemma2 import T5Gemma2Encoder
+
+                with set_temporary_class_attrs(
+                    T5Gemma2Encoder,
+                    base_model_prefix="model.encoder",
+                    _keys_to_ignore_on_load_unexpected=["decoder.*"],
+                ):
+                    self.auto_model = T5Gemma2Encoder.from_pretrained(
+                        model_name_or_path, config=config.encoder, cache_dir=cache_dir, **model_args
+                    )
+
+            elif isinstance(config, T5Gemma2TextConfig):
+                # This class is not currently registered in AutoModel
+                from transformers.models.t5gemma2.modeling_t5gemma2 import T5Gemma2Encoder
+
+                self.auto_model = T5Gemma2Encoder.from_pretrained(
+                    model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                )
             else:
                 self.auto_model = AutoModel.from_pretrained(
                     model_name_or_path, config=config, cache_dir=cache_dir, **model_args
@@ -213,24 +286,6 @@ class Transformer(InputModule):
             )
         else:
             raise ValueError(f"Unsupported backend '{backend}'. `backend` should be `torch`, `onnx`, or `openvino`.")
-
-    def _load_t5_model(self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args) -> None:
-        """Loads the encoder model from T5"""
-        from transformers import T5EncoderModel
-
-        T5EncoderModel._keys_to_ignore_on_load_unexpected = ["decoder.*"]
-        self.auto_model = T5EncoderModel.from_pretrained(
-            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
-        )
-
-    def _load_mt5_model(self, model_name_or_path: str, config: PretrainedConfig, cache_dir: str, **model_args) -> None:
-        """Loads the encoder model from T5"""
-        from transformers import MT5EncoderModel
-
-        MT5EncoderModel._keys_to_ignore_on_load_unexpected = ["decoder.*"]
-        self.auto_model = MT5EncoderModel.from_pretrained(
-            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
-        )
 
     def __repr__(self) -> str:
         return f"Transformer({dict(self.get_config_dict(), architecture=self.auto_model.__class__.__name__)})"
@@ -285,7 +340,22 @@ class Transformer(InputModule):
         return features
 
     def get_word_embedding_dimension(self) -> int:
-        return self.auto_model.config.hidden_size
+        """Get the output embedding dimension from the transformer model.
+
+        Returns:
+            int: The hidden dimension size of the model's embeddings.
+
+        Raises:
+            AttributeError: If the embedding dimension cannot be determined from the model config.
+        """
+
+        # Get text config, e.g. for multi-modal models
+        try:
+            text_config = self.auto_model.config.get_text_config()
+        except AttributeError:
+            text_config = self.auto_model.config
+
+        return text_config.hidden_size
 
     def tokenize(
         self, texts: list[str] | list[dict] | list[tuple[str, str]], padding: str | bool = True
