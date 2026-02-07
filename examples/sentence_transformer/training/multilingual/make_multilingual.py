@@ -5,7 +5,7 @@ Given a (monolingual) teacher model you would like to extend to new languages, w
 variable. We train a multilingual student model to imitate the teacher model (variable student_model_name)
 on multiple languages.
 
-For training, you need parallel sentence data (machine translation training data). You need tab-seperated files (.tsv)
+For training, you need parallel sentence data (machine translation training data). You need tab-separated files (.tsv)
 with the first column a sentence in a language understood by the teacher model, e.g. English,
 and the further columns contain the according translations for languages you want to extend to.
 

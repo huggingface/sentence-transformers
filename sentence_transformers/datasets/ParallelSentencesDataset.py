@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class ParallelSentencesDataset(Dataset):
     """
-    This dataset reader can be used to read-in parallel sentences, i.e., it reads in a file with tab-seperated sentences with the same
+    This dataset reader can be used to read-in parallel sentences, i.e., it reads in a file with tab-separated sentences with the same
     sentence in different languages. For example, the file can look like this (EN\tDE\tES):
     hello world     hallo welt  hola mundo
     second sentence zweiter satz    segunda oración
@@ -72,7 +72,7 @@ class ParallelSentencesDataset(Dataset):
         self, filepath: str, weight: int = 100, max_sentences: int = None, max_sentence_length: int = 128
     ) -> None:
         """
-        Reads in a tab-seperated .txt/.csv/.tsv or .gz file. The different columns contain the different translations of the sentence in the first column
+        Reads in a tab-separated .txt/.csv/.tsv or .gz file. The different columns contain the different translations of the sentence in the first column
 
         Args:
             filepath (str): Filepath to the file.
