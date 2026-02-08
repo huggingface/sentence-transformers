@@ -26,6 +26,7 @@ max_seq_length = 300  # Max length for passages. Increasing it, requires more GP
 model_name = "microsoft/mpnet-base"
 max_passages = 0
 num_epochs = 1
+max_steps = 1e-7
 pooling_mode = "mean"
 negs_to_use = None
 warmup_steps = 1000
@@ -180,11 +181,12 @@ train_loss = MarginMSELoss(model=model)
 args = SentenceTransformerTrainingArguments(
     output_dir=model_save_path,
     num_train_epochs=num_epochs,
+    max_steps=max_steps,
     per_device_train_batch_size=train_batch_size,
     warmup_ratio=0.1,
     learning_rate=lr,
     save_strategy="steps",
-    save_steps=10000,
+    save_steps=0.001,
     logging_steps=0.01,
     batch_sampler=BatchSamplers.NO_DUPLICATES,
 )
