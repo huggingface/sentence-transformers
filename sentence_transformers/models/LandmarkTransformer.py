@@ -155,6 +155,9 @@ class LandmarkTransformer(Transformer):
             f"train_splitter_granularity={self.train_splitter_granularity}"
         )
 
+    def __repr__(self) -> str:
+        return f"LandmarkTransformer({dict(self.get_config_dict(), architecture=self.auto_model.__class__.__name__)})"
+
     def _get_current_granularity(self) -> int:
         """
         Get the granularity to use based on current training mode.
