@@ -27,7 +27,6 @@ num_epochs = 1
 max_steps = 1e-7
 pooling_mode = "mean"
 negs_to_use = None
-warmup_steps = 1000
 lr = 2e-5
 # We used different systems to mine hard negatives. Number of hard negatives to add from each system
 num_negs_per_system = 5

@@ -17,144 +17,94 @@ Running this script:
 python train_bi-encoder-v3.py
 """
 
-import argparse
 import gzip
 import json
 import logging
 import os
-import pickle
 import random
-import tarfile
 from datetime import datetime
 
 import tqdm
-from torch.utils.data import DataLoader, Dataset
+from datasets import Dataset, load_dataset
+from huggingface_hub import hf_hub_download
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models, util
+from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models
+from sentence_transformers.trainer import SentenceTransformerTrainer
+from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
-#### /print debug information to stdout
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--train_batch_size", default=64, type=int)
-parser.add_argument("--max_seq_length", default=300, type=int)
-parser.add_argument("--model_name", required=True)
-parser.add_argument("--max_passages", default=0, type=int)
-parser.add_argument("--epochs", default=10, type=int)
-parser.add_argument("--pooling", default="mean")
-parser.add_argument(
-    "--negs_to_use",
-    default=None,
-    help="From which systems should negatives be used? Multiple systems separated by comma. None = all",
-)
-parser.add_argument("--warmup_steps", default=1000, type=int)
-parser.add_argument("--lr", default=2e-5, type=float)
-parser.add_argument("--num_negs_per_system", default=5, type=int)
-parser.add_argument("--use_pre_trained_model", default=False, action="store_true")
-parser.add_argument("--use_all_queries", default=False, action="store_true")
-parser.add_argument("--ce_score_margin", default=3.0, type=float)
-args = parser.parse_args()
-
-print(args)
-
-# The  model we want to fine-tune
-model_name = args.model_name
-
-train_batch_size = (
-    args.train_batch_size
-)  # Increasing the train batch size improves the model performance, but requires more GPU memory
-max_seq_length = args.max_seq_length  # Max length for passages. Increasing it, requires more GPU memory
-ce_score_margin = args.ce_score_margin  # Margin for the CrossEncoder score between negative and positive passages
-num_negs_per_system = (
-    args.num_negs_per_system
-)  # We used different systems to mine hard negatives. Number of hard negatives to add from each system
-num_epochs = args.epochs  # Number of epochs we want to train
+train_batch_size = 64
+max_seq_length = 300  # Max length for passages. Increasing it, requires more GPU memory
+model_name = "microsoft/mpnet-base"
+max_passages = 0
+num_epochs = 1
+max_steps = 1e-7
+pooling_mode = "mean"
+negs_to_use = None
+lr = 2e-5
+# We used different systems to mine hard negatives. Number of hard negatives to add from each system
+num_negs_per_system = 5
+use_pretrained_model = False
+use_all_queries = False
+ce_score_margin = 3.0
 
 # Load our embedding model
-if args.use_pre_trained_model:
-    logging.info("use pretrained SBERT model")
+if use_pretrained_model:
+    logging.info("Using pretrained SBERT model")
     model = SentenceTransformer(model_name)
     model.max_seq_length = max_seq_length
 else:
-    logging.info("Create new SBERT model")
+    logging.info("Creating new SBERT model")
     word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
-    pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(), args.pooling)
+    pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(), pooling_mode)
     model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 model_save_path = "output/train_bi-encoder-mnrl-{}-margin_{:.1f}-{}".format(
-    model_name.replace("/", "-"), ce_score_margin, datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    model_name.replace("/", "-"),
+    ce_score_margin,
+    datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+)
+os.makedirs(model_save_path, exist_ok=True)
+corpus = load_dataset(
+    "sentence-transformers/msmarco-corpus",
+    "passage",
+    split="train",
 )
 
+corpus_dict = dict(zip(corpus["pid"], corpus["text"]))
+queries = load_dataset(
+    "omkar334/msmarcoranking-queries",
+    split="train",
+)
 
-### Now we read the MS Marco dataset
-data_folder = "msmarco-data"
+query_dict = dict(zip(queries["qid"], queries["text"]))
+scores = load_dataset(
+    "sentence-transformers/msmarco-scores-ms-marco-MiniLM-L6-v2",
+    "list",
+    split="train",
+)
 
-#### Read the corpus files, that contain all the passages. Store them in the corpus dict
-corpus = {}  # dict in the format: passage_id -> passage. Stores all existent passages
-collection_filepath = os.path.join(data_folder, "collection.tsv")
-if not os.path.exists(collection_filepath):
-    tar_filepath = os.path.join(data_folder, "collection.tar.gz")
-    if not os.path.exists(tar_filepath):
-        logging.info("Download collection.tar.gz")
-        util.http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/collection.tar.gz", tar_filepath)
-
-    with tarfile.open(tar_filepath, "r:gz") as tar:
-        tar.extractall(path=data_folder)
-
-logging.info("Read corpus: collection.tsv")
-with open(collection_filepath, encoding="utf8") as fIn:
-    for line in fIn:
-        pid, passage = line.strip().split("\t")
-        pid = int(pid)
-        corpus[pid] = passage
-
-
-### Read the train queries, store in queries dict
-queries = {}  # dict in the format: query_id -> query. Stores all training queries
-queries_filepath = os.path.join(data_folder, "queries.train.tsv")
-if not os.path.exists(queries_filepath):
-    tar_filepath = os.path.join(data_folder, "queries.tar.gz")
-    if not os.path.exists(tar_filepath):
-        logging.info("Download queries.tar.gz")
-        util.http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/queries.tar.gz", tar_filepath)
-
-    with tarfile.open(tar_filepath, "r:gz") as tar:
-        tar.extractall(path=data_folder)
-
-
-with open(queries_filepath, encoding="utf8") as fIn:
-    for line in fIn:
-        qid, query = line.strip().split("\t")
-        qid = int(qid)
-        queries[qid] = query
-
-
-# Load a dict (qid, pid) -> ce_score that maps query-ids (qid) and paragraph-ids (pid)
-# to the CrossEncoder score computed by the cross-encoder/ms-marco-MiniLM-L6-v2 model
-ce_scores_file = os.path.join(data_folder, "cross-encoder-ms-marco-MiniLM-L6-v2-scores.pkl.gz")
-if not os.path.exists(ce_scores_file):
-    logging.info("Download cross-encoder scores file")
-    util.http_get(
-        "https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives/resolve/main/cross-encoder-ms-marco-MiniLM-L-6-v2-scores.pkl.gz",
-        ce_scores_file,
+ce_scores = {
+    qid: dict(zip(cids, sc))
+    for qid, cids, sc in zip(
+        scores["query_id"],
+        scores["corpus_id"],
+        scores["score"],
     )
-
+}
 logging.info("Load CrossEncoder scores dict")
-with gzip.open(ce_scores_file, "rb") as fIn:
-    ce_scores = pickle.load(fIn)
 
 # As training data we use hard-negatives that have been mined using various systems
-hard_negatives_filepath = os.path.join(data_folder, "msmarco-hard-negatives.jsonl.gz")
-if not os.path.exists(hard_negatives_filepath):
-    logging.info("Download cross-encoder scores file")
-    util.http_get(
-        "https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives/resolve/main/msmarco-hard-negatives.jsonl.gz",
-        hard_negatives_filepath,
-    )
+hard_negatives_filepath = hf_hub_download(
+    repo_id="sentence-transformers/msmarco-hard-negatives",
+    filename="msmarco-hard-negatives.jsonl.gz",
+    repo_type="dataset",
+)
 
 
 logging.info("Read hard negatives train file")
@@ -177,8 +127,8 @@ with gzip.open(hard_negatives_filepath, "rt") as fIn:
         # Get the hard negatives
         neg_pids = set()
         if negs_to_use is None:
-            if args.negs_to_use is not None:  # Use specific system for negatives
-                negs_to_use = args.negs_to_use.split(",")
+            if negs_to_use is not None:  # Use specific system for negatives
+                negs_to_use = negs_to_use.split(",")
             else:  # Use all systems
                 negs_to_use = list(data["neg"].keys())
             logging.info("Using negatives from the following systems: {}".format(", ".join(negs_to_use)))
@@ -199,7 +149,7 @@ with gzip.open(hard_negatives_filepath, "rt") as fIn:
                     if negs_added >= num_negs_per_system:
                         break
 
-        if args.use_all_queries or (len(pos_pids) > 0 and len(neg_pids) > 0):
+        if use_all_queries or (len(pos_pids) > 0 and len(neg_pids) > 0):
             train_queries[data["qid"]] = {
                 "qid": data["qid"],
                 "query": queries[data["qid"]],
@@ -211,53 +161,69 @@ del ce_scores
 
 logging.info(f"Train queries: {len(train_queries)}")
 
+anchors = []
+positives = []
+negatives = []
 
-# We create a custom MSMARCO dataset that returns triplets (query, positive, negative)
-# on-the-fly based on the information from the mined-hard-negatives jsonl file.
-class MSMARCODataset(Dataset):
-    def __init__(self, queries, corpus):
-        self.queries = queries
-        self.queries_ids = list(queries.keys())
-        self.corpus = corpus
+for q in train_queries.values():
+    query_text = q["query"]
 
-        for qid in self.queries:
-            self.queries[qid]["pos"] = list(self.queries[qid]["pos"])
-            self.queries[qid]["neg"] = list(self.queries[qid]["neg"])
-            random.shuffle(self.queries[qid]["neg"])
+    pos_ids = list(q["pos"])
+    neg_ids = list(q["neg"])
 
-    def __getitem__(self, item):
-        query = self.queries[self.queries_ids[item]]
-        query_text = query["query"]
+    # shuffle once
+    random.shuffle(pos_ids)
+    random.shuffle(neg_ids)
 
-        pos_id = query["pos"].pop(0)  # Pop positive and add at end
-        pos_text = self.corpus[pos_id]
-        query["pos"].append(pos_id)
-
-        neg_id = query["neg"].pop(0)  # Pop negative and add at end
-        neg_text = self.corpus[neg_id]
-        query["neg"].append(neg_id)
-
-        return InputExample(texts=[query_text, pos_text, neg_text])
-
-    def __len__(self):
-        return len(self.queries)
+    # create pairs
+    for pos_id, neg_id in zip(pos_ids, neg_ids):
+        anchors.append(query_text)
+        positives.append(corpus_dict[pos_id])
+        negatives.append(corpus_dict[neg_id])
 
 
-# For training the SentenceTransformer model, we need a dataset, a dataloader, and a loss used for training.
-train_dataset = MSMARCODataset(train_queries, corpus=corpus)
-train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=train_batch_size)
+train_dataset = Dataset.from_dict({
+    "anchor": anchors,
+    "positive": positives,
+    "negative": negatives,
+})
+
+logging.info(f"Triplets created: {len(train_dataset)}")
+
 train_loss = losses.MultipleNegativesRankingLoss(model=model)
 
-# Train the model
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    epochs=num_epochs,
-    warmup_steps=args.warmup_steps,
-    use_amp=True,
-    checkpoint_path=model_save_path,
-    checkpoint_save_steps=len(train_dataloader),
-    optimizer_params={"lr": args.lr},
+# Prepare training arguments
+args = SentenceTransformerTrainingArguments(
+    output_dir=model_save_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=train_batch_size,
+    warmup_ratio=0.1,
+    learning_rate=lr,
+    save_strategy="steps",
+    save_steps=0.001,
+    logging_steps=0.01,
+    batch_sampler=BatchSamplers.NO_DUPLICATES,
 )
 
-# Save the model
-model.save(model_save_path)
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+)
+
+trainer.train()
+
+model.save_pretrained(model_save_path)
+
+# (Optional) save the model to the Hugging Face Hub!
+# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
+try:
+    model.push_to_hub(f"{model_name}-bi-encoder-mnrl")
+except Exception:
+    logging.error(
+        f"Error uploading model to the Hugging Face Hub:\nTo upload it manually, you can run "
+        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({model_save_path!r})` "
+        f"and saving it using `model.push_to_hub('{model_name}-bi-encoder-mnrl')`."
+    )
