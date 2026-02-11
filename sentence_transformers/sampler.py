@@ -351,32 +351,63 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 return not sample_values.isdisjoint(batch_values)
             return any(value in batch_values for value in sample_values)
 
-        # We create a dictionary mapping indices to None because we need a data structure that:
-        # 1. Allows for cheap removal of elements
-        # 2. Preserves the order of elements, i.e. remains random
-        remaining_indices = dict.fromkeys(torch.randperm(len(self.dataset), generator=self.generator).tolist())
-        while remaining_indices:
+        num_rows = len(self.dataset)
+        if num_rows == 0:
+            return
+
+        # Keep the same random order semantics as before, but avoid Python dict/list overhead.
+        # This array stores only row indices, so int32 is sufficient for <=2^31-1 rows and
+        # cuts index-memory roughly in half for very large datasets.
+        index_dtype = torch.int32 if num_rows <= np.iinfo(np.int32).max else torch.int64
+        remaining_indices = torch.randperm(num_rows, generator=self.generator, dtype=index_dtype).numpy()
+
+        # Store a singly linked list over shuffled positions. Accepted samples are removed in O(1),
+        # while skipped samples naturally remain for a future batch in the same relative order.
+        # We intentionally keep this order stable so behavior stays deterministic with a fixed seed
+        # and remains compatible with the historical dict-based iteration strategy.
+        position_dtype = np.int32 if num_rows <= np.iinfo(np.int32).max else np.int64
+        next_positions = np.arange(1, num_rows + 1, dtype=position_dtype)
+        next_positions[-1] = -1
+        head_position = 0
+
+        while head_position != -1:
             batch_values: set[Any] = set()
             batch_indices: list[int] = []
-            for index in remaining_indices:
+            current_position = head_position
+            previous_position = -1
+            full_batch = False
+            while current_position != -1:
+                next_position = int(next_positions[current_position])
+                index = int(remaining_indices[current_position])
                 sample_values = get_sample_values(index)
                 if _has_overlap(sample_values, batch_values):
+                    # Defer conflicting samples to later batches instead of reordering them.
+                    # This mirrors the previous behavior where skipped indices stayed in the
+                    # remaining-iteration order until they eventually fit in a later batch.
+                    previous_position = current_position
+                    current_position = next_position
                     continue
 
                 batch_indices.append(index)
+                if previous_position == -1:
+                    head_position = next_position
+                else:
+                    next_positions[previous_position] = next_position
+
                 if len(batch_indices) == self.batch_size:
+                    full_batch = True
                     yield batch_indices
                     break
 
                 batch_values.update(sample_values)
+                current_position = next_position
 
-            else:
+            if not full_batch:
                 # NOTE: some indices might still have been ignored here
+                # Keeping this behavior unchanged avoids changing total samples/batches for
+                # existing training jobs that rely on the historical sampler semantics.
                 if not self.drop_last:
                     yield batch_indices
-
-            for index in batch_indices:
-                del remaining_indices[index]
 
     def __len__(self) -> int:
         if self.drop_last:
