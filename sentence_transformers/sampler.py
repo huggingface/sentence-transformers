@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Iterator
 from itertools import accumulate, cycle
-from typing import Any
 
 import numpy as np
 import torch
@@ -137,7 +136,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         }
 
     @staticmethod
-    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[Any]:
+    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[object]:
         for column_name in valid_label_columns or []:
             if column_name in dataset.column_names:
                 return dataset[column_name]
@@ -173,7 +172,7 @@ def _xxhash_int64(value: str) -> int:
 
 
 def _hash_batch(
-    batch: dict[str, list[Any]],
+    batch: dict[str, list[object]],
     columns: list[str],
     exclude_columns: set[str],
 ) -> dict[str, list[list[int]]]:
@@ -188,7 +187,8 @@ def _hash_batch(
         row_hashes: list[int] = []
         for column in active_columns:
             value = batch[column][row_idx]
-            # Match non-hash path semantics by hashing the stringified column value as-is.
+            # Keep semantics aligned with the non-hash path, which compares
+            # stringified per-column values (including list values as a whole).
             row_hashes.append(_xxhash_int64(str(value)))
         hashes.append(row_hashes)
     return {"__hashes": hashes}
@@ -271,6 +271,8 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 self.precompute_num_proc = default_workers
 
     def _build_hashes(self) -> None:
+        # Build once lazily on first iteration, then reuse across epochs.
+        # Hashes depend on dataset content, not epoch seed/order.
         if not self.precompute_hashes or self._row_hashes is not None:
             return
         columns = list(self.dataset.column_names)
@@ -285,6 +287,8 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
             fn_kwargs={"columns": columns, "exclude_columns": _EXCLUDE_DATASET_COLUMNS},
             desc="Hashing dataset values",
         )
+        # Keep this import outside the try-block below so ImportError is not
+        # mistaken for hash-shape/data issues.
         import pyarrow as pa
 
         try:
@@ -300,6 +304,8 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
             else:
                 offsets = column.offsets.to_numpy(zero_copy_only=False)
                 row_size = int(offsets[1] - offsets[0])
+                # Dense ndarray storage below requires a fixed number of hashed
+                # values per row to allow safe reshape(row_count, row_size).
                 if row_size < 0 or not np.all(np.diff(offsets) == row_size):
                     raise ValueError("Hashed rows have varying lengths.")
                 # If every row has the same length, store as a dense ndarray to reduce overhead.
@@ -337,6 +343,8 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 }
 
         def _has_overlap(sample_values: set[str] | np.ndarray, batch_values: set[str | np.int64]) -> bool:
+            # Non-hash path uses set[str], hashed path uses ndarray[np.int64];
+            # keep one overlap function for both representations.
             # Avoid materializing a set if we already have one.
             if isinstance(sample_values, set):
                 return not sample_values.isdisjoint(batch_values)

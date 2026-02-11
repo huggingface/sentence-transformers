@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import random
-from typing import Any
 
 import numpy as np
 import pytest
@@ -70,13 +69,13 @@ def _reference_no_duplicates_batches(
     def get_sample_values(index: int) -> set[str]:
         return {str(value) for key, value in dataset[index].items() if key != "dataset_name"}
 
-    def has_overlap(sample_values: set[str], batch_values: set[Any]) -> bool:
+    def has_overlap(sample_values: set[str], batch_values: set[str]) -> bool:
         return not sample_values.isdisjoint(batch_values)
 
     remaining_indices = dict.fromkeys(torch.randperm(len(dataset), generator=generator).tolist())
     batches: list[list[int]] = []
     while remaining_indices:
-        batch_values: set[Any] = set()
+        batch_values: set[str] = set()
         batch_indices: list[int] = []
         for index in remaining_indices:
             sample_values = get_sample_values(index)
@@ -246,6 +245,9 @@ def test_no_duplicates_batch_sampler_list_values_match_between_hash_and_non_hash
     if sampler_module.xxhash is None:
         pytest.skip("xxhash not installed")
 
+    # This shape intentionally creates cross-column overlap:
+    # row0 has list value ["a", "b"], row1 has scalar "a" in another column.
+    # Hash/non-hash modes must still produce identical batching decisions.
     dataset = Dataset.from_list(
         [
             {"anchor": ["a", "b"], "positive": "p0"},
@@ -291,15 +293,17 @@ def test_no_duplicates_batch_sampler_uses_int64_indices_when_int32_range_is_exce
             return _FakeIInfo(max_value=8)
         return real_iinfo(dtype)
 
-    captured_dtypes: dict[str, Any] = {}
+    captured_dtypes: dict[str, object] = {}
     real_randperm = sampler_module.torch.randperm
     real_arange = sampler_module.np.arange
 
     def fake_randperm(*args, **kwargs):
+        # Capture dtype selected for shuffled row indices.
         captured_dtypes["index_dtype"] = kwargs.get("dtype")
         return real_randperm(*args, **kwargs)
 
     def fake_arange(*args, **kwargs):
+        # Capture dtype selected for linked-list positions.
         captured_dtypes["position_dtype"] = kwargs.get("dtype")
         return real_arange(*args, **kwargs)
 
