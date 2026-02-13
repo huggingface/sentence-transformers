@@ -374,6 +374,7 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
                     queries_result_list[name][query_itr][doc_itr] = {"corpus_id": corpus_id, "score": score}
 
         if self.write_predictions and output_path is not None:
+            os.makedirs(output_path, exist_ok=True)
             for name in queries_result_list:
                 base_filename = self.predictions_file.replace(".jsonl", f"_{name}.jsonl")
                 json_path = os.path.join(output_path, base_filename)
