@@ -696,7 +696,7 @@ def test_qwen3_reranker_formatted_pairs():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_qwen3_reranker_with_chat_template():
     """Test Qwen3 Reranker with Chat template."""
-    jinja_template = """\
+    chat_template = """\
 <|im_start|>system
 Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>
 <|im_start|>user
@@ -706,13 +706,19 @@ Judge whether the Document meets the requirements based on the Query and the Ins
 <|im_start|>assistant
 <think>\n\n</think>\n\n\n"""
 
-    model = CrossEncoder("tomaarsen/Qwen3-Reranker-0.6B-seq-cls", activation_fn=torch.nn.Identity())
     task = "Given a web search query, retrieve relevant passages that answer the query"
+    model = CrossEncoder(
+        "tomaarsen/Qwen3-Reranker-0.6B-seq-cls",
+        activation_fn=torch.nn.Identity(),
+        tokenizer_kwargs={"chat_template": chat_template},
+        prompts={"web_search": task},
+        default_prompt_name="web_search",
+    )
 
-    model.tokenizer.chat_template = jinja_template
-    model[0].modality_config["message"] = model[0].modality_config.pop("text")
-    model.prompts = {"web_search": task}
-    model.default_prompt_name = "web_search"
+    # model.tokenizer.chat_template = jinja_template
+    # model[0].modality_config["message"] = model[0].modality_config.pop("text")
+    # model.prompts = {"web_search": task}
+    # model.default_prompt_name = "web_search"
 
     query = "Which planet is known as the Red Planet?"
     documents = [
@@ -749,12 +755,13 @@ Judge whether the Document meets the requirements based on the Query and the Ins
         default_prompt_name="web_search",
         activation_fn=torch.nn.Identity(),
         model_kwargs={"torch_dtype": torch.float32},
+        tokenizer_kwargs={"chat_template": chat_template},
     )
     assert model.dtype == torch.float32
-    model.tokenizer.chat_template = chat_template
+    # model.tokenizer.chat_template = chat_template
     # Because we're adding the chat template after loading, we need to adjust the modality config manually
     # This is not ideal
-    model[0].modality_config["message"] = model[0].modality_config.pop("text")
+    # model[0].modality_config["message"] = model[0].modality_config.pop("text")
 
     query = "Which planet is known as the Red Planet?"
     documents = [
@@ -789,12 +796,13 @@ Judge whether the Document meets the requirements based on the Query and the Ins
         "Qwen/Qwen3-Reranker-0.6B",
         activation_fn=torch.nn.Identity(),
         model_kwargs={"torch_dtype": torch.float32},
+        tokenizer_kwargs={"chat_template": chat_template},
     )
     assert model.dtype == torch.float32
-    model.tokenizer.chat_template = chat_template
+    # model.tokenizer.chat_template = chat_template
     # Because we're adding the chat template after loading, we need to adjust the modality config manually
     # This is not ideal
-    model[0].modality_config["message"] = model[0].modality_config.pop("text")
+    # model[0].modality_config["message"] = model[0].modality_config.pop("text")
 
     query = "Which planet is known as the Red Planet?"
     documents = [

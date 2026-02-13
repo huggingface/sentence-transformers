@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import fields
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, get_args, get_type_hints
 
 import torch
 from tokenizers.normalizers import Lowercase, Sequence
@@ -16,15 +16,28 @@ from transformers import (
     AutoModelForMaskedLM,
     AutoModelForSequenceClassification,
     AutoProcessor,
+    BlenderbotConfig,
+    BlenderbotSmallConfig,
     FeatureExtractionMixin,
     ImageProcessingMixin,
+    LongT5Config,
+    M2M100Config,
+    MarianConfig,
+    MoonshineConfig,
     MT5Config,
+    PegasusConfig,
+    PegasusXConfig,
     PretrainedConfig,
     PreTrainedModel,
     PreTrainedTokenizerBase,
     ProcessorMixin,
+    ProphetNetConfig,
+    SwitchTransformersConfig,
     T5Config,
     TimmWrapperConfig,
+    UdopConfig,
+    UMT5Config,
+    WhisperConfig,
 )
 from transformers.utils import ModelOutput
 from transformers.utils.import_utils import is_peft_available
@@ -36,10 +49,11 @@ from sentence_transformers.base.models.modality_utils import (
     ArrayInputs,
     DictInputs,
     ImageInputs,
+    InputFormatter,
+    MessageFormat,
     Modality,
     PairStrInputs,
     StrInputs,
-    parse_inputs,
 )
 
 try:
@@ -146,6 +160,20 @@ INFER_MODALITY_CONFIG: dict[
     },
 }
 
+TRANSFORMER_TASK_TO_METHOD_OUTPUT_NAME = {
+    "feature-extraction": "last_hidden_state",
+    "sequence-classification": "logits",
+    "text-generation": "logits",
+    "fill-mask": "logits",
+}
+
+TRANSFORMER_TASK_TO_DEFAULT_MODULE_OUTPUT_NAME = {
+    "feature-extraction": "token_embeddings",
+    "sequence-classification": "scores",
+    "text-generation": "causal_logits",
+    "fill-mask": "token_embeddings",
+}
+
 DEFAULT_MODALITY_CONFIG_MODULE_OUTPUT_NAME: dict[TransformerTask, tuple[ModalityConfig, str]] = {
     "feature-extraction": (
         {
@@ -228,6 +256,7 @@ class Transformer(InputModule):
         "transformer_task",
         "modality_config",
         "module_output_name",
+        "message_format",
     ]  # , "max_seq_length", "do_lower_case"]
     save_in_root: bool = True
 
@@ -249,6 +278,7 @@ class Transformer(InputModule):
         backend: str = "torch",
         modality_config: ModalityConfig | None = None,
         module_output_name: str | None = None,
+        message_format: MessageFormat = "auto",
     ) -> None:
         super().__init__()
         self.transformer_task: TransformerTask = transformer_task
@@ -259,6 +289,7 @@ class Transformer(InputModule):
         # TODO: Reorder the args in __init__ body?
         self.do_lower_case = do_lower_case
         self.backend = backend
+        self.message_format = message_format
         if model_args is None:
             model_args = {}
         if tokenizer_args is None:
@@ -305,36 +336,46 @@ class Transformer(InputModule):
         )
 
         # Shrink the tokenizer model_max_length if the model config has a smaller max_position_embeddings
-        if (
-            self.tokenizer is not None
-            and "model_max_length" not in tokenizer_args
-            and hasattr(self.config, "max_position_embeddings")
-        ):
-            self.tokenizer.model_max_length = min(self.tokenizer.model_max_length, self.config.max_position_embeddings)
+        if self.tokenizer is not None:
+            # NOTE: xlnet uses a hardcoded config.max_position_embeddings != -1 to denote no max_length
+            if (
+                "model_max_length" not in tokenizer_args
+                and hasattr(self.config, "max_position_embeddings")
+                and self.config.max_position_embeddings != -1
+            ):
+                self.tokenizer.model_max_length = min(
+                    self.tokenizer.model_max_length, self.config.max_position_embeddings
+                )
 
-        # TODO: self.processor.is_fast might not work
-        if do_lower_case:
-            if self.processor.is_fast:
+            # TODO: self.processor.is_fast might not work
+            if do_lower_case:
+                # TODO: Transformers v5 only has fast tokenizers
+                if self.tokenizer.is_fast:
 
-                def has_lowercase(normalizer):
-                    if normalizer is None:
+                    def has_lowercase(normalizer):
+                        if normalizer is None:
+                            return False
+                        if isinstance(normalizer, Lowercase):
+                            return True
+                        if isinstance(normalizer, Sequence):
+                            return any(isinstance(n, Lowercase) for n in normalizer)
                         return False
-                    if isinstance(normalizer, Lowercase):
-                        return True
-                    if isinstance(normalizer, Sequence):
-                        return any(isinstance(n, Lowercase) for n in normalizer)
-                    return False
 
-                normalizer = self.processor.backend_tokenizer.normalizer
-                if not has_lowercase(normalizer):
-                    new_normalizers = [Lowercase()]
-                    if isinstance(normalizer, Sequence):
-                        new_normalizers += list(normalizer)
-                    elif normalizer is not None:
-                        new_normalizers.append(normalizer)
-                    self.processor.backend_tokenizer.normalizer = Sequence(new_normalizers)
-            else:
-                self.processor.do_lower_case = do_lower_case
+                    normalizer = self.tokenizer.backend_tokenizer.normalizer
+                    if not has_lowercase(normalizer):
+                        new_normalizers = [Lowercase()]
+                        if isinstance(normalizer, Sequence):
+                            new_normalizers += list(normalizer)
+                        elif normalizer is not None:
+                            new_normalizers.append(normalizer)
+                        self.tokenizer.backend_tokenizer.normalizer = Sequence(new_normalizers)
+                else:
+                    self.processor.do_lower_case = do_lower_case
+
+        # Create input formatter for handling input parsing and message format conversion
+        self.input_formatter = InputFormatter(
+            model_type=config.model_type, message_format=self.message_format, processor=self.processor
+        )
 
         """
         # No max_seq_length set. Try to infer from model
@@ -398,13 +439,23 @@ class Transformer(InputModule):
 
     @property
     def modalities(self) -> list[str]:
+        """
+        modalities = self.model.input_modalities
+        if isinstance(modalities, str):
+            modalities = [modalities]
+        elif isinstance(modalities, tuple):
+            modalities = list(modalities)
+        if hasattr(self.processor, "chat_template") and self.processor.chat_template is not None:
+            modalities.append("message")
+        return modalities
+        """
         return list(self.modality_config.keys())
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase:
         if isinstance(self.processor, PreTrainedTokenizerBase):
             return self.processor
-        return self.processor.tokenizer
+        return getattr(self.processor, "tokenizer", None)
 
     def _load_config(
         self, model_name_or_path: str, cache_dir: str | None, backend: str, config_args: dict[str, Any]
@@ -482,7 +533,7 @@ class Transformer(InputModule):
                     from transformers import T5EncoderModel
 
                     with set_temporary_class_attrs(T5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
-                        self.auto_model = T5EncoderModel.from_pretrained(
+                        return T5EncoderModel.from_pretrained(
                             model_name_or_path, config=config, cache_dir=cache_dir, **model_args
                         )
                 elif isinstance(config, MT5Config):
@@ -490,7 +541,22 @@ class Transformer(InputModule):
                     from transformers import MT5EncoderModel
 
                     with set_temporary_class_attrs(MT5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
-                        self.auto_model = MT5EncoderModel.from_pretrained(
+                        return MT5EncoderModel.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+                elif isinstance(config, UMT5Config):
+                    # Loads the encoder model from UMT5
+                    from transformers import UMT5EncoderModel
+
+                    with set_temporary_class_attrs(UMT5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                        return UMT5EncoderModel.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+                elif isinstance(config, UdopConfig):
+                    from transformers import UdopEncoderModel
+
+                    with set_temporary_class_attrs(UdopEncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                        return UdopEncoderModel.from_pretrained(
                             model_name_or_path, config=config, cache_dir=cache_dir, **model_args
                         )
                 elif isinstance(config, T5GemmaConfig):
@@ -501,7 +567,7 @@ class Transformer(InputModule):
                     with set_temporary_class_attrs(
                         T5GemmaEncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]
                     ):
-                        self.auto_model = T5GemmaEncoderModel.from_pretrained(
+                        return T5GemmaEncoderModel.from_pretrained(
                             model_name_or_path, config=config, cache_dir=cache_dir, **model_args
                         )
                 elif isinstance(config, T5Gemma2Config):
@@ -513,7 +579,7 @@ class Transformer(InputModule):
                         base_model_prefix="model.encoder",
                         _keys_to_ignore_on_load_unexpected=["decoder.*"],
                     ):
-                        self.auto_model = T5Gemma2Encoder.from_pretrained(
+                        return T5Gemma2Encoder.from_pretrained(
                             model_name_or_path, config=config.encoder, cache_dir=cache_dir, **model_args
                         )
 
@@ -521,9 +587,116 @@ class Transformer(InputModule):
                     # This class is not currently registered in AutoModel
                     from transformers.models.t5gemma2.modeling_t5gemma2 import T5Gemma2Encoder
 
-                    self.auto_model = T5Gemma2Encoder.from_pretrained(
+                    return T5Gemma2Encoder.from_pretrained(
                         model_name_or_path, config=config, cache_dir=cache_dir, **model_args
                     )
+
+                elif isinstance(config, BlenderbotConfig):
+                    from transformers.models.blenderbot.modeling_blenderbot import BlenderbotEncoder
+
+                    with set_temporary_class_attrs(
+                        BlenderbotEncoder, _keys_to_ignore_on_load_unexpected=["decoder.*"]
+                    ):
+                        return BlenderbotEncoder.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+
+                elif isinstance(config, BlenderbotSmallConfig):
+                    from transformers.models.blenderbot_small.modeling_blenderbot_small import BlenderbotSmallEncoder
+
+                    with set_temporary_class_attrs(
+                        BlenderbotSmallEncoder,
+                        _keys_to_ignore_on_load_unexpected=["decoder.*"],
+                    ):
+                        return BlenderbotSmallEncoder.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+
+                elif isinstance(config, LongT5Config):
+                    from transformers import LongT5EncoderModel
+
+                    with set_temporary_class_attrs(
+                        LongT5EncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]
+                    ):
+                        return LongT5EncoderModel.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+
+                elif isinstance(config, M2M100Config):
+                    from transformers.models.m2m_100.modeling_m2m_100 import M2M100Encoder
+
+                    with set_temporary_class_attrs(M2M100Encoder, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                        return M2M100Encoder.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+
+                elif isinstance(config, PegasusConfig):
+                    from transformers.models.pegasus.modeling_pegasus import PegasusEncoder
+
+                    with set_temporary_class_attrs(PegasusEncoder, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                        return PegasusEncoder.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+
+                elif isinstance(config, PegasusXConfig):
+                    from transformers.models.pegasus_x.modeling_pegasus_x import PegasusXEncoder
+
+                    with set_temporary_class_attrs(PegasusXEncoder, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                        return PegasusXEncoder.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+
+                elif isinstance(config, ProphetNetConfig):
+                    from transformers import ProphetNetEncoder
+
+                    with set_temporary_class_attrs(
+                        ProphetNetEncoder, _keys_to_ignore_on_load_unexpected=["decoder.*"]
+                    ):
+                        return ProphetNetEncoder.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+
+                elif isinstance(config, SwitchTransformersConfig):
+                    from transformers import SwitchTransformersEncoderModel
+
+                    with set_temporary_class_attrs(
+                        SwitchTransformersEncoderModel, _keys_to_ignore_on_load_unexpected=["decoder.*"]
+                    ):
+                        return SwitchTransformersEncoderModel.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+
+                elif isinstance(config, MoonshineConfig):
+                    from transformers.models.moonshine.modeling_moonshine import MoonshineEncoder
+
+                    with set_temporary_class_attrs(MoonshineEncoder, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                        return MoonshineEncoder.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+
+                elif isinstance(config, WhisperConfig):
+                    from transformers.models.whisper.modeling_whisper import WhisperEncoder
+
+                    # TODO: Check if base_model_prefix should also be overridden for other architectures
+                    # TODO: Should I then also only use the FeatureExtractionMixin instead of the Processor?
+                    # TODO: How to determine when to load only the encoder vs the encoder-decoder? Perhaps if
+                    # auto_model.forward(...) fails if there's no decoder_input_ids provided.
+                    with set_temporary_class_attrs(WhisperEncoder, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                        model = WhisperEncoder.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
+                        # Transformers v5 uses ("text", "audio",) even for the encoder
+                        model.input_modalities = "audio"
+                        return model
+
+                elif isinstance(config, MarianConfig):
+                    from transformers.models.marian.modeling_marian import MarianEncoder
+
+                    # TODO: Check if base_model_prefix should also be overridden for other architectures
+                    with set_temporary_class_attrs(MarianEncoder, _keys_to_ignore_on_load_unexpected=["decoder.*"]):
+                        return MarianEncoder.from_pretrained(
+                            model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                        )
 
             # TODO: What if transformer_task is something else?
             model_cls = TRANSFORMER_TASK_TO_AUTO_MODEL.get(transformer_task, AutoModel)
@@ -545,98 +718,6 @@ class Transformer(InputModule):
         else:
             raise ValueError(f"Unsupported backend '{backend}'. `backend` should be `torch`, `onnx`, or `openvino`.")
 
-    def _find_valid_method_and_output(
-        self,
-        model: PreTrainedModel,
-        method_to_output_mapping: dict[str, dict[str | None, str]],
-        modality_name: Modality,
-        exclude_methods: set[str] | None = None,
-    ) -> tuple[ModalityConfig, str] | None:
-        """
-        Find a valid method and output configuration for a modality.
-
-        Iterates through the provided methods and their expected outputs to find a valid
-        combination that exists on the model, and constructs the modality configuration.
-
-        Args:
-            model (PreTrainedModel): The Hugging Face transformers model to check.
-            method_to_output_mapping (dict): Dictionary mapping method names to their expected
-                output fields and corresponding module output names.
-                Format: {method_name: {method_output_name: module_output_name}}
-            output_field_extractor (Callable): Function to extract the output field names from a method.
-            modality_name (str | tuple[str, ...]): The modality key(s) to use in the returned
-                modality configuration.
-            exclude_methods (set[str] | None): Set of method names to skip during iteration.
-
-        Returns:
-            tuple[MODALITY_CONFIG, str] | None: A tuple of (modality_config,
-                module_output_name) if a valid configuration is found, otherwise None.
-                The modality_config maps the modality_name to a dict with 'method' and
-                'method_output_name' keys.
-        """
-        exclude_methods = exclude_methods or set()
-
-        for method_name, output_mapping in method_to_output_mapping.items():
-            if method_name in exclude_methods:
-                continue
-
-            if not hasattr(model, method_name):
-                continue
-
-            try:
-                available_output_fields = self._get_method_output_fields(getattr(model, method_name))
-            except Exception:
-                continue
-
-            for method_output_name, module_output_name in output_mapping.items():
-                if method_output_name is None or method_output_name in available_output_fields:
-                    modality_config: ModalityConfig = {
-                        modality_name: {
-                            "method": method_name,
-                            "method_output_name": method_output_name,
-                        }
-                    }
-                    return modality_config, module_output_name
-                else:
-                    logger.warning(
-                        f"Method '{method_name}' output '{method_output_name}' not found in fields {available_output_fields} for modality {modality_name}"
-                    )
-
-        return None
-
-    def _handle_special_model_cases(self, model: PreTrainedModel) -> tuple[ModalityConfig, str] | None:
-        """Handle special cases for specific model architectures.
-
-        Args:
-            model (PreTrainedModel): The Hugging Face transformers model.
-
-        Returns:
-            tuple[MODALITY_CONFIG, str] | None: Modality config and module output name if
-                this is a special case model, otherwise None.
-        """
-        if not (hasattr(model, "config") and hasattr(model.config, "model_type")):
-            return None
-
-        model_type = model.config.model_type.lower()
-
-        # Registry of special model types and their configurations
-        special_cases: dict[str, tuple[ModalityConfig, str]] = {
-            "deepseek_vl": (
-                {
-                    "message": {
-                        "method": "forward",
-                        "method_output_name": "last_hidden_state",
-                    }
-                },
-                "token_embeddings",
-            ),
-        }
-
-        if model_type in special_cases:
-            return special_cases[model_type]
-
-        return None
-
     def _get_method_output_fields(self, method: Callable) -> list[str]:
         """Extract the output field names from a method's return type annotation.
 
@@ -644,137 +725,109 @@ class Transformer(InputModule):
             method (Callable): The method to inspect.
 
         Returns:
-            list[str]: List of output field names, or raises ValueError if not found.
+            list[str] | None: List of output field names, or None if not found.
         """
 
         def find_model_output_class(type_annotation):
-            if hasattr(type_annotation, "__origin__") and type_annotation.__origin__ is Union:
-                for arg in type_annotation.__args__:
-                    result = find_model_output_class(arg)
-                    if result is not None:
-                        return result
-            elif isinstance(type_annotation, type) and issubclass(type_annotation, ModelOutput):
+            if isinstance(type_annotation, type) and issubclass(type_annotation, ModelOutput):
                 return type_annotation
+            for sub_annotation in get_args(type_annotation):
+                if (result := find_model_output_class(sub_annotation)) is not None:
+                    return result
             return None
 
-        return_annotation = inspect.signature(method).return_annotation
+        return_annotation = get_type_hints(method).get("return", None)
         output_class = find_model_output_class(return_annotation)
         if output_class is None:
-            raise ValueError("Could not determine ModelOutput subclass from method return annotation.")
+            # raise ValueError("Could not determine ModelOutput subclass from method return annotation.")
+            return None
         return [field.name for field in fields(output_class)]
 
-    def _infer_single_modality(
-        self,
-        model: PreTrainedModel,
-        processor: PreTrainedTokenizerBase | FeatureExtractionMixin | BaseVideoProcessor | ImageProcessingMixin,
-    ) -> tuple[ModalityConfig, str] | None:
-        """Infer modality configuration for single-modality processors.
-
-        Args:
-            model (PreTrainedModel): The Hugging Face transformers model.
-            processor: The processor to check.
-
-        Returns:
-            tuple[MODALITY_CONFIG, str] | None: Modality config and module output name if
-                a single modality is detected, otherwise None.
-        """
-        task_modality_config = INFER_MODALITY_CONFIG[self.transformer_task]
-
-        # Check modalities in order, with video before image since BaseVideoProcessor subclasses ImageProcessingMixin
-        modality_checks: dict[Modality, type] = {
-            "text": PreTrainedTokenizerBase,
-            "audio": FeatureExtractionMixin,
-            "video": BaseVideoProcessor,
-            "image": ImageProcessingMixin,
-        }
-
-        for modality_name, processor_class in modality_checks.items():
-            if not isinstance(processor, processor_class):
-                continue
-
-            method_to_output_mapping = task_modality_config.get(modality_name, {})
-            result = self._find_valid_method_and_output(model, method_to_output_mapping, modality_name)
-            if result is not None:
-                modality_config, module_output_name = result
-                if (
-                    modality_name == "text"
-                    and hasattr(processor, "chat_template")
-                    and processor.chat_template is not None
-                ):
-                    modality_config["message"] = modality_config[modality_name]
-                return modality_config, module_output_name
-
-        return None
-
-    def _infer_multimodal(
-        self, model: PreTrainedModel, processor: ProcessorMixin
-    ) -> tuple[ModalityConfig, str] | None:
-        """Infer modality configuration for multi-modal processors.
-
-        Args:
-            model (PreTrainedModel): The Hugging Face transformers model.
-            processor (ProcessorMixin): The multi-modal processor.
-
-        Returns:
-            tuple[MODALITY_CONFIG, str] | None: Modality config and module output name if
-                modalities are detected, otherwise None.
-        """
-        if not isinstance(processor, ProcessorMixin):
+    def infer_modalities_edge_cases(self, model: PreTrainedModel, processor) -> tuple[ModalityConfig, str] | None:
+        # TODO: What if there's a model from here that also has a chat_template?
+        # TODO: What if someone has a Blip2VisionModel or something? It would also match model.config.model_type,
+        # but model.get_..._features won't exist.
+        # Update: Blip2VisionModel seems to have a different config type
+        def infer_method_output_name(method_output_name, method) -> str:
+            # Primarily transformers v4 compatibility: v5 often allows for "pooler_output" outputs from get_..._features
+            # methods, but v4 didn't use BaseModelOutputWithPooling for these methods yet
+            output_fields = self._get_method_output_fields(method) or []
+            if method_output_name in output_fields:
+                return method_output_name
             return None
 
-        task_modality_config = INFER_MODALITY_CONFIG[self.transformer_task]
-
-        modality_config: ModalityConfig = {}
-        module_output_name: str | None = None
-        detected_modalities: list[Modality] = []
-
-        # Check which modality processors are available
-        processor_attribute_mapping: dict[str, Modality] = {
-            "tokenizer": "text",
-            "image_processor": "image",
-            "feature_extractor": "audio",
-            "video_processor": "video",
-        }
-
-        processor_attributes = self._get_processor_attributes() or {}
-        for processor_attribute, modality_name in processor_attribute_mapping.items():
-            if processor_attribute not in processor_attributes:
-                continue
-
-            detected_modalities.append(modality_name)
-
-            # Try to find single-modality methods (excluding 'forward' which likely needs all modalities)
-            method_to_output_mapping = task_modality_config.get(modality_name, {})
-            result = self._find_valid_method_and_output(
-                model,
-                method_to_output_mapping,
-                modality_name,
-                exclude_methods={"forward"},
-            )
-            if result is not None:
-                single_modality_config, module_output_name = result
-                modality_config.update(single_modality_config)
-
-        if not detected_modalities:
-            return None
-
-        # Check if there's a method that handles all modalities together
-        method_to_output_mapping = task_modality_config.get("multimodal", {})
-        result = self._find_valid_method_and_output(
-            model, method_to_output_mapping, modality_name=tuple(detected_modalities)
-        )
-        if result is not None:
-            # Override single-modality configs with the multimodal method
-            # This is because multimodal methods often use different output names (e.g., pooled vs non-pooled)
-            modality_config, module_output_name = result
-
-            # If the processor has a chat template, add message modality with same configuration
-            if hasattr(processor, "chat_template") and processor.chat_template:
-                modality_config["message"] = modality_config[tuple(detected_modalities)]
-
-        if modality_config and module_output_name:
-            return modality_config, module_output_name
-
+        match model.config.model_type:
+            case "blip":
+                # Custom case as it supports text+image with get_multimodal_features
+                return {
+                    "text": {
+                        "method": "get_text_features",
+                        "method_output_name": infer_method_output_name("pooler_output", model.get_text_features),
+                    },
+                    "image": {
+                        "method": "get_image_features",
+                        "method_output_name": infer_method_output_name("pooler_output", model.get_image_features),
+                    },
+                    ("text", "image"): {
+                        "method": "get_multimodal_features",
+                        "method_output_name": infer_method_output_name("pooler_output", model.get_multimodal_features),
+                    },
+                }, "sentence_embedding"
+            case "blip-2":
+                # Custom case because blip-2 doesn't expose pooler_output, but we can still get non-pooled embeddings
+                # from the modality-specific methods, even if the forward method is used for multimodal input
+                return {
+                    "text": {
+                        "method": "get_text_features",
+                        "method_output_name": infer_method_output_name("last_hidden_state", model.get_text_features),
+                    },
+                    "image": {
+                        "method": "get_image_features",
+                        "method_output_name": infer_method_output_name("last_hidden_state", model.get_image_features),
+                    },
+                }, "token_embeddings"
+            case "git" | "visual_bert":
+                # Custom case because text+image is supported without the messages format
+                # TODO: Should this be an automatic case?
+                return {
+                    "text": {"method": "forward", "method_output_name": "last_hidden_state"},
+                    # "image": {"method": "forward", "method_output_name": "last_hidden_state"},  # TODO: I think git always requires text?
+                    ("text", "image"): {"method": "forward", "method_output_name": "last_hidden_state"},
+                }, "token_embeddings"
+            case "kosmos-2" | "grounding-dino" | "paligemma" | "vilt":
+                # Custom case because text+image is supported without the messages format, and text nor image aren't supported
+                return {
+                    ("text", "image"): {"method": "forward", "method_output_name": "last_hidden_state"},
+                }, "token_embeddings"
+            case "layoutlmv3":
+                # Custom case because text+image is supported without the messages format, and image only is also supported
+                return {
+                    "image": {"method": "forward", "method_output_name": "last_hidden_state"},
+                    ("text", "image"): {"method": "forward", "method_output_name": "last_hidden_state"},
+                }, "token_embeddings"
+            case "idefics":
+                return {
+                    "text": {"method": "forward", "method_output_name": "last_hidden_state"},
+                    "image": {"method": "forward", "method_output_name": "last_hidden_state"},
+                    ("text", "image"): {"method": "forward", "method_output_name": "last_hidden_state"},
+                }, "token_embeddings"
+            case (
+                "hubert"
+                | "moonshine"
+                | "sew"
+                | "sew-d"
+                | "unispeech-sat"
+                | "unispeech"
+                | "wav2vec2"
+                | "wav2vec2-conformer"
+                | "wavlm"
+                | "whisper"
+            ):
+                # "whisper" is maybe only Audio? The decoder is only for the decoder
+                return {
+                    "audio": {"method": "forward", "method_output_name": "last_hidden_state"},
+                    ("text", "audio"): {"method": "forward", "method_output_name": "last_hidden_state"},
+                }, "token_embeddings"
         return None
 
     def infer_modalities(
@@ -786,50 +839,88 @@ class Transformer(InputModule):
         | BaseVideoProcessor
         | ImageProcessingMixin,
     ) -> tuple[ModalityConfig, str]:
-        """Infers the modalities supported by the model based on its architecture and processor.
-
-        This method attempts to automatically detect what input modalities (text, image, audio, video)
-        the model supports and how to invoke the model for each modality.
-
-        Args:
-            model (PreTrainedModel): The Hugging Face transformers model.
-            processor: The processor (tokenizer, image processor, etc.) associated with the model.
-
-        Returns:
-            tuple[MODALITY_CONFIG, str]: A tuple of (modality_config, module_output_name).
-                The modality_config maps modality keys to dicts with 'method' and 'method_output_name'.
-                The module_output_name is the name of the output feature this module creates.
-
-        Raises:
-            ValueError: If modalities cannot be inferred from the processor or model.
-        """
-
-        result = self._handle_special_model_cases(model)
-        if result is not None:
+        if (result := self.infer_modalities_edge_cases(model, processor)) is not None:
             return result
 
-        result = self._infer_single_modality(model, processor)
-        if result is not None:
-            modality_config, module_output_name = result
-            return modality_config, module_output_name
+        modalities = self.infer_modalities_from_processor(model, processor)
+        if hasattr(processor, "chat_template") and processor.chat_template is not None:
+            modalities.append("message")
 
-        result = self._infer_multimodal(model, processor)
-        if result is not None:
-            modality_config, module_output_name = result
-            return modality_config, module_output_name
+        # if self.transformer_task == "feature-extraction":
+        target_method_output_name = TRANSFORMER_TASK_TO_METHOD_OUTPUT_NAME[self.transformer_task]
+        target_module_output_name = TRANSFORMER_TASK_TO_DEFAULT_MODULE_OUTPUT_NAME[self.transformer_task]
 
-        # Fallback to default modality config for the task
-        return self._get_default_modality_config()
+        # Let's inspect the forward to see if it can be used for all modalities, or if we need modality-specific methods
+        # If we can't inspect the method return type, we assume it has a 'last_hidden_state'.
+        output_fields = self._get_method_output_fields(model.forward)
+        # if output_fields is None or target_method_output_name in output_fields:
+        if target_method_output_name in output_fields:
+            return {
+                modality: {"method": "forward", "method_output_name": target_method_output_name}
+                for modality in modalities
+            }, target_module_output_name
 
-    def _get_default_modality_config(self) -> tuple[ModalityConfig, str]:
-        """Get the default modality configuration for the current transformer task.
+        # For feature-extraction, if there's no 'last_hidden_state', we can check for modality-specific methods like get_..._features
+        if self.transformer_task == "feature-extraction":
+            modality_config: ModalityConfig = {}
+            for modality in modalities:
+                if modality == "message":
+                    continue
 
-        Returns:
-            tuple[MODALITY_CONFIG, str]: A tuple of (modality_config, module_output_name).
-                The modality_config maps modality keys to dicts with 'method' and 'method_output_name'.
-                The module_output_name is the name of the output feature this module creates.
+                method_name = f"get_{modality}_features"
+                if hasattr(model, method_name):
+                    method = getattr(model, method_name)
+                    output_fields = self._get_method_output_fields(method)
+                    if "pooler_output" in output_fields:
+                        modality_config[modality] = {"method": method_name, "method_output_name": "pooler_output"}
+                    else:
+                        modality_config[modality] = {"method": method_name, "method_output_name": None}
+
+            return modality_config, "sentence_embedding"
+
+        return {
+            modality: {"method": "forward", "method_output_name": target_method_output_name} for modality in modalities
+        }, target_module_output_name
+
+    def infer_modalities_from_processor(self, model: PreTrainedModel, processor) -> list[Modality]:
+        # Transformers v5+
         """
-        return DEFAULT_MODALITY_CONFIG_MODULE_OUTPUT_NAME[self.transformer_task]
+        if hasattr(model, "input_modalities"):
+            modalities = model.input_modalities
+            if isinstance(modalities, str):
+                modalities = [modalities]
+            elif isinstance(modalities, tuple):
+                modalities = list(modalities)
+            return modalities
+        """
+
+        # Transformers v4:
+        processor_attribute_mapping: dict[str, Modality] = {
+            "tokenizer": "text",
+            "image_processor": "image",
+            "feature_extractor": "audio",
+            "video_processor": "video",
+        }
+        if isinstance(processor, ProcessorMixin):
+            processor_attributes = self._get_processor_attributes() or {}
+            return [
+                modality_name
+                for processor_attribute, modality_name in processor_attribute_mapping.items()
+                if processor_attribute in processor_attributes
+            ]
+
+        modality_checks: dict[Modality, type] = {
+            "text": PreTrainedTokenizerBase,
+            "audio": FeatureExtractionMixin,
+            "video": BaseVideoProcessor,
+            "image": ImageProcessingMixin,
+        }
+        for modality_name, processor_class in modality_checks.items():
+            if isinstance(processor, processor_class):
+                return [modality_name]
+
+        # This should not be reached
+        return []
 
     def _get_processor_attributes(self) -> dict[str, Any] | None:
         """Get the attributes of the processor if available. Will be removed in the future as transformers v5
@@ -899,7 +990,12 @@ class Transformer(InputModule):
         else:
             embedding = model_output
             for output_key in method_output_name:
-                embedding = embedding[output_key]
+                try:
+                    embedding = embedding[output_key]
+                except KeyError:
+                    # It's possible that the requested key is not accessible via dictionary-style indexing,
+                    # but only via attribute access (e.g. chinese_clip) had this issue
+                    embedding = getattr(embedding, output_key)
 
         if embedding.ndim == 4:
             # Some image models return (batch_size, num_channels, height, width) instead of (batch_size, seq_len, hidden_size)
@@ -946,6 +1042,7 @@ class Transformer(InputModule):
             return self.model.config.num_features
 
         # Get text config, e.g. for multi-modal models
+        """
         try:
             text_config = self.model.config.get_text_config()
         except AttributeError:
@@ -959,18 +1056,55 @@ class Transformer(InputModule):
             if isinstance(text_config.hidden_sizes, list):
                 return text_config.hidden_sizes[-1]  # Use final layer dimension
             return text_config.hidden_sizes
+        """
 
-        # Unable to determine dimension
+        def get_hidden_size_from_config(config):
+            # If we're directly outputting sentence embeddings from the transformer (e.g., using the pooler output),
+            # then we should check for projection_dim first, as that's likely the dimension of the sentence embeddings
+            # after a projection layer
+            if hasattr(config, "projection_dim") and self.module_output_name == "sentence_embedding":
+                return config.projection_dim
+
+            if hasattr(config, "hidden_size"):
+                return config.hidden_size
+            if hasattr(config, "neck_hidden_sizes"):
+                if isinstance(config.neck_hidden_sizes, list):
+                    return config.neck_hidden_sizes[-1]
+                return config.neck_hidden_sizes  # TODO: Unsure if it's ever not a list
+            if hasattr(config, "hidden_sizes"):
+                if isinstance(config.hidden_sizes, list):
+                    return config.hidden_sizes[-1]
+                return config.hidden_sizes  # TODO: Unsure if it's ever not a list
+            if hasattr(config, "hidden_dim"):
+                return config.hidden_dim
+            if hasattr(config, "embed_dims"):
+                if isinstance(config.embed_dims, list):
+                    return config.embed_dims[-1]
+                return config.embed_dims  # TODO: Unsure if it's ever not a list
+            return None
+
+        if (hidden_size := get_hidden_size_from_config(self.model.config)) is not None:
+            return hidden_size
+
+        # Text config hidden size has priority
+        if hasattr(self.model.config, "text_config"):
+            if (hidden_size := get_hidden_size_from_config(self.model.config.text_config)) is not None:
+                return hidden_size
+
+        # Afterwards we check all sub-configs
+        if hasattr(self.model.config, "sub_configs"):
+            for sub_config_name in self.model.config.sub_configs.keys():
+                sub_config = getattr(self.model.config, sub_config_name)
+                if (hidden_size := get_hidden_size_from_config(sub_config)) is not None:
+                    return hidden_size
+
         raise ValueError(
-            f"Could not determine embedding dimension from model config. "
-            f"Config type: {type(text_config).__name__}. "
-            f"Available attributes: {[attr for attr in dir(text_config) if 'hidden' in attr.lower() or 'size' in attr.lower() or 'dim' in attr.lower()]}. "
-            f"Please report this issue with your model name: {self.model.config.model_type if hasattr(self.model.config, 'model_type') else 'unknown'}"
+            f"Could not determine embedding dimension from model config. Config type: {type(self.model.config).__name__}. "
         )
 
     def preprocess(
         self,
-        texts: list[StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs]
+        inputs: list[StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs]
         | StrInputs
         | PairStrInputs
         | DictInputs
@@ -1000,50 +1134,50 @@ class Transformer(InputModule):
         """
         # Configuration for different modality types
         common_kwargs = {"return_tensors": "pt"}
+        # TODO: We should likely set as little defaults as possible here, and also allow users to pass extra kwargs.
         modality_kwargs = {
             "text": {"padding": padding, "truncation": "longest_first"},
-            "audio": {
-                "padding": padding
-            },  # TODO: padding can be counterproductive for some audio models (e.g., Whisper)
+            "audio": {"padding": padding},
             "image": {},
             "video": {},
         }
+        # Apply architecture-specific defaults
+        # TODO: Do we want to have architecture-specific defaults here?
+        if self.config.model_type == "whisper":
+            # Whisper requires inputs to be exactly 30 seconds long, while its WhisperFeatureExtractor defaults to
+            # padding=True (a.k.a. "longest"), instead of defaulting to the required "max_length".
+            modality_kwargs["audio"]["padding"] = "max_length"
+
         prompt_length = None
 
-        # Parse inputs, throw error if multiple modalities are detected, and process the single modality
-        modality, processor_inputs = parse_inputs(inputs=texts)
+        # Parse inputs using the input formatter which handles modality detection and message conversion
+        # TODO: Having to pass the supports_message might mean that it's cleaner to pull that post-processing to here
+        modality, processor_inputs, extra_modality_kwargs = self.input_formatter.parse_inputs(inputs)
 
-        if modality not in self.modality_config:
-            # If the input is text-based, but the model doesn't support the 'text' modality, but does support
-            # the 'message' modality, then we can try to convert the input to chat format
-            if modality == "text" and "message" in self.modality_config:
-                texts: list[StrInputs | PairStrInputs]
-                processor_inputs = {"message": list(self._convert_texts_to_chat_format(texts=texts))}
-                modality = "message"
-            else:
-                raise ValueError(
-                    f"Modality '{modality}' is not supported by this model. "
-                    f"Supported modalities: {list(self.modality_config.keys())}"
-                )
+        for modality_key, extra_kwargs in extra_modality_kwargs.items():
+            modality_kwargs[modality_key].update(extra_kwargs)
 
-        # Incorporate prompt into chat message inputs if applicable
-        if modality == "message" and prompt:
-            processor_inputs["message"] = [
-                [{"role": "system", "content": prompt}] + messages for messages in processor_inputs["message"]
-            ]
-            # No need to track prompt length for chat messages, the length is only required for excluding prompt
-            # tokens from the Pooling layer in text embedding models, which isn't supported for chat message inputs
-
-        # Incorporate prompt into text inputs if applicable
-        if modality == "text" and prompt:
-            processor_inputs["text"] = list(
-                self._prepend_prompt_to_texts(texts=processor_inputs["text"], prompt=prompt)
+        # Always convert to the message format if it's supported, since it's most flexible with e.g. defaults
+        if "message" in self.modality_config and modality != "message":
+            modality, processor_inputs = self.input_formatter.convert_to_message(modality, processor_inputs)
+        elif modality not in self.modality_config:
+            raise ValueError(
+                f"Modality '{modality}' is not supported by this model. "
+                f"Supported modalities: {sorted(self.modality_config.keys())}"
             )
-            prompt_length = self._get_prompt_length(prompt, **kwargs)
 
-        # Tackle an edge case: audio sampling_rate must be passed via the modality_kwargs
-        if "sampling_rate" in processor_inputs:
-            modality_kwargs["audio"]["sampling_rate"] = processor_inputs.pop("sampling_rate")
+        # Incorporate prompt into inputs if applicable
+        if prompt:
+            if modality == "message":
+                processor_inputs["message"] = self.input_formatter.prepend_prompt_to_messages(
+                    processor_inputs["message"], prompt
+                )
+                # No need to track prompt length for chat messages
+            elif modality == "text":
+                processor_inputs["text"] = self.input_formatter.prepend_prompt_to_texts(
+                    processor_inputs["text"], prompt
+                )
+                prompt_length = self._get_prompt_length(prompt, **kwargs)
 
         processor_output = self._call_processor(modality, processor_inputs, modality_kwargs, common_kwargs)
         processor_output["modality"] = modality
@@ -1051,68 +1185,6 @@ class Transformer(InputModule):
             processor_output["prompt_length"] = prompt_length
 
         return processor_output
-
-    def _convert_texts_to_chat_format(self, texts: list[StrInputs | PairStrInputs]) -> Iterator[list[dict]]:
-        """Convert plain text inputs to chat message format.
-
-        For cross-encoder models, `texts` is expected to be a list of text pairs, where each pair is a list/tuple
-        of strings: (query, document1, document2, ...). Currently, Sentence Transformers only supports
-        point-wise cross-encoders, so each pair contains exactly two texts, but the message format supports more.
-
-        The message format for cross-encoder models is a list of dictionaries with 'role' and 'content' keys, with
-        3 roles: 'system' (optional), 'query', and 'document'. The 'system' role contains the system prompt (if any),
-        the 'query' role denotes the query (first text in the pair), and each 'document' role contains one of the documents
-        (subsequent texts in the pair).
-
-        For other (dense or sparse embedding) models, `texts` is expected to be a list of strings.
-
-        The message format for these models is a list of dictionaries with 'role' and 'content' keys, with 2 roles:
-        'system' (optional) and 'user'. The 'system' role contains the system prompt (if any), and the 'user' role
-        contains the text to be processed.
-
-        Args:
-            texts: Input texts to transform to chat message format, either a list of strings or a list of text pairs.
-
-        Yields:
-            Iterator[list[dict]]: An iterator over the converted chat message lists.
-        """
-        for text in texts:
-            if isinstance(text, str):
-                # dense or sparse embedding model inputs: list of strings
-                yield [{"role": "user", "content": text}]
-            else:
-                # cross-encoder model inputs: list of text pairs, consider the first text as the query and the rest as documents
-                query, *documents = text
-                messages = [{"role": "query", "content": query}]
-                for document in documents:
-                    messages.append({"role": "document", "content": document})
-                yield messages
-
-    def _prepend_prompt_to_texts(
-        self, texts: list[StrInputs | PairStrInputs], prompt: str
-    ) -> Iterator[StrInputs | PairStrInputs]:
-        """Prepend a system prompt to each text input.
-
-        For cross-encoder model inputs, which are expected to be a list of text pairs,
-        the prompt is prepended only to the first text in each pair.
-
-        For other (dense or sparse embedding) models, which expect a list of strings,
-        the prompt is prepended to each string.
-
-        Args:
-            texts: Input texts to prepend the prompt to, either a list of strings or a list of text pairs.
-                prompt: The system prompt to prepend.
-
-        Yields:
-            Iterator[list[str] | list[list[str]]]: An iterator over the texts with the prompt prepended.
-        """
-        for text in texts:
-            if isinstance(text, str):
-                # dense or sparse embedding model inputs: list of strings
-                yield prompt + text
-            else:
-                # cross-encoder model inputs: list of text pairs, prepend only to the first text
-                yield [prompt + text[0]] + list(text[1:])
 
     def _get_prompt_length(self, prompt: str, **kwargs) -> int:
         """Return the length of the prompt in tokens, including the BOS token."""
@@ -1140,9 +1212,11 @@ class Transformer(InputModule):
             return_dict=True,
             **text_kwargs,
             **common_kwargs,
+            # add_generation_prompt=True,  # Needed for Qwen3-VL-Embedding, but I can't hardcode this
         )
 
         if "message" not in self.modality_config:
+            # TODO: This should be sooner right?
             raise ValueError(
                 f"The model does not support 'message' modality, but the input looks like a chat message. "
                 f"Supported modalities: {list(self.modality_config.keys())}"
@@ -1174,18 +1248,28 @@ class Transformer(InputModule):
 
         if isinstance(self.processor, ProcessorMixin):
             # Multi-modal processor: pass modality-specific kwargs
-            signature = inspect.signature(self.processor.__call__)
-            if "common_kwargs" in signature.parameters:
+            # NOTE: "common_kwargs" is usually sometimes supported via **kwargs, but then we can't check with type inspect easily
+            # so we might be forced to use try-except
+            try:
                 # This is the much cleaner transformers v5 approach
                 return self.processor(
                     **processor_inputs,
                     text_kwargs=modality_kwargs["text"],
+                    image_kwargs=modality_kwargs["image"],
                     audio_kwargs=modality_kwargs["audio"],
-                    common_kwargs=common_kwargs,
+                    video_kwargs=modality_kwargs["video"],
+                    common_kwargs=common_kwargs,  # TODO: Ideally we would pass common_kwargs, but for BC we'll stick with unpacking
+                    **common_kwargs,
                 )
-            else:
-                # TODO: Will/would I miss parameters here?
-                return self.processor(**processor_inputs, **modality_kwargs["text"], **common_kwargs)
+            except Exception:
+                # TODO: Ensure that modality is right, especially if we're allowing non-message multi-modal
+                kwargs = {}
+                if isinstance(modality, str):
+                    kwargs.update(modality_kwargs[modality])
+                else:
+                    for mod in modality:
+                        kwargs.update(modality_kwargs[mod])
+                return self.processor(**processor_inputs, **kwargs, **common_kwargs)
 
         # Single-modality processor: determine type and call appropriately
         # Check in order: text, audio, video, image (video before image due to inheritance)
@@ -1355,4 +1439,29 @@ class Transformer(InputModule):
             config["tokenizer_args"].pop("trust_remote_code")
         if "config_args" in config and "trust_remote_code" in config["config_args"]:
             config["config_args"].pop("trust_remote_code")
+
+        if "modality_config" in config:
+            # Deserialize modality_config keys if they were serialized as comma-separated strings
+            deserialized_modality_config = {}
+            for modality_key, params in config["modality_config"].items():
+                if "," in modality_key:
+                    modality_tuple = tuple(modality_key.split(","))
+                    deserialized_modality_config[modality_tuple] = params
+                else:
+                    deserialized_modality_config[modality_key] = params
+            config["modality_config"] = deserialized_modality_config
+
         return config
+
+    def get_config_dict(self) -> dict[str, Any]:
+        config_dict = super().get_config_dict()
+
+        def serialize_tuple_keys(key):
+            if isinstance(key, tuple):
+                return ",".join(key)
+            return key
+
+        config_dict["modality_config"] = {
+            serialize_tuple_keys(modality): params for modality, params in self.modality_config.items()
+        }
+        return config_dict

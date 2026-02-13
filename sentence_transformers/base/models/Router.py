@@ -13,7 +13,7 @@ from torch import Tensor, nn
 from transformers.utils import logging
 
 from sentence_transformers.base.models.InputModule import InputModule
-from sentence_transformers.base.models.modality_utils import MODALITY_TO_PROCESSOR_ARG, Modality, infer_modality
+from sentence_transformers.base.models.modality_utils import MODALITY_TO_PROCESSOR_ARG, Modality  # , infer_modality
 from sentence_transformers.base.models.Module import Module
 from sentence_transformers.util import import_from_string, load_dir_path
 
@@ -531,12 +531,15 @@ class Router(InputModule):
                 texts = [text[task] for text in texts]
 
         # Infer modality if not provided
+        """
+        # TODO: Find an alternative for this
         if modality is None:
             try:
                 modality = infer_modality(texts)
             except (ValueError, TypeError):
                 # If modality inference fails, proceed without it
                 pass
+        """
 
         # Resolve route
         route = self._resolve_route(task=task, modality=modality)

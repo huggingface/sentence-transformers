@@ -37,6 +37,8 @@ from sentence_transformers.util.logging import LoggingHandler
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
 
+# TODO: Rename 'models' to 'modules' finally?
+
 # Set up backward compatibility for moved/renamed modules
 setup_deprecated_module_imports()
 

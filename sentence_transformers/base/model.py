@@ -36,7 +36,7 @@ from sentence_transformers.base.models.modality_utils import (
     Modality,
     PairStrInputs,
     StrInputs,
-    infer_modality,
+    # infer_modality,
 )
 from sentence_transformers.base.peft_mixin import PeftAdapterMixin
 from sentence_transformers.util import (
@@ -303,11 +303,13 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             Dict[str, Tensor]: A dictionary of tensors with the preprocessed texts.
         """
         # Infer modality if not already provided in kwargs
+        """
         if "modality" not in kwargs:
             try:
                 kwargs["modality"] = infer_modality(inputs)
             except (ValueError, TypeError, ImportError):
                 pass
+        """
 
         # TODO: When to pass via kwargs and when via explicit argument?
         # TODO: Perhaps just call 'preprocess' and expect InputModule to handle forwarding to tokenize?
