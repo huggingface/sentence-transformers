@@ -230,6 +230,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
         query_prompts: str | dict[str, str] | None = None,
         corpus_prompts: str | dict[str, str] | None = None,
         write_predictions: bool = False,
+        precision: str = "float32",
     ):
         super().__init__()
         if dataset_names is None:
@@ -247,9 +248,12 @@ class NanoBEIREvaluator(SentenceEvaluator):
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
         self.main_score_function = main_score_function
         self.truncate_dim = truncate_dim
+        self.precision = precision
         self.name = f"NanoBEIR_{aggregate_key}"
         if self.truncate_dim:
             self.name += f"_{self.truncate_dim}"
+        if self.precision:
+            self.name += f"_{self.precision}"
 
         self.mrr_at_k = mrr_at_k
         self.ndcg_at_k = ndcg_at_k
@@ -273,6 +277,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
             "score_functions": score_functions,
             "main_score_function": main_score_function,
             "write_predictions": write_predictions,
+            "precision": self.precision,
         }
         self.evaluators = [
             self._load_dataset(name, **ir_evaluator_kwargs)
@@ -329,10 +334,10 @@ class NanoBEIREvaluator(SentenceEvaluator):
             self.score_function_names = [model.similarity_fn_name]
             self._append_csv_headers(self.score_function_names)
 
-        num_underscores_in_name = self.name.count("_")
         for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
             logger.info(f"Evaluating {evaluator.name}")
             evaluation = evaluator(model, output_path, epoch, steps)
+            num_underscores_in_name = evaluator.name.count("_")
             for full_key, metric_value in evaluation.items():
                 splits = full_key.split("_", maxsplit=num_underscores_in_name)
                 metric = splits[-1]
@@ -357,22 +362,23 @@ class NanoBEIREvaluator(SentenceEvaluator):
                 fOut = open(csv_path, mode="a", encoding="utf-8")
 
             output_data = [epoch, steps]
+            metric_prefix = f"{self.precision}_" if self.precision else ""
             for name in self.score_function_names:
                 for k in self.accuracy_at_k:
-                    output_data.append(agg_results[f"{name}_accuracy@{k}"])
+                    output_data.append(agg_results[f"{metric_prefix}{name}_accuracy@{k}"])
 
                 for k in self.precision_recall_at_k:
-                    output_data.append(agg_results[f"{name}_precision@{k}"])
-                    output_data.append(agg_results[f"{name}_recall@{k}"])
+                    output_data.append(agg_results[f"{metric_prefix}{name}_precision@{k}"])
+                    output_data.append(agg_results[f"{metric_prefix}{name}_recall@{k}"])
 
                 for k in self.mrr_at_k:
-                    output_data.append(agg_results[f"{name}_mrr@{k}"])
+                    output_data.append(agg_results[f"{metric_prefix}{name}_mrr@{k}"])
 
                 for k in self.ndcg_at_k:
-                    output_data.append(agg_results[f"{name}_ndcg@{k}"])
+                    output_data.append(agg_results[f"{metric_prefix}{name}_ndcg@{k}"])
 
                 for k in self.map_at_k:
-                    output_data.append(agg_results[f"{name}_map@{k}"])
+                    output_data.append(agg_results[f"{metric_prefix}{name}_map@{k}"])
 
             fOut.write(",".join(map(str, output_data)))
             fOut.write("\n")
@@ -380,36 +386,44 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
         if not self.primary_metric:
             if self.main_score_function is None:
+                metric_prefix = f"{self.precision}_" if self.precision else ""
                 score_function = max(
-                    [(name, agg_results[f"{name}_ndcg@{max(self.ndcg_at_k)}"]) for name in self.score_function_names],
+                    [
+                        (name, agg_results[f"{metric_prefix}{name}_ndcg@{max(self.ndcg_at_k)}"])
+                        for name in self.score_function_names
+                    ],
                     key=lambda x: x[1],
                 )[0]
-                self.primary_metric = f"{score_function}_ndcg@{max(self.ndcg_at_k)}"
+                self.primary_metric = f"{metric_prefix}{score_function}_ndcg@{max(self.ndcg_at_k)}"
             else:
-                self.primary_metric = f"{self.main_score_function.value}_ndcg@{max(self.ndcg_at_k)}"
+                metric_prefix = f"{self.precision}_" if self.precision else ""
+                self.primary_metric = f"{metric_prefix}{self.main_score_function.value}_ndcg@{max(self.ndcg_at_k)}"
 
         avg_queries = np.mean([len(evaluator.queries) for evaluator in self.evaluators])
         avg_corpus = np.mean([len(evaluator.corpus) for evaluator in self.evaluators])
         logger.info(f"Average Queries: {avg_queries}")
         logger.info(f"Average Corpus: {avg_corpus}\n")
 
+        metric_prefix = f"{self.precision}_" if self.precision else ""
         for name in self.score_function_names:
             logger.info(f"Aggregated for Score Function: {name}")
             for k in self.accuracy_at_k:
-                logger.info("Accuracy@{}: {:.2f}%".format(k, agg_results[f"{name}_accuracy@{k}"] * 100))
+                logger.info("Accuracy@{}: {:.2f}%".format(k, agg_results[f"{metric_prefix}{name}_accuracy@{k}"] * 100))
 
             for k in self.precision_recall_at_k:
-                logger.info("Precision@{}: {:.2f}%".format(k, agg_results[f"{name}_precision@{k}"] * 100))
-                logger.info("Recall@{}: {:.2f}%".format(k, agg_results[f"{name}_recall@{k}"] * 100))
+                logger.info(
+                    "Precision@{}: {:.2f}%".format(k, agg_results[f"{metric_prefix}{name}_precision@{k}"] * 100)
+                )
+                logger.info("Recall@{}: {:.2f}%".format(k, agg_results[f"{metric_prefix}{name}_recall@{k}"] * 100))
 
             for k in self.mrr_at_k:
-                logger.info("MRR@{}: {:.4f}".format(k, agg_results[f"{name}_mrr@{k}"]))
+                logger.info("MRR@{}: {:.4f}".format(k, agg_results[f"{metric_prefix}{name}_mrr@{k}"]))
 
             for k in self.ndcg_at_k:
-                logger.info("NDCG@{}: {:.4f}".format(k, agg_results[f"{name}_ndcg@{k}"]))
+                logger.info("NDCG@{}: {:.4f}".format(k, agg_results[f"{metric_prefix}{name}_ndcg@{k}"]))
 
             for k in self.map_at_k:
-                logger.info("MAP@{}: {:.4f}".format(k, agg_results[f"{name}_map@{k}"]))
+                logger.info("MAP@{}: {:.4f}".format(k, agg_results[f"{metric_prefix}{name}_map@{k}"]))
 
         agg_results = self.prefix_name_to_metrics(agg_results, self.name)
         self.store_metrics_in_model_card_data(model, agg_results, epoch, steps)
@@ -423,6 +437,8 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
         if self.truncate_dim is not None:
             human_readable_name += f"_{self.truncate_dim}"
+        if self.precision is not None:
+            human_readable_name += f"_{self.precision}"
         return human_readable_name
 
     def _load_dataset(
