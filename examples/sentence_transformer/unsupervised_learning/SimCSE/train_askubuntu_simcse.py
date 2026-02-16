@@ -10,8 +10,8 @@ from sentence_transformers import (
     SentenceTransformerTrainingArguments,
     models,
 )
-from sentence_transformers.evaluation import RerankingEvaluator
-from sentence_transformers.losses import MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.evaluation import RerankingEvaluator
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 
 # Just some code to print debug information to stdout
 logging.basicConfig(
