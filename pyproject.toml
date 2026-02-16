@@ -53,7 +53,7 @@ train = ["datasets", "accelerate>=0.20.3"]
 onnx = ["optimum-onnx[onnxruntime]"]
 onnx-gpu = ["optimum-onnx[onnxruntime-gpu]"]
 openvino = ["optimum-intel[openvino]"]
-dev = ["datasets", "accelerate>=0.20.3", "pre-commit", "pytest", "pytest-cov", "pytest-env", "pytest-subtests", "pytest-xdist", "peft", "Pillow"]
+dev = ["datasets", "accelerate>=0.20.3", "torchcodec", "pre-commit", "pytest", "pytest-cov", "pytest-env", "pytest-subtests", "pytest-xdist", "peft", "Pillow"]
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
