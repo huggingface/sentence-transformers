@@ -171,6 +171,12 @@ class InputFormatter:
             # For single modality, use flat format
             if len(typed_input) == 1:
                 _, value = next(iter(typed_input.items()))
+                # TODO: Perhaps warn if the model shouldn't normally work with pairs? E.g. if it's an embedding model
+                # Granted: this is currently also possible with text pairs only, and that's not an issue.
+                if isinstance(value, (tuple, list)):
+                    return [{"role": "query", "content": value[0]}] + [
+                        {"role": "document", "content": value_element} for value_element in value[1:]
+                    ]
                 return [{"role": role, "content": value}]
             else:
                 # Multiple modalities require structured format
@@ -181,9 +187,22 @@ class InputFormatter:
                 message_format = "structured"
 
         # Structured format
-        return [
-            {"role": role, "content": [{"type": modality, modality: value} for modality, value in typed_input.items()]}
-        ]
+        output = []
+        for modality, value in typed_input.items():
+            if isinstance(value, (tuple, list)):
+                output += [
+                    {
+                        "role": "query",
+                        "content": [{"type": modality, modality: value_element} for value_element in value],
+                    }
+                ]
+                output += [
+                    {"role": "document", "content": [{"type": modality, modality: value_element}]}
+                    for value_element in value[1:]
+                ]
+            else:
+                output += [{"role": role, "content": [{"type": modality, modality: value}]}]
+        return output
 
     def normalize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Normalize messages to the target format.
