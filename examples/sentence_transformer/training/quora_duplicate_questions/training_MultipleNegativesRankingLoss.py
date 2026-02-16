@@ -122,7 +122,7 @@ for qid, corpus_ids in zip(new_ir_relevant_docs_data["query-id"], new_ir_relevan
     new_ir_relevant_docs[qid].add(corpus_ids)
 
 # Given queries, a corpus and a mapping with relevant documents, the InformationRetrievalEvaluator computes different IR
-# metrices. For our use case MRR@k and Accuracy@k are relevant.
+# metrics. For our use case MRR@k and Accuracy@k are relevant.
 ir_evaluator = InformationRetrievalEvaluator(new_ir_queries, new_ir_corpus, new_ir_relevant_docs)
 evaluators.append(ir_evaluator)
 
