@@ -188,8 +188,9 @@ class InputFormatter:
 
         # Structured format
         output = []
-        for modality, value in typed_input.items():
-            if isinstance(value, (tuple, list)):
+        has_multi_input = any(isinstance(value, (tuple, list)) for value in typed_input.values())
+        if has_multi_input:
+            for modality, value in typed_input.items():
                 output += [
                     {
                         "role": "query",
@@ -200,9 +201,11 @@ class InputFormatter:
                     {"role": "document", "content": [{"type": modality, modality: value_element}]}
                     for value_element in value[1:]
                 ]
-            else:
-                output += [{"role": role, "content": [{"type": modality, modality: value}]}]
-        return output
+            return output
+
+        return [
+            {"role": role, "content": [{"type": modality, modality: value} for modality, value in typed_input.items()]}
+        ]
 
     def normalize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Normalize messages to the target format.

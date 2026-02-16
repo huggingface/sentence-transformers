@@ -105,10 +105,10 @@ class ModalityParams(TypedDict):
 ModalityConfig = dict[Modality, ModalityParams]
 
 TRANSFORMER_TASK_TO_AUTO_MODEL: dict[TransformerTask, Any] = {
-    "feature-extraction": AutoModel,
-    "sequence-classification": AutoModelForSequenceClassification,
-    "text-generation": AutoModelForCausalLM,
-    "fill-mask": AutoModelForMaskedLM,
+    "feature-extraction": AutoModel,  # Used by SentenceTransformer
+    "sequence-classification": AutoModelForSequenceClassification,  # Used by CrossEncoder
+    "text-generation": AutoModelForCausalLM,  # Used by CrossEncoder
+    "fill-mask": AutoModelForMaskedLM,  # Used by SparseEncoder
 }
 
 # Maps transformer tasks -> modalities -> methods -> model output fields -> module feature names
@@ -374,7 +374,7 @@ class Transformer(InputModule):
 
         # Create input formatter for handling input parsing and message format conversion
         self.input_formatter = InputFormatter(
-            model_type=config.model_type, message_format=self.message_format, processor=self.processor
+            model_type=self.config.model_type, message_format=self.message_format, processor=self.processor
         )
 
         """
