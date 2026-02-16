@@ -9,15 +9,27 @@ from __future__ import annotations
 
 import json
 import random
+import tempfile
+import urllib.request
 from contextlib import nullcontext
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 import torch
-from datasets import load_dataset
 from PIL import Image
-from torchcodec.encoders import VideoEncoder
+
+try:
+    from torchcodec.decoders import VideoDecoder
+except ImportError:
+    VideoDecoder = None
+
+try:
+    import soundfile as sf
+except ImportError:
+    sf = None
 
 from sentence_transformers.base.models import Transformer
 from sentence_transformers.util.tensor import batch_to_device
@@ -100,12 +112,31 @@ EXPECT_FORWARD_FAIL = {
     "reformer": None,  # Outputs last_hidden_state with 2 * hidden_size dimensionality as it concats the same tensor for reversible ResNet, low prio
     "tapas": None,  # Doesn't accept standard truncation strategies, needs TapasTruncationStrategy, low prio
     "align": [  # Checkpoint image_processor size/crop_size set to 600, doesn't align with num layers, etc., low prio
-        "image"
+        "image (url)",
+        "image (array)",
+        "image (tensor)",
+        "image (pil)",
+        "image (path)",
     ],
     "clap": [  # Checkpoint has num_mel_bins mismatch, and perhaps audio is too long
-        "audio"
+        "audio (url)",
+        "audio (array)",
+        # "audio (tensor)",
+        "audio (dict)",
+        "audio (path)",
     ],
     "idefics": None,  # Checkpoint has "image_size": 224, which I can't override as image_size is normally a dict
+    "idefics2": [  # Idefics2 doesn't accept image array/tensors
+        "image (array)",
+        "image (tensor)",
+    ],
+    "flava": [  # Flava is an outlier that doesn't process image paths or URLs, only PIL
+        "image (url)",
+        "image (path)",
+    ],
+    "paligemma": [  # Paligemma doesn't accept URL images if there's also a text
+        "text+image (text, url)"
+    ],
 }
 # If an architecture outputs sentence_embeddings directly, then they're likely using get_..._features,
 # which typically don't support multimodal inputs, so we can expect multimodal inputs to fail for those architectures
@@ -131,82 +162,207 @@ EXPECT_IMAGE_ONLY_FAILURE = [
 ]
 
 
+# Track temporary media files for cleanup
+_temp_media_files: list[str] = []
+
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_temp_media_files():
+    """Cleanup temporary media files after all tests."""
+    yield
+    for file_path in _temp_media_files:
+        try:
+            if Path(file_path).exists():
+                Path(file_path).unlink()
+        except Exception as e:
+            print(f"Failed to cleanup {file_path}: {e}")
+
+
 # Sample data generation functions for each modality type
-# TODO: session scoped fixture?
-def get_sample_text(n: int = 2) -> list[str]:
-    """Generate sample text data."""
-    return [f"This is sentence {i} for testing." for i in range(n)]
+# Each returns a dict mapping format names to lists of samples
+@lru_cache(maxsize=4)
+def get_sample_text(n: int = 2) -> dict[str, list[str]]:
+    """Generate sample text data.
+
+    Returns:
+        Dict with format names as keys and lists of text samples as values.
+        Format: 'text' only (for compatibility with messages)
+    """
+    return {
+        "text": [f"This is sentence {i} for testing." for i in range(n)],
+    }
 
 
-def get_sample_images(n: int = 2) -> list[Image.Image]:
-    """Generate sample image data by creating simple images."""
-    images = []
-    for i in range(n):
-        # Create a simple colored image (32x32 RGB)
+@lru_cache(maxsize=4)
+def get_sample_images(n: int = 2) -> dict[str, list[Any]]:
+    """Generate sample image data in multiple formats.
+
+    Returns:
+        Dict with format names as keys:
+        - 'url': List of image URLs
+        - 'tensor': List of PyTorch tensors
+        - 'array': List of numpy arrays
+        - 'pil': List of PIL Images
+        - 'path': List of local file paths
+    """
+    urls = [
+        "https://huggingface.co/datasets/tomaarsen/tiny-test/resolve/main/tiny_test_image_0.png",
+        "https://huggingface.co/datasets/tomaarsen/tiny-test/resolve/main/tiny_test_image_1.png",
+    ][:n]
+
+    # Generate PIL images
+    pil_images = []
+    tensors = []
+    arrays = []
+    for _ in range(n):
         img_array = np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)
-        images.append(Image.fromarray(img_array))
-    return images
+        arrays.append(img_array)
+        tensors.append(torch.from_numpy(img_array).float() / 255.0)
+        pil_images.append(Image.fromarray(img_array))
+
+    # Generate local file paths
+    paths = []
+    for i in range(n):
+        img_array = np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)
+        img = Image.fromarray(img_array)
+        temp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        img.save(temp_file.name)
+        temp_file.close()
+        paths.append(temp_file.name)
+        _temp_media_files.append(temp_file.name)
+
+    return {
+        "url": urls,
+        "array": arrays,
+        "tensor": tensors,
+        "pil": pil_images,
+        "path": paths,
+    }
 
 
-def get_sample_audio(n: int = 2) -> list[np.ndarray]:
-    """Generate sample audio data."""
-    # Load some Librispeech audio, and then cut it down to about 1000-2000 samples (with a sampling_rate of 16k) to
-    # keep it a bit lightweight
-    librispeech_dummy = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
-    audio_samples = [
-        librispeech_dummy[i % len(librispeech_dummy)]["audio"]["array"][: random.randint(1000, 2000)] for i in range(n)
-    ]
-    # breakpoint()
-    # TODO: This ignores the sampling_rate. If we add the sampling_rate, the "as message format" tests will get
-    # strange inputs.
-    return audio_samples
+@lru_cache(maxsize=4)
+def get_sample_audio(n: int = 2) -> dict[str, list[Any]]:
+    """Generate sample audio data in multiple formats.
 
-
-def get_sample_video(n: int = 2) -> list[torch.Tensor]:
-    """Generate sample video data."""
-    # Generate random video tensors: (num_frames, channels, height, width)
-    # '''
-    # TODO: There's no cleanup for this temporary file, let's maybe move it to the HF Hub?
-    videos = []
-    for idx in range(n):
-        # 16 frames, 3 channels, 32x32 resolution
-        video = torch.randint(0, 255, (16, 3, 32, 32), dtype=torch.uint8)
-        encoder = VideoEncoder(frames=video, frame_rate=30)
-        filename = f"tests/video_{idx}.mp4"
-        encoder.to_file(filename)
-        videos.append(filename)
-    return videos
-    # '''
+    Returns:
+        Dict with format names as keys:
+        - 'url': List of audio URLs (16kHz)
+        - 'array': List of numpy arrays
+        - 'dict': List of dicts with 'array' and 'sampling_rate' keys
+        - 'path': List of local file paths
     """
-    # TODO: This is handled as 'text', test this modality inference separately
-    videos = [
-        "https://huggingface.co/datasets/raushan-testing-hf/videos-test/resolve/main/tiny_video.mp4",
-        "https://huggingface.co/datasets/raushan-testing-hf/videos-test/resolve/main/tiny_video.mp4",
-        # "https://huggingface.co/datasets/hf-internal-testing/fixtures_videos/resolve/main/tennis.mp4",
-        # "https://huggingface.co/datasets/hf-internal-testing/fixtures_videos/resolve/main/tennis.mp4",
-    ]
-    return videos
+    urls = [
+        "https://huggingface.co/datasets/tomaarsen/tiny-test/resolve/main/tiny_test_audio_0.wav",
+        "https://huggingface.co/datasets/tomaarsen/tiny-test/resolve/main/tiny_test_audio_1.wav",
+    ][:n]
+
+    # Generate arrays (16kHz, 1000-2000 samples)
+    sampling_rate = 16000
+    arrays = [np.random.randn(random.randint(1000, 2000)).astype(np.float32) for _ in range(n)]
+    # tensors = [torch.from_numpy(arr) for arr in arrays]
+    # max_length = max(tensor.shape[0] for tensor in tensors)
+    # tensors = [torch.nn.functional.pad(tensor, (0, max_length - tensor.shape[0])) for tensor in tensors]
+
+    # Generate dicts with array and sampling_rate
+    audio_dicts = [{"array": arr, "sampling_rate": sampling_rate} for arr in arrays]
+
+    # Generate local file paths
+    paths = []
+    if sf is not None:
+        for i, arr in enumerate(arrays):
+            temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            sf.write(temp_file.name, arr, sampling_rate)
+            temp_file.close()
+            paths.append(temp_file.name)
+            _temp_media_files.append(temp_file.name)
+    else:
+        # Fallback if soundfile not available
+        paths = urls[:n]
+
+    return {
+        # "url": urls,  # Rarely supported currently
+        "array": arrays,
+        # "tensor": tensors,  # Tensors is not supported in the generic transformers feature_extraction
+        "dict": audio_dicts,
+        # "path": paths,  # Rarely supported currently
+    }
+
+
+@lru_cache(maxsize=4)
+def get_sample_video(n: int = 2) -> dict[str, list[Any]]:
+    """Generate sample video data in multiple formats.
+
+    Returns:
+        Dict with format names as keys:
+        - 'url': List of video URLs
+        - 'path': List of locally downloaded file paths
+        - 'array': List of numpy arrays (if torchcodec available, extracted from videos)
+        - 'tensor': List of PyTorch tensors (if torchcodec available, extracted from videos)
     """
+    urls = [
+        "https://huggingface.co/datasets/tomaarsen/tiny-test/resolve/main/tiny_test_video_0.mp4",
+        "https://huggingface.co/datasets/tomaarsen/tiny-test/resolve/main/tiny_test_video_1.mp4",
+    ][:n]
+
+    # Download URLs for local file paths
+    paths = []
+    for i, url in enumerate(urls):
+        temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        urllib.request.urlretrieve(url, temp_file.name)
+        temp_file.close()
+        paths.append(temp_file.name)
+        _temp_media_files.append(temp_file.name)
+
+    result = {
+        "url": urls,
+        "path": paths,
+    }
+
+    if VideoDecoder is not None:
+        arrays = []
+        tensors = []
+        for path in paths:
+            decoder = VideoDecoder(path)
+            frame_batch = decoder.get_frames_in_range(0, decoder.metadata.num_frames)
+            metadata = {
+                "fps": decoder.metadata.average_fps_from_header,
+                "total_num_frames": decoder.metadata.num_frames,
+                "frames_indices": list(range(frame_batch.data.shape[0])),
+            }
+            tensors.append({"array": frame_batch.data, "video_metadata": metadata})
+            arrays.append({"array": frame_batch.data.numpy(), "video_metadata": metadata})
+
+        if arrays:
+            result["array"] = arrays
+        if tensors:
+            result["tensor"] = tensors
+
+    return result
 
 
-def get_sample_messages(n: int = 2, message_format: str = "structured") -> list[list[dict[str, Any]]]:
-    """Generate sample message data (chat format).
+def get_sample_messages(
+    n: int = 2, text_format: str = "text", message_format: str = "structured"
+) -> list[list[dict[str, Any]]]:
+    """Generate sample message data (chat format with text).
 
     Args:
         n: Number of messages to generate
+        text_format: Text format to use - "text" only (URL and path formats not supported in messages)
         message_format: Message format - "structured" or "flat"
             - structured: content is list of dicts with type/modality keys
-            - flat: content is direct value (string, image, etc.)
+            - flat: content is direct value (string only)
 
     Returns:
         List of message lists in the specified format
     """
+    # Get text samples (only 'text' format is supported for messages)
+    text_samples = get_sample_text(n)
+    texts = text_samples.get(text_format, text_samples.get("text", []))
+
     if message_format == "structured":
-        messages_list = [
-            [{"role": "user", "content": [{"type": "text", "text": f"This is a test message {i}."}]}] for i in range(n)
-        ]
+        messages_list = [[{"role": "user", "content": [{"type": "text", "text": text}]}] for text in texts]
     elif message_format == "flat":
-        messages_list = [[{"role": "user", "content": f"This is a test message {i}."}] for i in range(n)]
+        messages_list = [[{"role": "user", "content": text}] for text in texts]
     else:
         raise ValueError(f"Unknown format: {message_format}. Must be 'structured' or 'flat'")
 
@@ -214,6 +370,7 @@ def get_sample_messages(n: int = 2, message_format: str = "structured") -> list[
 
 
 # Mapping of modality keys to sample data generators
+# Note: Each generator returns a dict of format_name -> list of samples
 MODALITY_SAMPLE_GENERATORS = {
     "text": get_sample_text,
     "image": get_sample_images,
@@ -228,10 +385,10 @@ def create_modality_samples(
     """Create test samples for all supported modalities and their combinations.
 
     Generates samples for:
-    1. Each single modality (text, image, audio, video)
+    1. Each single modality with different input formats (e.g., image as URL, tensor, or path)
     2. Multi-modal combinations (e.g., text+image as dict inputs)
     3. Message format variations (structured and flat) if "message" is supported
-    4. Converting non-message modalities to message format
+    4. Converting text modality to message format (other formats not supported in messages)
 
     Args:
         model: The Transformer model instance
@@ -239,23 +396,12 @@ def create_modality_samples(
         n: Number of samples to generate for each combination
         message_format: Message format - "structured" or "flat"
             - structured: content is list of dicts with type/modality keys
-            - flat: content is direct value (string, image, etc.)
+            - flat: content is direct value (string only)
 
     Returns:
-        List of (modality_description, inputs) tuples where:
-        - modality_description: Human-readable string like "text", "text+image", "message (flat)", etc.
+        Dict mapping modality_description to inputs where:
+        - modality_description: Human-readable string like "text", "image (url)", "image (path)", "text+image (text, url)", etc.
         - inputs: List of input samples in the appropriate format
-
-    Example:
-        If modalities = ["text", "image", "message"], returns samples for:
-        - "text": list of strings
-        - "image": list of PIL images
-        - "text+image": list of dicts with both modalities
-        - "message (structured)": list of message lists with structured content
-        - "message (flat)": list of message lists with flat content
-        - "text as message (structured)": text converted to structured messages
-        - "image as message (structured)": images converted to structured messages
-        - "text+image as message": multimodal messages
     """
     from itertools import combinations
 
@@ -266,82 +412,116 @@ def create_modality_samples(
     multimodal_modalities = [m for m in modalities if isinstance(m, (tuple, list))]
     has_message_support = "message" in modalities
 
-    # 1. Test each single non-message modality
+    # 1. Test each single non-message modality with each format variant
     for modality in non_message_modalities:
         generator = MODALITY_SAMPLE_GENERATORS.get(modality)
-        if generator:
-            inputs = generator(n)
-            samples[modality] = inputs
+        if not generator:
+            continue
+
+        # Generator returns dict of format_name -> list of samples
+        format_variants = generator(n)
+        for format_name, inputs in format_variants.items():
+            modality_desc = f"{modality} ({format_name})"
+            samples[modality_desc] = inputs
 
     # 2. Test multi-modal combinations (2 or more modalities combined)
+    # For simplicity, uses the first format variant for each modality
     if len(non_message_modalities) >= 2:
         for r in range(2, len(non_message_modalities) + 1):
             for combo in combinations(non_message_modalities, r):
-                # Generate data for each modality in the combination
+                # Generate data for each modality (use first format variant)
                 modality_data = {}
+                format_names = []
                 for mod in combo:
                     generator = MODALITY_SAMPLE_GENERATORS[mod]
-                    modality_data[mod] = generator(n)
+                    format_variants = generator(n)
+                    # Use the first format variant for multimodal combinations
+                    first_format = next(iter(format_variants.items()))
+                    modality_data[mod] = first_format[1]
+                    format_names.append(first_format[0])
 
                 # Create list of dicts, one per sample
                 # Each dict has keys for each modality with the corresponding value
                 inputs = [{mod: modality_data[mod][i] for mod in combo} for i in range(n)]
-                modality_desc = "+".join(combo)
+                modality_desc = "+".join(combo) + " (" + ", ".join(format_names) + ")"
                 samples[modality_desc] = inputs
 
     for multimodal_modality in multimodal_modalities:
         modality_data = {}
+        format_names = []
         for mod in multimodal_modality:
             generator = MODALITY_SAMPLE_GENERATORS[mod]
-            modality_data[mod] = generator(n)
+            format_variants = generator(n)
+            first_format = next(iter(format_variants.items()))
+            modality_data[mod] = first_format[1]
+            format_names.append(first_format[0])
 
         # Create list of dicts, one per sample
-        # Each dict has keys for each modality with the corresponding value
         inputs = [{mod: modality_data[mod][i] for mod in multimodal_modality} for i in range(n)]
-        modality_desc = "+".join(multimodal_modality)
+        modality_desc = "+".join(multimodal_modality) + " (" + ", ".join(format_names) + ")"
         if modality_desc not in samples:
             samples[modality_desc] = inputs
 
     # 3. Test message format variations (if message modality is supported)
+    # Note: Only text format is supported in messages (not URLs or paths)
     if has_message_support:
-        # 3b. Convert each non-message modality to message format (using specified format)
+        # 3a. Test text in message format (only text format, structured and flat)
+        if message_format == "structured":
+            structured_msgs = get_sample_messages(n, text_format="text", message_format="structured")
+            samples["message (text, structured)"] = structured_msgs
+        elif message_format == "flat":
+            flat_msgs = get_sample_messages(n, text_format="text", message_format="flat")
+            samples["message (text, flat)"] = flat_msgs
+        else:
+            # Support both if message_format is something else
+            structured_msgs = get_sample_messages(n, text_format="text", message_format="structured")
+            samples["message (text, structured)"] = structured_msgs
+            flat_msgs = get_sample_messages(n, text_format="text", message_format="flat")
+            samples["message (text, flat)"] = flat_msgs
+
+        # 3b. Convert each non-message modality's first format to message format (structured only)
+        # Note: Other modalities in messages only work with structured format
         for modality in non_message_modalities:
+            if modality == "text":
+                # Skip text since we already handled it above
+                continue
+
             generator = MODALITY_SAMPLE_GENERATORS.get(modality)
             if not generator:
                 continue
 
-            raw_inputs = generator(n)
+            # Get the first format variant
+            format_variants = generator(n)
+            first_format_name, first_format_inputs = next(iter(format_variants.items()))
 
-            if message_format == "structured":
-                # Structured format (works for all modalities)
-                structured_msgs = [
-                    [{"role": "user", "content": [{"type": modality, modality: inp}]}] for inp in raw_inputs
-                ]
-                samples[f"{modality} as message (structured)"] = structured_msgs
-            elif message_format == "flat":
-                # TODO: Does flat only exist of text content?
-                flat_msgs = [[{"role": "user", "content": inp}] for inp in raw_inputs]
-                samples[f"{modality} as message (flat)"] = flat_msgs
+            # Create structured messages with this modality
+            structured_msgs = [
+                [{"role": "user", "content": [{"type": modality, modality: inp}]}] for inp in first_format_inputs
+            ]
+            samples[f"{modality} as message (structured, {first_format_name})"] = structured_msgs
 
         # 3c. Multimodal messages (combining multiple modalities in message format)
-        # Only structured format supports multimodal content
-        if message_format == "structured" and len(non_message_modalities) >= 2:
-            # Test pairs and triples (limit complexity)
-            for r in range(2, min(4, len(non_message_modalities) + 1)):
-                for combo in combinations(non_message_modalities, r):
-                    # Generate data for each modality
-                    modality_data = {}
-                    for mod in combo:
-                        generator = MODALITY_SAMPLE_GENERATORS[mod]
-                        modality_data[mod] = generator(n)
+        # Only structured format and first format variant for each modality
+        if len(non_message_modalities) >= 2:
+            # Test pairs (limit complexity to avoid explosion of test cases)
+            for combo in combinations(non_message_modalities, 2):
+                # Generate data for each modality (use first format variant)
+                modality_data = {}
+                format_names = []
+                for mod in combo:
+                    generator = MODALITY_SAMPLE_GENERATORS[mod]
+                    format_variants = generator(n)
+                    first_format = next(iter(format_variants.items()))
+                    modality_data[mod] = first_format[1]
+                    format_names.append(first_format[0])
 
-                    # Create multimodal messages with structured content
-                    multimodal_msgs = [
-                        [{"role": "user", "content": [{"type": mod, mod: modality_data[mod][i]} for mod in combo]}]
-                        for i in range(n)
-                    ]
-                    modality_desc = "+".join(combo) + " as message"
-                    samples[modality_desc] = multimodal_msgs
+                # Create multimodal messages with structured content
+                multimodal_msgs = [
+                    [{"role": "user", "content": [{"type": mod, mod: modality_data[mod][i]} for mod in combo]}]
+                    for i in range(n)
+                ]
+                modality_desc = "+".join(combo) + " as message (structured, " + ", ".join(format_names) + ")"
+                samples[modality_desc] = multimodal_msgs
 
     return samples
 
@@ -465,7 +645,8 @@ class TestTransformerArchitectures:
         # test_samples = {modality_desc: inputs for modality_desc, inputs in test_samples.items() if modality_desc == "text"}
         # test_samples = {modality_desc: inputs for modality_desc, inputs in test_samples.items() if modality_desc == "image"}
         # test_samples = {modality_desc: inputs for modality_desc, inputs in test_samples.items() if modality_desc == "image+video as message"}
-        # test_samples = {modality_desc: inputs for modality_desc, inputs in test_samples.items() if modality_desc == "image as message (structured)"}
+        # test_samples = {modality_desc: inputs for modality_desc, inputs in test_samples.items() if modality_desc == "video (array)"}
+        # test_samples = {modality_desc: inputs for modality_desc, inputs in test_samples.items() if "video" in modality_desc}
 
         for modality_desc, inputs in test_samples.items():
             with subtests.test(msg=f"Testing {modality_desc}"):

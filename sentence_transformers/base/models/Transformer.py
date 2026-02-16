@@ -1202,14 +1202,18 @@ class Transformer(InputModule):
         return prompt_length
 
     def _process_chat_messages(
-        self, messages: list[DictInputs], text_kwargs: dict[str, Any], common_kwargs: dict[str, Any]
+        self, messages: list[DictInputs], modality_kwargs: dict[str, dict[str, Any]], common_kwargs: dict[str, Any]
     ) -> dict[str, torch.Tensor | Any]:
         """Process chat messages using the processor's chat template."""
         processor_output = self.processor.apply_chat_template(
             messages,
             tokenize=True,
             return_dict=True,
-            **text_kwargs,
+            text_kwargs=modality_kwargs["text"],
+            images_kwargs=modality_kwargs["image"],
+            audio_kwargs=modality_kwargs["audio"],
+            videos_kwargs=modality_kwargs["video"],
+            common_kwargs=common_kwargs,  # TODO: Ideally we would pass common_kwargs, but for BC we'll stick with unpacking
             **common_kwargs,
             # add_generation_prompt=True,  # Needed for Qwen3-VL-Embedding, but I can't hardcode this
         )
@@ -1243,7 +1247,7 @@ class Transformer(InputModule):
         """
         # Handle chat/message format
         if modality == "message":
-            return self._process_chat_messages(processor_inputs["message"], modality_kwargs["text"], common_kwargs)
+            return self._process_chat_messages(processor_inputs["message"], modality_kwargs, common_kwargs)
 
         if isinstance(self.processor, ProcessorMixin):
             # Multi-modal processor: pass modality-specific kwargs
@@ -1254,9 +1258,9 @@ class Transformer(InputModule):
                 return self.processor(
                     **processor_inputs,
                     text_kwargs=modality_kwargs["text"],
-                    image_kwargs=modality_kwargs["image"],
+                    images_kwargs=modality_kwargs["image"],
                     audio_kwargs=modality_kwargs["audio"],
-                    video_kwargs=modality_kwargs["video"],
+                    videos_kwargs=modality_kwargs["video"],
                     common_kwargs=common_kwargs,  # TODO: Ideally we would pass common_kwargs, but for BC we'll stick with unpacking
                     **common_kwargs,
                 )

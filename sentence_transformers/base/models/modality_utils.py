@@ -363,10 +363,13 @@ class InputFormatter:
                     # TODO: This was updated from before, needs testing
                     typed_inputs.append(("audio", item["array"]))
                     extra_modality_kwargs["audio"]["sampling_rate"] = item["sampling_rate"]
-                # case dict() if "array" in item and "video_metadata" in item:
-                #     # Video data format allowing for passing video_metadata alongside the video
-                #     typed_inputs.append(("video", item["array"]))
-                #     extra_modality_kwargs["video"]["video_metadata"] = item["video_metadata"]
+                case dict() if "array" in item and "video_metadata" in item:
+                    # Video data format allowing for passing metadata alongside the video
+                    typed_inputs.append(("video", item["array"]))
+                    if "video_metadata" in extra_modality_kwargs["video"]:
+                        extra_modality_kwargs["video"]["video_metadata"].append(item["video_metadata"])
+                    else:
+                        extra_modality_kwargs["video"]["video_metadata"] = [item["video_metadata"]]
                 case dict():
                     # Multimodal dictionary input - convert to message format
                     # typed_inputs.append(("message", self.typed_input_to_messages(item)))
@@ -385,12 +388,14 @@ class InputFormatter:
                     # Infer modality from tensor dimensions
                     if item.ndim in (1, 2):
                         typed_inputs.append(("audio", item))
-                    elif item.ndim in (3, 4, 5):
+                    elif item.ndim in (3,):  # HWC or CHW
+                        typed_inputs.append(("image", item))
+                    elif item.ndim in (4, 5):  # Video formats (e.g., TCHW, THWC, etc.)
                         typed_inputs.append(("video", item))
                     else:
                         raise ValueError(
                             f"Unsupported tensor dimensionality: {item.ndim}D. "
-                            f"Expected 1-2D for audio or 3-5D for video."
+                            f"Expected 1-2D for audio, 3D for image, or 4-5D for video."
                         )
                 case _:
                     raise ValueError(
