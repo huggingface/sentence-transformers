@@ -853,8 +853,7 @@ class Transformer(InputModule):
         # Let's inspect the forward to see if it can be used for all modalities, or if we need modality-specific methods
         # If we can't inspect the method return type, we assume it has a 'last_hidden_state'.
         output_fields = self._get_method_output_fields(model.forward)
-        # if output_fields is None or target_method_output_name in output_fields:
-        if target_method_output_name in output_fields:
+        if output_fields is None or target_method_output_name in output_fields:
             return {
                 modality: {"method": "forward", "method_output_name": target_method_output_name}
                 for modality in modalities
