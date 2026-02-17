@@ -993,7 +993,8 @@ class Transformer(InputModule):
                     embedding = embedding[output_key]
                 except KeyError:
                     # It's possible that the requested key is not accessible via dictionary-style indexing,
-                    # but only via attribute access (e.g. chinese_clip) had this issue
+                    # but only via attribute access (e.g. chinese_clip) had this issue. See also
+                    # https://github.com/huggingface/transformers/issues/44079
                     embedding = getattr(embedding, output_key)
 
         if embedding.ndim == 4:
