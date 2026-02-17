@@ -6,14 +6,13 @@ from pathlib import Path
 
 import pytest
 import torch
-from tokenizers.processors import TemplateProcessing
 
 from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments
 from sentence_transformers.sparse_encoder import losses
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 if is_datasets_available():
-    from datasets import Dataset, DatasetDict
+    from datasets import Dataset
 
 if not is_training_available():
     pytest.skip(
@@ -131,90 +130,3 @@ def test_trainer(
             model.encode(["Test sentence after training."])
         except Exception as e:
             pytest.fail(f"Encoding failed after training: {e}")
-
-
-@pytest.mark.parametrize("has_bos_token", [True, False])
-@pytest.mark.parametrize("has_eos_token", [True, False])
-def test_data_collator(
-    csr_bert_tiny_model: SparseEncoder,
-    stsb_dataset_dict: DatasetDict,
-    has_bos_token: bool,
-    has_eos_token: bool,
-    tmp_path: Path,
-) -> None:
-    # Test that the data collator correctly recognizes whether the tokenizer has an SEP/EOS token
-    model = csr_bert_tiny_model
-    # We need to set this to False, otherwise the prompt length won't be needed:
-    model.set_pooling_include_prompt(False)
-    dummy_bos_token_id = 400
-    dummy_eos_token_id = 500
-    model.tokenizer.cls_token_id = dummy_bos_token_id if has_bos_token else None
-    model.tokenizer.sep_token_id = dummy_eos_token_id if has_eos_token else None
-    if has_bos_token:
-        if has_eos_token:
-            model.tokenizer._tokenizer.post_processor = TemplateProcessing(
-                single="[CLS] $0 [SEP]",
-                special_tokens=[
-                    ("[CLS]", dummy_bos_token_id),
-                    ("[SEP]", dummy_eos_token_id),
-                ],
-            )
-        else:
-            model.tokenizer._tokenizer.post_processor = TemplateProcessing(
-                single="[CLS] $0",
-                special_tokens=[("[CLS]", dummy_bos_token_id)],
-            )
-    else:
-        if has_eos_token:
-            model.tokenizer._tokenizer.post_processor = TemplateProcessing(
-                single="$0 [SEP]",
-                special_tokens=[("[SEP]", dummy_eos_token_id)],
-            )
-        else:
-            model.tokenizer._tokenizer.post_processor = TemplateProcessing(
-                single="$0",
-                special_tokens=[],
-            )
-
-    # Check that we can update the tokenizer in this way
-    if has_eos_token:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[-1] == dummy_eos_token_id
-    else:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[-1] != dummy_eos_token_id
-
-    if has_bos_token:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[0] == dummy_bos_token_id
-    else:
-        assert model.tokenize(["dummy text"])["input_ids"].flatten()[0] != dummy_bos_token_id
-
-    train_dataset = stsb_dataset_dict["train"].select(range(10))
-    eval_dataset = stsb_dataset_dict["validation"].select(range(10))
-    loss = losses.CSRLoss(
-        model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
-    )
-
-    args = SparseEncoderTrainingArguments(
-        output_dir=tmp_path,
-        max_steps=2,
-        eval_steps=2,
-        eval_strategy="steps",
-        per_device_train_batch_size=1,
-        per_device_eval_batch_size=1,
-        prompts="Prompt: ",  # Single prompt to all columns and all datasets
-    )
-
-    trainer = SparseEncoderTrainer(
-        model=model,
-        args=args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        loss=loss,
-    )
-    trainer.train()
-
-    # Check that the data collator correctly recognizes the prompt length
-    only_prompt_length = len(model.tokenizer(["Prompt: "], add_special_tokens=False)["input_ids"][0])
-    if has_bos_token:
-        only_prompt_length += 1
-    assert trainer.data_collator._prompt_length_mapping == {("Prompt: ", None): only_prompt_length}

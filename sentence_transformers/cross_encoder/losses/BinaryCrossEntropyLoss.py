@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from torch import Tensor, nn
 
-from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+from sentence_transformers.cross_encoder.model import CrossEncoder
 from sentence_transformers.util import fullname
 
 
@@ -22,7 +22,7 @@ class BinaryCrossEntropyLoss(nn.Module):
         It has been used to train many of the strong `CrossEncoder MS MARCO Reranker models <https://huggingface.co/models?author=cross-encoder&search=marco>`_.
 
         Args:
-            model (:class:`~sentence_transformers.cross_encoder.CrossEncoder`): A CrossEncoder model to be trained.
+            model (:class:`~sentence_transformers.cross_encoder.model.CrossEncoder`): A CrossEncoder model to be trained.
             activation_fn (:class:`~torch.nn.Module`): Activation function applied to the logits before computing the loss. Defaults to :class:`~torch.nn.Identity`.
             pos_weight (Tensor, optional): A weight of positive examples. Must be a :class:`torch.Tensor` like ``torch.tensor(4)`` for a weight of 4. Defaults to None.
             **kwargs: Additional keyword arguments passed to the underlying :class:`torch.nn.BCEWithLogitsLoss`.
@@ -47,7 +47,7 @@ class BinaryCrossEntropyLoss(nn.Module):
             +-------------------------------------------------+----------------------------------------+-------------------------------+
 
         Recommendations:
-            - Use :class:`~sentence_transformers.util.mine_hard_negatives` with ``output_format="labeled-pair"``
+            - Use :class:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` with ``output_format="labeled-pair"``
               to convert question-answer pairs to the ``(anchor, positive/negative) pairs`` format with labels as 1 or 0,
               using hard negatives.
 
@@ -91,12 +91,14 @@ class BinaryCrossEntropyLoss(nn.Module):
             )
 
     def forward(self, inputs: list[list[str]], labels: Tensor) -> Tensor:
+        # inputs being a list of lists might be a problem - we might need to update that to a dictionary like ST/SE
         if len(inputs) != 2:
             raise ValueError(
                 f"BinaryCrossEntropyLoss expects a dataset with two non-label columns, but got a dataset with {len(inputs)} columns."
             )
 
         pairs = list(zip(inputs[0], inputs[1]))
+        """
         tokens = self.model.tokenizer(
             pairs,
             padding=True,
@@ -104,7 +106,15 @@ class BinaryCrossEntropyLoss(nn.Module):
             return_tensors="pt",
         )
         tokens.to(self.model.device)
+        breakpoint()
         logits = self.model(**tokens)[0].view(-1)
+        """
+        # NOTE: I don't think I can preserve backwards compatibility: the `self.model` call just has different
+        # tokenizer (manageable), inputs (manageable), and outputs (not manageable) now.
+        tokens = self.model.preprocess(pairs)
+        tokens.to(self.model.device)
+        outputs = self.model(tokens)
+        logits = outputs["scores"].view(-1)
         logits = self.activation_fn(logits)
         loss = self.bce_with_logits_loss(logits, labels.float())
         return loss

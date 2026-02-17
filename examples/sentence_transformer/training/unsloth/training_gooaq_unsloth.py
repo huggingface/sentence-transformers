@@ -5,13 +5,13 @@ import traceback
 from datasets import Dataset, load_dataset
 from unsloth import FastSentenceTransformer
 
-from sentence_transformers import (
+from sentence_transformers.sentence_transformer import (
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
 )
-from sentence_transformers.evaluation import NanoBEIREvaluator
-from sentence_transformers.losses import CachedMultipleNegativesRankingLoss
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
+from sentence_transformers.sentence_transformer.losses import CachedMultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.training_args import BatchSamplers
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)

@@ -20,7 +20,7 @@ Using the loss is easy and does not require tuning of any hyperparameters:
 
 ```python
 from datasets import load_dataset
-from sentence_transformers import losses
+from sentence_transformers.sparse_encoder import losses
 # Assume 'model' is your SparseEncoder model
 
 full_dataset = load_dataset("sentence-transformers/quora-duplicates", "triplet", split="train").select(

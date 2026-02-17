@@ -12,10 +12,10 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
 
 .. sidebar:: Documentation
 
-   1. :class:`SparseEncoder <sentence_transformers.sparse_encoder.SparseEncoder>`
-   2. :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.SparseEncoder.encode>`
-   3. :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.SparseEncoder.similarity>`
-   4. :meth:`SparseEncoder.sparsity <sentence_transformers.sparse_encoder.SparseEncoder.sparsity>`
+   1. :class:`SparseEncoder <sentence_transformers.sparse_encoder.model.SparseEncoder>`
+   2. :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.model.SparseEncoder.encode>`
+   3. :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity>`
+   4. :meth:`SparseEncoder.sparsity <sentence_transformers.sparse_encoder.model.SparseEncoder.sparsity>`
 
 ::
 

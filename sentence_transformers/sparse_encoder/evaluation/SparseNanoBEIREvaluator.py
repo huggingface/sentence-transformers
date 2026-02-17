@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import torch
 
-from sentence_transformers.evaluation.NanoBEIREvaluator import NanoBEIREvaluator
+from sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator import NanoBEIREvaluator
 from sentence_transformers.sparse_encoder.evaluation.SparseInformationRetrievalEvaluator import (
     SparseInformationRetrievalEvaluator,
 )
@@ -18,8 +18,8 @@ from sentence_transformers.util import append_to_last_row
 if TYPE_CHECKING:
     from torch import Tensor
 
-    from sentence_transformers.evaluation import SimilarityFunction
-    from sentence_transformers.evaluation.NanoBEIREvaluator import DatasetNameType
+    from sentence_transformers.sentence_transformer.evaluation import SimilarityFunction
+    from sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator import DatasetNameType
     from sentence_transformers.sparse_encoder import SparseEncoder
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 class SparseNanoBEIREvaluator(NanoBEIREvaluator):
     """
-    This evaluator extends :class:`~sentence_transformers.evaluation.NanoBEIREvaluator` but is specifically designed for sparse encoder models.
+    This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator` but is specifically designed for sparse encoder models.
 
     This class evaluates the performance of a SparseEncoder Model on the NanoBEIR collection of Information Retrieval datasets.
 

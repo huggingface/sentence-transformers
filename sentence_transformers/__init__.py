@@ -12,29 +12,35 @@ from sentence_transformers.backend import (
     export_optimized_onnx_model,
     export_static_quantized_openvino_model,
 )
+from sentence_transformers.base.sampler import DefaultBatchSampler, MultiDatasetDefaultBatchSampler
 from sentence_transformers.cross_encoder import (
     CrossEncoder,
     CrossEncoderModelCardData,
     CrossEncoderTrainer,
     CrossEncoderTrainingArguments,
 )
-from sentence_transformers.datasets import ParallelSentencesDataset, SentencesDataset
-from sentence_transformers.LoggingHandler import LoggingHandler
-from sentence_transformers.model_card import SentenceTransformerModelCardData
-from sentence_transformers.quantization import quantize_embeddings
-from sentence_transformers.readers import InputExample
-from sentence_transformers.sampler import DefaultBatchSampler, MultiDatasetDefaultBatchSampler
-from sentence_transformers.SentenceTransformer import SentenceTransformer
-from sentence_transformers.similarity_functions import SimilarityFunction
+from sentence_transformers.sentence_transformer.datasets import ParallelSentencesDataset, SentencesDataset
+from sentence_transformers.sentence_transformer.model import SentenceTransformer
+from sentence_transformers.sentence_transformer.model_card import SentenceTransformerModelCardData
+from sentence_transformers.sentence_transformer.readers import InputExample
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.sparse_encoder import (
     SparseEncoder,
     SparseEncoderModelCardData,
     SparseEncoderTrainer,
     SparseEncoderTrainingArguments,
 )
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util import mine_hard_negatives
+from sentence_transformers.util.deprecated_import import setup_deprecated_module_imports
+from sentence_transformers.util.logging import LoggingHandler
+from sentence_transformers.util.quantization import quantize_embeddings
+from sentence_transformers.util.similarity import SimilarityFunction
+
+# TODO: Rename 'models' to 'modules' finally?
+
+# Set up backward compatibility for moved/renamed modules
+setup_deprecated_module_imports()
 
 # If codecarbon is installed and the log level is not defined,
 # automatically overwrite the default to "error"

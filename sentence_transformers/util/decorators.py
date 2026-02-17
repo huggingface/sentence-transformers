@@ -7,6 +7,12 @@ logger = logging.getLogger(__name__)
 
 
 def save_to_hub_args_decorator(func):
+    """
+    A decorator to update the signature of the :class:`~sentence_transformers.base.model.BaseModel.save_to_hub` method
+    to replace the deprecated `repo_name` argument with `repo_id`, and to introduce backwards compatibility for
+    positional arguments despite a newly added `token` argument.
+    """
+
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
         # If repo_id not already set, use repo_name

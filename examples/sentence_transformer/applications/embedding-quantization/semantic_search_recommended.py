@@ -14,7 +14,7 @@ from datasets import load_dataset
 from usearch.index import Index
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.quantization import quantize_embeddings
+from sentence_transformers.util.quantization import quantize_embeddings
 
 # We use usearch as it can efficiently load int8 vectors from disk.
 

@@ -18,7 +18,7 @@ from sentence_transformers import (
     export_dynamic_quantized_onnx_model,
     export_static_quantized_openvino_model,
 )
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)

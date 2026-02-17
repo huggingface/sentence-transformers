@@ -6,13 +6,17 @@ import torch
 from datasets import load_dataset
 
 from sentence_transformers import (
+    BaseModelCardData,
+    BaseTrainingArguments,
     SentenceTransformer,
-    SentenceTransformerModelCardData,
     SentenceTransformerTrainer,
-    SentenceTransformerTrainingArguments,
 )
-from sentence_transformers.evaluation import InformationRetrievalEvaluator, NanoBEIREvaluator, SequentialEvaluator
-from sentence_transformers.losses import DistillKLDivLoss
+from sentence_transformers.sentence_transformer.evaluation import (
+    InformationRetrievalEvaluator,
+    NanoBEIREvaluator,
+    SequentialEvaluator,
+)
+from sentence_transformers.sentence_transformer.losses import DistillKLDivLoss
 
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 random.seed(12)
@@ -24,7 +28,7 @@ def main():
     # 1. Load a model to finetune with 2. (Optional) model card data
     model = SentenceTransformer(
         "microsoft/mpnet-base",
-        model_card_data=SentenceTransformerModelCardData(
+        model_card_data=BaseModelCardData(
             language="en",
             license="apache-2.0",
             model_name="mpnet-base finetuned on MSMARCO via distillation",
@@ -43,7 +47,7 @@ def main():
 
     # 5. (Optional) Specify training arguments
     run_name = "mpnet-base-msmarco-kldiv"
-    args = SentenceTransformerTrainingArguments(
+    args = BaseTrainingArguments(
         # Required parameter:
         output_dir=f"models/{run_name}",
         # Optional training parameters:
@@ -51,7 +55,7 @@ def main():
         per_device_train_batch_size=16,
         per_device_eval_batch_size=16,
         learning_rate=4e-5,
-        warmup_ratio=0.1,
+        warmup_steps=0.1,
         fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=True,  # Set to True if you have a GPU that supports BF16
         # Optional tracking/debugging parameters:

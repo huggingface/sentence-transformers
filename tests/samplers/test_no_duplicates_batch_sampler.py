@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import importlib.util
 import random
 
 import pytest
 import torch
 from torch.utils.data import ConcatDataset
 
-from sentence_transformers import sampler as sampler_module
-from sentence_transformers.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler
+from sentence_transformers.base.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -57,7 +57,7 @@ def test_group_by_label_batch_sampler_label_a(dummy_dataset: Dataset, precompute
 
     sampler_kwargs = {}
     if precompute_hashes:
-        if sampler_module.xxhash is None:
+        if importlib.util.find_spec("xxhash") is None:
             pytest.skip("xxhash not installed")
         sampler_kwargs = {
             "precompute_hashes": True,
@@ -92,7 +92,7 @@ def test_proportional_no_duplicates(
     batch_size = 2
     sampler_kwargs = {}
     if precompute_hashes:
-        if sampler_module.xxhash is None:
+        if importlib.util.find_spec("xxhash") is None:
             pytest.skip("xxhash not installed")
         sampler_kwargs = {
             "precompute_hashes": True,

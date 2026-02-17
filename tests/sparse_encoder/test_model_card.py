@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from sentence_transformers import SparseEncoderTrainer, SparseEncoderTrainingArguments
-from sentence_transformers.model_card import generate_model_card
+from sentence_transformers.base.model_card import generate_model_card
 from sentence_transformers.sparse_encoder import losses
 from sentence_transformers.util import is_datasets_available, is_training_available
 

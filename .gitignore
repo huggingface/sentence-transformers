@@ -17,6 +17,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+__pycache__
 
 # Docs
 /docs/_build/

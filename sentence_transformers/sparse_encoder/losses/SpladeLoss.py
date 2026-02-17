@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 from sentence_transformers.sparse_encoder.losses import FlopsLoss
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 logger = logging.getLogger(__name__)
 

@@ -29,7 +29,7 @@ Training using Matryoshka Representation Learning (MRL) is quite elementary: rat
 
 ```python
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.losses import CoSENTLoss, MatryoshkaLoss
+from sentence_transformers.sentence_transformer.losses import CoSENTLoss, MatryoshkaLoss
 
 model = SentenceTransformer("microsoft/mpnet-base")
 
@@ -43,7 +43,7 @@ Additionally, this can be combined with the `AdaptiveLayerLoss` such that the re
 
 ```python
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.losses import CoSENTLoss, Matryoshka2dLoss
+from sentence_transformers.sentence_transformer.losses import CoSENTLoss, Matryoshka2dLoss
 
 model = SentenceTransformer("microsoft/mpnet-base")
 
@@ -55,7 +55,7 @@ loss = Matryoshka2dLoss(model=model, loss=base_loss, matryoshka_dims=[768, 512, 
 
 ## Inference
 
-After a model has been trained using a Matryoshka loss, you can then run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
+After a model has been trained using a Matryoshka loss, you can then run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.sentence_transformer.model.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
 
 ```python
 from sentence_transformers import SentenceTransformer

@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 
-from sentence_transformers.evaluation import InformationRetrievalEvaluator
+from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
 from sentence_transformers.util import append_to_last_row, compute_count_vector
 
 if TYPE_CHECKING:
     import numpy as np
 
-    from sentence_transformers.similarity_functions import SimilarityFunction
-    from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+    from sentence_transformers.sparse_encoder.model import SparseEncoder
+    from sentence_transformers.util.similarity import SimilarityFunction
 
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
     """
-    This evaluator extends :class:`~sentence_transformers.evaluation.InformationRetrievalEvaluator` but is specifically designed for sparse encoder models.
+    This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.InformationRetrievalEvaluator` but is specifically designed for sparse encoder models.
 
     This class evaluates an Information Retrieval (IR) setting.
 

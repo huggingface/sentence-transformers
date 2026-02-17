@@ -32,8 +32,8 @@ from torch.utils.data import DataLoader
 from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models, util
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
-from sentence_transformers.evaluation import BinaryClassificationEvaluator
-from sentence_transformers.readers import InputExample
+from sentence_transformers.sentence_transformer.evaluation import BinaryClassificationEvaluator
+from sentence_transformers.sentence_transformer.readers import InputExample
 
 # Just some code to print debug information to stdout
 logging.basicConfig(

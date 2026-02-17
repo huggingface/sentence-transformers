@@ -1,5 +1,5 @@
 Training Examples
-================
+=================
 
 This page provides examples showing how to train Sparse Encoder models for various tasks.
 

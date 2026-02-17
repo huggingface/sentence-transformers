@@ -9,7 +9,7 @@ Loss functions play a critical role in the performance of your fine-tuned Cross 
 
     You can often convert one training data format into another, allowing more loss functions to be viable for your scenario. For example, ``(sentence_A, sentence_B) pairs`` with ``class`` labels can be converted into ``(anchor, positive, negative) triplets`` by sampling sentences with the same or different classes.
 
-    Additionally, :func:`~sentence_transformers.util.mine_hard_negatives` can easily be used to turn ``(anchor, positive)`` to:
+    Additionally, :func:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` can easily be used to turn ``(anchor, positive)`` to:
 
     - ``(anchor, positive, negative) triplets`` with ``output_format="triplet"``, 
     - ``(anchor, positive, negative_1, …, negative_n) tuples`` with ``output_format="n-tuple"``.
@@ -47,7 +47,7 @@ For example, when finetuning a small model to behave more like a larger & strong
 In practice, not all loss functions get used equally often. The most common scenarios are:
 
 - `(sentence_A, sentence_B) pairs` with `float similarity score` or `1 if positive, 0 if negative`: <a href="../package_reference/cross_encoder/losses.html#binarycrossentropyloss"><code>BinaryCrossEntropyLoss</code></a> is a traditional option that remains very challenging to outperform.
-- `(anchor, positive) pairs` without any labels: combined with <a href="../package_reference/util.html#sentence_transformers.util.mine_hard_negatives"><code>mine_hard_negatives</code></a>
+- `(anchor, positive) pairs` without any labels: combined with <a href="../package_reference/util.html#sentence_transformers.util.hard_negatives.mine_hard_negatives"><code>mine_hard_negatives</code></a>
   - with <code>output_format="labeled-list"</code>, then <a href="../package_reference/cross_encoder/losses.html#lambdaloss"><code>LambdaLoss</code></a> is frequently used for learning-to-rank tasks.
   - with <code>output_format="labeled-pair"</code>, then <a href="../package_reference/cross_encoder/losses.html#binarycrossentropyloss"><code>BinaryCrossEntropyLoss</code></a> remains a strong option.
 

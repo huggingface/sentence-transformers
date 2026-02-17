@@ -112,7 +112,7 @@ print(scores)
 # => [8.607139 5.506266 6.352977]
 ```
 
-And we're good to go. You can also use [`model.rank`](https://sbert.net/docs/package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.CrossEncoder.rank) to avoid having to perform the reranking manually:
+And we're good to go. You can also use [`model.rank`](https://sbert.net/docs/package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder.rank) to avoid having to perform the reranking manually:
 
 ```python
 # 2b. Rank a list of passages for a query

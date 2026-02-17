@@ -30,10 +30,10 @@ from datasets import Dataset, concatenate_datasets, load_dataset
 from sklearn.decomposition import PCA
 
 from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation, losses, models
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.similarity_functions import SimilarityFunction
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.base.trainer import SentenceTransformerTrainer
+from sentence_transformers.base.training_args import BaseTrainingArguments
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.util.similarity import SimilarityFunction
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(
@@ -169,14 +169,14 @@ dev_evaluator_mse = evaluation.MSEEvaluator(eval_sentences, eval_sentences, teac
 dev_evaluator = evaluation.SequentialEvaluator([dev_evaluator_stsb, dev_evaluator_mse])
 
 # Define the training arguments
-args = SentenceTransformerTrainingArguments(
+args = BaseTrainingArguments(
     # Required parameter:
     output_dir=output_dir,
     # Optional training parameters:
     num_train_epochs=1,
     per_device_train_batch_size=train_batch_size,
     per_device_eval_batch_size=train_batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     metric_for_best_model="eval_sts-dev_spearman_cosine",

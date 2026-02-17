@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss import (
     SparseMultipleNegativesRankingLoss,
 )
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 def normalized_mean_squared_error(reconstruction: torch.Tensor, original_input: torch.Tensor) -> torch.Tensor:
@@ -134,9 +134,9 @@ class CSRLoss(nn.Module):
         This loss combines two components:
 
         1. A reconstruction loss :class:`CSRReconstructionLoss` that ensures the sparse representation can faithfully
-            reconstruct the original embedding.
+           reconstruct the original embedding.
         2. A main loss, which in the paper is a :class:`SparseMultipleNegativesRankingLoss` that ensures semantically
-            similar sentences have similar representations.
+           similar sentences have similar representations.
 
         The total loss is linear combination of the two losses.
 
@@ -149,7 +149,7 @@ class CSRLoss(nn.Module):
 
         References:
             - For more details, see the paper "Beyond Matryoshka: Revisiting Sparse Coding for Adaptive Representation"
-            https://huggingface.co/papers/2503.01776
+              https://huggingface.co/papers/2503.01776
 
         Requirements:
             1. Input requirements depend on the chosen loss

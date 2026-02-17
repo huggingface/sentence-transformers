@@ -5,13 +5,13 @@ This folder contains scripts that demonstrate how to train SentenceTransformers 
 Models trained on this dataset can be used for mining duplicate questions, i.e., given a large set of sentences (in this case questions), identify all pairs that are duplicates. See [Paraphrase Mining](../../applications/paraphrase-mining/README.md) for an example how to use sentence transformers to mine for duplicate questions / paraphrases. This approach can be scaled to hundred thousands of sentences.
 
 ```{eval-rst}
-You can also train and use :class:`~sentence_transformers.cross_encoder.CrossEncoder` models for this task. See `Cross Encoder > Training Examples > Quora Duplicate Questions <../../../cross_encoder/training/quora_duplicate_questions/README.html>`_ for more details.
+You can also train and use :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models for this task. See `Cross Encoder > Training Examples > Quora Duplicate Questions <../../../cross_encoder/training/quora_duplicate_questions/README.html>`_ for more details.
 ```
 
 ## Training
 
 ```{eval-rst}
-Choosing the right loss function is crucial for finetuning useful models. For the given task, two loss functions are especially suitable: :class:`~sentence_transformers.losses.OnlineContrastiveLoss` and :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`.
+Choosing the right loss function is crucial for finetuning useful models. For the given task, two loss functions are especially suitable: :class:`~sentence_transformers.sentence_transformer.losses.OnlineContrastiveLoss` and :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`.
 ```
 
 ### Contrastive Loss
@@ -21,9 +21,9 @@ For the complete training example, see [training_OnlineContrastiveLoss.py](train
 ```{eval-rst}
 The Quora Duplicates dataset has a `pair-class subset <https://huggingface.co/datasets/sentence-transformers/quora-duplicates/viewer/pair-class>`_ which consists of question pairs and labels: 1 for duplicate and 0 for different.
 
-As shown by our `Loss Overview <../../../../docs/sentence_transformer/loss_overview.html>`_, this allows us to use :class:`~sentence_transformers.losses.ContrastiveLoss`. Similar pairs with label 1 are pulled together, so that they are close in vector space, while dissimilar pairs that are closer than a defined margin are pushed away in vector space.
+As shown by our `Loss Overview <../../../../docs/sentence_transformer/loss_overview.html>`_, this allows us to use :class:`~sentence_transformers.sentence_transformer.losses.ContrastiveLoss`. Similar pairs with label 1 are pulled together, so that they are close in vector space, while dissimilar pairs that are closer than a defined margin are pushed away in vector space.
 
-An improved version is :class:`~sentence_transformers.losses.OnlineContrastiveLoss`. This loss looks which negative pairs have a lower distance than the largest positive pair and which positive pairs have a higher distance than the lowest distance of negative pairs. I.e., this loss automatically detects the hard cases in a batch and computes the loss only for these cases.
+An improved version is :class:`~sentence_transformers.sentence_transformer.losses.OnlineContrastiveLoss`. This loss looks which negative pairs have a lower distance than the largest positive pair and which positive pairs have a higher distance than the lowest distance of negative pairs. I.e., this loss automatically detects the hard cases in a batch and computes the loss only for these cases.
 ```
 
 The loss can be used like this:
@@ -46,7 +46,7 @@ train_loss = losses.OnlineContrastiveLoss(model=model, margin=0.5)
 For the complete example, see [training_MultipleNegativesRankingLoss.py](training_MultipleNegativesRankingLoss.py).
 
 ```{eval-rst}
-:class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` is especially suitable for Information Retrieval / Semantic Search. A nice advantage is that it only requires positive pairs, i.e., we only need examples of duplicate questions. See `NLI > MultipleNegativesRankingLoss <../nli/README.html#multiplenegativesrankingloss>`_ for more information on how the loss works.
+:class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` is especially suitable for Information Retrieval / Semantic Search. A nice advantage is that it only requires positive pairs, i.e., we only need examples of duplicate questions. See `NLI > MultipleNegativesRankingLoss <../nli/README.html#multiplenegativesrankingloss>`_ for more information on how the loss works.
 ```
 
 Using the loss is easy and does not require tuning of any hyperparameters:
@@ -84,22 +84,22 @@ train_dataset = concatenate_datasets([
     Increasing the batch sizes usually yields better results, as the  task gets harder. It is more difficult to identify the correct duplicate question out of a set of 100 questions than out of a set of only 10 questions. So it is advisable to set the training batch size as large as possible. I trained it with a batch size of 350 on 32 GB GPU memory.
 
 .. note::
-    :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` only works if *(a_i, b_j)* with j != i is actually a negative, non-duplicate question pair. In few instances, this assumption is wrong. But in the majority of cases, if we sample two random questions, they are not duplicates. If your dataset cannot fulfil this property,  :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` might not work well.
+    :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` only works if *(a_i, b_j)* with j != i is actually a negative, non-duplicate question pair. In few instances, this assumption is wrong. But in the majority of cases, if we sample two random questions, they are not duplicates. If your dataset cannot fulfil this property,  :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` might not work well.
 ```
 
 ### Multi-Task-Learning
 
 ```{eval-rst}
-:class:`~sentence_transformers.losses.ContrastiveLoss` works well for pair classification, i.e., given two pairs, are these duplicates or not. It pushes negative pairs far away in vector space, so that the distinguishing between duplicate and non-duplicate pairs works good.
+:class:`~sentence_transformers.sentence_transformer.losses.ContrastiveLoss` works well for pair classification, i.e., given two pairs, are these duplicates or not. It pushes negative pairs far away in vector space, so that the distinguishing between duplicate and non-duplicate pairs works good.
 
-:class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` on the other sides mainly reduces the distance between positive pairs out of large set of possible candidates. However, the distance between  non-duplicate questions is not so large, so that this loss does not work that well for pair classification.
+:class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` on the other sides mainly reduces the distance between positive pairs out of large set of possible candidates. However, the distance between  non-duplicate questions is not so large, so that this loss does not work that well for pair classification.
 ```
 
 In [training_multi-task-learning.py](training_multi-task-learning.py) I demonstrate how we can train the network with both losses. The essential code is to define both losses and to pass it to the fit method.
 
 ```python
 from datasets import load_dataset
-from sentence_transformers.losses import ContrastiveLoss, MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.losses import ContrastiveLoss, MultipleNegativesRankingLoss
 from sentence_transformers import SentenceTransformerTrainer, SentenceTransformer
 
 model_name = "stsb-distilbert-base"

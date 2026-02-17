@@ -7,7 +7,7 @@ import torch
 from packaging.version import parse as parse_version
 from transformers import __version__ as transformers_version
 
-from sentence_transformers.models import Transformer
+from sentence_transformers.base.models import Transformer
 
 
 @pytest.mark.slow

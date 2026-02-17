@@ -24,21 +24,21 @@ It is critical **that you choose the right model** for your type of task.
 ```{eval-rst}
 .. tip::
 
-    For asymmetric semantic search, you are recommended to use :meth:`SentenceTransformer.encode_query <sentence_transformers.SentenceTransformer.encode_query>` to encode your queries and :meth:`SentenceTransformer.encode_document <sentence_transformers.SentenceTransformer.encode_document>` to encode your corpus. 
+    For asymmetric semantic search, you are recommended to use :meth:`SentenceTransformer.encode_query <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_query>` to encode your queries and :meth:`SentenceTransformer.encode_document <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_document>` to encode your corpus. 
     
-    The more general :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>` method differs in two ways from :meth:`SentenceTransformer.encode_query <sentence_transformers.SentenceTransformer.encode_query>` and :meth:`SentenceTransformer.encode_document <sentence_transformers.SentenceTransformer.encode_document>`:
+    The more general :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>` method differs in two ways from :meth:`SentenceTransformer.encode_query <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_query>` and :meth:`SentenceTransformer.encode_document <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_document>`:
 
     1. If no ``prompt_name`` or ``prompt`` is provided, it uses a predefined "query" or "document" prompt, if specified in the model's ``prompts`` dictionary.
-    2. It sets the ``task`` to "document". If the model has a :class:`~sentence_transformers.models.Router` module, it will use the "query" or "document" task type to route the input through the appropriate submodules.
+    2. It sets the ``task`` to "document". If the model has a :class:`~sentence_transformers.base.models.Router` module, it will use the "query" or "document" task type to route the input through the appropriate submodules.
 
-    Note that :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>` is the most general method and can be used for any task, including Information Retrieval, and that if the model was not trained with predefined prompts and/or task types, then all three methods will return identical embeddings.
+    Note that :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>` is the most general method and can be used for any task, including Information Retrieval, and that if the model was not trained with predefined prompts and/or task types, then all three methods will return identical embeddings.
 
 ```
 
 ## Manual Implementation
 
 ```{eval-rst}
-For small corpora (up to about 1 million entries), we can perform semantic search with a manual implementation by computing the embeddings for the corpus with :meth:`SentenceTransformer.encode_document <sentence_transformers.SentenceTransformer.encode_document>` as well as for our query with :meth:`SentenceTransformer.encode_query <sentence_transformers.SentenceTransformer.encode_query>`, and then calculating the `semantic textual similarity <../../../../docs/sentence_transformer/usage/semantic_textual_similarity.html>`_ using :func:`SentenceTransformer.similarity <sentence_transformers.SentenceTransformer.similarity>`.
+For small corpora (up to about 1 million entries), we can perform semantic search with a manual implementation by computing the embeddings for the corpus with :meth:`SentenceTransformer.encode_document <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_document>` as well as for our query with :meth:`SentenceTransformer.encode_query <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_query>`, and then calculating the `semantic textual similarity <../../../../docs/sentence_transformer/usage/semantic_textual_similarity.html>`_ using :func:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`.
 ```
 
 For a simple example, see [semantic_search.py](semantic_search.py):

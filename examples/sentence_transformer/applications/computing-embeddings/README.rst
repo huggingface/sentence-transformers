@@ -5,9 +5,9 @@ Once you have `installed <../../../../docs/installation.html>`_ Sentence Transfo
 
 .. sidebar:: Documentation
 
-   1. :class:`SentenceTransformer <sentence_transformers.SentenceTransformer>`
-   2. :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>`
-   3. :meth:`SentenceTransformer.similarity <sentence_transformers.SentenceTransformer.similarity>`
+   1. :class:`SentenceTransformer <sentence_transformers.sentence_transformer.model.SentenceTransformer>`
+   2. :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>`
+   3. :meth:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`
 
 ::
 
@@ -42,7 +42,7 @@ Once you have `installed <../../../../docs/installation.html>`_ Sentence Transfo
 Initializing a Sentence Transformer Model
 -----------------------------------------
 
-The first step is to load a pretrained Sentence Transformer model. You can use any of the models from the `Pretrained Models <../../../../docs/sentence_transformer/pretrained_models.html>`_ or a local model. See also :class:`~sentence_transformers.SentenceTransformer` for information on parameters.
+The first step is to load a pretrained Sentence Transformer model. You can use any of the models from the `Pretrained Models <../../../../docs/sentence_transformer/pretrained_models.html>`_ or a local model. See also :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` for information on parameters.
 
 ::
 
@@ -61,7 +61,7 @@ The model will automatically be placed on the most performant available device, 
 Calculating Embeddings
 ----------------------
 
-The method to calculate embeddings is :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>`.
+The method to calculate embeddings is :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>`.
 
 
 Prompt Templates
@@ -119,6 +119,7 @@ During inference, prompts can be applied in a few different ways. All of these s
     embeddings = model.encode("How to bake a strawberry cake")
 
 .. _input-sequence-length:
+
 Input Sequence Length
 ---------------------
 
@@ -148,7 +149,7 @@ Multi-Process / Multi-GPU Encoding
 You can encode input texts with more than one GPU (or with multiple processes on a CPU machine). It tends to help significantly with large datasets, but the overhead of starting multiple processes can be significant for smaller datasets.
 For an example, see: `computing_embeddings_multi_gpu.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/applications/computing-embeddings/computing_embeddings_multi_gpu.py>`_.
  
-You can use :meth:`SentenceTransformer.encode() <sentence_transformers.SentenceTransformer.encode>` (or :meth:`SentenceTransformer.encode_query() <sentence_transformers.SentenceTransformer.encode_query>` or :meth:`SentenceTransformer.encode_document() <sentence_transformers.SentenceTransformer.encode_document>`) with either:
+You can use :meth:`SentenceTransformer.encode() <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>` (or :meth:`SentenceTransformer.encode_query() <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_query>` or :meth:`SentenceTransformer.encode_document() <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_document>`) with either:
 
 - The ``device`` parameter, which can be set to e.g. ``"cuda:0"`` or ``"cpu"`` for single-process computations, but also a list of devices for multi-process or multi-gpu computations, e.g. ``["cuda:0", "cuda:1"]`` or ``["cpu", "cpu", "cpu", "cpu"]``::
 
@@ -165,7 +166,7 @@ You can use :meth:`SentenceTransformer.encode() <sentence_transformers.SentenceT
         if __name__ == "__main__":
             main()
 
-- The ``pool`` parameter can be provided, after calling :meth:`SentenceTransformer.start_multi_process_pool() <sentence_transformers.SentenceTransformer.start_multi_process_pool>` with a list of devices, e.g. ``["cuda:0", "cuda:1"]`` or ``["cpu", "cpu", "cpu", "cpu"]``. The benefit of this is that the pool can be reused for multiple calls to :meth:`SentenceTransformer.encode() <sentence_transformers.SentenceTransformer.encode>`, which is considerably more efficient than starting a new pool for each call::
+- The ``pool`` parameter can be provided, after calling :meth:`SentenceTransformer.start_multi_process_pool() <sentence_transformers.sentence_transformer.model.SentenceTransformer.start_multi_process_pool>` with a list of devices, e.g. ``["cuda:0", "cuda:1"]`` or ``["cpu", "cpu", "cpu", "cpu"]``. The benefit of this is that the pool can be reused for multiple calls to :meth:`SentenceTransformer.encode() <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>`, which is considerably more efficient than starting a new pool for each call::
 
         from sentence_transformers import SentenceTransformer
 

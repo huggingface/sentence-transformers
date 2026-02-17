@@ -67,7 +67,8 @@ jobs:
           # The --break-system-packages flag is used to allow pip to upgrade or install packages
           # even in environments where system-managed packages might otherwise block such operations.
           python -m pip install --upgrade pip --break-system-packages
-          python -m pip install '.[train, onnx, openvino, dev]' 'transformers<5.0.0'
+          # We require the not-yet-released https://github.com/huggingface/accelerate/pull/3850, so install from GitHub for now
+          python -m pip install '.[train, onnx, openvino, dev]' 'transformers<5.0.0' 'git+https://github.com/huggingface/accelerate'
 
       - name: Install dependencies (transformers >= 5.0.0)
         if: ${{ matrix.transformers-version == '>=5.0.0' }}
@@ -75,7 +76,8 @@ jobs:
           # The --break-system-packages flag is used to allow pip to upgrade or install packages
           # even in environments where system-managed packages might otherwise block such operations.
           python -m pip install --upgrade pip --break-system-packages
-          python -m pip install '.[train, dev]' 'transformers>=5.0.0'
+          # We require the not-yet-released https://github.com/huggingface/accelerate/pull/3850, so install from GitHub for now
+          python -m pip install '.[train, dev]' 'transformers>=5.0.0' 'git+https://github.com/huggingface/accelerate'
 
       - name: Install model2vec
         run: python -m pip install model2vec

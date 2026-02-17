@@ -47,6 +47,8 @@ def test_backend_export(backend, expected_auto_model_class, model_kwargs) -> Non
     embedding = model.encode("Hello, World!")
     assert embedding.shape == (model.get_sentence_embedding_dimension(),)
 
+    assert isinstance(model.transformers_model, expected_auto_model_class)
+
 
 def test_backend_no_export_crash():
     # Prior to optimum v1.25.0, ONNX Crashes when it can't export & the model repo/path doesn't contain an exported model

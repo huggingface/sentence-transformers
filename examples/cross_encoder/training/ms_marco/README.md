@@ -13,13 +13,13 @@ A `Cross Encoder <../../applications/README.html>`_ accepts both a query and a p
 ![CrossEncoder](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/CrossEncoder.png)
 
 ```{eval-rst}
-:class:`~sentence_transformers.cross_encoder.CrossEncoder` models are often used for **re-ranking**: Given a list with possible relevant passages for a query, for example retrieved from a :class:`~sentence_transformers.SentenceTransformer` model / BM25 / Elasticsearch, the cross-encoder re-ranks this list so that the most relevant passages are the top of the result list. 
+:class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models are often used for **re-ranking**: Given a list with possible relevant passages for a query, for example retrieved from a :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` model / BM25 / Elasticsearch, the cross-encoder re-ranks this list so that the most relevant passages are the top of the result list. 
 ```
 
 ## Training Scripts
 
 ```{eval-rst}
-We provide several training scripts with various loss functions to train a :class:`~sentence_transformers.cross_encoder.CrossEncoder` on MS MARCO.
+We provide several training scripts with various loss functions to train a :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` on MS MARCO.
 
 In all scripts, the model is evaluated on subsets of `MS MARCO <https://huggingface.co/datasets/sentence-transformers/NanoMSMARCO-bm25>`_, `NFCorpus <https://huggingface.co/datasets/sentence-transformers/NanoNFCorpus-bm25>`_, `NQ <https://huggingface.co/datasets/sentence-transformers/NanoNQ-bm25>`_ via the :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator`.
 ```
@@ -50,7 +50,7 @@ In all scripts, the model is evaluated on subsets of `MS MARCO <https://huggingf
   ```
 - **[training_ms_marco_lambda_hard_neg.py](training_ms_marco_lambda_hard_neg.py)**:
   ```{eval-rst}
-  This example extends the above example by increasing the size of the training dataset by mining hard negatives with :func:`~sentence_transformers.util.mine_hard_negatives`.
+  This example extends the above example by increasing the size of the training dataset by mining hard negatives with :func:`~sentence_transformers.util.hard_negatives.mine_hard_negatives`.
   ```
 - **[training_ms_marco_listmle.py](training_ms_marco_listmle.py)**:
   ```{eval-rst}

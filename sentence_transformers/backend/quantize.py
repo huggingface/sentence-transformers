@@ -59,7 +59,6 @@ def export_dynamic_quantized_onnx_model(
     Returns:
         None
     """
-    from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
 
     try:
         from optimum.onnxruntime import ORTModel, ORTQuantizer
@@ -71,28 +70,12 @@ def export_dynamic_quantized_onnx_model(
             "or `pip install sentence-transformers[onnx-gpu]`"
         )
 
-    viable_st_model = (
-        isinstance(model, SentenceTransformer)
-        and len(model)
-        and hasattr(model[0], "auto_model")
-        and isinstance(model[0].auto_model, ORTModel)
-    )
-    viable_se_model = (
-        isinstance(model, SparseEncoder)
-        and len(model)
-        and hasattr(model[0], "auto_model")
-        and isinstance(model[0].auto_model, ORTModel)
-    )
-    viable_ce_model = isinstance(model, CrossEncoder) and isinstance(model.model, ORTModel)
-    if not (viable_st_model or viable_ce_model or viable_se_model):
+    ort_model = model.transformers_model
+    if not isinstance(ort_model, ORTModel):
         raise ValueError(
             'The model must be a Transformer-based SentenceTransformer, SparseEncoder, or CrossEncoder model loaded with `backend="onnx"`.'
         )
 
-    if viable_st_model or viable_se_model:
-        ort_model: ORTModel = model[0].auto_model
-    else:
-        ort_model: ORTModel = model.model
     quantizer = ORTQuantizer.from_pretrained(ort_model)
 
     if isinstance(quantization_config, str):
@@ -168,8 +151,6 @@ def export_static_quantized_openvino_model(
     Returns:
         None
     """
-    from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
-
     try:
         from optimum.intel.openvino import (
             OVConfig,
@@ -187,28 +168,11 @@ def export_static_quantized_openvino_model(
             "Please install datasets to use this function. You can install it with pip: `pip install datasets`"
         )
 
-    viable_st_model = (
-        isinstance(model, SentenceTransformer)
-        and len(model)
-        and hasattr(model[0], "auto_model")
-        and isinstance(model[0].auto_model, OVModel)
-    )
-    viable_se_model = (
-        isinstance(model, SparseEncoder)
-        and len(model)
-        and hasattr(model[0], "auto_model")
-        and isinstance(model[0].auto_model, OVModel)
-    )
-    viable_ce_model = isinstance(model, CrossEncoder) and isinstance(model.model, OVModel)
-    if not (viable_st_model or viable_ce_model or viable_se_model):
+    ov_model = model.transformers_model
+    if not isinstance(ov_model, OVModel):
         raise ValueError(
             'The model must be a Transformer-based SentenceTransformer, SparseEncoder, or CrossEncoder model loaded with `backend="openvino"`.'
         )
-
-    if viable_st_model or viable_se_model:
-        ov_model: OVModel = model[0].auto_model
-    else:
-        ov_model: OVModel = model.model
 
     if quantization_config is None:
         quantization_config = OVQuantizationConfig()

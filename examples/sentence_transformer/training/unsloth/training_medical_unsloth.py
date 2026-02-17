@@ -5,9 +5,13 @@ import torch
 from datasets import Dataset, load_dataset
 from unsloth import FastSentenceTransformer, is_bf16_supported
 
-from sentence_transformers import SentenceTransformerTrainer, SentenceTransformerTrainingArguments, losses
-from sentence_transformers.evaluation import InformationRetrievalEvaluator
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.sentence_transformer import (
+    SentenceTransformerTrainer,
+    SentenceTransformerTrainingArguments,
+    losses,
+)
+from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
+from sentence_transformers.sentence_transformer.training_args import BatchSamplers
 
 # 1. Load a base model to finetune using FastSentenceTransformer
 model = FastSentenceTransformer.from_pretrained(

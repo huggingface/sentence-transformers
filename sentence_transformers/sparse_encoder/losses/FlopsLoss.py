@@ -5,7 +5,7 @@ from collections.abc import Iterable
 import torch
 from torch import Tensor, nn
 
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 class FlopsLoss(nn.Module):

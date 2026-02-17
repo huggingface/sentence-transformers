@@ -13,9 +13,9 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
 
 .. sidebar:: Documentation
 
-   1. :class:`SentenceTransformer <sentence_transformers.SentenceTransformer>`
-   2. :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>`
-   3. :meth:`SentenceTransformer.similarity <sentence_transformers.SentenceTransformer.similarity>`
+   1. :class:`SentenceTransformer <sentence_transformers.sentence_transformer.model.SentenceTransformer>`
+   2. :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>`
+   3. :meth:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`
 
 ::
 

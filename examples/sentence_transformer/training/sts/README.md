@@ -6,13 +6,13 @@ Semantic Textual Similarity (STS) assigns a score on the similarity of two texts
 - **[training_stsbenchmark_continue_training.py](training_stsbenchmark_continue_training.py)** - This example shows how to continue training on STS data for a previously created & trained SentenceTransformer model (e.g. [`all-mpnet-base-v2`](https://huggingface.co/sentence-transformers/all-mpnet-base-v2)).
 
 ```{eval-rst}
-You can also train and use :class:`~sentence_transformers.cross_encoder.CrossEncoder` models for this task. See `Cross Encoder > Training Examples > Semantic Textual Similarity <../../../cross_encoder/training/sts/README.html>`_ for more details.
+You can also train and use :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models for this task. See `Cross Encoder > Training Examples > Semantic Textual Similarity <../../../cross_encoder/training/sts/README.html>`_ for more details.
 ```
 
 ## Training data
 
 ```{eval-rst}
-In STS, we have sentence pairs annotated together with a score indicating the similarity. In the original STSbenchmark dataset, the scores range from 0 to 5. We have normalized these scores to range between 0 and 1 in `stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_, as that is required for :class:`~sentence_transformers.losses.CosineSimilarityLoss` as you can see in the `Loss Overiew <../../../../docs/sentence_transformer/loss_overview.html>`_.
+In STS, we have sentence pairs annotated together with a score indicating the similarity. In the original STSbenchmark dataset, the scores range from 0 to 5. We have normalized these scores to range between 0 and 1 in `stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_, as that is required for :class:`~sentence_transformers.sentence_transformer.losses.CosineSimilarityLoss` as you can see in the `Loss Overiew <../../../../docs/sentence_transformer/loss_overview.html>`_.
 ```
 
 Here is a simplified version of our training data:
@@ -53,7 +53,7 @@ train_dataset = load_dataset("sentence-transformers/stsb", split="train")
 ## Loss Function
 
 ```{eval-rst}
-We use :class:`~sentence_transformers.losses.CosineSimilarityLoss` as our loss function.
+We use :class:`~sentence_transformers.sentence_transformer.losses.CosineSimilarityLoss` as our loss function.
 ```
 
 <img src="https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/SBERT_Siamese_Network.png" alt="SBERT Siamese Network Architecture" width="250"/>
@@ -63,5 +63,5 @@ For each sentence pair, we pass sentence A and sentence B through the BERT-based
 For more details, see [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://huggingface.co/papers/1908.10084).
 
 ```{eval-rst}
-:class:`~sentence_transformers.losses.CoSENTLoss` and :class:`~sentence_transformers.losses.AnglELoss` are more modern variants of :class:`~sentence_transformers.losses.CosineSimilarityLoss` that accept the same data format of a sentence pair with a similarity score ranging from 0.0 to 1.0. Informal experiments indicate that these two produce stronger models than :class:`~sentence_transformers.losses.CosineSimilarityLoss`.
+:class:`~sentence_transformers.sentence_transformer.losses.CoSENTLoss` and :class:`~sentence_transformers.sentence_transformer.losses.AnglELoss` are more modern variants of :class:`~sentence_transformers.sentence_transformer.losses.CosineSimilarityLoss` that accept the same data format of a sentence pair with a similarity score ranging from 0.0 to 1.0. Informal experiments indicate that these two produce stronger models than :class:`~sentence_transformers.sentence_transformer.losses.CosineSimilarityLoss`.
 ```

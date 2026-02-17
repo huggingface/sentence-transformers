@@ -24,7 +24,7 @@ from datasets import load_dataset
 from sklearn.decomposition import PCA
 
 from sentence_transformers import SentenceTransformer, models
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)

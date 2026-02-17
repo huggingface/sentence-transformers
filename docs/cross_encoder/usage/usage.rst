@@ -13,12 +13,12 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
 
 .. sidebar:: Documentation
 
-   1. :class:`~sentence_transformers.cross_encoder.CrossEncoder`
-   2. :meth:`CrossEncoder.predict <sentence_transformers.cross_encoder.CrossEncoder.predict>`
-   3. :meth:`CrossEncoder.rank <sentence_transformers.cross_encoder.CrossEncoder.rank>`
+   1. :class:`~sentence_transformers.cross_encoder.model.CrossEncoder`
+   2. :meth:`CrossEncoder.predict <sentence_transformers.cross_encoder.model.CrossEncoder.predict>`
+   3. :meth:`CrossEncoder.rank <sentence_transformers.cross_encoder.model.CrossEncoder.rank>`
 
    .. note::
-      MS Marco models return logits rather than scores between 0 and 1. Load the :class:`~sentence_transformers.cross_encoder.CrossEncoder` with ``activation_fn=torch.nn.Sigmoid()`` to get scores between 0 and 1. This does not affect the ranking.
+      MS Marco models return logits rather than scores between 0 and 1. Load the :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` with ``activation_fn=torch.nn.Sigmoid()`` to get scores between 0 and 1. This does not affect the ranking.
 
 ::
 

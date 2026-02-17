@@ -6,14 +6,14 @@ from datasets import Dataset, load_dataset
 from peft import LoraConfig, TaskType
 
 from sentence_transformers import (
+    BaseModelCardData,
+    BaseTrainingArguments,
     SentenceTransformer,
-    SentenceTransformerModelCardData,
     SentenceTransformerTrainer,
-    SentenceTransformerTrainingArguments,
 )
-from sentence_transformers.evaluation import NanoBEIREvaluator
-from sentence_transformers.losses import CachedMultipleNegativesRankingLoss
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.base.training_args import BatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
+from sentence_transformers.sentence_transformer.losses import CachedMultipleNegativesRankingLoss
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -25,7 +25,7 @@ model_name_only = model_name.split("/")[-1]
 # 1. Load a model to finetune with 2. (Optional) model card data
 model = SentenceTransformer(
     model_name,
-    model_card_data=SentenceTransformerModelCardData(
+    model_card_data=BaseModelCardData(
         language="en",
         license="apache-2.0",
         model_name=f"{model_name_only} adapter finetuned on GooAQ pairs",
@@ -53,7 +53,7 @@ loss = CachedMultipleNegativesRankingLoss(model, mini_batch_size=32)
 
 # 5. (Optional) Specify training arguments
 run_name = f"{model_name_only}-gooaq-peft"
-args = SentenceTransformerTrainingArguments(
+args = BaseTrainingArguments(
     # Required parameter:
     output_dir=f"models/{run_name}",
     # Optional training parameters:
@@ -61,7 +61,7 @@ args = SentenceTransformerTrainingArguments(
     per_device_train_batch_size=1024,
     per_device_eval_batch_size=1024,
     learning_rate=2e-5,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=True,  # Set to True if you have a GPU that supports BF16
     batch_sampler=BatchSamplers.NO_DUPLICATES,  # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch

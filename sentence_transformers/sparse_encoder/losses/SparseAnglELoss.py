@@ -6,7 +6,7 @@ from torch import Tensor
 
 from sentence_transformers import util
 from sentence_transformers.sparse_encoder.losses.SparseCoSENTLoss import SparseCoSENTLoss
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 class SparseAnglELoss(SparseCoSENTLoss):
