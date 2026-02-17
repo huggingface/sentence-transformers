@@ -475,7 +475,16 @@ class SentenceTransformerTrainer(Trainer):
             # If we don't copy the logs, we'll include the loss components in the on_evaluate as well,
             # whereas we prefer to have them only in the on_log
             logs = logs.copy()
-            accum_losses = self._nested_gather(self.accum_loss_components[training_type])
+            # Transformers v4/v5 compatibility: v5.2 moves _nested_gather to `transformers.trainer_pt_utils`,
+            # see https://github.com/huggingface/transformers/pull/43744
+            if hasattr(self, "_nested_gather"):
+                accum_losses = self._nested_gather(self.accum_loss_components[training_type])
+            else:
+                from transformers.trainer_pt_utils import nested_gather
+
+                accum_losses = nested_gather(
+                    self.accum_loss_components[training_type], parallel_mode=self.args.parallel_mode
+                )
             if "steps" in accum_losses:
                 steps = accum_losses.get("steps").sum().item()
                 self.accum_loss_components[training_type]["steps"] *= 0
