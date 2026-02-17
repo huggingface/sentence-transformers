@@ -31,7 +31,7 @@ logging.basicConfig(
 # Training parameters
 model_name = "distilbert-base-uncased"
 batch_size = 16
-pos_neg_ratio = 8  # batch_size must be devisible by pos_neg_ratio
+pos_neg_ratio = 8  # batch_size must be divisible by pos_neg_ratio
 num_epochs = 1
 max_seq_length = 75
 
