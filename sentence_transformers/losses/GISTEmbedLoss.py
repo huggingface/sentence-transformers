@@ -23,6 +23,8 @@ class GISTEmbedLoss(nn.Module):
         contrast_anchors: bool = True,
         contrast_positives: bool = True,
         gather_across_devices: bool = False,
+        hardness_alpha: float = 0.0,
+        hardness_mode: Literal["all", "hard_only"] = "all",
     ) -> None:
         """
         This loss is used to train a SentenceTransformer model using the GISTEmbed algorithm.
@@ -52,6 +54,17 @@ class GISTEmbedLoss(nn.Module):
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
+            hardness_alpha: Hyperparameter controlling the strength of hardness-weighted contrastive learning,
+                following `Lan et al. 2025 <https://arxiv.org/abs/2503.04812>`_. Higher values emphasize harder
+                negatives more. Recommended value is 5.0. Set to 0.0 to disable (default).
+            hardness_mode: Strategy for applying hardness weighting:
+
+                - ``"all"``: Adds ``alpha * stop_grad(cos_sim)`` to every negative logit inside the softmax
+                  (Lan et al. 2025, Eq. 5). Works with all data formats including pairs-only.
+                - ``"hard_only"``: Weights each sample's loss by the hardness of its explicit hard negative(s)
+                  via ``w_i = exp(alpha * stop_grad(max_cos_sim))``. Only active when explicit negatives are provided.
+
+                Defaults to ``"all"``.
 
         References:
             - For further details, see: https://huggingface.co/papers/2402.16829
@@ -131,6 +144,14 @@ class GISTEmbedLoss(nn.Module):
         self.contrast_anchors = contrast_anchors
         self.contrast_positives = contrast_positives
         self.gather_across_devices = gather_across_devices
+
+        if hardness_alpha < 0.0:
+            raise ValueError("hardness_alpha must be non-negative.")
+        self.hardness_alpha = hardness_alpha
+        if hardness_mode not in ("all", "hard_only"):
+            raise ValueError(f"hardness_mode must be 'all' or 'hard_only', got {hardness_mode}")
+        self.hardness_mode = hardness_mode
+
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
     def sim_matrix(self, embed1: Tensor, embed2: Tensor) -> Tensor:
@@ -237,6 +258,20 @@ class GISTEmbedLoss(nn.Module):
         # so the label for anchor[i] is i. This means that we can just use arange
         range_labels = torch.arange(offset, offset + batch_size, device=anchor.device)
 
+        # Apply hardness penalty to negative logits (Lan et al. 2025, Eq. 5).
+        if self.hardness_alpha > 0.0 and self.hardness_mode == "all":
+            raw_scores = (scores * self.temperature).detach()
+            penalty = self.hardness_alpha * raw_scores
+            penalty[torch.arange(batch_size, device=anchor.device), range_labels] = 0.0
+            scores = scores + penalty
+
+        if self.hardness_alpha > 0.0 and self.hardness_mode == "hard_only" and negative is not None:
+            with torch.no_grad():
+                hard_neg_sims = nn.functional.cosine_similarity(anchor, negative[offset : offset + batch_size], dim=-1)
+                weights = torch.exp(self.hardness_alpha * hard_neg_sims)
+            per_sample_loss = nn.functional.cross_entropy(scores, range_labels, reduction="none")
+            return (weights * per_sample_loss).sum() / weights.sum()
+
         return self.cross_entropy_loss(scores, range_labels)
 
     def get_config_dict(self) -> dict[str, Any]:
@@ -248,6 +283,8 @@ class GISTEmbedLoss(nn.Module):
             "contrast_anchors": self.contrast_anchors,
             "contrast_positives": self.contrast_positives,
             "gather_across_devices": self.gather_across_devices,
+            "hardness_alpha": self.hardness_alpha,
+            "hardness_mode": self.hardness_mode,
         }
 
     @property

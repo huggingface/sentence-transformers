@@ -23,6 +23,8 @@ class MultipleNegativesRankingLoss(nn.Module):
             ...,
         ] = ("query_to_doc",),
         partition_mode: Literal["joint", "per_direction"] = "joint",
+        hardness_alpha: float = 0.0,
+        hardness_mode: Literal["all", "hard_only"] = "all",
     ) -> None:
         """
         Given a dataset of (anchor, positive) pairs, (anchor, positive, negative) triplets, or (anchor, positive, negative_1, ..., negative_n)
@@ -77,6 +79,17 @@ class MultipleNegativesRankingLoss(nn.Module):
             partition_mode: How to normalize the scores (the softmax denominator):
                 - "joint": One joint softmax over all selected directions.
                 - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
+            hardness_alpha: Hyperparameter controlling the strength of hardness-weighted contrastive learning,
+                following `Lan et al. 2025 <https://arxiv.org/abs/2503.04812>`_. Higher values emphasize harder
+                negatives more. Recommended value is 5.0. Set to 0.0 to disable (default).
+            hardness_mode: Strategy for applying hardness weighting:
+
+                - ``"all"``: Adds ``alpha * stop_grad(cos_sim)`` to every negative logit inside the softmax
+                  (Lan et al. 2025, Eq. 5). Works with all data formats including pairs-only.
+                - ``"hard_only"``: Weights each sample's loss by the hardness of its explicit hard negative(s)
+                  via ``w_i = exp(alpha * stop_grad(max_cos_sim))``. Only active when explicit negatives are provided.
+
+                Defaults to ``"all"``.
 
         Requirements:
             1. (anchor, positive) pairs, (anchor, positive, negative) triplets, or (anchor, positive, negative_1, ..., negative_n) n-tuples
@@ -176,6 +189,13 @@ class MultipleNegativesRankingLoss(nn.Module):
             raise ValueError(f"partition_mode must be 'joint' or 'per_direction', got {partition_mode}")
         self.partition_mode = partition_mode
 
+        if hardness_alpha < 0.0:
+            raise ValueError("hardness_alpha must be non-negative.")
+        self.hardness_alpha = hardness_alpha
+        if hardness_mode not in ("all", "hard_only"):
+            raise ValueError(f"hardness_mode must be 'all' or 'hard_only', got {hardness_mode}")
+        self.hardness_mode = hardness_mode
+
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         # Compute the embeddings and distribute them to anchor and candidates (positive and optionally negatives)
         embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
@@ -234,6 +254,17 @@ class MultipleNegativesRankingLoss(nn.Module):
         # Positive scores (always from query_to_doc)
         positive_scores = sim_matrices["query_to_doc"][row_indices, local_indices]
 
+        # Apply hardness penalty to negative logits (Lan et al. 2025, Eq. 5).
+        # Adds alpha * stop_grad(cos_sim) to each negative logit, making harder negatives
+        # contribute more to the softmax denominator and receive stronger gradient signals.
+        if self.hardness_alpha > 0.0 and self.hardness_mode == "all":
+            for key in sim_matrices:
+                raw_sim = (sim_matrices[key] / self.scale).detach()
+                penalty = self.hardness_alpha * raw_sim
+                if key in ("query_to_doc", "doc_to_query"):
+                    penalty[row_indices, local_indices] = 0.0
+                sim_matrices[key] = sim_matrices[key] + penalty
+
         if self.partition_mode == "joint":
             # Single softmax over all selected directions
             scores = torch.cat(list(sim_matrices.values()), dim=1)
@@ -246,7 +277,25 @@ class MultipleNegativesRankingLoss(nn.Module):
                 log_z += torch.logsumexp(sim_matrix, dim=1)
             log_z /= len(sim_matrices)
 
-        loss = -(positive_scores - log_z).mean()
+        per_sample_loss = -(positive_scores - log_z)
+
+        if self.hardness_alpha > 0.0 and self.hardness_mode == "hard_only" and len(docs) > 1:
+            with torch.no_grad():
+                hard_neg_sims = (
+                    torch.stack(
+                        [
+                            nn.functional.cosine_similarity(local_queries, neg[local_indices], dim=-1)
+                            for neg in docs[1:]
+                        ],
+                        dim=0,
+                    )
+                    .max(dim=0)
+                    .values
+                )
+                weights = torch.exp(self.hardness_alpha * hard_neg_sims)
+            loss = (weights * per_sample_loss).sum() / weights.sum()
+        else:
+            loss = per_sample_loss.mean()
 
         return loss
 
@@ -257,6 +306,8 @@ class MultipleNegativesRankingLoss(nn.Module):
             "gather_across_devices": self.gather_across_devices,
             "directions": self.directions,
             "partition_mode": self.partition_mode,
+            "hardness_alpha": self.hardness_alpha,
+            "hardness_mode": self.hardness_mode,
         }
 
     @property

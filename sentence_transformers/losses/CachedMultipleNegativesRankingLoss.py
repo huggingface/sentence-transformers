@@ -80,6 +80,8 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         ] = ("query_to_doc",),
         partition_mode: Literal["joint", "per_direction"] = "joint",
         show_progress_bar: bool = False,
+        hardness_alpha: float = 0.0,
+        hardness_mode: Literal["all", "hard_only"] = "all",
     ) -> None:
         """
         Boosted version of :class:`MultipleNegativesRankingLoss` (https://huggingface.co/papers/1705.00652) by GradCache (https://huggingface.co/papers/2101.06983).
@@ -129,6 +131,17 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 - "joint": One joint softmax over all selected directions.
                 - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
+            hardness_alpha: Hyperparameter controlling the strength of hardness-weighted contrastive learning,
+                following `Lan et al. 2025 <https://arxiv.org/abs/2503.04812>`_. Higher values emphasize harder
+                negatives more. Recommended value is 5.0. Set to 0.0 to disable (default).
+            hardness_mode: Strategy for applying hardness weighting:
+
+                - ``"all"``: Adds ``alpha * stop_grad(cos_sim)`` to every negative logit inside the softmax
+                  (Lan et al. 2025, Eq. 5). Works with all data formats including pairs-only.
+                - ``"hard_only"``: Weights each sample's loss by the hardness of its explicit hard negative(s)
+                  via ``w_i = exp(alpha * stop_grad(max_cos_sim))``. Only active when explicit negatives are provided.
+
+                Defaults to ``"all"``.
 
         References:
             - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
@@ -203,6 +216,13 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             raise ValueError(f"partition_mode must be 'joint' or 'per_direction', got {partition_mode}")
         self.partition_mode = partition_mode
         self.show_progress_bar = show_progress_bar
+
+        if hardness_alpha < 0.0:
+            raise ValueError("hardness_alpha must be non-negative.")
+        self.hardness_alpha = hardness_alpha
+        if hardness_mode not in ("all", "hard_only"):
+            raise ValueError(f"hardness_mode must be 'all' or 'hard_only', got {hardness_mode}")
+        self.hardness_mode = hardness_mode
 
         self.cache: list[list[Tensor]] | None = None
         self.random_states: list[list[RandContext]] | None = None
@@ -296,6 +316,23 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         identity = torch.eye(world_batch_size, device=queries.device)
         num_docs = len(docs)
 
+        # Precompute hardness weights for "hard_only" mode
+        if self.hardness_alpha > 0.0 and self.hardness_mode == "hard_only" and num_docs > 1:
+            with torch.no_grad():
+                local_qs = queries[local_indices]
+                hardness_weights = (
+                    torch.stack(
+                        [nn.functional.cosine_similarity(local_qs, neg[local_indices], dim=-1) for neg in docs[1:]],
+                        dim=0,
+                    )
+                    .max(dim=0)
+                    .values
+                )
+                hardness_weights = torch.exp(self.hardness_alpha * hardness_weights)
+                total_weight_sum = hardness_weights.sum()
+        else:
+            hardness_weights = None
+
         losses: list[torch.Tensor] = []
         for begin in tqdm.trange(
             0,
@@ -335,6 +372,15 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             # Positive scores (always from query_to_doc)
             positive_scores = sim_matrices["query_to_doc"][row_indices, local_batch]
 
+            # Apply hardness penalty to negative logits (Lan et al. 2025, Eq. 5).
+            if self.hardness_alpha > 0.0 and self.hardness_mode == "all":
+                for key in sim_matrices:
+                    raw_sim = (sim_matrices[key] / self.scale).detach()
+                    penalty = self.hardness_alpha * raw_sim
+                    if key in ("query_to_doc", "doc_to_query"):
+                        penalty[row_indices, local_batch] = 0.0
+                    sim_matrices[key] = sim_matrices[key] + penalty
+
             if self.partition_mode == "joint":
                 # Single softmax over all selected directions
                 all_scores = torch.cat(list(sim_matrices.values()), dim=1)
@@ -346,8 +392,14 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                     log_z += torch.logsumexp(sim_matrix, dim=1)
                 log_z /= len(sim_matrices)
 
-            loss_mbatch = -(positive_scores - log_z).mean()
-            loss_mbatch = loss_mbatch * len(local_batch) / batch_size
+            per_sample_loss = -(positive_scores - log_z)
+
+            if hardness_weights is not None:
+                mb_weights = hardness_weights[begin:end]
+                loss_mbatch = (mb_weights * per_sample_loss).sum() / total_weight_sum
+            else:
+                loss_mbatch = per_sample_loss.mean() * len(local_batch) / batch_size
+
             if with_backward:
                 loss_mbatch.backward()
                 loss_mbatch = loss_mbatch.detach()
@@ -396,6 +448,8 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             "gather_across_devices": self.gather_across_devices,
             "directions": self.directions,
             "partition_mode": self.partition_mode,
+            "hardness_alpha": self.hardness_alpha,
+            "hardness_mode": self.hardness_mode,
         }
 
     @property
