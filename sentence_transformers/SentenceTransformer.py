@@ -2518,17 +2518,16 @@ print(similarities)
 
     def _validate_landmark_configuration(self) -> None:
         """
-        Validates that models using LandmarkTransformer and/or landmark pooling are correctly configured.
+        Ensure LandmarkTransformer and LMK pooling are used together with consistent ``lmk_token_id``.
 
         Checks:
-        1. If LandmarkTransformer is present, there must be a Pooling layer with landmark pooling
-        2. If Pooling layer uses landmark pooling (pooling_mode_lmk=True), the Transformer must be a LandmarkTransformer
-        3. If both are present, ensure lmk_token_id is correctly set and consistent between them
+            1. LandmarkTransformer requires a Pooling layer with ``pooling_mode='lmk'``
+            2. LMK pooling requires LandmarkTransformer (not a plain Transformer)
+            3. ``lmk_token_id`` is synced from LandmarkTransformer to the Pooling layer
         """
         try:
             from sentence_transformers.models import LandmarkTransformer
         except ImportError:
-            # LandmarkTransformer not available, skip validation
             return
 
         transformer_module = None
@@ -2540,88 +2539,47 @@ print(similarities)
                 transformer_module = module
                 is_landmark_transformer = True
             elif isinstance(module, Transformer) and transformer_module is None:
-                # Keep track of first Transformer (even if not Landmark)
                 transformer_module = module
             elif isinstance(module, Pooling):
                 pooling_layer = module
 
-        # Determine if pooling uses landmark mode
         uses_landmark_pooling = pooling_layer is not None and pooling_layer.pooling_mode_lmk
 
-        # Skip validation if neither LandmarkTransformer nor landmark pooling is used
         if not is_landmark_transformer and not uses_landmark_pooling:
             return
 
-        # Check 1: LandmarkTransformer present but no Pooling layer at all
         if is_landmark_transformer and pooling_layer is None:
             logger.warning(
                 "LandmarkTransformer detected but no Pooling layer found. "
-                "LandmarkTransformer requires a Pooling layer with pooling_mode_lmk=True "
-                "for proper operation. The model will not produce correct embeddings."
+                "A Pooling layer with pooling_mode='lmk' is required for correct embeddings."
             )
             return
 
-        # Check 2: LandmarkTransformer present but Pooling doesn't use landmark mode
         if is_landmark_transformer and not uses_landmark_pooling:
-            pooling_modes = pooling_layer.get_pooling_mode_str()
             logger.warning(
-                f"LandmarkTransformer is used but the Pooling layer does not have pooling_mode_lmk=True. "
-                f"Current pooling mode(s): '{pooling_modes}'. "
-                f"For LandmarkTransformer to work correctly, set pooling_mode_lmk=True or pooling_mode='lmk'. "
-                f"The model will not produce correct embeddings."
+                f"LandmarkTransformer is used but the Pooling layer uses "
+                f"'{pooling_layer.get_pooling_mode_str()}' instead of 'lmk'. "
+                f"Set pooling_mode='lmk' for correct embeddings."
             )
 
-        # Check 3: Pooling uses landmark mode but Transformer is not LandmarkTransformer
         if uses_landmark_pooling and not is_landmark_transformer:
             transformer_type = type(transformer_module).__name__ if transformer_module else "None"
             logger.warning(
-                f"Pooling layer has pooling_mode_lmk=True, but the Transformer module is {transformer_type}, "
-                f"not LandmarkTransformer. Landmark pooling requires LandmarkTransformer to insert landmark tokens "
-                f"at regular intervals. Either:\n"
-                f"  1. Replace the Transformer with LandmarkTransformer, or\n"
-                f"  2. Change the Pooling mode to a standard mode (e.g., pooling_mode='mean' or pooling_mode='cls')\n"
-                f"The model will not produce correct embeddings."
+                f"Pooling uses 'lmk' mode but the Transformer is {transformer_type}, not LandmarkTransformer. "
+                f"Either use LandmarkTransformer or switch to a standard pooling mode (e.g., 'mean', 'cls')."
             )
 
-        # Check 4: Both are present and compatible - validate lmk_token_id consistency
+        # Sync lmk_token_id from LandmarkTransformer → Pooling
         if is_landmark_transformer and uses_landmark_pooling:
-            landmark_lmk_id = getattr(transformer_module, "lmk_token_id", None)
+            landmark_lmk_id = transformer_module.lmk_token_id
             pooling_lmk_id = getattr(pooling_layer, "lmk_token_id", None)
 
-            # Special case: Check if pooling has the default uninitialized value (-1)
-            pooling_lmk_id_uninitialized = pooling_lmk_id is None or pooling_lmk_id == -1
-
-            # Case A: Pooling layer missing or has default lmk_token_id
-            if pooling_lmk_id_uninitialized:
-                if landmark_lmk_id is not None:
-                    # Set from LandmarkTransformer
-                    pooling_layer.lmk_token_id = landmark_lmk_id
-                    logger.warning(
-                        f"Automatically set lmk_token_id={landmark_lmk_id} in Pooling layer "
-                        f"from LandmarkTransformer configuration."
-                    )
-                else:
-                    logger.error(
-                        f"Pooling layer has lmk_token_id={pooling_lmk_id} (uninitialized) and it could not be "
-                        f"inferred from LandmarkTransformer. Landmark pooling will not work correctly. "
-                        f"Please set pooling_layer.lmk_token_id to the correct landmark token ID."
-                    )
-
-            # Case B: Both have valid lmk_token_id but they don't match
-            elif landmark_lmk_id is not None and pooling_lmk_id != landmark_lmk_id:
+            if pooling_lmk_id is None or pooling_lmk_id == -1:
+                pooling_layer.lmk_token_id = landmark_lmk_id
+                logger.info(f"Set lmk_token_id={landmark_lmk_id} in Pooling layer from LandmarkTransformer.")
+            elif pooling_lmk_id != landmark_lmk_id:
                 logger.warning(
-                    f"Token ID mismatch detected: LandmarkTransformer uses lmk_token_id={landmark_lmk_id} "
-                    f"but Pooling layer uses lmk_token_id={pooling_lmk_id}. "
-                    f"These should match for correct embeddings. Updating Pooling layer to use "
-                    f"lmk_token_id={landmark_lmk_id} from LandmarkTransformer."
+                    f"lmk_token_id mismatch: LandmarkTransformer={landmark_lmk_id}, Pooling={pooling_lmk_id}. "
+                    f"Updating Pooling to use {landmark_lmk_id}."
                 )
                 pooling_layer.lmk_token_id = landmark_lmk_id
-
-            # Case C: Pooling has valid lmk_token_id but LandmarkTransformer doesn't (unusual)
-            elif landmark_lmk_id is None and pooling_lmk_id is not None and pooling_lmk_id != -1:
-                logger.error(
-                    f"Pooling layer has lmk_token_id={pooling_lmk_id} but LandmarkTransformer doesn't have one set = {landmark_lmk_id}. "
-                )
-
-            # Case D: Both are properly set and match - no action needed
-            # This is the happy path, no logging needed

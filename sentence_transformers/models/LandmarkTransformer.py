@@ -22,281 +22,216 @@ class LandmarkTransformer(Transformer):
     """
     Transformer with Landmark (LMK) token insertion for landmark pooling.
 
-    This module extends :class:`sentence_transformers.models.Transformer`
-    and inherits all its initialization arguments. It inserts special LMK tokens
+    Extends :class:`~sentence_transformers.models.Transformer` by inserting special LMK tokens
     at regular intervals to enable landmark-based pooling.
 
-    **Behavior:**
-    - **Training mode** (`model.train()`):
-        Uses `train_splitter_granularity` if provided, which can be:
-            - A single int for fixed granularity during training
-            - A list of ints for random sampling granularity per text
-            - None to fall back to `eval_splitter_granularity`
-    - **Evaluation / inference mode** (`model.eval()`):
-        Always uses fixed `eval_splitter_granularity` for deterministic results
+    Interval behavior:
 
-    Note that while SentenceTransformers models are loaded in training mode by default,
-    the `encode()` method internally switches the model to evaluation mode.
+    - **Training** (``model.train()``): uses ``train_landmark_interval`` if set
+      (single int for fixed, list of ints for random per-text sampling), otherwise
+      falls back to ``landmark_interval``.
+    - **Evaluation / inference** (``model.eval()``): always uses ``landmark_interval``.
+
+    Note: SentenceTransformers models load in training mode by default, but ``encode()``
+    internally switches to evaluation mode.
 
     Args:
-        eval_splitter_granularity (int):
-            Fixed granularity (in tokens) used during evaluation and as a fallback during training.
-            Must be a positive integer. Default: 32
-        train_splitter_granularity (int | list[int] | None):
-            Optional granularity used only when the model is in training mode:
-            - int: Use this fixed value during training
-            - list[int]: Randomly sample granularity from this list for each text
-            - None: Use `eval_splitter_granularity` (default)
-        lmk_token_id (int | None):
-            Token ID to use for landmark (LMK) tokens. If None (default), automatically infers
-            from the tokenizer by preferring `sep_token_id` (for BERT-style models) or falling
-            back to `eos_token_id` (for GPT-style models). When loading a saved model, this value
-            is restored from the saved configuration.
+        landmark_interval (int): Default interval (in tokens) for LMK token insertion.
+            Used during evaluation, inference, and as a training fallback. Must be positive.
+            Default: 32.
+        train_landmark_interval (int | list[int] | None): Training-only interval override.
+            ``int`` for fixed, ``list[int]`` for random per-text sampling, ``None`` to use
+            ``landmark_interval``. Default: None.
+        lmk_token_id (int | None): Token ID for landmark tokens. If None, infers from the
+            tokenizer (``sep_token_id`` preferred, then ``eos_token_id``).
+
     Note:
-        This class inherits all arguments from :class:`sentence_transformers.models.Transformer`,
-        including `model_name_or_path` (the model identifier or path), `cache_dir`, `model_args`,
-        `tokenizer_args`, `config_args`, and others. See the parent class documentation for details.
+        Inherits all arguments from :class:`~sentence_transformers.models.Transformer`, such as
+        ``model_name_or_path``, ``max_seq_length``, ``model_args``, ``tokenizer_args``, ``config_args``,
+        etc.
 
-    Example:
-    ```python
-    # Fixed granularity for both training and inference
-    model = LandmarkTransformer(eval_splitter_granularity=32)
+    Important:
+        This module should be paired with a :class:`~sentence_transformers.models.Pooling` layer
+        using ``pooling_mode = "lmk"`` so that embeddings are derived from the inserted landmark
+        tokens. Without LMK pooling, the landmark tokens have no effect on the output.
 
-    # Variable granularity during training, fixed during inference (requires model.eval() or use encode function)
-    model = LandmarkTransformer(
-        eval_splitter_granularity=32,
-        train_splitter_granularity=[16, 32, 64, 128]
-    )
+    Example::
 
-    # Enable training behavior
-    model.train()
+        transformer = LandmarkTransformer(
+            landmark_interval=32,
+            train_landmark_interval=[16, 32, 64, 128],
+        )
+        pooler = Pooling(transformer.get_word_embedding_dimension(), "lmk")
+        model = SentenceTransformer(modules=[transformer, pooler])
 
-    # Inference behavior (encode() calls eval() internally)
-    embeddings = model.encode(texts)
-
-    # Or explicitly switch to eval mode
-    model.eval()
-    ```
-    Note:
-        When using `train_splitter_granularity` as a list, random sampling is only active
-        when the model is in training mode (`model.train()`).
-        Evaluation mode (`model.eval()`), including calls to `encode()`,
-        always uses the fixed `eval_splitter_granularity` regardless of the
-        `train_splitter_granularity` setting.
+        # This will use ``landmark_interval`` since encode() sets the model to eval mode
+        model.encode(["This is a test sentence to encode."])
 
     See Also:
-        :class:`sentence_transformers.models.Transformer`
+        :class:`~sentence_transformers.models.Transformer`
     """
 
     config_keys = Transformer.config_keys + [
-        "eval_splitter_granularity",
-        "train_splitter_granularity",
+        "landmark_interval",
+        "train_landmark_interval",
         "lmk_token_id",
     ]
 
     def __init__(
         self,
         *args,
-        eval_splitter_granularity: int = 32,
-        train_splitter_granularity: int | list[int] | None = None,
+        landmark_interval: int = 32,
+        train_landmark_interval: int | list[int] | None = None,
         lmk_token_id: int | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
-        # Validate and store inference-time granularity
-        if not isinstance(eval_splitter_granularity, int) or eval_splitter_granularity <= 0:
-            raise ValueError("splitter_granularity must be a positive integer")
-        self.eval_splitter_granularity = eval_splitter_granularity
-        self.train_splitter_granularity = train_splitter_granularity
+        if not isinstance(landmark_interval, int) or landmark_interval <= 0:
+            raise ValueError("landmark_interval must be a positive integer")
+        self.landmark_interval = landmark_interval
+        self.train_landmark_interval = train_landmark_interval
 
-        if self.train_splitter_granularity is not None:
-            if isinstance(self.train_splitter_granularity, int):
-                if self.train_splitter_granularity <= 0:
-                    raise ValueError("If train_splitter_granularity is an int, it must be > 0")
-            elif isinstance(self.train_splitter_granularity, list):
-                if len(self.train_splitter_granularity) == 0:
-                    raise ValueError("train_splitter_granularity list cannot be empty")
-                if not all(isinstance(x, int) and x > 0 for x in self.train_splitter_granularity):
-                    raise ValueError("All values in train_splitter_granularity list must be positive integers")
+        if self.train_landmark_interval is not None:
+            if isinstance(self.train_landmark_interval, int):
+                if self.train_landmark_interval <= 0:
+                    raise ValueError("If train_landmark_interval is an int, it must be > 0")
+            elif isinstance(self.train_landmark_interval, list):
+                if len(self.train_landmark_interval) == 0:
+                    raise ValueError("train_landmark_interval list cannot be empty")
+                if not all(isinstance(x, int) and x > 0 for x in self.train_landmark_interval):
+                    raise ValueError("All values in train_landmark_interval list must be positive integers")
             else:
-                raise ValueError("train_splitter_granularity must be an int, a list of ints, or None")
+                raise ValueError("train_landmark_interval must be an int, a list of ints, or None")
 
-        # Set lmk_token_id: use provided value, or infer from tokenizer
         if lmk_token_id is not None:
             self.lmk_token_id = lmk_token_id
         else:
-            # Determine LMK token: prefer SEP (BERT-style), fallback to EOS (GPT-style)
             self.lmk_token_id = (
                 self.tokenizer.sep_token_id
                 if getattr(self.tokenizer, "sep_token_id", None) is not None
                 else self.tokenizer.eos_token_id
             )
 
-        # Determine CLS token: prefer CLS (BERT-style), fallback to BOS (GPT-style)
         self.cls_token_id = (
             self.tokenizer.cls_token_id
             if getattr(self.tokenizer, "cls_token_id", None) is not None
             else self.tokenizer.bos_token_id
         )
 
-        # Validate tokenizer configuration
         if self.lmk_token_id is None:
             raise ValueError("Tokenizer must have either sep_token_id or eos_token_id for LMK tokens")
-        if self.cls_token_id is None:
-            raise ValueError("Tokenizer must have either cls_token_id or bos_token_id for CLS tokens")
         if self.tokenizer.pad_token_id is None:
             raise ValueError("Tokenizer must have pad_token_id")
 
-        logger.info(
-            f"LandmarkTransformer initialized: "
-            f"CLS={self.cls_token_id}, LMK={self.lmk_token_id}, PAD={self.tokenizer.pad_token_id}, "
-            f"eval_splitter_granularity={self.eval_splitter_granularity}, "
-            f"train_splitter_granularity={self.train_splitter_granularity}"
-        )
-
-    def __repr__(self) -> str:
-        return f"LandmarkTransformer({dict(self.get_config_dict(), architecture=self.auto_model.__class__.__name__)})"
-
-    def _get_current_granularity(self) -> int:
+    def _get_landmark_interval(self) -> int:
         """
-        Get the granularity to use based on current training mode.
+        Return the interval for the current mode:
 
-        This method is called once per text, allowing for per-text randomization
-        during training when `train_splitter_granularity` is a list.
+        - **Eval mode**: returns ``landmark_interval``
+        - **Train mode, list**: randomly samples from ``train_landmark_interval``
+        - **Train mode, int**: returns ``train_landmark_interval``
+        - **Train mode, None**: falls back to ``landmark_interval``
+        """
+        if not self.training or self.train_landmark_interval is None:
+            return self.landmark_interval
+        if isinstance(self.train_landmark_interval, list):
+            return random.choice(self.train_landmark_interval)
+        return self.train_landmark_interval
+
+    def _insert_landmark_tokens(self, token_ids: list[int]) -> list[int]:
+        """
+        Insert LMK tokens into a tokenized sequence.
+
+        Preserves leading/trailing special tokens from the tokenizer, chunks content
+        tokens at the current interval with an LMK token after each chunk, truncates
+        to ``max_seq_length``, and ensures at least one LMK token is present.
+
+        Args:
+            token_ids: Token IDs for a single sequence including special tokens.
 
         Returns:
-            int: The granularity value to use for LMK token insertion
-
-        Note:
-            - In eval mode (self.training=False): Always returns `eval_splitter_granularity`
-            - In training mode (self.training=True): Returns value from `train_splitter_granularity`
-              or `eval_splitter_granularity` if train_splitter_granularity is None
-            - Called once per text for maximum data augmentation when using list of granularities
+            list[int]: Token ID sequence with LMK tokens inserted.
         """
-        # Eval mode: always use fixed inference granularity
-        if not self.training:
-            return self.eval_splitter_granularity
+        if len(token_ids) == 0:
+            return token_ids
 
-        # Training mode: use train_splitter_granularity if provided
-        if self.train_splitter_granularity is None:
-            return self.eval_splitter_granularity
+        # Identify leading/trailing special tokens to preserve them
+        special_token_ids = set(self.tokenizer.all_special_ids)
+        start = 0
+        while start < len(token_ids) and token_ids[start] in special_token_ids:
+            start += 1
+        end = len(token_ids)
+        while end > start and token_ids[end - 1] in special_token_ids:
+            end -= 1
 
-        # If list, sample randomly for data augmentation (called per text)
-        if isinstance(self.train_splitter_granularity, list):
-            return random.choice(self.train_splitter_granularity)
+        prefix = token_ids[:start]
+        content_tokens = token_ids[start:end]
+        suffix = token_ids[end:]
 
-        # Otherwise it's a fixed int
-        return self.train_splitter_granularity
+        if len(content_tokens) == 0:
+            # TODO: It's a bit arbitrary to place the LMK in the middle, I'm also not sure what happens if there's
+            # no content tokens. Will the prefix + suffix be doubled?
+            result = prefix + [self.lmk_token_id] + suffix
+            return result[: self.max_seq_length] if self.max_seq_length else result
+
+        interval = self._get_landmark_interval()
+
+        # Chunk content tokens and append LMK after each chunk
+        body = []
+        for i in range(0, len(content_tokens), interval):
+            body.extend(content_tokens[i : i + interval])
+            body.append(self.lmk_token_id)
+
+        result = prefix + body + suffix
+        if self.max_seq_length:
+            result = result[: self.max_seq_length]
+
+        # Ensure at least one LMK token exists after truncation
+        if self.lmk_token_id not in result:
+            result[-1] = self.lmk_token_id
+
+        return result
 
     @override
     def tokenize(
         self, texts: list[str] | list[dict] | list[tuple[str, str]], padding: bool = True
     ) -> dict[str, torch.Tensor]:
         """
-        Tokenizes texts and inserts LMK tokens at regular intervals.
+        Tokenize texts and insert LMK tokens at regular intervals.
 
-        The tokenization process:
-        1. Tokenize text without special tokens
-        2. Split into chunks of size `granularity` (sampled per text in training mode)
-        3. Append LMK token after each chunk
-        4. Prepend CLS token at the start
-        5. Truncate to max_seq_length
-        6. Ensure at least one LMK token exists
+        Delegates to :meth:`Transformer.tokenize` with truncation disabled, then
+        post-processes each sequence to insert LMK tokens at the configured interval.
 
         Args:
-            texts: Input texts as strings, dicts, or tuples (for pairs)
-            padding: Whether to pad sequences (must be True)
+            texts: Input texts as strings, dicts, or tuples (for pairs).
+            padding: Whether to pad sequences (must be True).
 
         Returns:
-            dict containing:
-                - input_ids: Padded token IDs
-                - attention_mask: Boolean attention mask
-                - text_keys: (optional) Keys when input is list of dicts
+            dict with ``input_ids``, ``attention_mask``.
         """
         assert padding, "Our tokenize function expects that padding will be set to True"
-        output = {}
 
-        # Normalize input format
-        if isinstance(texts[0], str):
-            to_tokenize = [texts]
-        elif isinstance(texts[0], dict):
-            to_tokenize = []
-            output["text_keys"] = []
-            for lookup in texts:
-                text_key, text = next(iter(lookup.items()))
-                to_tokenize.append(text)
-                output["text_keys"].append(text_key)
-            to_tokenize = [to_tokenize]
-        else:
-            # Assume tuples/pairs
-            batch1, batch2 = [], []
-            for text_tuple in texts:
-                batch1.append(text_tuple[0])
-                batch2.append(text_tuple[1])
-            to_tokenize = [batch1, batch2]
+        # Disable truncation so we can insert LMK tokens before truncating
+        original_max_seq_length = self.max_seq_length
+        self.max_seq_length = None
+        try:
+            output = super().tokenize(texts, padding=padding)
+        finally:
+            self.max_seq_length = original_max_seq_length
 
-        # Preprocess: strip whitespace
-        to_tokenize = [[str(s).strip() for s in col] for col in to_tokenize]
+        input_ids = output["input_ids"]
+        pad_token_id = self.tokenizer.pad_token_id
 
-        # Preprocess: lowercase if configured
-        if self.do_lower_case:
-            to_tokenize = [[s.lower() for s in col] for col in to_tokenize]
+        new_input_ids = []
+        for i in range(input_ids.size(0)):
+            row = input_ids[i]
+            token_ids = row[row != pad_token_id].tolist()
+            token_ids = self._insert_landmark_tokens(token_ids)
+            new_input_ids.append(torch.tensor(token_ids, dtype=torch.long))
 
-        inp_ids = []
-        for col in to_tokenize:
-            for text in col:
-                assert isinstance(text, str), f"String expected: {type(text)}, got {text}"
-
-                # Get granularity per text (enables per-text randomization in training)
-                selected_granularity = self._get_current_granularity()
-
-                # Tokenize without special tokens
-                tokenized_item = self.tokenizer(
-                    [text],
-                    padding=False,
-                    truncation=False,
-                    add_special_tokens=False,
-                    return_attention_mask=False,
-                )["input_ids"][0]
-
-                # Handle empty tokenization
-                if len(tokenized_item) == 0:
-                    # Create minimal valid sequence: [CLS] [LMK]
-                    logger.debug(f"Empty tokenization for text: '{text}', using [CLS][LMK]")
-                    tokenized_item = [self.cls_token_id, self.lmk_token_id]
-                    inp_ids.append(torch.tensor(tokenized_item, dtype=torch.long))
-                    continue
-
-                # Split into chunks of selected_granularity
-                tokenized_chunks = [
-                    tokenized_item[i : i + selected_granularity]
-                    for i in range(0, len(tokenized_item), selected_granularity)
-                ]
-
-                # Add LMK token after each chunk
-                tokenized_chunks = [chunk + [self.lmk_token_id] for chunk in tokenized_chunks]
-
-                # Flatten and prepend CLS token
-                tokenized_item = [self.cls_token_id] + [token for chunk in tokenized_chunks for token in chunk]
-
-                # Truncate to max_seq_length
-                tokenized_item = tokenized_item[: self.max_seq_length]
-
-                # Ensure at least one LMK token exists (replace last token if needed)
-                if self.lmk_token_id not in tokenized_item:
-                    logger.debug(f"No LMK token after truncation (len={len(tokenized_item)}), replacing last token")
-                    tokenized_item[-1] = self.lmk_token_id
-
-                inp_ids.append(torch.tensor(tokenized_item, dtype=torch.long))
-
-        # Pad all sequences to same length and stack
-        inp_ids = pad_and_stack(inp_ids, self.tokenizer.pad_token_id)
-
-        # Create attention mask (1 for real tokens, 0 for padding)
-        attention_mask = (inp_ids != self.tokenizer.pad_token_id).to(torch.bool)
-
-        output["input_ids"] = inp_ids
-        output["attention_mask"] = attention_mask
+        output["input_ids"] = pad_and_stack(new_input_ids, pad_token_id)
+        output["attention_mask"] = (output["input_ids"] != pad_token_id).to(torch.bool)
+        output.pop("token_type_ids", None)
 
         return output
