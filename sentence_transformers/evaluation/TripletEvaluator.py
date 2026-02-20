@@ -162,7 +162,12 @@ class TripletEvaluator(SentenceEvaluator):
         return cls(anchors, positives, negatives, **kwargs)
 
     def __call__(
-        self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
+        self,
+        model: SentenceTransformer,
+        output_path: str | None = None,
+        epoch: int = -1,
+        steps: int = -1,
+        encode_args: dict = {},
     ) -> dict[str, float]:
         if epoch != -1:
             if steps == -1:
@@ -176,9 +181,9 @@ class TripletEvaluator(SentenceEvaluator):
 
         logger.info(f"TripletEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
-        embeddings_anchors = self.embed_inputs(model, self.anchors)
-        embeddings_positives = self.embed_inputs(model, self.positives)
-        embeddings_negatives = self.embed_inputs(model, self.negatives)
+        embeddings_anchors = self.embed_inputs(model, self.anchors, **encode_args)
+        embeddings_positives = self.embed_inputs(model, self.positives, **encode_args)
+        embeddings_negatives = self.embed_inputs(model, self.negatives, **encode_args)
 
         if not self.similarity_fn_names:
             self.similarity_fn_names = [model.similarity_fn_name]
