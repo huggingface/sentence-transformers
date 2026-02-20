@@ -174,5 +174,5 @@ except Exception:
     logging.error(
         f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
         f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
-        f"and saving it using `model.push_to_hub('{model_name}-multi-task')`."
+        f"and saving it using `model.push_to_hub('{model_name}-trec')`."
     )
