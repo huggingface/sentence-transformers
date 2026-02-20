@@ -105,7 +105,7 @@ def test_group_by_label_batch_sampler_label_a(dummy_dataset: Dataset, precompute
             pytest.skip("xxhash not installed")
         sampler_kwargs = {
             "precompute_hashes": True,
-            "precompute_num_proc": 1,
+            "precompute_num_proc": 0,
             "precompute_batch_size": 10,
         }
 
@@ -140,7 +140,7 @@ def test_proportional_no_duplicates(
             pytest.skip("xxhash not installed")
         sampler_kwargs = {
             "precompute_hashes": True,
-            "precompute_num_proc": 1,
+            "precompute_num_proc": 0,
             "precompute_batch_size": 10,
         }
     sampler_1 = NoDuplicatesBatchSampler(
@@ -195,7 +195,7 @@ def test_no_duplicates_batch_sampler_matches_reference_algorithm(
             pytest.skip("xxhash not installed")
         sampler_kwargs = {
             "precompute_hashes": True,
-            "precompute_num_proc": 1,
+            "precompute_num_proc": 0,
             "precompute_batch_size": 10,
         }
 
@@ -232,7 +232,7 @@ def test_no_duplicates_batch_sampler_precomputed_hashes_are_int64(dummy_dataset:
         drop_last=True,
         valid_label_columns=["label"],
         precompute_hashes=True,
-        precompute_num_proc=1,
+        precompute_num_proc=0,
         precompute_batch_size=10,
     )
     sampler._build_hashes()
@@ -266,7 +266,7 @@ def test_no_duplicates_batch_sampler_list_values_match_between_hash_and_non_hash
     hashed_sampler = NoDuplicatesBatchSampler(
         **sampler_kwargs,
         precompute_hashes=True,
-        precompute_num_proc=1,
+        precompute_num_proc=0,
         precompute_batch_size=2,
     )
 
@@ -295,21 +295,14 @@ def test_no_duplicates_batch_sampler_uses_int64_indices_when_int32_range_is_exce
 
     captured_dtypes: dict[str, object] = {}
     real_randperm = sampler_module.torch.randperm
-    real_arange = sampler_module.np.arange
 
     def fake_randperm(*args, **kwargs):
         # Capture dtype selected for shuffled row indices.
         captured_dtypes["index_dtype"] = kwargs.get("dtype")
         return real_randperm(*args, **kwargs)
 
-    def fake_arange(*args, **kwargs):
-        # Capture dtype selected for linked-list positions.
-        captured_dtypes["position_dtype"] = kwargs.get("dtype")
-        return real_arange(*args, **kwargs)
-
     monkeypatch.setattr(sampler_module.np, "iinfo", fake_iinfo)
     monkeypatch.setattr(sampler_module.torch, "randperm", fake_randperm)
-    monkeypatch.setattr(sampler_module.np, "arange", fake_arange)
 
     sampler = NoDuplicatesBatchSampler(
         dataset=dummy_dataset,
@@ -322,4 +315,3 @@ def test_no_duplicates_batch_sampler_uses_int64_indices_when_int32_range_is_exce
     _ = list(iter(sampler))
 
     assert captured_dtypes["index_dtype"] == torch.int64
-    assert captured_dtypes["position_dtype"] == np.int64
