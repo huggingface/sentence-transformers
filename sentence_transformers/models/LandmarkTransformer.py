@@ -113,12 +113,6 @@ class LandmarkTransformer(Transformer):
                 else self.tokenizer.eos_token_id
             )
 
-        self.cls_token_id = (
-            self.tokenizer.cls_token_id
-            if getattr(self.tokenizer, "cls_token_id", None) is not None
-            else self.tokenizer.bos_token_id
-        )
-
         if self.lmk_token_id is None:
             raise ValueError("Tokenizer must have either sep_token_id or eos_token_id for LMK tokens")
         if self.tokenizer.pad_token_id is None:
