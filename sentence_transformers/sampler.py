@@ -287,8 +287,6 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
             fn_kwargs={"columns": columns, "exclude_columns": _EXCLUDE_DATASET_COLUMNS},
             desc="Hashing dataset values",
         )
-        # Keep this import outside the try-block below so ImportError is not
-        # mistaken for hash-shape/data issues.
         import pyarrow as pa
 
         try:
@@ -300,24 +298,23 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
 
             row_count = len(column)
             if row_count == 0:
-                row_hashes: np.ndarray = np.zeros((0, 0), dtype=np.int64)
-            else:
-                offsets = column.offsets.to_numpy(zero_copy_only=False)
-                row_size = int(offsets[1] - offsets[0])
-                # Dense ndarray storage below requires a fixed number of hashed
-                # values per row to allow safe reshape(row_count, row_size).
-                if row_size < 0 or not np.all(np.diff(offsets) == row_size):
-                    raise ValueError("Hashed rows have varying lengths.")
-                # If every row has the same length, store as a dense ndarray to reduce overhead.
-                values = column.values.to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
-                if values.size != row_count * row_size:
-                    raise ValueError("Unexpected hashed value buffer size.")
-                row_hashes = values.reshape((row_count, row_size))
+                self._row_hashes = np.zeros((0, 0), dtype=np.int64)
+                return
+
+            offsets = column.offsets.to_numpy(zero_copy_only=False)
+            row_size = int(offsets[1] - offsets[0])
+            # Dense ndarray storage below requires a fixed number of hashed
+            # values per row to allow safe reshape(row_count, row_size).
+            if row_size < 0 or not np.all(np.diff(offsets) == row_size):
+                raise ValueError("Hashed rows have varying lengths.")
+            # If every row has the same length, store as a dense ndarray to reduce overhead.
+            values = column.values.to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
+            if values.size != row_count * row_size:
+                raise ValueError("Unexpected hashed value buffer size.")
+            self._row_hashes = values.reshape((row_count, row_size))
         finally:
             # Drop the temporary dataset to release Arrow buffers promptly.
             del hash_ds
-
-        self._row_hashes = row_hashes
 
     def __iter__(self) -> Iterator[list[int]]:
         """
@@ -343,27 +340,22 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 }
 
         def _has_overlap(sample_values: set[str] | np.ndarray, batch_values: set[str | np.int64]) -> bool:
-            # Non-hash path uses set[str], hashed path uses ndarray[np.int64];
-            # keep one overlap function for both representations.
-            # Avoid materializing a set if we already have one.
+            # Non-hash path with set[str] allows for disjoint overlap checks
             if isinstance(sample_values, set):
                 return not sample_values.isdisjoint(batch_values)
+            # Hash path with ndarray does set instance checks
             return any(value in batch_values for value in sample_values)
 
         num_rows = len(self.dataset)
         if num_rows == 0:
             return
 
-        # Keep the same random order semantics as before, but avoid Python dict/list overhead.
-        # This array stores only row indices, so int32 is sufficient for <=2^31-1 rows and
-        # cuts index-memory roughly in half for very large datasets.
+        # Create a random numpy permutation using int32 (or int64 if necessary)
         index_dtype = torch.int32 if num_rows <= np.iinfo(np.int32).max else torch.int64
         remaining_indices = torch.randperm(num_rows, generator=self.generator, dtype=index_dtype).numpy()
 
-        # Store a singly linked list over shuffled positions. Accepted samples are removed in O(1),
-        # while skipped samples naturally remain for a future batch in the same relative order.
-        # We intentionally keep this order stable so behavior stays deterministic with a fixed seed
-        # and remains compatible with the historical dict-based iteration strategy.
+        # Plus a singly linked list over shuffled positions, where the last position is marked with -1
+        # for simple termination
         position_dtype = np.int32 if num_rows <= np.iinfo(np.int32).max else np.int64
         next_positions = np.arange(1, num_rows + 1, dtype=position_dtype)
         next_positions[-1] = -1
@@ -381,8 +373,6 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 sample_values = get_sample_values(index)
                 if _has_overlap(sample_values, batch_values):
                     # Defer conflicting samples to later batches instead of reordering them.
-                    # This mirrors the previous behavior where skipped indices stayed in the
-                    # remaining-iteration order until they eventually fit in a later batch.
                     previous_position = current_position
                     current_position = next_position
                     continue
@@ -403,8 +393,6 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
 
             if not full_batch:
                 # NOTE: some indices might still have been ignored here
-                # Keeping this behavior unchanged avoids changing total samples/batches for
-                # existing training jobs that rely on the historical sampler semantics.
                 if not self.drop_last:
                     yield batch_indices
 
