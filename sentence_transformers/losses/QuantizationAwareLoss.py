@@ -118,7 +118,8 @@ class ForwardDecorator:
             self.cache.append(output)
         # Using cache (subsequent passes with quantization):
         else:
-            output = self.cache[self.idx]
+            # Copy to keep original float32 cached output intact for reuse
+            output = self.cache[self.idx].copy()
 
         # Quantize the embeddings if precision is specified
         if self.precision is not None:
