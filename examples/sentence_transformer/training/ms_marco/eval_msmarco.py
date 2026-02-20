@@ -1,6 +1,6 @@
 """
 This script runs the evaluation of an SBERT msmarco model on the
-MS MARCO dev dataset and reports different performances metrices for cossine similarity & dot-product.
+MS MARCO dev dataset and reports different performance metrics for cosine similarity & dot-product.
 
 Usage:
 python eval_msmarco.py model_name [max_corpus_size_in_thousands]
