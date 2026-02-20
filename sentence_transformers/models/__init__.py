@@ -8,6 +8,7 @@ from .CNN import CNN
 from .Dense import Dense
 from .Dropout import Dropout
 from .InputModule import InputModule
+from .LandmarkTransformer import LandmarkTransformer
 from .LayerNorm import LayerNorm
 from .LSTM import LSTM
 from .Module import Module
@@ -30,6 +31,7 @@ __all__ = [
     "CNN",
     "Dense",
     "Dropout",
+    "LandmarkTransformer",
     "LayerNorm",
     "LSTM",
     "Normalize",
