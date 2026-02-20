@@ -17,87 +17,191 @@ else:
 
 
 @pytest.fixture
-def dummy_dataset():
-    """
-
-    Dummy dataset for testing purposes. The dataset looks as follows:
-    {
-        "data": [0, 1, 2, ..., 99],
-        "label_a": [0, 1, 0, 1, ..., 0, 1],
-        "label_b": [0, 1, 2, 3, 4, 0, ..., 4]
-    }
-    """
-    data = {"data": list(range(100)), "label_a": [i % 2 for i in range(100)], "label_b": [i % 5 for i in range(100)]}
+def balanced_dataset():
+    """100 samples, 5 labels with 20 samples each."""
+    data = {"data": list(range(100)), "label": [i % 5 for i in range(100)]}
     return Dataset.from_dict(data)
 
 
 @pytest.fixture
-def dummy_uneven_dataset():
-    """
-    Dummy dataset for testing purposes. The dataset looks as follows:
-    {
-        "data": ["a"] * 51,
-        "label": [0] * 17 + [1] * 17 + [2] * 17,
-    }
-    """
-    data = {"data": ["a"] * 51, "label": [0] * 17 + [1] * 17 + [2] * 17}
+def two_label_dataset():
+    """100 samples, 2 labels with 50 samples each."""
+    data = {"data": list(range(100)), "label": [i % 2 for i in range(100)]}
     return Dataset.from_dict(data)
 
 
-def test_group_by_label_batch_sampler_label_a(dummy_dataset: Dataset) -> None:
-    batch_size = 10
+@pytest.fixture
+def imbalanced_dataset():
+    """140 samples: label 0 has 90, label 1 has 30, label 2 has 20."""
+    labels = [0] * 90 + [1] * 30 + [2] * 20
+    data = {"data": list(range(140)), "label": labels}
+    return Dataset.from_dict(data)
 
+
+def test_every_full_batch_has_multiple_labels(balanced_dataset: Dataset) -> None:
     sampler = GroupByLabelBatchSampler(
-        dataset=dummy_dataset, batch_size=batch_size, drop_last=False, valid_label_columns=["label_a", "label_b"]
+        dataset=balanced_dataset, batch_size=16, drop_last=True, valid_label_columns=["label"]
     )
-
-    batches = list(iter(sampler))
-    assert all(len(batch) == batch_size for batch in batches)
-
-    # Check if all labels within each batch are identical
-    # In this case, label_a has 50 0's and 50 1's, so with a batch size of 10 we expect each batch to
-    # have only 0's or only 1's.
+    batches = list(sampler)
+    assert len(batches) > 0
+    labels_col = balanced_dataset["label"]
     for batch in batches:
-        labels = [dummy_dataset[int(idx)]["label_a"] for idx in batch]
-        assert len(set(labels)) == 1, f"Batch {batch} does not have identical labels: {labels}"
+        batch_labels = {labels_col[i] for i in batch}
+        assert len(batch_labels) >= 2, f"Batch has only {batch_labels}"
 
 
-def test_group_by_label_batch_sampler_label_b(dummy_dataset: Dataset) -> None:
-    batch_size = 8
-
+def test_every_label_appears_at_least_twice_per_batch(balanced_dataset: Dataset) -> None:
     sampler = GroupByLabelBatchSampler(
-        dataset=dummy_dataset, batch_size=batch_size, drop_last=True, valid_label_columns=["label_b"]
+        dataset=balanced_dataset, batch_size=16, drop_last=True, valid_label_columns=["label"]
     )
-
-    # drop_last=True, so each batch should be the same length and the last batch is dropped.
-    batches = list(iter(sampler))
-    assert all(len(batch) == batch_size for batch in batches), (
-        "Not all batches are the same size, while drop_last was True."
-    )
-
-    # Assert that we have the expected number of total samples in the batches.
-    assert sum(len(batch) for batch in batches) == 100 // batch_size * batch_size
-
-    # Since we have 20 occurrences each of label_b values 0, 1, 2, 3 and 4 and a batch_size of 8, we expect each batch
-    # to have either 4 or 8 samples with the same label. (The first two batches are 16 samples of the first label,
-    # leaving 4 for the third batch. There 4 of the next label are added, leaving 16 for the next two batches, and so on.)
-    for batch in batches:
-        labels = [dummy_dataset[int(idx)]["label_b"] for idx in batch]
-        counts = list(Counter(labels).values())
-        assert counts == [8] or counts == [4, 4]
+    labels_col = balanced_dataset["label"]
+    for batch in sampler:
+        counts = Counter(labels_col[i] for i in batch)
+        for label, count in counts.items():
+            assert count >= 2, f"Label {label} appears only {count} time(s) in batch"
 
 
-def test_group_by_label_batch_sampler_uneven_dataset(dummy_uneven_dataset: Dataset) -> None:
-    batch_size = 8
-
+def test_batch_size_consistent(balanced_dataset: Dataset) -> None:
+    batch_size = 16
     sampler = GroupByLabelBatchSampler(
-        dataset=dummy_uneven_dataset, batch_size=batch_size, drop_last=False, valid_label_columns=["label"]
+        dataset=balanced_dataset, batch_size=batch_size, drop_last=True, valid_label_columns=["label"]
     )
+    for batch in sampler:
+        assert len(batch) <= batch_size
+        assert len(batch) >= batch_size - 4  # at most P-1 short
 
-    # With a batch_size of 8 and 17 samples per label; verify that every label in a batch occurs at least twice.
-    # We accept some tiny data loss (1 sample per label) due to the uneven number of samples per label.
-    batches = list(iter(sampler))
+
+def test_drop_last_true_no_short_batches(balanced_dataset: Dataset) -> None:
+    batch_size = 16
+    sampler = GroupByLabelBatchSampler(
+        dataset=balanced_dataset, batch_size=batch_size, drop_last=True, valid_label_columns=["label"]
+    )
+    batches = list(sampler)
+    p = sampler.labels_per_batch
+    k = sampler.samples_per_label
+    expected_size = p * k
     for batch in batches:
-        labels = [dummy_uneven_dataset[int(idx)]["label"] for idx in batch]
-        counts = list(Counter(labels).values())
-        assert [count > 1 for count in counts]
+        assert len(batch) == expected_size
+
+
+def test_drop_last_false_yields_remainder(two_label_dataset: Dataset) -> None:
+    batch_size = 32
+    sampler_drop = GroupByLabelBatchSampler(
+        dataset=two_label_dataset, batch_size=batch_size, drop_last=True, valid_label_columns=["label"]
+    )
+    sampler_keep = GroupByLabelBatchSampler(
+        dataset=two_label_dataset, batch_size=batch_size, drop_last=False, valid_label_columns=["label"]
+    )
+    batches_drop = list(sampler_drop)
+    batches_keep = list(sampler_keep)
+    assert len(batches_keep) >= len(batches_drop)
+    total_samples_keep = sum(len(b) for b in batches_keep)
+    total_samples_drop = sum(len(b) for b in batches_drop)
+    assert total_samples_keep >= total_samples_drop
+
+
+def test_sample_coverage(balanced_dataset: Dataset) -> None:
+    """Nearly all samples should be used exactly once per epoch."""
+    sampler = GroupByLabelBatchSampler(
+        dataset=balanced_dataset, batch_size=16, drop_last=False, valid_label_columns=["label"]
+    )
+    all_indices = []
+    for batch in sampler:
+        all_indices.extend(batch)
+    assert len(all_indices) == len(set(all_indices)), "Some samples appear more than once"
+    assert len(all_indices) >= len(balanced_dataset) * 0.8, "Too many samples dropped"
+
+
+def test_len_matches_iteration(balanced_dataset: Dataset) -> None:
+    for drop_last in [True, False]:
+        sampler = GroupByLabelBatchSampler(
+            dataset=balanced_dataset, batch_size=16, drop_last=drop_last, valid_label_columns=["label"]
+        )
+        batches = list(sampler)
+        assert len(sampler) == len(batches), f"drop_last={drop_last}: __len__={len(sampler)} != actual={len(batches)}"
+
+
+def test_raises_on_single_label() -> None:
+    data = {"data": list(range(20)), "label": [0] * 20}
+    ds = Dataset.from_dict(data)
+    with pytest.raises(ValueError, match="at least 2"):
+        GroupByLabelBatchSampler(dataset=ds, batch_size=8, drop_last=False, valid_label_columns=["label"])
+
+
+def test_raises_on_invalid_batch_size(two_label_dataset: Dataset) -> None:
+    with pytest.raises(ValueError):
+        GroupByLabelBatchSampler(
+            dataset=two_label_dataset, batch_size=7, drop_last=False, valid_label_columns=["label"]
+        )
+    with pytest.raises(ValueError):
+        GroupByLabelBatchSampler(
+            dataset=two_label_dataset, batch_size=2, drop_last=False, valid_label_columns=["label"]
+        )
+
+
+def test_imbalanced_dataset_multi_class(imbalanced_dataset: Dataset) -> None:
+    sampler = GroupByLabelBatchSampler(
+        dataset=imbalanced_dataset, batch_size=16, drop_last=True, valid_label_columns=["label"]
+    )
+    labels_col = imbalanced_dataset["label"]
+    batches = list(sampler)
+    assert len(batches) > 0
+    for batch in batches:
+        batch_labels = {labels_col[i] for i in batch}
+        assert len(batch_labels) >= 2
+
+
+def test_minority_labels_in_pk_batches() -> None:
+    """Labels too small for K full draws should still be scheduled into a proper PK batch."""
+    labels = [0] * 1000 + [1] * 500 + [2] * 3
+    ds = Dataset.from_dict({"data": list(range(len(labels))), "label": labels})
+    sampler = GroupByLabelBatchSampler(dataset=ds, batch_size=32, drop_last=True, valid_label_columns=["label"])
+    all_indices = set()
+    for batch in sampler:
+        all_indices.update(batch)
+    minority_indices = set(range(1500, 1503))
+    assert minority_indices.issubset(all_indices), "Minority label samples should appear in scheduled PK batches"
+
+
+def test_two_labels_with_large_batch(two_label_dataset: Dataset) -> None:
+    """With 2 labels and batch_size=32, P=2, K=16."""
+    sampler = GroupByLabelBatchSampler(
+        dataset=two_label_dataset, batch_size=32, drop_last=True, valid_label_columns=["label"]
+    )
+    assert sampler.labels_per_batch == 2
+    assert sampler.samples_per_label == 16
+    labels_col = two_label_dataset["label"]
+    for batch in sampler:
+        counts = Counter(labels_col[i] for i in batch)
+        assert len(counts) == 2
+        for count in counts.values():
+            assert count == 16
+
+
+def _compute_scheduled_efficiency(label_sizes: list[int], batch_size: int) -> float:
+    """Helper: return fraction of samples that appear in properly PK-balanced batches (not the remainder)."""
+    labels = []
+    for i, size in enumerate(label_sizes):
+        labels.extend([i] * size)
+    data = {"data": list(range(len(labels))), "label": labels}
+    ds = Dataset.from_dict(data)
+    sampler = GroupByLabelBatchSampler(dataset=ds, batch_size=batch_size, drop_last=True, valid_label_columns=["label"])
+    scheduled = sum(len(b) for b in sampler)
+    return scheduled / len(labels)
+
+
+def test_efficiency_few_imbalanced_labels() -> None:
+    """6 imbalanced labels, with fixed P=6, only ~9.4% of samples would land in PK-balanced batches."""
+    label_sizes = [1250, 1223, 1162, 896, 835, 86]
+    efficiency = _compute_scheduled_efficiency(label_sizes, batch_size=32)
+    assert efficiency >= 0.90, f"Efficiency {efficiency:.1%} is too low -- most training data is being ignored"
+
+
+def test_efficiency_many_imbalanced_labels() -> None:
+    """Many imbalanced labels, with fixed P, only ~52% of samples would land in PK-balanced batches."""
+    label_sizes = [962, 464, 421, 363, 276, 274, 218, 217, 207, 191]
+    label_sizes += [80 - i * 3 for i in range(10)]
+    label_sizes += [20 - i for i in range(10)]
+    label_sizes += [4, 4, 6, 8, 9, 9, 9, 10, 11, 11]
+    efficiency = _compute_scheduled_efficiency(label_sizes, batch_size=32)
+    assert efficiency >= 0.85, f"Efficiency {efficiency:.1%} is too low -- dominant labels are underused"

@@ -78,10 +78,26 @@ class DefaultBatchSampler(SetEpochMixin, BatchSampler):
 
 class GroupByLabelBatchSampler(DefaultBatchSampler):
     """
-    This sampler groups samples by their labels and aims to create batches such that
-    each batch contains samples where the labels are as homogeneous as possible.
-    This sampler is meant to be used alongside the ``Batch...TripletLoss`` classes, which
-    require that each batch contains at least 2 examples per label class.
+    Batch sampler that ensures each batch contains samples from multiple distinct labels,
+    suitable for losses that perform in-batch triplet mining.
+
+    Each batch is constructed by drawing ``K`` samples (``K >= 2``, "samples per label") from
+    each of ``P`` distinct labels (``P >= 2``, "labels per batch"), giving an effective batch
+    size of ``P * K``. The initial values are computed as:
+
+    - ``P = min(num_labels, batch_size // 2)`` -- use as many labels as possible
+    - ``K = batch_size // P`` -- fill each label's slot equally
+
+    To maximise sample usage with imbalanced label distributions, the scheduler dynamically
+    reduces ``P`` as minority labels are exhausted. As long as at least 2 labels still have
+    unused samples, batches keep being produced -- just with fewer labels and therefore a
+    smaller effective batch size. This avoids discarding samples from majority labels that
+    would otherwise be left behind once all minority labels are consumed.
+
+    Labels with at least 2 samples but fewer than ``K`` are still scheduled into a proper
+    multi-class batch (contributing all their available samples). This ensures minority
+    labels participate in in-batch triplet mining and actually influence the loss, rather
+    than being relegated to a remainder batch where they may be the only label present.
 
     Recommended for:
         - :class:`~sentence_transformers.losses.BatchAllTripletLoss`
@@ -92,6 +108,8 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
     Args:
         dataset (Dataset): The dataset to sample from.
         batch_size (int): Number of samples per batch. Must be divisible by 2.
+            The effective batch size per batch is ``P * K``. Early batches use the full ``P``;
+            later batches may use a smaller ``P`` (down to 2) when fewer labels remain.
         drop_last (bool): If True, drop the last incomplete batch if the dataset size
             is not divisible by the batch size.
         valid_label_columns (List[str], optional): List of column names to check for labels.
@@ -121,19 +139,67 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         )
         self.dataset = dataset
 
-        if self.batch_size % 2 == 1:
-            raise ValueError("The batch size for `GroupByLabelBatchSampler` must be divisible by 2.")
+        if self.batch_size < 4 or self.batch_size % 2 == 1:
+            raise ValueError(f"batch_size must be an even number >= 4, but got {self.batch_size}.")
 
         labels = self._determine_labels_to_use(dataset, self.valid_label_columns)
-        groups = defaultdict(list)
+        groups: dict[Any, list[int]] = defaultdict(list)
         for sample_idx, label in enumerate(labels):
             groups[label].append(sample_idx)
 
-        self.groups = {
-            label: sample_indices[:num_samples]
-            for label, sample_indices in groups.items()
-            if (num_samples := len(sample_indices) // 2 * 2)
-        }
+        # Iteratively compute P/K using labels with enough samples to fill a
+        # full K-draw.  Labels too small for K are kept in self.groups and get
+        # at least 1 scheduled draw so they participate in a proper PK batch.
+        all_valid: dict[Any, list[int]] = {lab: idx for lab, idx in groups.items() if len(idx) >= 2}
+        filtered = dict(all_valid)
+        while True:
+            num_labels = len(filtered)
+            if num_labels < 2:
+                raise ValueError(
+                    "GroupByLabelBatchSampler requires at least 2 distinct labels with sufficient samples, "
+                    f"but only {num_labels} label(s) qualified."
+                )
+            p = min(num_labels, self.batch_size // 2)
+            k = self.batch_size // p
+            new_filtered = {lab: idx for lab, idx in filtered.items() if len(idx) >= k}
+            if len(new_filtered) == len(filtered):
+                break
+            filtered = new_filtered
+
+        self.groups = all_valid
+        self.labels_per_batch = p
+        self.samples_per_label = k
+
+        # Pre-compute batch schedule via greedy packing: always pick the labels with
+        # the most remaining draws. Uses dynamic P: continues scheduling even when
+        # fewer than P labels remain (as long as at least 2 are available).
+        # Minority labels (>= 2 samples but < K) get at least 1 draw so they
+        # participate in a proper multi-class batch rather than only appearing in
+        # the unstructured remainder.
+        draws = {lab: max(1, len(idx) // k) for lab, idx in self.groups.items()}
+        self._schedule: list[list[Any]] = []
+        while True:
+            available = sorted(
+                [(lab, d) for lab, d in draws.items() if d > 0],
+                key=lambda x: -x[1],
+            )
+            if len(available) < 2:
+                break
+            current_p = min(p, len(available))
+            batch_labels = [lab for lab, _ in available[:current_p]]
+            self._schedule.append(batch_labels)
+            for lab in batch_labels:
+                draws[lab] -= 1
+
+        label_draws_used: dict[Any, int] = {lab: 0 for lab in self.groups}
+        for batch in self._schedule:
+            for lab in batch:
+                label_draws_used[lab] += 1
+        scheduled_samples = sum(
+            min(n * k, len(self.groups[lab])) for lab, n in label_draws_used.items()
+        )
+        total_samples = sum(len(idx) for idx in self.groups.values())
+        self._has_remainder = scheduled_samples < total_samples
 
     @staticmethod
     def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[Any]:
@@ -149,18 +215,41 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         if self.generator and self.seed is not None:
             self.generator.manual_seed(self.seed + self.epoch)
 
-        partial_batch = []
-        unique_labels = list(self.groups.keys())
-        for label_idx in torch.randperm(len(self.groups), generator=self.generator):
-            label = unique_labels[label_idx]
-            samples = self.groups[label]
-            partial_batch.extend(samples)
-            while len(partial_batch) >= self.batch_size:
-                yield partial_batch[: self.batch_size]
-                partial_batch = partial_batch[self.batch_size :]
+        labels = list(self.groups.keys())
+        k = self.samples_per_label
 
-        if not self.drop_last and partial_batch:
-            yield partial_batch
+        shuffled: dict[Any, list[int]] = {}
+        for label in labels:
+            indices = self.groups[label]
+            perm = torch.randperm(len(indices), generator=self.generator)
+            shuffled[label] = [indices[i] for i in perm]
+
+        batch_order = torch.randperm(len(self._schedule), generator=self.generator)
+        positions: dict[Any, int] = {label: 0 for label in labels}
+
+        for idx in batch_order:
+            batch_labels = self._schedule[idx]
+            batch: list[int] = []
+            for label in batch_labels:
+                pos = positions[label]
+                batch.extend(shuffled[label][pos : pos + k])
+                positions[label] = pos + k
+            yield batch
+
+        if not self.drop_last:
+            batch = []
+            for label in labels:
+                pos = positions[label]
+                if pos < len(shuffled[label]):
+                    batch.extend(shuffled[label][pos:])
+            if batch:
+                yield batch
+
+    def __len__(self) -> int:
+        n = len(self._schedule)
+        if not self.drop_last and self._has_remainder:
+            n += 1
+        return n
 
 
 def _xxhash_int64(value: str) -> int:
