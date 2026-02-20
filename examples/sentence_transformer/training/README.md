@@ -21,5 +21,8 @@ For the documentation how to train your own models, see [Training Overview](http
 - [nli](nli/) - Natural Language Inference (NLI) data can be quite helpful to pre-train and fine-tune models to create meaningful sentence embeddings.
 - [other](other/) - Various tiny examples for show-casing one specific training case.
 - [paraphrases](paraphrases/) - Examples for training models capable of recognizing paraphrases, i.e. understand when texts have the same meaning despite using different words.
+- [peft](peft/) - Examples for training with PEFT adapters (e.g. LoRA) for parameter-efficient fine-tuning.
+- [prompts](prompts/) - Examples and documentation for training and using embedding models with prompts / instructions.
 - [quora_duplicate_questions](quora_duplicate_questions/) - Quora Duplicate Questions is large set corpus with duplicate questions from the Quora community. The folder contains examples how to train models for duplicate questions mining and for semantic search.
 - [sts](sts/) - The most basic method to train models is using Semantic Textual Similarity (STS) data. Here, we have a sentence pair and a score indicating the semantic similarity.
+- [unsloth](unsloth/) - Examples for fast LoRA / QLoRA fine-tuning with the Unsloth training framework on top of Sentence Transformers.

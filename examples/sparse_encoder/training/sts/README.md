@@ -1,6 +1,6 @@
 # Semantic Textual Similarity
 
-Semantic Textual Similarity (STS) assigns a score on the similarity of two texts. In this example, we use the [stsb](https://huggingface.co/datasets/sentence-transformers/stsb) dataset as training data to fine-tune our sparse encoder model. See the following example scripts how to tune a SparseEncoder, and espacially fine-tune a splade model on STS data:
+Semantic Textual Similarity (STS) assigns a score on the similarity of two texts. In this example, we use the [stsb](https://huggingface.co/datasets/sentence-transformers/stsb) dataset as training data to fine-tune our sparse encoder model. See the following example scripts how to tune a SparseEncoder, and especially fine-tune a splade model on STS data:
 
 - **[train_splade_stsbenchmark.py](train_splade_stsbenchmark.py)** - This example shows how to fine-tune a splade model already pre-trained by using a pre-trained splade model (e.g. [`splade-cocondenser-ensembledistil`](https://huggingface.co/naver/splade-cocondenser-ensembledistil)) and fine tuning it to get better result on this specific task.
 

@@ -1,80 +1,122 @@
 import logging
+import random
+import traceback
 from datetime import datetime
 
-import torch
 from datasets import load_dataset
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models
+from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.trainer import SentenceTransformerTrainer
+from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 
-#### Just some code to print debug information to stdout
+# Just some code to print debug information to stdout
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
-#### /print debug information to stdout
+# /print debug information to stdout
 
-## Training parameters
+# Training parameters
 model_name = "distilbert-base-uncased"
 batch_size = 16
 pos_neg_ratio = 8  # batch_size must be divisible by pos_neg_ratio
-epochs = 1
+num_epochs = 1
 max_seq_length = 75
 
 # Save path to store our model
-model_save_path = "output/train_stsb_ct-{}-{}".format(model_name, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+output_dir = "output/train_stsb_ct-{}-{}".format(model_name, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
 
-
-################# Train sentences #################
 # We use 1 Million sentences from Wikipedia to train our model
-wikipedia_dataset = load_dataset("sentence-transformers/wiki1m-for-simcse", split="train")
+train_dataset = load_dataset("sentence-transformers/wiki1m-for-simcse", split="train")
+train_dataset = train_dataset.filter(lambda example: len(example["text"].strip()) >= 10)
+logging.info(train_dataset)
 
-# train_sentences are simply your list of sentences
-train_sentences = [example["text"].strip() for example in wikipedia_dataset if len(example["text"].strip()) >= 10]
 
-################# Download and load STSb #################
-sts_dataset = load_dataset("sentence-transformers/stsb")
+# Generate sentence pairs for ContrastiveTensionLoss
+def to_ct_pairs(sample, pos_neg_ratio=8):
+    pos_neg_ratio = 1 / pos_neg_ratio
+    return {
+        "text1": sample["text"],
+        "text2": sample["text"] if random.random() < pos_neg_ratio else random.choice(train_dataset)["text"],
+    }
 
-dev_samples = []
-test_samples = []
 
-for row in sts_dataset["validation"]:
-    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
+train_dataset = train_dataset.map(to_ct_pairs, fn_kwargs={"pos_neg_ratio": pos_neg_ratio}, remove_columns=["text"])
+logging.info(train_dataset)
+logging.info(train_dataset[0])
 
-for row in sts_dataset["test"]:
-    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
+# Download and load STSb
+eval_sts_dataset = load_dataset("sentence-transformers/stsb", split="validation")
+test_sts_dataset = load_dataset("sentence-transformers/stsb", split="test")
 
-dev_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(dev_samples, name="sts-dev")
-test_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(test_samples, name="sts-test")
+dev_evaluator = EmbeddingSimilarityEvaluator(
+    sentences1=eval_sts_dataset["sentence1"],
+    sentences2=eval_sts_dataset["sentence2"],
+    scores=eval_sts_dataset["score"],
+    name="sts-dev",
+)
+test_evaluator = EmbeddingSimilarityEvaluator(
+    sentences1=test_sts_dataset["sentence1"],
+    sentences2=test_sts_dataset["sentence2"],
+    scores=test_sts_dataset["score"],
+    name="sts-test",
+)
 
-################# Initialize an SBERT model #################
+# Initialize an SBERT model
 word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
+# Let's evaluate the model before training
+dev_evaluator(model)
+test_evaluator(model)
 
-# For ContrastiveTension we need a special data loader to construct batches with the desired properties
-train_dataloader = losses.ContrastiveTensionDataLoader(
-    train_sentences, batch_size=batch_size, pos_neg_ratio=pos_neg_ratio
-)
-
-# As loss, we losses.ContrastiveTensionLoss
+# As loss, we use ContrastiveTensionLoss
 train_loss = losses.ContrastiveTensionLoss(model)
 
-
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    evaluator=dev_evaluator,
-    epochs=1,
-    evaluation_steps=1000,
-    weight_decay=0,
+# Prepare the training arguments
+args = SentenceTransformerTrainingArguments(
+    output_dir=output_dir,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=batch_size,
     warmup_steps=0,
-    optimizer_class=torch.optim.RMSprop,
-    optimizer_params={"lr": 1e-5},
-    output_path=model_save_path,
-    use_amp=False,  # Set to True, if your GPU has optimized FP16 cores
+    learning_rate=1e-5,
+    weight_decay=0,
+    eval_strategy="steps",
+    eval_steps=1000,
+    save_strategy="steps",
+    save_steps=1000,
+    logging_steps=100,
+    fp16=False,  # Set to True, if your GPU has optimized FP16 cores
+    optim="rmsprop",
 )
 
-########### Load the model and evaluate on test set
+# Train the model
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+    evaluator=dev_evaluator,
+)
+trainer.train()
 
-model = SentenceTransformer(model_save_path)
+logging.info("Evaluating after training")
+dev_evaluator(model)
 test_evaluator(model)
+
+# Save the trained & evaluated model locally
+final_output_dir = f"{output_dir}/final"
+model.save_pretrained(final_output_dir)
+
+# (Optional) save the model to the Hugging Face Hub!
+# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
+try:
+    model.push_to_hub(f"{model_name}-stsb-ct")
+except Exception:
+    logging.error(
+        f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
+        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
+        f"and saving it using `model.push_to_hub('{model_name}-stsb-ct')`."
+    )

@@ -418,7 +418,7 @@ def test_prompt_length_calculation(
     # beginning-of-sequence or end-of-sequence token.
     model = stsb_bert_tiny_model
     model.prompts = {"query": "Prompt: ", "document": ""}
-    # We need to set this to False, otherwise the prompt length wont be needed:
+    # We need to set this to False, otherwise the prompt length won't be needed:
     model.set_pooling_include_prompt(False)
     dummy_bos_token_id = 400
     dummy_eos_token_id = 500

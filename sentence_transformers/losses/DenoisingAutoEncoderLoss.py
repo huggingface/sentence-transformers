@@ -55,25 +55,45 @@ class DenoisingAutoEncoderLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, losses
-                from sentence_transformers.datasets import DenoisingAutoEncoderDataset
-                from torch.utils.data import DataLoader
+                import random
+                from datasets import Dataset
+                from nltk import word_tokenize
+                from nltk.tokenize.treebank import TreebankWordDetokenizer
+                from sentence_transformers import SentenceTransformer
+                from sentence_transformers.losses import DenoisingAutoEncoderLoss
+                from sentence_transformers.trainer import SentenceTransformerTrainer
 
                 model_name = "bert-base-cased"
                 model = SentenceTransformer(model_name)
+
+                def noise_transform(batch, del_ratio=0.6):
+                    texts = batch["text"]
+                    noisy_texts = []
+                    for text in texts:
+                        words = word_tokenize(text)
+                        n = len(words)
+                        if n == 0:
+                            noisy_texts.append(text)
+                            continue
+
+                        kept_words = [word for word in words if random.random() < del_ratio]
+                        # Guarantee that at least one word remains
+                        if len(kept_words) == 0:
+                            noisy_texts.append(random.choice(words))
+                            continue
+
+                        noisy_texts.append(TreebankWordDetokenizer().detokenize(kept_words))
+                    return {"noisy": noisy_texts, "text": texts}
+
                 train_sentences = [
                     "First training sentence", "Second training sentence", "Third training sentence", "Fourth training sentence",
                 ]
-                batch_size = 2
-                train_dataset = DenoisingAutoEncoderDataset(train_sentences)
-                train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-                train_loss = losses.DenoisingAutoEncoderLoss(
-                    model, decoder_name_or_path=model_name, tie_encoder_decoder=True
-                )
-                model.fit(
-                    train_objectives=[(train_dataloader, train_loss)],
-                    epochs=10,
-                )
+
+                train_dataset = Dataset.from_dict({"text": train_sentences})
+                train_dataset.set_transform(transform=lambda batch: noise_transform(batch), columns=["text"], output_all_columns=True)
+                train_loss = DenoisingAutoEncoderLoss(model, decoder_name_or_path=model_name, tie_encoder_decoder=True)
+                trainer = SentenceTransformerTrainer(model=model, train_dataset=train_dataset, loss=train_loss)
+                trainer.train()
         """
         super().__init__()
 

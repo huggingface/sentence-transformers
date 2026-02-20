@@ -25,7 +25,7 @@ class SparseTripletLoss(TripletLoss):
             model: SparseEncoder
             distance_metric: Function to compute distance between two
                 embeddings. The class TripletDistanceMetric contains
-                common distance metrices that can be used.
+                common distance metrics that can be used.
             triplet_margin: The negative should be at least this much
                 further away from the anchor than the positive.
 

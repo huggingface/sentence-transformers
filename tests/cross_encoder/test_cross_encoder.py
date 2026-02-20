@@ -258,7 +258,7 @@ def test_target_device_backwards_compat():
 
 
 def test_num_labels_fresh_model():
-    model = CrossEncoder("prajjwal1/bert-tiny")
+    model = CrossEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
     assert model.num_labels == 1
 
 
@@ -542,7 +542,9 @@ def test_logger_warning(caplog):
     ],
 )
 def test_load_activation_fn_from_kwargs(num_labels: int, activation_fn: str, saved_activation_fn: str, tmp_path: Path):
-    model = CrossEncoder("prajjwal1/bert-tiny", num_labels=num_labels, activation_fn=activation_fn)
+    model = CrossEncoder(
+        "sentence-transformers-testing/stsb-bert-tiny-safetensors", num_labels=num_labels, activation_fn=activation_fn
+    )
     assert fullname(model.activation_fn) == saved_activation_fn
 
     model.save_pretrained(tmp_path)

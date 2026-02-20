@@ -1,13 +1,11 @@
-import gzip
 import logging
-import os
 import random
 import traceback
 from datetime import datetime
 
-from datasets import Dataset
+from datasets import load_dataset
 
-from sentence_transformers import SentenceTransformer, models, util
+from sentence_transformers import SentenceTransformer, models
 from sentence_transformers.evaluation import RerankingEvaluator
 from sentence_transformers.losses import DenoisingAutoEncoderLoss
 from sentence_transformers.trainer import SentenceTransformerTrainer
@@ -33,57 +31,21 @@ model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 # model.max_seq_length = max_seq_length
 
 
-# 2. Download the AskUbuntu dataset from https://github.com/taolei87/askubuntu
-askubuntu_folder = "data/askubuntu"
-result_folder = "output/askubuntu-tsdae-" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-batch_size = 8
+# 2. Read eval/test datasets, skipping samples without positive examples
+test_dataset = load_dataset("sentence-transformers/askubuntu", split="test").filter(lambda x: x["positive"])
+eval_dataset = load_dataset("sentence-transformers/askubuntu", split="dev").filter(lambda x: x["positive"])
 
-for filename in ["text_tokenized.txt.gz", "dev.txt", "test.txt", "train_random.txt"]:
-    filepath = os.path.join(askubuntu_folder, filename)
-    if not os.path.exists(filepath):
-        util.http_get("https://github.com/taolei87/askubuntu/raw/master/" + filename, filepath)
+dev_or_test_questions = set()
+for dataset in (eval_dataset, test_dataset):
+    dev_or_test_questions.update(dataset["query"])
+    dev_or_test_questions.update(question for question_list in dataset["positive"] for question in question_list)
+    dev_or_test_questions.update(question for question_list in dataset["negative"] for question in question_list)
 
-# Read the corpus
-corpus = {}
-dev_test_ids = set()
-with gzip.open(os.path.join(askubuntu_folder, "text_tokenized.txt.gz"), "rt", encoding="utf8") as fIn:
-    for line in fIn:
-        id, title, *_ = line.strip().split("\t")
-        corpus[id] = title
-
-
-# Read dev & test dataset
-def read_eval_dataset(filepath) -> Dataset:
-    data = {
-        "query": [],
-        "positive": [],
-        "negative": [],
-    }
-    with open(filepath) as fIn:
-        for line in fIn:
-            query_id, relevant_id, candidate_ids, bm25_scores = line.strip().split("\t")
-            if len(relevant_id) == 0:  # Skip examples without relevant entries
-                continue
-
-            relevant_id = relevant_id.split(" ")
-            candidate_ids = candidate_ids.split(" ")
-            negative_ids = set(candidate_ids) - set(relevant_id)
-            data["query"].append(corpus[query_id])
-            data["positive"].append([corpus[pid] for pid in relevant_id])
-            data["negative"].append([corpus[pid] for pid in negative_ids])
-            dev_test_ids.add(query_id)
-            dev_test_ids.update(candidate_ids)
-    dataset = Dataset.from_dict(data)
-    return dataset
-
-
-eval_dataset = read_eval_dataset(os.path.join(askubuntu_folder, "dev.txt"))
-test_dataset = read_eval_dataset(os.path.join(askubuntu_folder, "test.txt"))
-
-## Now we need a list of train sentences.
-## In this example we simply use all sentences that don't appear in the train/dev set
-train_sentences = [sentence for id, sentence in corpus.items() if id not in dev_test_ids]
-train_dataset = Dataset.from_dict({"text": train_sentences})
+# Load questions for training, skipping those that are part of dev or test sets
+train_dataset = load_dataset("sentence-transformers/askubuntu-questions", split="train").filter(
+    lambda x: x["text"] not in dev_or_test_questions
+)
+logging.info(train_dataset)
 
 
 def noise_transform(batch, del_ratio=0.6):
@@ -179,11 +141,11 @@ args = SentenceTransformerTrainingArguments(
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:
     eval_strategy="steps",
-    eval_steps=5000,
+    eval_steps=100,
     save_strategy="steps",
-    save_steps=5000,
+    save_steps=500,
     save_total_limit=2,
-    logging_steps=1000,
+    logging_steps=10,
     run_name="tsdae-askubuntu",  # Will be used in W&B if `wandb` is installed
 )
 

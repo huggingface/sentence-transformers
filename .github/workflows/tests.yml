@@ -13,6 +13,7 @@ on:
 
 env:
   TRANSFORMERS_IS_CI: 1
+  HF_HUB_DISABLE_PROGRESS_BARS: 1  # The Transformers v5 weight loading progress bars heavily expand the logs
 
 jobs:
   test_sampling:
