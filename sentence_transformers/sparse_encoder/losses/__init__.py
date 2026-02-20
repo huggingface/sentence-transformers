@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .CachedSpladeLoss import CachedSpladeLoss
 from .CSRLoss import CSRLoss, CSRReconstructionLoss
 from .FlopsLoss import FlopsLoss
 from .SparseAnglELoss import SparseAnglELoss
@@ -13,6 +14,7 @@ from .SparseTripletLoss import SparseTripletLoss
 from .SpladeLoss import SpladeLoss
 
 __all__ = [
+    "CachedSpladeLoss",
     "CSRLoss",
     "CSRReconstructionLoss",
     "SparseMultipleNegativesRankingLoss",
