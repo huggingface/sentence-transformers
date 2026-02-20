@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Iterator
 from itertools import accumulate, cycle
-from typing import Any
 
 import numpy as np
 import torch
@@ -26,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 _XXHASH_INT64_MAX = 1 << 63
 _XXHASH_UINT64_MAX = 1 << 64
+_EXCLUDE_DATASET_COLUMNS = {"dataset_name"}
 
 
 class SetEpochMixin:
@@ -136,7 +136,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         }
 
     @staticmethod
-    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[Any]:
+    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[object]:
         for column_name in valid_label_columns or []:
             if column_name in dataset.column_names:
                 return dataset[column_name]
@@ -172,7 +172,7 @@ def _xxhash_int64(value: str) -> int:
 
 
 def _hash_batch(
-    batch: dict[str, list[Any]],
+    batch: dict[str, list[object]],
     columns: list[str],
     exclude_columns: set[str],
 ) -> dict[str, list[list[int]]]:
@@ -187,10 +187,9 @@ def _hash_batch(
         row_hashes: list[int] = []
         for column in active_columns:
             value = batch[column][row_idx]
-            if isinstance(value, list):
-                row_hashes.extend(_xxhash_int64(str(item)) for item in value)
-            else:
-                row_hashes.append(_xxhash_int64(str(value)))
+            # Keep semantics aligned with the non-hash path, which compares
+            # stringified per-column values (including list values as a whole).
+            row_hashes.append(_xxhash_int64(str(value)))
         hashes.append(row_hashes)
     return {"__hashes": hashes}
 
@@ -272,25 +271,25 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 self.precompute_num_proc = default_workers
 
     def _build_hashes(self) -> None:
+        # Build once lazily on first iteration, then reuse across epochs.
+        # Hashes depend on dataset content, not epoch seed/order.
         if not self.precompute_hashes or self._row_hashes is not None:
             return
-        exclude_columns = {"dataset_name"}
         columns = list(self.dataset.column_names)
         # Precompute hash values once to avoid repeated string processing per batch.
         # Use num_proc to parallelize hashing across CPU cores.
-        hash_ds: Dataset | None = None
         hash_ds = self.dataset.map(
             _hash_batch,
             batched=True,
             batch_size=self.precompute_batch_size,
             num_proc=self.precompute_num_proc,
             remove_columns=columns,
-            fn_kwargs={"columns": columns, "exclude_columns": exclude_columns},
+            fn_kwargs={"columns": columns, "exclude_columns": _EXCLUDE_DATASET_COLUMNS},
             desc="Hashing dataset values",
         )
-        try:
-            import pyarrow as pa
+        import pyarrow as pa
 
+        try:
             column = hash_ds.data.column("__hashes")
             if isinstance(column, pa.ChunkedArray):
                 column = column.combine_chunks()
@@ -299,29 +298,22 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
 
             row_count = len(column)
             if row_count == 0:
-                row_hashes = np.zeros((0, 0), dtype=np.int64)
-            else:
-                offsets = column.offsets.to_numpy(zero_copy_only=False)
-                row_size = int(offsets[1] - offsets[0])
-                if row_size < 0 or not np.all(np.diff(offsets) == row_size):
-                    raise ValueError("Hashed rows have varying lengths.")
-                # If every row has the same length, store as a dense ndarray to reduce overhead.
-                values = column.values.to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
-                if values.size != row_count * row_size:
-                    raise ValueError("Unexpected hashed value buffer size.")
-                row_hashes = values.reshape((row_count, row_size))
-        except Exception as exc:
-            # Surface failures explicitly; the precompute option expects fixed-length rows.
-            if hash_ds is not None:
-                del hash_ds
-            raise ValueError(
-                "NoDuplicatesBatchSampler with precompute_hashes=True requires fixed-length hash rows. "
-                "Ensure each sample has the same number of values across columns."
-            ) from exc
+                self._row_hashes = np.zeros((0, 0), dtype=np.int64)
+                return
 
-        self._row_hashes = row_hashes
-        # Drop the temporary dataset to release Arrow buffers promptly.
-        if hash_ds is not None:
+            offsets = column.offsets.to_numpy(zero_copy_only=False)
+            row_size = int(offsets[1] - offsets[0])
+            # Dense ndarray storage below requires a fixed number of hashed
+            # values per row to allow safe reshape(row_count, row_size).
+            if row_size < 0 or not np.all(np.diff(offsets) == row_size):
+                raise ValueError("Hashed rows have varying lengths.")
+            # If every row has the same length, store as a dense ndarray to reduce overhead.
+            values = column.values.to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
+            if values.size != row_count * row_size:
+                raise ValueError("Unexpected hashed value buffer size.")
+            self._row_hashes = values.reshape((row_count, row_size))
+        finally:
+            # Drop the temporary dataset to release Arrow buffers promptly.
             del hash_ds
 
     def __iter__(self) -> Iterator[list[int]]:
@@ -337,46 +329,72 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
             self._build_hashes()
             row_hashes: np.ndarray = self._row_hashes
 
-            def get_sample_values(index: int):
+            def get_sample_values(index: int) -> set[str] | np.ndarray:
                 return row_hashes[index]
 
         else:
 
-            def get_sample_values(index: int) -> set[str]:
-                return {str(value) for key, value in self.dataset[index].items() if key != "dataset_name"}
+            def get_sample_values(index: int) -> set[str] | np.ndarray:
+                return {
+                    str(value) for key, value in self.dataset[index].items() if key not in _EXCLUDE_DATASET_COLUMNS
+                }
 
-        def _has_overlap(sample_values, batch_values: set[Any]) -> bool:
-            # Avoid materializing a set if we already have one.
+        def _has_overlap(sample_values: set[str] | np.ndarray, batch_values: set[str | np.int64]) -> bool:
+            # Non-hash path with set[str] allows for disjoint overlap checks
             if isinstance(sample_values, set):
                 return not sample_values.isdisjoint(batch_values)
+            # Hash path with ndarray does set instance checks
             return any(value in batch_values for value in sample_values)
 
-        # We create a dictionary mapping indices to None because we need a data structure that:
-        # 1. Allows for cheap removal of elements
-        # 2. Preserves the order of elements, i.e. remains random
-        remaining_indices = dict.fromkeys(torch.randperm(len(self.dataset), generator=self.generator).tolist())
-        while remaining_indices:
-            batch_values: set[Any] = set()
+        num_rows = len(self.dataset)
+        if num_rows == 0:
+            return
+
+        # Create a random numpy permutation using int32 (or int64 if necessary)
+        index_dtype = torch.int32 if num_rows <= np.iinfo(np.int32).max else torch.int64
+        remaining_indices = torch.randperm(num_rows, generator=self.generator, dtype=index_dtype).numpy()
+
+        # Plus a singly linked list over shuffled positions, where the last position is marked with -1
+        # for simple termination
+        position_dtype = np.int32 if num_rows <= np.iinfo(np.int32).max else np.int64
+        next_positions = np.arange(1, num_rows + 1, dtype=position_dtype)
+        next_positions[-1] = -1
+        head_position = 0
+
+        while head_position != -1:
+            batch_values: set[str | np.int64] = set()
             batch_indices: list[int] = []
-            for index in remaining_indices:
+            current_position = head_position
+            previous_position = -1
+            full_batch = False
+            while current_position != -1:
+                next_position = int(next_positions[current_position])
+                index = int(remaining_indices[current_position])
                 sample_values = get_sample_values(index)
                 if _has_overlap(sample_values, batch_values):
+                    # Defer conflicting samples to later batches instead of reordering them.
+                    previous_position = current_position
+                    current_position = next_position
                     continue
 
                 batch_indices.append(index)
+                if previous_position == -1:
+                    head_position = next_position
+                else:
+                    next_positions[previous_position] = next_position
+
                 if len(batch_indices) == self.batch_size:
+                    full_batch = True
                     yield batch_indices
                     break
 
                 batch_values.update(sample_values)
+                current_position = next_position
 
-            else:
+            if not full_batch:
                 # NOTE: some indices might still have been ignored here
                 if not self.drop_last:
                     yield batch_indices
-
-            for index in batch_indices:
-                del remaining_indices[index]
 
     def __len__(self) -> int:
         if self.drop_last:
