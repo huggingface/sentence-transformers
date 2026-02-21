@@ -129,6 +129,8 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         generator: torch.Generator | None = None,
         seed: int = 0,
     ) -> None:
+        if generator is None:
+            generator = torch.Generator()
         super().__init__(
             dataset,
             batch_size=batch_size,
@@ -195,15 +197,14 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         for batch in self._schedule:
             for lab in batch:
                 label_draws_used[lab] += 1
-        scheduled_samples = sum(
-            min(n * k, len(self.groups[lab])) for lab, n in label_draws_used.items()
-        )
+        scheduled_samples = sum(min(n * k, len(self.groups[lab])) for lab, n in label_draws_used.items())
         total_samples = sum(len(idx) for idx in self.groups.values())
         self._has_remainder = scheduled_samples < total_samples
 
     @staticmethod
     def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[Any]:
-        for column_name in valid_label_columns or []:
+        valid_label_columns = valid_label_columns or ["label", "labels"]
+        for column_name in valid_label_columns:
             if column_name in dataset.column_names:
                 return dataset[column_name]
         raise ValueError(

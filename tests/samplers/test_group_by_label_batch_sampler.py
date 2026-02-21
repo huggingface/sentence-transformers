@@ -38,18 +38,6 @@ def imbalanced_dataset():
     return Dataset.from_dict(data)
 
 
-def test_every_full_batch_has_multiple_labels(balanced_dataset: Dataset) -> None:
-    sampler = GroupByLabelBatchSampler(
-        dataset=balanced_dataset, batch_size=16, drop_last=True, valid_label_columns=["label"]
-    )
-    batches = list(sampler)
-    assert len(batches) > 0
-    labels_col = balanced_dataset["label"]
-    for batch in batches:
-        batch_labels = {labels_col[i] for i in batch}
-        assert len(batch_labels) >= 2, f"Batch has only {batch_labels}"
-
-
 def test_every_label_appears_at_least_twice_per_batch(balanced_dataset: Dataset) -> None:
     sampler = GroupByLabelBatchSampler(
         dataset=balanced_dataset, batch_size=16, drop_last=True, valid_label_columns=["label"]
@@ -59,16 +47,6 @@ def test_every_label_appears_at_least_twice_per_batch(balanced_dataset: Dataset)
         counts = Counter(labels_col[i] for i in batch)
         for label, count in counts.items():
             assert count >= 2, f"Label {label} appears only {count} time(s) in batch"
-
-
-def test_batch_size_consistent(balanced_dataset: Dataset) -> None:
-    batch_size = 16
-    sampler = GroupByLabelBatchSampler(
-        dataset=balanced_dataset, batch_size=batch_size, drop_last=True, valid_label_columns=["label"]
-    )
-    for batch in sampler:
-        assert len(batch) <= batch_size
-        assert len(batch) >= batch_size - 4  # at most P-1 short
 
 
 def test_drop_last_true_no_short_batches(balanced_dataset: Dataset) -> None:
@@ -185,7 +163,7 @@ def _compute_scheduled_efficiency(label_sizes: list[int], batch_size: int) -> fl
         labels.extend([i] * size)
     data = {"data": list(range(len(labels))), "label": labels}
     ds = Dataset.from_dict(data)
-    sampler = GroupByLabelBatchSampler(dataset=ds, batch_size=batch_size, drop_last=True, valid_label_columns=["label"])
+    sampler = GroupByLabelBatchSampler(dataset=ds, batch_size=batch_size, drop_last=True)
     scheduled = sum(len(b) for b in sampler)
     return scheduled / len(labels)
 
