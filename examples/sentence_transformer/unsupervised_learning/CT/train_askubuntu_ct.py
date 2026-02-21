@@ -22,7 +22,7 @@ logging.basicConfig(
 # Sentences are truncated to 75 word pieces
 model_name = "distilbert-base-uncased"
 batch_size = 16
-pos_neg_ratio = 8  # batch_size must be devisible by pos_neg_ratio
+pos_neg_ratio = 8  # batch_size must be divisible by pos_neg_ratio
 max_seq_length = 75
 num_epochs = 1
 

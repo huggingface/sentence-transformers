@@ -34,7 +34,7 @@ class ContrastiveLoss(nn.Module):
             model: SentenceTransformer model
             distance_metric: Function that returns a distance between
                 two embeddings. The class SiameseDistanceMetric contains
-                pre-defined metrices that can be used
+                pre-defined metrics that can be used
             margin: Negative samples (label == 0) should have a distance
                 of at least the margin value.
             size_average: Average by the size of the mini-batch.

@@ -55,21 +55,25 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
     Example:
         ::
 
+            import logging
             import random
+
+            from datasets import load_dataset
             from sentence_transformers import SentenceTransformer
             from sentence_transformers.evaluation import InformationRetrievalEvaluator
-            from datasets import load_dataset
+
+            logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
             # Load a model
-            model = SentenceTransformer('all-MiniLM-L6-v2')
+            model = SentenceTransformer("all-MiniLM-L6-v2")
 
-            # Load the Touche-2020 IR dataset (https://huggingface.co/datasets/BeIR/webis-touche2020, https://huggingface.co/datasets/BeIR/webis-touche2020-qrels)
-            corpus = load_dataset("BeIR/webis-touche2020", "corpus", split="corpus")
-            queries = load_dataset("BeIR/webis-touche2020", "queries", split="queries")
-            relevant_docs_data = load_dataset("BeIR/webis-touche2020-qrels", split="test")
+            # Load the Touche-2020 IR dataset (https://huggingface.co/datasets/mteb/webis-touche2020-v3)
+            corpus = load_dataset("mteb/webis-touche2020-v3", "corpus", split="corpus")
+            queries = load_dataset("mteb/webis-touche2020-v3", "queries", split="train")
+            relevant_docs_data = load_dataset("mteb/webis-touche2020-v3", "default", split="test")
 
             # For this dataset, we want to concatenate the title and texts for the corpus
-            corpus = corpus.map(lambda x: {'text': x['title'] + " " + x['text']}, remove_columns=['title'])
+            corpus = corpus.map(lambda x: {"text": (x["title"] + " " + x["text"]).strip()}, remove_columns=["title"])
 
             # Shrink the corpus size heavily to only the relevant documents + 30,000 random documents
             required_corpus_ids = set(map(str, relevant_docs_data["corpus-id"]))
@@ -92,35 +96,35 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
                 queries=queries,
                 corpus=corpus,
                 relevant_docs=relevant_docs,
-                name="BeIR-touche2020-subset-test",
+                name="mteb-touche2020-subset-test",
             )
             results = ir_evaluator(model)
             '''
-            Information Retrieval Evaluation of the model on the BeIR-touche2020-test dataset:
+            Information Retrieval Evaluation of the model on the mteb-touche2020-subset-test dataset:
             Queries: 49
-            Corpus: 31923
+            Corpus: 32446
 
             Score-Function: cosine
-            Accuracy@1: 77.55%
-            Accuracy@3: 93.88%
-            Accuracy@5: 97.96%
+            Accuracy@1: 100.00%
+            Accuracy@3: 100.00%
+            Accuracy@5: 100.00%
             Accuracy@10: 100.00%
-            Precision@1: 77.55%
-            Precision@3: 72.11%
-            Precision@5: 71.43%
-            Precision@10: 62.65%
-            Recall@1: 1.72%
-            Recall@3: 4.78%
-            Recall@5: 7.90%
-            Recall@10: 13.86%
-            MRR@10: 0.8580
-            NDCG@10: 0.6606
-            MAP@100: 0.2934
+            Precision@1: 100.00%
+            Precision@3: 93.88%
+            Precision@5: 91.84%
+            Precision@10: 91.63%
+            Recall@1: 1.76%
+            Recall@3: 4.98%
+            Recall@5: 8.14%
+            Recall@10: 16.25%
+            MRR@10: 1.0000
+            NDCG@10: 0.9295
+            MAP@100: 0.4844
             '''
             print(ir_evaluator.primary_metric)
-            # => "BeIR-touche2020-test_cosine_map@100"
+            # => "mteb-touche2020-subset-test_cosine_ndcg@10"
             print(results[ir_evaluator.primary_metric])
-            # => 0.29335196224364596
+            # => 0.9294944073850905
     """
 
     def __init__(
@@ -374,6 +378,7 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
                     queries_result_list[name][query_itr][doc_itr] = {"corpus_id": corpus_id, "score": score}
 
         if self.write_predictions and output_path is not None:
+            os.makedirs(output_path, exist_ok=True)
             for name in queries_result_list:
                 base_filename = self.predictions_file.replace(".jsonl", f"_{name}.jsonl")
                 json_path = os.path.join(output_path, base_filename)
