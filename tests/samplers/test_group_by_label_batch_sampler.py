@@ -158,7 +158,9 @@ def _compute_scheduled_efficiency(label_sizes: list[int], batch_size: int) -> fl
         labels.extend([i] * size)
     data = {"data": list(range(len(labels))), "label": labels}
     ds = Dataset.from_dict(data)
-    sampler = GroupByLabelBatchSampler(dataset=ds, batch_size=batch_size, drop_last=True)
+    sampler = GroupByLabelBatchSampler(
+        dataset=ds, batch_size=batch_size, valid_label_columns=["label"], drop_last=True
+    )
     scheduled = sum(len(b) for b in sampler)
     return scheduled / len(labels)
 
