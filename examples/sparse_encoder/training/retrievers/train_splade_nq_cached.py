@@ -82,7 +82,7 @@ def main():
         per_device_train_batch_size=global_batch_size,
         per_device_eval_batch_size=global_batch_size,
         warmup_ratio=0.1,
-        learning_rate=1e-5,
+        learning_rate=1e-5,  # NOTE: The learning rate is much higher to account for the higher batch size
         fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=True,  # Set to True if you have a GPU that supports BF16
         batch_sampler=BatchSamplers.NO_DUPLICATES,  # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch
