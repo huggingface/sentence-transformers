@@ -52,18 +52,18 @@ class CachedSpladeLoss(SpladeLoss):
             model: SparseEncoder model
             loss: The principal loss function to use can be any of the SparseEncoder losses except CSR related
                 losses and flops loss. Must have a ``compute_loss_from_embeddings`` method.
-            document_regularizer_weight: Weight for the corpus regularization term. This term encourages sparsity
+            document_regularizer_weight: Weight for the document regularization term. This term encourages sparsity
                 in the document embeddings. In some papers, this parameter is referred to as "lambda_d" (document)
                 or "lambda_c" (corpus).
             query_regularizer_weight: Weight for the query regularization term. This term encourages sparsity in
                 the query embeddings. If None, no query regularization will be applied. In some papers, this
                 parameter is referred to as "lambda_q" (query).
-            document_regularizer: Optional regularizer to use specifically for corpus regularization instead of the
+            document_regularizer: Optional regularizer to use specifically for document regularization instead of the
                 default FlopsLoss.
             query_regularizer: Optional regularizer to use specifically for query regularization instead of the
                 default FlopsLoss.
             document_regularizer_threshold: Optional threshold for the number of non-zero (active) elements in the
-                corpus embeddings to be considered in the FlopsLoss.
+                document embeddings to be considered in the FlopsLoss.
             query_regularizer_threshold: Optional threshold for the number of non-zero (active) elements in the
                 query embeddings to be considered in the FlopsLoss.
             use_document_regularizer_only: If True, all input embeddings are treated as documents and regularized
@@ -201,10 +201,10 @@ class CachedSpladeLoss(SpladeLoss):
 
         # Document regularizer
         if self.use_document_regularizer_only:
-            corpus_emb = torch.cat(embeddings)
+            document_emb = torch.cat(embeddings)
         else:
-            corpus_emb = torch.cat(embeddings[1:])
-        doc_reg_loss = self.document_regularizer.compute_loss_from_embeddings(corpus_emb)
+            document_emb = torch.cat(embeddings[1:])
+        doc_reg_loss = self.document_regularizer.compute_loss_from_embeddings(document_emb)
         weighted_doc_reg = doc_reg_loss * self.document_regularizer_weight
         self._doc_reg_value = weighted_doc_reg.detach().item()
         total_loss = total_loss + weighted_doc_reg
@@ -284,10 +284,10 @@ class CachedSpladeLoss(SpladeLoss):
                 losses["base_loss"] = base_loss
 
             if self.use_document_regularizer_only:
-                corpus_emb = torch.cat(embeddings)
+                document_emb = torch.cat(embeddings)
             else:
-                corpus_emb = torch.cat(embeddings[1:])
-            doc_reg_loss = self.document_regularizer.compute_loss_from_embeddings(corpus_emb)
+                document_emb = torch.cat(embeddings[1:])
+            doc_reg_loss = self.document_regularizer.compute_loss_from_embeddings(document_emb)
             losses["document_regularizer_loss"] = doc_reg_loss * self.document_regularizer_weight
 
             if self.query_regularizer_weight is not None:

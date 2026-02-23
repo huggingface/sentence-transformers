@@ -36,19 +36,19 @@ class SpladeLoss(nn.Module):
         Args:
             model: SparseEncoder model
             loss: The principal loss function to use can be any of the SparseEncoder losses except CSR related losses and flops loss.
-            document_regularizer_weight: Weight for the corpus regularization term. This term encourages sparsity in the document embeddings.
+            document_regularizer_weight: Weight for the document regularization term. This term encourages sparsity in the document embeddings.
                 Will be applied to positive documents and all negatives one if some are provided. In some papers, this parameter is
                 referred to as "lambda_d" (document) or "lambda_c" (corpus).
             query_regularizer_weight: Weight for the query regularization term. This term encourages sparsity in the query embeddings.
                 If None, no query regularization will be applied, it's not a problem if you are in an inference-free setup or
                 if you are having use_document_regularizer_only=True. Else you should have a query_regularizer_weight > 0.
                 In some papers, this parameter is referred to as "lambda_q" (query).
-            document_regularizer: Optional regularizer to use specifically for corpus regularization instead of the default FlopsLoss.
+            document_regularizer: Optional regularizer to use specifically for document regularization instead of the default FlopsLoss.
                 This allows for different regularization strategies for documents vs queries.
             query_regularizer: Optional regularizer to use specifically for query regularization instead of the default FlopsLoss.
                 This allows for different regularization strategies for queries vs documents.
-            document_regularizer_threshold: Optional threshold for the number of non-zero (active) elements in the corpus embeddings to be considered in the FlopsLoss.
-                If specified, only corpus embeddings with more than this number of non-zero (active) elements will be considered.
+            document_regularizer_threshold: Optional threshold for the number of non-zero (active) elements in the document embeddings to be considered in the FlopsLoss.
+                If specified, only document embeddings with more than this number of non-zero (active) elements will be considered.
                 Only used when document_regularizer is None (for the default FlopsLoss).
             query_regularizer_threshold: Optional threshold for the number of non-zero (active) elements in the query embeddings to be considered in the FlopsLoss.
                 If specified, only query embeddings with more than this number of non-zero (active) elements will be considered.
@@ -149,10 +149,10 @@ class SpladeLoss(nn.Module):
 
         if self.use_document_regularizer_only:
             # If use_document_regularizer_only is True, we consider all the input to be of the same type and so under the same regularization
-            corpus_loss = self.document_regularizer.compute_loss_from_embeddings(torch.cat(embeddings))
+            document_loss = self.document_regularizer.compute_loss_from_embeddings(torch.cat(embeddings))
         else:
-            corpus_loss = self.document_regularizer.compute_loss_from_embeddings(torch.cat(embeddings[1:]))
-        losses["document_regularizer_loss"] = corpus_loss * self.document_regularizer_weight
+            document_loss = self.document_regularizer.compute_loss_from_embeddings(torch.cat(embeddings[1:]))
+        losses["document_regularizer_loss"] = document_loss * self.document_regularizer_weight
 
         # Add query regularization if enabled
         if self.query_regularizer_weight is not None:
