@@ -36,13 +36,6 @@ class CachedSpladeLoss(SpladeLoss):
         Cached version of :class:`SpladeLoss` that uses the GradCache technique to allow for much larger
         effective batch sizes without additional GPU memory usage.
 
-        The key insight is that caching happens at the SpladeLoss (wrapper) level, not at the base loss level.
-        This resolves the fundamental conflict between:
-
-        - **Cached losses** needing raw inputs to compute embeddings in mini-batches.
-        - **SpladeLoss** needing to compute embeddings once and share them with both the base loss and
-          the FLOPS regularizer.
-
         By performing the GradCache mini-batch embedding at the SpladeLoss level, both the base loss and
         regularizers still receive pre-computed embeddings via ``compute_loss_from_embeddings()`` — no
         changes to base losses or regularizers are needed.
