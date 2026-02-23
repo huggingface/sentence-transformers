@@ -131,7 +131,7 @@ args = SentenceTransformerTrainingArguments(
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     warmup_ratio=0.1,
-    # GROUP_BY_LABEL ensures each batch has P distinct labels with K samples each (P >= 2, K >= 2)
+    # GROUP_BY_LABEL ensures each batch has at least 2 distinct labels with at least 2 samples per label
     batch_sampler=BatchSamplers.GROUP_BY_LABEL,
     eval_strategy="steps",
     eval_steps=0.2,

@@ -153,7 +153,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
 
     @staticmethod
     def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[Any]:
-        valid_label_columns = valid_label_columns or ["label", "labels"]
+        valid_label_columns = valid_label_columns or []
         for column_name in valid_label_columns:
             if column_name in dataset.column_names:
                 return dataset[column_name]

@@ -41,7 +41,7 @@ class BatchSamplers(ExplicitEnum):
         - :class:`~sentence_transformers.losses.GISTEmbedLoss`
         - :class:`~sentence_transformers.losses.CachedGISTEmbedLoss`
     - ``BatchSamplers.GROUP_BY_LABEL``: Uses :class:`~sentence_transformers.sampler.GroupByLabelBatchSampler`,
-      which constructs each batch by drawing K samples from each of P distinct labels (P >= 2, K >= 2).
+      which constructs each batch by drawing at least 2 samples from each of at least 2 distinct labels.
       This guarantees every batch contains multiple classes, which is required for in-batch triplet mining.
       Recommended for:
 
