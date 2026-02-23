@@ -11,7 +11,8 @@ from .SparseMSELoss import SparseMSELoss
 from .SparseMultipleNegativesRankingLoss import SparseMultipleNegativesRankingLoss
 from .SparseTripletLoss import SparseTripletLoss
 from .SpladeLoss import SpladeLoss
-from .CachedSpladeLoss import CachedSpladeLoss  # Must be after SpladeLoss to avoid circular import
+
+from .CachedSpladeLoss import CachedSpladeLoss  # isort: skip  # Avoid circular import with SpladeLoss -> FlopsLoss
 
 __all__ = [
     "CachedSpladeLoss",
