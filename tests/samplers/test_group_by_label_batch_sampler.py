@@ -55,11 +55,8 @@ def test_drop_last_true_no_short_batches(balanced_dataset: Dataset) -> None:
         dataset=balanced_dataset, batch_size=batch_size, drop_last=True, valid_label_columns=["label"]
     )
     batches = list(sampler)
-    p = sampler.labels_per_batch
-    k = sampler.samples_per_label
-    expected_size = p * k
     for batch in batches:
-        assert len(batch) == expected_size
+        assert len(batch) == batch_size
 
 
 def test_drop_last_false_yields_remainder(two_label_dataset: Dataset) -> None:
@@ -129,35 +126,33 @@ def test_imbalanced_dataset_multi_class(imbalanced_dataset: Dataset) -> None:
         assert len(batch_labels) >= 2
 
 
-def test_minority_labels_in_pk_batches() -> None:
-    """Labels too small for K full draws should still be scheduled into a proper PK batch."""
+def test_minority_labels_participate() -> None:
+    """Labels with >= 2 samples should have their (even-trimmed) samples appear in the output."""
     labels = [0] * 1000 + [1] * 500 + [2] * 3
     ds = Dataset.from_dict({"data": list(range(len(labels))), "label": labels})
-    sampler = GroupByLabelBatchSampler(dataset=ds, batch_size=32, drop_last=True, valid_label_columns=["label"])
+    sampler = GroupByLabelBatchSampler(dataset=ds, batch_size=32, drop_last=False, valid_label_columns=["label"])
     all_indices = set()
     for batch in sampler:
         all_indices.update(batch)
-    minority_indices = set(range(1500, 1503))
-    assert minority_indices.issubset(all_indices), "Minority label samples should appear in scheduled PK batches"
+    # Label 2 has 3 samples (indices 1500-1502); trimmed to 2 (even), so at least 2 should appear
+    minority_in_output = all_indices & set(range(1500, 1503))
+    assert len(minority_in_output) >= 2, "Minority label samples should participate in batches"
 
 
 def test_two_labels_with_large_batch(two_label_dataset: Dataset) -> None:
-    """With 2 labels and batch_size=32, P=2, K=16."""
+    """With 2 labels and batch_size=32, each batch should have exactly 32 samples with both labels."""
     sampler = GroupByLabelBatchSampler(
         dataset=two_label_dataset, batch_size=32, drop_last=True, valid_label_columns=["label"]
     )
-    assert sampler.labels_per_batch == 2
-    assert sampler.samples_per_label == 16
     labels_col = two_label_dataset["label"]
     for batch in sampler:
+        assert len(batch) == 32
         counts = Counter(labels_col[i] for i in batch)
         assert len(counts) == 2
-        for count in counts.values():
-            assert count == 16
 
 
 def _compute_scheduled_efficiency(label_sizes: list[int], batch_size: int) -> float:
-    """Helper: return fraction of samples that appear in properly PK-balanced batches (not the remainder)."""
+    """Helper: return fraction of samples that appear in properly balanced batches (not the remainder)."""
     labels = []
     for i, size in enumerate(label_sizes):
         labels.extend([i] * size)
@@ -169,17 +164,61 @@ def _compute_scheduled_efficiency(label_sizes: list[int], batch_size: int) -> fl
 
 
 def test_efficiency_few_imbalanced_labels() -> None:
-    """6 imbalanced labels, with fixed P=6, only ~9.4% of samples would land in PK-balanced batches."""
+    """6 imbalanced labels."""
     label_sizes = [1250, 1223, 1162, 896, 835, 86]
     efficiency = _compute_scheduled_efficiency(label_sizes, batch_size=32)
-    assert efficiency >= 0.90, f"Efficiency {efficiency:.1%} is too low -- most training data is being ignored"
+    assert efficiency >= 0.99, f"Efficiency {efficiency:.1%} is too low. Most training data is being ignored"
 
 
 def test_efficiency_many_imbalanced_labels() -> None:
-    """Many imbalanced labels, with fixed P, only ~52% of samples would land in PK-balanced batches."""
+    """Many imbalanced labels."""
     label_sizes = [962, 464, 421, 363, 276, 274, 218, 217, 207, 191]
     label_sizes += [80 - i * 3 for i in range(10)]
     label_sizes += [20 - i for i in range(10)]
     label_sizes += [4, 4, 6, 8, 9, 9, 9, 10, 11, 11]
     efficiency = _compute_scheduled_efficiency(label_sizes, batch_size=32)
-    assert efficiency >= 0.85, f"Efficiency {efficiency:.1%} is too low -- dominant labels are underused"
+    assert efficiency >= 0.85, f"Efficiency {efficiency:.1%} is too low. Dominant labels are underused"
+
+
+@pytest.mark.parametrize("drop_last", [True, False])
+def test_batch_guarantees(drop_last: bool) -> None:
+    """Every batch must satisfy three invariants:
+
+    1. Contains >= 2 distinct labels.
+    2. Every label in the batch appears >= 2 times.
+    3. Non-last batches are exactly batch_size; the last may be smaller only when drop_last=False.
+    """
+    # Use several dataset shapes to stress-test the guarantees.
+    datasets = {
+        "balanced": [20, 20, 20, 20, 20],
+        "imbalanced": [90, 30, 20],
+        "heavy_imbalance": [1000, 500, 3],
+        "many_labels": [50, 45, 40, 35, 30, 25, 20, 15, 10, 5],
+    }
+    batch_size = 16
+    for name, label_sizes in datasets.items():
+        labels = []
+        for i, size in enumerate(label_sizes):
+            labels.extend([i] * size)
+        ds = Dataset.from_dict({"data": list(range(len(labels))), "label": labels})
+        sampler = GroupByLabelBatchSampler(
+            dataset=ds, batch_size=batch_size, drop_last=drop_last, valid_label_columns=["label"]
+        )
+        batches = list(sampler)
+        for batch_idx, batch in enumerate(batches):
+            is_last = batch_idx == len(batches) - 1
+            # (3) Size check
+            if not is_last or drop_last:
+                assert len(batch) == batch_size, (
+                    f"{name}, drop_last={drop_last}: batch {batch_idx} has {len(batch)} samples, expected {batch_size}"
+                )
+            else:
+                assert len(batch) <= batch_size
+            # (1) Multi-label check
+            counts = Counter(labels[i] for i in batch)
+            assert len(counts) >= 2, f"{name}, drop_last={drop_last}: batch {batch_idx} has only labels {set(counts)}"
+            # (2) Each label appears >= 2 times
+            for label, count in counts.items():
+                assert count >= 2, (
+                    f"{name}, drop_last={drop_last}: label {label} appears only {count} time(s) in batch {batch_idx}"
+                )

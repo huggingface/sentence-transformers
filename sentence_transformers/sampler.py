@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from abc import ABC, abstractmethod
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterator
 from itertools import accumulate, cycle
 from typing import Any
@@ -78,26 +78,16 @@ class DefaultBatchSampler(SetEpochMixin, BatchSampler):
 
 class GroupByLabelBatchSampler(DefaultBatchSampler):
     """
-    Batch sampler that ensures each batch contains samples from multiple distinct labels,
-    suitable for losses that perform in-batch triplet mining.
+    Batch sampler that groups samples by label for in-batch triplet mining.
 
-    Each batch is constructed by drawing ``K`` samples (``K >= 2``, "samples per label") from
-    each of ``P`` distinct labels (``P >= 2``, "labels per batch"), giving an effective batch
-    size of ``P * K``. The initial values are computed as:
+    Samples are shuffled within each label, then interleaved in round-robin
+    fashion to produce a stream where labels are well-mixed. This stream is
+    chunked into batches of exactly ``batch_size``. Every batch is guaranteed
+    to contain multiple distinct labels, each with at least 2 samples.
 
-    - ``P = min(num_labels, batch_size // 2)`` -- use as many labels as possible
-    - ``K = batch_size // P`` -- fill each label's slot equally
-
-    To maximise sample usage with imbalanced label distributions, the scheduler dynamically
-    reduces ``P`` as minority labels are exhausted. As long as at least 2 labels still have
-    unused samples, batches keep being produced -- just with fewer labels and therefore a
-    smaller effective batch size. This avoids discarding samples from majority labels that
-    would otherwise be left behind once all minority labels are consumed.
-
-    Labels with at least 2 samples but fewer than ``K`` are still scheduled into a proper
-    multi-class batch (contributing all their available samples). This ensures minority
-    labels participate in in-batch triplet mining and actually influence the loss, rather
-    than being relegated to a remainder batch where they may be the only label present.
+    Labels take turns emitting 2 samples each. The stream stops when fewer
+    than 2 labels remain, so the dominant label's tail ends up in the
+    remainder. Produces excellent per-batch balance.
 
     Recommended for:
         - :class:`~sentence_transformers.losses.BatchAllTripletLoss`
@@ -107,9 +97,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
 
     Args:
         dataset (Dataset): The dataset to sample from.
-        batch_size (int): Number of samples per batch. Must be divisible by 2.
-            The effective batch size per batch is ``P * K``. Early batches use the full ``P``;
-            later batches may use a smaller ``P`` (down to 2) when fewer labels remain.
+        batch_size (int): Number of samples per batch. Must be an even number >= 4.
         drop_last (bool): If True, drop the last incomplete batch if the dataset size
             is not divisible by the batch size.
         valid_label_columns (List[str], optional): List of column names to check for labels.
@@ -129,8 +117,6 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         generator: torch.Generator | None = None,
         seed: int = 0,
     ) -> None:
-        if generator is None:
-            generator = torch.Generator()
         super().__init__(
             dataset,
             batch_size=batch_size,
@@ -149,57 +135,21 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         for sample_idx, label in enumerate(labels):
             groups[label].append(sample_idx)
 
-        # Iteratively compute P/K using labels with enough samples to fill a
-        # full K-draw.  Labels too small for K are kept in self.groups and get
-        # at least 1 scheduled draw so they participate in a proper PK batch.
-        all_valid: dict[Any, list[int]] = {lab: idx for lab, idx in groups.items() if len(idx) >= 2}
-        filtered = dict(all_valid)
-        while True:
-            num_labels = len(filtered)
-            if num_labels < 2:
-                raise ValueError(
-                    "GroupByLabelBatchSampler requires at least 2 distinct labels with sufficient samples, "
-                    f"but only {num_labels} label(s) qualified."
-                )
-            p = min(num_labels, self.batch_size // 2)
-            k = self.batch_size // p
-            new_filtered = {lab: idx for lab, idx in filtered.items() if len(idx) >= k}
-            if len(new_filtered) == len(filtered):
-                break
-            filtered = new_filtered
-
-        self.groups = all_valid
-        self.labels_per_batch = p
-        self.samples_per_label = k
-
-        # Pre-compute batch schedule via greedy packing: always pick the labels with
-        # the most remaining draws. Uses dynamic P: continues scheduling even when
-        # fewer than P labels remain (as long as at least 2 are available).
-        # Minority labels (>= 2 samples but < K) get at least 1 draw so they
-        # participate in a proper multi-class batch rather than only appearing in
-        # the unstructured remainder.
-        draws = {lab: max(1, len(idx) // k) for lab, idx in self.groups.items()}
-        self._schedule: list[list[Any]] = []
-        while True:
-            available = sorted(
-                [(lab, d) for lab, d in draws.items() if d > 0],
-                key=lambda x: -x[1],
+        # Keep labels with >= 2 samples; trim each to an even count so every
+        # label contributes complete pairs in the interleaving.
+        self.groups = {
+            label: indices[: len(indices) // 2 * 2] for label, indices in groups.items() if len(indices) >= 2
+        }
+        if len(self.groups) < 2:
+            raise ValueError(
+                "GroupByLabelBatchSampler requires at least 2 distinct labels with >= 2 samples each, "
+                f"but only {len(self.groups)} label(s) qualified."
             )
-            if len(available) < 2:
-                break
-            current_p = min(p, len(available))
-            batch_labels = [lab for lab, _ in available[:current_p]]
-            self._schedule.append(batch_labels)
-            for lab in batch_labels:
-                draws[lab] -= 1
 
-        label_draws_used: dict[Any, int] = {lab: 0 for lab in self.groups}
-        for batch in self._schedule:
-            for lab in batch:
-                label_draws_used[lab] += 1
-        scheduled_samples = sum(min(n * k, len(self.groups[lab])) for lab, n in label_draws_used.items())
-        total_samples = sum(len(idx) for idx in self.groups.values())
-        self._has_remainder = scheduled_samples < total_samples
+        # Pre-compute stream length: round-robin stops when only 1 label remains
+        pairs = sorted((len(idx) // 2 for idx in self.groups.values()), reverse=True)
+        cap = pairs[1]  # second-largest: the round when we'd drop to 1 label
+        self._stream_length = 2 * sum(min(p, cap) for p in pairs)
 
     @staticmethod
     def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[Any]:
@@ -216,39 +166,35 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         if self.generator and self.seed is not None:
             self.generator.manual_seed(self.seed + self.epoch)
 
-        labels = list(self.groups.keys())
-        k = self.samples_per_label
-
-        shuffled: dict[Any, list[int]] = {}
-        for label in labels:
-            indices = self.groups[label]
+        # Shuffle samples within each label
+        queues: dict[Any, deque[int]] = {}
+        for label, indices in self.groups.items():
             perm = torch.randperm(len(indices), generator=self.generator)
-            shuffled[label] = [indices[i] for i in perm]
+            queues[label] = deque(indices[i] for i in perm)
 
-        batch_order = torch.randperm(len(self._schedule), generator=self.generator)
-        positions: dict[Any, int] = {label: 0 for label in labels}
+        # Round-robin: each label emits 2 samples per round; stop when < 2 labels remain.
+        # The label visit order is reshuffled every round for diverse batches.
+        remaining_labels = list(queues)
+        batch: list[int] = []
+        while len(remaining_labels) >= 2:
+            remaining_labels = [
+                remaining_labels[i] for i in torch.randperm(len(remaining_labels), generator=self.generator)
+            ]
+            for label in remaining_labels:
+                batch.append(queues[label].popleft())
+                batch.append(queues[label].popleft())
+                if len(batch) >= self.batch_size:
+                    yield batch[: self.batch_size]
+                    batch = batch[self.batch_size :]
+            remaining_labels = [label for label in remaining_labels if queues[label]]
 
-        for idx in batch_order:
-            batch_labels = self._schedule[idx]
-            batch: list[int] = []
-            for label in batch_labels:
-                pos = positions[label]
-                batch.extend(shuffled[label][pos : pos + k])
-                positions[label] = pos + k
+        # At least 4 elements ensures >= 2 distinct labels, each with >= 2 samples.
+        if not self.drop_last and len(batch) >= 4:
             yield batch
 
-        if not self.drop_last:
-            batch = []
-            for label in labels:
-                pos = positions[label]
-                if pos < len(shuffled[label]):
-                    batch.extend(shuffled[label][pos:])
-            if batch:
-                yield batch
-
     def __len__(self) -> int:
-        n = len(self._schedule)
-        if not self.drop_last and self._has_remainder:
+        n = self._stream_length // self.batch_size
+        if not self.drop_last and self._stream_length % self.batch_size > 0:
             n += 1
         return n
 
