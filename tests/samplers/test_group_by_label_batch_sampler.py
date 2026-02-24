@@ -96,6 +96,18 @@ def test_len_matches_iteration(balanced_dataset: Dataset) -> None:
         assert len(sampler) == len(batches), f"drop_last={drop_last}: __len__={len(sampler)} != actual={len(batches)}"
 
 
+def test_len_matches_iteration_remainder_of_two() -> None:
+    """When stream_length % batch_size == 2, __len__ and __iter__ must agree.
+
+    2 labels with 6 and 4 samples -> stream_length=8, batch_size=6 -> remainder=2.
+    """
+    labels = [0] * 6 + [1] * 4
+    ds = Dataset.from_dict({"data": list(range(10)), "label": labels})
+    sampler = GroupByLabelBatchSampler(dataset=ds, batch_size=6, drop_last=False, valid_label_columns=["label"])
+    batches = list(sampler)
+    assert len(sampler) == len(batches), f"__len__={len(sampler)} but __iter__ yielded {len(batches)} batches"
+
+
 def test_raises_on_single_label() -> None:
     data = {"data": list(range(20)), "label": [0] * 20}
     ds = Dataset.from_dict(data)

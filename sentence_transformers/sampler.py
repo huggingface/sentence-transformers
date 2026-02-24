@@ -194,7 +194,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
 
     def __len__(self) -> int:
         n = self._stream_length // self.batch_size
-        if not self.drop_last and self._stream_length % self.batch_size > 0:
+        if not self.drop_last and self._stream_length % self.batch_size >= 4:
             n += 1
         return n
 
