@@ -95,6 +95,7 @@ class SparseNanoEvaluator(NanoEvaluator):
         qrels_subset_name: str = "qrels",
         name: str | None = None,
     ) -> None:
+        # Parent initialization builds sub-evaluators via _load_dataset, which reads max_active_dims.
         self.max_active_dims = max_active_dims
         super().__init__(
             dataset_names=dataset_names,
