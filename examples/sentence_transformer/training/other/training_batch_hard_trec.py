@@ -30,10 +30,7 @@ from sentence_transformers.trainer import SentenceTransformerTrainer
 from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
 
 logging.basicConfig(
-    format="%(asctime)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    level=logging.INFO,
-    handlers=[LoggingHandler()],
+    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
 
 
@@ -90,7 +87,7 @@ def triplets_from_labeled_dataset(dataset):
 model_name = "all-distilroberta-v1"
 
 # Create training dataset
-train_batch_size = 32
+batch_size = 32
 output_path = "output/finetune-batch-hard-trec-" + model_name + "-" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 num_epochs = 1
 
@@ -120,7 +117,7 @@ dev_evaluator = TripletEvaluator(
     anchors=dev_set["anchor"],
     positives=dev_set["positive"],
     negatives=dev_set["negative"],
-    name="trec-dev",
+    name="trec_dev",
 )
 
 logging.info("Performance before fine-tuning:")
@@ -131,12 +128,15 @@ model.evaluate(dev_evaluator)
 args = SentenceTransformerTrainingArguments(
     output_dir=output_path,
     num_train_epochs=num_epochs,
-    per_device_train_batch_size=train_batch_size,
+    per_device_train_batch_size=batch_size,
+    per_device_eval_batch_size=batch_size,
     warmup_ratio=0.1,
-    # Use GROUP_BY_LABEL batch sampler for triplet losses that require multiple samples per label
+    # GROUP_BY_LABEL ensures each batch has at least 2 distinct labels with at least 2 samples per label
     batch_sampler=BatchSamplers.GROUP_BY_LABEL,
     eval_strategy="steps",
     eval_steps=0.2,
+    save_strategy="steps",
+    save_steps=0.2,
     logging_steps=0.1,
 )
 
