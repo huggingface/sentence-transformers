@@ -30,6 +30,9 @@ Example output (actual run in this repo, to be updated if defaults change):
   Model: intfloat/multilingual-e5-small
   Dataset: hotchpotch/NanoMIRACL
   Splits: ['en', 'ja']
+  Split scores:
+  - NanoMIRACL_en_cosine_ndcg@10 = 0.6901
+  - NanoMIRACL_ja_cosine_ndcg@10 = 0.7168
   Primary metric key: NanoMIRACL_mean_cosine_ndcg@10
   Primary metric value: 0.7034
 """
@@ -41,5 +44,11 @@ if primary_metric is None:
 print(f"Model: {MODEL_NAME}")
 print(f"Dataset: {DATASET_ID}")
 print(f"Splits: {DATASET_SPLITS}")
+metric_suffix = primary_metric.split("_mean_", maxsplit=1)[1]
+print("Split scores:")
+for split_name in DATASET_SPLITS:
+    split_key = f"NanoMIRACL_{split_name}_{metric_suffix}"
+    if split_key in results:
+        print(f"- {split_key} = {results[split_key]:.4f}")
 print(f"Primary metric key: {primary_metric}")
 print(f"Primary metric value: {results[primary_metric]:.4f}")
