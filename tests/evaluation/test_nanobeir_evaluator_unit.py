@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -123,3 +124,39 @@ def test_nanobeir_primary_metric_key_with_truncate_dim(patch_nanobeir_loader: No
     assert evaluator.primary_metric == "NanoBEIR_mean_64_cosine_ndcg@10"
     assert evaluator.primary_metric in results
     assert "NanoMSMARCO_64_cosine_ndcg@10" in results
+
+
+def test_nanobeir_writes_csv_metrics(
+    patch_nanobeir_loader: None,
+    dummy_model: Any,
+    tmp_path: Path,
+) -> None:
+    evaluator = NanoBEIREvaluator(
+        dataset_names=["msmarco", "nq"],
+        mrr_at_k=[10],
+        ndcg_at_k=[10],
+        accuracy_at_k=[1],
+        precision_recall_at_k=[1],
+        map_at_k=[100],
+        score_functions={"cosine": lambda a, b: a},
+        write_csv=True,
+    )
+
+    results = evaluator(dummy_model, output_path=str(tmp_path), epoch=1, steps=2)
+
+    csv_path = tmp_path / "NanoBEIR_evaluation_mean_results.csv"
+    assert csv_path.exists()
+
+    lines = csv_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+
+    header = lines[0].split(",")
+    row = lines[1].split(",")
+    assert len(header) == len(row)
+    assert header[:2] == ["epoch", "steps"]
+    assert row[:2] == ["1", "2"]
+
+    ndcg_idx = header.index("cosine-NDCG@10")
+    map_idx = header.index("cosine-MAP@100")
+    assert float(row[ndcg_idx]) == pytest.approx(results["NanoBEIR_mean_cosine_ndcg@10"])
+    assert float(row[map_idx]) == pytest.approx(results["NanoBEIR_mean_cosine_map@100"])
