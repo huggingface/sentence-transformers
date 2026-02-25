@@ -79,6 +79,7 @@ class MSEEvaluator(SentenceEvaluator):
         name: str = "",
         write_csv: bool = True,
         truncate_dim: int | None = None,
+        encode_args: dict = {},
     ):
         super().__init__()
         self.truncate_dim = truncate_dim
@@ -92,10 +93,10 @@ class MSEEvaluator(SentenceEvaluator):
         self.write_csv = write_csv
         self.primary_metric = "negative_mse"
 
-        self.source_embeddings = self.embed_inputs(teacher_model, source_sentences)
+        self.source_embeddings = self.embed_inputs(teacher_model, source_sentences, **encode_args)
 
     def __call__(
-        self, model: SentenceTransformer, output_path: str | None = None, epoch=-1, steps=-1
+        self, model: SentenceTransformer, output_path: str | None = None, epoch=-1, steps=-1, encode_args: dict = {}
     ) -> dict[str, float]:
         if epoch != -1:
             if steps == -1:
@@ -107,7 +108,7 @@ class MSEEvaluator(SentenceEvaluator):
         if self.truncate_dim is not None:
             out_txt += f" (truncated to {self.truncate_dim})"
 
-        target_embeddings = self.embed_inputs(model, self.target_sentences)
+        target_embeddings = self.embed_inputs(model, self.target_sentences, **encode_args)
 
         mse = ((self.source_embeddings - target_embeddings) ** 2).mean()
         mse = mse * 100

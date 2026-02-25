@@ -100,7 +100,12 @@ class TranslationEvaluator(SentenceEvaluator):
         self.primary_metric = "mean_accuracy"
 
     def __call__(
-        self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
+        self,
+        model: SentenceTransformer,
+        output_path: str | None = None,
+        epoch: int = -1,
+        steps: int = -1,
+        encode_args: dict = {},
     ) -> dict[str, float]:
         if epoch != -1:
             if steps == -1:
@@ -114,8 +119,8 @@ class TranslationEvaluator(SentenceEvaluator):
 
         logger.info(f"Evaluating translation matching Accuracy of the model on the {self.name} dataset{out_txt}:")
 
-        embeddings1 = torch.stack(self.embed_inputs(model, self.source_sentences))
-        embeddings2 = torch.stack(self.embed_inputs(model, self.target_sentences))
+        embeddings1 = torch.stack(self.embed_inputs(model, self.source_sentences, **encode_args))
+        embeddings2 = torch.stack(self.embed_inputs(model, self.target_sentences, **encode_args))
 
         cos_sims = pytorch_cos_sim(embeddings1, embeddings2).detach().cpu().numpy()
 

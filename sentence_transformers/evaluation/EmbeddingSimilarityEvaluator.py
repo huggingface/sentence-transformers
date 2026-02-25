@@ -151,7 +151,12 @@ class EmbeddingSimilarityEvaluator(SentenceEvaluator):
         return cls(sentences1, sentences2, scores, **kwargs)
 
     def __call__(
-        self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
+        self,
+        model: SentenceTransformer,
+        output_path: str | None = None,
+        epoch: int = -1,
+        steps: int = -1,
+        encode_args: dict = {},
     ) -> dict[str, float]:
         if epoch != -1:
             if steps == -1:
@@ -165,8 +170,8 @@ class EmbeddingSimilarityEvaluator(SentenceEvaluator):
 
         logger.info(f"EmbeddingSimilarityEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
-        embeddings1 = self.embed_inputs(model, self.sentences1)
-        embeddings2 = self.embed_inputs(model, self.sentences2)
+        embeddings1 = self.embed_inputs(model, self.sentences1, **encode_args)
+        embeddings2 = self.embed_inputs(model, self.sentences2, **encode_args)
         # Binary and ubinary embeddings are packed, so we need to unpack them for the distance metrics
         if self.precision == "binary":
             embeddings1 = (embeddings1 + 128).astype(np.uint8)

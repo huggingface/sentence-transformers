@@ -149,7 +149,12 @@ class BinaryClassificationEvaluator(SentenceEvaluator):
         return cls(sentences1, sentences2, scores, **kwargs)
 
     def __call__(
-        self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
+        self,
+        model: SentenceTransformer,
+        output_path: str | None = None,
+        epoch: int = -1,
+        steps: int = -1,
+        encode_args: dict = {},
     ) -> dict[str, float]:
         """
         Compute the evaluation metrics for the given model.
@@ -159,6 +164,7 @@ class BinaryClassificationEvaluator(SentenceEvaluator):
             output_path (str, optional): Path to save the evaluation results CSV file. Defaults to None.
             epoch (int, optional): The epoch number. Defaults to -1.
             steps (int, optional): The number of steps. Defaults to -1.
+            encode_args (dict, optional): The args to be passed to the encode method. Defaults to {}.
 
         Returns:
             Dict[str, float]: A dictionary containing the evaluation metrics.
@@ -178,7 +184,7 @@ class BinaryClassificationEvaluator(SentenceEvaluator):
         if not self.similarity_fn_names:
             self.similarity_fn_names = [model.similarity_fn_name]
             self._append_csv_headers(self.similarity_fn_names)
-        scores = self.compute_metrices(model)
+        scores = self.compute_metrices(model, encode_args)
 
         file_output_data = [epoch, steps]
 
@@ -221,17 +227,17 @@ class BinaryClassificationEvaluator(SentenceEvaluator):
         self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
 
-    def compute_metrices(self, model: SentenceTransformer) -> dict[str, dict[str, float]]:
+    def compute_metrices(self, model: SentenceTransformer, encode_args: dict) -> dict[str, dict[str, float]]:
         try:
             # If the sentences are hashable, then we can use a set to avoid embedding the same sentences multiple
             # times
             sentences = list(set(self.sentences1 + self.sentences2))
         except TypeError:
             # Otherwise we just embed everything, e.g. if the sentences are images for evaluating a CLIP model
-            embeddings1 = self.embed_inputs(model, self.sentences1)
-            embeddings2 = self.embed_inputs(model, self.sentences2)
+            embeddings1 = self.embed_inputs(model, self.sentences1, **encode_args)
+            embeddings2 = self.embed_inputs(model, self.sentences2, **encode_args)
         else:
-            embeddings = self.embed_inputs(model, sentences)
+            embeddings = self.embed_inputs(model, sentences, **encode_args)
             emb_dict = {sent: emb for sent, emb in zip(sentences, embeddings)}
             embeddings1 = [emb_dict[sent] for sent in self.sentences1]
             embeddings2 = [emb_dict[sent] for sent in self.sentences2]
