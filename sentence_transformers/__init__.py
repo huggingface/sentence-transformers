@@ -21,6 +21,7 @@ from sentence_transformers.cross_encoder import (
 from sentence_transformers.datasets import ParallelSentencesDataset, SentencesDataset
 from sentence_transformers.LoggingHandler import LoggingHandler
 from sentence_transformers.model_card import SentenceTransformerModelCardData
+from sentence_transformers.multi_vec_encoder import MultiVectorEncoder
 from sentence_transformers.quantization import quantize_embeddings
 from sentence_transformers.readers import InputExample
 from sentence_transformers.sampler import DefaultBatchSampler, MultiDatasetDefaultBatchSampler
@@ -62,6 +63,7 @@ __all__ = [
     "SparseEncoderTrainer",
     "SparseEncoderTrainingArguments",
     "SparseEncoderModelCardData",
+    "MultiVectorEncoder",
     "quantize_embeddings",
     "export_optimized_onnx_model",
     "export_dynamic_quantized_onnx_model",
