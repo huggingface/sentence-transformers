@@ -715,6 +715,31 @@ def test_similarity_score(stsb_bert_tiny_model: SentenceTransformer, similarity_
     if similarity_fn_name in ("cosine", "dot"):
         assert (pairwise_scores > 0.5).all()
 
+def test_classify(stsb_bert_tiny_model_reused: SentenceTransformer) -> None:
+    model = stsb_bert_tiny_model_reused
+
+    sentences = [
+        "The weather is so nice!",
+        "It's so sunny outside.",
+        "He's driving to the movie theater.",
+        "She's going to the cinema.",
+    ]
+    labels = [
+        'travel', 'cooking', 'dancing'
+    ]
+    results = model.classify(sentences, labels)
+    assert len(results) == len(sentences)
+    for result in results:
+        assert len(result) == len(labels)
+        predicted_labels = list()
+        scores = 0
+        for predicted_label, score in result:
+            assert predicted_label in labels
+            assert 0 <= score <= 1
+            predicted_labels.append(predicted_label)
+            scores += score
+        assert np.isclose(scores, 1)
+        assert set(predicted_labels) == set(labels)
 
 def test_similarity_score_save(stsb_bert_tiny_model: SentenceTransformer) -> None:
     model = stsb_bert_tiny_model
