@@ -283,9 +283,9 @@ class BinaryClassificationEvaluator(SentenceEvaluator):
 
             output_scores[similarity_fn_name] = {
                 "accuracy": acc,
-                "accuracy_threshold": acc_threshold,
+                "accuracy_threshold": np.float64(acc_threshold),
                 "f1": f1,
-                "f1_threshold": f1_threshold,
+                "f1_threshold": np.float64(f1_threshold),
                 "precision": precision,
                 "recall": recall,
                 "ap": ap,
