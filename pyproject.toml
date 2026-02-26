@@ -33,7 +33,7 @@ classifiers = [
 ]
 dependencies = [
     "transformers>=4.41.0,<6.0.0",
-    "huggingface-hub>=0.20.0",
+    "huggingface-hub==v1.5.0.rc0",
     "torch>=1.11.0",
     "numpy",
     "scikit-learn",
