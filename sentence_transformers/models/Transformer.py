@@ -288,7 +288,7 @@ class Transformer(InputModule):
             raise ValueError(f"Unsupported backend '{backend}'. `backend` should be `torch`, `onnx`, or `openvino`.")
 
     def __repr__(self) -> str:
-        return f"Transformer({dict(self.get_config_dict(), architecture=self.auto_model.__class__.__name__)})"
+        return f"{self.__class__.__name__}({dict(self.get_config_dict(), architecture=self.auto_model.__class__.__name__)})"
 
     def forward(self, features: dict[str, torch.Tensor], **kwargs) -> dict[str, torch.Tensor]:
         """
