@@ -103,8 +103,8 @@ class CrossEncoderTrainer(SentenceTransformerTrainer):
         self,
         model: CrossEncoder | None = None,
         args: CrossEncoderTrainingArguments | None = None,
-        train_dataset: Dataset | DatasetDict | dict[str, Dataset] | None = None,
-        eval_dataset: Dataset | DatasetDict | dict[str, Dataset] | None = None,
+        train_dataset: Dataset | DatasetDict | IterableDataset | dict[str, Dataset] | None = None,
+        eval_dataset: Dataset | DatasetDict | IterableDataset | dict[str, Dataset] | None = None,
         loss: nn.Module
         | dict[str, nn.Module]
         | Callable[[CrossEncoder], torch.nn.Module]
