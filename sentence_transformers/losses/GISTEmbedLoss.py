@@ -16,7 +16,7 @@ class GISTEmbedLoss(nn.Module):
     def __init__(
         self,
         model: SentenceTransformer,
-        guide: SentenceTransformer,
+        guide: SentenceTransformer | None = None,
         temperature: float = 0.01,
         margin_strategy: Literal["absolute", "relative"] = "absolute",
         margin: float = 0.0,
@@ -38,12 +38,16 @@ class GISTEmbedLoss(nn.Module):
 
         Args:
             model: SentenceTransformer model based on a `transformers` model.
-            guide: SentenceTransformer model to guide the in-batch negative sample selection.
+            guide: SentenceTransformer model to guide the in-batch negative sample selection. If None, the model
+                itself is used as the guide (self-guided mode), which is more efficient as it requires only a single
+                forward pass. This is useful for self-guided approaches where the student model's own similarity
+                scores are used with a margin (e.g., ``margin=-1.0``) to filter negatives.
             temperature: Temperature parameter to scale the cosine similarities. Inverse of the ``scale`` parameter
                 in :class:`MultipleNegativesRankingLoss`.
             margin_strategy: Strategy used for false negative filtering. One of {"absolute", "relative"}.
             margin: The margin value for filtering negatives. Defaults to 0.0, together with the "absolute" strategy,
                 this only removes negatives that are more similar to the query than the positive is to the query.
+                For self-guided mode, a negative margin (e.g., ``margin=-1.0``) is recommended to keep most negatives.
             contrast_anchors: If True, include anchor-anchor pairs in the loss computation, resulting in the embeddings
                 of the anchors being pushed further apart. Defaults to True, following the original GISTEmbed paper.
             contrast_positives: If True, include positive-positive pairs in the loss computation, resulting in the embeddings
@@ -79,7 +83,27 @@ class GISTEmbedLoss(nn.Module):
               a stronger training signal at the cost of some training overhead.
 
         Example:
-            ::
+            Self-guided mode::
+
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from datasets import Dataset
+
+                model = SentenceTransformer("microsoft/mpnet-base")
+                train_dataset = Dataset.from_dict({
+                    "anchor": ["It's nice weather outside today.", "He drove to work."],
+                    "positive": ["It's so sunny.", "He took the car to the office."],
+                })
+                # Self-guided: no guide parameter, model guides itself
+                loss = losses.GISTEmbedLoss(model, margin=-1.0)
+
+                trainer = SentenceTransformerTrainer(
+                    model=model,
+                    train_dataset=train_dataset,
+                    loss=loss,
+                )
+                trainer.train()
+
+            With a separate guide model::
 
                 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
                 from datasets import Dataset
@@ -101,20 +125,37 @@ class GISTEmbedLoss(nn.Module):
         """
         super().__init__()
         self.model = model
-        self.guide = guide
         self.temperature = temperature
         self.similarity_fct = nn.CosineSimilarity(dim=-1)
-        if not hasattr(model, "tokenizer") or not hasattr(guide, "tokenizer"):
-            raise ValueError("Both the training model and the guiding model must have a tokenizer attribute.")
-        if not isinstance(model.tokenizer, PreTrainedTokenizerBase) or not isinstance(
-            guide.tokenizer, PreTrainedTokenizerBase
-        ):
-            raise ValueError(
-                "Both the training model and the guiding model must use a PreTrainedTokenizer from transformers."
+
+        # Self-guided mode: if guide is None, use the model itself as the guide
+        if guide is None:
+            self.guide = model
+            self.is_self_guided = True
+        else:
+            self.guide = guide
+            self.is_self_guided = model is guide
+
+        # Validate tokenizer requirements
+        if self.is_self_guided:
+            if not hasattr(model, "tokenizer"):
+                raise ValueError("The training model must have a tokenizer attribute.")
+            if not isinstance(model.tokenizer, PreTrainedTokenizerBase):
+                raise ValueError("The training model must use a PreTrainedTokenizer from transformers.")
+            self.must_retokenize = False
+        else:
+            if not hasattr(model, "tokenizer") or not hasattr(self.guide, "tokenizer"):
+                raise ValueError("Both the training model and the guiding model must have a tokenizer attribute.")
+            if not isinstance(model.tokenizer, PreTrainedTokenizerBase) or not isinstance(
+                self.guide.tokenizer, PreTrainedTokenizerBase
+            ):
+                raise ValueError(
+                    "Both the training model and the guiding model must use a PreTrainedTokenizer from transformers."
+                )
+            self.must_retokenize = (
+                model.tokenizer.get_vocab() != self.guide.tokenizer.get_vocab()
+                or self.guide.max_seq_length < model.max_seq_length
             )
-        self.must_retokenize = (
-            model.tokenizer.get_vocab() != guide.tokenizer.get_vocab() or guide.max_seq_length < model.max_seq_length
-        )
         if self.must_retokenize:
             self.tokenizer = self.model.tokenizer
 
@@ -138,21 +179,26 @@ class GISTEmbedLoss(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
-        with torch.no_grad():
-            if self.must_retokenize:
-                decoded = [
-                    self.tokenizer.batch_decode(sentence_feature["input_ids"], skip_special_tokens=True)
-                    for sentence_feature in sentence_features
-                ]
-                sentence_features = [self.guide.tokenize(sentences) for sentences in decoded]
-                sentence_features = [
-                    {key: value.to(self.guide.device) for key, value in sentence_feature.items()}
-                    for sentence_feature in sentence_features
-                ]
 
-            guide_embeddings = [
-                self.guide(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features
-            ]
+        # If self-guided, reuse student embeddings as guide embeddings (no second forward pass)
+        if self.is_self_guided:
+            guide_embeddings = [emb.detach() for emb in embeddings]
+        else:
+            with torch.no_grad():
+                if self.must_retokenize:
+                    decoded = [
+                        self.tokenizer.batch_decode(sentence_feature["input_ids"], skip_special_tokens=True)
+                        for sentence_feature in sentence_features
+                    ]
+                    sentence_features = [self.guide.tokenize(sentences) for sentences in decoded]
+                    sentence_features = [
+                        {key: value.to(self.guide.device) for key, value in sentence_feature.items()}
+                        for sentence_feature in sentence_features
+                    ]
+
+                guide_embeddings = [
+                    self.guide(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features
+                ]
 
         negative = None
         negative_guide = None
