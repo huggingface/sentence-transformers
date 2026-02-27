@@ -1152,6 +1152,12 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
         all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
 
         if all_embeddings and precision and precision != "float32":
+            """
+            from sentence_transformers.losses.QuantizationAwareLoss import quantize_embeddings_torch
+
+            all_embeddings = quantize_embeddings_torch(torch.stack(all_embeddings), precision=precision)
+            all_embeddings = [emb for emb in all_embeddings]
+            """
             all_embeddings = quantize_embeddings(all_embeddings, precision=precision)
 
         if convert_to_tensor:
