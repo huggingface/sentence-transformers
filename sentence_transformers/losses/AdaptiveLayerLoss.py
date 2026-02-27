@@ -183,9 +183,10 @@ class AdaptiveLayerLoss(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         # Decorate the forward function of the transformer to cache the embeddings of all layers
-        original_transformer_forward = self.model[0].forward
-        transformer_decorator = TransformerDecorator(self.model[0], original_transformer_forward)
-        self.model[0].forward = transformer_decorator
+        base_model: SentenceTransformer = self.model.module if hasattr(self.model, "module") else self.model
+        original_transformer_forward = base_model[0].forward
+        transformer_decorator = TransformerDecorator(base_model[0], original_transformer_forward)
+        base_model[0].forward = transformer_decorator
 
         # Decorate the forward function of the model to get the embeddings after all modules (e.g. pooling)
         original_forward = self.model.forward
@@ -223,7 +224,7 @@ class AdaptiveLayerLoss(nn.Module):
                 )
                 loss = loss + kl_div_loss * self.kl_temperature * self.kl_div_weight
 
-        self.model[0].forward = original_transformer_forward
+        base_model[0].forward = original_transformer_forward
         self.model.forward = original_forward
 
         return loss
