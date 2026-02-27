@@ -79,8 +79,6 @@ class CachedGISTEmbedLoss(nn.Module):
         contrast_anchors: bool = True,
         contrast_positives: bool = True,
         gather_across_devices: bool = False,
-        hardness_mode: Literal["all", "hard_only"] = "hard_only",
-        hardness_alpha: float = 0.0,
     ) -> None:
         """
         This loss is a combination of :class:`GISTEmbedLoss` and :class:`CachedMultipleNegativesRankingLoss`.
@@ -120,18 +118,6 @@ class CachedGISTEmbedLoss(nn.Module):
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
-            hardness_mode: Strategy for applying hardness weighting:
-
-                - ``"all"``: Adds ``alpha * stop_grad(cos_sim)`` to every negative logit inside the softmax
-                  (Lan et al. 2025, Eq. 5). Works with all data formats including pairs-only.
-                - ``"hard_only"``: Applies ``alpha * stop_grad(cos_sim)`` only to the logits of explicit hard
-                  negatives, leaving in-batch negatives unpenalized. Only active when explicit negatives are provided.
-                  As used in `Lan et al. 2025 <https://huggingface.co/papers/2509.20354>`_ (EmbeddingGemma).
-
-                Defaults to ``"hard_only"``.
-            hardness_alpha: Hyperparameter controlling the strength of hardness-weighted contrastive learning,
-                following `Lan et al. 2025 <https://arxiv.org/abs/2503.04812>`_. Higher values emphasize harder
-                negatives more. Recommended value is 5.0. Set to 0.0 to disable (default).
 
         References:
             - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
@@ -221,14 +207,6 @@ class CachedGISTEmbedLoss(nn.Module):
         self.contrast_anchors = contrast_anchors
         self.contrast_positives = contrast_positives
         self.gather_across_devices = gather_across_devices
-
-        if hardness_mode not in ("all", "hard_only"):
-            raise ValueError(f"hardness_mode must be 'all' or 'hard_only', got {hardness_mode}")
-        self.hardness_mode = hardness_mode
-        if hardness_alpha < 0.0:
-            raise ValueError("hardness_alpha must be non-negative.")
-        self.hardness_alpha = hardness_alpha
-
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
     def sim_matrix(self, embed1: Tensor, embed2: Tensor) -> Tensor:
@@ -394,9 +372,6 @@ class CachedGISTEmbedLoss(nn.Module):
                 pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
                 scores.append(pp_sim)
 
-            # Track where explicit hard negative columns begin in the concatenated score matrix
-            an_start = sum(s.size(1) for s in scores)
-
             # If there are negatives (len(candidates) > 1), process them
             if len(candidates) > 1:
                 for i in range(1, len(candidates)):  # Start from 1 since the first is the positive
@@ -410,21 +385,6 @@ class CachedGISTEmbedLoss(nn.Module):
 
             # Normalize the scores and calculate the cross-entropy loss
             scores = scores / self.temperature
-
-            # Apply hardness penalty to negative logits (Lan et al. 2025, Eq. 5).
-            if self.hardness_alpha > 0.0:
-                if self.hardness_mode == "all":
-                    raw_scores = (scores * self.temperature).detach()
-                    penalty = self.hardness_alpha * raw_scores
-                    penalty[torch.arange(len(scores), device=anchors.device), range_labels[begin:end]] = 0.0
-                    scores = scores + penalty
-                elif self.hardness_mode == "hard_only" and len(candidates) > 1:
-                    # Only penalize explicit hard negative columns, leaving in-batch columns unpenalized.
-                    raw_scores = (scores * self.temperature).detach()
-                    penalty = self.hardness_alpha * raw_scores
-                    penalty[:, :an_start] = 0.0
-                    scores = scores + penalty
-
             loss_mbatch: torch.Tensor = (
                 self.cross_entropy_loss(scores, range_labels[begin:end]) * len(scores) / batch_size
             )
@@ -478,6 +438,4 @@ class CachedGISTEmbedLoss(nn.Module):
             "contrast_anchors": self.contrast_anchors,
             "contrast_positives": self.contrast_positives,
             "gather_across_devices": self.gather_across_devices,
-            "hardness_alpha": self.hardness_alpha,
-            "hardness_mode": self.hardness_mode,
         }
