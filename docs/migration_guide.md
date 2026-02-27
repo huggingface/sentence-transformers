@@ -2203,7 +2203,7 @@ The v3 Sentence Transformers release refactored the training of :class:`~sentenc
    * - ``ParallelSentencesDataset``
      - Manually creating a :class:`~datasets.Dataset` and adding a ``label`` column for embeddings. Alternatively, consider loading one of our pre-provided `Parallel Sentences Datasets <https://huggingface.co/collections/sentence-transformers/parallel-sentences-datasets-6644d644123d31ba5b1c8785>`_.
    * - ``SentenceLabelDataset``
-     - Loading or creating a :class:`~datasets.Dataset` and using ``SentenceTransformerTrainingArguments(batch_sampler=BatchSamplers.GROUP_BY_LABEL)`` (uses the :class:`~sentence_transformers.sampler.GroupByLabelBatchSampler`). Recommended for the BatchTripletLosses.
+     - Loading or creating a :class:`~datasets.Dataset` and using ``SentenceTransformerTrainingArguments(batch_sampler=BatchSamplers.GROUP_BY_LABEL)`` (uses the :class:`~sentence_transformers.sampler.GroupByLabelBatchSampler`). Constructs each batch with at least 2 distinct labels and at least 2 samples per label. Recommended for the BatchTripletLosses.
    * - ``DenoisingAutoEncoderDataset``
      - Manually adding a column with noisy text to a :class:`~datasets.Dataset` with texts, e.g. with :func:`Dataset.map <datasets.Dataset.map>`.
    * - ``NoDuplicatesDataLoader``
