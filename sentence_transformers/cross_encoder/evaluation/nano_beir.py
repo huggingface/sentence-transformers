@@ -1,21 +1,11 @@
 from __future__ import annotations
 
-import logging
-import os
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Literal
+from typing import Any, Literal
 
 import numpy as np
-from tqdm import tqdm
 
-from sentence_transformers.cross_encoder.evaluation.reranking import CrossEncoderRerankingEvaluator
-from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
-from sentence_transformers.util import is_datasets_available
-
-if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
-
-logger = logging.getLogger(__name__)
+from sentence_transformers.cross_encoder.evaluation.nano_evaluator import CrossEncoderNanoEvaluator
 
 DatasetNameType = Literal[
     "climatefever",
@@ -33,7 +23,7 @@ DatasetNameType = Literal[
     "touche2020",
 ]
 
-DATASET_NAME_TO_HUMAN_READABLE = {
+DATASET_NAME_TO_HUMAN_READABLE: dict[str, str] = {
     "climatefever": "ClimateFEVER",
     "dbpedia": "DBPedia",
     "fever": "FEVER",
@@ -50,7 +40,7 @@ DATASET_NAME_TO_HUMAN_READABLE = {
 }
 
 
-class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
+class CrossEncoderNanoBEIREvaluator(CrossEncoderNanoEvaluator):
     """
     This class evaluates a CrossEncoder model on the NanoBEIR collection of Information Retrieval datasets.
 
@@ -67,6 +57,10 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
     Note that the maximum score is 1.0 by default, because all positive documents are included in the ranking. This
     can be toggled off by setting ``always_rerank_positives=False``, at which point the maximum score will be bound by
     the number of positive documents that BM25 ranks in the top ``rerank_k`` documents.
+
+    This class preserves the NanoBEIR short-name API and delegates shared, dataset-agnostic mechanics to
+    :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoEvaluator`.
+    For generic non-NanoBEIR behavior and advanced subset options, see that base class.
 
     .. note::
         This evaluator outputs its results using keys in the format ``NanoBEIR_R{rerank_k}_{aggregate_key}_{metric}``,
@@ -104,7 +98,7 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
             the positives that are already in the documents list. Always set to True if your ``samples`` contain ``negative``
             instead of ``documents``. When using ``documents``, setting this to True will result in a more useful evaluation
             signal, but setting it to False will result in a more realistic evaluation. Defaults to True.
-        batch_size (int): Batch size to compute sentence embeddings. Defaults to 64.
+        batch_size (int): Batch size to compute sentence embeddings. Defaults to 32.
         show_progress_bar (bool): Show progress bar when computing embeddings. Defaults to False.
         write_csv (bool): Write results to CSV file. Defaults to True.
         aggregate_fn (Callable[[list[float]], float]): The function to aggregate the scores. Defaults to np.mean.
@@ -204,206 +198,40 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
         write_csv: bool = True,
         aggregate_fn: Callable[[list[float]], float] = np.mean,
         aggregate_key: str = "mean",
-    ):
-        super().__init__()
+        candidate_subset_name: str = "bm25",
+        bm25_subset_name: str | None = None,
+        retrieved_corpus_ids_column: str = "corpus-ids",
+    ) -> None:
         if dataset_names is None:
-            # We exclude arguana and touche2020 because their Argument Retrieval meaningfully task differs from the others
-            dataset_names = [key for key in DATASET_NAME_TO_HUMAN_READABLE if key not in ["arguana", "touche2020"]]
-        self.dataset_names = dataset_names
-        self.dataset_id = dataset_id
-        self.rerank_k = rerank_k
-        self.at_k = at_k
-        self.always_rerank_positives = always_rerank_positives
-        self.show_progress_bar = show_progress_bar
-        self.batch_size = batch_size
-        self.write_csv = write_csv
-        self.aggregate_fn = aggregate_fn
-        self.aggregate_key = aggregate_key
-
-        self.name = f"NanoBEIR_R{rerank_k:d}_{self.aggregate_key}"
-
-        self._validate_dataset_names()
-
-        reranking_kwargs = {
-            "at_k": self.at_k,
-            "always_rerank_positives": self.always_rerank_positives,
-            "show_progress_bar": self.show_progress_bar,
-            "batch_size": self.batch_size,
-            "write_csv": self.write_csv,
-        }
-
-        self.evaluators = [
-            self._load_dataset(name, **reranking_kwargs)
-            for name in tqdm(self.dataset_names, desc="Loading NanoBEIR datasets", leave=False)
-        ]
-
-        self.csv_file: str = f"NanoBEIR_evaluation_{aggregate_key}_results.csv"
-        self.csv_headers = ["epoch", "steps", "MAP", f"MRR@{self.at_k}", f"NDCG@{self.at_k}"]
-
-        self.primary_metric = f"ndcg@{self.at_k}"
-
-    def __call__(
-        self, model: CrossEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1, *args, **kwargs
-    ) -> dict[str, float]:
-        per_metric_results = {}
-        per_dataset_results = {}
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
-
-        for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
-            logger.info(f"Evaluating {evaluator.name}")
-            evaluation = evaluator(model, output_path, epoch, steps)
-            for k in evaluation:
-                dataset, _rerank_k, metric = k.split("_", maxsplit=2)
-                if metric not in per_metric_results:
-                    per_metric_results[metric] = []
-                per_dataset_results[f"{dataset}_R{self.rerank_k}_{metric}"] = evaluation[k]
-                per_metric_results[metric].append(evaluation[k])
-            logger.info("")
-
-        agg_results = {}
-        for metric in per_metric_results:
-            agg_results[metric] = self.aggregate_fn(per_metric_results[metric])
-
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                fOut = open(csv_path, mode="w", encoding="utf-8")
-                fOut.write(",".join(self.csv_headers))
-                fOut.write("\n")
-
-            else:
-                fOut = open(csv_path, mode="a", encoding="utf-8")
-
-            output_data = [
-                epoch,
-                steps,
-                agg_results["map"],
-                agg_results[f"mrr@{self.at_k}"],
-                agg_results[f"ndcg@{self.at_k}"],
+            dataset_names = [
+                key for key in DATASET_NAME_TO_HUMAN_READABLE.keys() if key not in ["arguana", "touche2020"]
             ]
 
-            fOut.write(",".join(map(str, output_data)))
-            fOut.write("\n")
-            fOut.close()
-
-        logger.info("CrossEncoderNanoBEIREvaluator: Aggregated Results:")
-        logger.info(f"{' ' * len(str(self.at_k))}       Base  -> Reranked")
-        logger.info(
-            f"MAP:{' ' * len(str(self.at_k))}   {agg_results['base_map'] * 100:.2f} -> {agg_results['map'] * 100:.2f}"
-        )
-        logger.info(
-            f"MRR@{self.at_k}:  {agg_results[f'base_mrr@{self.at_k}'] * 100:.2f} -> {agg_results[f'mrr@{self.at_k}'] * 100:.2f}"
-        )
-        logger.info(
-            f"NDCG@{self.at_k}: {agg_results[f'base_ndcg@{self.at_k}'] * 100:.2f} -> {agg_results[f'ndcg@{self.at_k}'] * 100:.2f}"
-        )
-
-        model_card_metrics = {
-            "map": f"{agg_results['map']:.4f} ({agg_results['map'] - agg_results['base_map']:+.4f})",
-            f"mrr@{self.at_k}": f"{agg_results[f'mrr@{self.at_k}']:.4f} ({agg_results[f'mrr@{self.at_k}'] - agg_results[f'base_mrr@{self.at_k}']:+.4f})",
-            f"ndcg@{self.at_k}": f"{agg_results[f'ndcg@{self.at_k}']:.4f} ({agg_results[f'ndcg@{self.at_k}'] - agg_results[f'base_ndcg@{self.at_k}']:+.4f})",
-        }
-        model_card_metrics = self.prefix_name_to_metrics(model_card_metrics, self.name)
-        self.store_metrics_in_model_card_data(model, model_card_metrics, epoch, steps)
-
-        agg_results = self.prefix_name_to_metrics(agg_results, self.name)
-        per_dataset_results.update(agg_results)
-
-        return per_dataset_results
-
-    def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
-        return f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}_R{self.rerank_k}"
-
-    def _load_dataset(
-        self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs
-    ) -> CrossEncoderRerankingEvaluator:
-        if dataset_name.lower() not in DATASET_NAME_TO_HUMAN_READABLE:
-            raise ValueError(f"Dataset '{dataset_name}' is not a valid NanoBEIR dataset.")
-        human_readable = DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]
-        split_name = f"Nano{human_readable}"
-
-        corpus = self._load_dataset_subset_split("corpus", split=split_name, required_columns=["_id", "text"])
-        queries = self._load_dataset_subset_split("queries", split=split_name, required_columns=["_id", "text"])
-        qrels = self._load_dataset_subset_split("qrels", split=split_name, required_columns=["query-id", "corpus-id"])
-        bm25 = self._load_dataset_subset_split("bm25", split=split_name, required_columns=["query-id", "corpus-ids"])
-
-        corpus_mapping = dict(zip(corpus["_id"], corpus["text"]))
-        query_mapping = dict(zip(queries["_id"], queries["text"]))
-        qrels_mapping = {}
-        for sample in qrels:
-            corpus_ids = sample.get("corpus-id")
-            if sample["query-id"] not in qrels_mapping:
-                qrels_mapping[sample["query-id"]] = set()
-
-            if isinstance(corpus_ids, list):
-                qrels_mapping[sample["query-id"]].update(corpus_ids)
-            else:
-                qrels_mapping[sample["query-id"]].add(corpus_ids)
-
-        def mapper(
-            sample,
-            corpus_mapping: dict[str, str],
-            query_mapping: dict[str, str],
-            qrels_mapping: dict[str, set[str]],
-            rerank_k: int,
-        ):
-            query = query_mapping[sample["query-id"]]
-            positives = [corpus_mapping[positive_id] for positive_id in qrels_mapping[sample["query-id"]]]
-            documents = [corpus_mapping[document_id] for document_id in sample["corpus-ids"][:rerank_k]]
-            return {
-                "query": query,
-                "positive": positives,
-                "documents": documents,
-            }
-
-        relevance = bm25.map(
-            mapper,
-            fn_kwargs={
-                "corpus_mapping": corpus_mapping,
-                "query_mapping": query_mapping,
-                "qrels_mapping": qrels_mapping,
-                "rerank_k": self.rerank_k,
-            },
+        super().__init__(
+            dataset_names=[str(name) for name in dataset_names],
+            dataset_id=dataset_id,
+            rerank_k=rerank_k,
+            at_k=at_k,
+            always_rerank_positives=always_rerank_positives,
+            batch_size=batch_size,
+            show_progress_bar=show_progress_bar,
+            write_csv=write_csv,
+            aggregate_fn=aggregate_fn,
+            aggregate_key=aggregate_key,
+            dataset_name_to_human_readable=DATASET_NAME_TO_HUMAN_READABLE,
+            split_prefix="Nano",
+            strict_dataset_name_validation=True,
+            auto_expand_splits_when_dataset_names_none=False,
+            candidate_subset_name=candidate_subset_name,
+            bm25_subset_name=bm25_subset_name,
+            retrieved_corpus_ids_column=retrieved_corpus_ids_column,
+            name="NanoBEIR",
         )
 
-        human_readable_name = self._get_human_readable_name(dataset_name)
-        return CrossEncoderRerankingEvaluator(
-            samples=list(relevance),
-            name=human_readable_name,
-            **ir_evaluator_kwargs,
-        )
-
-    def _load_dataset_subset_split(self, subset: str, split: str, required_columns: list[str]):
-        if not is_datasets_available():
-            raise ValueError(
-                "datasets is not available. Please install it to use the CrossEncoderNanoBEIREvaluator via `pip install datasets`."
-            )
-        from datasets import load_dataset
-
-        try:
-            dataset = load_dataset(self.dataset_id, subset, split=split)
-        except Exception as e:
-            raise ValueError(
-                f"Could not load subset '{subset}' split '{split}' from dataset '{self.dataset_id}'."
-            ) from e
-
-        if missing_columns := set(required_columns) - set(dataset.column_names):
-            raise ValueError(
-                f"Subset '{subset}' split '{split}' from dataset '{self.dataset_id}' is missing required columns: {list(missing_columns)}."
-            )
-        return dataset
-
-    def _validate_dataset_names(self):
+    def _validate_dataset_names(self) -> None:
         if len(self.dataset_names) == 0:
             raise ValueError("dataset_names cannot be empty. Use None to evaluate on all datasets.")
+
         missing_datasets = [
             dataset_name
             for dataset_name in self.dataset_names
@@ -415,11 +243,16 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
                 f"Valid dataset names are: {list(DATASET_NAME_TO_HUMAN_READABLE.keys())}"
             )
 
-    def get_config_dict(self):
-        return {
+    def get_config_dict(self) -> dict[str, Any]:
+        config_dict: dict[str, Any] = {
             "dataset_names": self.dataset_names,
             "dataset_id": self.dataset_id,
             "rerank_k": self.rerank_k,
             "at_k": self.at_k,
             "always_rerank_positives": self.always_rerank_positives,
+            "candidate_subset_name": self.candidate_subset_name,
+            "retrieved_corpus_ids_column": self.retrieved_corpus_ids_column,
         }
+        if self._bm25_subset_name_alias_input is not None:
+            config_dict["bm25_subset_name"] = self.candidate_subset_name
+        return config_dict
