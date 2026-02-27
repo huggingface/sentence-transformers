@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable
 from typing import Any, Literal
 
@@ -9,6 +10,8 @@ from torch import Tensor, nn
 from sentence_transformers import util
 from sentence_transformers.SentenceTransformer import SentenceTransformer
 from sentence_transformers.util import all_gather_with_grad
+
+logger = logging.getLogger(__name__)
 
 
 class MultipleNegativesRankingLoss(nn.Module):
@@ -23,6 +26,8 @@ class MultipleNegativesRankingLoss(nn.Module):
             ...,
         ] = ("query_to_doc",),
         partition_mode: Literal["joint", "per_direction"] = "joint",
+        hardness_mode: Literal["in_batch_negatives", "hard_negatives", "all_negatives"] | None = None,
+        hardness_strength: float = 0.0,
     ) -> None:
         """
         Given a dataset of (anchor, positive) pairs, (anchor, positive, negative) triplets, or (anchor, positive, negative_1, ..., negative_n)
@@ -78,6 +83,26 @@ class MultipleNegativesRankingLoss(nn.Module):
                 - "joint": One joint softmax over all selected directions.
                 - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
                   Not compatible with ``"query_to_query"`` or ``"doc_to_doc"`` directions.
+            hardness_mode: Strategy for applying hardness weighting. ``None`` (default) disables hardness
+                weighting entirely. Options:
+
+                - ``"in_batch_negatives"``: Adds ``hardness_strength * stop_grad(cos_sim)`` to every in-batch negative
+                  logit inside the softmax (`Lan et al. 2025 <https://huggingface.co/papers/2503.04812>`_, Eq. 5).
+                  Works with all data formats including pairs-only.
+                - ``"hard_negatives"``: Applies ``hardness_strength * stop_grad(cos_sim)`` only to the logits of
+                  explicit hard negatives, leaving in-batch negatives unpenalized. Only active when explicit
+                  negatives are provided. As used in
+                  `Lan et al. 2025 <https://huggingface.co/papers/2509.20354>`_ (EmbeddingGemma).
+                - ``"all_negatives"``: Applies ``hardness_strength * stop_grad(cos_sim)`` to every negative logit,
+                  both in-batch negatives and explicit hard negatives, leaving only the positive unpenalized.
+                  Combines the effect of ``"in_batch_negatives"`` and ``"hard_negatives"``.
+
+            hardness_strength: Strength of the hardness weighting. The meaning depends on ``hardness_mode``:
+
+                - For ``"in_batch_negatives"``: acts as ``alpha`` in the hardness penalty, `Lan et al. 2025 <https://huggingface.co/papers/2503.04812>`_ uses 9.
+                - For ``"hard_negatives"``: acts as ``alpha`` in the hardness penalty, `Lan et al. 2025 <https://huggingface.co/papers/2509.20354>`_ uses 5.
+
+                Must be non-negative. Ignored when ``hardness_mode`` is ``None``.
 
         Requirements:
             1. (anchor, positive) pairs, (anchor, positive, negative) triplets, or (anchor, positive, negative_1, ..., negative_n) n-tuples
@@ -186,7 +211,26 @@ class MultipleNegativesRankingLoss(nn.Module):
                 "'query_to_query' and 'doc_to_doc' only contain same-type similarities and never include the positive, "
                 "making the per-direction loss ill-defined. Use partition_mode='joint' instead."
             )
+        if partition_mode == "per_direction" and set(directions) & {"query_to_query", "doc_to_doc"}:
+            # per_direction on query_to_query or doc_to_doc is possible, but it results in a negative loss.
+            # This is not strictly bad (the loss is still a valid training signal), but it is rather confusing,
+            # and the optimizer will focus on likely further decreasing the already negative loss from the
+            # query_to_query or doc_to_doc terms instead of optimizing the positive score from the query_to_doc
+            # term, which most likely leads to reduced performance.
+            raise ValueError(
+                "partition_mode='per_direction' requires every direction's candidate pool to include the positive pair. "
+                "'query_to_query' and 'doc_to_doc' only contain same-type similarities and never include the positive, "
+                "making the per-direction loss ill-defined. Use partition_mode='joint' instead."
+            )
         self.partition_mode = partition_mode
+
+        valid_hardness_modes = {None, "in_batch_negatives", "hard_negatives", "all_negatives"}
+        if hardness_mode not in valid_hardness_modes:
+            raise ValueError(f"hardness_mode must be one of {valid_hardness_modes}, got {hardness_mode!r}")
+        self.hardness_mode = hardness_mode
+        if hardness_strength < 0.0:
+            raise ValueError("hardness_strength must be non-negative.")
+        self.hardness_strength = hardness_strength
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         # Compute the embeddings and distribute them to anchor and candidates (positive and optionally negatives)
@@ -223,25 +267,56 @@ class MultipleNegativesRankingLoss(nn.Module):
 
         sim_matrices = {}
         # (bs, bs * ws * (1 + nn))
-        sim_matrices["query_to_doc"] = self.similarity_fct(local_queries, docs_all) * self.scale
+        sim_matrices["query_to_doc"] = self.similarity_fct(local_queries, docs_all)
 
         if "query_to_query" in self.directions:
             # (bs, bs * ws)
-            sim_matrices["query_to_query"] = self.similarity_fct(local_queries, queries) * self.scale
+            sim_matrices["query_to_query"] = self.similarity_fct(local_queries, queries)
             # Remove self-similarity entries q_i -> q_i
             sim_matrices["query_to_query"][row_indices, local_indices] = -torch.inf
 
         if "doc_to_query" in self.directions:
             # (bs, bs * ws)
-            sim_matrices["doc_to_query"] = (self.similarity_fct(queries, local_docs) * self.scale).T
+            sim_matrices["doc_to_query"] = self.similarity_fct(queries, local_docs).T
 
         if "doc_to_doc" in self.directions:
             # (bs, bs * ws * (1 + nn))
-            sim_matrices["doc_to_doc"] = (self.similarity_fct(docs_all, local_docs) * self.scale).T
+            sim_matrices["doc_to_doc"] = self.similarity_fct(docs_all, local_docs).T
             # Remove d_i_a -> d_i_b for all documents belonging to the same query
             same_query_doc_mask = torch.eye(world_batch_size, device=queries.device)[local_indices]
             same_query_doc_mask = same_query_doc_mask.repeat(1, len(docs)).bool()
             sim_matrices["doc_to_doc"].masked_fill_(same_query_doc_mask, -torch.inf)
+
+        # Compute hardness penalties on the unscaled (raw cosine) similarities (Lan et al. 2025, Eq. 5).
+        # penalty = alpha * stop_grad(cos_sim), making harder negatives contribute more to the
+        # softmax denominator. Computed before temperature scaling so no rescaling is needed.
+        penalties = {}
+        if (
+            self.hardness_mode in ("in_batch_negatives", "hard_negatives", "all_negatives")
+            and self.hardness_strength > 0.0
+        ):
+            penalty = self.hardness_strength * sim_matrices["query_to_doc"].detach()
+
+            # A mask for positives and hard negatives
+            same_query_doc_mask = torch.eye(world_batch_size, device=queries.device, dtype=torch.bool)[local_indices]
+            same_query_doc_mask = same_query_doc_mask.repeat(1, len(docs))
+
+            if self.hardness_mode == "hard_negatives":
+                penalty_exclusion_mask = ~same_query_doc_mask  # Exclude everything but positives and hard negatives
+                penalty_exclusion_mask[:, :world_batch_size] = True  # Exclude everything but hard negatives
+            elif self.hardness_mode == "in_batch_negatives":
+                penalty_exclusion_mask = same_query_doc_mask  # Exclude positives and hard negatives
+            elif self.hardness_mode == "all_negatives":
+                penalty_exclusion_mask = same_query_doc_mask  # Exclude positives and hard negatives
+                penalty_exclusion_mask[:, world_batch_size:] = False  # Exclude positives
+
+            penalty[penalty_exclusion_mask] = 0.0
+            penalties["query_to_doc"] = penalty
+
+        # Apply temperature scaling (scale = 1/temperature) and add hardness penalties.
+        # Final logit = cos_sim * scale + alpha * cos_sim (penalty is not temperature-scaled).
+        for key in sim_matrices:
+            sim_matrices[key] = sim_matrices[key] * self.scale + penalties.get(key, 0.0)
 
         # Positive scores (always from query_to_doc)
         positive_scores = sim_matrices["query_to_doc"][row_indices, local_indices]
@@ -258,7 +333,9 @@ class MultipleNegativesRankingLoss(nn.Module):
                 log_z += torch.logsumexp(sim_matrix, dim=1)
             log_z /= len(sim_matrices)
 
-        loss = -(positive_scores - log_z).mean()
+        per_sample_loss = -(positive_scores - log_z)
+
+        loss = per_sample_loss.mean()
 
         return loss
 
@@ -269,6 +346,8 @@ class MultipleNegativesRankingLoss(nn.Module):
             "gather_across_devices": self.gather_across_devices,
             "directions": self.directions,
             "partition_mode": self.partition_mode,
+            "hardness_mode": self.hardness_mode,
+            "hardness_strength": self.hardness_strength,
         }
 
     @property
