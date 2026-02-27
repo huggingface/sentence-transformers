@@ -612,6 +612,12 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
         """
         Performs predictions with the CrossEncoder on the given sentence pairs.
 
+        .. tip::
+
+            Adjusting ``batch_size`` can significantly improve processing speed. The optimal value depends on your
+            hardware, model size, precision, and input length. Benchmark a few batch sizes on a small subset of your
+            data to find the best value.
+
         Args:
             sentences (Union[List[Tuple[str, str]], Tuple[str, str]]): A list of sentence pairs [(Sent1, Sent2), (Sent3, Sent4)]
                 or one sentence pair (Sent1, Sent2).
@@ -753,6 +759,12 @@ class CrossEncoder(nn.Module, PushToHubMixin, FitMixin):
     ) -> list[dict[Literal["corpus_id", "score", "text"], int | float | str]]:
         """
         Performs ranking with the CrossEncoder on the given query and documents. Returns a sorted list with the document indices and scores.
+
+        .. tip::
+
+            Adjusting ``batch_size`` can significantly improve processing speed. The optimal value depends on your
+            hardware, model size, precision, and input length. Benchmark a few batch sizes on a small subset of your
+            data to find the best value.
 
         Args:
             query (str): A single query.
