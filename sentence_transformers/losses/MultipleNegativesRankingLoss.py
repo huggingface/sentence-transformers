@@ -77,6 +77,7 @@ class MultipleNegativesRankingLoss(nn.Module):
             partition_mode: How to normalize the scores (the softmax denominator):
                 - "joint": One joint softmax over all selected directions.
                 - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
+                  Not compatible with ``"query_to_query"`` or ``"doc_to_doc"`` directions.
 
         Requirements:
             1. (anchor, positive) pairs, (anchor, positive, negative) triplets, or (anchor, positive, negative_1, ..., negative_n) n-tuples
@@ -174,6 +175,17 @@ class MultipleNegativesRankingLoss(nn.Module):
 
         if partition_mode not in ("joint", "per_direction"):
             raise ValueError(f"partition_mode must be 'joint' or 'per_direction', got {partition_mode}")
+        if partition_mode == "per_direction" and set(directions) & {"query_to_query", "doc_to_doc"}:
+            # per_direction on query_to_query or doc_to_doc is possible, but it results in a negative loss.
+            # This is not strictly bad (the loss is still a valid training signal), but it is rather confusing,
+            # and the optimizer will focus on likely further decreasing the already negative loss from the
+            # query_to_query or doc_to_doc terms instead of optimizing the positive score from the query_to_doc
+            # term, which most likely leads to reduced performance.
+            raise ValueError(
+                "partition_mode='per_direction' requires every direction's candidate pool to include the positive pair. "
+                "'query_to_query' and 'doc_to_doc' only contain same-type similarities and never include the positive, "
+                "making the per-direction loss ill-defined. Use partition_mode='joint' instead."
+            )
         self.partition_mode = partition_mode
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
