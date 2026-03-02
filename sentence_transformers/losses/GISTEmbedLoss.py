@@ -23,6 +23,7 @@ class GISTEmbedLoss(nn.Module):
         contrast_anchors: bool = True,
         contrast_positives: bool = True,
         gather_across_devices: bool = False,
+        self_guide_warmup_ratio: float = 0.0,
     ) -> None:
         """
         This loss is used to train a SentenceTransformer model using the GISTEmbed algorithm.
@@ -56,6 +57,10 @@ class GISTEmbedLoss(nn.Module):
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
+            self_guide_warmup_ratio: Fraction of total training steps during which self-guide filtering is
+                disabled (warmup phase). Only relevant when using self-guided mode (``guide=None``). When set to a
+                value > 0, the :class:`~sentence_transformers.callbacks.SelfGuideWarmupCallback` is automatically
+                added by the trainer. Defaults to 0.0 (no warmup, filtering is always active).
 
         References:
             - For further details, see: https://huggingface.co/papers/2402.16829
@@ -174,6 +179,13 @@ class GISTEmbedLoss(nn.Module):
         self.gather_across_devices = gather_across_devices
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
+        self.self_guide_warmup_ratio = self_guide_warmup_ratio
+        if self.is_self_guided and self_guide_warmup_ratio > 0:
+            # Filtering starts disabled; the SelfGuideWarmupCallback enables it after warmup.
+            self.self_guide_filtering_active: bool = False
+        else:
+            self.self_guide_filtering_active: bool = True
+
     def sim_matrix(self, embed1: Tensor, embed2: Tensor) -> Tensor:
         return self.similarity_fct(embed1.unsqueeze(1), embed2.unsqueeze(0))
 
@@ -254,27 +266,35 @@ class GISTEmbedLoss(nn.Module):
         # Create a mask to protect true positive pairs in the anchor-positive matrix (i.e., diagonal elements)
         positive_mask = torch.eye(*guided_ap_sim.shape, dtype=torch.bool, device=guided_ap_sim.device)
 
-        # Apply false negative suppression to each similarity matrix using guided similarity as anchor
-        ap_sim = mask_false_negatives(guided_ap_sim, ap_sim, positive_mask=positive_mask)  # anchor-positive
+        # Apply false negative suppression to each similarity matrix using guided similarity as anchor.
+        # For self-guided mode, respect the warmup: skip filtering while self_guide_filtering_active is False.
+        # For external guide mode, always filter (self_guide_filtering_active is always True).
+        apply_filtering = not self.is_self_guided or self.self_guide_filtering_active
+
+        if apply_filtering:
+            ap_sim = mask_false_negatives(guided_ap_sim, ap_sim, positive_mask=positive_mask)  # anchor-positive
         scores = [ap_sim]
 
         if self.contrast_anchors:
             aa_sim = self.sim_matrix(anchor, anchor)
             guided_aa_sim = self.sim_matrix(anchor_guide, anchor_guide)
-            aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
+            if apply_filtering:
+                aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
             scores.append(aa_sim)
 
         if self.contrast_positives:
             pp_sim = self.sim_matrix(positive[offset : offset + batch_size], positive)
             guided_pp_sim = self.sim_matrix(positive_guide[offset : offset + batch_size], positive_guide)
-            pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
+            if apply_filtering:
+                pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
             scores.append(pp_sim)
 
         # Handle the case where we have a negative sample
         if negative is not None:
             an_sim = self.sim_matrix(anchor, negative)
             guided_an_sim = self.sim_matrix(anchor_guide, negative_guide)
-            an_sim = mask_false_negatives(guided_an_sim, an_sim)  # anchor-negative
+            if apply_filtering:
+                an_sim = mask_false_negatives(guided_an_sim, an_sim)  # anchor-negative
             scores.append(an_sim)
 
         scores = torch.cat(scores, dim=1) / self.temperature

@@ -79,6 +79,7 @@ class CachedGISTEmbedLoss(nn.Module):
         contrast_anchors: bool = True,
         contrast_positives: bool = True,
         gather_across_devices: bool = False,
+        self_guide_warmup_ratio: float = 0.0,
     ) -> None:
         """
         This loss is a combination of :class:`GISTEmbedLoss` and :class:`CachedMultipleNegativesRankingLoss`.
@@ -122,6 +123,10 @@ class CachedGISTEmbedLoss(nn.Module):
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
+            self_guide_warmup_ratio: Fraction of total training steps during which self-guide filtering is
+                disabled (warmup phase). Only relevant when using self-guided mode (``guide=None``). When set to a
+                value > 0, the :class:`~sentence_transformers.callbacks.SelfGuideWarmupCallback` is automatically
+                added by the trainer. Defaults to 0.0 (no warmup, filtering is always active).
 
         References:
             - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
@@ -254,6 +259,13 @@ class CachedGISTEmbedLoss(nn.Module):
         self.contrast_positives = contrast_positives
         self.gather_across_devices = gather_across_devices
         self.cross_entropy_loss = nn.CrossEntropyLoss()
+
+        self.self_guide_warmup_ratio = self_guide_warmup_ratio
+        if self.is_self_guided and self_guide_warmup_ratio > 0:
+            # Filtering starts disabled; the SelfGuideWarmupCallback enables it after warmup.
+            self.self_guide_filtering_active: bool = False
+        else:
+            self.self_guide_filtering_active: bool = True
 
     def sim_matrix(self, embed1: Tensor, embed2: Tensor) -> Tensor:
         return self.similarity_fct(embed1.unsqueeze(1), embed2.unsqueeze(0))
@@ -403,14 +415,20 @@ class CachedGISTEmbedLoss(nn.Module):
             positive_mask = torch.eye(*guided_ap_sim.shape, dtype=torch.bool, device=guided_ap_sim.device)
             positive_mask = positive_mask.roll(begin)
 
-            # Apply false negative suppression to each similarity matrix using guided similarity as anchor
-            ap_sim = mask_false_negatives(guided_ap_sim, ap_sim, positive_mask=positive_mask)  # anchor-positive
+            # Apply false negative suppression to each similarity matrix using guided similarity as anchor.
+            # For self-guided mode, respect the warmup: skip filtering while self_guide_filtering_active is False.
+            # For external guide mode, always filter (self_guide_filtering_active is always True).
+            apply_filtering = not self.is_self_guided or self.self_guide_filtering_active
+
+            if apply_filtering:
+                ap_sim = mask_false_negatives(guided_ap_sim, ap_sim, positive_mask=positive_mask)  # anchor-positive
             scores = [ap_sim]
 
             if self.contrast_anchors:
                 aa_sim = self.sim_matrix(anchors[begin:end], anchors)
                 guided_aa_sim = self.sim_matrix(anchors_guide[begin:end], anchors_guide)
-                aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
+                if apply_filtering:
+                    aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
                 scores.append(aa_sim)
 
             if self.contrast_positives:
@@ -420,7 +438,8 @@ class CachedGISTEmbedLoss(nn.Module):
                 guided_pp_sim = self.sim_matrix(
                     candidates_guide[0][offset + begin : min(offset + end, offset + batch_size)], candidates_guide[0]
                 )
-                pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
+                if apply_filtering:
+                    pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
                 scores.append(pp_sim)
 
             # If there are negatives (len(candidates) > 1), process them
@@ -428,7 +447,8 @@ class CachedGISTEmbedLoss(nn.Module):
                 for i in range(1, len(candidates)):  # Start from 1 since the first is the positive
                     neg_sim = self.sim_matrix(anchors[begin:end], candidates[i])
                     guided_neg_sim = self.sim_matrix(anchors_guide[begin:end], candidates_guide[i])
-                    neg_sim = mask_false_negatives(guided_neg_sim, neg_sim)
+                    if apply_filtering:
+                        neg_sim = mask_false_negatives(guided_neg_sim, neg_sim)
                     scores.append(neg_sim)  # anchor-negative
 
             # Concatenate all scores into a single tensor
