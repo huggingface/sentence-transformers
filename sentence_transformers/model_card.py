@@ -644,10 +644,15 @@ class SentenceTransformerModelCardData(CardData):
         if isinstance(dataset, Dataset):
             # Size might already be defined, but `len(dataset)` is more reliable
             dataset_info["size"] = len(dataset)
-        dataset_info["columns"] = [f"<code>{column}</code>" for column in dataset.column_names]
+            # dataset[0].keys() reflects post-transform columns if set_transform is used
+            dataset_columns = [column for column in dataset[0].keys() if column != "dataset_name"]
+        else:
+            dataset_columns = dataset.column_names
+
+        dataset_info["columns"] = [f"<code>{column}</code>" for column in dataset_columns]
         dataset_info["stats"] = {}
         if isinstance(dataset, Dataset):
-            for column in dataset.column_names:
+            for column in dataset_columns:
                 subsection = dataset[:1000][column]
                 first = subsection[0]
                 if isinstance(first, str):
@@ -719,7 +724,7 @@ class SentenceTransformerModelCardData(CardData):
             examples_lines = []
             for sample_idx in range(num_samples):
                 columns = {}
-                for column in dataset.column_names:
+                for column in dataset_columns:
                     value = dataset_info["examples"][column][sample_idx]
                     # If the value is a long list, truncate it
                     if isinstance(value, list) and len(value) > 5:

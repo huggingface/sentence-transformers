@@ -22,6 +22,8 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
             ...,
         ] = ("query_to_doc",),
         partition_mode: Literal["joint", "per_direction"] = "joint",
+        hardness_mode: Literal["in_batch_negatives", "hard_negatives", "all_negatives"] | None = None,
+        hardness_strength: float = 0.0,
     ) -> None:
         """
         Given a dataset of (anchor, positive) pairs, (anchor, positive, negative) triplets, or (anchor, positive, negative_1, ..., negative_n)
@@ -132,6 +134,8 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
             gather_across_devices=gather_across_devices,
             directions=directions,
             partition_mode=partition_mode,
+            hardness_mode=hardness_mode,
+            hardness_strength=hardness_strength,
         )
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
