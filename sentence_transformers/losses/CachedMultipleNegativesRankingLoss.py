@@ -139,8 +139,8 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 weighting entirely. Options:
 
                 - ``"in_batch_negatives"``: Adds ``hardness_strength * stop_grad(cos_sim)`` to every in-batch negative
-                  the softmax (`Lan et al. 2025 <https://huggingface.co/papers/2503.04812>`_, Eq. 5). Works with all
-                  data formats including pairs-only.
+                  logit inside the softmax (`Lan et al. 2025 <https://huggingface.co/papers/2503.04812>`_, Eq. 5). The
+                  in-batch negatives are all positives and hard negatives from other samples in the batch.
                 - ``"hard_negatives"``: Applies ``hardness_strength * stop_grad(cos_sim)`` only to the logits of
                   explicit hard negatives, leaving in-batch negatives unpenalized. Only active when explicit
                   negatives are provided. As used in
@@ -248,6 +248,11 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         if hardness_strength < 0.0:
             raise ValueError("hardness_strength must be non-negative.")
         self.hardness_strength = hardness_strength
+        if hardness_mode is not None and hardness_strength == 0.0:
+            logger.warning(
+                f"hardness_mode={hardness_mode!r} is set but hardness_strength=0.0, so hardness weighting has no "
+                "effect. Set hardness_strength to a positive value to enable hardness weighting."
+            )
 
         self.cache: list[list[Tensor]] | None = None
         self.random_states: list[list[RandContext]] | None = None
@@ -387,20 +392,21 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             ):
                 penalty = self.hardness_strength * sim_matrices["query_to_doc"].detach()
 
-                # A mask for positives and hard negatives
-                same_query_doc_mask = torch.eye(world_batch_size, device=queries.device, dtype=torch.bool)[local_batch]
-                same_query_doc_mask = same_query_doc_mask.repeat(1, num_docs)
+                # True where the document belongs to the same query (own positive + own hard negatives)
+                own_doc_mask = torch.eye(world_batch_size, device=queries.device, dtype=torch.bool)[local_batch]
+                own_doc_mask = own_doc_mask.repeat(1, num_docs)
 
                 if self.hardness_mode == "hard_negatives":
-                    penalty_exclusion_mask = (
-                        ~same_query_doc_mask
-                    )  # Exclude everything but positives and hard negatives
-                    penalty_exclusion_mask[:, :world_batch_size] = True  # Exclude everything but hard negatives
+                    # Exclude positives and in-batch negatives, keeping only own hard negatives
+                    penalty_exclusion_mask = ~own_doc_mask
+                    penalty_exclusion_mask[:, :world_batch_size] = True
                 elif self.hardness_mode == "in_batch_negatives":
-                    penalty_exclusion_mask = same_query_doc_mask  # Exclude positives and hard negatives
+                    # Exclude own positives and hard negatives, keeping only in-batch negatives
+                    penalty_exclusion_mask = own_doc_mask
                 elif self.hardness_mode == "all_negatives":
-                    penalty_exclusion_mask = same_query_doc_mask  # Exclude positives and hard negatives
-                    penalty_exclusion_mask[:, world_batch_size:] = False  # Exclude positives
+                    # Exclude positives only, keeping both in-batch and hard negatives
+                    penalty_exclusion_mask = own_doc_mask
+                    penalty_exclusion_mask[:, world_batch_size:] = False
 
                 penalty[penalty_exclusion_mask] = 0.0
                 penalties["query_to_doc"] = penalty
@@ -408,7 +414,9 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             # Apply temperature scaling (scale = 1/temperature) and add hardness penalties.
             # Final logit = cos_sim * scale + alpha * cos_sim (penalty is not temperature-scaled).
             for key in sim_matrices:
-                sim_matrices[key] = sim_matrices[key] * self.scale + penalties.get(key, 0.0)
+                sim_matrices[key] = sim_matrices[key] * self.scale
+            for key, pen in penalties.items():
+                sim_matrices[key] = sim_matrices[key] + pen
 
             # Positive scores (always from query_to_doc)
             positive_scores = sim_matrices["query_to_doc"][row_indices, local_batch]
@@ -425,7 +433,6 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 log_z /= len(sim_matrices)
 
             per_sample_loss = -(positive_scores - log_z)
-
             loss_mbatch = per_sample_loss.mean() * len(local_batch) / batch_size
 
             if with_backward:
