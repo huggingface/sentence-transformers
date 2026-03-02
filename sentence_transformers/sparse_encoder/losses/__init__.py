@@ -12,7 +12,10 @@ from .SparseMultipleNegativesRankingLoss import SparseMultipleNegativesRankingLo
 from .SparseTripletLoss import SparseTripletLoss
 from .SpladeLoss import SpladeLoss
 
+from .CachedSpladeLoss import CachedSpladeLoss  # isort: skip  # Avoid circular import with SpladeLoss -> FlopsLoss
+
 __all__ = [
+    "CachedSpladeLoss",
     "CSRLoss",
     "CSRReconstructionLoss",
     "SparseMultipleNegativesRankingLoss",

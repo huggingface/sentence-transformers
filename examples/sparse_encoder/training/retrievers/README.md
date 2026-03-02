@@ -26,6 +26,12 @@ Example scripts could be:
   This example also uses :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss` (similarly utilizing :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss`) and trains on the `NQ (natural questions) <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset. It showcases an alternative configuration or approach for training SPLADE models on question-answering data for sparse retrieval.
   ```
 
+- **[train_splade_nq_cached.py](train_splade_nq_cached.py)**:
+
+  ```{eval-rst}
+  This example is similar to the last one, but uses :class:`~sentence_transformers.sparse_encoder.losses.CachedSpladeLoss` to get much larger batch sizes (e.g. 512 instead of 16) during training without increasing GPU memory usage. Because :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss` benefits greatly from larger batch sizes (more in-batch negatives), this results in better retrieval performance.
+  ```
+
 - **[train_csr_nq.py](train_csr_nq.py)**:
 
   ```{eval-rst}

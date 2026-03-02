@@ -30,7 +30,8 @@ logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:
 def main():
     model_name = "distilbert/distilbert-base-uncased"
     short_model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
-    global_batch_size = 16
+    global_batch_size = 512
+    mini_batch_size = 32
 
     # 1a. Load a model to finetune with 1b. (Optional) model card data
     model = SparseEncoder(
@@ -57,21 +58,22 @@ def main():
     query_regularizer_weight = 5e-5
     document_regularizer_weight = 3e-5
 
-    loss = losses.SpladeLoss(
+    loss = losses.CachedSpladeLoss(
         model=model,
         loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        mini_batch_size=mini_batch_size,
         query_regularizer_weight=query_regularizer_weight,  # Weight for query loss
         document_regularizer_weight=document_regularizer_weight,  # Weight for document loss
     )
 
     # 4. Define evaluator. We use the SparseNanoBEIREvaluator, which is a light-weight evaluator
     evaluator = evaluation.SparseNanoBEIREvaluator(
-        dataset_names=["msmarco", "nfcorpus", "nq"], show_progress_bar=True, batch_size=global_batch_size
+        dataset_names=["msmarco", "nfcorpus", "nq"], show_progress_bar=True, batch_size=mini_batch_size
     )
     evaluator(model)
 
     # 5. Define the training arguments
-    run_name = f"splade-{short_model_name}-nq"
+    run_name = f"splade-{short_model_name}-nq-512bs"
     training_args = SparseEncoderTrainingArguments(
         # Required parameter:
         output_dir=f"models/{run_name}",
@@ -80,7 +82,7 @@ def main():
         per_device_train_batch_size=global_batch_size,
         per_device_eval_batch_size=global_batch_size,
         warmup_ratio=0.1,
-        learning_rate=2e-6,
+        learning_rate=1e-5,  # NOTE: The learning rate is much higher to account for the higher batch size
         fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=True,  # Set to True if you have a GPU that supports BF16
         batch_sampler=BatchSamplers.NO_DUPLICATES,  # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch

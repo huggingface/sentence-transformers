@@ -472,7 +472,7 @@ def test_detect_mlm():
 def test_default_to_csr():
     # NOTE: bert-tiny is actually MLM-based, but the config isn't modern enough to allow us to detect it,
     # so we should default to CSR here.
-    model = SparseEncoder("prajjwal1/bert-tiny")
+    model = SparseEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
     assert isinstance(model[0], Transformer)
     assert isinstance(model[1], Pooling)
     assert isinstance(model[2], SparseAutoEncoder)

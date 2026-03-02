@@ -52,10 +52,10 @@ class CrossEncoderTrainer(SentenceTransformerTrainer):
             The arguments to tweak for training. Will default to a basic instance of
             :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments` with the
             `output_dir` set to a directory named *tmp_trainer* in the current directory if not provided.
-        train_dataset (Union[:class:`datasets.Dataset`, :class:`datasets.DatasetDict`, :class:`datasets.IterableDataset`, Dict[str, :class:`datasets.Dataset`]], *optional*):
+        train_dataset (Union[:class:`datasets.Dataset`, :class:`datasets.DatasetDict`, Dict[str, :class:`datasets.Dataset`]], *optional*):
             The dataset to use for training. Must have a format accepted by your loss function, see
             `Training Overview > Dataset Format <../../../docs/sentence_transformer/training_overview.html#dataset-format>`_.
-        eval_dataset (Union[:class:`datasets.Dataset`, :class:`datasets.DatasetDict`, :class:`datasets.IterableDataset`, Dict[str, :class:`datasets.Dataset`]], *optional*):
+        eval_dataset (Union[:class:`datasets.Dataset`, :class:`datasets.DatasetDict`, Dict[str, :class:`datasets.Dataset`]], *optional*):
             The dataset to use for evaluation. Must have a format accepted by your loss function, see
             `Training Overview > Dataset Format <../../../docs/sentence_transformer/training_overview.html#dataset-format>`_.
         loss (Optional[Union[:class:`torch.nn.Module`, Dict[str, :class:`torch.nn.Module`],\

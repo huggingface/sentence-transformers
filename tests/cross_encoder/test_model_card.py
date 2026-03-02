@@ -46,7 +46,7 @@ def dummy_dataset():
                 "- sentence-transformers",
                 "- cross-encoder",
                 "pipeline_tag: text-ranking",
-                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [prajjwal1/bert-tiny](https://huggingface.co/prajjwal1/bert-tiny)",
+                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [sentence-transformers-testing/stsb-bert-tiny-safetensors](https://huggingface.co/sentence-transformers-testing/stsb-bert-tiny-safetensors)",
                 "[sentence-transformers](https://www.SBERT.net) library",
                 "It computes scores for pairs of texts, which can be used for text reranking and semantic search.",
                 "**Maximum Sequence Length:** 512 tokens",
@@ -71,7 +71,7 @@ def dummy_dataset():
                 "- sentence-transformers",
                 "- cross-encoder",
                 "pipeline_tag: text-classification",
-                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [prajjwal1/bert-tiny](https://huggingface.co/prajjwal1/bert-tiny)",
+                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [sentence-transformers-testing/stsb-bert-tiny-safetensors](https://huggingface.co/sentence-transformers-testing/stsb-bert-tiny-safetensors)",
                 "[sentence-transformers](https://www.SBERT.net) library",
                 "It computes scores for pairs of texts, which can be used for text pair classification.",
                 "**Maximum Sequence Length:** 512 tokens",
@@ -91,7 +91,7 @@ def dummy_dataset():
             1,
             1,
             [
-                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [prajjwal1/bert-tiny](https://huggingface.co/prajjwal1/bert-tiny) on the train_0 dataset using the [sentence-transformers](https://www.SBERT.net) library.",
+                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [sentence-transformers-testing/stsb-bert-tiny-safetensors](https://huggingface.co/sentence-transformers-testing/stsb-bert-tiny-safetensors) on the train_0 dataset using the [sentence-transformers](https://www.SBERT.net) library.",
                 "#### train_0",
             ],
         ),
@@ -99,7 +99,7 @@ def dummy_dataset():
             2,
             1,
             [
-                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [prajjwal1/bert-tiny](https://huggingface.co/prajjwal1/bert-tiny) on the train_0 and train_1 datasets using the [sentence-transformers](https://www.SBERT.net) library.",
+                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [sentence-transformers-testing/stsb-bert-tiny-safetensors](https://huggingface.co/sentence-transformers-testing/stsb-bert-tiny-safetensors) on the train_0 and train_1 datasets using the [sentence-transformers](https://www.SBERT.net) library.",
                 "#### train_0",
                 "#### train_1",
             ],
@@ -108,7 +108,7 @@ def dummy_dataset():
             10,
             1,
             [
-                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [prajjwal1/bert-tiny](https://huggingface.co/prajjwal1/bert-tiny) on the train_0, train_1, train_2, train_3, train_4, train_5, train_6, train_7, train_8 and train_9 datasets using the [sentence-transformers](https://www.SBERT.net) library.",
+                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [sentence-transformers-testing/stsb-bert-tiny-safetensors](https://huggingface.co/sentence-transformers-testing/stsb-bert-tiny-safetensors) on the train_0, train_1, train_2, train_3, train_4, train_5, train_6, train_7, train_8 and train_9 datasets using the [sentence-transformers](https://www.SBERT.net) library.",
                 "<details><summary>train_0</summary>",  # We start using <details><summary> if we have more than 3 datasets
                 "#### train_0",
                 "</details>\n<details><summary>train_9</summary>",
@@ -120,7 +120,7 @@ def dummy_dataset():
             50,
             1,
             [
-                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [prajjwal1/bert-tiny](https://huggingface.co/prajjwal1/bert-tiny) on 50 datasets using the [sentence-transformers](https://www.SBERT.net) library.",
+                "This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.html) model finetuned from [sentence-transformers-testing/stsb-bert-tiny-safetensors](https://huggingface.co/sentence-transformers-testing/stsb-bert-tiny-safetensors) on 50 datasets using the [sentence-transformers](https://www.SBERT.net) library.",
                 "<details><summary>train_0</summary>",
                 "#### train_0",
                 "</details>\n<details><summary>train_49</summary>",
@@ -135,7 +135,7 @@ def test_model_card_base(
     num_labels: int,
     expected_substrings: list[str],
 ) -> None:
-    model = CrossEncoder("prajjwal1/bert-tiny", num_labels=num_labels)
+    model = CrossEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors", num_labels=num_labels)
 
     # Let's avoid requesting the Hub for e.g. checking if a base model exists there
     model.model_card_data.local_files_only = True

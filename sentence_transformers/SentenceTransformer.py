@@ -481,6 +481,12 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
             Retrieval, and that if the model was not trained with predefined prompts and/or task types, then all three
             methods will return identical embeddings.
 
+        .. tip::
+
+            Adjusting ``batch_size`` can significantly improve processing speed. The optimal value depends on your
+            hardware, model size, precision, and input length. Benchmark a few batch sizes on a small subset of your
+            data to find the best value.
+
         Args:
             sentences (Union[str, List[str]]): The sentences to embed.
             prompt_name (Optional[str], optional): The name of the prompt to use for encoding. Must be a key in the `prompts` dictionary,
@@ -609,6 +615,12 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
             Note that :meth:`encode` is the most general method and can be used for any task, including Information
             Retrieval, and that if the model was not trained with predefined prompts and/or task types, then all three
             methods will return identical embeddings.
+
+        .. tip::
+
+            Adjusting ``batch_size`` can significantly improve processing speed. The optimal value depends on your
+            hardware, model size, precision, and input length. Benchmark a few batch sizes on a small subset of your
+            data to find the best value.
 
         Args:
             sentences (Union[str, List[str]]): The sentences to embed.
@@ -884,6 +896,12 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
             Note that :meth:`encode` is the most general method and can be used for any task, including Information
             Retrieval, and that if the model was not trained with predefined prompts and/or task types, then all three
             methods will return identical embeddings.
+
+        .. tip::
+
+            Adjusting ``batch_size`` can significantly improve processing speed. The optimal value depends on your
+            hardware, model size, precision, and input length. Benchmark a few batch sizes on a small subset of your
+            data to find the best value.
 
         Args:
             sentences (Union[str, List[str]]): The sentences to embed.
