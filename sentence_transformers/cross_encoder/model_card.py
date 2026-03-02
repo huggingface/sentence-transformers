@@ -109,7 +109,8 @@ class CrossEncoderModelCardData(SentenceTransformerModelCardData):
         columns = [
             column
             for column, value in first_sample.items()
-            if isinstance(value, str) or (isinstance(value, list) and value and isinstance(value[0], str))
+            if column != "dataset_name"
+            and (isinstance(value, str) or (isinstance(value, list) and value and isinstance(value[0], str)))
         ]
         if len(columns) < 2:
             return

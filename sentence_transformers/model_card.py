@@ -645,7 +645,7 @@ class SentenceTransformerModelCardData(CardData):
             # Size might already be defined, but `len(dataset)` is more reliable
             dataset_info["size"] = len(dataset)
             # dataset[0].keys() reflects post-transform columns if set_transform is used
-            dataset_columns = list(dataset[0].keys())
+            dataset_columns = [column for column in dataset[0].keys() if column != "dataset_name"]
         else:
             dataset_columns = dataset.column_names
 
