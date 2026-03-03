@@ -76,7 +76,7 @@ MODELS_TO_SIMILARITIES = {
 
 @pytest.mark.parametrize("model_name, expected_score", MODELS_TO_SIMILARITIES.items())
 @pytest.mark.slow  # Also marked as slow to avoid running it with CI: results in too many requests/downloads to the Hugging Face Hub
-def test_pretrained_model(model_name: str, expected_score: float) -> None:
+def test_pretrained_model(model_name: str, expected_score: list[float]) -> None:
     model = CrossEncoder(model_name, trust_remote_code=True, model_kwargs={"torch_dtype": torch.float32})
     predictions = model.predict(PAIRS)
     assert np.allclose(predictions, expected_score, atol=0.01), (
