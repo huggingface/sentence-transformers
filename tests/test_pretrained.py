@@ -55,7 +55,6 @@ MODELS_TO_SIMILARITIES = {
     "jinaai/jina-embeddings-v2-small-en": [0.76039, 0.91308, 0.88758, 0.85223],
     "jinaai/jina-embeddings-v5-text-nano-retrieval": [0.50366, 0.79225, 0.61306, 0.57663],
     "jinaai/jina-embeddings-v5-text-small-retrieval": [0.45699, 0.77915, 0.60388, 0.62656],
-    "jinaai/jina-reranker-v2-base-multilingual": [0.96999, 0.88236, 0.95706, 0.97571],
     "krlvi/sentence-msmarco-bert-base-dot-v5-nlpl-code_search_net": [0.45616, 0.82503, 0.73758, 0.69932],
     "lightonai/modernbert-embed-large": [0.72093, 0.88348, 0.79301, 0.84273],
     "minishlab/potion-base-8M": [0.44635, 0.69271, 0.69851, 0.61344],
