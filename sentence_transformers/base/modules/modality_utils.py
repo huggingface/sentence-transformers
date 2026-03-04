@@ -337,71 +337,29 @@ class InputFormatter:
         extra_modality_kwargs = defaultdict(dict)
 
         for item in inputs:
-            match item:
-                case str() if self.is_image_url_or_path(item):
-                    # Paths or URLs to images
-                    typed_inputs.append(("image", item))
-                case str() if self.is_video_url_or_path(item):
-                    # Paths or URLs to videos
-                    typed_inputs.append(("video", item))
-                case str() if self.is_audio_url_or_path(item):
-                    # Paths or URLs to audio
-                    typed_inputs.append(("audio", item))
-                case str() | (str(), str()) | [str(), str()]:
-                    # Individual text or pair of texts
-                    typed_inputs.append(("text", item))
-                case Image():
-                    typed_inputs.append(("image", item))
-                case dict() if "role" in item and "content" in item:
-                    # Chat message format
-                    typed_inputs.append(("message", [item]))
-                case [dict()] if "role" in item[0] and "content" in item[0]:
-                    # List of chat messages
-                    typed_inputs.append(("message", item))
-                case dict() if "array" in item and "sampling_rate" in item:
-                    # Audio data format (from datasets)
-                    # TODO: This was updated from before, needs testing
-                    typed_inputs.append(("audio", item["array"]))
-                    extra_modality_kwargs["audio"]["sampling_rate"] = item["sampling_rate"]
-                case dict() if "array" in item and "video_metadata" in item:
-                    # Video data format allowing for passing metadata alongside the video
-                    typed_inputs.append(("video", item["array"]))
-                    if "video_metadata" in extra_modality_kwargs["video"]:
-                        extra_modality_kwargs["video"]["video_metadata"].append(item["video_metadata"])
-                    else:
-                        extra_modality_kwargs["video"]["video_metadata"] = [item["video_metadata"]]
-                case dict():
-                    # Multimodal dictionary input - convert to message format
-                    # typed_inputs.append(("message", self.typed_input_to_messages(item)))
-                    """
-                    if "audio" in item and "sampling_rate" in item["audio"] and "array" in item["audio"]:
-                        # TODO: I'm not a big fan of modifying the item like this, duplicate from above
-                        extra_modality_kwargs["audio"]["sampling_rate"] = item["audio"]["sampling_rate"]
-                        item["audio"] = item["audio"]["array"]
-                    if "video" in item and "video_metadata" in item["video"] and "array" in item["video"]:
-                        extra_modality_kwargs["video"]["video_metadata"] = item["video"]["video_metadata"]
-                        item["video"] = item["video"]["array"]
-                    """
-                    # TODO: I need a utility to turn a tuple/list of modalities into a sorted tuple to avoid issues with ordering
-                    typed_inputs.append((tuple(item.keys()), item))
-                case np.ndarray() | torch.Tensor():
-                    # Infer modality from tensor dimensions
-                    if item.ndim in (1, 2):
-                        typed_inputs.append(("audio", item))
-                    elif item.ndim in (3,):  # HWC or CHW
-                        typed_inputs.append(("image", item))
-                    elif item.ndim in (4, 5):  # Video formats (e.g., TCHW, THWC, etc.)
-                        typed_inputs.append(("video", item))
-                    else:
-                        raise ValueError(
-                            f"Unsupported tensor dimensionality: {item.ndim}D. "
-                            f"Expected 1-2D for audio, 3D for image, or 4-5D for video."
-                        )
-                case _:
-                    raise ValueError(
-                        f"Unsupported input type: {type(item).__name__}. "
-                        f"Expected one of: str, dict, PIL.Image.Image, np.ndarray, torch.Tensor"
-                    )
+            modality = infer_modality(item)
+
+            # For dict-wrapped audio/video, unwrap the array and collect extra kwargs.
+            # For a single message dict, wrap it in a list. All other values pass through as-is.
+            if modality == "audio" and isinstance(item, dict):
+                # Audio data format (from datasets): {"array": ..., "sampling_rate": ...}
+                # TODO: This was updated from before, needs testing
+                value = item["array"]
+                extra_modality_kwargs["audio"]["sampling_rate"] = item["sampling_rate"]
+            elif modality == "video" and isinstance(item, dict):
+                # Video data format: {"array": ..., "video_metadata": ...}
+                value = item["array"]
+                if "video_metadata" in extra_modality_kwargs["video"]:
+                    extra_modality_kwargs["video"]["video_metadata"].append(item["video_metadata"])
+                else:
+                    extra_modality_kwargs["video"]["video_metadata"] = [item["video_metadata"]]
+            elif modality == "message" and isinstance(item, dict):
+                # Single message dict → wrap in list so all message inputs are list[dict]
+                value = [item]
+            else:
+                value = item
+
+            typed_inputs.append((modality, value))
 
         modalities, processed_inputs = zip(*typed_inputs)
         processed_inputs = list(processed_inputs)
@@ -505,3 +463,83 @@ class InputFormatter:
                 # Text pair (tuple or list) - prepend only to first text
                 result.append([prompt + text[0]] + list(text[1:]))
         return result
+
+
+def infer_batch_modality(
+    samples: list[StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs],
+) -> Modality:
+    """Infer the modality of a batch of input samples.
+
+    If all samples share the same modality, that modality is returned. If the batch contains
+    mixed modalities, ``"message"`` is returned — consistent with how :class:`InputFormatter`
+    handles mixed-modality batches in :meth:`~InputFormatter.parse_inputs`.
+
+    Args:
+        samples: List of input samples to inspect.
+
+    Returns:
+        The detected modality, or ``"message"`` for mixed-modality batches.
+    """
+    first_modality = None
+    for sample in samples:
+        modality = infer_modality(sample)
+        if first_modality is None:
+            first_modality = modality
+        elif modality != first_modality:
+            return "message"
+    return first_modality
+
+
+def infer_modality(sample: StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs) -> Modality:
+    """Infer the modality of a single input sample by inspecting its type/structure.
+
+    Pure type-based detection — does not require a processor or tokenizer.
+
+    Args:
+        sample: A single input sample to inspect.
+
+    Returns:
+        The detected modality string, or a tuple of modality strings for multimodal dict inputs.
+
+    Raises:
+        ValueError: If the input type/structure is not recognized.
+    """
+    match sample:
+        case str() if InputFormatter.is_image_url_or_path(sample):
+            return "image"
+        case str() if InputFormatter.is_video_url_or_path(sample):
+            return "video"
+        case str() if InputFormatter.is_audio_url_or_path(sample):
+            return "audio"
+        case str() | (str(), str()) | [str(), str()]:
+            return "text"
+        case Image():
+            return "image"
+        case dict() if "role" in sample and "content" in sample:
+            return "message"
+        case list() if sample and isinstance(sample[0], dict) and "role" in sample[0] and "content" in sample[0]:
+            return "message"
+        case dict() if "array" in sample and "sampling_rate" in sample:
+            return "audio"
+        case dict() if "array" in sample and "video_metadata" in sample:
+            return "video"
+        case dict():
+            # Multimodal dict: keys are modality names (sorted for consistent route lookups)
+            return tuple(sorted(sample.keys()))
+        case np.ndarray() | torch.Tensor():
+            if sample.ndim in (1, 2):
+                return "audio"
+            elif sample.ndim == 3:
+                return "image"
+            elif sample.ndim in (4, 5):
+                return "video"
+            else:
+                raise ValueError(
+                    f"Unsupported tensor dimensionality: {sample.ndim}D. "
+                    f"Expected 1-2D for audio, 3D for image, or 4-5D for video."
+                )
+        case _:
+            raise ValueError(
+                f"Unsupported input type: {type(sample).__name__}. "
+                f"Expected one of: str, dict, PIL.Image.Image, np.ndarray, torch.Tensor"
+            )

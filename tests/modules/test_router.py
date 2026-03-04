@@ -1178,6 +1178,38 @@ def test_router_multimodal_modality_tuple(static_embedding_model: StaticEmbeddin
     assert route == "multimodal_route"
 
 
+def test_router_multimodal_modality_tuple_ordering(static_embedding_model: StaticEmbedding):
+    """Tuple modality keys in route_mappings and inferred from inputs are both sorted,
+    so insertion-order variations should resolve to the same route."""
+    # Register the route with one ordering of the tuple key
+    route_mappings = {(None, ("text", "image")): "multimodal_route"}
+    router = Router(
+        {"text_route": [static_embedding_model], "multimodal_route": [static_embedding_model]},
+        route_mappings=route_mappings,
+        allow_empty_key=False,
+    )
+
+    # The stored key should be sorted regardless of how it was specified
+    stored_key = next(
+        (task, mod) for (task, mod), _ in router.route_mappings.items() if mod is not None and not isinstance(mod, str)
+    )
+    assert stored_key[1] == tuple(sorted(stored_key[1]))
+
+    # Resolving with either ordering of the tuple should find the same route
+    assert router._resolve_route_name(modality=("text", "image")) == "multimodal_route"
+    assert router._resolve_route_name(modality=("image", "text")) == "multimodal_route"
+
+    # Route mappings supplied with unsorted key also normalise correctly
+    route_mappings_unsorted = {(None, ("image", "text")): "multimodal_route"}
+    router2 = Router(
+        {"text_route": [static_embedding_model], "multimodal_route": [static_embedding_model]},
+        route_mappings=route_mappings_unsorted,
+        allow_empty_key=False,
+    )
+    assert router2._resolve_route_name(modality=("text", "image")) == "multimodal_route"
+    assert router2._resolve_route_name(modality=("image", "text")) == "multimodal_route"
+
+
 def test_router_save_with_safe_serialization(static_embedding_model: StaticEmbedding, tmp_path: Path):
     """Test saving with safe_serialization parameter."""
     router = Router({"query": [static_embedding_model], "document": [static_embedding_model]})

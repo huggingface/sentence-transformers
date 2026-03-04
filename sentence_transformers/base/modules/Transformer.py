@@ -1121,7 +1121,6 @@ class Transformer(InputModule):
         | ImageInputs
         | ArrayInputs,
         prompt: str | None = None,
-        modality: str | tuple[str, ...] | None = None,
         padding: str | bool = True,
         **kwargs,
     ) -> dict[str, torch.Tensor | Any]:
@@ -1136,7 +1135,6 @@ class Transformer(InputModule):
 
                 If a single input is provided, it must be wrapped in a list.
             prompt: Optional system prompt to include in the input
-            modality: Optional modality to use. If not provided, will be inferred from inputs.
             padding: Padding strategy for preprocessing
 
         Returns:
@@ -1201,7 +1199,7 @@ class Transformer(InputModule):
         if (prompt, *kwargs.values()) in self._prompt_length_mapping:
             return self._prompt_length_mapping[(prompt, *kwargs.values())]
 
-        tokenized_prompt = self.preprocess([prompt], modality="text", **kwargs)
+        tokenized_prompt = self.preprocess([prompt], **kwargs)
         if "input_ids" not in tokenized_prompt:
             return None
         prompt_length = tokenized_prompt["input_ids"].shape[-1]
@@ -1282,7 +1280,13 @@ class Transformer(InputModule):
         if isinstance(self.processor, ProcessorMixin):
             # Some transformers processors are still outdated, and don't accept common_kwargs, etc.
             if self.config.model_type in {"clipseg", "whisper", "sam3"}:
-                return self.processor(**processor_inputs, **modality_kwargs[modality], **common_kwargs)
+                kwargs = {}
+                if isinstance(modality, str):
+                    kwargs.update(modality_kwargs.get(modality, {}))
+                else:
+                    for mod in modality:
+                        kwargs.update(modality_kwargs.get(mod, {}))
+                return self.processor(**processor_inputs, **kwargs, **common_kwargs)
 
             # NOTE: Older transformers versions mutate these kwargs, so we copy
             modality_kwargs = modality_kwargs.copy()

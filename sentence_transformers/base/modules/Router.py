@@ -13,7 +13,16 @@ from torch import Tensor, nn
 from transformers.utils import logging
 
 from sentence_transformers.base.modules.InputModule import InputModule
-from sentence_transformers.base.modules.modality_utils import MODALITY_TO_PROCESSOR_ARG, Modality  # , infer_modality
+from sentence_transformers.base.modules.modality_utils import (
+    MODALITY_TO_PROCESSOR_ARG,
+    ArrayInputs,
+    DictInputs,
+    ImageInputs,
+    Modality,
+    PairStrInputs,
+    StrInputs,
+    infer_batch_modality,
+)
 from sentence_transformers.base.modules.Module import Module
 from sentence_transformers.util import import_from_string, load_dir_path
 
@@ -308,7 +317,16 @@ class Router(InputModule):
             default_route = next(iter(sub_modules.keys()))
         self.default_route = default_route
         self.allow_empty_key = allow_empty_key
-        self.route_mappings = route_mappings or {}
+        # Normalize tuple modalities in route_mappings keys to sorted tuples so they match
+        # the sorted tuples returned by infer_modality for multimodal dict inputs.
+        self.route_mappings = (
+            {
+                (task, tuple(sorted(modality)) if isinstance(modality, tuple) else modality): route
+                for (task, modality), route in route_mappings.items()
+            }
+            if route_mappings
+            else {}
+        )
 
     def _get_routes_string(self):
         # Build concise but helpful error message
@@ -339,6 +357,10 @@ class Router(InputModule):
         Returns:
             The resolved route key, or None if no route is found
         """
+        # Normalize tuple modality to sorted tuple to match the normalization applied at init time
+        if isinstance(modality, tuple):
+            modality = tuple(sorted(modality))
+
         # Try exact match first: (task, modality)
         if (task, modality) in self.route_mappings:
             return self.route_mappings[(task, modality)]
@@ -505,18 +527,18 @@ class Router(InputModule):
 
     def preprocess(
         self,
-        texts: list[str] | list[tuple[str, str]],
+        inputs: list[StrInputs | PairStrInputs | DictInputs | ImageInputs | ArrayInputs],
         task: str | None = None,
         modality: Modality | None = None,
         **kwargs,
     ):
         """Preprocesses a text and maps tokens to token-ids"""
-        # TODO: What if `texts` is an empty list
+        # TODO: What if `inputs` is an empty list
 
         # Backwards compatibility branch: for when texts are list of dicts with task types as keys
-        if isinstance(texts[0], dict) and task is None:
+        if isinstance(inputs[0], dict) and task is None:
             # Extract the task type key from the dictionaries
-            dict_keys = set(key for text in texts for key in text.keys())
+            dict_keys = set(key for text in inputs for key in text.keys())
             # If the input keys are not modalities, they might be task types from backwards compatibility
             if not (dict_keys & set(MODALITY_TO_PROCESSOR_ARG.keys())):
                 if len(dict_keys) > 1:
@@ -527,24 +549,21 @@ class Router(InputModule):
                     )
                 # If there's just one task type, extract it and remove the dictionary structure
                 task = dict_keys.pop()
-                texts = [text[task] for text in texts]
+                inputs = [sample[task] for sample in inputs]
 
         # Infer modality if not provided
-        """
-        # TODO: Find an alternative for this
-        if modality is None:
+        if modality is None and inputs:
             try:
-                modality = infer_modality(texts)
+                modality = infer_batch_modality(inputs)
             except (ValueError, TypeError):
                 # If modality inference fails, proceed without it
                 pass
-        """
 
         # Resolve route
         route = self._resolve_route(task=task, modality=modality)
 
         input_module = self.sub_modules[route][0]
-        tokenized = input_module.preprocess(texts, **kwargs)
+        tokenized = input_module.preprocess(inputs, **kwargs)
         tokenized["task"] = task
         if modality is not None:
             tokenized["modality"] = modality
