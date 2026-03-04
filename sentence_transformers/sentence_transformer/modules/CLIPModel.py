@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sentence_transformers.base.modules.Transformer import ModalityConfig, Transformer
 
 
@@ -10,7 +12,8 @@ class CLIPModel(Transformer):
             kwargs["tokenizer_name_or_path"] = kwargs.pop("processor_name")
         super().__init__(model_name_or_path=model_name_or_path, **kwargs)
 
-    def _get_default_modality_config(self) -> tuple[ModalityConfig, str]:
+    @staticmethod
+    def _get_default_modality_config(config: dict[str, Any]) -> tuple[ModalityConfig, str]:
         """Get the default modality configuration for the current transformer task.
 
         Returns:
@@ -18,14 +21,22 @@ class CLIPModel(Transformer):
                 The modality_config maps modality keys to dicts with 'method' and 'method_output_name'.
                 The module_output_name is the name of the output feature this module creates.
         """
+        from transformers import CLIPModel
+
+        # Use Transformer._infer_method_output_name to check whether the method outputs a BaseModelOutputWithPooling
+        # with a pooler_output, or just a Tensor output
         modality_config: ModalityConfig = {
             "text": {
                 "method": "get_text_features",
-                "method_output_name": None,
+                "method_output_name": Transformer._infer_method_output_name(
+                    "pooler_output", CLIPModel.get_text_features
+                ),
             },
             "image": {
                 "method": "get_image_features",
-                "method_output_name": None,
+                "method_output_name": Transformer._infer_method_output_name(
+                    "pooler_output", CLIPModel.get_image_features
+                ),
             },
         }
         module_output_name = "sentence_embedding"

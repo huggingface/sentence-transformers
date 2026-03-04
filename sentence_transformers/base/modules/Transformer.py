@@ -259,7 +259,6 @@ class Transformer(InputModule):
         "message_format",
     ]  # , "max_seq_length", "do_lower_case"]
     save_in_root: bool = True
-    default_transformer_task: TransformerTask = "feature-extraction"
 
     # TODO: Replace model_args with model_kwargs, perhaps replace tokenizer_args with processing_kwargs/processor_kwargs, config_args with config_kwargs?
     # TODO: Perhaps remove do_lower_case and put that in tokenizer_args?
@@ -719,7 +718,8 @@ class Transformer(InputModule):
         else:
             raise ValueError(f"Unsupported backend '{backend}'. `backend` should be `torch`, `onnx`, or `openvino`.")
 
-    def _get_method_output_fields(self, method: Callable) -> list[str]:
+    @staticmethod
+    def _get_method_output_fields(method: Callable) -> list[str] | None:
         """Extract the output field names from a method's return type annotation.
 
         Args:
@@ -744,34 +744,39 @@ class Transformer(InputModule):
             return None
         return [field.name for field in fields(output_class)]
 
+    @staticmethod
+    def _infer_method_output_name(method_output_name, method) -> str | None:
+        # Primarily transformers v4 compatibility: v5 often allows for "pooler_output" outputs from get_..._features
+        # methods, but v4 didn't use BaseModelOutputWithPooling for these methods yet
+        output_fields = Transformer._get_method_output_fields(method) or []
+        if method_output_name in output_fields:
+            return method_output_name
+        return None
+
     def infer_modalities_edge_cases(self, model: PreTrainedModel, processor) -> tuple[ModalityConfig, str] | None:
         # TODO: What if there's a model from here that also has a chat_template?
         # TODO: What if someone has a Blip2VisionModel or something? It would also match model.config.model_type,
         # but model.get_..._features won't exist.
         # Update: Blip2VisionModel seems to have a different config type
-        def infer_method_output_name(method_output_name, method) -> str:
-            # Primarily transformers v4 compatibility: v5 often allows for "pooler_output" outputs from get_..._features
-            # methods, but v4 didn't use BaseModelOutputWithPooling for these methods yet
-            output_fields = self._get_method_output_fields(method) or []
-            if method_output_name in output_fields:
-                return method_output_name
-            return None
-
         match model.config.model_type:
             case "blip":
                 # Custom case as it supports text+image with get_multimodal_features
                 return {
                     "text": {
                         "method": "get_text_features",
-                        "method_output_name": infer_method_output_name("pooler_output", model.get_text_features),
+                        "method_output_name": self._infer_method_output_name("pooler_output", model.get_text_features),
                     },
                     "image": {
                         "method": "get_image_features",
-                        "method_output_name": infer_method_output_name("pooler_output", model.get_image_features),
+                        "method_output_name": self._infer_method_output_name(
+                            "pooler_output", model.get_image_features
+                        ),
                     },
                     ("text", "image"): {
                         "method": "get_multimodal_features",
-                        "method_output_name": infer_method_output_name("pooler_output", model.get_multimodal_features),
+                        "method_output_name": self._infer_method_output_name(
+                            "pooler_output", model.get_multimodal_features
+                        ),
                     },
                 }, "sentence_embedding"
             case "blip-2":
@@ -780,11 +785,15 @@ class Transformer(InputModule):
                 return {
                     "text": {
                         "method": "get_text_features",
-                        "method_output_name": infer_method_output_name("last_hidden_state", model.get_text_features),
+                        "method_output_name": self._infer_method_output_name(
+                            "last_hidden_state", model.get_text_features
+                        ),
                     },
                     "image": {
                         "method": "get_image_features",
-                        "method_output_name": infer_method_output_name("last_hidden_state", model.get_image_features),
+                        "method_output_name": self._infer_method_output_name(
+                            "last_hidden_state", model.get_image_features
+                        ),
                     },
                 }, "token_embeddings"
             case "git" | "visual_bert":
@@ -1474,13 +1483,20 @@ class Transformer(InputModule):
             # was saved with an older version where Transformer was text-only, and so we can set the
             # modality_config accordingly for backward compatibility. Otherwise, we might infer and use
             # the 'message' format and get different results than what previously worked.
-            modality_config, module_output_name = DEFAULT_MODALITY_CONFIG_MODULE_OUTPUT_NAME[
-                config.get("transformer_task", cls.default_transformer_task)
-            ]
-            config["modality_config"] = modality_config
-            config["module_output_name"] = module_output_name
+            config["modality_config"], config["module_output_name"] = cls._get_default_modality_config(config)
 
         return config
+
+    @staticmethod
+    def _get_default_modality_config(config: dict[str, Any]) -> tuple[ModalityConfig, str]:
+        """Get the default modality configuration for the current transformer task.
+
+        Returns:
+            tuple[MODALITY_CONFIG, str]: A tuple of (modality_config, module_output_name).
+                The modality_config maps modality keys to dicts with 'method' and 'method_output_name'.
+                The module_output_name is the name of the output feature this module creates.
+        """
+        return DEFAULT_MODALITY_CONFIG_MODULE_OUTPUT_NAME[config.get("transformer_task", "feature-extraction")]
 
     def get_config_dict(self) -> dict[str, Any]:
         config_dict = super().get_config_dict()
