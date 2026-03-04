@@ -16,13 +16,14 @@ class GISTEmbedLoss(nn.Module):
     def __init__(
         self,
         model: SentenceTransformer,
-        guide: SentenceTransformer,
+        guide: SentenceTransformer | None = None,
         temperature: float = 0.01,
         margin_strategy: Literal["absolute", "relative"] = "absolute",
         margin: float = 0.0,
         contrast_anchors: bool = True,
         contrast_positives: bool = True,
         gather_across_devices: bool = False,
+        self_guide_warmup_ratio: float = 0.0,
     ) -> None:
         """
         This loss is used to train a SentenceTransformer model using the GISTEmbed algorithm.
@@ -38,12 +39,16 @@ class GISTEmbedLoss(nn.Module):
 
         Args:
             model: SentenceTransformer model based on a `transformers` model.
-            guide: SentenceTransformer model to guide the in-batch negative sample selection.
+            guide: SentenceTransformer model to guide the in-batch negative sample selection. If None, the model
+                itself is used as the guide (self-guided mode), which is more efficient as it requires only a single
+                forward pass. This is useful for self-guided approaches where the student model's own similarity
+                scores are used with a margin (e.g., ``margin=-1.0``) to filter negatives.
             temperature: Temperature parameter to scale the cosine similarities. Inverse of the ``scale`` parameter
                 in :class:`MultipleNegativesRankingLoss`.
             margin_strategy: Strategy used for false negative filtering. One of {"absolute", "relative"}.
             margin: The margin value for filtering negatives. Defaults to 0.0, together with the "absolute" strategy,
                 this only removes negatives that are more similar to the query than the positive is to the query.
+                For self-guided mode, a negative margin (e.g., ``margin=-1.0``) is recommended to keep most negatives.
             contrast_anchors: If True, include anchor-anchor pairs in the loss computation, resulting in the embeddings
                 of the anchors being pushed further apart. Defaults to True, following the original GISTEmbed paper.
             contrast_positives: If True, include positive-positive pairs in the loss computation, resulting in the embeddings
@@ -52,6 +57,10 @@ class GISTEmbedLoss(nn.Module):
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
+            self_guide_warmup_ratio: Fraction of total training steps during which self-guide filtering is
+                disabled (warmup phase). Only relevant when using self-guided mode (``guide=None``). When set to a
+                value > 0, the :class:`~sentence_transformers.callbacks.SelfGuideWarmupCallback` is automatically
+                added by the trainer. Defaults to 0.0 (no warmup, filtering is always active).
 
         References:
             - For further details, see: https://huggingface.co/papers/2402.16829
@@ -79,7 +88,27 @@ class GISTEmbedLoss(nn.Module):
               a stronger training signal at the cost of some training overhead.
 
         Example:
-            ::
+            Self-guided mode::
+
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from datasets import Dataset
+
+                model = SentenceTransformer("microsoft/mpnet-base")
+                train_dataset = Dataset.from_dict({
+                    "anchor": ["It's nice weather outside today.", "He drove to work."],
+                    "positive": ["It's so sunny.", "He took the car to the office."],
+                })
+                # Self-guided: no guide parameter, model guides itself
+                loss = losses.GISTEmbedLoss(model, margin=-1.0)
+
+                trainer = SentenceTransformerTrainer(
+                    model=model,
+                    train_dataset=train_dataset,
+                    loss=loss,
+                )
+                trainer.train()
+
+            With a separate guide model::
 
                 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
                 from datasets import Dataset
@@ -101,20 +130,37 @@ class GISTEmbedLoss(nn.Module):
         """
         super().__init__()
         self.model = model
-        self.guide = guide
         self.temperature = temperature
         self.similarity_fct = nn.CosineSimilarity(dim=-1)
-        if not hasattr(model, "tokenizer") or not hasattr(guide, "tokenizer"):
-            raise ValueError("Both the training model and the guiding model must have a tokenizer attribute.")
-        if not isinstance(model.tokenizer, PreTrainedTokenizerBase) or not isinstance(
-            guide.tokenizer, PreTrainedTokenizerBase
-        ):
-            raise ValueError(
-                "Both the training model and the guiding model must use a PreTrainedTokenizer from transformers."
+
+        # Self-guided mode: if guide is None, use the model itself as the guide
+        if guide is None:
+            self.guide = model
+            self.is_self_guided = True
+        else:
+            self.guide = guide
+            self.is_self_guided = model is guide
+
+        # Validate tokenizer requirements
+        if self.is_self_guided:
+            if not hasattr(model, "tokenizer"):
+                raise ValueError("The training model must have a tokenizer attribute.")
+            if not isinstance(model.tokenizer, PreTrainedTokenizerBase):
+                raise ValueError("The training model must use a PreTrainedTokenizer from transformers.")
+            self.must_retokenize = False
+        else:
+            if not hasattr(model, "tokenizer") or not hasattr(self.guide, "tokenizer"):
+                raise ValueError("Both the training model and the guiding model must have a tokenizer attribute.")
+            if not isinstance(model.tokenizer, PreTrainedTokenizerBase) or not isinstance(
+                self.guide.tokenizer, PreTrainedTokenizerBase
+            ):
+                raise ValueError(
+                    "Both the training model and the guiding model must use a PreTrainedTokenizer from transformers."
+                )
+            self.must_retokenize = (
+                model.tokenizer.get_vocab() != self.guide.tokenizer.get_vocab()
+                or self.guide.max_seq_length < model.max_seq_length
             )
-        self.must_retokenize = (
-            model.tokenizer.get_vocab() != guide.tokenizer.get_vocab() or guide.max_seq_length < model.max_seq_length
-        )
         if self.must_retokenize:
             self.tokenizer = self.model.tokenizer
 
@@ -133,26 +179,38 @@ class GISTEmbedLoss(nn.Module):
         self.gather_across_devices = gather_across_devices
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
+        self.self_guide_warmup_ratio = self_guide_warmup_ratio
+        if self.is_self_guided and self_guide_warmup_ratio > 0:
+            # Filtering starts disabled; the SelfGuideWarmupCallback enables it after warmup.
+            self.self_guide_filtering_active: bool = False
+        else:
+            self.self_guide_filtering_active: bool = True
+
     def sim_matrix(self, embed1: Tensor, embed2: Tensor) -> Tensor:
         return self.similarity_fct(embed1.unsqueeze(1), embed2.unsqueeze(0))
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
-        with torch.no_grad():
-            if self.must_retokenize:
-                decoded = [
-                    self.tokenizer.batch_decode(sentence_feature["input_ids"], skip_special_tokens=True)
-                    for sentence_feature in sentence_features
-                ]
-                sentence_features = [self.guide.tokenize(sentences) for sentences in decoded]
-                sentence_features = [
-                    {key: value.to(self.guide.device) for key, value in sentence_feature.items()}
-                    for sentence_feature in sentence_features
-                ]
 
-            guide_embeddings = [
-                self.guide(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features
-            ]
+        # If self-guided, reuse student embeddings as guide embeddings (no second forward pass)
+        if self.is_self_guided:
+            guide_embeddings = [emb.detach() for emb in embeddings]
+        else:
+            with torch.no_grad():
+                if self.must_retokenize:
+                    decoded = [
+                        self.tokenizer.batch_decode(sentence_feature["input_ids"], skip_special_tokens=True)
+                        for sentence_feature in sentence_features
+                    ]
+                    sentence_features = [self.guide.tokenize(sentences) for sentences in decoded]
+                    sentence_features = [
+                        {key: value.to(self.guide.device) for key, value in sentence_feature.items()}
+                        for sentence_feature in sentence_features
+                    ]
+
+                guide_embeddings = [
+                    self.guide(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features
+                ]
 
         negative = None
         negative_guide = None
@@ -208,27 +266,35 @@ class GISTEmbedLoss(nn.Module):
         # Create a mask to protect true positive pairs in the anchor-positive matrix (i.e., diagonal elements)
         positive_mask = torch.eye(*guided_ap_sim.shape, dtype=torch.bool, device=guided_ap_sim.device)
 
-        # Apply false negative suppression to each similarity matrix using guided similarity as anchor
-        ap_sim = mask_false_negatives(guided_ap_sim, ap_sim, positive_mask=positive_mask)  # anchor-positive
+        # Apply false negative suppression to each similarity matrix using guided similarity as anchor.
+        # For self-guided mode, respect the warmup: skip filtering while self_guide_filtering_active is False.
+        # For external guide mode, always filter (self_guide_filtering_active is always True).
+        apply_filtering = not self.is_self_guided or self.self_guide_filtering_active
+
+        if apply_filtering:
+            ap_sim = mask_false_negatives(guided_ap_sim, ap_sim, positive_mask=positive_mask)  # anchor-positive
         scores = [ap_sim]
 
         if self.contrast_anchors:
             aa_sim = self.sim_matrix(anchor, anchor)
             guided_aa_sim = self.sim_matrix(anchor_guide, anchor_guide)
-            aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
+            if apply_filtering:
+                aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
             scores.append(aa_sim)
 
         if self.contrast_positives:
             pp_sim = self.sim_matrix(positive[offset : offset + batch_size], positive)
             guided_pp_sim = self.sim_matrix(positive_guide[offset : offset + batch_size], positive_guide)
-            pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
+            if apply_filtering:
+                pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
             scores.append(pp_sim)
 
         # Handle the case where we have a negative sample
         if negative is not None:
             an_sim = self.sim_matrix(anchor, negative)
             guided_an_sim = self.sim_matrix(anchor_guide, negative_guide)
-            an_sim = mask_false_negatives(guided_an_sim, an_sim)  # anchor-negative
+            if apply_filtering:
+                an_sim = mask_false_negatives(guided_an_sim, an_sim)  # anchor-negative
             scores.append(an_sim)
 
         scores = torch.cat(scores, dim=1) / self.temperature
