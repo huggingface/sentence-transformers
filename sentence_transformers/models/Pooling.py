@@ -16,7 +16,7 @@ class Pooling(Module):
 
     Args:
         word_embedding_dimension: Dimensions for the word embeddings
-        pooling_mode: Either "cls", "lasttoken", "max", "mean",
+        pooling_mode: Either "cls", "lasttoken", "lmk", "max", "mean",
             "mean_sqrt_len_tokens", or "weightedmean". If set,
             overwrites the other pooling_mode_* settings
         pooling_mode_cls_token: Use the first token (CLS token) as text
@@ -34,6 +34,10 @@ class Pooling(Module):
             <https://huggingface.co/papers/2202.08904>`_ and `Text and Code
             Embeddings by Contrastive Pre-Training
             <https://huggingface.co/papers/2201.10005>`_.
+        pooling_mode_lmk: Perform LMK pooling. See `LMK > CLS:
+            Landmark Pooling for Dense Embeddings
+            <https://huggingface.co/papers/2601.21525>`_.
+        lmk_token_id: Token ID for Landmark tokens to pool over.
         include_prompt: If set to false, the prompt tokens are not
             included in the pooling. This is useful for reproducing
             work that does not include the prompt tokens in the pooling
@@ -43,6 +47,7 @@ class Pooling(Module):
     POOLING_MODES = (
         "cls",
         "lasttoken",
+        "lmk",
         "max",
         "mean",
         "mean_sqrt_len_tokens",
@@ -57,6 +62,8 @@ class Pooling(Module):
         "pooling_mode_mean_sqrt_len_tokens",
         "pooling_mode_weightedmean_tokens",
         "pooling_mode_lasttoken",
+        "pooling_mode_lmk",
+        "lmk_token_id",
         "include_prompt",
     ]
 
@@ -70,6 +77,8 @@ class Pooling(Module):
         pooling_mode_mean_sqrt_len_tokens: bool = False,
         pooling_mode_weightedmean_tokens: bool = False,
         pooling_mode_lasttoken: bool = False,
+        pooling_mode_lmk: bool = False,
+        lmk_token_id: int = -1,
         include_prompt: bool = True,
     ) -> None:
         super().__init__()
@@ -88,6 +97,7 @@ class Pooling(Module):
             pooling_mode_mean_sqrt_len_tokens = pooling_mode == "mean_sqrt_len_tokens"
             pooling_mode_weightedmean_tokens = pooling_mode == "weightedmean"
             pooling_mode_lasttoken = pooling_mode == "lasttoken"
+            pooling_mode_lmk = pooling_mode == "lmk"
 
         self.word_embedding_dimension = word_embedding_dimension
         self.pooling_mode_cls_token = pooling_mode_cls_token
@@ -96,6 +106,8 @@ class Pooling(Module):
         self.pooling_mode_mean_sqrt_len_tokens = pooling_mode_mean_sqrt_len_tokens
         self.pooling_mode_weightedmean_tokens = pooling_mode_weightedmean_tokens
         self.pooling_mode_lasttoken = pooling_mode_lasttoken
+        self.pooling_mode_lmk = pooling_mode_lmk
+        self.lmk_token_id = lmk_token_id
 
         self.include_prompt = include_prompt
 
@@ -107,6 +119,7 @@ class Pooling(Module):
                 pooling_mode_mean_sqrt_len_tokens,
                 pooling_mode_weightedmean_tokens,
                 pooling_mode_lasttoken,
+                pooling_mode_lmk,
             ]
         )
         self.pooling_output_dimension = pooling_mode_multiplier * word_embedding_dimension
@@ -129,6 +142,8 @@ class Pooling(Module):
             modes.append("weightedmean")
         if self.pooling_mode_lasttoken:
             modes.append("lasttoken")
+        if self.pooling_mode_lmk:
+            modes.append("lmk")
 
         return "+".join(modes)
 
@@ -246,6 +261,34 @@ class Pooling(Module):
             )
             embedding = torch.gather(token_embeddings * input_mask_expanded, 1, gather_indices).squeeze(dim=1)
             output_vectors.append(embedding)
+        if self.pooling_mode_lmk:
+            input_ids = features["input_ids"]
+
+            # Mask landmark tokens
+            landmark_mask = (input_ids == self.lmk_token_id) & (attention_mask == 1)
+            landmark_mask_f = landmark_mask.unsqueeze(-1).to(token_embeddings.dtype)
+
+            # Sum landmark embeddings
+            summed = torch.sum(token_embeddings * landmark_mask_f, dim=1)
+
+            # Count landmarks per sequence
+            counts = landmark_mask.sum(dim=1)
+            counts = torch.clamp(counts, min=1.0).unsqueeze(-1).to(token_embeddings.dtype)
+            sentence_embedding = summed / counts
+
+            # For examples that have zero LMK tokens, fallback to mean over non-padded tokens:
+            no_lmk_examples = landmark_mask.sum(dim=1) == 0  # (B,)
+            if no_lmk_examples.any():
+                # compute mean over attention_mask==1 tokens: (B, D)
+                attn_mask_f = attention_mask.to(dtype=token_embeddings.dtype).unsqueeze(-1)
+                attn_sum = (token_embeddings * attn_mask_f).sum(dim=1)
+                attn_count = attention_mask.sum(dim=1).clamp_min(1).unsqueeze(-1).to(token_embeddings.dtype)
+                attn_mean = attn_sum / attn_count
+
+                # replace rows where no [LMK] with attn_mean
+                sentence_embedding[no_lmk_examples] = attn_mean[no_lmk_examples]
+
+            output_vectors.append(sentence_embedding)
 
         output_vector = torch.cat(output_vectors, 1)
         features["sentence_embedding"] = output_vector
