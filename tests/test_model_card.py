@@ -144,3 +144,40 @@ def test_model_card_base(
 
     # We don't want to have two consecutive empty lines anywhere
     assert "\n\n\n" not in model_card
+
+
+def test_model_card_set_transform(
+    stsb_bert_tiny_model: SentenceTransformer,
+    dummy_dataset: Dataset,
+) -> None:
+    model = stsb_bert_tiny_model
+
+    # Let's avoid requesting the Hub for e.g. checking if a base model exists there
+    model.model_card_data.local_files_only = True
+
+    def dummy_transform(batch):
+        return {
+            "new_anchor": [text.upper() for text in batch["anchor"]],
+            "new_positive": [text.upper() for text in batch["positive"]],
+            "new_negative": [text.upper() for text in batch["negative"]],
+        }
+
+    # Use a copy to avoid mutating the session-scoped fixture
+    dataset = dummy_dataset.select(range(len(dummy_dataset)))
+    dataset.set_transform(dummy_transform)
+
+    loss = losses.MultipleNegativesRankingLoss(model)
+    SentenceTransformerTrainer(
+        model,
+        train_dataset=dataset,
+        loss=loss,
+    )
+    model_card = generate_model_card(model)
+
+    # Post-transform column names should appear as column headers
+    for substring in ["<code>new_anchor</code>", "<code>new_positive</code>", "<code>new_negative</code>"]:
+        assert substring in model_card
+
+    # Pre-transform column names should not appear as column headers
+    for substring in ["<code>anchor</code>", "<code>positive</code>", "<code>negative</code>"]:
+        assert substring not in model_card

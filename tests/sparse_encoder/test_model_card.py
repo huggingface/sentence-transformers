@@ -6,7 +6,7 @@ import pytest
 
 from sentence_transformers import SparseEncoderTrainer, SparseEncoderTrainingArguments
 from sentence_transformers.model_card import generate_model_card
-from sentence_transformers.sparse_encoder import losses
+from sentence_transformers.sparse_encoder import SparseEncoder, losses
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 if is_datasets_available():
@@ -199,3 +199,47 @@ def test_model_card_base(
 
     # We don't want to have two consecutive empty lines anywhere
     assert "\n\n\n" not in model_card
+
+
+def test_model_card_set_transform(
+    splade_bert_tiny_model: SparseEncoder,
+    dummy_dataset: Dataset,
+    tmp_path: Path,
+) -> None:
+    model = splade_bert_tiny_model
+
+    # Let's avoid requesting the Hub for e.g. checking if a base model exists there
+    model.model_card_data.local_files_only = True
+
+    def dummy_transform(batch):
+        return {
+            "new_anchor": [text.upper() for text in batch["anchor"]],
+            "new_positive": [text.upper() for text in batch["positive"]],
+            "new_negative": [text.upper() for text in batch["negative"]],
+        }
+
+    # Use a copy to avoid mutating the session-scoped fixture
+    dataset = dummy_dataset.select(range(len(dummy_dataset)))
+    dataset.set_transform(dummy_transform)
+
+    loss = losses.SpladeLoss(
+        model=model,
+        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        query_regularizer_weight=5e-5,
+        document_regularizer_weight=3e-5,
+    )
+    SparseEncoderTrainer(
+        model,
+        args=SparseEncoderTrainingArguments(output_dir=tmp_path),
+        train_dataset=dataset,
+        loss=loss,
+    )
+    model_card = generate_model_card(model)
+
+    # Post-transform column names should appear as column headers
+    for substring in ["<code>new_anchor</code>", "<code>new_positive</code>", "<code>new_negative</code>"]:
+        assert substring in model_card
+
+    # Pre-transform column names should not appear as column headers
+    for substring in ["<code>anchor</code>", "<code>positive</code>", "<code>negative</code>"]:
+        assert substring not in model_card

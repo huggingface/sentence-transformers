@@ -11,7 +11,7 @@ from sentence_transformers.model_card import SentenceTransformerModelCardCallbac
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
-    from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, Value
+    from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 
 logger = logging.getLogger(__name__)
 
@@ -104,15 +104,13 @@ class CrossEncoderModelCardData(SentenceTransformerModelCardData):
         if len(dataset) == 0:
             return
 
+        # dataset[0].keys() reflects post-transform columns if set_transform is used
+        first_sample = dataset[0]
         columns = [
             column
-            for column, feature in dataset.features.items()
-            if (isinstance(feature, Value) and feature.dtype in {"string", "large_string"})
-            or (
-                hasattr(feature, "feature")
-                and isinstance(feature.feature, Value)
-                and feature.feature.dtype in {"string", "large_string"}
-            )
+            for column, value in first_sample.items()
+            if column != "dataset_name"
+            and (isinstance(value, str) or (isinstance(value, list) and value and isinstance(value[0], str)))
         ]
         if len(columns) < 2:
             return
@@ -120,8 +118,8 @@ class CrossEncoderModelCardData(SentenceTransformerModelCardData):
         query_column = columns[0]
         answer_column = columns[1]
 
-        query_type = type(dataset[0][query_column])
-        answer_type = type(dataset[0][answer_column])
+        query_type = type(first_sample[query_column])
+        answer_type = type(first_sample[answer_column])
 
         queries = dataset[:5][query_column]
         answers = dataset[:5][answer_column]
