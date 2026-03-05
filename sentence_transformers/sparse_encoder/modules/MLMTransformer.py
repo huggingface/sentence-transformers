@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from sentence_transformers.base.modules.Transformer import (
-    DEFAULT_MODALITY_CONFIG_MODULE_OUTPUT_NAME,
+    TRANSFORMER_TASK_DEFAULTS,
     ModalityConfig,
     Transformer,
 )
@@ -31,4 +31,4 @@ class MLMTransformer(Transformer):
                 The modality_config maps modality keys to dicts with 'method' and 'method_output_name'.
                 The module_output_name is the name of the output feature this module creates.
         """
-        return DEFAULT_MODALITY_CONFIG_MODULE_OUTPUT_NAME[config.get("transformer_task", "fill-mask")]
+        return TRANSFORMER_TASK_DEFAULTS[config.get("transformer_task", "fill-mask")]

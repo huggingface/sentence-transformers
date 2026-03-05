@@ -169,9 +169,9 @@ class Router(InputModule):
                 text_dense = Dense(text_encoder.get_word_embedding_dimension(), 768, module_input_name="token_embeddings")
                 image_encoder = Transformer(
                     "ModernVBERT/modernvbert",
-                    model_args={"trust_remote_code": True},
-                    tokenizer_args={"trust_remote_code": True},
-                    config_args={"trust_remote_code": True},
+                    model_kwargs={"trust_remote_code": True},
+                    processor_kwargs={"trust_remote_code": True},
+                    config_kwargs={"trust_remote_code": True},
                 )
                 pooling = Pooling(text_encoder.get_word_embedding_dimension())
 

@@ -1097,9 +1097,9 @@ class SparseEncoder(BaseModel):
                 model_name_or_path,
                 transformer_task="fill-mask",
                 cache_dir=cache_folder,
-                model_args=model_kwargs,
-                tokenizer_args=tokenizer_kwargs,
-                config_args=config_kwargs,
+                model_kwargs=model_kwargs,
+                processor_kwargs=tokenizer_kwargs,
+                config_kwargs=config_kwargs,
                 backend=self.backend,
             )
             # TODO: Update logging text
@@ -1115,9 +1115,9 @@ class SparseEncoder(BaseModel):
                 model_name_or_path,
                 transformer_task="feature-extraction",
                 cache_dir=cache_folder,
-                model_args=model_kwargs,
-                tokenizer_args=tokenizer_kwargs,
-                config_args=config_kwargs,
+                model_kwargs=model_kwargs,
+                processor_kwargs=tokenizer_kwargs,
+                config_kwargs=config_kwargs,
                 backend=self.backend,
             )
             pooling = Pooling(transformer_model.get_word_embedding_dimension(), pooling_mode="mean")

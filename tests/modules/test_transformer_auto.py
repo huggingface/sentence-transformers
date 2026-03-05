@@ -571,41 +571,43 @@ def arch(request):
 def arch_model(arch):
     # Load the model for the first time
     model_name = TINY_MODEL_MAPPING[arch]
-    model_args = {"ignore_mismatched_sizes": True}
-    config_args = {}
-    tokenizer_args = {}
+    model_kwargs = {"ignore_mismatched_sizes": True}
+    config_kwargs = {}
+    processor_kwargs = {}
 
     # Resolve some minor issues in the checkpoints that prevent forward testing
     if arch == "blip-2":
-        config_args["image_token_id"] = 4
+        config_kwargs["image_token_id"] = 4
     if arch == "flava":
-        tokenizer_args["size"] = {"height": 30, "width": 30}
-        tokenizer_args["crop_size"] = {"height": 30, "width": 30}
+        processor_kwargs["size"] = {"height": 30, "width": 30}
+        processor_kwargs["crop_size"] = {"height": 30, "width": 30}
     if arch == "kosmos-2":
-        config_args["latent_query_num"] = 64
+        config_kwargs["latent_query_num"] = 64
     if arch == "vilt":
-        tokenizer_args["size_divisor"] = 4
+        processor_kwargs["size_divisor"] = 4
     if arch == "whisper":
-        config_args["max_source_positions"] = 1500
+        config_kwargs["max_source_positions"] = 1500
     if arch == "idefics":
-        tokenizer_args["additional_special_tokens"] = []
+        processor_kwargs["additional_special_tokens"] = []
     if arch == "marian":
         # The existing pad_token is at idx 58100, while an embedding vector was reduced to 99
         # <unk> is at idx 1
-        config_args["pad_token_id"] = 1
+        config_kwargs["pad_token_id"] = 1
     if arch == "qwen2_5_vl":
         # Only the text and image hidden sizes were updated, the main one was still 2048
-        config_args["hidden_size"] = 16
+        config_kwargs["hidden_size"] = 16
 
     try:
         model = Transformer(
             model_name,
-            model_args={**model_args, "local_files_only": True},
-            config_args={**config_args, "local_files_only": True},
-            tokenizer_args={**tokenizer_args, "local_files_only": True},
+            model_kwargs={**model_kwargs, "local_files_only": True},
+            config_kwargs={**config_kwargs, "local_files_only": True},
+            processor_kwargs={**processor_kwargs, "local_files_only": True},
         )
     except Exception:
-        model = Transformer(model_name, model_args=model_args, config_args=config_args, tokenizer_args=tokenizer_args)
+        model = Transformer(
+            model_name, model_kwargs=model_kwargs, config_kwargs=config_kwargs, processor_kwargs=processor_kwargs
+        )
 
     if model.tokenizer:
         # Ensure pad_token_id and eos_token_id are set to avoid issues during testing

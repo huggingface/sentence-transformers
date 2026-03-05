@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,124 @@ from packaging.version import parse as parse_version
 from transformers import __version__ as transformers_version
 
 from sentence_transformers.modules import Transformer
+
+
+class TestTransformerMaxSeqLength:
+    """Test the max_seq_length property for both tokenizer-based and config-based models."""
+
+    def test_max_seq_length_from_tokenizer(self):
+        """max_seq_length should return the tokenizer's model_max_length when a tokenizer is available."""
+        transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+        assert transformer.max_seq_length is not None
+        assert transformer.max_seq_length == transformer.tokenizer.model_max_length
+
+    def test_max_seq_length_setter(self):
+        """Setting max_seq_length should update the tokenizer's model_max_length."""
+        transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+        original = transformer.max_seq_length
+        transformer.max_seq_length = 64
+        assert transformer.max_seq_length == 64
+        assert transformer.tokenizer.model_max_length == 64
+        # Restore
+        transformer.max_seq_length = original
+
+    def test_max_seq_length_init_kwarg(self):
+        """Passing max_seq_length to __init__ should set the tokenizer's model_max_length."""
+        transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors", max_seq_length=42)
+        assert transformer.max_seq_length == 42
+
+    def test_max_seq_length_capped_by_max_position_embeddings(self):
+        """max_seq_length should not exceed the model's max_position_embeddings."""
+        transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+        if hasattr(transformer.config, "max_position_embeddings"):
+            assert transformer.max_seq_length <= transformer.config.max_position_embeddings
+
+
+class TestTransformerDeprecatedKwargs:
+    """Test that old keyword argument names still work with deprecation warnings."""
+
+    def test_model_args_deprecated(self, caplog):
+        """Using model_args= should work but emit a deprecation warning."""
+        with caplog.at_level(logging.WARNING):
+            transformer = Transformer(
+                "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+                model_args={},
+            )
+        assert any("model_args" in record.message and "deprecated" in record.message for record in caplog.records)
+        assert transformer is not None
+
+    def test_tokenizer_args_deprecated(self, caplog):
+        """Using tokenizer_args= should work but emit a deprecation warning."""
+        with caplog.at_level(logging.WARNING):
+            transformer = Transformer(
+                "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+                tokenizer_args={},
+            )
+        assert any("tokenizer_args" in record.message and "deprecated" in record.message for record in caplog.records)
+        assert transformer is not None
+
+    def test_config_args_deprecated(self, caplog):
+        """Using config_args= should work but emit a deprecation warning."""
+        with caplog.at_level(logging.WARNING):
+            transformer = Transformer(
+                "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+                config_args={},
+            )
+        assert any("config_args" in record.message and "deprecated" in record.message for record in caplog.records)
+        assert transformer is not None
+
+    def test_new_kwargs_no_warning(self, caplog):
+        """Using new keyword names should not emit deprecation warnings."""
+        with caplog.at_level(logging.WARNING):
+            transformer = Transformer(
+                "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+                model_kwargs={},
+                processor_kwargs={},
+                config_kwargs={},
+            )
+        assert not any("deprecated" in record.message for record in caplog.records)
+        assert transformer is not None
+
+
+class TestTransformerModalityConfigValidation:
+    """Test modality_config validation in __init__."""
+
+    def test_valid_modality_config(self):
+        """A valid modality_config should be accepted."""
+        transformer = Transformer(
+            "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+            modality_config={"text": {"method": "forward", "method_output_name": "last_hidden_state"}},
+            module_output_name="token_embeddings",
+        )
+        assert transformer.modality_config == {
+            "text": {"method": "forward", "method_output_name": "last_hidden_state"}
+        }
+
+    def test_invalid_modality_config_missing_method(self):
+        """A modality_config entry missing 'method' should raise ValueError."""
+        with pytest.raises(ValueError, match="'method' and 'method_output_name'"):
+            Transformer(
+                "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+                modality_config={"text": {"method_output_name": "last_hidden_state"}},
+                module_output_name="token_embeddings",
+            )
+
+    def test_invalid_modality_config_missing_output_name(self):
+        """A modality_config entry missing 'method_output_name' should raise ValueError."""
+        with pytest.raises(ValueError, match="'method' and 'method_output_name'"):
+            Transformer(
+                "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+                modality_config={"text": {"method": "forward"}},
+                module_output_name="token_embeddings",
+            )
+
+    def test_modality_config_requires_module_output_name(self):
+        """Providing modality_config without module_output_name should raise ValueError."""
+        with pytest.raises(ValueError, match="module_output_name"):
+            Transformer(
+                "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+                modality_config={"text": {"method": "forward", "method_output_name": "last_hidden_state"}},
+            )
 
 
 @pytest.mark.slow

@@ -62,7 +62,7 @@ def test_load_with_safetensors() -> None:
         transformer = Transformer(
             "sentence-transformers-testing/stsb-bert-tiny-safetensors",
             cache_dir=cache_folder,
-            model_args={"use_safetensors": False},
+            model_kwargs={"use_safetensors": False},
         )
         pooling = Pooling(transformer.get_word_embedding_dimension())
         pytorch_model = SentenceTransformer(modules=[transformer, pooling])

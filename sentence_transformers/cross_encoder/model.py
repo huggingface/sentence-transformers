@@ -233,9 +233,9 @@ class CrossEncoder(BaseModel, FitMixin):
                 model_name_or_path,
                 transformer_task="text-generation",
                 cache_dir=cache_folder,
-                model_args=model_kwargs,
-                tokenizer_args=tokenizer_kwargs,
-                config_args=config_kwargs,
+                model_kwargs=model_kwargs,
+                processor_kwargs=tokenizer_kwargs,
+                config_kwargs=config_kwargs,
                 backend=self.backend,
             )
             post_processing = CausalScoreHead(
@@ -249,9 +249,9 @@ class CrossEncoder(BaseModel, FitMixin):
             model_name_or_path,
             transformer_task="sequence-classification",
             cache_dir=cache_folder,
-            model_args=model_kwargs,
-            tokenizer_args=tokenizer_kwargs,
-            config_args=config_kwargs,
+            model_kwargs=model_kwargs,
+            processor_kwargs=tokenizer_kwargs,
+            config_kwargs=config_kwargs,
             backend=self.backend,
         )
         return [transformer_model], {}

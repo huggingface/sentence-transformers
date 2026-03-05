@@ -6,6 +6,39 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def deprecated_kwargs_decorator(kwargs_renamed_mapping: dict[str, str], class_name: str) -> callable:
+    """A decorator that renames deprecated keyword arguments with a warning.
+
+    Args:
+        kwargs_renamed_mapping: Mapping of ``{old_name: new_name}`` for kwargs to rename.
+        class_name: Name of the class to include in the deprecation warning.
+
+    Example::
+
+        @deprecated_kwargs_decorator({"tokenizer_args": "processor_kwargs"}, "Transformer")
+        def __init__(self, model_name_or_path, processor_kwargs=None):
+            ...
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for old_name, new_name in kwargs_renamed_mapping.items():
+                if old_name in kwargs:
+                    kwarg_value = kwargs.pop(old_name)
+                    logger.warning(
+                        f"The {class_name} `{old_name}` argument was renamed and is now deprecated, "
+                        f"please use `{new_name}` instead."
+                    )
+                    if new_name not in kwargs:
+                        kwargs[new_name] = kwarg_value
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 def save_to_hub_args_decorator(func):
     """
     A decorator to update the signature of the :class:`~sentence_transformers.base.model.BaseModel.save_to_hub` method
