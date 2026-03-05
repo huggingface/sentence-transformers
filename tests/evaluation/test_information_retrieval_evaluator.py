@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import Mock, PropertyMock
 
 import pytest
 import torch
@@ -36,14 +35,27 @@ def mock_model():
             embeddings.append(encoding)
         return torch.stack(embeddings)
 
-    model = Mock(spec=SentenceTransformer)
-    model.similarity_fn_name = "cosine"
-    model.similarity.side_effect = cos_sim
-    model.encode.side_effect = mock_encode
-    model.encode_query.side_effect = mock_encode
-    model.encode_document.side_effect = mock_encode
-    model.model_card_data = PropertyMock(return_value=Mock())
-    return model
+    class _MockModelCardData:
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+
+    class _MockModel:
+        similarity_fn_name = "cosine"
+        model_card_data = _MockModelCardData()
+
+        def similarity(self, a, b):
+            return cos_sim(a, b)
+
+        def encode(self, sentences, **kwargs):
+            return mock_encode(sentences, **kwargs)
+
+        def encode_query(self, sentences, **kwargs):
+            return mock_encode(sentences, **kwargs)
+
+        def encode_document(self, sentences, **kwargs):
+            return mock_encode(sentences, **kwargs)
+
+    return _MockModel()
 
 
 @pytest.fixture

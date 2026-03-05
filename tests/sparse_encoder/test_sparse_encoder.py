@@ -6,7 +6,6 @@ import logging
 import re
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -197,31 +196,35 @@ def test_inference_free_splade(inference_free_splade_bert_tiny_model: SparseEnco
     assert model[0].sub_modules["document"][0].max_seq_length == 256
 
 
-def test_encode_advanced_parameters(splade_bert_tiny_model: SparseEncoder):
+def test_encode_advanced_parameters(splade_bert_tiny_model: SparseEncoder, monkeypatch: pytest.MonkeyPatch):
     """Test that additional parameters are correctly passed to encode"""
     model = splade_bert_tiny_model
 
-    # Create a mock for the encode method
-    with patch.object(model, "encode", autospec=True) as mock_encode:
-        # Call with advanced parameters
-        model.encode_query(
-            "test",
-            normalize_embeddings=True,
-            batch_size=64,
-            show_progress_bar=True,
-            max_active_dims=128,
-            chunk_size=10,
-            custom_param="value",
-        )
+    encode_calls = []
 
-        # Verify all parameters were passed correctly
-        args, kwargs = mock_encode.call_args
-        assert kwargs["normalize_embeddings"] is True
-        assert kwargs["batch_size"] == 64
-        assert kwargs["show_progress_bar"] is True
-        assert kwargs["max_active_dims"] == 128
-        assert kwargs["chunk_size"] == 10
-        assert kwargs["custom_param"] == "value"
+    def spy_encode(*args, **kwargs):
+        encode_calls.append((args, kwargs))
+
+    monkeypatch.setattr(model, "encode", spy_encode)
+    # Call with advanced parameters
+    model.encode_query(
+        "test",
+        normalize_embeddings=True,
+        batch_size=64,
+        show_progress_bar=True,
+        max_active_dims=128,
+        chunk_size=10,
+        custom_param="value",
+    )
+
+    # Verify all parameters were passed correctly
+    _, kwargs = encode_calls[0]
+    assert kwargs["normalize_embeddings"] is True
+    assert kwargs["batch_size"] == 64
+    assert kwargs["show_progress_bar"] is True
+    assert kwargs["max_active_dims"] == 128
+    assert kwargs["chunk_size"] == 10
+    assert kwargs["custom_param"] == "value"
 
 
 def test_max_active_dims_set_init(splade_bert_tiny_model: SparseEncoder, csr_bert_tiny_model: SparseEncoder, tmp_path):
@@ -611,36 +614,42 @@ def test_encode_query(
     convert_to_sparse_tensor: bool,
     prompt_name: str | None,
     prompt: str | None,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     model = splade_bert_tiny_model
     model.prompts = {"query": "query: ", "custom": "custom: "}
 
-    with patch.object(model, "encode", autospec=True) as mock_encode:
-        model.encode_query(
-            sentences=sentences,
-            batch_size=32,
-            convert_to_tensor=convert_to_tensor,
-            convert_to_sparse_tensor=convert_to_sparse_tensor,
-            prompt_name=prompt_name,
-            prompt=prompt,
-        )
+    encode_calls = []
 
-        if prompt_name:
-            expected_prompt_name = prompt_name
-        elif prompt is not None:
-            expected_prompt_name = None
-        else:
-            expected_prompt_name = "query"
+    def spy_encode(*args, **kwargs):
+        encode_calls.append((args, kwargs))
 
-        mock_encode.assert_called_once()
-        args, kwargs = mock_encode.call_args
+    monkeypatch.setattr(model, "encode", spy_encode)
+    model.encode_query(
+        sentences=sentences,
+        batch_size=32,
+        convert_to_tensor=convert_to_tensor,
+        convert_to_sparse_tensor=convert_to_sparse_tensor,
+        prompt_name=prompt_name,
+        prompt=prompt,
+    )
 
-        assert kwargs["sentences"] == sentences
-        assert kwargs["convert_to_tensor"] == convert_to_tensor
-        assert kwargs["convert_to_sparse_tensor"] == convert_to_sparse_tensor
-        assert kwargs["prompt"] == prompt
-        assert kwargs["prompt_name"] == expected_prompt_name
-        assert kwargs["task"] == "query"
+    if prompt_name:
+        expected_prompt_name = prompt_name
+    elif prompt is not None:
+        expected_prompt_name = None
+    else:
+        expected_prompt_name = "query"
+
+    assert len(encode_calls) == 1
+    _, kwargs = encode_calls[0]
+
+    assert kwargs["sentences"] == sentences
+    assert kwargs["convert_to_tensor"] == convert_to_tensor
+    assert kwargs["convert_to_sparse_tensor"] == convert_to_sparse_tensor
+    assert kwargs["prompt"] == prompt
+    assert kwargs["prompt_name"] == expected_prompt_name
+    assert kwargs["task"] == "query"
 
 
 @pytest.mark.parametrize("sentences", ["Hello world", ["Hello world", "This is a test"], [], [""]])
@@ -655,39 +664,45 @@ def test_encode_document(
     convert_to_sparse_tensor: bool,
     prompt_name: str | None,
     prompt: str | None,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     model = splade_bert_tiny_model
     model.prompts = {"document": "document: ", "passage": "passage: ", "corpus": "corpus: ", "custom": "custom: "}
 
-    with patch.object(model, "encode", autospec=True) as mock_encode:
-        model.encode_document(
-            sentences=sentences,
-            batch_size=32,
-            convert_to_tensor=convert_to_tensor,
-            convert_to_sparse_tensor=convert_to_sparse_tensor,
-            prompt_name=prompt_name,
-            prompt=prompt,
-        )
+    encode_calls = []
 
-        mock_encode.assert_called_once()
-        args, kwargs = mock_encode.call_args
+    def spy_encode(*args, **kwargs):
+        encode_calls.append((args, kwargs))
 
-        if prompt_name:
-            expected_prompt_name = prompt_name
-        elif prompt is not None:
-            expected_prompt_name = None
-        else:
-            expected_prompt_name = "document"
+    monkeypatch.setattr(model, "encode", spy_encode)
+    model.encode_document(
+        sentences=sentences,
+        batch_size=32,
+        convert_to_tensor=convert_to_tensor,
+        convert_to_sparse_tensor=convert_to_sparse_tensor,
+        prompt_name=prompt_name,
+        prompt=prompt,
+    )
 
-        assert kwargs["sentences"] == sentences
-        assert kwargs["convert_to_tensor"] == convert_to_tensor
-        assert kwargs["convert_to_sparse_tensor"] == convert_to_sparse_tensor
-        assert kwargs["prompt"] == prompt
-        assert kwargs["prompt_name"] == expected_prompt_name
-        assert kwargs["task"] == "document"
+    assert len(encode_calls) == 1
+    _, kwargs = encode_calls[0]
+
+    if prompt_name:
+        expected_prompt_name = prompt_name
+    elif prompt is not None:
+        expected_prompt_name = None
+    else:
+        expected_prompt_name = "document"
+
+    assert kwargs["sentences"] == sentences
+    assert kwargs["convert_to_tensor"] == convert_to_tensor
+    assert kwargs["convert_to_sparse_tensor"] == convert_to_sparse_tensor
+    assert kwargs["prompt"] == prompt
+    assert kwargs["prompt_name"] == expected_prompt_name
+    assert kwargs["task"] == "document"
 
 
-def test_encode_document_prompt_priority(splade_bert_tiny_model: SparseEncoder):
+def test_encode_document_prompt_priority(splade_bert_tiny_model: SparseEncoder, monkeypatch: pytest.MonkeyPatch):
     """Test that proper prompt priority is respected when multiple options are available"""
     model = splade_bert_tiny_model
     model.prompts = {
@@ -696,25 +711,34 @@ def test_encode_document_prompt_priority(splade_bert_tiny_model: SparseEncoder):
         "corpus": "corpus: ",
     }
 
-    with patch.object(model, "encode", autospec=True) as mock_encode:
-        model.encode_document("test")
-        args, kwargs = mock_encode.call_args
-        assert kwargs["prompt_name"] == "document"
+    encode_calls = []
 
-        # Remove document, should fall back to passage
-        model.prompts = {"passage": "passage: ", "corpus": "corpus: "}
-        model.encode_document("test")
-        args, kwargs = mock_encode.call_args
-        assert kwargs["prompt_name"] == "passage"
+    def spy_encode(*args, **kwargs):
+        encode_calls.append((args, kwargs))
 
-        # Remove passage, should fall back to corpus
-        model.prompts = {"corpus": "corpus: "}
-        model.encode_document("test")
-        args, kwargs = mock_encode.call_args
-        assert kwargs["prompt_name"] == "corpus"
+    monkeypatch.setattr(model, "encode", spy_encode)
 
-        # No document/passage/corpus, should use None
-        model.prompts = {"custom": "custom: "}
-        model.encode_document("test")
-        args, kwargs = mock_encode.call_args
-        assert kwargs["prompt_name"] is None
+    model.encode_document("test")
+    _, kwargs = encode_calls[-1]
+    assert kwargs["prompt_name"] == "document"
+
+    # Remove document, should fall back to passage
+    encode_calls.clear()
+    model.prompts = {"passage": "passage: ", "corpus": "corpus: "}
+    model.encode_document("test")
+    _, kwargs = encode_calls[-1]
+    assert kwargs["prompt_name"] == "passage"
+
+    # Remove passage, should fall back to corpus
+    encode_calls.clear()
+    model.prompts = {"corpus": "corpus: "}
+    model.encode_document("test")
+    _, kwargs = encode_calls[-1]
+    assert kwargs["prompt_name"] == "corpus"
+
+    # No document/passage/corpus, should use None
+    encode_calls.clear()
+    model.prompts = {"custom": "custom: "}
+    model.encode_document("test")
+    _, kwargs = encode_calls[-1]
+    assert kwargs["prompt_name"] is None

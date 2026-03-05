@@ -15,7 +15,6 @@ from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
 from typing import Literal, cast
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -982,45 +981,50 @@ def test_encode_query(
     prompt: str | None,
     convert_to_numpy: bool,
     convert_to_tensor: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     model = stsb_bert_tiny_model
     # Create a mock model with required prompts
     model.prompts = {"query": "query: ", "custom": "custom: "}
 
-    # Create a mock for the encode method
-    with patch.object(model, "encode", autospec=True) as mock_encode:
-        # Call encode_query
-        model.encode_query(
-            sentences=sentences,
-            prompt_name=prompt_name,
-            prompt=prompt,
-            batch_size=32,
-            convert_to_numpy=convert_to_numpy,
-            convert_to_tensor=convert_to_tensor,
-        )
+    encode_calls = []
 
-        # Verify that encode was called with the correct parameters
-        if prompt_name:
-            expected_prompt_name = prompt_name
-        elif prompt is not None:
-            expected_prompt_name = None
-        else:
-            expected_prompt_name = "query"
+    def spy_encode(*args, **kwargs):
+        encode_calls.append((args, kwargs))
 
-        mock_encode.assert_called_once()
-        args, kwargs = mock_encode.call_args
+    monkeypatch.setattr(model, "encode", spy_encode)
+    # Call encode_query
+    model.encode_query(
+        sentences=sentences,
+        prompt_name=prompt_name,
+        prompt=prompt,
+        batch_size=32,
+        convert_to_numpy=convert_to_numpy,
+        convert_to_tensor=convert_to_tensor,
+    )
 
-        # Check that sentences were passed correctly
-        assert kwargs["sentences"] == sentences
+    # Verify that encode was called with the correct parameters
+    if prompt_name:
+        expected_prompt_name = prompt_name
+    elif prompt is not None:
+        expected_prompt_name = None
+    else:
+        expected_prompt_name = "query"
 
-        # Check prompt handling
-        assert kwargs["prompt"] == prompt
-        assert kwargs["prompt_name"] == expected_prompt_name
+    assert len(encode_calls) == 1
+    _, kwargs = encode_calls[0]
 
-        # Check other parameters
-        assert kwargs["convert_to_numpy"] == convert_to_numpy
-        assert kwargs["convert_to_tensor"] == convert_to_tensor
-        assert kwargs["task"] == "query"
+    # Check that sentences were passed correctly
+    assert kwargs["sentences"] == sentences
+
+    # Check prompt handling
+    assert kwargs["prompt"] == prompt
+    assert kwargs["prompt_name"] == expected_prompt_name
+
+    # Check other parameters
+    assert kwargs["convert_to_numpy"] == convert_to_numpy
+    assert kwargs["convert_to_tensor"] == convert_to_tensor
+    assert kwargs["task"] == "query"
 
 
 @pytest.mark.parametrize("sentences", ["Hello world", ["Hello world", "This is a test"], [], [""]])
@@ -1035,48 +1039,52 @@ def test_encode_document(
     prompt: str | None,
     convert_to_numpy: bool,
     convert_to_tensor: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     # Create a mock model with required prompts
     model = stsb_bert_tiny_model
     model.prompts = {"document": "document: ", "passage": "passage: ", "corpus": "corpus: ", "custom": "custom: "}
 
-    # Create a mock for the encode method
-    with patch.object(model, "encode", autospec=True) as mock_encode:
-        # Call encode_document
-        model.encode_document(
-            sentences=sentences,
-            prompt_name=prompt_name,
-            prompt=prompt,
-            batch_size=32,
-            convert_to_numpy=convert_to_numpy,
-            convert_to_tensor=convert_to_tensor,
-        )
+    encode_calls = []
 
-        # Verify that encode was called with the correct parameters
-        mock_encode.assert_called_once()
-        args, kwargs = mock_encode.call_args
+    def spy_encode(*args, **kwargs):
+        encode_calls.append((args, kwargs))
 
-        if prompt_name:
-            expected_prompt_name = prompt_name
-        elif prompt is not None:
-            expected_prompt_name = None
-        else:
-            expected_prompt_name = "document"
+    monkeypatch.setattr(model, "encode", spy_encode)
+    # Call encode_document
+    model.encode_document(
+        sentences=sentences,
+        prompt_name=prompt_name,
+        prompt=prompt,
+        batch_size=32,
+        convert_to_numpy=convert_to_numpy,
+        convert_to_tensor=convert_to_tensor,
+    )
 
-        # Check that sentences were passed correctly
-        assert kwargs["sentences"] == sentences
+    assert len(encode_calls) == 1
+    _, kwargs = encode_calls[0]
 
-        # Check prompt handling
-        assert kwargs["prompt"] == prompt
-        assert kwargs["prompt_name"] == expected_prompt_name
+    if prompt_name:
+        expected_prompt_name = prompt_name
+    elif prompt is not None:
+        expected_prompt_name = None
+    else:
+        expected_prompt_name = "document"
 
-        # Check other parameters
-        assert kwargs["convert_to_numpy"] == convert_to_numpy
-        assert kwargs["convert_to_tensor"] == convert_to_tensor
-        assert kwargs["task"] == "document"
+    # Check that sentences were passed correctly
+    assert kwargs["sentences"] == sentences
+
+    # Check prompt handling
+    assert kwargs["prompt"] == prompt
+    assert kwargs["prompt_name"] == expected_prompt_name
+
+    # Check other parameters
+    assert kwargs["convert_to_numpy"] == convert_to_numpy
+    assert kwargs["convert_to_tensor"] == convert_to_tensor
+    assert kwargs["task"] == "document"
 
 
-def test_encode_document_prompt_priority(stsb_bert_tiny_model: SentenceTransformer):
+def test_encode_document_prompt_priority(stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch):
     """Test that proper prompt priority is respected when multiple options are available"""
     model = stsb_bert_tiny_model
     model.prompts = {
@@ -1085,73 +1093,75 @@ def test_encode_document_prompt_priority(stsb_bert_tiny_model: SentenceTransform
         "corpus": "corpus: ",
     }
 
-    # Create a mock for the encode method
-    with patch.object(model, "encode", autospec=True) as mock_encode:
-        # Call encode_document with no explicit prompt
-        model.encode_document("test")
+    encode_calls = []
 
-        # It should select "document" by default since that's first in the priority list
-        args, kwargs = mock_encode.call_args
-        assert kwargs["prompt_name"] == "document"
+    def spy_encode(*args, **kwargs):
+        encode_calls.append((args, kwargs))
 
-        # Remove document, should fall back to passage
-        mock_encode.reset_mock()
-        model.prompts = {
-            "passage": "passage: ",
-            "corpus": "corpus: ",
-        }
-        model.encode_document("test")
-        args, kwargs = mock_encode.call_args
-        assert kwargs["prompt_name"] == "passage"
+    monkeypatch.setattr(model, "encode", spy_encode)
 
-        # Remove passage, should fall back to corpus
-        mock_encode.reset_mock()
-        model.prompts = {
-            "corpus": "corpus: ",
-        }
-        model.encode_document("test")
-        args, kwargs = mock_encode.call_args
-        assert kwargs["prompt_name"] == "corpus"
+    # Call encode_document with no explicit prompt
+    model.encode_document("test")
 
-        # No relevant prompts defined
-        mock_encode.reset_mock()
-        model.prompts = {
-            "query": "query: ",
-        }
-        model.encode_document("test")
-        args, kwargs = mock_encode.call_args
-        assert kwargs["prompt_name"] is None
+    # It should select "document" by default since that's first in the priority list
+    _, kwargs = encode_calls[-1]
+    assert kwargs["prompt_name"] == "document"
+
+    # Remove document, should fall back to passage
+    encode_calls.clear()
+    model.prompts = {"passage": "passage: ", "corpus": "corpus: "}
+    model.encode_document("test")
+    _, kwargs = encode_calls[-1]
+    assert kwargs["prompt_name"] == "passage"
+
+    # Remove passage, should fall back to corpus
+    encode_calls.clear()
+    model.prompts = {"corpus": "corpus: "}
+    model.encode_document("test")
+    _, kwargs = encode_calls[-1]
+    assert kwargs["prompt_name"] == "corpus"
+
+    # No relevant prompts defined
+    encode_calls.clear()
+    model.prompts = {"query": "query: "}
+    model.encode_document("test")
+    _, kwargs = encode_calls[-1]
+    assert kwargs["prompt_name"] is None
 
 
-def test_encode_advanced_parameters(stsb_bert_tiny_model: SentenceTransformer):
+def test_encode_advanced_parameters(stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch):
     """Test that additional parameters are correctly passed to encode"""
     model = stsb_bert_tiny_model
 
-    # Create a mock for the encode method
-    with patch.object(model, "encode", autospec=True) as mock_encode:
-        # Call with advanced parameters
-        model.encode_query(
-            "test",
-            normalize_embeddings=True,
-            batch_size=64,
-            show_progress_bar=True,
-            output_value="token_embeddings",
-            precision="uint8",
-            truncate_dim=128,
-            chunk_size=10,
-            custom_param="value",
-        )
+    encode_calls = []
 
-        # Verify all parameters were passed correctly
-        args, kwargs = mock_encode.call_args
-        assert kwargs["normalize_embeddings"] is True
-        assert kwargs["batch_size"] == 64
-        assert kwargs["show_progress_bar"] is True
-        assert kwargs["output_value"] == "token_embeddings"
-        assert kwargs["precision"] == "uint8"
-        assert kwargs["truncate_dim"] == 128
-        assert kwargs["chunk_size"] == 10
-        assert kwargs["custom_param"] == "value"
+    def spy_encode(*args, **kwargs):
+        encode_calls.append((args, kwargs))
+
+    monkeypatch.setattr(model, "encode", spy_encode)
+    # Call with advanced parameters
+    model.encode_query(
+        "test",
+        normalize_embeddings=True,
+        batch_size=64,
+        show_progress_bar=True,
+        output_value="token_embeddings",
+        precision="uint8",
+        truncate_dim=128,
+        chunk_size=10,
+        custom_param="value",
+    )
+
+    # Verify all parameters were passed correctly
+    _, kwargs = encode_calls[0]
+    assert kwargs["normalize_embeddings"] is True
+    assert kwargs["batch_size"] == 64
+    assert kwargs["show_progress_bar"] is True
+    assert kwargs["output_value"] == "token_embeddings"
+    assert kwargs["precision"] == "uint8"
+    assert kwargs["truncate_dim"] == 128
+    assert kwargs["chunk_size"] == 10
+    assert kwargs["custom_param"] == "value"
 
 
 @pytest.mark.parametrize("inputs", ["test sentence", ["test sentence"]])

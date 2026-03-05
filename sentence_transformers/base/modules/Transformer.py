@@ -443,8 +443,6 @@ class Transformer(InputModule):
             model_type=self.config.model_type, message_format=self.message_format, processor=self.processor
         )
 
-        # TODO: Ensure that max_seq_length is correctly applied, saved, loaded, etc.
-
         if modality_config is not None:
             self.modality_config = modality_config
             if module_output_name is None:

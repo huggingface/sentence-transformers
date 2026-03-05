@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import warnings
-from unittest.mock import Mock
 
 import pytest
 import torch
 
-from sentence_transformers import SentenceTransformer
-from sentence_transformers.sentence_transformer.losses import MatryoshkaLoss, MSELoss, MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.losses import MatryoshkaLoss, MSELoss
 
 
 @pytest.fixture
 def mock_loss():
     """Create a mock base loss for testing."""
-    return Mock(spec=MultipleNegativesRankingLoss)
+
+    class _FakeLoss(torch.nn.Module):
+        def forward(self, *args, **kwargs):
+            return torch.tensor(0.0)
+
+    return _FakeLoss()
 
 
 def test_empty_matryoshka_dims_raises_error(static_retrieval_mrl_en_v1_model, mock_loss):
@@ -79,8 +82,12 @@ def test_model_dimension_not_in_dims_warns(static_retrieval_mrl_en_v1_model, moc
 
 def test_model_dimension_none_no_validation(mock_loss):
     """Test that when model dimension is None, no validation or warning occurs."""
-    model = Mock(spec=SentenceTransformer)
-    model.get_sentence_embedding_dimension.return_value = None
+
+    class _MockModel:
+        def get_sentence_embedding_dimension(self):
+            return None
+
+    model = _MockModel()
 
     # This should not raise any error or warning, even with large dimensions
     with warnings.catch_warnings():

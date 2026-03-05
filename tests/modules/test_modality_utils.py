@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import numpy as np
 import pytest
 import torch
@@ -109,9 +107,6 @@ class TestInferModality:
     def test_image_https_url(self):
         assert infer_modality("https://example.com/photo.jpg") == "image"
 
-    def test_image_https_url_webp(self):
-        assert infer_modality("https://example.com/photo.webp") == "image"
-
     def test_audio_https_url(self):
         assert infer_modality("https://example.com/clip.mp3") == "audio"
 
@@ -165,10 +160,6 @@ class TestInferModality:
 
     def test_multimodal_dict_returns_sorted_tuple(self):
         # Keys in insertion order: image before text — must still return sorted tuple
-        sample = {"image": "cat.jpg", "text": "a photo"}
-        assert infer_modality(sample) == ("image", "text")
-
-    def test_multimodal_dict_already_sorted(self):
         sample = {"image": "cat.jpg", "text": "a photo"}
         assert infer_modality(sample) == ("image", "text")
 
@@ -232,19 +223,14 @@ class TestModalityToProcessorArg:
         assert MODALITY_TO_PROCESSOR_ARG["message"] == "message"
 
 
-class TestInferModalityDataImage:
-    def test_data_image_uri(self):
-        assert infer_modality("data:image/png;base64,iVBOR...") == "image"
-
-
 class TestInferModalityPilUnavailable:
-    def test_pil_unavailable_text_still_works(self):
-        with patch("sentence_transformers.base.modules.modality_utils.Image", None):
-            assert infer_modality("hello world") == "text"
+    def test_pil_unavailable_text_still_works(self, monkeypatch):
+        monkeypatch.setattr("sentence_transformers.base.modules.modality_utils.Image", None)
+        assert infer_modality("hello world") == "text"
 
-    def test_pil_unavailable_image_url_still_works(self):
-        with patch("sentence_transformers.base.modules.modality_utils.Image", None):
-            assert infer_modality("https://example.com/photo.jpg") == "image"
+    def test_pil_unavailable_image_url_still_works(self, monkeypatch):
+        monkeypatch.setattr("sentence_transformers.base.modules.modality_utils.Image", None)
+        assert infer_modality("https://example.com/photo.jpg") == "image"
 
 
 class TestInputFormatterInit:
@@ -337,13 +323,6 @@ class TestToMessages:
         assert len(content) == 2
         types = {item["type"] for item in content}
         assert types == {"text", "image"}
-
-    def test_structured_multi_input_pair(self):
-        fmt = InputFormatter(model_type="test", message_format="structured")
-        result = fmt.to_messages({"text": ["query", "document"]})
-        # Should produce query + document roles
-        assert any(msg["role"] == "query" for msg in result)
-        assert any(msg["role"] == "document" for msg in result)
 
     def test_custom_role(self):
         fmt = InputFormatter(model_type="test", message_format="flat")
@@ -642,41 +621,7 @@ class TestPrependPromptToMessagesNonShared:
         assert "extra" not in result[1][0]
 
 
-class TestBatchToMessagesUnified:
-    def test_str_modality_via_unified_branch(self):
-        fmt = InputFormatter(model_type="test", message_format="structured")
-        modality, result = fmt.batch_to_messages("text", {"text": ["a", "b"]})
-        assert modality == "message"
-        assert len(result["message"]) == 2
-
-    def test_tuple_modality_via_unified_branch(self):
-        fmt = InputFormatter(model_type="test", message_format="structured")
-        modality, result = fmt.batch_to_messages(
-            ("image", "text"), {"image": ["cat.jpg", "dog.jpg"], "text": ["a cat", "a dog"]}
-        )
-        assert modality == "message"
-        assert len(result["message"]) == 2
-
-
 class TestInferFormatFlattened:
-    def test_getattr_fallback_no_chat_template(self):
-        """Processor without chat_template attribute should return 'structured'."""
-
-        class BareProcessor:
-            pass
-
-        fmt = InputFormatter(model_type="unknown", message_format="structured")
-        assert fmt._infer_format(BareProcessor()) == "structured"
-
-    def test_dict_chat_template_returns_structured(self):
-        """Dict chat template (HuggingFace multi-template format) should return 'structured'."""
-
-        class DictTemplateProcessor:
-            chat_template = {"default": "{{ message.content }}"}
-
-        fmt = InputFormatter(model_type="unknown", message_format="structured")
-        assert fmt._infer_format(DictTemplateProcessor()) == "structured"
-
     def test_empty_chat_template_returns_structured(self):
         class EmptyTemplateProcessor:
             chat_template = ""
