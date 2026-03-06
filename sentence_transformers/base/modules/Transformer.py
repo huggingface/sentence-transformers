@@ -433,6 +433,7 @@ class Transformer(InputModule):
                 )
 
             if do_lower_case:
+                # NOTE: All Transformers v5 tokenizers are fast tokenizers, but we keep the v4 branch for compatibility
                 if self.tokenizer.is_fast:
                     normalizer = self.tokenizer.backend_tokenizer.normalizer
                     if not _has_lowercase(normalizer):
@@ -443,7 +444,12 @@ class Transformer(InputModule):
                             new_normalizers.append(normalizer)
                         self.tokenizer.backend_tokenizer.normalizer = Sequence(new_normalizers)
                 else:
-                    self.processor.do_lower_case = do_lower_case
+                    # Some v4 Tokenizers have do_lower_case as property without a setter, and those often
+                    # have a basic_tokenizer on which do_lower_case can be set.
+                    try:
+                        self.tokenizer.do_lower_case = do_lower_case
+                    except AttributeError:
+                        self.tokenizer.basic_tokenizer.do_lower_case = do_lower_case
 
         self.input_formatter = InputFormatter(
             model_type=self.config.model_type, message_format=self.message_format, processor=self.processor
