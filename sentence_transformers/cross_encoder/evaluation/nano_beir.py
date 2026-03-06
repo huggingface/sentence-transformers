@@ -192,6 +192,8 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
             pprint({key: value for key, value in results.items() if "ndcg@10" in key})
     """
 
+    reranking_evaluator_class = CrossEncoderRerankingEvaluator
+
     def __init__(
         self,
         dataset_names: list[DatasetNameType | str] | None = None,
@@ -207,7 +209,6 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
     ):
         super().__init__()
         if dataset_names is None:
-            # We exclude arguana and touche2020 because their Argument Retrieval meaningfully task differs from the others
             dataset_names = [key for key in DATASET_NAME_TO_HUMAN_READABLE if key not in ["arguana", "touche2020"]]
         self.dataset_names = dataset_names
         self.dataset_id = dataset_id
@@ -220,7 +221,7 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
         self.aggregate_fn = aggregate_fn
         self.aggregate_key = aggregate_key
 
-        self.name = f"NanoBEIR_R{rerank_k:d}_{self.aggregate_key}"
+        self.name = f"{self.description}_R{rerank_k:d}_{self.aggregate_key}"
 
         self._validate_dataset_names()
 
@@ -234,10 +235,10 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
 
         self.evaluators = [
             self._load_dataset(name, **reranking_kwargs)
-            for name in tqdm(self.dataset_names, desc="Loading NanoBEIR datasets", leave=False)
+            for name in tqdm(self.dataset_names, desc=f"Loading {self.description} datasets", leave=False)
         ]
 
-        self.csv_file: str = f"NanoBEIR_evaluation_{aggregate_key}_results.csv"
+        self.csv_file: str = f"{self.description}_evaluation_{aggregate_key}_results.csv"
         self.csv_headers = ["epoch", "steps", "MAP", f"MRR@{self.at_k}", f"NDCG@{self.at_k}"]
 
         self.primary_metric = f"ndcg@{self.at_k}"
@@ -254,17 +255,17 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
                 out_txt = f" in epoch {epoch} after {steps} steps"
         else:
             out_txt = ""
-        logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
+        logger.info(f"{self.description} Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
 
         for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
             logger.info(f"Evaluating {evaluator.name}")
             evaluation = evaluator(model, output_path, epoch, steps)
-            for k in evaluation:
-                dataset, _rerank_k, metric = k.split("_", maxsplit=2)
+            for full_key, metric_value in evaluation.items():
+                result_key, metric = self._parse_evaluation_key(evaluator.name, full_key)
                 if metric not in per_metric_results:
                     per_metric_results[metric] = []
-                per_dataset_results[f"{dataset}_R{self.rerank_k}_{metric}"] = evaluation[k]
-                per_metric_results[metric].append(evaluation[k])
+                per_dataset_results[result_key] = metric_value
+                per_metric_results[metric].append(metric_value)
             logger.info("")
 
         agg_results = {}
@@ -320,20 +321,21 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
         return per_dataset_results
 
     def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
-        return f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}_R{self.rerank_k}"
+        return f"{self._get_split_name(dataset_name)}_R{self.rerank_k}"
 
     def _load_dataset(
         self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs
     ) -> CrossEncoderRerankingEvaluator:
-        if dataset_name.lower() not in DATASET_NAME_TO_HUMAN_READABLE:
-            raise ValueError(f"Dataset '{dataset_name}' is not a valid NanoBEIR dataset.")
-        human_readable = DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]
-        split_name = f"Nano{human_readable}"
+        split_name = self._get_split_name(dataset_name)
 
         corpus = self._load_dataset_subset_split("corpus", split=split_name, required_columns=["_id", "text"])
         queries = self._load_dataset_subset_split("queries", split=split_name, required_columns=["_id", "text"])
         qrels = self._load_dataset_subset_split("qrels", split=split_name, required_columns=["query-id", "corpus-id"])
-        bm25 = self._load_dataset_subset_split("bm25", split=split_name, required_columns=["query-id", "corpus-ids"])
+        bm25 = self._load_dataset_subset_split(
+            "bm25",
+            split=split_name,
+            required_columns=["query-id", "corpus-ids"],
+        )
 
         corpus_mapping = dict(zip(corpus["_id"], corpus["text"]))
         query_mapping = dict(zip(queries["_id"], queries["text"]))
@@ -347,6 +349,9 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
                 qrels_mapping[sample["query-id"]].update(corpus_ids)
             else:
                 qrels_mapping[sample["query-id"]].add(corpus_ids)
+        self._validate_retrieval_references(
+            dataset_name, split_name, query_mapping, corpus_mapping, qrels_mapping, bm25
+        )
 
         def mapper(
             sample,
@@ -375,11 +380,15 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
         )
 
         human_readable_name = self._get_human_readable_name(dataset_name)
-        return CrossEncoderRerankingEvaluator(
+        return self.reranking_evaluator_class(
             samples=list(relevance),
             name=human_readable_name,
             **ir_evaluator_kwargs,
         )
+
+    @property
+    def description(self) -> str:
+        return "NanoBEIR"
 
     def _load_dataset_subset_split(self, subset: str, split: str, required_columns: list[str]):
         if not is_datasets_available():
@@ -414,6 +423,25 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
                 f"Dataset(s) {missing_datasets} are not valid NanoBEIR datasets. "
                 f"Valid dataset names are: {list(DATASET_NAME_TO_HUMAN_READABLE.keys())}"
             )
+
+    def _get_split_name(self, dataset_name: DatasetNameType | str) -> str:
+        return f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
+
+    def _parse_evaluation_key(self, evaluator_name: str, full_key: str) -> tuple[str, str]:
+        del evaluator_name
+        _dataset, _rerank_k, metric = full_key.split("_", maxsplit=2)
+        return full_key, metric
+
+    def _validate_retrieval_references(
+        self,
+        dataset_name: DatasetNameType | str,
+        split_name: str,
+        query_mapping: dict[str, str],
+        corpus_mapping: dict[str, str],
+        qrels_mapping: dict[str, set[str]],
+        retrieved,
+    ) -> None:
+        pass
 
     def get_config_dict(self):
         return {

@@ -247,7 +247,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
         self.main_score_function = main_score_function
         self.truncate_dim = truncate_dim
-        self.name = f"NanoBEIR_{aggregate_key}"
+        self.name = f"{self.description}_{aggregate_key}"
         if self.truncate_dim:
             self.name += f"_{self.truncate_dim}"
 
@@ -276,10 +276,10 @@ class NanoBEIREvaluator(SentenceEvaluator):
         }
         self.evaluators = [
             self._load_dataset(name, **ir_evaluator_kwargs)
-            for name in tqdm(self.dataset_names, desc="Loading NanoBEIR datasets", leave=False)
+            for name in tqdm(self.dataset_names, desc=f"Loading {self.description} datasets", leave=False)
         ]
 
-        self.csv_file: str = f"NanoBEIR_evaluation_{aggregate_key}_results.csv"
+        self.csv_file: str = f"{self.description}_evaluation_{aggregate_key}_results.csv"
         self.csv_headers = ["epoch", "steps"]
 
         self._append_csv_headers(self.score_function_names)
@@ -322,7 +322,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
             out_txt = ""
         if self.truncate_dim is not None:
             out_txt += f" (truncated to {self.truncate_dim})"
-        logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
+        logger.info(f"{self.description} Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
 
         if self.score_functions is None:
             self.score_functions = {model.similarity_fn_name: model.similarity}
@@ -334,8 +334,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
             logger.info(f"Evaluating {evaluator.name}")
             evaluation = evaluator(model, output_path, epoch, steps)
             for full_key, metric_value in evaluation.items():
-                splits = full_key.split("_", maxsplit=num_underscores_in_name)
-                metric = splits[-1]
+                metric = self._get_metric_from_full_key(evaluator.name, full_key, num_underscores_in_name)
                 if metric not in per_metric_results:
                     per_metric_results[metric] = []
                 per_dataset_results[full_key] = metric_value
@@ -419,7 +418,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
         return per_dataset_results
 
     def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
-        human_readable_name = f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
+        human_readable_name = self._get_split_name(dataset_name)
 
         if self.truncate_dim is not None:
             human_readable_name += f"_{self.truncate_dim}"
@@ -428,10 +427,7 @@ class NanoBEIREvaluator(SentenceEvaluator):
     def _load_dataset(
         self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs
     ) -> InformationRetrievalEvaluator:
-        if dataset_name.lower() not in DATASET_NAME_TO_HUMAN_READABLE:
-            raise ValueError(f"Dataset '{dataset_name}' is not a valid NanoBEIR dataset.")
-        human_readable = DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]
-        split_name = f"Nano{human_readable}"
+        split_name = self._get_split_name(dataset_name)
 
         corpus = self._load_dataset_subset_split("corpus", split=split_name, required_columns=["_id", "text"])
         queries = self._load_dataset_subset_split("queries", split=split_name, required_columns=["_id", "text"])
@@ -463,6 +459,10 @@ class NanoBEIREvaluator(SentenceEvaluator):
             name=human_readable_name,
             **ir_evaluator_kwargs,
         )
+
+    @property
+    def description(self) -> str:
+        return "NanoBEIR"
 
     def _load_dataset_subset_split(self, subset: str, split: str, required_columns: list[str]):
         if not is_datasets_available():
@@ -518,6 +518,14 @@ class NanoBEIREvaluator(SentenceEvaluator):
 
         if error_msg:
             raise ValueError(error_msg.strip())
+
+    def _get_split_name(self, dataset_name: DatasetNameType | str) -> str:
+        return f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
+
+    def _get_metric_from_full_key(self, evaluator_name: str, full_key: str, num_underscores_in_name: int) -> str:
+        del evaluator_name
+        splits = full_key.split("_", maxsplit=num_underscores_in_name)
+        return splits[-1]
 
     def store_metrics_in_model_card_data(self, *args, **kwargs):
         # Only store metrics in the model card data if there is more than one dataset.
