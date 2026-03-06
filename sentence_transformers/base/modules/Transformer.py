@@ -849,7 +849,7 @@ class Transformer(InputModule):
 
         Returns None if the processor does not produce ``input_ids``.
         """
-        cache_key = (prompt, *sorted(kwargs.items()))
+        cache_key = (prompt, *sorted(kwargs.values()))
         if cache_key in self._prompt_length_mapping:
             return self._prompt_length_mapping[cache_key]
 
