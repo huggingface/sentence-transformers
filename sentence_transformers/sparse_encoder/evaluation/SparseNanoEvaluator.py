@@ -7,6 +7,7 @@ import numpy as np
 from torch import Tensor
 
 from sentence_transformers.evaluation._nano_utils import _GenericNanoDatasetMixin
+from sentence_transformers.evaluation.NanoEvaluator import NanoEvaluator
 from sentence_transformers.similarity_functions import SimilarityFunction
 from sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator import SparseNanoBEIREvaluator
 
@@ -81,10 +82,19 @@ class SparseNanoEvaluator(_GenericNanoDatasetMixin, SparseNanoBEIREvaluator):
         )
 
     def _get_human_readable_name(self, dataset_name: str) -> str:
-        human_readable_name = super()._get_human_readable_name(dataset_name)
+        human_readable_name = NanoEvaluator._get_human_readable_name(self, dataset_name)
         if self.max_active_dims is not None:
             human_readable_name += f"_{self.max_active_dims}"
         return human_readable_name
+
+    _get_evaluator_name_root = NanoEvaluator._get_evaluator_name_root
+    _get_evaluation_description = NanoEvaluator._get_evaluation_description
+    _get_loading_description = NanoEvaluator._get_loading_description
+    _get_corpus_subset_name = NanoEvaluator._get_corpus_subset_name
+    _get_queries_subset_name = NanoEvaluator._get_queries_subset_name
+    _get_qrels_subset_name = NanoEvaluator._get_qrels_subset_name
+    _get_prompt_for_dataset = NanoEvaluator._get_prompt_for_dataset
+    _get_metric_from_full_key = NanoEvaluator._get_metric_from_full_key
 
     def get_config_dict(self) -> dict[str, Any]:
         config_dict = self._get_generic_config_dict()

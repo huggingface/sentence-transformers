@@ -70,5 +70,34 @@ class CrossEncoderNanoEvaluator(_GenericCrossEncoderNanoMixin, CrossEncoderNanoB
             aggregate_key=aggregate_key,
         )
 
+    def _get_evaluator_name_root(self) -> str:
+        return self.evaluator_name
+
+    def _get_evaluation_description(self) -> str:
+        return "Nano"
+
+    def _get_loading_description(self) -> str:
+        return "Loading Nano datasets"
+
+    def _get_human_readable_name(self, dataset_name: str) -> str:
+        split_name = self._get_split_name(dataset_name)
+        if self.dataset_name_to_human_readable is None:
+            return f"{self.evaluator_name}_{split_name}_R{self.rerank_k}"
+        return f"{split_name}_R{self.rerank_k}"
+
+    def _get_candidate_subset_name(self) -> str:
+        return self.candidate_subset_name
+
+    def _get_retrieved_corpus_ids_column(self) -> str:
+        return self.retrieved_corpus_ids_column
+
+    def _parse_evaluation_key(self, evaluator_name: str, full_key: str) -> tuple[str, str]:
+        prefix = f"{evaluator_name}_"
+        if full_key.startswith(prefix):
+            metric = full_key.removeprefix(prefix)
+        else:
+            metric = full_key.split("_", maxsplit=self.name.count("_"))[-1]
+        return full_key, metric
+
     def get_config_dict(self) -> dict[str, Any]:
         return self._get_generic_cross_encoder_config_dict()

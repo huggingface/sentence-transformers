@@ -80,5 +80,45 @@ class NanoEvaluator(_GenericNanoDatasetMixin, NanoBEIREvaluator):
             write_predictions=write_predictions,
         )
 
+    def _get_evaluator_name_root(self) -> str:
+        return self.evaluator_name
+
+    def _get_evaluation_description(self) -> str:
+        return "Nano"
+
+    def _get_loading_description(self) -> str:
+        return "Loading Nano datasets"
+
+    def _get_human_readable_name(self, dataset_name: str) -> str:
+        split_name = self._get_split_name(dataset_name)
+        if self.dataset_name_to_human_readable is None:
+            human_readable_name = f"{self.evaluator_name}_{split_name}"
+        else:
+            human_readable_name = split_name
+        if self.truncate_dim is not None:
+            human_readable_name += f"_{self.truncate_dim}"
+        return human_readable_name
+
+    def _get_corpus_subset_name(self) -> str:
+        return self.corpus_subset_name
+
+    def _get_queries_subset_name(self) -> str:
+        return self.queries_subset_name
+
+    def _get_qrels_subset_name(self) -> str:
+        return self.qrels_subset_name
+
+    def _get_prompt_for_dataset(self, prompt_mapping: dict[str, str], dataset_name: str) -> str | None:
+        if dataset_name in prompt_mapping:
+            return prompt_mapping[dataset_name]
+        lower_to_prompt = {key.lower(): value for key, value in prompt_mapping.items()}
+        return lower_to_prompt.get(dataset_name.lower())
+
+    def _get_metric_from_full_key(self, evaluator_name: str, full_key: str, num_underscores_in_name: int) -> str:
+        prefix = f"{evaluator_name}_"
+        if full_key.startswith(prefix):
+            return full_key.removeprefix(prefix)
+        return full_key.split("_", maxsplit=num_underscores_in_name)[-1]
+
     def get_config_dict(self) -> dict[str, Any]:
         return self._get_generic_config_dict()

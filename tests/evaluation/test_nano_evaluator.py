@@ -30,6 +30,8 @@ class FakeInformationRetrievalEvaluator:
         self.corpus = corpus
         self.relevant_docs = relevant_docs
         self.name = name
+        self.query_prompt = kwargs.get("query_prompt")
+        self.corpus_prompt = kwargs.get("corpus_prompt")
         self.mrr_at_k = mrr_at_k
         self.ndcg_at_k = ndcg_at_k
         self.accuracy_at_k = accuracy_at_k
@@ -171,6 +173,33 @@ def test_nano_evaluator_accepts_direct_split_names_with_mapping(
     assert [sub_evaluator.name for sub_evaluator in evaluator.evaluators] == ["python"]
     metrics = evaluator(dummy_model)
     assert "NanoFooBar_mean_cosine_ndcg@10" in metrics
+
+
+def test_nano_evaluator_custom_name_and_case_insensitive_prompts(
+    patch_nano_eval: None,
+    dummy_model: Any,
+) -> None:
+    evaluator = NanoEvaluator(
+        dataset_names=["python"],
+        dataset_id="example/NanoFooBar",
+        query_prompts={"PYTHON": "query: "},
+        corpus_prompts={"PYTHON": "passage: "},
+        name="CustomNano",
+        mrr_at_k=[10],
+        ndcg_at_k=[10],
+        accuracy_at_k=[1],
+        precision_recall_at_k=[1],
+        map_at_k=[100],
+        score_functions={"cosine": lambda a, b: a},
+        write_csv=False,
+    )
+
+    assert evaluator.name == "CustomNano_mean"
+    assert [sub_evaluator.name for sub_evaluator in evaluator.evaluators] == ["CustomNano_python"]
+    assert evaluator.evaluators[0].query_prompt == "query: "
+    assert evaluator.evaluators[0].corpus_prompt == "passage: "
+    metrics = evaluator(dummy_model)
+    assert "CustomNano_mean_cosine_ndcg@10" in metrics
 
 
 def test_sequential_evaluator_with_nanobeir_and_nanocodesearchnet(
