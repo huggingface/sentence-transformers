@@ -21,7 +21,8 @@ import tqdm
 from bitext_mining_utils import file_open, kNN, score_candidates
 from sklearn.decomposition import PCA
 
-from sentence_transformers import SentenceTransformer, models
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.modules import Dense
 
 # Model we want to use for bitext mining. LaBSE achieves state-of-the-art performance
 model_name = "LaBSE"
@@ -81,7 +82,7 @@ if use_pca:
     pca = PCA(n_components=pca_dimensions)
     pca.fit(train_matrix)
 
-    dense = models.Dense(
+    dense = Dense(
         in_features=model.get_sentence_embedding_dimension(),
         out_features=pca_dimensions,
         bias=False,

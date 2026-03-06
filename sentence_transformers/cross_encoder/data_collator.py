@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Collection
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
 import torch
 
-from sentence_transformers.data_collator import SentenceTransformerDataCollator
+from sentence_transformers.base.data_collator import BaseDataCollator
 
 
 @dataclass
-class CrossEncoderDataCollator(SentenceTransformerDataCollator):
+class CrossEncoderDataCollator(BaseDataCollator):
     """Collator for a CrossEncoder model.
     This encodes the text columns to {column}_input_ids and {column}_attention_mask columns.
     This works with the two text dataset that is used as the example in the training overview:
@@ -22,9 +22,8 @@ class CrossEncoderDataCollator(SentenceTransformerDataCollator):
     "given the answer, what is the question?".
     """
 
-    tokenize_fn: Callable
+    # CrossEncoder-specific overriding of valid label columns to include "labels" and plural "scores"
     valid_label_columns: list[str] = field(default_factory=lambda: ["label", "labels", "score", "scores"])
-    _warned_columns: set[tuple[str]] = field(default_factory=set, init=False, repr=False)
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         column_names = list(features[0].keys())
@@ -50,6 +49,7 @@ class CrossEncoderDataCollator(SentenceTransformerDataCollator):
 
         for column_name in column_names:
             # If the prompt length has been set, we should add it to the batch
+            # TODO: I think CrossEncoder didn't/doesn't use prompts, so this may be unnecessary
             if column_name.endswith("_prompt_length") and column_name[: -len("_prompt_length")] in column_names:
                 batch[column_name] = torch.tensor([row[column_name] for row in features], dtype=torch.int)
                 continue

@@ -1,67 +1,67 @@
 # Losses
 
-`sentence_transformers.losses` defines different loss functions that can be used to fine-tune embedding models on training data. The choice of loss function plays a critical role when fine-tuning the model. It determines how well our embedding model will work for the specific downstream task.
+`sentence_transformers.sentence_transformer.losses` defines different loss functions that can be used to fine-tune embedding models on training data. The choice of loss function plays a critical role when fine-tuning the model. It determines how well our embedding model will work for the specific downstream task.
 
 Sadly, there is no "one size fits all" loss function. Which loss function is suitable depends on the available training data and on the target task. Consider checking out the [Loss Overview](../../sentence_transformer/loss_overview.md) to help narrow down your choice of loss function(s).
 
 ## BatchAllTripletLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.BatchAllTripletLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.BatchAllTripletLoss
 ```
 
 ## BatchHardSoftMarginTripletLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.BatchHardSoftMarginTripletLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.BatchHardSoftMarginTripletLoss
 ```
 
 ## BatchHardTripletLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.BatchHardTripletLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.BatchHardTripletLoss
 ```
 
 ## BatchSemiHardTripletLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.BatchSemiHardTripletLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.BatchSemiHardTripletLoss
 ```
 
 ## ContrastiveLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.ContrastiveLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.ContrastiveLoss
 ```
 
 ## OnlineContrastiveLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.OnlineContrastiveLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.OnlineContrastiveLoss
 ```
 
 ## ContrastiveTensionLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.ContrastiveTensionLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.ContrastiveTensionLoss
 ```
 
 ## ContrastiveTensionLossInBatchNegatives
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.ContrastiveTensionLossInBatchNegatives
+.. autoclass:: sentence_transformers.sentence_transformer.losses.ContrastiveTensionLossInBatchNegatives
 ```
 
 ## CoSENTLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.CoSENTLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.CoSENTLoss
 ```
 
 ## AnglELoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.AnglELoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.AnglELoss
 ```
 
 ## CosineSimilarityLoss
@@ -73,25 +73,25 @@ For each sentence pair, we pass sentence A and sentence B through our network wh
 This allows our network to be fine-tuned to recognize the similarity of sentences.
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.CosineSimilarityLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.CosineSimilarityLoss
 ```
 
 ## DenoisingAutoEncoderLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.DenoisingAutoEncoderLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.DenoisingAutoEncoderLoss
 ```
 
 ## GISTEmbedLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.GISTEmbedLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.GISTEmbedLoss
 ```
 
 ## CachedGISTEmbedLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.CachedGISTEmbedLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.CachedGISTEmbedLoss
 ```
 
 ## GlobalOrthogonalRegularizationLoss
@@ -103,37 +103,37 @@ This allows our network to be fine-tuned to recognize the similarity of sentence
 ## MSELoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.MSELoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.MSELoss
 ```
 
 ## MarginMSELoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.MarginMSELoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.MarginMSELoss
 ```
 
 ## MatryoshkaLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.MatryoshkaLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.MatryoshkaLoss
 ```
 
 ## Matryoshka2dLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.Matryoshka2dLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.Matryoshka2dLoss
 ```
 
 ## AdaptiveLayerLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.AdaptiveLayerLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.AdaptiveLayerLoss
 ```
 
 ## MegaBatchMarginLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.MegaBatchMarginLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.MegaBatchMarginLoss
 ```
 
 ## MultipleNegativesRankingLoss
@@ -141,41 +141,41 @@ This allows our network to be fine-tuned to recognize the similarity of sentence
 *MultipleNegativesRankingLoss* is a great loss function if you only have positive pairs, for example, only pairs of similar texts like pairs of paraphrases, pairs of duplicate questions, pairs of (query, response), or pairs of (source_language, target_language).
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.MultipleNegativesRankingLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss
 ```
 
 ## CachedMultipleNegativesRankingLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.CachedMultipleNegativesRankingLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss
 ```
 
 ## MultipleNegativesSymmetricRankingLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.MultipleNegativesSymmetricRankingLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.MultipleNegativesSymmetricRankingLoss
 ```
 
 ## CachedMultipleNegativesSymmetricRankingLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.CachedMultipleNegativesSymmetricRankingLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesSymmetricRankingLoss
 ```
 
 ## SoftmaxLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.SoftmaxLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.SoftmaxLoss
 ```
 
 ## TripletLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.TripletLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.TripletLoss
 ```
 
 ## DistillKLDivLoss
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.losses.DistillKLDivLoss
+.. autoclass:: sentence_transformers.sentence_transformer.losses.DistillKLDivLoss
 ```

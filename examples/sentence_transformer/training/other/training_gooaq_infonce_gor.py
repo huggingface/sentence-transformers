@@ -20,16 +20,18 @@ import torch
 from datasets import Dataset, load_dataset
 from torch import Tensor
 
-from sentence_transformers import (
+from sentence_transformers.sentence_transformer import (
     SentenceTransformer,
     SentenceTransformerModelCardData,
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
 )
-from sentence_transformers.evaluation import InformationRetrievalEvaluator
-from sentence_transformers.losses.GlobalOrthogonalRegularizationLoss import GlobalOrthogonalRegularizationLoss
-from sentence_transformers.losses.MultipleNegativesRankingLoss import MultipleNegativesRankingLoss
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
+from sentence_transformers.sentence_transformer.losses.GlobalOrthogonalRegularizationLoss import (
+    GlobalOrthogonalRegularizationLoss,
+)
+from sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss import MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.training_args import BatchSamplers
 from sentence_transformers.util import cos_sim
 
 # Set the log level to INFO to get more information

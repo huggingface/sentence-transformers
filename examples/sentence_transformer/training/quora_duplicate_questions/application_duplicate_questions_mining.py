@@ -3,7 +3,8 @@ This application demonstrates how to find duplicate questions (paraphrases) in a
 list of sentences.
 """
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import paraphrase_mining
 
 # Questions can be a long list of sentences up to 100k sentences or more.
 # For demonstration purposes, we limit it to a few questions which all have on duplicate
@@ -35,7 +36,7 @@ model = SentenceTransformer("all-MiniLM-L6-v2")
 # Given a model and a List of strings (texts), evaluation.ParaphraseMiningEvaluator.paraphrase_mining performs a
 # mining task by computing cosine similarity between all possible combinations and returning the ones with the highest scores.
 # It returns a list of tuples (score, i, j) with i, j representing the index in the questions list.
-pairs = util.paraphrase_mining(model, questions)
+pairs = paraphrase_mining(model, questions)
 
 # Output Top-20 pairs:
 for score, qid1, qid2 in pairs[0:20]:

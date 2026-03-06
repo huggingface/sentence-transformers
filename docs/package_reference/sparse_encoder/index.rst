@@ -1,5 +1,5 @@
 Sparse Encoder
-=============
+==============
 
 .. toctree::
 
@@ -9,6 +9,6 @@ Sparse Encoder
    losses
    ../sentence_transformer/sampler
    evaluation
-   models
+   modules
    callbacks
    search_engines

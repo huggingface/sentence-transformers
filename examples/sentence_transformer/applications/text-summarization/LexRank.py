@@ -12,11 +12,7 @@ from scipy.special import softmax
 logger = logging.getLogger(__name__)
 
 
-def degree_centrality_scores(
-    similarity_matrix,
-    threshold=None,
-    increase_power=True,
-):
+def degree_centrality_scores(similarity_matrix, threshold=None, increase_power=True):
     if not (threshold is None or isinstance(threshold, float) and 0 <= threshold < 1):
         raise ValueError(
             "'threshold' should be a floating-point number from the interval [0, 1) or None",
@@ -97,11 +93,7 @@ def create_markov_matrix_discrete(weights_matrix, threshold):
     return create_markov_matrix(discrete_weights_matrix)
 
 
-def stationary_distribution(
-    transition_matrix,
-    increase_power=True,
-    normalized=True,
-):
+def stationary_distribution(transition_matrix, increase_power=True, normalized=True):
     n_1, n_2 = transition_matrix.shape
     if n_1 != n_2:
         raise ValueError("'transition_matrix' should be square")

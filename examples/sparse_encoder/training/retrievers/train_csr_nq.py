@@ -19,11 +19,11 @@ from sentence_transformers import (
     SparseEncoderModelCardData,
     SparseEncoderTrainer,
     SparseEncoderTrainingArguments,
-    util,
 )
-from sentence_transformers.evaluation import SequentialEvaluator
+from sentence_transformers.base.sampler import BatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import SequentialEvaluator
 from sentence_transformers.sparse_encoder import evaluation, losses
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.util import cos_sim
 
 # Set up logging
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -70,7 +70,7 @@ def main():
     # to the low-sparsity performance.
     loss = losses.CSRLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model, scale=20.0, similarity_fct=util.cos_sim),
+        loss=losses.SparseMultipleNegativesRankingLoss(model=model, scale=20.0, similarity_fct=cos_sim),
         gamma=0.1,
     )
 

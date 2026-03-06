@@ -29,11 +29,14 @@ import torch
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models, util
+from sentence_transformers import LoggingHandler, SentenceTransformer
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
-from sentence_transformers.evaluation import BinaryClassificationEvaluator
-from sentence_transformers.readers import InputExample
+from sentence_transformers.modules import Pooling, Transformer
+from sentence_transformers.sentence_transformer.evaluation import BinaryClassificationEvaluator
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.readers import InputExample
+from sentence_transformers.util import http_get
 
 # Just some code to print debug information to stdout
 logging.basicConfig(
@@ -58,7 +61,7 @@ dataset = load_dataset("sentence-transformers/stsb")
 if not os.path.exists(qqp_dataset_path):
     logging.info("Dataset not found. Download")
     zip_save_path = "quora-IR-dataset.zip"
-    util.http_get(url="https://sbert.net/datasets/quora-IR-dataset.zip", path=zip_save_path)
+    http_get(url="https://sbert.net/datasets/quora-IR-dataset.zip", path=zip_save_path)
     with ZipFile(zip_save_path, "r") as zipIn:
         zipIn.extractall(qqp_dataset_path)
 
@@ -87,10 +90,10 @@ cross_encoder = CrossEncoder(model_name, num_labels=1)
 logging.info(f"Loading bi-encoder model: {model_name}")
 
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for mapping tokens to embeddings
-word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
+word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
 
 # Apply mean pooling to get one fixed sized sentence vector
-pooling_model = models.Pooling(
+pooling_model = Pooling(
     word_embedding_model.get_word_embedding_dimension(),
     pooling_mode_mean_tokens=True,
     pooling_mode_cls_token=False,
@@ -186,7 +189,7 @@ qqp_train_data = list(
 
 
 train_dataloader = DataLoader(qqp_train_data, shuffle=True, batch_size=batch_size)
-train_loss = losses.MultipleNegativesRankingLoss(bi_encoder)
+train_loss = MultipleNegativesRankingLoss(bi_encoder)
 
 # Classification ######
 # Given (quesiton1, question2), is this a duplicate or not?

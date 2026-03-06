@@ -23,8 +23,9 @@ import torch
 from datasets import load_dataset
 from sklearn.decomposition import PCA
 
-from sentence_transformers import SentenceTransformer, models
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.modules import Dense
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -67,7 +68,7 @@ pca.fit(train_embeddings)
 pca_comp = np.asarray(pca.components_)
 
 # We add a dense layer to the model, so that it will produce directly embeddings with the new size
-dense = models.Dense(
+dense = Dense(
     in_features=model.get_sentence_embedding_dimension(),
     out_features=new_dimension,
     bias=False,

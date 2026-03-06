@@ -5,7 +5,7 @@ import os
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
-from sentence_transformers.evaluation import MSEEvaluator
+from sentence_transformers.sentence_transformer.evaluation import MSEEvaluator
 from sentence_transformers.util import append_to_last_row
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class SparseMSEEvaluator(MSEEvaluator):
     """
-    This evaluator extends :class:`~sentence_transformers.evaluation.MSEEvaluator` but is specifically designed for sparse encoder models.
+    This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.MSEEvaluator` but is specifically designed for sparse encoder models.
 
     Note that this evaluator doesn't take benefit of the sparse tensor torch representation yet, so memory issues may occur.
 

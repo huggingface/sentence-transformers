@@ -10,9 +10,12 @@ import torch
 import tqdm
 from torch import Tensor, nn
 
-from sentence_transformers.losses.CachedMultipleNegativesRankingLoss import RandContext, _backward_hook
+from sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss import (
+    RandContext,
+    _backward_hook,
+)
 from sentence_transformers.sparse_encoder.losses.SpladeLoss import SpladeLoss
-from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 logger = logging.getLogger(__name__)
 

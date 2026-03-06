@@ -15,9 +15,12 @@ import os
 
 from datasets import Dataset
 
-from sentence_transformers import SentenceTransformer, losses, models
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.base.sampler import BatchSamplers
+from sentence_transformers.modules import Pooling, Transformer
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 train_examples = []
 with open("generated_queries.tsv", encoding="utf-8") as fIn:
@@ -28,13 +31,13 @@ with open("generated_queries.tsv", encoding="utf-8") as fIn:
 train_dataset = Dataset.from_list(train_examples)
 
 # Now we create a SentenceTransformer model from scratch
-word_emb = models.Transformer("distilbert-base-uncased")
-pooling = models.Pooling(word_emb.get_word_embedding_dimension())
+word_emb = Transformer("distilbert-base-uncased")
+pooling = Pooling(word_emb.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_emb, pooling])
 
 # MultipleNegativesRankingLoss requires input pairs (query, relevant_passage)
 # and trains the model so that is is suitable for semantic search
-train_loss = losses.MultipleNegativesRankingLoss(model)
+train_loss = MultipleNegativesRankingLoss(model)
 
 
 # Tune the model

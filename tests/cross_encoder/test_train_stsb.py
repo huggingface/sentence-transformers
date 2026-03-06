@@ -28,10 +28,7 @@ def sts_resource() -> Generator[tuple[Dataset, Dataset], None, None]:
 
 
 def evaluate_stsb_test(
-    model: CrossEncoder,
-    expected_score: float,
-    test_dataset: Dataset,
-    num_test_samples: int = -1,
+    model: CrossEncoder, expected_score: float, test_dataset: Dataset, num_test_samples: int = -1
 ) -> None:
     if num_test_samples > 0:
         test_dataset = test_dataset.select(range(num_test_samples))

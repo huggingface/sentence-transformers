@@ -30,7 +30,10 @@ from datetime import datetime
 import tqdm
 from torch.utils.data import DataLoader, Dataset
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models, util
+from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer
+from sentence_transformers.modules import Pooling, Transformer
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
+from sentence_transformers.util import http_get
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(
@@ -81,8 +84,8 @@ if args.use_pre_trained_model:
     model.max_seq_length = max_seq_length
 else:
     logging.info("Create new SBERT model")
-    word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
-    pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(), args.pooling)
+    word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
+    pooling_model = Pooling(word_embedding_model.get_word_embedding_dimension(), args.pooling)
     model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 model_save_path = "output/train_bi-encoder-mnrl-{}-margin_{:.1f}-{}".format(
@@ -100,7 +103,7 @@ if not os.path.exists(collection_filepath):
     tar_filepath = os.path.join(data_folder, "collection.tar.gz")
     if not os.path.exists(tar_filepath):
         logging.info("Download collection.tar.gz")
-        util.http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/collection.tar.gz", tar_filepath)
+        http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/collection.tar.gz", tar_filepath)
 
     with tarfile.open(tar_filepath, "r:gz") as tar:
         tar.extractall(path=data_folder)
@@ -120,7 +123,7 @@ if not os.path.exists(queries_filepath):
     tar_filepath = os.path.join(data_folder, "queries.tar.gz")
     if not os.path.exists(tar_filepath):
         logging.info("Download queries.tar.gz")
-        util.http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/queries.tar.gz", tar_filepath)
+        http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/queries.tar.gz", tar_filepath)
 
     with tarfile.open(tar_filepath, "r:gz") as tar:
         tar.extractall(path=data_folder)
@@ -138,7 +141,7 @@ with open(queries_filepath, encoding="utf8") as fIn:
 ce_scores_file = os.path.join(data_folder, "cross-encoder-ms-marco-MiniLM-L6-v2-scores.pkl.gz")
 if not os.path.exists(ce_scores_file):
     logging.info("Download cross-encoder scores file")
-    util.http_get(
+    http_get(
         "https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives/resolve/main/cross-encoder-ms-marco-MiniLM-L-6-v2-scores.pkl.gz",
         ce_scores_file,
     )
@@ -151,7 +154,7 @@ with gzip.open(ce_scores_file, "rb") as fIn:
 hard_negatives_filepath = os.path.join(data_folder, "msmarco-hard-negatives.jsonl.gz")
 if not os.path.exists(hard_negatives_filepath):
     logging.info("Download cross-encoder scores file")
-    util.http_get(
+    http_get(
         "https://huggingface.co/datasets/sentence-transformers/msmarco-hard-negatives/resolve/main/msmarco-hard-negatives.jsonl.gz",
         hard_negatives_filepath,
     )
@@ -246,7 +249,7 @@ class MSMARCODataset(Dataset):
 # For training the SentenceTransformer model, we need a dataset, a dataloader, and a loss used for training.
 train_dataset = MSMARCODataset(train_queries, corpus=corpus)
 train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=train_batch_size)
-train_loss = losses.MultipleNegativesRankingLoss(model=model)
+train_loss = MultipleNegativesRankingLoss(model=model)
 
 # Train the model
 model.fit(

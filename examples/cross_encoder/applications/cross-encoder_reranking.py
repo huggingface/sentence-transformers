@@ -13,7 +13,8 @@ import time
 
 from datasets import load_dataset
 
-from sentence_transformers import CrossEncoder, SentenceTransformer, util
+from sentence_transformers import CrossEncoder, SentenceTransformer
+from sentence_transformers.util import semantic_search
 
 # We use a BiEncoder (SentenceTransformer) that produces embeddings for questions.
 # We then search for similar questions using cosine similarity and identify the top 100 most similar questions
@@ -63,7 +64,7 @@ while True:
     # First, retrieve candidates using cosine similarity search
     start_time = time.time()
     query_embedding = model.encode(query, convert_to_tensor=True)
-    hits = util.semantic_search(query_embedding, answer_embeddings, top_k=num_candidates)
+    hits = semantic_search(query_embedding, answer_embeddings, top_k=num_candidates)
     hits = hits[0]  # Get the hits for the first query
 
     print(f"Cosine-Similarity search took {time.time() - start_time:.3f} seconds")

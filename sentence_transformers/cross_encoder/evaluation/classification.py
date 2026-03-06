@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 from sklearn.metrics import average_precision_score, f1_score
 
-from sentence_transformers.evaluation import BinaryClassificationEvaluator
-from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.SentenceEvaluator import SentenceEvaluator
+from sentence_transformers.sentence_transformer.evaluation import BinaryClassificationEvaluator
 
 if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+    from sentence_transformers.cross_encoder.model import CrossEncoder
 
 logger = logging.getLogger(__name__)
 

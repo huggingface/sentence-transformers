@@ -34,11 +34,13 @@ import torch
 from datasets import load_dataset
 from transformers import TrainerCallback, TrainerControl, TrainerState
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.similarity_functions import SimilarityFunction
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers.modules import Pooling, Transformer
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.util.similarity import SimilarityFunction
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(
@@ -66,10 +68,10 @@ for seed in range(seed_count):
     model_save_path = "output/bi-encoder/training_stsbenchmark_" + model_name + "/seed-" + str(seed)
 
     # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for mapping tokens to embeddings
-    word_embedding_model = models.Transformer(model_name)
+    word_embedding_model = Transformer(model_name)
 
     # Apply mean pooling to get one fixed sized sentence vector
-    pooling_model = models.Pooling(
+    pooling_model = Pooling(
         word_embedding_model.get_word_embedding_dimension(),
         pooling_mode_mean_tokens=True,
         pooling_mode_cls_token=False,
@@ -84,7 +86,7 @@ for seed in range(seed_count):
     test_dataset = load_dataset("sentence-transformers/stsb", split="test")
     logging.info(train_dataset)
 
-    train_loss = losses.CosineSimilarityLoss(model=model)
+    train_loss = CosineSimilarityLoss(model=model)
 
     # 4. Define an evaluator for use during training.
     dev_evaluator = EmbeddingSimilarityEvaluator(
@@ -123,7 +125,7 @@ for seed in range(seed_count):
         num_train_epochs=1,
         per_device_train_batch_size=train_batch_size,
         per_device_eval_batch_size=train_batch_size,
-        warmup_ratio=0.1,
+        warmup_steps=0.1,
         fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=False,  # Set to True if you have a GPU that supports BF16
         # Optional tracking/debugging parameters:

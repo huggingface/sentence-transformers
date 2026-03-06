@@ -11,9 +11,9 @@ from sentence_transformers import (
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
 )
-from sentence_transformers.evaluation import NanoBEIREvaluator
-from sentence_transformers.losses import CachedMultipleNegativesRankingLoss
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.base.sampler import BatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
+from sentence_transformers.sentence_transformer.losses import CachedMultipleNegativesRankingLoss
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -61,7 +61,7 @@ args = SentenceTransformerTrainingArguments(
     per_device_train_batch_size=1024,
     per_device_eval_batch_size=1024,
     learning_rate=2e-5,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=True,  # Set to True if you have a GPU that supports BF16
     batch_sampler=BatchSamplers.NO_DUPLICATES,  # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch

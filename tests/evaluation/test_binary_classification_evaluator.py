@@ -7,9 +7,7 @@ from __future__ import annotations
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score
 
-from sentence_transformers import (
-    evaluation,
-)
+from sentence_transformers import evaluation
 
 
 def test_BinaryClassificationEvaluator_find_best_f1_and_threshold() -> None:

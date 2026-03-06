@@ -20,7 +20,8 @@ import time
 
 import torch
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import get_device_name, http_get, semantic_search
 
 # We use the Bi-Encoder to encode all passages, so that we can use it with semantic search
 model_name = "nq-distilbert-base-v1"
@@ -33,7 +34,7 @@ top_k = 5  # Number of passages we want to retrieve with the bi-encoder
 wikipedia_filepath = "data/simplewiki-2020-11-01.jsonl.gz"
 
 if not os.path.exists(wikipedia_filepath):
-    util.http_get("http://sbert.net/datasets/simplewiki-2020-11-01.jsonl.gz", wikipedia_filepath)
+    http_get("http://sbert.net/datasets/simplewiki-2020-11-01.jsonl.gz", wikipedia_filepath)
 
 passages = []
 with gzip.open(wikipedia_filepath, "rt", encoding="utf8") as fIn:
@@ -51,11 +52,11 @@ print("Passages:", len(passages))
 if model_name == "nq-distilbert-base-v1":
     embeddings_filepath = "simplewiki-2020-11-01-nq-distilbert-base-v1.pt"
     if not os.path.exists(embeddings_filepath):
-        util.http_get("http://sbert.net/datasets/simplewiki-2020-11-01-nq-distilbert-base-v1.pt", embeddings_filepath)
+        http_get("http://sbert.net/datasets/simplewiki-2020-11-01-nq-distilbert-base-v1.pt", embeddings_filepath)
 
     corpus_embeddings = torch.load(embeddings_filepath)
     corpus_embeddings = corpus_embeddings.float()  # Convert embedding file to float
-    device = util.get_device_name()
+    device = get_device_name()
     corpus_embeddings = corpus_embeddings.to(device)
 else:  # Here, we compute the corpus_embeddings from scratch (which can take a while depending on the GPU)
     corpus_embeddings = bi_encoder.encode(passages, convert_to_tensor=True, show_progress_bar=True)
@@ -66,7 +67,7 @@ while True:
     # Encode the query using the bi-encoder and find potentially relevant passages
     start_time = time.time()
     question_embedding = bi_encoder.encode(query, convert_to_tensor=True)
-    hits = util.semantic_search(question_embedding, corpus_embeddings, top_k=top_k)
+    hits = semantic_search(question_embedding, corpus_embeddings, top_k=top_k)
     hits = hits[0]  # Get the hits for the first query
 
     end_time = time.time()

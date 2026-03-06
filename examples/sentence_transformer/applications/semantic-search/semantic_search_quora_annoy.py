@@ -34,7 +34,8 @@ import time
 import torch
 from annoy import AnnoyIndex
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import http_get, semantic_search
 
 model_name = "quora-distilbert-multilingual"
 model = SentenceTransformer(model_name)
@@ -59,7 +60,7 @@ if not os.path.exists(embedding_cache_path):
     # Download dataset if needed
     if not os.path.exists(dataset_path):
         print("Download dataset")
-        util.http_get(url, dataset_path)
+        http_get(url, dataset_path)
 
     # Get all unique sentences from the file
     corpus_sentences = set()
@@ -130,7 +131,7 @@ while True:
 
     # Approximate Nearest Neighbor (ANN) is not exact, it might miss entries with high cosine similarity
     # Here, we compute the recall of ANN compared to the exact results
-    correct_hits = util.semantic_search(question_embedding, corpus_embeddings, top_k=top_k_hits)[0]
+    correct_hits = semantic_search(question_embedding, corpus_embeddings, top_k=top_k_hits)[0]
     correct_hits_ids = set([hit["corpus_id"] for hit in correct_hits])
 
     # Compute recall

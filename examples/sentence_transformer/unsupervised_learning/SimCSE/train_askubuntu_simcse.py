@@ -8,10 +8,10 @@ from sentence_transformers import (
     SentenceTransformer,
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
-    models,
 )
-from sentence_transformers.evaluation import RerankingEvaluator
-from sentence_transformers.losses import MultipleNegativesRankingLoss
+from sentence_transformers.modules import Pooling, Transformer
+from sentence_transformers.sentence_transformer.evaluation import RerankingEvaluator
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 
 # Just some code to print debug information to stdout
 logging.basicConfig(
@@ -49,10 +49,10 @@ logging.info(train_dataset)
 train_dataset = train_dataset.add_column("identical_text", train_dataset["text"])
 
 # Initialize an SBERT model
-word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
+word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
 
 # Apply mean pooling
-pooling_model = models.Pooling(
+pooling_model = Pooling(
     word_embedding_model.get_word_embedding_dimension(),
     pooling_mode_mean_tokens=True,
     pooling_mode_cls_token=False,

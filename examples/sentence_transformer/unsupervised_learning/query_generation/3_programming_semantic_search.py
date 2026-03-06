@@ -15,7 +15,8 @@ import gzip
 import json
 import os
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import http_get, semantic_search
 
 # Load the model we trained in 2_programming_train_bi-encoder.py
 model = SentenceTransformer("output/programming-model")
@@ -24,7 +25,7 @@ model = SentenceTransformer("output/programming-model")
 docs = []
 corpus_filepath = "wiki-programmming-20210101.jsonl.gz"
 if not os.path.exists(corpus_filepath):
-    util.http_get("https://sbert.net/datasets/wiki-programmming-20210101.jsonl.gz", corpus_filepath)
+    http_get("https://sbert.net/datasets/wiki-programmming-20210101.jsonl.gz", corpus_filepath)
 
 with gzip.open(corpus_filepath, "rt") as fIn:
     for line in fIn:
@@ -43,7 +44,7 @@ print(", ".join(sorted(list(set([d[0] for d in docs])))))
 while True:
     query = input("Query: ")
     query_emb = model.encode(query, convert_to_tensor=True)
-    hits = util.semantic_search(query_emb, paragraph_emb, top_k=3)[0]
+    hits = semantic_search(query_emb, paragraph_emb, top_k=3)[0]
 
     for hit in hits:
         doc = docs[hit["corpus_id"]]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import random
 
 import numpy as np
@@ -7,8 +8,8 @@ import pytest
 import torch
 from torch.utils.data import ConcatDataset
 
-from sentence_transformers import sampler as sampler_module
-from sentence_transformers.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler
+import sentence_transformers.base.sampler as sampler_module
+from sentence_transformers.base.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -52,12 +53,12 @@ def dummy_duplicates_dataset() -> Dataset:
     return Dataset.from_list(values)
 
 
+def is_xxhash_available() -> bool:
+    return importlib.util.find_spec("xxhash") is not None
+
+
 def _reference_no_duplicates_batches(
-    dataset: Dataset,
-    batch_size: int,
-    drop_last: bool,
-    seed: int,
-    valid_label_columns: list[str] | None = None,
+    dataset: Dataset, batch_size: int, drop_last: bool, seed: int, valid_label_columns: list[str] | None = None
 ) -> list[list[int]]:
     """Reference implementation of the historical dict-based iteration logic."""
     if label_columns := set(dataset.column_names) & set(valid_label_columns or []):
@@ -101,7 +102,7 @@ def test_group_by_label_batch_sampler_label_a(dummy_dataset: Dataset, precompute
 
     sampler_kwargs = {}
     if precompute_hashes:
-        if sampler_module.xxhash is None:
+        if not is_xxhash_available():
             pytest.skip("xxhash not installed")
         sampler_kwargs = {
             "precompute_hashes": True,
@@ -136,7 +137,7 @@ def test_proportional_no_duplicates(
     batch_size = 2
     sampler_kwargs = {}
     if precompute_hashes:
-        if sampler_module.xxhash is None:
+        if not is_xxhash_available():
             pytest.skip("xxhash not installed")
         sampler_kwargs = {
             "precompute_hashes": True,
@@ -191,7 +192,7 @@ def test_no_duplicates_batch_sampler_matches_reference_algorithm(
     valid_label_columns = ["label"]
     sampler_kwargs = {}
     if precompute_hashes:
-        if sampler_module.xxhash is None:
+        if not is_xxhash_available():
             pytest.skip("xxhash not installed")
         sampler_kwargs = {
             "precompute_hashes": True,
@@ -222,10 +223,8 @@ def test_no_duplicates_batch_sampler_matches_reference_algorithm(
     assert len(sum(actual_batches, [])) == len(sum(expected_batches, []))
 
 
+@pytest.mark.skipif(not is_xxhash_available(), reason="xxhash not installed")
 def test_no_duplicates_batch_sampler_precomputed_hashes_are_int64(dummy_dataset: Dataset) -> None:
-    if sampler_module.xxhash is None:
-        pytest.skip("xxhash not installed")
-
     sampler = NoDuplicatesBatchSampler(
         dataset=dummy_dataset,
         batch_size=10,
@@ -241,10 +240,8 @@ def test_no_duplicates_batch_sampler_precomputed_hashes_are_int64(dummy_dataset:
     assert sampler._row_hashes.dtype == np.int64
 
 
+@pytest.mark.skipif(not is_xxhash_available(), reason="xxhash not installed")
 def test_no_duplicates_batch_sampler_list_values_match_between_hash_and_non_hash() -> None:
-    if sampler_module.xxhash is None:
-        pytest.skip("xxhash not installed")
-
     # This shape intentionally creates cross-column overlap:
     # row0 has list value ["a", "b"], row1 has scalar "a" in another column.
     # Hash/non-hash modes must still produce identical batching decisions.

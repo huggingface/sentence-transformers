@@ -11,9 +11,9 @@ from datasets import load_dataset
 from torch.utils.data import DataLoader
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation.LabelAccuracyEvaluator import LabelAccuracyEvaluator
-from sentence_transformers.losses import SoftmaxLoss
-from sentence_transformers.readers import InputExample
+from sentence_transformers.sentence_transformer.evaluation import LabelAccuracyEvaluator
+from sentence_transformers.sentence_transformer.losses import SoftmaxLoss
+from sentence_transformers.sentence_transformer.readers import InputExample
 
 
 @pytest.mark.skip(reason="This test is rather slow, and the LabelAccuracyEvaluator is not commonly used.")

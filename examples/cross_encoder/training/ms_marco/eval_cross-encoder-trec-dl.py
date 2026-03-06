@@ -23,7 +23,8 @@ import numpy as np
 import pytrec_eval
 import tqdm
 
-from sentence_transformers import CrossEncoder, util
+from sentence_transformers import CrossEncoder
+from sentence_transformers.util import http_get
 
 data_folder = "trec2019-data"
 os.makedirs(data_folder, exist_ok=True)
@@ -33,7 +34,7 @@ queries = {}
 queries_filepath = os.path.join(data_folder, "msmarco-test2019-queries.tsv.gz")
 if not os.path.exists(queries_filepath):
     logging.info("Download " + os.path.basename(queries_filepath))
-    util.http_get(
+    http_get(
         "https://msmarco.z22.web.core.windows.net/msmarcoranking/msmarco-test2019-queries.tsv.gz", queries_filepath
     )
 
@@ -48,7 +49,7 @@ qrels_filepath = os.path.join(data_folder, "2019qrels-pass.txt")
 
 if not os.path.exists(qrels_filepath):
     logging.info("Download " + os.path.basename(qrels_filepath))
-    util.http_get("https://trec.nist.gov/data/deep/2019qrels-pass.txt", qrels_filepath)
+    http_get("https://trec.nist.gov/data/deep/2019qrels-pass.txt", qrels_filepath)
 
 
 with open(qrels_filepath) as fIn:
@@ -70,7 +71,7 @@ passage_filepath = os.path.join(data_folder, "msmarco-passagetest2019-top1000.ts
 
 if not os.path.exists(passage_filepath):
     logging.info("Download " + os.path.basename(passage_filepath))
-    util.http_get(
+    http_get(
         "https://msmarco.z22.web.core.windows.net/msmarcoranking/msmarco-passagetest2019-top1000.tsv.gz",
         passage_filepath,
     )

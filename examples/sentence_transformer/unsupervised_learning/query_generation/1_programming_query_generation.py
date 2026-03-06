@@ -19,14 +19,14 @@ import torch
 import tqdm
 from transformers import T5ForConditionalGeneration, T5Tokenizer
 
-from sentence_transformers import util
+from sentence_transformers.util import http_get
 
 paragraphs = set()
 
 # We use the Wikipedia articles of certain programming languages
 corpus_filepath = "wiki-programmming-20210101.jsonl.gz"
 if not os.path.exists(corpus_filepath):
-    util.http_get("https://sbert.net/datasets/wiki-programmming-20210101.jsonl.gz", corpus_filepath)
+    http_get("https://sbert.net/datasets/wiki-programmming-20210101.jsonl.gz", corpus_filepath)
 
 with gzip.open(corpus_filepath, "rt") as fIn:
     for line in fIn:
