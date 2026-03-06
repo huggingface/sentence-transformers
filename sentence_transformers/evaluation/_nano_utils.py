@@ -139,12 +139,8 @@ class _GenericCrossEncoderNanoMixin(_GenericNanoDatasetMixin):
         split_prefix: str,
         strict_dataset_name_validation: bool,
         auto_expand_splits_when_dataset_names_none: bool,
-        corpus_subset_name: str,
-        queries_subset_name: str,
-        qrels_subset_name: str,
         candidate_subset_name: str,
         bm25_subset_name: str | None,
-        retrieved_corpus_ids_column: str,
         name: str | None,
     ) -> None:
         self._initialize_generic_nano_state(
@@ -153,9 +149,9 @@ class _GenericCrossEncoderNanoMixin(_GenericNanoDatasetMixin):
             split_prefix=split_prefix,
             strict_dataset_name_validation=strict_dataset_name_validation,
             auto_expand_splits_when_dataset_names_none=auto_expand_splits_when_dataset_names_none,
-            corpus_subset_name=corpus_subset_name,
-            queries_subset_name=queries_subset_name,
-            qrels_subset_name=qrels_subset_name,
+            corpus_subset_name="corpus",
+            queries_subset_name="queries",
+            qrels_subset_name="qrels",
             name=name,
         )
         if bm25_subset_name is not None:
@@ -167,7 +163,6 @@ class _GenericCrossEncoderNanoMixin(_GenericNanoDatasetMixin):
             candidate_subset_name = bm25_subset_name
         self.candidate_subset_name = candidate_subset_name
         self.bm25_subset_name = bm25_subset_name
-        self.retrieved_corpus_ids_column = retrieved_corpus_ids_column
 
     def _get_required_subset_names_for_split_validation(self) -> list[str]:
         return [*super()._get_required_subset_names_for_split_validation(), self.candidate_subset_name]
@@ -200,7 +195,7 @@ class _GenericCrossEncoderNanoMixin(_GenericNanoDatasetMixin):
                 missing_query_ids_in_candidates.add(query_id)
             if query_id not in qrels_mapping:
                 missing_qrels_for_candidates.add(query_id)
-            for document_id in sample[self.retrieved_corpus_ids_column]:
+            for document_id in sample["corpus-ids"]:
                 if document_id not in corpus_mapping:
                     missing_retrieved_ids.add(document_id)
 
@@ -246,11 +241,7 @@ class _GenericCrossEncoderNanoMixin(_GenericNanoDatasetMixin):
             "split_prefix": self.split_prefix,
             "strict_dataset_name_validation": self.strict_dataset_name_validation,
             "auto_expand_splits_when_dataset_names_none": self.auto_expand_splits_when_dataset_names_none,
-            "corpus_subset_name": self.corpus_subset_name,
-            "queries_subset_name": self.queries_subset_name,
-            "qrels_subset_name": self.qrels_subset_name,
             "candidate_subset_name": self.candidate_subset_name,
-            "retrieved_corpus_ids_column": self.retrieved_corpus_ids_column,
         }
         if self.bm25_subset_name is not None:
             config_dict["bm25_subset_name"] = self.candidate_subset_name

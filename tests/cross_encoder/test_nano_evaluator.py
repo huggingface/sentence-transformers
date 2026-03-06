@@ -180,6 +180,25 @@ def test_cross_encoder_nano_evaluator_custom_name_metric_root(
     assert "CustomCrossNano_R100_mean_ndcg@10" in metrics
 
 
+def test_cross_encoder_nano_evaluator_config_exposes_only_candidate_subset(
+    patch_cross_nano_eval: None,
+) -> None:
+    evaluator = CrossEncoderNanoEvaluator(
+        dataset_names=["python"],
+        dataset_id="example/NanoFooBar",
+        write_csv=False,
+        candidate_subset_name="dense",
+    )
+
+    config = evaluator.get_config_dict()
+
+    assert config["candidate_subset_name"] == "dense"
+    assert "corpus_subset_name" not in config
+    assert "queries_subset_name" not in config
+    assert "qrels_subset_name" not in config
+    assert "retrieved_corpus_ids_column" not in config
+
+
 def test_cross_encoder_nanobeir_invalid_dataset_name() -> None:
     with pytest.raises(ValueError, match="are not valid NanoBEIR datasets"):
         CrossEncoderNanoBEIREvaluator(dataset_names=["invalidDataset"])

@@ -35,12 +35,8 @@ class CrossEncoderNanoEvaluator(_GenericCrossEncoderNanoMixin, CrossEncoderNanoB
         split_prefix: str = "",
         strict_dataset_name_validation: bool = False,
         auto_expand_splits_when_dataset_names_none: bool = True,
-        corpus_subset_name: str = "corpus",
-        queries_subset_name: str = "queries",
-        qrels_subset_name: str = "qrels",
         candidate_subset_name: str = "bm25",
         bm25_subset_name: str | None = None,
-        retrieved_corpus_ids_column: str = "corpus-ids",
         name: str | None = None,
     ) -> None:
         self._initialize_generic_cross_encoder_state(
@@ -49,12 +45,8 @@ class CrossEncoderNanoEvaluator(_GenericCrossEncoderNanoMixin, CrossEncoderNanoB
             split_prefix=split_prefix,
             strict_dataset_name_validation=strict_dataset_name_validation,
             auto_expand_splits_when_dataset_names_none=auto_expand_splits_when_dataset_names_none,
-            corpus_subset_name=corpus_subset_name,
-            queries_subset_name=queries_subset_name,
-            qrels_subset_name=qrels_subset_name,
             candidate_subset_name=candidate_subset_name,
             bm25_subset_name=bm25_subset_name,
-            retrieved_corpus_ids_column=retrieved_corpus_ids_column,
             name=name,
         )
         super().__init__(
@@ -89,7 +81,7 @@ class CrossEncoderNanoEvaluator(_GenericCrossEncoderNanoMixin, CrossEncoderNanoB
         return self.candidate_subset_name
 
     def _get_retrieved_corpus_ids_column(self) -> str:
-        return self.retrieved_corpus_ids_column
+        return "corpus-ids"
 
     def _parse_evaluation_key(self, evaluator_name: str, full_key: str) -> tuple[str, str]:
         prefix = f"{evaluator_name}_"
