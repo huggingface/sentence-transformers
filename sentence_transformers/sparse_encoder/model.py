@@ -23,6 +23,7 @@ from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCardData
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SpladePooling
 from sentence_transformers.util import batch_to_device, select_max_active_dims
+from sentence_transformers.util.decorators import deprecated_tokenizer_kwargs_decorator
 from sentence_transformers.util.similarity import SimilarityFunction
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ class SparseEncoder(BaseModel):
             See the `PreTrainedModel.from_pretrained
             <https://huggingface.co/docs/transformers/en/main_classes/model#transformers.PreTrainedModel.from_pretrained>`_
             documentation for more details.
-        tokenizer_kwargs (Dict[str, Any], optional): Additional tokenizer configuration parameters to be passed to the Hugging Face Transformers tokenizer.
+        processor_kwargs (Dict[str, Any], optional): Additional processor/tokenizer configuration parameters to be passed to the Hugging Face Transformers tokenizer/processor.
             See the `AutoTokenizer.from_pretrained
             <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoTokenizer.from_pretrained>`_
             documentation for more details.
@@ -135,6 +136,7 @@ class SparseEncoder(BaseModel):
     model_card_data_class = SparseEncoderModelCardData
     default_huggingface_organization: str | None = "sparse-encoder"
 
+    @deprecated_tokenizer_kwargs_decorator
     def __init__(
         self,
         model_name_or_path: str | None = None,
@@ -147,7 +149,7 @@ class SparseEncoder(BaseModel):
         local_files_only: bool = False,
         token: bool | str | None = None,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_card_data: SparseEncoderModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
@@ -178,7 +180,7 @@ class SparseEncoder(BaseModel):
             local_files_only=local_files_only,
             token=token,
             model_kwargs=model_kwargs,
-            tokenizer_kwargs=tokenizer_kwargs,
+            processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             model_card_data=model_card_data,
             backend=backend,
@@ -1042,7 +1044,7 @@ class SparseEncoder(BaseModel):
         trust_remote_code: bool = False,
         local_files_only: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """
@@ -1058,7 +1060,7 @@ class SparseEncoder(BaseModel):
             trust_remote_code (bool, optional): Whether to trust remote code. Defaults to False.
             local_files_only (bool, optional): Whether to use only local files. Defaults to False.
             model_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the model. Defaults to None.
-            tokenizer_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the tokenizer. Defaults to None.
+            processor_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the processor/tokenizer. Defaults to None.
             config_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the config. Defaults to None.
             has_modules (bool, optional): Whether the model has modules.json. Defaults to False.
 
@@ -1076,7 +1078,7 @@ class SparseEncoder(BaseModel):
             "local_files_only": local_files_only,
         }
         model_kwargs = {**shared_kwargs} if model_kwargs is None else {**shared_kwargs, **model_kwargs}
-        tokenizer_kwargs = {**shared_kwargs} if tokenizer_kwargs is None else {**shared_kwargs, **tokenizer_kwargs}
+        processor_kwargs = {**shared_kwargs} if processor_kwargs is None else {**shared_kwargs, **processor_kwargs}
         config_kwargs = {**shared_kwargs} if config_kwargs is None else {**shared_kwargs, **config_kwargs}
 
         config: PretrainedConfig = AutoConfig.from_pretrained(
@@ -1098,7 +1100,7 @@ class SparseEncoder(BaseModel):
                 transformer_task="fill-mask",
                 cache_dir=cache_folder,
                 model_kwargs=model_kwargs,
-                processor_kwargs=tokenizer_kwargs,
+                processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
                 backend=self.backend,
             )
@@ -1116,7 +1118,7 @@ class SparseEncoder(BaseModel):
                 transformer_task="feature-extraction",
                 cache_dir=cache_folder,
                 model_kwargs=model_kwargs,
-                processor_kwargs=tokenizer_kwargs,
+                processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
                 backend=self.backend,
             )
@@ -1142,7 +1144,7 @@ class SparseEncoder(BaseModel):
         trust_remote_code: bool = False,
         local_files_only: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_type: str | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
@@ -1155,7 +1157,7 @@ class SparseEncoder(BaseModel):
                 trust_remote_code=trust_remote_code,
                 local_files_only=local_files_only,
                 model_kwargs=model_kwargs,
-                tokenizer_kwargs=tokenizer_kwargs,
+                processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
             )
 
@@ -1171,7 +1173,7 @@ class SparseEncoder(BaseModel):
             "local_files_only": local_files_only,
         }
         model_kwargs = {**shared_kwargs} if model_kwargs is None else {**shared_kwargs, **model_kwargs}
-        tokenizer_kwargs = {**shared_kwargs} if tokenizer_kwargs is None else {**shared_kwargs, **tokenizer_kwargs}
+        processor_kwargs = {**shared_kwargs} if processor_kwargs is None else {**shared_kwargs, **processor_kwargs}
         config_kwargs = {**shared_kwargs} if config_kwargs is None else {**shared_kwargs, **config_kwargs}
 
         # TODO: Rethink logging message
@@ -1186,7 +1188,7 @@ class SparseEncoder(BaseModel):
             trust_remote_code=trust_remote_code,
             local_files_only=local_files_only,
             model_kwargs=model_kwargs,
-            tokenizer_kwargs=tokenizer_kwargs,
+            processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
         )
         # TODO: Surely we can access modules in a better way than this?

@@ -22,6 +22,7 @@ from sentence_transformers.base.modules import Transformer
 from sentence_transformers.base.modules.modality_utils import ArrayInputs, DictInputs, ImageInputs, StrInputs
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.util import batch_to_device, truncate_embeddings
+from sentence_transformers.util.decorators import deprecated_tokenizer_kwargs_decorator
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
 
@@ -63,7 +64,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         use_auth_token (bool or str, optional): Deprecated argument. Please use `token` instead.
         truncate_dim (int, optional): The dimension to truncate sentence embeddings to. Defaults to None.
         model_kwargs (Dict[str, Any], optional): Additional model configuration parameters to be passed to the Hugging Face Transformers model.
-        tokenizer_kwargs (Dict[str, Any], optional): Additional tokenizer configuration parameters to be passed to the Hugging Face Transformers tokenizer.
+        processor_kwargs (Dict[str, Any], optional): Additional processor/tokenizer configuration parameters to be passed to the Hugging Face Transformers tokenizer/processor.
         config_kwargs (Dict[str, Any], optional): Additional model configuration parameters to be passed to the Hugging Face Transformers config.
         model_card_data (:class:`~sentence_transformers.sentence_transformer.model_card.SentenceTransformerModelCardData`, optional): A model
             card data object that contains information about the model. This is used to generate a model card when saving
@@ -99,6 +100,7 @@ class SentenceTransformer(BaseModel, FitMixin):
     model_card_data_class = SentenceTransformerModelCardData
     default_huggingface_organization: str | None = "sentence-transformers"
 
+    @deprecated_tokenizer_kwargs_decorator
     def __init__(
         self,
         model_name_or_path: str | None = None,
@@ -112,7 +114,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         token: bool | str | None = None,
         use_auth_token: bool | str | None = None,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,  # TODO: processor_kwargs?
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_card_data: SentenceTransformerModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
@@ -145,7 +147,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             token=token,
             use_auth_token=use_auth_token,
             model_kwargs=model_kwargs,
-            tokenizer_kwargs=tokenizer_kwargs,
+            processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             model_card_data=model_card_data,
             backend=backend,
@@ -1015,7 +1017,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         trust_remote_code: bool = False,
         local_files_only: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """
@@ -1030,7 +1032,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             trust_remote_code (bool, optional): Whether to trust remote code. Defaults to False.
             local_files_only (bool, optional): Whether to use only local files. Defaults to False.
             model_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the model. Defaults to None.
-            tokenizer_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the tokenizer. Defaults to None.
+            processor_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the processor/tokenizer. Defaults to None.
             config_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the config. Defaults to None.
             has_modules (bool, optional): Whether the model has modules.json. Defaults to False.
 
@@ -1048,14 +1050,14 @@ class SentenceTransformer(BaseModel, FitMixin):
             "local_files_only": local_files_only,
         }
         model_kwargs = {**shared_kwargs} if model_kwargs is None else {**shared_kwargs, **model_kwargs}
-        tokenizer_kwargs = {**shared_kwargs} if tokenizer_kwargs is None else {**shared_kwargs, **tokenizer_kwargs}
+        processor_kwargs = {**shared_kwargs} if processor_kwargs is None else {**shared_kwargs, **processor_kwargs}
         config_kwargs = {**shared_kwargs} if config_kwargs is None else {**shared_kwargs, **config_kwargs}
 
         transformer_model = Transformer(
             model_name_or_path,
             cache_dir=cache_folder,
             model_kwargs=model_kwargs,
-            processor_kwargs=tokenizer_kwargs,
+            processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             backend=self.backend,
         )
@@ -1093,7 +1095,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         trust_remote_code: bool = False,
         local_files_only: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_type: str | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
@@ -1106,6 +1108,6 @@ class SentenceTransformer(BaseModel, FitMixin):
             trust_remote_code,
             local_files_only,
             model_kwargs,
-            tokenizer_kwargs,
+            processor_kwargs,
             config_kwargs,
         )

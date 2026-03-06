@@ -23,11 +23,11 @@ from sentence_transformers.base.modules.modality_utils import PairStrInputs
 from sentence_transformers.cross_encoder.fit_mixin import FitMixin
 from sentence_transformers.cross_encoder.model_card import CrossEncoderModelCardData
 from sentence_transformers.cross_encoder.modules.CausalScoreHead import CausalScoreHead
-from sentence_transformers.cross_encoder.util import (
+from sentence_transformers.util import batch_to_device, fullname, import_from_string
+from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
-from sentence_transformers.util import batch_to_device, fullname, import_from_string
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class CrossEncoder(BaseModel, FitMixin):
             See the `AutoModelForSequenceClassification.from_pretrained
             <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoModelForSequenceClassification.from_pretrained>`_
             documentation for more details.
-        tokenizer_kwargs (Dict[str, Any], optional): Additional tokenizer configuration parameters to be passed to the Hugging Face Transformers tokenizer.
+        processor_kwargs (Dict[str, Any], optional): Additional processor/tokenizer configuration parameters to be passed to the Hugging Face Transformers tokenizer/processor.
             See the `AutoTokenizer.from_pretrained
             <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoTokenizer.from_pretrained>`_
             documentation for more details.
@@ -120,7 +120,7 @@ class CrossEncoder(BaseModel, FitMixin):
         local_files_only: bool = False,
         token: bool | str | None = None,
         model_kwargs: dict | None = None,
-        tokenizer_kwargs: dict | None = None,
+        processor_kwargs: dict | None = None,
         config_kwargs: dict | None = None,
         model_card_data: CrossEncoderModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
@@ -142,9 +142,9 @@ class CrossEncoder(BaseModel, FitMixin):
             config_kwargs["num_labels"] = num_labels
 
         if max_length is not None:
-            if tokenizer_kwargs is None:
-                tokenizer_kwargs = {}
-            tokenizer_kwargs["model_max_length"] = max_length
+            if processor_kwargs is None:
+                processor_kwargs = {}
+            processor_kwargs["model_max_length"] = max_length
 
         super().__init__(
             model_name_or_path=model_name_or_path,
@@ -156,7 +156,7 @@ class CrossEncoder(BaseModel, FitMixin):
             local_files_only=local_files_only,
             token=token,
             model_kwargs=model_kwargs,
-            tokenizer_kwargs=tokenizer_kwargs,
+            processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             model_card_data=model_card_data,
             backend=backend,
@@ -199,7 +199,7 @@ class CrossEncoder(BaseModel, FitMixin):
         trust_remote_code: bool = False,
         local_files_only: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         # logger.warning(
@@ -213,7 +213,7 @@ class CrossEncoder(BaseModel, FitMixin):
             "local_files_only": local_files_only,
         }
         model_kwargs = {**shared_kwargs} if model_kwargs is None else {**shared_kwargs, **model_kwargs}
-        tokenizer_kwargs = {**shared_kwargs} if tokenizer_kwargs is None else {**shared_kwargs, **tokenizer_kwargs}
+        processor_kwargs = {**shared_kwargs} if processor_kwargs is None else {**shared_kwargs, **processor_kwargs}
         config_kwargs = {**shared_kwargs} if config_kwargs is None else {**shared_kwargs, **config_kwargs}
 
         if not local_files_only:
@@ -234,7 +234,7 @@ class CrossEncoder(BaseModel, FitMixin):
                 transformer_task="text-generation",
                 cache_dir=cache_folder,
                 model_kwargs=model_kwargs,
-                processor_kwargs=tokenizer_kwargs,
+                processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
                 backend=self.backend,
             )
@@ -250,7 +250,7 @@ class CrossEncoder(BaseModel, FitMixin):
             transformer_task="sequence-classification",
             cache_dir=cache_folder,
             model_kwargs=model_kwargs,
-            processor_kwargs=tokenizer_kwargs,
+            processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             backend=self.backend,
         )

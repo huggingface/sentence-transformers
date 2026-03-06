@@ -141,7 +141,7 @@ class Module(ABC, torch.nn.Module):
                 If None, uses the latest revision. Defaults to None.
             local_files_only (bool, optional): Whether to only load local files. Defaults to False.
             **kwargs: Additional module-specific arguments used in an overridden ``load`` method, such as ``trust_remote_code``,
-                ``model_kwargs``, ``tokenizer_kwargs``, ``config_kwargs``, ``backend``, etc.
+                ``model_kwargs``, ``processor_kwargs``, ``config_kwargs``, ``backend``, etc.
 
         Returns:
             Self: The loaded module.

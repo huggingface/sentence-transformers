@@ -1207,8 +1207,7 @@ class Transformer(InputModule):
         # Module-specific arguments
         trust_remote_code: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        # TODO: Rename to `processor_kwargs` for consistency with __init__, with backwards compatibility
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         backend: str = "torch",
         **kwargs,
@@ -1223,7 +1222,7 @@ class Transformer(InputModule):
             local_files_only=local_files_only,
             trust_remote_code=trust_remote_code,
             model_kwargs=model_kwargs,
-            tokenizer_kwargs=tokenizer_kwargs,
+            processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             backend=backend,
         )
@@ -1242,7 +1241,7 @@ class Transformer(InputModule):
         # Module-specific arguments
         trust_remote_code: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         backend: str = "torch",
         **kwargs,
@@ -1291,8 +1290,8 @@ class Transformer(InputModule):
         # 1st priority: kwargs passed to SentenceTransformer
         if model_kwargs:
             config["model_kwargs"].update(model_kwargs)
-        if tokenizer_kwargs:
-            config["processor_kwargs"].update(tokenizer_kwargs)
+        if processor_kwargs:
+            config["processor_kwargs"].update(processor_kwargs)
         if config_kwargs:
             config["config_kwargs"].update(config_kwargs)
 

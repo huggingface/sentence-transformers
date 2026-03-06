@@ -742,3 +742,13 @@ def test_encode_document_prompt_priority(splade_bert_tiny_model: SparseEncoder, 
     model.encode_document("test")
     _, kwargs = encode_calls[-1]
     assert kwargs["prompt_name"] is None
+
+
+def test_deprecated_tokenizer_kwargs(caplog):
+    with caplog.at_level(logging.WARNING):
+        SparseEncoder(
+            "sparse-encoder-testing/splade-bert-tiny-nq",
+            tokenizer_kwargs={"model_max_length": 128},
+        )
+        assert "`tokenizer_kwargs` argument was renamed and is now deprecated." in caplog.text
+        assert "Please use `processor_kwargs` instead" in caplog.text

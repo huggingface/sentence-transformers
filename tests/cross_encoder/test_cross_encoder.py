@@ -15,11 +15,11 @@ from pytest import FixtureRequest
 from transformers import __version__ as transformers_version
 
 from sentence_transformers import CrossEncoder
-from sentence_transformers.cross_encoder.util import (
+from sentence_transformers.util import fullname
+from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
-from sentence_transformers.util import fullname
 
 
 def test_classifier_dropout_is_set() -> None:
@@ -354,7 +354,7 @@ def test_push_to_hub(
             ("cross-encoder-testing/reranker-bert-tiny-gooaq-bce",),
             {
                 "model_kwargs": {"foo": "bar"},
-                "tokenizer_kwargs": {"foo": "baz"},
+                "processor_kwargs": {"foo": "baz"},
             },
         ],
         [
@@ -410,7 +410,7 @@ def test_push_to_hub(
             {
                 "model_name_or_path": "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
                 "model_kwargs": {"foo": "bar"},
-                "tokenizer_kwargs": {"foo": "baz"},
+                "processor_kwargs": {"foo": "baz"},
                 "config_kwargs": {"foo": "bar"},
                 "cache_folder": "local_tmp",
             },
@@ -503,6 +503,14 @@ def test_logger_warning(caplog):
     with caplog.at_level(logging.WARNING):
         CrossEncoder(model_name, config_args={"classifier_dropout": 0.2})
         assert "`config_args` argument was renamed and is now deprecated" in caplog.text
+
+
+def test_deprecated_tokenizer_kwargs(caplog):
+    model_name = "cross-encoder-testing/reranker-bert-tiny-gooaq-bce"
+    with caplog.at_level(logging.WARNING):
+        CrossEncoder(model_name, tokenizer_kwargs={"model_max_length": 8192})
+        assert "`tokenizer_kwargs` argument was renamed and is now deprecated." in caplog.text
+        assert "Please use `processor_kwargs` instead" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -709,7 +717,7 @@ Judge whether the Document meets the requirements based on the Query and the Ins
     model = CrossEncoder(
         "tomaarsen/Qwen3-Reranker-0.6B-seq-cls",
         activation_fn=torch.nn.Identity(),
-        tokenizer_kwargs={"chat_template": chat_template},
+        processor_kwargs={"chat_template": chat_template},
         prompts={"web_search": task},
         default_prompt_name="web_search",
     )
@@ -754,7 +762,7 @@ Judge whether the Document meets the requirements based on the Query and the Ins
         default_prompt_name="web_search",
         activation_fn=torch.nn.Identity(),
         model_kwargs={"torch_dtype": torch.float32},
-        tokenizer_kwargs={"chat_template": chat_template},
+        processor_kwargs={"chat_template": chat_template},
     )
     assert model.dtype == torch.float32
     # model.tokenizer.chat_template = chat_template
@@ -795,7 +803,7 @@ Judge whether the Document meets the requirements based on the Query and the Ins
         "Qwen/Qwen3-Reranker-0.6B",
         activation_fn=torch.nn.Identity(),
         model_kwargs={"torch_dtype": torch.float32},
-        tokenizer_kwargs={"chat_template": chat_template},
+        processor_kwargs={"chat_template": chat_template},
     )
     assert model.dtype == torch.float32
     # model.tokenizer.chat_template = chat_template

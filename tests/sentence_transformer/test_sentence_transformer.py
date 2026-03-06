@@ -167,7 +167,7 @@ def test_push_to_hub(
         )
 
     with pytest.raises(
-        ValueError, match="Providing an `organization` to `save_to_hub` is deprecated, please only use `repo_id`."
+        ValueError, match="Providing an `organization` to `save_to_hub` is deprecated. Please only use `repo_id`."
     ):
         model.save_to_hub("sentence-transformers-testing/stsb-bert-tiny-safetensors", organization="unrelated")
 
@@ -185,7 +185,7 @@ def test_push_to_hub(
         )
         assert (
             caplog.record_tuples[1][2]
-            == 'Providing an `organization` to `save_to_hub` is deprecated, please only use `repo_id="sentence-transformers-testing/stsb-bert-tiny-safetensors"` instead.'
+            == 'Providing an `organization` to `save_to_hub` is deprecated. Please only use `repo_id="sentence-transformers-testing/stsb-bert-tiny-safetensors"` instead.'
         )
     mock_upload_folder_kwargs.clear()
 
@@ -201,7 +201,7 @@ def test_push_to_hub(
         )
         assert (
             caplog.record_tuples[1][2]
-            == 'Providing an `organization` to `save_to_hub` is deprecated, please use `repo_id="sentence-transformers-testing/stsb-bert-tiny-safetensors"` instead.'
+            == 'Providing an `organization` to `save_to_hub` is deprecated. Please use `repo_id="sentence-transformers-testing/stsb-bert-tiny-safetensors"` instead.'
         )
     mock_upload_folder_kwargs.clear()
 
@@ -229,7 +229,7 @@ def test_push_to_hub(
         assert len(caplog.record_tuples) == 2
         assert (
             caplog.record_tuples[0][2]
-            == "Providing a `repo_name` keyword argument to `save_to_hub` is deprecated, please use `repo_id` instead."
+            == "Providing a `repo_name` keyword argument to `save_to_hub` is deprecated. Please use `repo_id` instead."
         )
         assert (
             caplog.record_tuples[1][2]
@@ -257,7 +257,7 @@ def test_push_to_hub(
         )
         assert (
             caplog.record_tuples[1][2]
-            == 'Providing an `organization` to `save_to_hub` is deprecated, please use `repo_id="sentence-transformers-testing/stsb-bert-tiny-safetensors"` instead.'
+            == 'Providing an `organization` to `save_to_hub` is deprecated. Please use `repo_id="sentence-transformers-testing/stsb-bert-tiny-safetensors"` instead.'
         )
     mock_upload_folder_kwargs.clear()
 
@@ -1320,3 +1320,13 @@ def test_router_transformers_model_property(
     from transformers import BertModel
 
     assert isinstance(model.transformers_model, BertModel)
+
+
+def test_deprecated_tokenizer_kwargs(caplog) -> None:
+    with caplog.at_level(logging.WARNING):
+        SentenceTransformer(
+            "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+            tokenizer_kwargs={"model_max_length": 128},
+        )
+        assert "`tokenizer_kwargs` argument was renamed and is now deprecated." in caplog.text
+        assert "Please use `processor_kwargs` instead" in caplog.text

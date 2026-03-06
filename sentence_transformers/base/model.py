@@ -84,7 +84,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         token: bool | str | None = None,
         use_auth_token: bool | str | None = None,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_card_data: CardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
@@ -103,7 +103,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             token: HuggingFace authentication token
             use_auth_token: Deprecated, use token instead
             model_kwargs: Additional model configuration parameters
-            tokenizer_kwargs: Additional tokenizer configuration parameters
+            processor_kwargs: Additional processor/tokenizer configuration parameters
             config_kwargs: Additional config configuration parameters
             model_card_data: Model card data object
             backend: Backend to use for inference (torch, onnx, openvino)
@@ -165,7 +165,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 trust_remote_code=trust_remote_code,
                 local_files_only=local_files_only,
                 model_kwargs=model_kwargs,
-                tokenizer_kwargs=tokenizer_kwargs,
+                processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
             )
 
@@ -584,16 +584,16 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         if organization:
             if "/" not in repo_id:
                 logger.warning(
-                    f'Providing an `organization` to `save_to_hub` is deprecated, please use `repo_id="{organization}/{repo_id}"` instead.'
+                    f'Providing an `organization` to `save_to_hub` is deprecated. Please use `repo_id="{organization}/{repo_id}"` instead.'
                 )
                 repo_id = f"{organization}/{repo_id}"
             elif repo_id.split("/")[0] != organization:
                 raise ValueError(
-                    "Providing an `organization` to `save_to_hub` is deprecated, please only use `repo_id`."
+                    "Providing an `organization` to `save_to_hub` is deprecated. Please only use `repo_id`."
                 )
             else:
                 logger.warning(
-                    f'Providing an `organization` to `save_to_hub` is deprecated, please only use `repo_id="{repo_id}"` instead.'
+                    f'Providing an `organization` to `save_to_hub` is deprecated. Please only use `repo_id="{repo_id}"` instead.'
                 )
 
         return self.push_to_hub(
@@ -733,7 +733,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         trust_remote_code: bool = False,
         local_files_only: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         load_kwargs = {
@@ -743,7 +743,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             "trust_remote_code": trust_remote_code,
             "local_files_only": local_files_only,
             "model_kwargs": model_kwargs,
-            "tokenizer_kwargs": tokenizer_kwargs,
+            "processor_kwargs": processor_kwargs,
             "config_kwargs": config_kwargs,
         }
 
@@ -781,7 +781,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         trust_remote_code: bool = False,
         local_files_only: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """
@@ -794,7 +794,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             trust_remote_code (bool, optional): Whether to trust remote code. Defaults to False.
             local_files_only (bool, optional): Whether to use only local files. Defaults to False.
             model_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the model. Defaults to None.
-            tokenizer_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the tokenizer. Defaults to None.
+            processor_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the processor/tokenizer. Defaults to None.
             config_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the config. Defaults to None.
             has_modules (bool, optional): Whether the model has modules.json. Defaults to False.
 
@@ -811,7 +811,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         trust_remote_code: bool = False,
         local_files_only: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """
@@ -825,7 +825,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             trust_remote_code (bool, optional): Whether to trust remote code. Defaults to False.
             local_files_only (bool, optional): Whether to use only local files. Defaults to False.
             model_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the model. Defaults to None.
-            tokenizer_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the tokenizer. Defaults to None.
+            processor_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the processor/tokenizer. Defaults to None.
             config_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the config. Defaults to None.
 
         Returns:
@@ -923,7 +923,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                         # Module-specific keyword arguments
                         trust_remote_code=trust_remote_code,
                         model_kwargs=model_kwargs,
-                        tokenizer_kwargs=tokenizer_kwargs,
+                        processor_kwargs=processor_kwargs,
                         config_kwargs=config_kwargs,
                         backend=self.backend,
                     )
@@ -964,7 +964,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                     # Module-specific keyword arguments
                     trust_remote_code=trust_remote_code,
                     model_kwargs=model_kwargs,
-                    tokenizer_kwargs=tokenizer_kwargs,
+                    processor_kwargs=processor_kwargs,
                     config_kwargs=config_kwargs,
                     backend=self.backend,
                 )
@@ -994,7 +994,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         trust_remote_code: bool = False,
         local_files_only: bool = False,
         model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_type: str | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
@@ -1006,7 +1006,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             trust_remote_code=trust_remote_code,
             local_files_only=local_files_only,
             model_kwargs=model_kwargs,
-            tokenizer_kwargs=tokenizer_kwargs,
+            processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
         )
 
@@ -1293,14 +1293,14 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     @property
     def _target_device(self) -> torch.device:
         logger.warning(
-            f"`{self.__class__.__name__}._target_device` has been deprecated, please use `{self.__class__.__name__}.device` instead.",
+            f"`{self.__class__.__name__}._target_device` has been deprecated. Please use `{self.__class__.__name__}.device` instead.",
         )
         return self.device
 
     @_target_device.setter
     def _target_device(self, device: int | str | torch.device | None = None) -> None:
         logger.warning(
-            f"`{self.__class__.__name__}._target_device` has been deprecated, please use `to(device)` instead.",
+            f"`{self.__class__.__name__}._target_device` has been deprecated. Please use `to(device)` instead.",
         )
         self.to(device)
 

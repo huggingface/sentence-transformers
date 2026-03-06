@@ -5,6 +5,7 @@
 TODO: Notes to self:
 - Updating the import paths (although there's backwards compatibility)
 - Avoiding using Router keys as dictionary keys in the input
+- Renamed tokenizer_kwargs to processor_kwargs (with backwards compatibility)
 
 ## Migrating from v4.x to v5.x
 
@@ -832,7 +833,7 @@ The v4 Sentence Transformers release refactored the training of :class:`~sentenc
    * - ``CrossEncoder(automodel_args=...)``
      - Renamed to ``CrossEncoder(model_kwargs=...)``
    * - ``CrossEncoder(tokenizer_args=...)``
-     - Renamed to ``CrossEncoder(tokenizer_kwargs=...)``
+     - Renamed to ``CrossEncoder(processor_kwargs=...)``
    * - ``CrossEncoder(config_args=...)``
      - Renamed to ``CrossEncoder(config_kwargs=...)``
    * - ``CrossEncoder(cache_dir=...)``
