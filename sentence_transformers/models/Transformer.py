@@ -376,7 +376,8 @@ class Transformer(InputModule):
             batch1, batch2 = [], []
             for text_tuple in texts:
                 batch1.append(text_tuple[0])
-                batch2.append(text_tuple[1])
+                if len(text_tuple) > 1:
+                    batch2.append(text_tuple[1])
             to_tokenize = [batch1, batch2]
 
         # strip
