@@ -25,10 +25,10 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.10"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
       - name: Install pre-commit
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pre-commit
+        run: uv pip install pre-commit --system
       - name: Code quality
         run: |
           make check
