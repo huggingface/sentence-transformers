@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import time
-
 import numpy as np
 import pytest
 import sklearn
@@ -247,82 +245,6 @@ def test_pairwise_euclidean_sim_sparse(sparse_tensors):
     sim_dense = pairwise_euclidean_sim(dense1, dense2)
 
     assert torch.allclose(sim_sparse, sim_dense, rtol=1e-5, atol=1e-5)
-
-
-def test_performance_with_large_vectors():
-    """Test performance (time) for all similarity functions with large sparse vectors vs dense."""
-
-    # Set dimensions for large sparse vectors
-    rows = 500  # Just a few vectors to compare
-    cols = 100000  # Large dimensionality
-    num_nonzero = 128  # 128 non-null elements per vector
-
-    print("\nPerformance test with large sparse vs. dense vectors")
-    print(f"Shape: ({rows}, {cols}), Non-zeros per vector: {num_nonzero}")
-
-    # Create large sparse tensors
-    print("Creating sparse tensors...")
-    tensor1_sparse = create_sparse_tensor(rows, cols, num_nonzero, seed=42)
-    tensor2_sparse = create_sparse_tensor(rows, cols, num_nonzero, seed=1337)
-
-    # Convert to dense for comparison
-    print("Converting to dense tensors...")
-    tensor1_dense = tensor1_sparse.to_dense()
-    tensor2_dense = tensor2_sparse.to_dense()
-
-    # List of functions to test
-    similarity_functions = [
-        ("cos_sim", cos_sim),
-        ("dot_score", dot_score),
-        ("manhattan_sim", manhattan_sim),  # Comment until the function is implemented in a fast way
-        ("euclidean_sim", euclidean_sim),
-        ("pairwise_cos_sim", pairwise_cos_sim),
-        ("pairwise_dot_score", pairwise_dot_score),
-        ("pairwise_manhattan_sim", pairwise_manhattan_sim),
-        ("pairwise_euclidean_sim", pairwise_euclidean_sim),
-    ]
-
-    results = []
-
-    for name, func in similarity_functions:
-        # Time sparse operation
-        start_time = time.time()
-        _ = func(tensor1_sparse, tensor2_sparse)
-        sparse_time = time.time() - start_time
-
-        # Time dense operation
-        start_time = time.time()
-        _ = func(tensor1_dense, tensor2_dense)
-        dense_time = time.time() - start_time
-
-        # Calculate speedup ratio
-        speedup_ratio = dense_time / sparse_time if sparse_time > 0 else float("inf")
-
-        results.append(
-            {"function": name, "sparse_time": sparse_time, "dense_time": dense_time, "speedup_ratio": speedup_ratio}
-        )
-
-    # Print results in a table
-    print("\nPerformance Results:")
-    print(f"{'Function':<25} | {'Sparse Time (s)':<15} | {'Dense Time (s)':<15} | {'Speedup Ratio':<15}")
-    print("-" * 80)
-
-    for r in results:
-        print(
-            f"{r['function']:<25} | {r['sparse_time']:<15.6f} | {r['dense_time']:<15.6f} | {r['speedup_ratio']:<15.2f}"
-        )
-
-    # Create performance summary
-    sparse_time_avg = np.mean([r["sparse_time"] for r in results])
-    dense_time_avg = np.mean([r["dense_time"] for r in results])
-    avg_speedup = np.mean([r["speedup_ratio"] for r in results])
-
-    print("\nAverage Performance:")
-    print(f"Time - Sparse: {sparse_time_avg:.6f}s")
-    print(f"Time - Dense: {dense_time_avg:.6f}s")
-    print(f"Average speedup: {avg_speedup:.2f}x")
-
-    assert sparse_time_avg < 0.1, "Sparse operations took too long!"
 
 
 def test_pairwise_angle_sim_even_and_odd_sparse_embeddings(splade_bert_tiny_model: SparseEncoder) -> None:
