@@ -1,11 +1,7 @@
 
 .. note::
 
-   Sentence Transformers v5.2 recently released, introducing multi-processing for CrossEncoder, multilingual NanoBEIR evaluators, similarity score outputs in :class:`~sentence_transformers.util.mine_hard_negatives`, Transformers v5 support, and more. Read the `v5.2 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.2.0>`_ for more information.
-
-.. attention::
-
-   Sentence Transformers is transitioning from `UKP Lab <http://www.ukp.tu-darmstadt.de/>`_ to `🤗 Hugging Face <https://huggingface.co>`_. This formalizes the existing maintenance structure, as Hugging Face has been maintaining the project for the past two years. The project's development roadmap, support, and commitment to the community remain unchanged. Read the `full announcement <https://huggingface.co/blog/sentence-transformers-joins-hf>`_ for more details!
+   Sentence Transformers v5.3 recently released, introducing alternative InfoNCE formulations and hardness weighting for :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, new :class:`~sentence_transformers.losses.GlobalOrthogonalRegularizationLoss` and :class:`~sentence_transformers.sparse_encoder.losses.CachedSpladeLoss` losses, a faster hashed batch sampler, and more. Read the `v5.3 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.3.0>`_ for more information.
 
 SentenceTransformers Documentation
 ==================================
