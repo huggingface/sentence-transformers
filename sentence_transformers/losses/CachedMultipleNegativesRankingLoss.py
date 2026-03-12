@@ -85,6 +85,10 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         show_progress_bar: bool = False,
         hardness_mode: Literal["in_batch_negatives", "hard_negatives", "all_negatives"] | None = None,
         hardness_strength: float = 0.0,
+        self_guide: bool = False,
+        self_guide_margin: float = 0.0,
+        self_guide_margin_strategy: Literal["absolute", "relative"] = "absolute",
+        self_guide_warmup_ratio: float = 0.0,
     ) -> None:
         """
         Boosted version of :class:`MultipleNegativesRankingLoss` (https://huggingface.co/papers/1705.00652) by GradCache (https://huggingface.co/papers/2101.06983).
@@ -155,6 +159,21 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 - For ``"hard_negatives"``: acts as ``alpha`` in the hardness penalty, `Schechter Vera et al. 2025 <https://huggingface.co/papers/2509.20354>`_ uses 5.
 
                 Must be non-negative. Ignored when ``hardness_mode`` is ``None``.
+
+            self_guide: If True, enable self-guided false-negative filtering. The model's own similarity scores
+                are used to detect and suppress likely false negatives in the in-batch negatives before computing
+                the loss. This can improve training quality when the batch contains semantically similar samples
+                that are not explicitly paired. Only applied to the ``"query_to_doc"`` direction.
+            self_guide_margin: Margin for false-negative detection threshold. With ``self_guide_margin_strategy="absolute"``,
+                a negative with similarity above ``positive_sim - margin`` is considered a false negative. With
+                ``"relative"``, the threshold is ``positive_sim * (1 - margin)``. Defaults to 0.0.
+            self_guide_margin_strategy: Strategy for applying the margin. One of ``"absolute"`` or ``"relative"``.
+                Defaults to ``"absolute"``.
+            self_guide_warmup_ratio: Fraction of total training steps during which self-guide filtering is
+                disabled (warmup phase). Requires the :class:`~sentence_transformers.callbacks.SelfGuideWarmupCallback`
+                to be added to the trainer, which is done automatically by
+                :class:`~sentence_transformers.SentenceTransformerTrainer`. Defaults to 0.0 (no warmup, filtering
+                is always active).
 
         References:
             - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
@@ -253,6 +272,17 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 f"hardness_mode={hardness_mode!r} is set but hardness_strength=0.0, so hardness weighting has no "
                 "effect. Set hardness_strength to a positive value to enable hardness weighting."
             )
+
+        self.self_guide = self_guide
+        if self_guide:
+            if self_guide_margin_strategy not in ("absolute", "relative"):
+                raise ValueError("self_guide_margin_strategy must be 'absolute' or 'relative'.")
+            self.self_guide_margin = self_guide_margin
+            self.self_guide_margin_strategy = self_guide_margin_strategy
+            self.self_guide_warmup_ratio = self_guide_warmup_ratio
+            # If warmup_ratio == 0, filtering is always active (no warmup needed).
+            # Otherwise, it starts disabled and the SelfGuideWarmupCallback enables it.
+            self.self_guide_filtering_active: bool = self_guide_warmup_ratio == 0.0
 
         self.cache: list[list[Tensor]] | None = None
         self.random_states: list[list[RandContext]] | None = None
@@ -382,6 +412,21 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 same_query_doc_mask = identity[local_batch].repeat(1, num_docs).bool()
                 sim_matrices["doc_to_doc"].masked_fill_(same_query_doc_mask, -torch.inf)
 
+            # Self-guide false-negative filtering: use the model's own similarity scores to detect
+            # and mask likely false negatives. Applied only to query_to_doc before temperature scaling.
+            if self.self_guide and self.self_guide_filtering_active:
+                guide_sim = sim_matrices["query_to_doc"].detach()
+                positive_sim = guide_sim[row_indices, local_batch].unsqueeze(1)  # (mbs, 1)
+
+                if self.self_guide_margin_strategy == "absolute":
+                    fn_mask = guide_sim > (positive_sim - self.self_guide_margin)
+                else:
+                    fn_mask = guide_sim > (positive_sim * (1 - self.self_guide_margin))
+
+                # Protect true positives from masking
+                fn_mask[row_indices, local_batch] = False
+                sim_matrices["query_to_doc"] = sim_matrices["query_to_doc"].masked_fill(fn_mask, -torch.inf)
+
             # Compute hardness penalties on the unscaled (raw cosine) similarities (Lan et al. 2025, Eq. 5).
             # penalty = alpha * stop_grad(cos_sim), making harder negatives contribute more to the
             # softmax denominator. Computed before temperature scaling so no rescaling is needed.
@@ -476,7 +521,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         return loss
 
     def get_config_dict(self) -> dict[str, Any]:
-        return {
+        config = {
             "scale": self.scale,
             "similarity_fct": self.similarity_fct.__name__,
             "mini_batch_size": self.mini_batch_size,
@@ -486,6 +531,12 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             "hardness_mode": self.hardness_mode,
             "hardness_strength": self.hardness_strength,
         }
+        if self.self_guide:
+            config["self_guide"] = self.self_guide
+            config["self_guide_margin"] = self.self_guide_margin
+            config["self_guide_margin_strategy"] = self.self_guide_margin_strategy
+            config["self_guide_warmup_ratio"] = self.self_guide_warmup_ratio
+        return config
 
     @property
     def temperature(self) -> float:
