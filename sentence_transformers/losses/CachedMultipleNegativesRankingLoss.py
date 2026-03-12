@@ -144,7 +144,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 - ``"hard_negatives"``: Applies ``hardness_strength * stop_grad(cos_sim)`` only to the logits of
                   explicit hard negatives, leaving in-batch negatives unpenalized. Only active when explicit
                   negatives are provided. As used in
-                  `Lan et al. 2025 <https://huggingface.co/papers/2509.20354>`_ (EmbeddingGemma).
+                  `Schechter Vera et al. 2025 <https://huggingface.co/papers/2509.20354>`_ (EmbeddingGemma).
                 - ``"all_negatives"``: Applies ``hardness_strength * stop_grad(cos_sim)`` to every negative logit,
                   both in-batch negatives and explicit hard negatives, leaving only the positive unpenalized.
                   Combines the effect of ``"in_batch_negatives"`` and ``"hard_negatives"``.
@@ -152,7 +152,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             hardness_strength: Strength of the hardness weighting. The meaning depends on ``hardness_mode``:
 
                 - For ``"in_batch_negatives"``: acts as ``alpha`` in the hardness penalty, `Lan et al. 2025 <https://huggingface.co/papers/2503.04812>`_ uses 9.
-                - For ``"hard_negatives"``: acts as ``alpha`` in the hardness penalty, `Lan et al. 2025 <https://huggingface.co/papers/2509.20354>`_ uses 5.
+                - For ``"hard_negatives"``: acts as ``alpha`` in the hardness penalty, `Schechter Vera et al. 2025 <https://huggingface.co/papers/2509.20354>`_ uses 5.
 
                 Must be non-negative. Ignored when ``hardness_mode`` is ``None``.
 
