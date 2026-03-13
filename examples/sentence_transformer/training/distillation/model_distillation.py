@@ -29,11 +29,13 @@ import torch
 from datasets import Dataset, concatenate_datasets, load_dataset
 from sklearn.decomposition import PCA
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation, losses, models
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.similarity_functions import SimilarityFunction
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation
+from sentence_transformers.modules import Dense
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.losses import MSELoss
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.util.similarity import SimilarityFunction
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(
@@ -120,24 +122,24 @@ logging.info("Teacher Performance")
 dev_evaluator_stsb(teacher_model)
 
 # Student model has fewer dimensions. Compute PCA for the teacher to reduce the dimensions
-if student_model.get_sentence_embedding_dimension() < teacher_model.get_sentence_embedding_dimension():
+if student_model.get_embedding_dimension() < teacher_model.get_embedding_dimension():
     logging.info("Student model has fewer dimensions than the teacher. Compute PCA for down projection")
     pca_sentences = nli_train_dataset[:20000]["sentence"] + wikipedia_train_dataset[:20000]["sentence"]
     pca_embeddings = teacher_model.encode(pca_sentences, convert_to_numpy=True)
-    pca = PCA(n_components=student_model.get_sentence_embedding_dimension())
+    pca = PCA(n_components=student_model.get_embedding_dimension())
     pca.fit(pca_embeddings)
 
     # Add Dense layer to teacher that projects the embeddings down to the student embedding size
-    dense = models.Dense(
-        in_features=teacher_model.get_sentence_embedding_dimension(),
-        out_features=student_model.get_sentence_embedding_dimension(),
+    dense = Dense(
+        in_features=teacher_model.get_embedding_dimension(),
+        out_features=student_model.get_embedding_dimension(),
         bias=False,
         activation_function=torch.nn.Identity(),
     )
     dense.linear.weight = torch.nn.Parameter(torch.tensor(pca.components_))
     teacher_model.add_module("dense", dense)
 
-    logging.info(f"Teacher Performance with {teacher_model.get_sentence_embedding_dimension()} dimensions:")
+    logging.info(f"Teacher Performance with {teacher_model.get_embedding_dimension()} dimensions:")
     dev_evaluator_stsb(teacher_model)
 
 
@@ -161,7 +163,7 @@ train_dataset.save_to_disk("datasets/distillation_train_dataset")
 #     train_dataset = train_dataset["train"]
 eval_dataset = eval_dataset.map(map_embeddings, batched=True, batch_size=50000)
 
-train_loss = losses.MSELoss(model=student_model)
+train_loss = MSELoss(model=student_model)
 
 # We create an evaluator, that measure the Mean Squared Error (MSE) between the teacher and the student embeddings
 eval_sentences = eval_dataset["sentence"]
@@ -176,7 +178,7 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=1,
     per_device_train_batch_size=train_batch_size,
     per_device_eval_batch_size=train_batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     metric_for_best_model="eval_sts-dev_spearman_cosine",

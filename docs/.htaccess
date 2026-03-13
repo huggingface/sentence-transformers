@@ -18,7 +18,7 @@ Redirect 301 /docs/package_reference/cross_encoder.html /docs/package_reference/
 Redirect 301 /docs/package_reference/datasets.html /docs/package_reference/sentence_transformer/datasets.html
 Redirect 301 /docs/package_reference/evaluation.html /docs/package_reference/sentence_transformer/evaluation.html
 Redirect 301 /docs/package_reference/losses.html /docs/package_reference/sentence_transformer/losses.html
-Redirect 301 /docs/package_reference/models.html /docs/package_reference/sentence_transformer/models.html
+Redirect 301 /docs/package_reference/models.html /docs/package_reference/sentence_transformer/modules.html
 Redirect 301 /docs/package_reference/quantization.html /docs/package_reference/sentence_transformer/quantization.html
 Redirect 301 /docs/package_reference/SentenceTransformer.html /docs/package_reference/sentence_transformer/SentenceTransformer.html
 
@@ -70,6 +70,15 @@ Redirect 301 /examples/unsupervised_learning/query_generation/README.html /examp
 Redirect 301 /examples/unsupervised_learning/README.html /examples/sentence_transformer/unsupervised_learning/README.html
 Redirect 301 /examples/unsupervised_learning/SimCSE/README.html /examples/sentence_transformer/unsupervised_learning/SimCSE/README.html
 Redirect 301 /examples/unsupervised_learning/TSDAE/README.html /examples/sentence_transformer/unsupervised_learning/TSDAE/README.html
+
+# Moved API Reference pages for v5.3.0
+Redirect 301 /docs/package_reference/sentence_transformer/quantization.html /docs/package_reference/util/quantization.html
+Redirect 301 /docs/package_reference/util.html /docs/package_reference/util/index.html
+
+# Moved API Reference pages for multimodality refactor (TODO: Which version?)
+Redirect 301 /docs/package_reference/sentence_transformer/models.html /docs/package_reference/sentence_transformer/modules.html
+Redirect 301 /docs/package_reference/cross_encoder/models.html /docs/package_reference/cross_encoder/modules.html
+Redirect 301 /docs/package_reference/sparse_encoder/models.html /docs/package_reference/sparse_encoder/modules.html
 
 # Redirect to index.html when request file does not exist
 # RewriteCond %{REQUEST_FILENAME} !-f

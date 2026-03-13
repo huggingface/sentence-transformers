@@ -17,14 +17,10 @@ from datetime import datetime
 
 from datasets import load_dataset
 
-from sentence_transformers import (
-    SentenceTransformer,
-    SentenceTransformerTrainer,
-    SentenceTransformerTrainingArguments,
-    losses,
-)
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
+from sentence_transformers.base.sampler import BatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
+from sentence_transformers.sentence_transformer.losses import AdaptiveLayerLoss, MultipleNegativesRankingLoss
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -52,8 +48,8 @@ logging.info(train_dataset)
 # train_dataset = train_dataset.select(range(5000))
 
 # 3. Define our training loss
-inner_train_loss = losses.MultipleNegativesRankingLoss(model)
-train_loss = losses.AdaptiveLayerLoss(model, inner_train_loss)
+inner_train_loss = MultipleNegativesRankingLoss(model)
+train_loss = AdaptiveLayerLoss(model, inner_train_loss)
 
 # 4. Define an evaluator for use during training. This is useful to keep track of alongside the evaluation loss.
 stsb_eval_dataset = load_dataset("sentence-transformers/stsb", split="validation")
@@ -73,7 +69,7 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=num_train_epochs,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     batch_sampler=BatchSamplers.NO_DUPLICATES,  # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch

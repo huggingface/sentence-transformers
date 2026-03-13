@@ -5,22 +5,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from sentence_transformers.model_card import SentenceTransformerModelCardCallback, SentenceTransformerModelCardData
-from sentence_transformers.models import Asym, Module, Router
-from sentence_transformers.sparse_encoder.models import SparseAutoEncoder, SparseStaticEmbedding, SpladePooling
+from sentence_transformers.base.model_card import BaseModelCardCallback, BaseModelCardData
+from sentence_transformers.base.modules import Module, Router
+from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SparseStaticEmbedding, SpladePooling
 
 if TYPE_CHECKING:
-    from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+    from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 logger = logging.getLogger(__name__)
 
 
-class SparseEncoderModelCardCallback(SentenceTransformerModelCardCallback):
+class SparseEncoderModelCardCallback(BaseModelCardCallback):
     pass
 
 
 @dataclass
-class SparseEncoderModelCardData(SentenceTransformerModelCardData):
+class SparseEncoderModelCardData(BaseModelCardData):
     """A dataclass storing data used in the model card.
 
     Args:
@@ -94,7 +94,7 @@ class SparseEncoderModelCardData(SentenceTransformerModelCardData):
 
         all_modules = [module.__class__ for module in model.modules() if isinstance(module, Module)]
         model_type = []
-        if Asym in all_modules or Router in all_modules:
+        if Router in all_modules:
             model_type += ["Asymmetric"]
 
         if SparseStaticEmbedding in all_modules:
@@ -121,7 +121,7 @@ class SparseEncoderModelCardData(SentenceTransformerModelCardData):
             }.get(self.model.similarity_fn_name, self.model.similarity_fn_name.replace("_", " ").title())
         return {
             "model_max_length": self.model.get_max_seq_length(),
-            "output_dimensionality": self.model.get_sentence_embedding_dimension(),
+            "output_dimensionality": self.model.get_embedding_dimension(),
             "model_string": str(self.model),
             "similarity_fn_name": similarity_fn_name,
             "max_active_dims": getattr(self.model, "max_active_dims", None),

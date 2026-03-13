@@ -1,7 +1,7 @@
 
 .. note::
 
-   Sentence Transformers v5.3 recently released, introducing alternative InfoNCE formulations and hardness weighting for :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, new :class:`~sentence_transformers.losses.GlobalOrthogonalRegularizationLoss` and :class:`~sentence_transformers.sparse_encoder.losses.CachedSpladeLoss` losses, a faster hashed batch sampler, and more. Read the `v5.3 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.3.0>`_ for more information.
+   Sentence Transformers v5.3 recently released, introducing alternative InfoNCE formulations and hardness weighting for :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, new :class:`~sentence_transformers.sentence_transformer.losses.GlobalOrthogonalRegularizationLoss` and :class:`~sentence_transformers.sparse_encoder.losses.CachedSpladeLoss` losses, a faster hashed batch sampler, and more. Read the `v5.3 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.3.0>`_ for more information.
 
 SentenceTransformers Documentation
 ==================================
@@ -15,6 +15,7 @@ Sentence Transformers was created by `UKP Lab <http://www.ukp.tu-darmstadt.de/>`
 
 Usage
 =====
+
 .. seealso::
   
    See the `Quickstart <docs/quickstart.html>`_ for more quick information on how to use Sentence Transformers.
@@ -255,4 +256,5 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/package_reference/sentence_transformer/index
    docs/package_reference/cross_encoder/index
    docs/package_reference/sparse_encoder/index
-   docs/package_reference/util
+   docs/package_reference/base/index
+   docs/package_reference/util/index

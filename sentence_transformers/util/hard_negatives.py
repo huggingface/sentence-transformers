@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from datasets import Dataset
 
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
-    from sentence_transformers.SentenceTransformer import SentenceTransformer
+    from sentence_transformers.cross_encoder.model import CrossEncoder
+    from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
 def mine_hard_negatives(
@@ -447,7 +447,7 @@ def mine_hard_negatives(
     if use_faiss:
         import faiss
 
-        index = faiss.IndexFlatIP(model.get_sentence_embedding_dimension())
+        index = faiss.IndexFlatIP(model.get_embedding_dimension())
         # Move the index to the GPU if available
         try:
             co = faiss.GpuMultipleClonerOptions()
@@ -786,7 +786,7 @@ def mine_hard_negatives(
     # Report some statistics
     if verbose:
         row_format = "{:<6} {:>14} {:>14} {:>14}"
-        formatter = lambda value: (f"{value.item():.4f}" if isinstance(value, torch.Tensor) else f"{value:,}")
+        formatter = lambda value: f"{value.item():.4f}" if isinstance(value, torch.Tensor) else f"{value:,}"
         print(row_format.format("Metric", "Positive", "Negative", "Difference"))
         print(
             row_format.format(

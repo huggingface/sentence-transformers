@@ -6,10 +6,12 @@ from datasets import load_dataset
 
 from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderRerankingEvaluator
-from sentence_transformers.evaluation import InformationRetrievalEvaluator
-from sentence_transformers.sparse_encoder.evaluation import SparseInformationRetrievalEvaluator
-from sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator import ReciprocalRankFusionEvaluator
-from sentence_transformers.sparse_encoder.models import MLMTransformer, SpladePooling
+from sentence_transformers.modules import SpladePooling, Transformer
+from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
+from sentence_transformers.sparse_encoder.evaluation import (
+    ReciprocalRankFusionEvaluator,
+    SparseInformationRetrievalEvaluator,
+)
 
 # Configure logging
 logging.basicConfig(format="%(message)s", level=logging.INFO)
@@ -54,7 +56,9 @@ logger.info("=" * 80)
 
 sparse_encoder_model_name = "ibm-granite/granite-embedding-30m-sparse"
 logger.info(f"Loading sparse encoder model: {sparse_encoder_model_name}")
-sparse_encoder = SparseEncoder(modules=[MLMTransformer(sparse_encoder_model_name), SpladePooling("max")])
+sparse_encoder = SparseEncoder(
+    modules=[Transformer(sparse_encoder_model_name, transformer_task="fill-mask"), SpladePooling("max")]
+)
 sparse_encoder_similarity_fn_name = sparse_encoder.similarity_fn_name
 
 # Create output directory
@@ -146,10 +150,7 @@ sparse_samples = [
 ]
 
 # Initialize the evaluator for sparse reranking
-sparse_reranking_evaluator = CrossEncoderRerankingEvaluator(
-    samples=sparse_samples,
-    show_progress_bar=True,
-)
+sparse_reranking_evaluator = CrossEncoderRerankingEvaluator(samples=sparse_samples, show_progress_bar=True)
 os.makedirs(f"runs/{sparse_encoder_model_name}/result/rerank_{cross_encoder_model_name}", exist_ok=True)
 
 # Run evaluation
@@ -186,10 +187,7 @@ dense_samples = [
 ]
 
 # Initialize the evaluator for dense reranking
-dense_reranking_evaluator = CrossEncoderRerankingEvaluator(
-    samples=dense_samples,
-    show_progress_bar=True,
-)
+dense_reranking_evaluator = CrossEncoderRerankingEvaluator(samples=dense_samples, show_progress_bar=True)
 os.makedirs(f"runs/{bi_encoder_model_name}/result/rerank_{cross_encoder_model_name}", exist_ok=True)
 
 # Run evaluation
@@ -236,16 +234,12 @@ logger.info("=" * 80)
 # Load the RRF fusion results for reranking
 logger.info("Loading fusion results for reranking")
 fused_pred_data = load_dataset(
-    "json",
-    data_files=f"{rrf_output_path}/ReciprocalRankFusion_evaluation_predictions.jsonl",
+    "json", data_files=f"{rrf_output_path}/ReciprocalRankFusion_evaluation_predictions.jsonl"
 )["train"]
 
 # Initialize the reranking evaluator for the fused results
 logger.info("Setting up reranking for hybrid search results")
-fusion_reranking_evaluator = CrossEncoderRerankingEvaluator(
-    samples=fused_pred_data,
-    show_progress_bar=True,
-)
+fusion_reranking_evaluator = CrossEncoderRerankingEvaluator(samples=fused_pred_data, show_progress_bar=True)
 
 # Run reranking on the fused results
 fusion_reranking_path = f"{rrf_output_path}/rerank_{cross_encoder_model_name}"

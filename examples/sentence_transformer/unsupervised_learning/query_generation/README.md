@@ -95,5 +95,5 @@ Assembly language, C , C# , C++, Go , Java , JavaScript, Keras, Laravel, MATLAB,
 In:
 
 - [1_programming_query_generation.py](1_programming_query_generation.py) - We generate queries for all paragraphs from these articles
-- [2_programming_train_bi-encoder.py](2_programming_train_bi-encoder.py) - We train a SentenceTransformer bi-encoder with these generated queries. This results in a model we can then use for semantic search (for the given Wikipedia articles).
+- [2_programming_train_bi_encoder.py](2_programming_train_bi_encoder.py) - We train a SentenceTransformer bi-encoder with these generated queries. This results in a model we can then use for semantic search (for the given Wikipedia articles).
 - [3_programming_semantic_search.py](3_programming_semantic_search.py) - Shows how the trained model can be used for semantic search.

@@ -45,7 +45,9 @@ def test_backend_export(backend, expected_auto_model_class, model_kwargs) -> Non
     assert model.get_backend() == backend
     assert isinstance(model[0].auto_model, expected_auto_model_class)
     embedding = model.encode("Hello, World!")
-    assert embedding.shape == (model.get_sentence_embedding_dimension(),)
+    assert embedding.shape == (model.get_embedding_dimension(),)
+
+    assert isinstance(model.transformers_model, expected_auto_model_class)
 
 
 def test_backend_no_export_crash():
@@ -92,7 +94,7 @@ def test_backend_load(backend, model_id, model_kwargs, exception) -> None:
         model = SentenceTransformer(model_id, backend=backend, model_kwargs=model_kwargs)
         assert model.get_backend() == backend
         embedding = model.encode("Hello, World!")
-        assert embedding.shape == (model.get_sentence_embedding_dimension(),)
+        assert embedding.shape == (model.get_embedding_dimension(),)
 
 
 def test_onnx_provider_crash() -> None:

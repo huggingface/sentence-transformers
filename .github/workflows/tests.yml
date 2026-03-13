@@ -60,11 +60,11 @@ jobs:
 
       - name: Install dependencies (transformers < 5.0.0)
         if: ${{ matrix.transformers-version == '<5.0.0' }}
-        run: uv pip install '.[train, onnx, openvino, dev]' 'transformers<5.0.0' --system
+        run: uv pip install '.[train, onnx, openvino, dev]' 'transformers<5.0.0' 'accelerate>=1.13.0' --system
 
       - name: Install dependencies (transformers >= 5.0.0)
         if: ${{ matrix.transformers-version == '>=5.0.0' }}
-        run: uv pip install '.[train, dev]' 'transformers>=5.0.0' --system
+        run: uv pip install '.[train, dev]' 'transformers>=5.0.0' 'accelerate>=1.13.0' --system
 
       - name: Install model2vec
         run: uv pip install model2vec --system

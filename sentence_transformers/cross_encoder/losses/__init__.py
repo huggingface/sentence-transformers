@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from .BinaryCrossEntropyLoss import BinaryCrossEntropyLoss
-from .CachedMultipleNegativesRankingLoss import CachedMultipleNegativesRankingLoss
-from .CrossEntropyLoss import CrossEntropyLoss
-from .LambdaLoss import (
+from .binary_cross_entropy import BinaryCrossEntropyLoss
+from .cached_multiple_negatives_ranking import CachedMultipleNegativesRankingLoss
+from .cross_entropy import CrossEntropyLoss
+from .lambda_loss import (
     LambdaLoss,
     LambdaRankScheme,
     NDCGLoss1Scheme,
@@ -11,13 +11,13 @@ from .LambdaLoss import (
     NDCGLoss2Scheme,
     NoWeightingScheme,
 )
-from .ListMLELoss import ListMLELoss
-from .ListNetLoss import ListNetLoss
-from .MarginMSELoss import MarginMSELoss
-from .MSELoss import MSELoss
-from .MultipleNegativesRankingLoss import MultipleNegativesRankingLoss
-from .PListMLELoss import PListMLELambdaWeight, PListMLELoss
-from .RankNetLoss import RankNetLoss
+from .list_mle import ListMLELoss
+from .list_net import ListNetLoss
+from .margin_mse import MarginMSELoss
+from .mse import MSELoss
+from .multiple_negatives_ranking import MultipleNegativesRankingLoss
+from .plist_mle import PListMLELambdaWeight, PListMLELoss
+from .rank_net import RankNetLoss
 
 __all__ = [
     "BinaryCrossEntropyLoss",

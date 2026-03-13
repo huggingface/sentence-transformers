@@ -15,11 +15,11 @@ from pytest import FixtureRequest
 from transformers import __version__ as transformers_version
 
 from sentence_transformers import CrossEncoder
-from sentence_transformers.cross_encoder.util import (
+from sentence_transformers.util import fullname
+from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
-from sentence_transformers.util import fullname
 
 
 def test_classifier_dropout_is_set() -> None:
@@ -173,10 +173,7 @@ def test_empty_predict(reranker_bert_tiny_model: CrossEncoder, convert_to_numpy:
 
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
 @pytest.mark.parametrize("convert_to_numpy", [True, False])
-def test_predict_output_types(
-    convert_to_tensor: bool,
-    convert_to_numpy: bool,
-) -> None:
+def test_predict_output_types(convert_to_tensor: bool, convert_to_numpy: bool) -> None:
     model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
     embeddings = model.predict(
         [["One sentence", "Another sentence"]],
@@ -312,21 +309,6 @@ def test_push_to_hub(
     assert url == "https://huggingface.co/cross-encoder-testing/stsb-distilroberta-base/discussions/123"
     mock_upload_folder_kwargs.clear()
 
-    url = model.push_to_hub("cross-encoder-testing/stsb-distilroberta-base", tags="test-push-to-hub-tag-1")
-    assert mock_upload_folder_kwargs["repo_id"] == "cross-encoder-testing/stsb-distilroberta-base"
-    assert url == "https://huggingface.co/cross-encoder-testing/stsb-distilroberta-base/commit/123456"
-    mock_upload_folder_kwargs.clear()
-    assert "test-push-to-hub-tag-1" in model.model_card_data.tags
-
-    url = model.push_to_hub(
-        "cross-encoder-testing/stsb-distilroberta-base", tags=["test-push-to-hub-tag-2", "test-push-to-hub-tag-3"]
-    )
-    assert mock_upload_folder_kwargs["repo_id"] == "cross-encoder-testing/stsb-distilroberta-base"
-    assert url == "https://huggingface.co/cross-encoder-testing/stsb-distilroberta-base/commit/123456"
-    mock_upload_folder_kwargs.clear()
-    assert "test-push-to-hub-tag-2" in model.model_card_data.tags
-    assert "test-push-to-hub-tag-3" in model.model_card_data.tags
-
 
 @pytest.mark.parametrize(
     ["in_args", "in_kwargs", "out_args", "out_kwargs"],
@@ -355,7 +337,7 @@ def test_push_to_hub(
             ("cross-encoder-testing/reranker-bert-tiny-gooaq-bce",),
             {
                 "model_kwargs": {"foo": "bar"},
-                "tokenizer_kwargs": {"foo": "baz"},
+                "processor_kwargs": {"foo": "baz"},
             },
         ],
         [
@@ -411,7 +393,7 @@ def test_push_to_hub(
             {
                 "model_name_or_path": "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
                 "model_kwargs": {"foo": "bar"},
-                "tokenizer_kwargs": {"foo": "baz"},
+                "processor_kwargs": {"foo": "baz"},
                 "config_kwargs": {"foo": "bar"},
                 "cache_folder": "local_tmp",
             },
@@ -443,27 +425,20 @@ def test_init_args_decorator(
     ["in_kwargs", "out_kwargs"],
     [
         [
-            {
-                "num_workers": 2,
-            },
-            {},
-        ],
-        [
-            {  # You have to pass instances normally, but this is easier for testing
-                "activation_fct": torch.nn.Sigmoid,
-            },
-            {
-                "activation_fn": torch.nn.Sigmoid,
-            },
+            {"inputs": [["Hello there!", "Hello, World!"]], "num_workers": 2},
+            {"inputs": [["Hello there!", "Hello, World!"]]},
         ],
         [
             {
+                "inputs": [["Hello there!", "Hello, World!"]],
                 "activation_fct": torch.nn.Identity,
                 "activation_fn": torch.nn.Sigmoid,
             },
-            {
-                "activation_fn": torch.nn.Sigmoid,
-            },
+            {"inputs": [["Hello there!", "Hello, World!"]], "activation_fn": torch.nn.Sigmoid},
+        ],
+        [
+            {"sentences": [["Hello there!", "Hello, World!"]]},
+            {"inputs": [["Hello there!", "Hello, World!"]]},
         ],
     ],
 )
@@ -482,7 +457,7 @@ def test_predict_rank_args_decorator(
     monkeypatch.setattr(CrossEncoder, "predict", mock_predict)
 
     with caplog.at_level(logging.WARNING):
-        model.predict([["Hello there!", "Hello, World!"]], **in_kwargs)
+        model.predict(**in_kwargs)
         assert caplog.text != ""
     assert decorated_out_kwargs == out_kwargs
 
@@ -548,18 +523,20 @@ def test_load_activation_fn_from_kwargs(num_labels: int, activation_fn: str, sav
     assert fullname(model.activation_fn) == saved_activation_fn
 
     model.save_pretrained(tmp_path)
-    with open(tmp_path / "config.json") as f:
+    with open(tmp_path / "config_sentence_transformers.json") as f:
         config = json.load(f)
-    assert config["sentence_transformers"]["activation_fn"] == saved_activation_fn
-    assert "sbert_ce_default_activation_function" not in config
+    assert config["activation_fn"] == saved_activation_fn
 
-    loaded_model = CrossEncoder(tmp_path)
+    loaded_model = CrossEncoder(str(tmp_path))
     assert fullname(loaded_model.activation_fn) == saved_activation_fn
 
-    # Setting the activation function via a prediction updates the instance, but not the config
+    # Setting the activation function via a predict call only updates it for that call
     loaded_model.predict([["Hello there!", "Hello, World!"]], activation_fn=torch.nn.Identity())
+    assert fullname(loaded_model.activation_fn) == saved_activation_fn
+
+    # But we can also override it again when loading the model
+    loaded_model = CrossEncoder(str(tmp_path), activation_fn=torch.nn.Identity())
     assert fullname(loaded_model.activation_fn) == "torch.nn.modules.linear.Identity"
-    assert loaded_model.config.sentence_transformers["activation_fn"] == saved_activation_fn
 
 
 @pytest.mark.parametrize(
@@ -576,12 +553,11 @@ def test_load_activation_fn_from_config(tanh_model_name: str, tmp_path):
     assert fullname(model.activation_fn) == saved_activation_fn
 
     model.save_pretrained(tmp_path)
-    with open(tmp_path / "config.json") as f:
+    with open(tmp_path / "config_sentence_transformers.json") as f:
         config = json.load(f)
-    assert config["sentence_transformers"]["activation_fn"] == saved_activation_fn
-    assert "sbert_ce_default_activation_function" not in config
+    assert config["activation_fn"] == saved_activation_fn
 
-    loaded_model = CrossEncoder(tmp_path)
+    loaded_model = CrossEncoder(str(tmp_path))
     assert fullname(loaded_model.activation_fn) == saved_activation_fn
 
 
@@ -589,22 +565,22 @@ def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEn
     model = reranker_bert_tiny_model
 
     model.save_pretrained(tmp_path)
-    with open(tmp_path / "config.json") as f:
+    with open(tmp_path / "config_sentence_transformers.json") as f:
         config = json.load(f)
-    config["sentence_transformers"]["activation_fn"] = "sentence_transformers.custom.activations.CustomActivation"
-    with open(tmp_path / "config.json", "w") as f:
+    config["activation_fn"] = "sentence_transformers.custom.activations.CustomActivation"
+    with open(tmp_path / "config_sentence_transformers.json", "w") as f:
         json.dump(config, f)
 
     with caplog.at_level(logging.WARNING):
-        CrossEncoder(tmp_path)
+        CrossEncoder(str(tmp_path))
         assert (
             "Activation function path 'sentence_transformers.custom.activations.CustomActivation' is not trusted, using default activation function instead."
             in caplog.text
         )
 
     # If we use trust_remote_code, it'll try to load the custom activation function, which doesn't exist
-    with pytest.raises(ImportError):
-        model = CrossEncoder(tmp_path, trust_remote_code=True)
+    with pytest.raises(ModuleNotFoundError):
+        model = CrossEncoder(str(tmp_path), trust_remote_code=True)
 
 
 def test_default_activation_fn(reranker_bert_tiny_model: CrossEncoder):
@@ -646,3 +622,173 @@ def test_predict_with_dataset_column(reranker_bert_tiny_model: CrossEncoder) -> 
 
     # Check the shape of the embeddings
     assert embeddings.shape == (2,)
+
+
+# Test suite converted from demo_3406_simple_og.py
+def format_queries(query, instruction=None):
+    """Helper function to format queries with the template."""
+    prefix = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
+    if instruction is None:
+        instruction = "Given a web search query, retrieve relevant passages that answer the query"
+    return f"{prefix}<Instruct>: {instruction}\n<Query>: {query}\n"
+
+
+def format_document(document):
+    """Helper function to format documents with the template."""
+    suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    return f"<Document>: {document}{suffix}"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_qwen3_reranker_formatted_pairs():
+    """Test Qwen3 Reranker with manually formatted query-document pairs."""
+    model = CrossEncoder("tomaarsen/Qwen3-Reranker-0.6B-seq-cls", activation_fn=torch.nn.Identity())
+    task = "Given a web search query, retrieve relevant passages that answer the query"
+
+    queries = [
+        "Which planet is known as the Red Planet?",
+        "Which planet is known as the Red Planet?",
+        "Which planet is known as the Red Planet?",
+        "Which planet is known as the Red Planet?",
+    ]
+
+    documents = [
+        "Venus is often called Earth's twin because of its similar size and proximity.",
+        "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
+        "Jupiter, the largest planet in our solar system, has a prominent red spot.",
+        "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
+    ]
+
+    pairs = [[format_queries(query, task), format_document(doc)] for query, doc in zip(queries, documents)]
+    scores = model.predict(pairs)
+    expected_scores = [-3.109297752380371, 7.120389938354492, -0.3787546157836914, 3.541637420654297]
+
+    # Assert scores match expected values with tolerance
+    assert scores == pytest.approx(expected_scores, abs=1e-4)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_qwen3_reranker_with_chat_template():
+    """Test Qwen3 Reranker with Chat template."""
+    chat_template = """\
+<|im_start|>system
+Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>
+<|im_start|>user
+<Instruct>: {{ messages | selectattr("role", "eq", "system") | map(attribute="content") | first | default("Given a web search query, retrieve relevant passages that answer the query") }}
+<Query>: {{ messages | selectattr("role", "eq", "query") | map(attribute="content") | first }}
+<Document>: {{ messages | selectattr("role", "eq", "document") | map(attribute="content") | first }}<|im_end|>
+<|im_start|>assistant
+<think>\n\n</think>\n\n\n"""
+
+    task = "Given a web search query, retrieve relevant passages that answer the query"
+    model = CrossEncoder(
+        "tomaarsen/Qwen3-Reranker-0.6B-seq-cls",
+        activation_fn=torch.nn.Identity(),
+        processor_kwargs={"chat_template": chat_template},
+        prompts={"web_search": task},
+        default_prompt_name="web_search",
+    )
+
+    # model.tokenizer.chat_template = jinja_template
+    # model[0].modality_config["message"] = model[0].modality_config.pop("text")
+    # model.prompts = {"web_search": task}
+    # model.default_prompt_name = "web_search"
+
+    query = "Which planet is known as the Red Planet?"
+    documents = [
+        "Venus is often called Earth's twin because of its similar size and proximity.",
+        "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
+        "Jupiter, the largest planet in our solar system, has a prominent red spot.",
+        "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
+    ]
+    pairs = [(query, doc) for doc in documents]
+    scores = model.predict(pairs)
+    expected_scores = [-3.109297752380371, 7.120389938354492, -0.3787546157836914, 3.541637420654297]
+
+    # Assert scores match expected values with tolerance
+    assert scores == pytest.approx(expected_scores, abs=1e-4)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_qwen3_reranker_original_with_identity_activation():
+    """Test original Qwen3 Reranker with Identity activation function."""
+    chat_template = """\
+<|im_start|>system
+Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>
+<|im_start|>user
+<Instruct>: {{ messages | selectattr("role", "eq", "system") | map(attribute="content") | first | default("Given a web search query, retrieve relevant passages that answer the query") }}
+<Query>: {{ messages | selectattr("role", "eq", "query") | map(attribute="content") | first }}
+<Document>: {{ messages | selectattr("role", "eq", "document") | map(attribute="content") | first }}<|im_end|>
+<|im_start|>assistant
+<think>\n\n</think>\n\n\n"""
+
+    task = "Given a web search query, retrieve relevant passages that answer the query"
+    model = CrossEncoder(
+        "Qwen/Qwen3-Reranker-0.6B",
+        prompts={"web_search": task},
+        default_prompt_name="web_search",
+        activation_fn=torch.nn.Identity(),
+        model_kwargs={"torch_dtype": torch.float32},
+        processor_kwargs={"chat_template": chat_template},
+    )
+    assert model.dtype == torch.float32
+    # model.tokenizer.chat_template = chat_template
+    # Because we're adding the chat template after loading, we need to adjust the modality config manually
+    # This is not ideal
+    # model[0].modality_config["message"] = model[0].modality_config.pop("text")
+
+    query = "Which planet is known as the Red Planet?"
+    documents = [
+        "Venus is often called Earth's twin because of its similar size and proximity.",
+        "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
+        "Jupiter, the largest planet in our solar system, has a prominent red spot.",
+        "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
+    ]
+
+    pairs = [[query, doc] for doc in documents]
+    scores = model.predict(pairs)
+    expected_scores = [-3.109297752380371, 7.120389938354492, -0.3787546157836914, 3.541637420654297]
+
+    # Assert scores match expected values with tolerance
+    assert scores == pytest.approx(expected_scores, abs=1e-4)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_qwen3_reranker_original_without_prompt():
+    """Test original Qwen3 Reranker with Identity activation function."""
+    chat_template = """\
+<|im_start|>system
+Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>
+<|im_start|>user
+<Instruct>: {{ messages | selectattr("role", "eq", "system") | map(attribute="content") | first | default("Given a web search query, retrieve relevant passages that answer the query") }}
+<Query>: {{ messages | selectattr("role", "eq", "query") | map(attribute="content") | first }}
+<Document>: {{ messages | selectattr("role", "eq", "document") | map(attribute="content") | first }}<|im_end|>
+<|im_start|>assistant
+<think>\n\n</think>\n\n\n"""
+
+    model = CrossEncoder(
+        "Qwen/Qwen3-Reranker-0.6B",
+        activation_fn=torch.nn.Identity(),
+        model_kwargs={"torch_dtype": torch.float32},
+        processor_kwargs={"chat_template": chat_template},
+    )
+    assert model.dtype == torch.float32
+    # model.tokenizer.chat_template = chat_template
+    # Because we're adding the chat template after loading, we need to adjust the modality config manually
+    # This is not ideal
+    # model[0].modality_config["message"] = model[0].modality_config.pop("text")
+
+    query = "Which planet is known as the Red Planet?"
+    documents = [
+        "Venus is often called Earth's twin because of its similar size and proximity.",
+        "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
+        "Jupiter, the largest planet in our solar system, has a prominent red spot.",
+        "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
+    ]
+
+    pairs = [[query, doc] for doc in documents]
+    scores = model.predict(pairs)
+    expected_scores = [-3.109297752380371, 7.120389938354492, -0.3787546157836914, 3.541637420654297]
+
+    # Assert scores match expected values with tolerance
+    assert scores == pytest.approx(expected_scores, abs=1e-4)

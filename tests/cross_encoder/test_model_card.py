@@ -59,7 +59,7 @@ def dummy_dataset():
                 "# (5,)",
                 "ranks = model.rank(",
                 "#### Unnamed Dataset",
-                "| details | <ul><li>min: 8 characters</li><li>mean: 8.1 characters</li><li>max: 9 characters</li></ul> | <ul><li>min: 10 characters</li><li>mean: 10.1 characters</li><li>max: 11 characters</li></ul> | <ul><li>min: 10 characters</li><li>mean: 10.1 characters</li><li>max: 11 characters</li></ul> |",
+                "| details | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> |",
                 "| <code>anchor 1</code> | <code>positive 1</code> | <code>negative 1</code> |",
                 "Loss: [<code>BinaryCrossEntropyLoss</code>](https://sbert.net/docs/package_reference/cross_encoder/losses.html#binarycrossentropyloss) with these parameters:",
             ],
@@ -130,10 +130,7 @@ def dummy_dataset():
     ],
 )
 def test_model_card_base(
-    dummy_dataset: Dataset,
-    num_datasets: int,
-    num_labels: int,
-    expected_substrings: list[str],
+    dummy_dataset: Dataset, num_datasets: int, num_labels: int, expected_substrings: list[str]
 ) -> None:
     model = CrossEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors", num_labels=num_labels)
 
@@ -160,10 +157,7 @@ def test_model_card_base(
     assert "\n\n\n" not in model_card
 
 
-def test_model_card_set_transform(
-    dummy_dataset: Dataset,
-    reranker_bert_tiny_model: CrossEncoder,
-) -> None:
+def test_model_card_set_transform(dummy_dataset: Dataset, reranker_bert_tiny_model: CrossEncoder) -> None:
     model = reranker_bert_tiny_model
 
     # Let's avoid requesting the Hub for e.g. checking if a base model exists there

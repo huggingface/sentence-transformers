@@ -1,0 +1,6 @@
+# Reorder Transformer class methods into logical groups
+89278b37fa5fb5d63541a7b584116665b0f1c29f
+# Extensive TitleCase -> snake_case file renaming + backwards compat.
+a4318ac5b39e043eda56e40cbef637882f8e4030
+# Rename example/test files to snake_case and replace dashes with underscores
+0db9a35d3d4b017aa79dfb7e5c6db78592d4ae23

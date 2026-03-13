@@ -15,7 +15,8 @@ import tarfile
 
 from easynmt import EasyNMT
 
-from sentence_transformers import LoggingHandler, util
+from sentence_transformers import LoggingHandler
+from sentence_transformers.util import http_get
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(
@@ -46,7 +47,7 @@ os.makedirs(data_folder, exist_ok=True)
 train_queries = {}
 qrels_train = os.path.join(data_folder, "qrels.train.tsv")
 if not os.path.exists(qrels_train):
-    util.http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/qrels.train.tsv", qrels_train)
+    http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/qrels.train.tsv", qrels_train)
 
 with open(qrels_train) as fIn:
     for line in fIn:
@@ -60,7 +61,7 @@ if not os.path.exists(queries_filepath):
     tar_filepath = os.path.join(data_folder, "queries.tar.gz")
     if not os.path.exists(tar_filepath):
         logging.info("Download queries.tar.gz")
-        util.http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/queries.tar.gz", tar_filepath)
+        http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/queries.tar.gz", tar_filepath)
 
     with tarfile.open(tar_filepath, "r:gz") as tar:
         tar.extractall(path=data_folder)

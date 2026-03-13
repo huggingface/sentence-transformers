@@ -37,14 +37,15 @@ from datasets import Dataset, concatenate_datasets, load_dataset
 from elasticsearch import Elasticsearch
 from torch.utils.data import DataLoader
 
-from sentence_transformers import SentenceTransformer, losses
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.readers import InputExample
-from sentence_transformers.similarity_functions import SimilarityFunction
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss
+from sentence_transformers.sentence_transformer.readers import InputExample
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -201,7 +202,7 @@ silver_samples = Dataset.from_dict(
 )
 train_dataset = concatenate_datasets([train_dataset, silver_samples])
 
-train_loss = losses.CosineSimilarityLoss(model=sentence_transformer)
+train_loss = CosineSimilarityLoss(model=sentence_transformer)
 
 logging.info("Read STSbenchmark dev dataset")
 evaluator = EmbeddingSimilarityEvaluator(
@@ -220,7 +221,7 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=num_epochs,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:

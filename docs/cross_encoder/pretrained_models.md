@@ -85,7 +85,7 @@ These models have been trained on the [Quora duplicate questions dataset](https:
 
 ```{eval-rst}
 .. note::
-    The model don't work for question similarity. The question "How to learn Java?" and "How to learn Python?" will get a low score, as these questions are not duplicates. For question similarity, a :class:`~sentence_transformers.SentenceTransformer` trained on the Quora dataset will yield much more meaningful results.
+    The model don't work for question similarity. The question "How to learn Java?" and "How to learn Python?" will get a low score, as these questions are not duplicates. For question similarity, a :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` trained on the Quora dataset will yield much more meaningful results.
 ```
 
 ## NLI

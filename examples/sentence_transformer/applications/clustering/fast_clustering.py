@@ -16,7 +16,8 @@ import csv
 import os
 import time
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import community_detection, http_get
 
 # Model for computing sentence embeddings. We use one trained for similar questions detection
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -32,7 +33,7 @@ max_corpus_size = 50000  # We limit our corpus to only the first 50k questions
 # Download dataset if needed
 if not os.path.exists(dataset_path):
     print("Download dataset")
-    util.http_get(url, dataset_path)
+    http_get(url, dataset_path)
 
 # Get all unique sentences from the file
 corpus_sentences = set()
@@ -55,7 +56,7 @@ start_time = time.time()
 # Two parameters to tune:
 # min_cluster_size: Only consider cluster that have at least 25 elements
 # threshold: Consider sentence pairs with a cosine-similarity larger than threshold as similar
-clusters = util.community_detection(corpus_embeddings, min_community_size=25, threshold=0.75)
+clusters = community_detection(corpus_embeddings, min_community_size=25, threshold=0.75)
 
 print(f"Clustering done after {time.time() - start_time:.2f} sec")
 

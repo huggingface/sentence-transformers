@@ -12,13 +12,14 @@ Colab example: https://colab.research.google.com/drive/12hfBveGHRsxhPIUMmJYrll2l
 import json
 import os
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import http_get, semantic_search
 
 # First, we load the papers dataset (with title and abstract information)
 dataset_file = "emnlp2016-2018.json"
 
 if not os.path.exists(dataset_file):
-    util.http_get("https://sbert.net/datasets/emnlp2016-2018.json", dataset_file)
+    http_get("https://sbert.net/datasets/emnlp2016-2018.json", dataset_file)
 
 with open(dataset_file) as fIn:
     papers = json.load(fIn)
@@ -39,7 +40,7 @@ corpus_embeddings = model.encode(paper_texts, convert_to_tensor=True)
 def search_papers(title, abstract):
     query_embedding = model.encode(title + "[SEP]" + abstract, convert_to_tensor=True)
 
-    search_hits = util.semantic_search(query_embedding, corpus_embeddings)
+    search_hits = semantic_search(query_embedding, corpus_embeddings)
     search_hits = search_hits[0]  # Get the hits for the first query
 
     print("\n\nPaper:", title)

@@ -6,10 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sentence_transformers import (
-    SentenceTransformer,
-    evaluation,
-)
+from sentence_transformers import SentenceTransformer, evaluation
 
 
 def test_ParaphraseMiningEvaluator(

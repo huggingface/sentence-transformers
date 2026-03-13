@@ -18,9 +18,11 @@ from datetime import datetime
 import tqdm
 from datasets import Dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers.modules import Pooling, Transformer
+from sentence_transformers.sentence_transformer.losses import ContrastiveTensionLoss
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 # Just some code to print debug information to stdout
 logging.basicConfig(
@@ -51,10 +53,10 @@ model_output_path = "output/train_ct{}-{}".format(output_name, datetime.now().st
 
 
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for mapping tokens to embeddings
-word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
+word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
 
 # Apply mean pooling to get one fixed sized sentence vector
-pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
+pooling_model = Pooling(word_embedding_model.get_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 # Read the train corpus
@@ -82,7 +84,7 @@ train_dataset = train_dataset.map(to_ct_pairs, fn_kwargs={"pos_neg_ratio": pos_n
 logging.info(train_dataset)
 
 # As loss, we use ContrastiveTensionLoss
-train_loss = losses.ContrastiveTensionLoss(model)
+train_loss = ContrastiveTensionLoss(model)
 
 # Prepare the training arguments
 args = SentenceTransformerTrainingArguments(

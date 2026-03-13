@@ -13,12 +13,15 @@ from datetime import datetime
 
 from datasets import load_dataset
 
-from sentence_transformers import SentenceTransformer, losses, models, util
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.models.tokenizer.WordTokenizer import ENGLISH_STOP_WORDS
-from sentence_transformers.similarity_functions import SimilarityFunction
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.modules import BoW, Dense
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss
+from sentence_transformers.sentence_transformer.modules.tokenizer.word import ENGLISH_STOP_WORDS
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.util import http_get
+from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -37,7 +40,7 @@ logging.info(train_dataset)
 # Wikipedia document frequency for words
 wiki_doc_freq = "wikipedia_doc_frequencies.txt"
 if not os.path.exists(wiki_doc_freq):
-    util.http_get(
+    http_get(
         "https://public.ukp.informatik.tu-darmstadt.de/reimers/embeddings/wikipedia_doc_frequencies.txt", wiki_doc_freq
     )
 
@@ -64,19 +67,19 @@ for line in lines[1:]:
 
 # Create the BoW model. Because we set word_weights to the IDF values and cumulative_term_frequency=True, we
 # get tf-idf vectors. Set word_weights to an empty dict and cumulative_term_frequency=False to get a 1-hot sentence encoding
-bow = models.BoW(vocab=vocab, word_weights=weights, cumulative_term_frequency=True)
+bow = BoW(vocab=vocab, word_weights=weights, cumulative_term_frequency=True)
 
 # Add two trainable feed-forward networks (DAN) with max_vocab_size -> 768 -> 512 dimensions.
 sent_embeddings_dimension = max_vocab_size
-dan1 = models.Dense(in_features=sent_embeddings_dimension, out_features=768)
-dan2 = models.Dense(in_features=768, out_features=512)
+dan1 = Dense(in_features=sent_embeddings_dimension, out_features=768)
+dan2 = Dense(in_features=768, out_features=512)
 
 model = SentenceTransformer(modules=[bow, dan1, dan2])
 
 # 3. Define our training loss
 # CosineSimilarityLoss (https://sbert.net/docs/package_reference/sentence_transformer/losses.html#cosinesimilarityloss) needs two text columns and
 # one similarity score column (between 0 and 1)
-train_loss = losses.CosineSimilarityLoss(model=model)
+train_loss = CosineSimilarityLoss(model=model)
 
 # 4. Define an evaluator for use during training. This is useful to keep track of alongside the evaluation loss.
 dev_evaluator = EmbeddingSimilarityEvaluator(
@@ -95,7 +98,7 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=num_train_epochs,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:

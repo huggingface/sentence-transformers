@@ -5,7 +5,7 @@ from enum import Enum
 
 from transformers.trainer_callback import TrainerCallback, TrainerControl, TrainerState
 
-from sentence_transformers.sparse_encoder.losses.SpladeLoss import SpladeLoss
+from sentence_transformers.sparse_encoder.losses.splade import SpladeLoss
 from sentence_transformers.sparse_encoder.training_args import SparseEncoderTrainingArguments
 
 logger = logging.getLogger(__name__)

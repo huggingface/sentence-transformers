@@ -5,10 +5,12 @@ from datetime import datetime
 
 from datasets import load_dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers.modules import Pooling, Transformer
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.losses import ContrastiveTensionLoss
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 # Just some code to print debug information to stdout
 logging.basicConfig(
@@ -63,8 +65,8 @@ test_evaluator = EmbeddingSimilarityEvaluator(
 )
 
 # Initialize an SBERT model
-word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
-pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
+word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
+pooling_model = Pooling(word_embedding_model.get_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 # Let's evaluate the model before training
@@ -72,7 +74,7 @@ dev_evaluator(model)
 test_evaluator(model)
 
 # As loss, we use ContrastiveTensionLoss
-train_loss = losses.ContrastiveTensionLoss(model)
+train_loss = ContrastiveTensionLoss(model)
 
 # Prepare the training arguments
 args = SentenceTransformerTrainingArguments(
