@@ -548,7 +548,6 @@ def test_load_activation_fn_from_kwargs(num_labels: int, activation_fn: str, sav
     assert fullname(loaded_model.activation_fn) == saved_activation_fn
 
     # Setting the activation function via a predict call only updates it for that call
-    # TODO: Backwards incompatibility, previously setting activation_fn would keep it in the instance beyond the predict
     loaded_model.predict([["Hello there!", "Hello, World!"]], activation_fn=torch.nn.Identity())
     assert fullname(loaded_model.activation_fn) == saved_activation_fn
 

@@ -14,6 +14,7 @@ TODO: Notes to self:
 - Renamed `word_embedding_dimension` constructor parameter to `embedding_dimension` on Pooling, LSTM, WeightedLayerPooling, SpladePooling (with backwards compatibility)
 - Renamed `in_word_embedding_dimension` constructor parameter to `in_embedding_dimension` on CNN (with backwards compatibility)
 - Add `prompt` and `task` kwargs to CrossEncoder losses, which can be forwarded to the `CrossEncoder.preprocess` method in the loss `forward` method (with backwards compatibility)
+- Passing `activation_fn` to `CrossEncoder.predict` no longer persists the activation function on the instance; it only applies for that call
 
 ## Migrating from v4.x to v5.x
 
