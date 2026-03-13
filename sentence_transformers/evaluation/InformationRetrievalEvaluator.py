@@ -51,6 +51,7 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
         corpus_prompt_name (str, optional): The name of the prompt to be used when encoding the corpus. Defaults to None.
         write_predictions (bool): Whether to write the predictions to a JSONL file. Defaults to False.
             This can be useful for downstream evaluation as it can be used as input to the :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator` that accept precomputed predictions.
+        precision (str, optional): The precision to use for the embeddings. Can be "float32", "int8", "uint8", "binary", or "ubinary". Defaults to None.
 
     Example:
         ::
@@ -150,6 +151,7 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
         corpus_prompt: str | None = None,
         corpus_prompt_name: str | None = None,
         write_predictions: bool = False,
+        precision: str | None = None,
     ) -> None:
         super().__init__()
         self.queries_ids = []
@@ -183,11 +185,14 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
         self.main_score_function = SimilarityFunction(main_score_function) if main_score_function else None
         self.truncate_dim = truncate_dim
+        self.precision = precision
 
         if name:
             name = "_" + name
 
-        self.csv_file: str = "Information-Retrieval_evaluation" + name + "_results.csv"
+        self.csv_file: str = (
+            "Information-Retrieval_evaluation" + name + ("_" + precision if precision else "") + "_results.csv"
+        )
         self.csv_headers = ["epoch", "steps"]
 
         self._append_csv_headers(self.score_function_names)
@@ -231,6 +236,8 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
             out_txt = ""
         if self.truncate_dim is not None:
             out_txt += f" (truncated to {self.truncate_dim})"
+        if self.precision is not None:
+            out_txt += f" (precision: {self.precision})"
 
         logger.info(f"Information Retrieval Evaluation of the model on the {self.name} dataset{out_txt}:")
 
@@ -322,6 +329,9 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
             prompt=self.query_prompt,
         )
 
+        # Convert quantized embeddings to float32 for similarity computations
+        query_embeddings = self._convert_to_float(query_embeddings)
+
         queries_result_list = {}
         for name in self.score_functions:
             queries_result_list[name] = [[] for _ in range(len(query_embeddings))]
@@ -343,6 +353,8 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
                 )
             else:
                 sub_corpus_embeddings = corpus_embeddings[corpus_start_idx:corpus_end_idx]
+            # Convert quantized embeddings to float32 for similarity computations
+            sub_corpus_embeddings = self._convert_to_float(sub_corpus_embeddings)
 
             # Compute cosine similarites
             for name, score_function in self.score_functions.items():
@@ -437,8 +449,43 @@ class InformationRetrievalEvaluator(SentenceEvaluator):
             show_progress_bar=self.show_progress_bar,
             convert_to_tensor=True,
             truncate_dim=self.truncate_dim,
+            precision=self.precision,
+            normalize_embeddings=bool(self.precision),
             **kwargs,
         )
+
+    def _convert_to_float(self, embeddings: Tensor) -> Tensor:
+        """
+        Convert quantized embeddings to float32 for similarity computations.
+        Handles int8, uint8, binary, and ubinary embeddings.
+        """
+        if self.precision is None or self.precision == "float32":
+            return embeddings
+
+        # Check if embeddings are already float
+        if embeddings.dtype in (torch.float32, torch.float64, torch.float16, torch.bfloat16):
+            return embeddings.float()
+
+        # Binary and ubinary embeddings are packed, so we need to unpack them
+        if self.precision == "binary":
+            # Convert from signed int8 to unsigned uint8
+            embeddings = embeddings.cpu()
+            embeddings_np = embeddings.numpy()
+            embeddings_np = (embeddings_np + 128).astype(np.uint8)
+            embeddings_np = np.unpackbits(embeddings_np, axis=1)
+            return torch.from_numpy(embeddings_np.astype(np.float32)).to(embeddings.device)
+
+        if self.precision == "ubinary":
+            embeddings = embeddings.cpu()
+            embeddings_np = embeddings.numpy()
+            embeddings_np = np.unpackbits(embeddings_np, axis=1)
+            return torch.from_numpy(embeddings_np.astype(np.float32)).to(embeddings.device)
+
+        # int8/uint8 just need type conversion
+        if self.precision in ("int8", "uint8"):
+            return embeddings.float()
+
+        return embeddings
 
     def compute_metrics(self, queries_result_list: list[object]):
         # Init score computation values
