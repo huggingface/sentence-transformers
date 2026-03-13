@@ -16,7 +16,7 @@ Choosing the right loss function is crucial for finetuning useful models. For th
 
 ### Contrastive Loss
 
-For the complete training example, see [training_OnlineContrastiveLoss.py](training_OnlineContrastiveLoss.py).
+For the complete training example, see [training_online_contrastive_loss.py](training_online_contrastive_loss.py).
 
 ```{eval-rst}
 The Quora Duplicates dataset has a `pair-class subset <https://huggingface.co/datasets/sentence-transformers/quora-duplicates/viewer/pair-class>`_ which consists of question pairs and labels: 1 for duplicate and 0 for different.
@@ -43,7 +43,7 @@ train_loss = losses.OnlineContrastiveLoss(model=model, margin=0.5)
 
 ## MultipleNegativesRankingLoss
 
-For the complete example, see [training_MultipleNegativesRankingLoss.py](training_MultipleNegativesRankingLoss.py).
+For the complete example, see [training_multiple_negatives_ranking_loss.py](training_multiple_negatives_ranking_loss.py).
 
 ```{eval-rst}
 :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` is especially suitable for Information Retrieval / Semantic Search. A nice advantage is that it only requires positive pairs, i.e., we only need examples of duplicate questions. See `NLI > MultipleNegativesRankingLoss <../nli/README.html#multiplenegativesrankingloss>`_ for more information on how the loss works.
@@ -95,7 +95,7 @@ train_dataset = concatenate_datasets([
 :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` on the other sides mainly reduces the distance between positive pairs out of large set of possible candidates. However, the distance between  non-duplicate questions is not so large, so that this loss does not work that well for pair classification.
 ```
 
-In [training_multi-task-learning.py](training_multi-task-learning.py) I demonstrate how we can train the network with both losses. The essential code is to define both losses and to pass it to the fit method.
+In [training_multi_task_learning.py](training_multi_task_learning.py) I demonstrate how we can train the network with both losses. The essential code is to define both losses and to pass it to the fit method.
 
 ```python
 from datasets import load_dataset
@@ -144,7 +144,7 @@ trainer.train()
 
 Currently the following models trained on Quora Duplicate Questions are available:
 
-- [distilbert-base-nli-stsb-quora-ranking](https://huggingface.co/sentence-transformers/distilbert-base-nli-stsb-quora-ranking): We extended the [distilbert-base-nli-stsb-mean-tokens](https://huggingface.co/sentence-transformers/distilbert-base-nli-stsb-mean-tokens) model and trained it with *OnlineContrastiveLoss* and with *MultipleNegativesRankingLoss* on the Quora Duplicate questions dataset. For the code, see [training_multi-task-learning.py](training_multi-task-learning.py)
+- [distilbert-base-nli-stsb-quora-ranking](https://huggingface.co/sentence-transformers/distilbert-base-nli-stsb-quora-ranking): We extended the [distilbert-base-nli-stsb-mean-tokens](https://huggingface.co/sentence-transformers/distilbert-base-nli-stsb-mean-tokens) model and trained it with *OnlineContrastiveLoss* and with *MultipleNegativesRankingLoss* on the Quora Duplicate questions dataset. For the code, see [training_multi_task_learning.py](training_multi_task_learning.py)
 - [distilbert-multilingual-nli-stsb-quora-ranking](https://huggingface.co/sentence-transformers/distilbert-multilingual-nli-stsb-quora-ranking): Extension of *distilbert-base-nli-stsb-quora-ranking* to be multi-lingual. Trained on parallel data for 50 languages.
 
 You can load & use pre-trained models like this:

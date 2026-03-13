@@ -647,8 +647,8 @@ Training on multiple datasets looks like this:
 
     **Training Examples:**
 
-    - `Quora Duplicate Questions > Multi-task learning <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/quora_duplicate_questions/training_multi-task-learning.py>`_
-    - `AllNLI + STSb > Multi-task learning <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/other/training_multi-task.py>`_
+    - `Quora Duplicate Questions > Multi-task learning <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/quora_duplicate_questions/training_multi_task_learning.py>`_
+    - `AllNLI + STSb > Multi-task learning <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/other/training_multi_task.py>`_
 
 ::
 

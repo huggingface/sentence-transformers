@@ -3,7 +3,7 @@ This file loads sentences from a provided text file. It is expected, that the th
 CT will be training using these sentences.
 
 Usage:
-python train_ct-improved_from_file.py path/to/sentences.txt
+python train_ct_improved_from_file.py path/to/sentences.txt
 """
 
 import gzip

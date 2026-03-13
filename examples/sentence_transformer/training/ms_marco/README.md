@@ -18,7 +18,7 @@ This page describes two strategies to **train an bi-encoder** on the MS MARCO da
 
 ### MultipleNegativesRankingLoss
 
-**Training code: [train_bi-encoder_mnrl.py](train_bi-encoder_mnrl.py)**
+**Training code: [train_bi_encoder_mnrl.py](train_bi_encoder_mnrl.py)**
 
 ```{eval-rst}
 When we use :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, we provide triplets: ``(query, positive_passage, negative_passage)`` where ``positive_passage`` is the relevant passage to the query and ``negative_passage`` is a non-relevant passage to the query. We compute the embeddings for all queries, positive passages, and negative passages in the corpus and then optimize the following objective: The ``(query, positive_passage)` pair must be close in the vector space, while ``(query, negative_passage)`` should be distant in vector space.
@@ -54,7 +54,7 @@ print(train_dataset[0])
 
 ### MarginMSE
 
-**Training code: [train_bi-encoder_margin-mse.py](train_bi-encoder_margin-mse.py)**
+**Training code: [train_bi_encoder_margin_mse.py](train_bi_encoder_margin_mse.py)**
 
 ```{eval-rst}
 :class:`~sentence_transformers.sentence_transformer.losses.MarginMSELoss` is based on the paper of `Hofstätter et al <https://huggingface.co/papers/2010.02666>`_. Like when training with :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, we can use triplets: ``(query, passage1, passage2)``. However, in contrast to :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, `passage1` and `passage2` do not have to be strictly positive/negative, both can be relevant or not relevant for a given query.  

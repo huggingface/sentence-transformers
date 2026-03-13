@@ -9,7 +9,7 @@ TREC DL instead annotated up to 200 passages per query for their relevance to a 
 the model performance for the task of reranking in Information Retrieval.
 
 Run:
-python eval_cross-encoder-trec-dl.py cross-encoder-model-name
+python eval_cross_encoder_trec_dl.py cross-encoder-model-name
 
 """
 

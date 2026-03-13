@@ -27,11 +27,11 @@ Note: We used the code provided in this repository, not the official code from t
 
 ## CT from Sentences File
 
-**[train_ct-improved_from_file.py](train_ct-improved_from_file.py)** loads sentences from a provided text file. It is expected, that the there is one sentence per line in that text file.
+**[train_ct_improved_from_file.py](train_ct_improved_from_file.py)** loads sentences from a provided text file. It is expected, that the there is one sentence per line in that text file.
 
 SimCSE will be training using these sentences. Checkpoints are stored every 500 steps to the output folder.
 
 ## Further Training Examples
 
-- **[train_stsb_ct-improved.py](train_stsb_ct-improved.py)**: This example uses 1 million sentences from Wikipedia to train with CT. It evaluate the performance on the [STSbenchmark dataset](https://ixa2.si.ehu.eus/stswiki/index.php/STSbenchmark).
-- **[train_askubuntu_ct-improved.py](train_askubuntu_ct-improved.py)**: This example trains on [AskUbuntu Questions dataset](https://github.com/taolei87/askubuntu), a dataset with questions from the AskUbuntu Stackexchange forum.
+- **[train_stsb_ct_improved.py](train_stsb_ct_improved.py)**: This example uses 1 million sentences from Wikipedia to train with CT. It evaluate the performance on the [STSbenchmark dataset](https://ixa2.si.ehu.eus/stswiki/index.php/STSbenchmark).
+- **[train_askubuntu_ct_improved.py](train_askubuntu_ct_improved.py)**: This example trains on [AskUbuntu Questions dataset](https://github.com/taolei87/askubuntu), a dataset with questions from the AskUbuntu Stackexchange forum.

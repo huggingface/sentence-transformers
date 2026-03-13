@@ -20,10 +20,10 @@ Note: Requires NLTK: `pip install nltk`
 
 # NB
 # The pip implementation of LexRank is broken.
-# A working implementation can be found at https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/applications/text-summarization/LexRank.py.
+# A working implementation can be found at https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/applications/text-summarization/lex_rank.py.
 import nltk
 import numpy as np
-from LexRank import degree_centrality_scores
+from lex_rank import degree_centrality_scores
 
 from sentence_transformers import SentenceTransformer
 

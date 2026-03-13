@@ -1,5 +1,5 @@
 """
-This script combines training_OnlineContrastiveLoss.py with training_MultipleNegativesRankingLoss.py
+This script combines training_online_contrastive_loss.py with training_multiple_negatives_ranking_loss.py
 
 Online constrative loss works well for classification (are question1 and question2 duplicates?), but it
 performs less well for duplicate questions mining. MultipleNegativesRankingLoss works well for duplicate
