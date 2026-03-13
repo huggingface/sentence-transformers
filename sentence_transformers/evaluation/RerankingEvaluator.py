@@ -136,7 +136,12 @@ class RerankingEvaluator(SentenceEvaluator):
         self.primary_metric = f"ndcg@{self.at_k}"
 
     def __call__(
-        self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
+        self,
+        model: SentenceTransformer,
+        output_path: str | None = None,
+        epoch: int = -1,
+        steps: int = -1,
+        encode_args: dict = {},
     ) -> dict[str, float]:
         """
         Evaluates the model on the dataset and returns the evaluation metrics.
@@ -162,7 +167,7 @@ class RerankingEvaluator(SentenceEvaluator):
 
         logger.info(f"RerankingEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
-        scores = self.compute_metrices(model)
+        scores = self.compute_metrices(model, encode_args)
         mean_ap = scores["map"]
         mean_mrr = scores["mrr"]
         mean_ndcg = scores["ndcg"]
@@ -199,12 +204,13 @@ class RerankingEvaluator(SentenceEvaluator):
         self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
 
-    def compute_metrices(self, model: SentenceTransformer):
+    def compute_metrices(self, model: SentenceTransformer, encode_args: dict):
         """
         Computes the evaluation metrics for the given model.
 
         Args:
             model (SentenceTransformer): The SentenceTransformer model to compute metrics for.
+            encode_args (dict): The args to be passed to the encode method. Defaults to {}.
 
         Returns:
             Dict[str, float]: A dictionary containing the evaluation metrics.
@@ -215,12 +221,13 @@ class RerankingEvaluator(SentenceEvaluator):
             else self.compute_metrices_individual(model)
         )
 
-    def compute_metrices_batched(self, model: SentenceTransformer):
+    def compute_metrices_batched(self, model: SentenceTransformer, encode_args: dict):
         """
         Computes the evaluation metrics in a batched way, by batching all queries and all documents together.
 
         Args:
             model (SentenceTransformer): The SentenceTransformer model to compute metrics for.
+            encode_args (dict): The args to be passed to the encode method. Defaults to {}.
 
         Returns:
             Dict[str, float]: A dictionary containing the evaluation metrics.
@@ -243,7 +250,7 @@ class RerankingEvaluator(SentenceEvaluator):
             all_docs.extend(sample["negative"])
 
         all_docs_embs = self.embed_inputs(
-            model, all_docs, encode_fn_name="document", show_progress_bar=self.show_progress_bar
+            model, all_docs, encode_fn_name="document", show_progress_bar=self.show_progress_bar, **encode_args
         )
 
         # Compute scores
@@ -288,12 +295,13 @@ class RerankingEvaluator(SentenceEvaluator):
 
         return {"map": mean_ap, "mrr": mean_mrr, "ndcg": mean_ndcg}
 
-    def compute_metrices_individual(self, model: SentenceTransformer):
+    def compute_metrices_individual(self, model: SentenceTransformer, encode_args: dict):
         """
         Computes the evaluation metrics individually by embedding every (query, positive, negative) tuple individually.
 
         Args:
             model (SentenceTransformer): The SentenceTransformer model to compute metrics for.
+            encode_args (dict): The args to be passed to the encode method. Defaults to {}.
 
         Returns:
             Dict[str, float]: A dictionary containing the evaluation metrics.
@@ -313,8 +321,12 @@ class RerankingEvaluator(SentenceEvaluator):
             docs = positive + negative
             is_relevant = [1] * len(positive) + [0] * len(negative)
 
-            query_emb = self.embed_inputs(model, [query], encode_fn_name="query", show_progress_bar=False)
-            docs_emb = self.embed_inputs(model, docs, encode_fn_name="document", show_progress_bar=False)
+            query_emb = self.embed_inputs(
+                model, [query], encode_fn_name="query", show_progress_bar=False, **encode_args
+            )
+            docs_emb = self.embed_inputs(
+                model, docs, encode_fn_name="document", show_progress_bar=False, **encode_args
+            )
 
             pred_scores = self.similarity_fct(query_emb, docs_emb)
             if len(pred_scores.shape) > 1:
