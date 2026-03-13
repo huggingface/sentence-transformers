@@ -12,6 +12,7 @@ from .deprecated import (
     CERerankingEvaluator,
     CESoftmaxAccuracyEvaluator,
 )
+from .nano_evaluator import CrossEncoderNanoEvaluator
 from .nano_beir import CrossEncoderNanoBEIREvaluator
 from .reranking import CrossEncoderRerankingEvaluator
 
@@ -31,6 +32,7 @@ for module in deprecated_modules:
 __all__ = [
     "CrossEncoderClassificationEvaluator",
     "CrossEncoderCorrelationEvaluator",
+    "CrossEncoderNanoEvaluator",
     "CrossEncoderRerankingEvaluator",
     "CrossEncoderNanoBEIREvaluator",
     # Deprecated:
