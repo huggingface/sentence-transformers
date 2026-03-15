@@ -128,9 +128,7 @@ class ADRMSELoss(nn.Module):
             )
 
         if len(inputs) != 2:
-            raise ValueError(
-                f"ADRMSELoss expects two inputs (queries, documents_list), but got {len(inputs)} inputs."
-            )
+            raise ValueError(f"ADRMSELoss expects two inputs (queries, documents_list), but got {len(inputs)} inputs.")
 
         queries, docs_list = inputs
         docs_per_query = [len(docs) for docs in docs_list]
