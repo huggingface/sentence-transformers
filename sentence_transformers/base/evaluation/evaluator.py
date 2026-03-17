@@ -4,10 +4,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import numpy as np
-    from torch import Tensor
-
-    from sentence_transformers.sentence_transformer.model import SentenceTransformer
+    from sentence_transformers.base.model import BaseModel
 
 
 class BaseEvaluator:
@@ -28,7 +25,7 @@ class BaseEvaluator:
         self.primary_metric = None
 
     def __call__(
-        self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
+        self, model: BaseModel, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> float | dict[str, float]:
         """
         This is called during training to evaluate the model.
@@ -63,7 +60,7 @@ class BaseEvaluator:
         return metrics
 
     def store_metrics_in_model_card_data(
-        self, model: SentenceTransformer, metrics: dict[str, Any], epoch: int = 0, step: int = 0
+        self, model: BaseModel, metrics: dict[str, Any], epoch: int = 0, step: int = 0
     ) -> None:
         model.model_card_data.set_evaluation_metrics(self, metrics, epoch, step)
 
@@ -84,7 +81,7 @@ class BaseEvaluator:
         try:
             index = class_name.index("Evaluator")
             class_name = class_name[:index]
-        except IndexError:
+        except ValueError:
             pass
 
         return re.sub(r"([a-z])([A-Z])", r"\g<1> \g<2>", class_name)
@@ -94,24 +91,6 @@ class BaseEvaluator:
         Return a dictionary with all meaningful configuration values of the evaluator to store in the model card.
         """
         return {}
-
-    def embed_inputs(
-        self,
-        model: SentenceTransformer,
-        sentences: str | list[str] | np.ndarray,
-        **kwargs,
-    ) -> list[Tensor] | np.ndarray | Tensor | dict[str, Tensor] | list[dict[str, Tensor]]:
-        """
-        Call the encoder method of the model pass
-
-        Args:
-            model (SentenceTransformer): Model we are evaluating
-            sentences (str | list[str] | np.ndarray): Text that we are embedding
-
-        Returns:
-            list[Tensor] | np.ndarray | Tensor | dict[str, Tensor] | list[dict[str, Tensor]]: The associated embedding
-        """
-        return model.encode(sentences, **kwargs)
 
 
 # Backward compatibility alias, deprecated
