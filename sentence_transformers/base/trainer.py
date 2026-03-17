@@ -269,10 +269,10 @@ class BaseTrainer(Trainer, ABC):
         # to avoid having to specify it in the data collator or model's forward
         self.can_return_loss = True
 
-        # TODO: Can we do this?
-        # self.model: BaseModel
-        # self.args: BaseTrainingArguments
-        # self.data_collator: BaseDataCollator
+        self.model: BaseModel
+        self.args: BaseTrainingArguments
+        self.data_collator: BaseDataCollator
+
         # Set the W&B or Trackio project via environment variables if it's not already set
         if any([isinstance(callback, WandbCallback) for callback in self.callback_handler.callbacks]):
             os.environ.setdefault("WANDB_PROJECT", "sentence-transformers")
