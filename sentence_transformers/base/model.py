@@ -341,6 +341,36 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         """Returns the last module of this sequential embedder"""
         return self._modules[next(reversed(self._modules))]
 
+    def _uses_flattened_inputs(self) -> bool:
+        """Check if the first module (Transformer or Router containing Transformers) uses flattened inputs."""
+        first = self[0]
+        if isinstance(first, Transformer):
+            return first.use_flattened_inputs
+        if isinstance(first, Router):
+            for route in first.sub_modules.values():
+                # Each route is nn.Sequential; the first child is the Transformer
+                first_in_route = next(iter(route.children()))
+                if isinstance(first_in_route, Transformer) and first_in_route.use_flattened_inputs:
+                    return True
+        return False
+
+    @staticmethod
+    def _interleave_sorted_indices(sorted_idx: np.ndarray) -> np.ndarray:
+        """Interleave a largest-to-smallest sorted index array so that each consecutive batch
+        contains a mix of long and short inputs.
+
+        With flattened inputs (flash attention), there is no padding. Total tokens per batch
+        equals the sum of actual lengths. Grouping all long inputs together creates peak-memory
+        batches, while grouping all short inputs together under-utilises the GPU. Interleaving
+        (largest, smallest, 2nd largest, 2nd smallest, ...) balances the total token count
+        across batches for more uniform memory usage.
+        """
+        n = len(sorted_idx)
+        interleaved = np.empty(n, dtype=sorted_idx.dtype)
+        interleaved[0::2] = sorted_idx[: (n + 1) // 2]
+        interleaved[1::2] = sorted_idx[n - 1 : (n - 1) // 2 : -1]
+        return interleaved
+
     @staticmethod
     def _input_length(sample) -> int:
         """Estimate the "size" of an input sample for length-based batch sorting.

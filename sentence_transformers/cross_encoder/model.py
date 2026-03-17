@@ -620,6 +620,8 @@ class CrossEncoder(BaseModel, FitMixin):
         self.eval()
         pred_scores = []
         length_sorted_idx = np.argsort([-self._input_length(pair) for pair in inputs])
+        if self._uses_flattened_inputs():
+            length_sorted_idx = self._interleave_sorted_indices(length_sorted_idx)
         inputs_sorted = [inputs[idx] for idx in length_sorted_idx]
         for start_index in trange(0, len(inputs_sorted), batch_size, desc="Batches", disable=not show_progress_bar):
             batch = inputs_sorted[start_index : start_index + batch_size]

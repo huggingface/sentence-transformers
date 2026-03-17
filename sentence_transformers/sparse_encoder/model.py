@@ -506,6 +506,8 @@ class SparseEncoder(BaseModel):
 
         all_embeddings = []
         length_sorted_idx = np.argsort([-self._input_length(sen) for sen in inputs])
+        if self._uses_flattened_inputs():
+            length_sorted_idx = self._interleave_sorted_indices(length_sorted_idx)
         inputs_sorted = [inputs[idx] for idx in length_sorted_idx]
 
         for start_index in trange(0, len(inputs), batch_size, desc="Batches", disable=not show_progress_bar):
