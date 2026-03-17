@@ -79,6 +79,9 @@ Redirect 301 /docs/package_reference/util.html /docs/package_reference/util/inde
 Redirect 301 /docs/package_reference/sentence_transformer/models.html /docs/package_reference/sentence_transformer/modules.html
 Redirect 301 /docs/package_reference/cross_encoder/models.html /docs/package_reference/cross_encoder/modules.html
 Redirect 301 /docs/package_reference/sparse_encoder/models.html /docs/package_reference/sparse_encoder/modules.html
+Redirect 301 /docs/package_reference/sentence_transformer/SentenceTransformer.html /docs/package_reference/sentence_transformer/model.html
+Redirect 301 /docs/package_reference/sparse_encoder/SparseEncoder.html /docs/package_reference/sparse_encoder/model.html
+Redirect 301 /docs/package_reference/cross_encoder/cross_encoder.html /docs/package_reference/cross_encoder/model.html
 
 # Redirect to index.html when request file does not exist
 # RewriteCond %{REQUEST_FILENAME} !-f
