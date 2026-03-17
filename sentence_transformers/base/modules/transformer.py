@@ -573,6 +573,7 @@ class Transformer(InputModule):
         else:
             self.modality_config, self.module_output_name = self.infer_modalities(self.model, self.processor)
         logger.info(f"Active modality config: {self.modality_config}")
+        self.input_formatter.supported_modalities = list(self.modality_config.keys())
 
         if tokenizer_name_or_path is not None:
             logger.warning(
@@ -580,6 +581,67 @@ class Transformer(InputModule):
                 "Please use the same path for the model and processor."
             )
             self.model.config.tokenizer_class = self.processor.__class__.__name__
+
+        # Check if we can flatten (concatenate) inputs to avoid padding, which heavily speeds up inference.
+        self.use_flattened_inputs = self._can_flatten_inputs()
+
+    def _can_flatten_inputs(self) -> bool:
+        """Determine whether inputs can be flattened (concatenated without padding) for more efficient inference.
+
+        When enabled, inputs are concatenated into a single sequence and processed using flash attention's
+        variable-length functions, eliminating padding overhead and significantly speeding up inference.
+
+        This requires:
+        1. The ``"feature-extraction"`` task, as model heads (e.g. ``AutoModelForSequenceClassification``)
+           are incompatible with flattened inputs.
+        2. The ``"torch"`` backend with an attention-interface-compatible model.
+        3. Flash attention with variable-length function support.
+
+        Returns:
+            bool: True if inputs can be flattened for efficient inference.
+        """
+        if (
+            self.transformer_task != "feature-extraction"
+            or self.backend != "torch"
+            or not self.auto_model.is_backend_compatible()
+        ):
+            return False
+
+        try:
+            from transformers import DataCollatorWithFlattening
+            from transformers.modeling_flash_attention_utils import lazy_import_flash_attention
+            from transformers.utils.generic import is_flash_attention_requested
+        except ImportError:
+            logger.warning(
+                "Upgrading to transformers >= 5.0.0 allows for avoiding padding during inference, "
+                "resulting in faster processing."
+            )
+            return False
+
+        attn_implementation = self.config._attn_implementation
+        if is_flash_attention_requested(requested_attention_implementation=attn_implementation):
+            (_, flash_varlen_fn, _, _, _), _ = lazy_import_flash_attention(attn_implementation)
+            if flash_varlen_fn is not None:
+                logger.info(
+                    "Using flattened inputs with flash attention variable-length functions to avoid padding overhead."
+                )
+                self.data_collator = DataCollatorWithFlattening(
+                    return_seq_idx=True,  # Not always necessary, perhaps only Mamba/Bamba?
+                    return_flash_attn_kwargs=True,
+                    return_position_ids=True,  # Crucial for performance
+                )
+                # Ensure the flash attention keys reach the model through **kwargs — they
+                # are not named parameters in the model's forward signature, but the model
+                # passes them through to its attention layers via **kwargs.
+                self.model_forward_params |= {
+                    "cu_seq_lens_q",
+                    "cu_seq_lens_k",
+                    "max_length_q",
+                    "max_length_k",
+                    "seq_idx",
+                }
+                return True
+        return False
 
     @property
     def max_seq_length(self) -> int | None:
@@ -664,7 +726,13 @@ class Transformer(InputModule):
             if modality_key in self.processing_kwargs:
                 modality_kwargs[modality_key].update(self.processing_kwargs[modality_key])
 
-        prompt_length = None
+        # Flatten inputs to avoid padding overhead when using flash attention variable-length functions.
+        if self.use_flattened_inputs:
+            del common_kwargs["return_tensors"]
+            for kwargs in modality_kwargs.values():
+                kwargs.pop("padding", None)
+            modality_kwargs["text"]["return_attention_mask"] = False
+            modality_kwargs["audio"]["return_attention_mask"] = False
 
         modality, processor_inputs, extra_modality_kwargs = self.input_formatter.parse_inputs(inputs)
 
@@ -681,6 +749,7 @@ class Transformer(InputModule):
             )
 
         # Incorporate prompt into inputs if applicable
+        prompt_length = None
         if prompt and modality == "message":
             processor_inputs["message"] = self.input_formatter.prepend_prompt_to_messages(
                 processor_inputs["message"], prompt
@@ -692,6 +761,14 @@ class Transformer(InputModule):
             prompt_length = self._get_prompt_length(prompt, **kwargs)
 
         processor_output = self._call_processor(modality, processor_inputs, modality_kwargs, common_kwargs)
+
+        # Flatten inputs to avoid padding overhead when using flash attention variable-length functions.
+        if self.use_flattened_inputs:
+            # DataCollatorWithFlattening expects list[dict], but the processor returns dict[str, list].
+            per_sample = [dict(zip(processor_output, values)) for values in zip(*processor_output.values())]
+            processor_output = self.data_collator(per_sample)
+            processor_output.pop("labels", None)
+
         processor_output["modality"] = modality
         if prompt_length is not None:
             processor_output["prompt_length"] = prompt_length

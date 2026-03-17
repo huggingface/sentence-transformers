@@ -16,6 +16,7 @@ from multiprocessing import Queue
 from pathlib import Path
 from typing import Any, Literal
 
+import numpy as np
 import torch
 import torch.multiprocessing as mp
 import transformers
@@ -340,21 +341,55 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         """Returns the last module of this sequential embedder"""
         return self._modules[next(reversed(self._modules))]
 
-    def _text_length(self, text: list[int] | list[list[int]]) -> int:
-        """
-        Help function to get the length for the input text. Text can be either
-        a list of ints (which means a single text as input), or a tuple of list of ints
-        (representing several text inputs to the model).
-        """
+    @staticmethod
+    def _input_length(sample) -> int:
+        """Estimate the "size" of an input sample for length-based batch sorting.
 
-        if isinstance(text, dict):  # {key: value} case
-            return len(text["input_ids"])
-        elif not hasattr(text, "__len__"):  # Object has no len() method
-            return 1
-        elif len(text) == 0 or isinstance(text[0], int):  # Empty string or list of ints
-            return len(text)
-        else:
-            return sum([len(t) for t in text])  # Sum of length of individual strings
+        The exact value doesn't matter — it's only used to group similarly sized
+        inputs together so that padding waste is minimised within each batch.
+        """
+        # Strings -> character count (decent proxy for token count). Checked first
+        # because it's the most common input type and avoids heavier checks.
+        if isinstance(sample, str):
+            return len(sample)
+
+        # Text pair or non-text pair
+        if isinstance(sample, (tuple, list)):
+            if sample and not (isinstance(sample[0], dict) and "role" in sample[0]):
+                return sum(BaseModel._input_length(s) for s in sample)
+
+        # Dict inputs: audio/video wrappers, messages, multimodal dicts
+        if isinstance(sample, dict):
+            if "array" in sample:
+                return BaseModel._input_length(sample["array"])
+            if "content" in sample:
+                content = sample["content"]
+                if isinstance(content, str):
+                    return len(content)
+                if isinstance(content, list):
+                    return sum(len(str(item.get("text", ""))) for item in content if isinstance(item, dict))
+                return 1
+            # Multimodal dict: sum of component sizes
+            return sum(BaseModel._input_length(v) for v in sample.values())
+
+        # List of message dicts
+        if isinstance(sample, list) and sample and isinstance(sample[0], dict):
+            return sum(BaseModel._input_length(msg) for msg in sample)
+
+        # Tensors / arrays -> total number of elements
+        if isinstance(sample, (np.ndarray, torch.Tensor)):
+            return sample.nelement() if isinstance(sample, torch.Tensor) else sample.size
+
+        # PIL Image -> pixel count
+        try:
+            from PIL.Image import Image
+
+            if isinstance(sample, Image):
+                return sample.size[0] * sample.size[1]
+        except ImportError:
+            pass
+
+        return 1
 
     def forward(self, input: dict[str, Tensor], **kwargs) -> dict[str, Tensor]:
         """Forward pass through all modules in the model."""
@@ -396,7 +431,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         modality = None
         if inputs:
             try:
-                modality = infer_batch_modality(inputs)
+                modality = infer_batch_modality(inputs, supported_modalities=self.modalities)
             except (ValueError, TypeError):
                 pass
 

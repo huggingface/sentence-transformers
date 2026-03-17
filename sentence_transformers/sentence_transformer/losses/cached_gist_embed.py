@@ -11,6 +11,10 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import get_device_states, set_device_states
 from transformers import PreTrainedTokenizerBase
 
+from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
+    _create_minibatch,
+    _get_batch_size,
+)
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util import all_gather_with_grad
@@ -222,10 +226,7 @@ class CachedGISTEmbedLoss(nn.Module):
         """Do forward pass on a minibatch of the input features and return corresponding embeddings."""
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
-        sentence_feature_minibatch = {
-            key: value[begin:end] if isinstance(value, torch.Tensor) else value
-            for key, value in sentence_feature.items()
-        }
+        sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
         with random_state_context:
             with grad_context():
                 random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
@@ -251,9 +252,7 @@ class CachedGISTEmbedLoss(nn.Module):
         random_states: list[RandContext] | None = None,
     ) -> Iterator[tuple[Tensor, Tensor, RandContext | None]]:
         """Do forward pass on all the minibatches of the input features and yield corresponding embeddings."""
-        batch_size = next(
-            value.shape[0] for value in sentence_feature.values() if isinstance(value, torch.Tensor) and value.ndim > 0
-        )
+        batch_size = _get_batch_size(sentence_feature)
         for i, begin in enumerate(
             tqdm.trange(
                 0,

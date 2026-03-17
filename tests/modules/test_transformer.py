@@ -957,6 +957,52 @@ class TestEncoderOnlySaveLoadRoundtrip:
         self._assert_outputs_match(out1, out2)
 
 
+class TestCanFlattenInputs:
+    def test_false_for_non_feature_extraction_task(self):
+        """Flattening requires the feature-extraction task."""
+        transformer = Transformer(TINY_BERT, transformer_task="sequence-classification")
+        assert transformer._can_flatten_inputs() is False
+        assert transformer.use_flattened_inputs is False
+
+    def test_false_for_non_torch_backend(self):
+        """Flattening requires the torch backend."""
+        try:
+            transformer = Transformer(TINY_BERT, backend="onnx")
+        except (ImportError, Exception):
+            pytest.skip("ONNX backend not available")
+        assert transformer._can_flatten_inputs() is False
+        assert transformer.use_flattened_inputs is False
+
+    def test_false_when_no_flash_attention(self):
+        """Without flash attention, flattening should be disabled."""
+        transformer = Transformer(TINY_BERT)
+        # Default attn_implementation is not flash_attention_2
+        assert transformer._can_flatten_inputs() is False
+        assert transformer.use_flattened_inputs is False
+
+    def test_false_when_backend_incompatible(self, monkeypatch):
+        """If the model's auto_model reports backend incompatibility, flattening is disabled."""
+        transformer = Transformer(TINY_BERT)
+        monkeypatch.setattr(transformer.auto_model, "is_backend_compatible", lambda: False)
+        assert transformer._can_flatten_inputs() is False
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_true_with_flash_attention(self):
+        """With flash attention and a compatible model, flattening should be enabled."""
+        try:
+            import kernels  # noqa: F401
+        except ImportError:
+            pytest.skip("kernels library not available")
+
+        transformer = Transformer(
+            TINY_BERT,
+            model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": torch.bfloat16},
+        )
+        assert transformer._can_flatten_inputs() is True
+        assert transformer.use_flattened_inputs is True
+        assert transformer.data_collator is not None
+
+
 @pytest.mark.skipif(
     Version(transformers_version) >= Version("5.0.0"),
     reason="Test only applies to transformers v4",

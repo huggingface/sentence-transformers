@@ -582,9 +582,12 @@ class SentenceTransformer(BaseModel, FitMixin):
 
         truncate_dim = truncate_dim if truncate_dim is not None else self.truncate_dim
         all_embeddings = []
+        length_sorted_idx = np.argsort([-self._input_length(sen) for sen in inputs])
+        inputs_sorted = [inputs[idx] for idx in length_sorted_idx]
+
         is_hpu = self.device.type == "hpu"
-        for start_index in trange(0, len(inputs), batch_size, desc="Batches", disable=not show_progress_bar):
-            inputs_batch = inputs[start_index : start_index + batch_size]
+        for start_index in trange(0, len(inputs_sorted), batch_size, desc="Batches", disable=not show_progress_bar):
+            inputs_batch = inputs_sorted[start_index : start_index + batch_size]
             features = self.preprocess(inputs_batch, prompt=prompt, **kwargs)
 
             if is_hpu:
@@ -626,6 +629,8 @@ class SentenceTransformer(BaseModel, FitMixin):
                     embeddings = embeddings.cpu()
 
             all_embeddings.extend(embeddings)
+
+        all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
 
         if all_embeddings and precision and precision != "float32":
             all_embeddings = quantize_embeddings(all_embeddings, precision=precision)

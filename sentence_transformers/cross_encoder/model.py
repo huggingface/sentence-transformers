@@ -614,10 +614,12 @@ class CrossEncoder(BaseModel, FitMixin):
 
         self.to(device)
 
-        pred_scores = []
         self.eval()
-        for start_index in trange(0, len(inputs), batch_size, desc="Batches", disable=not show_progress_bar):
-            batch = inputs[start_index : start_index + batch_size]
+        pred_scores = []
+        length_sorted_idx = np.argsort([-self._input_length(pair) for pair in inputs])
+        inputs_sorted = [inputs[idx] for idx in length_sorted_idx]
+        for start_index in trange(0, len(inputs_sorted), batch_size, desc="Batches", disable=not show_progress_bar):
+            batch = inputs_sorted[start_index : start_index + batch_size]
             features = self.preprocess(batch, prompt=prompt, **kwargs)
             features = batch_to_device(features, device)
             out_features = self.forward(features, **kwargs)
@@ -637,6 +639,8 @@ class CrossEncoder(BaseModel, FitMixin):
 
         if self.num_labels == 1:
             pred_scores = [score[0] for score in pred_scores]
+
+        pred_scores = [pred_scores[idx] for idx in np.argsort(length_sorted_idx)]
 
         if convert_to_tensor:
             if len(pred_scores):

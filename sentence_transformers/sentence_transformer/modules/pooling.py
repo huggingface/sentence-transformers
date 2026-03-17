@@ -1,261 +1,312 @@
 from __future__ import annotations
 
+import functools
+import warnings
+from typing import Any, Literal
+
 import torch
 from torch import Tensor
 
 from sentence_transformers.base.modules.module import Module
 from sentence_transformers.util.decorators import deprecated_kwargs
 
+PoolingMode = Literal["cls", "max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken"]
+
+# Ordered to match the concatenation order in forward() for backward compatibility.
+_LEGACY_POOLING_MODE_KWARGS: dict[str, str] = {
+    "pooling_mode_cls_token": "cls",
+    "pooling_mode_max_tokens": "max",
+    "pooling_mode_mean_tokens": "mean",
+    "pooling_mode_mean_sqrt_len_tokens": "mean_sqrt_len_tokens",
+    "pooling_mode_weightedmean_tokens": "weightedmean",
+    "pooling_mode_lasttoken": "lasttoken",
+}
+
+
+def _convert_legacy_pooling_kwargs(kwargs: dict[str, Any]) -> None:
+    """Convert legacy ``pooling_mode_*`` bool keys to a single ``pooling_mode`` key in-place.
+
+    Old keys are removed from *kwargs*. If ``pooling_mode`` is already present, the old keys
+    are simply dropped.
+    """
+    found = [k for k in _LEGACY_POOLING_MODE_KWARGS if k in kwargs]
+    if not found:
+        return
+
+    if "pooling_mode" not in kwargs:
+        active_modes = tuple(mode for key, mode in _LEGACY_POOLING_MODE_KWARGS.items() if kwargs.get(key, False))
+        if not active_modes:
+            active_modes = ("mean",)
+        kwargs["pooling_mode"] = active_modes[0] if len(active_modes) == 1 else active_modes
+
+    for k in found:
+        del kwargs[k]
+
+
+def _deprecated_pooling_mode_kwargs(func):
+    """Decorator that converts legacy ``pooling_mode_*`` bool kwargs to the new ``pooling_mode`` format.
+
+    When any of the old boolean keyword arguments (e.g. ``pooling_mode_cls_token=True``) are passed,
+    this decorator collects the active modes, emits a deprecation warning, and forwards
+    a single ``pooling_mode`` argument to the wrapped function.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        old_kwargs = [k for k in kwargs if k in _LEGACY_POOLING_MODE_KWARGS]
+        if old_kwargs:
+            warnings.warn(
+                f"The {', '.join(f'`{k}`' for k in old_kwargs)} argument(s) are deprecated. "
+                "Please use `pooling_mode` instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            _convert_legacy_pooling_kwargs(kwargs)
+        return func(*args, **kwargs)
+
+    return wrapper
+
 
 class Pooling(Module):
-    """
-    Performs pooling (max or mean) on the token embeddings.
+    """Performs pooling on token embeddings to produce fixed-size sentence embeddings.
 
-    Using pooling, it generates from a variable sized sentence a fixed sized sentence embedding. This layer also allows
-    to use the CLS token if it is returned by the underlying word embedding model. You can concatenate multiple poolings
-    together.
+    Generates a fixed-size sentence embedding from variable-length token embeddings. Supports
+    multiple pooling strategies that can also be combined by passing a tuple of mode names.
 
     Args:
-        embedding_dimension: Dimensions for the input embeddings
-        pooling_mode: Either "cls", "lasttoken", "max", "mean",
-            "mean_sqrt_len_tokens", or "weightedmean". If set,
-            overwrites the other pooling_mode_* settings
-        pooling_mode_cls_token: Use the first token (CLS token) as text
-            representations
-        pooling_mode_max_tokens: Use max in each dimension over all
-            tokens.
-        pooling_mode_mean_tokens: Perform mean-pooling
-        pooling_mode_mean_sqrt_len_tokens: Perform mean-pooling, but
-            divide by sqrt(input_length).
-        pooling_mode_weightedmean_tokens: Perform (position) weighted
-            mean pooling. See `SGPT: GPT Sentence Embeddings for
-            Semantic Search <https://huggingface.co/papers/2202.08904>`_.
-        pooling_mode_lasttoken: Perform last token pooling. See `SGPT:
-            GPT Sentence Embeddings for Semantic Search
-            <https://huggingface.co/papers/2202.08904>`_ and `Text and Code
-            Embeddings by Contrastive Pre-Training
-            <https://huggingface.co/papers/2201.10005>`_.
-        include_prompt: If set to false, the prompt tokens are not
-            included in the pooling. This is useful for reproducing
-            work that does not include the prompt tokens in the pooling
-            like INSTRUCTOR, but otherwise not recommended.
+        embedding_dimension: The dimensionality of the input token embeddings.
+        pooling_mode: The pooling strategy to use. Can be a single mode name (``str``) or
+            a tuple/list of mode names to concatenate multiple pooled representations.
+            Valid modes: ``"cls"``, ``"max"``, ``"mean"``, ``"mean_sqrt_len_tokens"``,
+            ``"weightedmean"``, ``"lasttoken"``. Defaults to ``"mean"``.
+        include_prompt: If ``False``, prompt tokens are excluded from pooling. Useful for
+            models like `INSTRUCTOR <https://huggingface.co/hkunlp/instructor-large>`_ that
+            should not include the prompt in the pooled representation. Defaults to ``True``.
     """
 
-    POOLING_MODES = (
-        "cls",
-        "lasttoken",
-        "max",
-        "mean",
-        "mean_sqrt_len_tokens",
-        "weightedmean",
-    )
+    POOLING_MODES = ("cls", "max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken")
 
-    config_keys = [
-        "embedding_dimension",
-        "pooling_mode_cls_token",
-        "pooling_mode_mean_tokens",
-        "pooling_mode_max_tokens",
-        "pooling_mode_mean_sqrt_len_tokens",
-        "pooling_mode_weightedmean_tokens",
-        "pooling_mode_lasttoken",
-        "include_prompt",
-    ]
+    config_keys = ["embedding_dimension", "pooling_mode", "include_prompt"]
     config_key_renames = {"word_embedding_dimension": "embedding_dimension"}
 
     @deprecated_kwargs(**config_key_renames)
+    @_deprecated_pooling_mode_kwargs
     def __init__(
         self,
         embedding_dimension: int,
-        pooling_mode: str | None = None,
-        pooling_mode_cls_token: bool = False,
-        pooling_mode_max_tokens: bool = False,
-        pooling_mode_mean_tokens: bool = True,
-        pooling_mode_mean_sqrt_len_tokens: bool = False,
-        pooling_mode_weightedmean_tokens: bool = False,
-        pooling_mode_lasttoken: bool = False,
+        pooling_mode: PoolingMode | tuple[PoolingMode, ...] | list[PoolingMode] = "mean",
         include_prompt: bool = True,
     ) -> None:
         super().__init__()
 
-        if pooling_mode is not None:  # Set pooling mode by string
-            pooling_mode = pooling_mode.lower()
+        if isinstance(pooling_mode, (list, tuple)):
+            pooling_mode = pooling_mode[0] if len(pooling_mode) == 1 else tuple(pooling_mode)
 
-            if pooling_mode not in self.POOLING_MODES:
-                raise ValueError(
-                    f"Set invalid pooling mode: {pooling_mode}. Valid pooling modes are: {self.POOLING_MODES}."
-                )
-
-            pooling_mode_cls_token = pooling_mode == "cls"
-            pooling_mode_max_tokens = pooling_mode == "max"
-            pooling_mode_mean_tokens = pooling_mode == "mean"
-            pooling_mode_mean_sqrt_len_tokens = pooling_mode == "mean_sqrt_len_tokens"
-            pooling_mode_weightedmean_tokens = pooling_mode == "weightedmean"
-            pooling_mode_lasttoken = pooling_mode == "lasttoken"
+        modes = (pooling_mode,) if isinstance(pooling_mode, str) else pooling_mode
+        for mode in modes:
+            if mode not in self.POOLING_MODES:
+                raise ValueError(f"Invalid pooling mode: {mode!r}. Valid pooling modes are: {self.POOLING_MODES}.")
 
         self.embedding_dimension = embedding_dimension
-        self.pooling_mode_cls_token = pooling_mode_cls_token
-        self.pooling_mode_mean_tokens = pooling_mode_mean_tokens
-        self.pooling_mode_max_tokens = pooling_mode_max_tokens
-        self.pooling_mode_mean_sqrt_len_tokens = pooling_mode_mean_sqrt_len_tokens
-        self.pooling_mode_weightedmean_tokens = pooling_mode_weightedmean_tokens
-        self.pooling_mode_lasttoken = pooling_mode_lasttoken
-
+        self.pooling_mode = pooling_mode
         self.include_prompt = include_prompt
+        self.pooling_output_dimension = len(modes) * embedding_dimension
 
-        pooling_mode_multiplier = sum(
-            [
-                pooling_mode_cls_token,
-                pooling_mode_max_tokens,
-                pooling_mode_mean_tokens,
-                pooling_mode_mean_sqrt_len_tokens,
-                pooling_mode_weightedmean_tokens,
-                pooling_mode_lasttoken,
-            ]
-        )
-        self.pooling_output_dimension = pooling_mode_multiplier * embedding_dimension
+    @classmethod
+    def load_config(cls, *args, **kwargs) -> dict[str, Any]:
+        config = super().load_config(*args, **kwargs)
+        _convert_legacy_pooling_kwargs(config)
+        return config
 
-    def __repr__(self) -> str:
-        return f"Pooling({self.get_config_dict()})"
-
-    def get_pooling_mode_str(self) -> str:
-        """Returns the pooling mode as string"""
-        modes = []
-        if self.pooling_mode_cls_token:
-            modes.append("cls")
-        if self.pooling_mode_mean_tokens:
-            modes.append("mean")
-        if self.pooling_mode_max_tokens:
-            modes.append("max")
-        if self.pooling_mode_mean_sqrt_len_tokens:
-            modes.append("mean_sqrt_len_tokens")
-        if self.pooling_mode_weightedmean_tokens:
-            modes.append("weightedmean")
-        if self.pooling_mode_lasttoken:
-            modes.append("lasttoken")
-
-        return "+".join(modes)
-
-    def forward(self, features: dict[str, Tensor]) -> dict[str, Tensor]:
-        # TODO: Definitely don't keep this, we want to be smarter with recognizing when we have to include a Pooling module
-        # if "sentence_embedding" in features:
-        #     return features
+    def forward(self, features: dict[str, Tensor | Any], **kwargs) -> dict[str, Tensor | Any]:
         token_embeddings = features["token_embeddings"]
-        attention_mask = (
-            features["attention_mask"]
-            if "attention_mask" in features and features["attention_mask"].size(-1) == token_embeddings.size(1)
-            else torch.ones(token_embeddings.shape[:-1], device=token_embeddings.device, dtype=torch.int64)
-        )
+        prompt_length: int | None = None
+
         if not self.include_prompt and "prompt_length" in features:
-            prompt_length = features["prompt_length"]
-            # prompt_length is either:
-            # * an int (in inference)
-            # * a tensor of shape (bs), all the same value (in training with an IterableDataset)
-            # * a tensor of shape (1) (in training with a Dataset)
-            # We turn all into an int
-            if isinstance(prompt_length, torch.Tensor):
-                prompt_length = prompt_length[0].item()
+            # prompt_length is either an int (inference), a tensor of shape (bs) with all
+            # the same value (training with IterableDataset), or a tensor of shape (1)
+            # (training with Dataset). We normalize all to a plain int.
+            pl = features["prompt_length"]
+            prompt_length = int(pl[0].item()) if isinstance(pl, torch.Tensor) else int(pl)
 
-            # Check where the first non-pad token is located
-            pad_lengths = attention_mask.to(torch.int32).argmax(dim=1)
-            if pad_lengths.sum() == 0:
-                # If no left-padding, we can directly set the first `prompt_length` tokens to 0
-                attention_mask[:, :prompt_length] = 0
+        if "cu_seq_lens_q" in features:
+            output_vectors = self._forward_flattened(token_embeddings, features, prompt_length=prompt_length)
+        else:
+            if "attention_mask" in features and features["attention_mask"].size(-1) == token_embeddings.size(1):
+                attention_mask = features["attention_mask"]
             else:
-                # Otherwise, we set all pad + prompt tokens to 0
-                prompt_and_pad_lengths = pad_lengths + prompt_length  # shape: (bs)
-                seq_len = attention_mask.size(1)
-                positions = torch.arange(seq_len, device=attention_mask.device).unsqueeze(0)  # shape: (1, seq_len)
-                mask = positions < prompt_and_pad_lengths.unsqueeze(1)  # shape: (bs, seq_len)
-                attention_mask[mask] = 0
+                attention_mask = torch.ones(
+                    token_embeddings.shape[:-1], device=token_embeddings.device, dtype=torch.int64
+                )
 
-        ## Pooling strategy
-        output_vectors = []
-        if self.pooling_mode_cls_token:
-            cls_token = features.get("cls_token_embeddings", token_embeddings[:, 0])  # Take first token by default
-            output_vectors.append(cls_token)
-        if self.pooling_mode_max_tokens:
-            input_mask_expanded = (
-                attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(token_embeddings.dtype)
-            )
-            token_embeddings[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
-            max_over_time = torch.max(token_embeddings, 1)[0]
-            output_vectors.append(max_over_time)
-        if self.pooling_mode_mean_tokens or self.pooling_mode_mean_sqrt_len_tokens:
-            input_mask_expanded = (
-                attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(token_embeddings.dtype)
-            )
-            sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
+            if prompt_length is not None:
+                attention_mask = self._exclude_prompt_from_mask(attention_mask, prompt_length)
 
-            # If tokens are weighted (by WordWeights layer), feature 'token_weights_sum' will be present
-            if "token_weights_sum" in features:
-                sum_mask = features["token_weights_sum"].unsqueeze(-1).expand(sum_embeddings.size())
-            else:
-                sum_mask = input_mask_expanded.sum(1)
+            output_vectors = self._forward_padded(token_embeddings, attention_mask, features)
 
-            sum_mask = torch.clamp(sum_mask, min=1e-9)
-
-            if self.pooling_mode_mean_tokens:
-                output_vectors.append(sum_embeddings / sum_mask)
-            if self.pooling_mode_mean_sqrt_len_tokens:
-                output_vectors.append(sum_embeddings / torch.sqrt(sum_mask))
-        if self.pooling_mode_weightedmean_tokens:
-            input_mask_expanded = (
-                attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(token_embeddings.dtype)
-            )
-            # token_embeddings shape: bs, seq, hidden_dim
-            weights = (
-                torch.arange(start=1, end=token_embeddings.shape[1] + 1)
-                .unsqueeze(0)
-                .unsqueeze(-1)
-                .expand(token_embeddings.size())
-                .to(token_embeddings.dtype)
-                .to(token_embeddings.device)
-            )
-            assert weights.shape == token_embeddings.shape == input_mask_expanded.shape
-            input_mask_expanded = input_mask_expanded * weights
-
-            sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
-
-            # If tokens are weighted (by WordWeights layer), feature 'token_weights_sum' will be present
-            if "token_weights_sum" in features:
-                sum_mask = features["token_weights_sum"].unsqueeze(-1).expand(sum_embeddings.size())
-            else:
-                sum_mask = input_mask_expanded.sum(1)
-
-            sum_mask = torch.clamp(sum_mask, min=1e-9)
-            output_vectors.append(sum_embeddings / sum_mask)
-        if self.pooling_mode_lasttoken:
-            bs, seq_len, hidden_dim = token_embeddings.shape
-            # attention_mask shape: (bs, seq_len)
-            # Get shape [bs] indices of the last token (i.e. the last token for each batch item)
-            # Use flip and max() to get the last index of 1 in the attention mask
-
-            if torch.jit.is_tracing():
-                # Avoid tracing the argmax with int64 input that can not be handled by ONNX Runtime: https://github.com/microsoft/onnxruntime/issues/10068
-                attention_mask = attention_mask.to(torch.int32)
-
-            values, indices = attention_mask.flip(1).max(1)
-            indices = torch.where(values == 0, seq_len - 1, indices)
-            gather_indices = seq_len - indices - 1
-
-            # Turn indices from shape [bs] --> [bs, 1, hidden_dim]
-            gather_indices = gather_indices.unsqueeze(-1).repeat(1, hidden_dim)
-            gather_indices = gather_indices.unsqueeze(1)
-            assert gather_indices.shape == (bs, 1, hidden_dim)
-
-            # Gather along the 1st dim (seq_len) (bs, seq_len, hidden_dim -> bs, hidden_dim)
-            # Actually no need for the attention mask as we gather the last token where attn_mask = 1
-            # but as we set some indices (which shouldn't be attended to) to 0 with clamp, we
-            # use the attention mask to ignore them again
-            input_mask_expanded = (
-                attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(token_embeddings.dtype)
-            )
-            embedding = torch.gather(token_embeddings * input_mask_expanded, 1, gather_indices).squeeze(dim=1)
-            output_vectors.append(embedding)
-
-        output_vector = torch.cat(output_vectors, 1)
-        features["sentence_embedding"] = output_vector
+        features["sentence_embedding"] = torch.cat(output_vectors, dim=-1)
         return features
+
+    @staticmethod
+    def _exclude_prompt_from_mask(attention_mask: Tensor, prompt_length: int) -> Tensor:
+        """Zero out prompt token positions in the attention mask so they are excluded from pooling."""
+        pad_lengths = attention_mask.to(torch.int32).argmax(dim=1)
+        if pad_lengths.sum() == 0:
+            # No left-padding: directly zero-out the first ``prompt_length`` positions.
+            attention_mask[:, :prompt_length] = 0
+        else:
+            # Left-padding present: zero-out all pad + prompt positions.
+            positions = torch.arange(attention_mask.size(1), device=attention_mask.device).unsqueeze(0)
+            attention_mask[positions < (pad_lengths + prompt_length).unsqueeze(1)] = 0
+        return attention_mask
+
+    def _forward_padded(
+        self,
+        token_embeddings: Tensor,
+        attention_mask: Tensor,
+        features: dict[str, Tensor],
+    ) -> list[Tensor]:
+        modes = (self.pooling_mode,) if isinstance(self.pooling_mode, str) else self.pooling_mode
+        output_vectors: list[Tensor] = []
+
+        # Pre-compute shared state for mean variants to avoid duplicate work.
+        mean_sum: Tensor | None = None
+        mean_mask: Tensor | None = None
+
+        for mode in modes:
+            if mode == "cls":
+                output_vectors.append(features.get("cls_token_embeddings", token_embeddings[:, 0]))
+
+            elif mode == "max":
+                mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
+                output_vectors.append(token_embeddings.masked_fill(mask == 0, float("-inf")).max(dim=1).values)
+
+            elif mode in ("mean", "mean_sqrt_len_tokens"):
+                if mean_sum is None:
+                    mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
+                    mean_sum = (token_embeddings * mask).sum(dim=1)
+                    if "token_weights_sum" in features:
+                        mean_mask = features["token_weights_sum"].unsqueeze(-1).expand_as(mean_sum)
+                    else:
+                        mean_mask = mask.sum(dim=1)
+                    mean_mask = torch.clamp(mean_mask, min=1e-9)
+
+                if mode == "mean":
+                    output_vectors.append(mean_sum / mean_mask)
+                else:
+                    output_vectors.append(mean_sum / torch.sqrt(mean_mask))
+
+            elif mode == "weightedmean":
+                mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
+                weights = (
+                    torch.arange(start=1, end=token_embeddings.shape[1] + 1, device=token_embeddings.device)
+                    .unsqueeze(0)
+                    .unsqueeze(-1)
+                    .expand_as(token_embeddings)
+                    .to(token_embeddings.dtype)
+                )
+                weighted_mask = mask * weights
+                sum_embeddings = (token_embeddings * weighted_mask).sum(dim=1)
+                if "token_weights_sum" in features:
+                    sum_mask = features["token_weights_sum"].unsqueeze(-1).expand_as(sum_embeddings)
+                else:
+                    sum_mask = weighted_mask.sum(dim=1)
+                output_vectors.append(sum_embeddings / torch.clamp(sum_mask, min=1e-9))
+
+            elif mode == "lasttoken":
+                bs, seq_len, hidden_dim = token_embeddings.shape
+                if torch.jit.is_tracing():
+                    # Avoid tracing argmax with int64: https://github.com/microsoft/onnxruntime/issues/10068
+                    attention_mask = attention_mask.to(torch.int32)
+                values, indices = attention_mask.flip(1).max(1)
+                indices = torch.where(values == 0, seq_len - 1, indices)
+                gather_indices = (seq_len - indices - 1).unsqueeze(-1).unsqueeze(1).expand(-1, 1, hidden_dim)
+                mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
+                output_vectors.append(torch.gather(token_embeddings * mask, 1, gather_indices).squeeze(dim=1))
+
+        return output_vectors
+
+    def _forward_flattened(
+        self,
+        token_embeddings: Tensor,
+        features: dict[str, Tensor],
+        prompt_length: int | None = None,
+    ) -> list[Tensor]:
+        all_embeddings = token_embeddings.squeeze(0)  # (total_tokens, hidden_dim)
+        cu_seq_lens_q = features["cu_seq_lens_q"]  # (num_seqs + 1,)
+        seq_lengths = cu_seq_lens_q[1:] - cu_seq_lens_q[:-1]  # (num_seqs,)
+        num_seqs = seq_lengths.shape[0]
+        hidden_dim = all_embeddings.shape[1]
+        device = all_embeddings.device
+
+        modes = (self.pooling_mode,) if isinstance(self.pooling_mode, str) else self.pooling_mode
+
+        # For scatter-based modes, prepare segment IDs and optionally filter out prompt tokens.
+        embeddings = all_embeddings
+        segment_ids: Tensor | None = None
+        effective_lengths = seq_lengths
+        token_positions: Tensor | None = None  # lazily set; needed by weightedmean and prompt filtering
+
+        needs_scatter = any(m not in ("cls", "lasttoken") for m in modes)
+        if needs_scatter:
+            # Segment IDs map each token to its sequence index: [0, 0, .., 1, 1, .., 2, 2, ..]
+            if "seq_idx" in features:
+                segment_ids = features["seq_idx"].squeeze(0).long()
+                num_seqs = int(segment_ids.max().item()) + 1
+                effective_lengths = torch.bincount(segment_ids, minlength=num_seqs)
+            else:
+                segment_ids = torch.repeat_interleave(torch.arange(num_seqs, device=device), seq_lengths)
+
+            if prompt_length is not None:
+                clamped_prompt = min(prompt_length, int(seq_lengths.min().item()))
+                effective_lengths = seq_lengths - clamped_prompt
+                offsets = torch.repeat_interleave(cu_seq_lens_q[:-1], seq_lengths)
+                within_seq_pos = torch.arange(all_embeddings.shape[0], device=device) - offsets
+                valid = within_seq_pos >= clamped_prompt
+                embeddings = all_embeddings[valid]
+                segment_ids = segment_ids[valid]
+                token_positions = within_seq_pos[valid]
+
+        output_vectors: list[Tensor] = []
+        mean_sum: Tensor | None = None
+
+        for mode in modes:
+            if mode == "cls":
+                output_vectors.append(features.get("cls_token_embeddings", all_embeddings[cu_seq_lens_q[:-1]]))
+
+            elif mode == "lasttoken":
+                output_vectors.append(all_embeddings[cu_seq_lens_q[1:] - 1])
+
+            elif mode in ("mean", "mean_sqrt_len_tokens"):
+                if mean_sum is None:
+                    mean_sum = torch.zeros(num_seqs, hidden_dim, device=device, dtype=embeddings.dtype)
+                    mean_sum = mean_sum.index_add(0, segment_ids, embeddings)
+                if mode == "mean":
+                    output_vectors.append(mean_sum / torch.clamp(effective_lengths.unsqueeze(1), min=1e-9))
+                else:
+                    output_vectors.append(
+                        mean_sum / torch.sqrt(torch.clamp(effective_lengths.unsqueeze(1).float(), min=1e-9))
+                    )
+
+            elif mode == "max":
+                expanded_ids = segment_ids.unsqueeze(1).expand(-1, hidden_dim)
+                max_emb = torch.full((num_seqs, hidden_dim), float("-inf"), device=device, dtype=embeddings.dtype)
+                max_emb = max_emb.scatter_reduce(0, expanded_ids, embeddings, reduce="amax")
+                output_vectors.append(max_emb)
+
+            elif mode == "weightedmean":
+                if token_positions is None:
+                    offsets = torch.repeat_interleave(cu_seq_lens_q[:-1], seq_lengths)
+                    token_positions = torch.arange(embeddings.shape[0], device=device) - offsets
+                weights = (token_positions + 1).to(embeddings.dtype).unsqueeze(1)
+                weighted_emb = embeddings * weights
+                weighted_sum = torch.zeros(num_seqs, hidden_dim, device=device, dtype=embeddings.dtype)
+                weighted_sum = weighted_sum.index_add(0, segment_ids, weighted_emb)
+                weight_sum = torch.zeros(num_seqs, 1, device=device, dtype=embeddings.dtype)
+                weight_sum = weight_sum.index_add(0, segment_ids, weights)
+                output_vectors.append(weighted_sum / torch.clamp(weight_sum, min=1e-9))
+
+        return output_vectors
 
     def get_embedding_dimension(self) -> int:
         return self.pooling_output_dimension

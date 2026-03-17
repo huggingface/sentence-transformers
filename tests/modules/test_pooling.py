@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import warnings
+from pathlib import Path
+from typing import Any, cast
+
 import pytest
 import torch
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.modules import Pooling
+from sentence_transformers.sentence_transformer.modules.pooling import _convert_legacy_pooling_kwargs
 
 
 @pytest.mark.parametrize("padding_side", ["right", "left"])
@@ -81,7 +86,7 @@ def test_pooling_forward_all_strategies(pooling_mode: str) -> None:
     attention_mask = torch.tensor(
         [
             [1, 1, 1, 0, 0],
-            [0, 1, 1, 1, 0],
+            [0, 1, 1, 1, 1],
             [1, 1, 1, 1, 1],
         ],
         dtype=torch.int64,
@@ -101,6 +106,33 @@ def test_pooling_forward_all_strategies(pooling_mode: str) -> None:
     )
 
 
+@pytest.mark.parametrize("pooling_mode", Pooling.POOLING_MODES)
+@pytest.mark.parametrize("flattened", [False, True], ids=["padded", "flattened"])
+def test_pooling_gradient_flow(pooling_mode: str, flattened: bool) -> None:
+    """Verify that gradients flow through every pooling mode in both padded and flattened paths."""
+    embedding_dimension = 8
+    pooling = Pooling(embedding_dimension=embedding_dimension, pooling_mode=pooling_mode)
+
+    token_embeddings = torch.randn(2, 6, embedding_dimension, requires_grad=True)
+    attention_mask = torch.tensor([[1, 1, 1, 1, 0, 0], [1, 1, 1, 1, 1, 1]], dtype=torch.int64)
+
+    if flattened:
+        features = _build_flattened_features(token_embeddings.detach(), attention_mask)
+        # Replace with a fresh leaf tensor so we can check .grad
+        flat_embeddings = features["token_embeddings"].detach().requires_grad_(True)
+        features["token_embeddings"] = flat_embeddings
+    else:
+        features = {"token_embeddings": token_embeddings, "attention_mask": attention_mask}
+
+    output = pooling(features)
+    loss = output["sentence_embedding"].sum()
+    loss.backward()
+
+    grad_tensor = flat_embeddings if flattened else token_embeddings
+    assert grad_tensor.grad is not None, f"No gradient computed for {pooling_mode}"
+    assert grad_tensor.grad.abs().sum() > 0, f"Gradient is all zeros for {pooling_mode}"
+
+
 def test_pooling_cls_uses_cls_token_embeddings() -> None:
     dim = 4
     pooling = Pooling(embedding_dimension=dim, pooling_mode="cls")
@@ -115,6 +147,33 @@ def test_pooling_cls_uses_cls_token_embeddings() -> None:
         "attention_mask": attention_mask,
         "cls_token_embeddings": cls_token_embeddings,
     }
+
+    outputs = pooling(features)
+    sentence_embedding = outputs["sentence_embedding"]
+
+    assert torch.allclose(sentence_embedding, cls_token_embeddings)
+
+
+def test_pooling_flattened_cls_uses_cls_token_embeddings() -> None:
+    dim = 4
+    pooling = Pooling(embedding_dimension=dim, pooling_mode="cls")
+
+    token_embeddings = torch.tensor(
+        [
+            [[1.0, 2.0, 3.0, 4.0], [10.0, 20.0, 30.0, 40.0], [100.0, 200.0, 300.0, 400.0]],
+            [[5.0, 6.0, 7.0, 8.0], [50.0, 60.0, 70.0, 80.0], [500.0, 600.0, 700.0, 800.0]],
+        ]
+    )
+    attention_mask = torch.ones(2, 3, dtype=torch.int64)
+    cls_token_embeddings = torch.tensor(
+        [
+            [0.1, 0.2, 0.3, 0.4],
+            [0.5, 0.6, 0.7, 0.8],
+        ]
+    )
+
+    features = _build_flattened_features(token_embeddings, attention_mask)
+    features["cls_token_embeddings"] = cls_token_embeddings
 
     outputs = pooling(features)
     sentence_embedding = outputs["sentence_embedding"]
@@ -148,8 +207,7 @@ def test_pooling_mean_and_mean_sqrt_len_tokens() -> None:
     # output dimension doubles and that both values are correct.
     pooling = Pooling(
         embedding_dimension=dim,
-        pooling_mode_mean_tokens=True,
-        pooling_mode_mean_sqrt_len_tokens=True,
+        pooling_mode=("mean", "mean_sqrt_len_tokens"),
     )
 
     token_embeddings = torch.tensor(
@@ -302,3 +360,238 @@ def test_pooling_excludes_prompt_tokens_directly(padding_side: str, prompt_lengt
         assert torch.all(attention_mask[i, : expected_zero_upto[i]] == 0)
         # All original padding positions must still be 0
         assert torch.all(attention_mask[i, original_attention_mask[i] == 0] == 0)
+
+
+# Shared test fixtures: two sequences with different lengths and a mix of padding.
+# seq 0: 3 real tokens + 1 pad, seq 1: 4 real tokens, no pad
+_DIM = 2
+_TOKEN_EMBEDDINGS = torch.tensor(
+    [
+        [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [99.0, 99.0]],
+        [[10.0, 20.0], [30.0, 40.0], [50.0, 60.0], [70.0, 80.0]],
+    ]
+)
+_ATTENTION_MASK = torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]], dtype=torch.int64)
+
+# Pre-computed expected outputs per mode.
+# seq 0 tokens: [1,2], [3,4], [5,6] (3 attended), seq 1 tokens: [10,20], [30,40], [50,60], [70,80] (4 attended)
+_EXPECTED_BY_MODE: dict[str, torch.Tensor] = {
+    "cls": torch.tensor([[1.0, 2.0], [10.0, 20.0]]),
+    "max": torch.tensor([[5.0, 6.0], [70.0, 80.0]]),
+    "mean": torch.tensor([[3.0, 4.0], [40.0, 50.0]]),
+    "mean_sqrt_len_tokens": torch.tensor([[9.0, 12.0], [160.0, 200.0]])
+    / torch.tensor([[3.0, 3.0], [4.0, 4.0]]).sqrt(),
+    # weightedmean: sum(w_i * x_i) / sum(w_i) with weights [1, 2, 3, 4]
+    # seq 0: (1*[1,2] + 2*[3,4] + 3*[5,6]) / 6 = [22,28]/6
+    # seq 1: (1*[10,20] + 2*[30,40] + 3*[50,60] + 4*[70,80]) / 10 = [500,600]/10
+    "weightedmean": torch.tensor([[22.0 / 6.0, 28.0 / 6.0], [500.0 / 10.0, 600.0 / 10.0]]),
+    "lasttoken": torch.tensor([[5.0, 6.0], [70.0, 80.0]]),
+}
+
+_EXPECTED_BY_MODE_WITH_PROMPT_EXCLUDED: dict[str, torch.Tensor] = {
+    "max": torch.tensor([[5.0, 6.0], [70.0, 80.0]]),
+    "mean": torch.tensor([[4.0, 5.0], [50.0, 60.0]]),
+    "mean_sqrt_len_tokens": torch.tensor([[8.0, 10.0], [150.0, 180.0]])
+    / torch.tensor([[2.0, 2.0], [3.0, 3.0]]).sqrt(),
+    "weightedmean": torch.tensor([[21.0 / 5.0, 26.0 / 5.0], [490.0 / 9.0, 580.0 / 9.0]]),
+    "lasttoken": torch.tensor([[5.0, 6.0], [70.0, 80.0]]),
+}
+
+
+def _build_flattened_features(token_embeddings: torch.Tensor, attention_mask: torch.Tensor) -> dict[str, torch.Tensor]:
+    """Convert padded inputs to flattened format using DataCollatorWithFlattening."""
+    from transformers import DataCollatorWithFlattening
+
+    collator = DataCollatorWithFlattening(return_seq_idx=True, return_flash_attn_kwargs=True, return_position_ids=True)
+    seq_lengths = attention_mask.sum(dim=1)
+    samples = [{"input_ids": torch.zeros(int(length.item()), dtype=torch.long)} for length in seq_lengths]
+    collated = collator(samples)
+
+    flat = torch.cat([token_embeddings[i, : int(length.item())] for i, length in enumerate(seq_lengths)], dim=0)
+    collated["token_embeddings"] = flat.unsqueeze(0)
+    collated.pop("input_ids", None)
+    collated.pop("labels", None)
+    return collated
+
+
+@pytest.mark.parametrize("pooling_mode", Pooling.POOLING_MODES)
+@pytest.mark.parametrize("flattened", [False, True], ids=["padded", "flattened"])
+def test_pooling_exact_values(pooling_mode: str, flattened: bool) -> None:
+    """Verify each pooling mode produces the expected exact values."""
+    pooling = Pooling(embedding_dimension=_DIM, pooling_mode=pooling_mode)
+    if flattened:
+        features = _build_flattened_features(_TOKEN_EMBEDDINGS, _ATTENTION_MASK)
+    else:
+        features = {"token_embeddings": _TOKEN_EMBEDDINGS, "attention_mask": _ATTENTION_MASK}
+    output = pooling(features)["sentence_embedding"]
+    expected = _EXPECTED_BY_MODE[pooling_mode]
+    assert output.shape == expected.shape, f"Shape mismatch: {output.shape} vs {expected.shape}"
+    assert torch.allclose(output, expected, atol=1e-5), f"Value mismatch for {pooling_mode}:\n{output}\nvs\n{expected}"
+
+
+@pytest.mark.parametrize(
+    "modes",
+    [
+        ("cls", "mean"),
+        ("mean", "mean_sqrt_len_tokens"),
+        ("cls", "max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken"),
+    ],
+)
+@pytest.mark.parametrize("flattened", [False, True], ids=["padded", "flattened"])
+def test_pooling_multi_mode(modes: tuple[str, ...], flattened: bool) -> None:
+    """Verify multiple pooling modes are concatenated in the correct order."""
+    pooling = Pooling(embedding_dimension=_DIM, pooling_mode=modes)
+    if flattened:
+        features = _build_flattened_features(_TOKEN_EMBEDDINGS, _ATTENTION_MASK)
+    else:
+        features = {"token_embeddings": _TOKEN_EMBEDDINGS, "attention_mask": _ATTENTION_MASK}
+    output = pooling(features)["sentence_embedding"]
+    expected = torch.cat([_EXPECTED_BY_MODE[m] for m in modes], dim=-1)
+    assert output.shape == expected.shape
+    assert torch.allclose(output, expected, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "pooling_mode",
+    ["max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken"],
+)
+@pytest.mark.parametrize("flattened", [False, True], ids=["padded", "flattened"])
+def test_pooling_excludes_prompt_tokens_for_padded_and_flattened_inputs(pooling_mode: str, flattened: bool) -> None:
+    pooling = Pooling(embedding_dimension=_DIM, pooling_mode=pooling_mode, include_prompt=False)
+
+    features: dict[str, Any]
+    if flattened:
+        features = cast(dict[str, Any], _build_flattened_features(_TOKEN_EMBEDDINGS, _ATTENTION_MASK))
+    else:
+        features = {
+            "token_embeddings": _TOKEN_EMBEDDINGS,
+            "attention_mask": _ATTENTION_MASK.clone(),
+        }
+    features["prompt_length"] = 1
+
+    output = pooling(features)["sentence_embedding"]
+    expected = _EXPECTED_BY_MODE_WITH_PROMPT_EXCLUDED[pooling_mode]
+
+    assert output.shape == expected.shape
+    assert torch.allclose(output, expected, atol=1e-5)
+
+
+# Legacy kwargs / config compatibility
+
+
+def test_pooling_legacy_bool_kwargs_with_deprecation_warning() -> None:
+    """Legacy ``pooling_mode_*`` bool kwargs should still work but emit a FutureWarning."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        pooling = Pooling(embedding_dimension=8, pooling_mode_cls_token=True)
+
+    assert any(issubclass(warning.category, FutureWarning) for warning in w)
+    assert pooling.pooling_mode == "cls"
+    assert pooling.pooling_output_dimension == 8
+
+
+def test_pooling_legacy_multiple_bool_kwargs() -> None:
+    """Multiple legacy bool kwargs should produce a tuple of modes in forward order."""
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        pooling = Pooling(
+            embedding_dimension=8,
+            pooling_mode_cls_token=True,
+            pooling_mode_mean_tokens=True,
+        )
+    assert pooling.pooling_mode == ("cls", "mean")
+    assert pooling.pooling_output_dimension == 16
+
+
+def test_pooling_legacy_config_conversion() -> None:
+    """Verify that old-style saved configs are silently converted when loading."""
+    old_config = {
+        "embedding_dimension": 384,
+        "pooling_mode_cls_token": False,
+        "pooling_mode_mean_tokens": True,
+        "pooling_mode_max_tokens": False,
+        "pooling_mode_mean_sqrt_len_tokens": False,
+        "pooling_mode_weightedmean_tokens": False,
+        "pooling_mode_lasttoken": False,
+        "include_prompt": True,
+    }
+    _convert_legacy_pooling_kwargs(old_config)
+    assert old_config == {"embedding_dimension": 384, "pooling_mode": "mean", "include_prompt": True}
+
+
+def test_pooling_legacy_config_conversion_multi_mode() -> None:
+    """Verify legacy config with multiple active modes converts to a tuple."""
+    old_config = {
+        "embedding_dimension": 384,
+        "pooling_mode_cls_token": True,
+        "pooling_mode_mean_tokens": True,
+        "pooling_mode_max_tokens": False,
+        "pooling_mode_mean_sqrt_len_tokens": False,
+        "pooling_mode_weightedmean_tokens": False,
+        "pooling_mode_lasttoken": False,
+        "include_prompt": True,
+    }
+    _convert_legacy_pooling_kwargs(old_config)
+    assert old_config == {"embedding_dimension": 384, "pooling_mode": ("cls", "mean"), "include_prompt": True}
+
+
+def test_pooling_config_round_trip(tmp_path: Path) -> None:
+    """Verify config survives a save/load round-trip through JSON."""
+    for mode in ["cls", ("cls", "mean")]:
+        pooling = Pooling(embedding_dimension=8, pooling_mode=mode)
+        pooling.save(str(tmp_path))
+        loaded = Pooling.load(str(tmp_path))
+        assert loaded.pooling_mode == pooling.pooling_mode
+        assert loaded.embedding_dimension == pooling.embedding_dimension
+        assert loaded.include_prompt == pooling.include_prompt
+
+
+def test_pooling_invalid_mode_raises() -> None:
+    with pytest.raises(ValueError, match="Invalid pooling mode"):
+        Pooling(embedding_dimension=8, pooling_mode="nonexistent")
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("pooling_mode", Pooling.POOLING_MODES)
+def test_pooling_flattened_live_flash_attention(pooling_mode: str) -> None:
+    """End-to-end test comparing flattened (flash attention) vs padded pooling on a real model.
+
+    Loads a real SentenceTransformer with flash_attention_2, runs inference, and compares
+    the sentence embeddings against the same model without flash attention.
+    """
+    try:
+        import kernels  # noqa: F401
+    except ImportError:
+        pytest.skip("kernels library not available")
+
+    sentences = ["This is a test sentence.", "Another one that is a bit longer for variety."]
+
+    # Reference model: standard padded inference in float16
+    ref_model = SentenceTransformer(
+        "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+        model_kwargs={"torch_dtype": torch.float16},
+    )
+    for module in ref_model:
+        if isinstance(module, Pooling):
+            module.pooling_mode = pooling_mode
+            module.pooling_output_dimension = module.embedding_dimension
+            break
+    ref_embeddings = ref_model.encode(sentences, convert_to_tensor=True)
+
+    # Flash attention model: flattened inference in float16
+    flash_model = SentenceTransformer(
+        "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+        model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": torch.float16},
+    )
+    for module in flash_model:
+        if isinstance(module, Pooling):
+            module.pooling_mode = pooling_mode
+            module.pooling_output_dimension = module.embedding_dimension
+            break
+    flash_embeddings = flash_model.encode(sentences, convert_to_tensor=True)
+
+    # float16 has limited precision, so use a generous tolerance
+    assert ref_embeddings.shape == flash_embeddings.shape
+    assert torch.allclose(ref_embeddings.float(), flash_embeddings.float(), atol=1e-2), (
+        f"Embeddings differ for pooling_mode={pooling_mode!r}, max absolute difference: {(ref_embeddings - flash_embeddings).abs().max().item()}"
+    )

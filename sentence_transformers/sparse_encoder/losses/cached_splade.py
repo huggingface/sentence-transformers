@@ -13,6 +13,8 @@ from torch import Tensor, nn
 from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
     RandContext,
     _backward_hook,
+    _create_minibatch,
+    _get_batch_size,
 )
 from sentence_transformers.sparse_encoder.losses.splade import SpladeLoss
 from sentence_transformers.sparse_encoder.model import SparseEncoder
@@ -141,10 +143,7 @@ class CachedSpladeLoss(SpladeLoss):
         """Embed a mini-batch of sentences."""
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
-        sentence_feature_minibatch = {
-            key: value[begin:end] if isinstance(value, torch.Tensor) else value
-            for key, value in sentence_feature.items()
-        }
+        sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
         with random_state_context:
             with grad_context():
                 random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
@@ -159,8 +158,7 @@ class CachedSpladeLoss(SpladeLoss):
         random_states: list[RandContext] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
         """Iterate over mini-batches of sentences for embedding."""
-        input_ids: Tensor = sentence_feature["input_ids"]
-        batch_size = input_ids.shape[0]
+        batch_size = _get_batch_size(sentence_feature)
         for i, begin in enumerate(
             tqdm.trange(
                 0,

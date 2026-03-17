@@ -35,9 +35,14 @@ KNOWN_MODEL_TYPES_MESSAGE_FORMATS = {
 }
 
 
+def _looks_like_url(text: str) -> bool:
+    """Check if a string looks like a valid URL (starts with http(s) and has no spaces)."""
+    return text.startswith(("http://", "https://")) and " " not in text
+
+
 def _is_media_url_or_path(text: str, extensions: tuple[str, ...]) -> bool:
     """Check if a string is a URL or local file path with one of the given extensions."""
-    if text.startswith(("http://", "https://")):
+    if _looks_like_url(text):
         path = urlparse(text).path.lower()
         return path.endswith(extensions)
     return text.lower().endswith(extensions) and os.path.isfile(text)
@@ -54,7 +59,12 @@ def is_video_url_or_path(text: str) -> bool:
     """Check if a string is a video URL or file path."""
     if _is_media_url_or_path(text, (".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv")):
         return True
-    return urlparse(text).netloc in ("www.youtube.com", "youtube.com", "youtu.be", "m.youtube.com")
+    return _looks_like_url(text) and urlparse(text).netloc in (
+        "www.youtube.com",
+        "youtube.com",
+        "youtu.be",
+        "m.youtube.com",
+    )
 
 
 def is_audio_url_or_path(text: str) -> bool:
@@ -105,11 +115,22 @@ class InputFormatter:
             - ``"flat"``: Content is the direct value
             - ``"auto"``: Automatically infer from processor (default)
         processor: Optional processor to infer format from when ``message_format="auto"``.
+        supported_modalities: Optional list of modalities supported by the model. When provided,
+            string inputs that look like media URLs/paths are only classified as non-text if the
+            model actually supports that modality. This prevents text-only models from
+            misclassifying text containing media URLs.
     """
 
-    def __init__(self, model_type: str, message_format: MessageFormat = "auto", processor=None) -> None:
+    def __init__(
+        self,
+        model_type: str,
+        message_format: MessageFormat = "auto",
+        processor=None,
+        supported_modalities: list[Modality] | None = None,
+    ) -> None:
         self.model_type = model_type
         self.processor = processor
+        self.supported_modalities = supported_modalities
         if message_format == "auto":
             self.message_format = self._infer_format(processor) if processor else "structured"
         else:
@@ -191,7 +212,7 @@ class InputFormatter:
                 has_pairs = True
                 continue
 
-            modality = infer_modality(item)  # type: ignore[arg-type]  # non-text pairs filtered above
+            modality = infer_modality(item, supported_modalities=self.supported_modalities)  # type: ignore[arg-type]  # non-text pairs filtered above
 
             # For dict-wrapped audio/video, unwrap the array and collect extra kwargs.
             # For a single message dict, wrap it in a list. All other values pass through as-is.
@@ -397,13 +418,20 @@ class InputFormatter:
         return result
 
 
-def infer_modality(sample: SingleInput | PairInput | Any) -> Modality:
+def infer_modality(
+    sample: SingleInput | PairInput | Any,
+    supported_modalities: list[Modality] | None = None,
+) -> Modality:
     """Infer the modality of a single input sample by inspecting its type/structure.
 
     Pure type-based detection — does not require a processor or tokenizer.
 
     Args:
         sample: A single input sample to inspect.
+        supported_modalities: Optional list of modalities the model supports. When provided,
+            string inputs that would be classified as image/video/audio based on URL/path
+            heuristics are instead classified as ``"text"`` if that modality is not supported.
+            This prevents misclassification of text that happens to contain media URLs.
 
     Returns:
         The detected modality string, or a tuple of modality strings for multimodal dict inputs.
@@ -417,10 +445,16 @@ def infer_modality(sample: SingleInput | PairInput | Any) -> Modality:
 
     match sample:
         case str() if is_image_url_or_path(sample):
+            if supported_modalities is not None and "image" not in supported_modalities:
+                return "text"
             return "image"
         case str() if is_video_url_or_path(sample):
+            if supported_modalities is not None and "video" not in supported_modalities:
+                return "text"
             return "video"
         case str() if is_audio_url_or_path(sample):
+            if supported_modalities is not None and "audio" not in supported_modalities:
+                return "text"
             return "audio"
         case str() | (str(), str()) | [str(), str()]:
             return "text"
@@ -460,6 +494,7 @@ def infer_modality(sample: SingleInput | PairInput | Any) -> Modality:
 
 def infer_batch_modality(
     samples: list[SingleInput | PairInput],
+    supported_modalities: list[Modality] | None = None,
 ) -> Modality:
     """Infer the modality of a batch of input samples.
 
@@ -469,11 +504,13 @@ def infer_batch_modality(
 
     Args:
         samples: List of input samples to inspect.
+        supported_modalities: Optional list of modalities the model supports. Passed through
+            to :func:`infer_modality` to prevent misclassification of text as media modalities.
 
     Returns:
         The detected modality, or ``"message"`` for mixed-modality batches.
     """
-    modalities = {infer_modality(sample) for sample in samples}
+    modalities = {infer_modality(sample, supported_modalities=supported_modalities) for sample in samples}
     return modalities.pop() if len(modalities) == 1 else "message"
 
 

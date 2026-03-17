@@ -561,7 +561,7 @@ class Router(InputModule):
         # Infer modality if not provided
         if modality is None and inputs:
             try:
-                modality = infer_batch_modality(inputs)
+                modality = infer_batch_modality(inputs, supported_modalities=self.modalities)
             except (ValueError, TypeError):
                 # If modality inference fails, proceed without it
                 pass

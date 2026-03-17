@@ -502,8 +502,8 @@ class SparseEncoder(BaseModel):
         max_active_dims = max_active_dims if max_active_dims is not None else self.max_active_dims
 
         all_embeddings = []
-        length_sorted_idx = np.argsort([-self._text_length(sen) for sen in inputs])
-        inputs_sorted = [inputs[int(idx)] for idx in length_sorted_idx]
+        length_sorted_idx = np.argsort([-self._input_length(sen) for sen in inputs])
+        inputs_sorted = [inputs[idx] for idx in length_sorted_idx]
 
         for start_index in trange(0, len(inputs), batch_size, desc="Batches", disable=not show_progress_bar):
             inputs_batch = inputs_sorted[start_index : start_index + batch_size]

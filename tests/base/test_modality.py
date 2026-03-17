@@ -53,6 +53,9 @@ class TestIsImageUrlOrPath:
     def test_case_insensitive_extension(self):
         assert is_image_url_or_path("https://example.com/PHOTO.JPG") is True
 
+    def test_url_with_spaces_not_image(self):
+        assert is_image_url_or_path("https://example.com/photo.jpg this is a sentence") is False
+
 
 class TestIsVideoUrlOrPath:
     def test_https_mp4(self):
@@ -76,6 +79,14 @@ class TestIsVideoUrlOrPath:
     def test_empty_string(self):
         assert is_video_url_or_path("") is False
 
+    def test_youtube_url_with_spaces_not_video(self):
+        # Text that starts with a YouTube URL but contains spaces (i.e. is really a sentence)
+        text = "http://youtu.be/YYPc7CRL39o - Love Song, The Butterflys sing You Are So Beautiful"
+        assert is_video_url_or_path(text) is False
+
+    def test_video_url_with_spaces_not_video(self):
+        assert is_video_url_or_path("https://example.com/video.mp4 some extra text") is False
+
 
 class TestIsAudioUrlOrPath:
     def test_https_mp3(self):
@@ -94,6 +105,9 @@ class TestIsAudioUrlOrPath:
         audio_file = tmp_path / "test.mp3"
         audio_file.write_text("fake audio")
         assert is_audio_url_or_path(str(audio_file)) is True
+
+    def test_audio_url_with_spaces_not_audio(self):
+        assert is_audio_url_or_path("https://example.com/clip.mp3 some description") is False
 
 
 class TestInferModality:
@@ -179,6 +193,54 @@ class TestInferModality:
         with pytest.raises(ValueError, match="Unsupported tensor dimensionality"):
             infer_modality(torch.zeros(2, 3, 4, 5, 6, 7))
 
+    def test_image_url_falls_back_to_text_when_unsupported(self):
+        assert infer_modality("https://example.com/photo.jpg", supported_modalities=["text"]) == "text"
+
+    def test_video_url_falls_back_to_text_when_unsupported(self):
+        assert infer_modality("https://youtu.be/dQw4w9WgXcQ", supported_modalities=["text"]) == "text"
+
+    def test_audio_url_falls_back_to_text_when_unsupported(self):
+        assert infer_modality("https://example.com/clip.mp3", supported_modalities=["text"]) == "text"
+
+    def test_image_url_detected_when_supported(self):
+        assert infer_modality("https://example.com/photo.jpg", supported_modalities=["text", "image"]) == "image"
+
+    def test_video_url_detected_when_supported(self):
+        assert infer_modality("https://youtu.be/dQw4w9WgXcQ", supported_modalities=["text", "video"]) == "video"
+
+    def test_pil_image_not_affected_by_supported_modalities(self):
+        """Non-string inputs are unambiguous and should not be overridden by supported_modalities."""
+        PIL = pytest.importorskip("PIL.Image")
+        img = PIL.new("RGB", (10, 10))
+        assert infer_modality(img, supported_modalities=["text"]) == "image"
+
+    def test_ndarray_not_affected_by_supported_modalities(self):
+        """Non-string inputs are unambiguous and should not be overridden by supported_modalities."""
+        assert infer_modality(np.zeros(16000), supported_modalities=["text"]) == "audio"
+        assert infer_modality(np.zeros((224, 224, 3)), supported_modalities=["text"]) == "image"
+        assert infer_modality(np.zeros((8, 3, 224, 224)), supported_modalities=["text"]) == "video"
+
+    def test_audio_url_detected_when_supported(self):
+        assert infer_modality("https://example.com/clip.mp3", supported_modalities=["text", "audio"]) == "audio"
+
+    def test_youtube_url_with_trailing_text_is_text(self):
+        """The exact case from the bug report: a YouTube URL followed by a description."""
+        text = (
+            "http://youtu.be/YYPc7CRL39o - Love Song, The Butterflys sing You Are So Beautiful "
+            "by Joe Cocker featuring singer/ songwriter Justin Nelson."
+        )
+        assert infer_modality(text) == "text"
+
+    def test_data_uri_not_affected_by_space_check(self):
+        """data: URIs bypass the URL space check and should still be detected as images."""
+        assert infer_modality("data:image/png;base64,iVBOR") == "image"
+
+    def test_url_with_encoded_spaces_still_detected(self):
+        """URLs with %20 (encoded spaces) are valid and should still be detected."""
+        assert infer_modality("https://example.com/my%20photo.jpg") == "image"
+        assert infer_modality("https://example.com/my%20video.mp4") == "video"
+        assert infer_modality("https://example.com/my%20clip.mp3") == "audio"
+
 
 class TestInferBatchModality:
     def test_homogeneous_text(self):
@@ -211,6 +273,16 @@ class TestInferBatchModality:
 
     def test_single_item_batch(self):
         assert infer_batch_modality(["hello"]) == "text"
+
+    def test_video_url_in_text_batch_stays_text_when_unsupported(self):
+        """A batch of texts with one video URL should remain 'text' if video is not supported."""
+        batch = ["hello world", "https://youtu.be/dQw4w9WgXcQ", "another text"]
+        assert infer_batch_modality(batch, supported_modalities=["text"]) == "text"
+
+    def test_video_url_in_text_batch_becomes_message_when_supported(self):
+        """A batch of texts with one video URL should become 'message' if video is supported."""
+        batch = ["hello world", "https://youtu.be/dQw4w9WgXcQ", "another text"]
+        assert infer_batch_modality(batch, supported_modalities=["text", "video"]) == "message"
 
 
 class TestModalityToProcessorArg:
@@ -466,6 +538,14 @@ class TestParseInputs:
         # Key should be "image", not "images"
         assert "image" in inputs
         assert "images" not in inputs
+
+    def test_image_url_classified_as_text_when_unsupported(self):
+        """parse_inputs should respect supported_modalities from InputFormatter."""
+        fmt = InputFormatter(model_type="test", message_format="structured", supported_modalities=["text"])
+        image_url = "https://example.com/photo.jpg"
+        modality, inputs, extra = fmt.parse_inputs(["hello", image_url, "world"])
+        assert modality == "text"
+        assert inputs == {"text": ["hello", image_url, "world"]}
 
 
 class TestBatchToMessages:

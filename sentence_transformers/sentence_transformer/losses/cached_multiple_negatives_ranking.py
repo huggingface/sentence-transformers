@@ -42,6 +42,62 @@ class RandContext:
         self._fork = None
 
 
+def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
+    """Get the number of samples in sentence features, handling both padded and flattened inputs.
+
+    With padded inputs, the batch size is the first dimension of any tensor.
+    With flattened inputs (from ``DataCollatorWithFlattening``), the batch size is derived
+    from ``cu_seq_lens_q`` which has shape ``(num_seqs + 1,)``.
+    """
+    if "cu_seq_lens_q" in sentence_feature:
+        return len(sentence_feature["cu_seq_lens_q"]) - 1
+    return next(
+        value.shape[0] for value in sentence_feature.values() if isinstance(value, torch.Tensor) and value.ndim > 0
+    )
+
+
+def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) -> dict[str, Any]:
+    """Create a mini-batch from sentence features, handling both padded and flattened inputs.
+
+    With padded inputs, this simply slices tensors along the batch dimension.
+    With flattened inputs (from ``DataCollatorWithFlattening``), this extracts the token ranges
+    for sequences ``begin:end`` and rebuilds the metadata (``cu_seq_lens_q``, ``seq_idx``, etc.).
+    """
+    if "cu_seq_lens_q" not in sentence_feature:
+        return {
+            key: value[begin:end] if isinstance(value, torch.Tensor) else value
+            for key, value in sentence_feature.items()
+        }
+
+    cu_seq_lens_q = sentence_feature["cu_seq_lens_q"]
+    num_seqs = len(cu_seq_lens_q) - 1
+    end = min(end, num_seqs)
+
+    token_begin = int(cu_seq_lens_q[begin].item())
+    token_end = int(cu_seq_lens_q[end].item())
+    total_tokens = int(cu_seq_lens_q[-1].item())
+
+    new_cu_seq_lens = cu_seq_lens_q[begin : end + 1] - cu_seq_lens_q[begin]
+
+    result: dict[str, Any] = {}
+    for key, value in sentence_feature.items():
+        if key in ("cu_seq_lens_q", "cu_seq_lens_k"):
+            result[key] = new_cu_seq_lens
+        elif key in ("max_length_q", "max_length_k"):
+            mb_seq_lens = new_cu_seq_lens[1:] - new_cu_seq_lens[:-1]
+            result[key] = int(mb_seq_lens.max().item())
+        elif key == "seq_idx":
+            result[key] = value[..., token_begin:token_end] - begin
+        elif isinstance(value, torch.Tensor) and value.ndim >= 1 and value.shape[-1] == total_tokens:
+            # Heuristic: tensors whose last dimension matches the total token count are assumed
+            # to be token-level (e.g. input_ids, position_ids). This covers all known keys from
+            # DataCollatorWithFlattening without hard-coding them.
+            result[key] = value[..., token_begin:token_end]
+        else:
+            result[key] = value
+    return result
+
+
 def _backward_hook(
     grad_output: Tensor, sentence_features: Iterable[dict[str, Tensor]], loss_obj: CachedMultipleNegativesRankingLoss
 ) -> None:
@@ -267,10 +323,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         """Embed a mini-batch of sentences."""
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
-        sentence_feature_minibatch = {
-            key: value[begin:end] if isinstance(value, torch.Tensor) else value
-            for key, value in sentence_feature.items()
-        }
+        sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
         with random_state_context:
             with grad_context():
                 random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
@@ -285,9 +338,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         random_states: list[RandContext] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
         """Do forward pass on all the minibatches of the input features and yield corresponding embeddings."""
-        batch_size = next(
-            value.shape[0] for value in sentence_feature.values() if isinstance(value, torch.Tensor) and value.ndim > 0
-        )
+        batch_size = _get_batch_size(sentence_feature)
         for i, begin in enumerate(
             tqdm.trange(
                 0,
