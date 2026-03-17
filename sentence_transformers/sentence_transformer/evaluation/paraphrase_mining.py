@@ -6,7 +6,7 @@ import os
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.util import paraphrase_mining
 
 if TYPE_CHECKING:
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ParaphraseMiningEvaluator(SentenceEvaluator):
+class ParaphraseMiningEvaluator(BaseEvaluator):
     """
     Given a large set of sentences, this evaluator performs paraphrase (duplicate) mining and
     identifies the pairs with the highest similarity. It compare the extracted paraphrase pairs

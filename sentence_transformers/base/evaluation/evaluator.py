@@ -10,8 +10,7 @@ if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
-# TODO: Perhaps rename to BaseEvaluator?
-class SentenceEvaluator:
+class BaseEvaluator:
     """
     Base class for all evaluators. Notably, this class introduces the ``greater_is_better`` and ``primary_metric``
     attributes. The former is a boolean indicating whether a higher evaluation score is better, which is used
@@ -37,21 +36,15 @@ class SentenceEvaluator:
 
         Args:
             model: the model to evaluate
-            output_path: path where predictions and metrics are written
-                to
-            epoch: the epoch where the evaluation takes place. This is
-                used for the file prefixes. If this is -1, then we
-                assume evaluation on test data.
-            steps: the steps in the current epoch at time of the
-                evaluation. This is used for the file prefixes. If this
-                is -1, then we assume evaluation at the end of the
-                epoch.
+            output_path: path where predictions and metrics are written to
+            epoch: the epoch where the evaluation takes place. This is used for the file prefixes. If this is -1,
+                then we assume evaluation on test data.
+            steps: the steps in the current epoch at time of the evaluation. This is used for the file prefixes.
+                If this is -1, then we assume evaluation at the end of the epoch.
 
         Returns:
-            Either a score for the evaluation with a higher score
-            indicating a better result, or a dictionary with scores. If
-            the latter is chosen, then `evaluator.primary_metric` must
-            be defined
+            Either a score for the evaluation with a higher score indicating a better result, or a dictionary with
+            scores. If the latter is chosen, then `evaluator.primary_metric` must be defined
         """
         pass
 
@@ -119,3 +112,7 @@ class SentenceEvaluator:
             list[Tensor] | np.ndarray | Tensor | dict[str, Tensor] | list[dict[str, Tensor]]: The associated embedding
         """
         return model.encode(sentences, **kwargs)
+
+
+# Backward compatibility alias, deprecated
+SentenceEvaluator = BaseEvaluator

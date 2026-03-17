@@ -37,7 +37,7 @@ if is_datasets_available():
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+    from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
     from sentence_transformers.base.model import BaseModel
     from sentence_transformers.base.trainer import BaseTrainer
 
@@ -319,7 +319,7 @@ class BaseModelCardData(CardData):
     base_model_revision: str | None = field(default=None, init=False)
     non_default_hyperparameters: dict[str, Any] = field(default_factory=dict, init=False)
     all_hyperparameters: dict[str, Any] = field(default_factory=dict, init=False)
-    eval_results_dict: dict[SentenceEvaluator, dict[str, Any]] | None = field(default_factory=dict, init=False)
+    eval_results_dict: dict[BaseEvaluator, dict[str, Any]] | None = field(default_factory=dict, init=False)
     training_logs: list[dict[str, float]] = field(default_factory=list, init=False)
     widget: list[dict[str, str]] = field(default_factory=list, init=False)
     predict_example: list[str] | None = field(default=None, init=False)
@@ -520,7 +520,7 @@ class BaseModelCardData(CardData):
                 self.predict_example = sentences[:4]
 
     def set_evaluation_metrics(
-        self, evaluator: SentenceEvaluator, metrics: dict[str, Any], epoch: int = 0, step: int = 0
+        self, evaluator: BaseEvaluator, metrics: dict[str, Any], epoch: int = 0, step: int = 0
     ) -> None:
         from sentence_transformers.sentence_transformer.evaluation import SequentialEvaluator
 

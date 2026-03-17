@@ -11,7 +11,7 @@ import torch
 import tqdm
 from sklearn.metrics import average_precision_score, ndcg_score
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.util import cos_sim
 
 if TYPE_CHECKING:
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class RerankingEvaluator(SentenceEvaluator):
+class RerankingEvaluator(BaseEvaluator):
     """
     This class evaluates a SentenceTransformer model for the task of re-ranking.
 

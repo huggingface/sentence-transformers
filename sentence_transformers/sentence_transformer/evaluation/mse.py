@@ -5,7 +5,7 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 
 if TYPE_CHECKING:
     import numpy as np
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class MSEEvaluator(SentenceEvaluator):
+class MSEEvaluator(BaseEvaluator):
     """
     Computes the mean squared error (x100) between the computed sentence embedding
     and some target sentence embedding.

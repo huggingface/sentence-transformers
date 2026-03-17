@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import torch
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.util import pytorch_cos_sim
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class TranslationEvaluator(SentenceEvaluator):
+class TranslationEvaluator(BaseEvaluator):
     """
     Given two sets of sentences in different languages, e.g. (en_1, en_2, en_3...) and (fr_1, fr_2, fr_3, ...),
     and assuming that fr_i is the translation of en_i.

@@ -15,8 +15,8 @@ from transformers import (
     TrainerCallback,
 )
 
+from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.base.trainer import BaseTrainer
-from sentence_transformers.sentence_transformer.evaluation import SentenceEvaluator
 from sentence_transformers.sparse_encoder.callbacks.splade_callbacks import SpladeRegularizerWeightSchedulerCallback
 from sentence_transformers.sparse_encoder.data_collator import SparseEncoderDataCollator
 from sentence_transformers.sparse_encoder.losses import SparseMultipleNegativesRankingLoss, SpladeLoss
@@ -69,8 +69,8 @@ class SparseEncoderTrainer(BaseTrainer):
             or a dictionary mapping dataset names to functions that return a loss class instance given a model.
             In practice, the latter two are primarily used for hyper-parameter optimization. Will default to
             :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss` if no ``loss`` is provided.
-        evaluator (Union[:class:`~sentence_transformers.sentence_transformer.evaluation.SentenceEvaluator`,\
-            List[:class:`~sentence_transformers.sentence_transformer.evaluation.SentenceEvaluator`]], *optional*):
+        evaluator (Union[:class:`~sentence_transformers.sentence_transformer.evaluation.BaseEvaluator`,\
+            List[:class:`~sentence_transformers.sentence_transformer.evaluation.BaseEvaluator`]], *optional*):
             The evaluator instance for useful evaluation metrics during training. You can use an ``evaluator`` with
             or without an ``eval_dataset``, and vice versa. Generally, the metrics that an ``evaluator`` returns
             are more useful than the loss value returned from the ``eval_dataset``. A list of evaluators will be
@@ -119,7 +119,7 @@ class SparseEncoderTrainer(BaseTrainer):
         | Callable[[SparseEncoder], torch.nn.Module]
         | dict[str, Callable[[SparseEncoder], torch.nn.Module]]
         | None = None,
-        evaluator: SentenceEvaluator | list[SentenceEvaluator] | None = None,
+        evaluator: BaseEvaluator | list[BaseEvaluator] | None = None,
         data_collator: SparseEncoderDataCollator | None = None,
         processing_class: PreTrainedTokenizerBase
         | BaseImageProcessor

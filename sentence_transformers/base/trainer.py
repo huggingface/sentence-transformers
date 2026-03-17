@@ -23,7 +23,7 @@ from transformers.trainer import TRAINING_ARGS_NAME
 from transformers.trainer_utils import EvalLoopOutput
 
 from sentence_transformers.base.data_collator import BaseDataCollator
-from sentence_transformers.base.evaluation import SentenceEvaluator, SequentialEvaluator
+from sentence_transformers.base.evaluation import BaseEvaluator, SequentialEvaluator
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.model_card import BaseModelCardCallback, BaseModelCardData
 from sentence_transformers.base.modules import Router
@@ -89,8 +89,8 @@ class BaseTrainer(Trainer, ABC):
             or a dictionary mapping dataset names to functions that return a loss class instance given a model.
             In practice, the latter two are primarily used for hyper-parameter optimization. Will default to
             :class:`~sentence_transformers.sentence_transformer.losses.CoSENTLoss` if no ``loss`` is provided.
-        evaluator (Union[:class:`~sentence_transformers.sentence_transformer.evaluation.SentenceEvaluator`,\
-            List[:class:`~sentence_transformers.sentence_transformer.evaluation.SentenceEvaluator`]], *optional*):
+        evaluator (Union[:class:`~sentence_transformers.sentence_transformer.evaluation.BaseEvaluator`,\
+            List[:class:`~sentence_transformers.sentence_transformer.evaluation.BaseEvaluator`]], *optional*):
             The evaluator instance for useful evaluation metrics during training. You can use an ``evaluator`` with
             or without an ``eval_dataset``, and vice versa. Generally, the metrics that an ``evaluator`` returns
             are more useful than the loss value returned from the ``eval_dataset``. A list of evaluators will be
@@ -140,7 +140,7 @@ class BaseTrainer(Trainer, ABC):
         | Callable[[BaseModel], torch.nn.Module]
         | dict[str, Callable[[BaseModel], torch.nn.Module]]
         | None = None,
-        evaluator: SentenceEvaluator | list[SentenceEvaluator] | None = None,
+        evaluator: BaseEvaluator | list[BaseEvaluator] | None = None,
         data_collator: BaseDataCollator | None = None,
         processing_class: PreTrainedTokenizerBase
         | BaseImageProcessor
@@ -302,7 +302,7 @@ class BaseTrainer(Trainer, ABC):
             self.loss = self.prepare_loss(loss, model)
 
         # If evaluator is a list, we wrap it in a SequentialEvaluator
-        if evaluator is not None and not isinstance(evaluator, SentenceEvaluator):
+        if evaluator is not None and not isinstance(evaluator, BaseEvaluator):
             evaluator = SequentialEvaluator(evaluator)
         self.evaluator = evaluator
 

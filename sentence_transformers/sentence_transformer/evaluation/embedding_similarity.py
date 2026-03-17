@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import (
     pairwise_cos_sim,
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class EmbeddingSimilarityEvaluator(SentenceEvaluator):
+class EmbeddingSimilarityEvaluator(BaseEvaluator):
     """
     Evaluate a model based on the similarity of the embeddings by calculating the Spearman and Pearson rank correlation
     in comparison to the gold standard labels.

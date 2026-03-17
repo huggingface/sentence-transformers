@@ -15,7 +15,7 @@ from transformers import (
     TrainerCallback,
 )
 
-from sentence_transformers.base.evaluation import SentenceEvaluator
+from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.base.trainer import BaseTrainer
 from sentence_transformers.sentence_transformer.data_collator import SentenceTransformerDataCollator
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
@@ -52,7 +52,7 @@ class SentenceTransformerTrainer(BaseTrainer):
         | Callable[[SentenceTransformer], torch.nn.Module]
         | dict[str, Callable[[SentenceTransformer], torch.nn.Module]]
         | None = None,
-        evaluator: SentenceEvaluator | list[SentenceEvaluator] | None = None,
+        evaluator: BaseEvaluator | list[BaseEvaluator] | None = None,
         data_collator: SentenceTransformerDataCollator | None = None,
         processing_class: PreTrainedTokenizerBase
         | BaseImageProcessor

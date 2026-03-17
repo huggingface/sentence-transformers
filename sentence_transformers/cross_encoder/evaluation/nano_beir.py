@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 from tqdm import tqdm
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.cross_encoder.evaluation.reranking import CrossEncoderRerankingEvaluator
 from sentence_transformers.util import is_datasets_available
 
@@ -50,7 +50,7 @@ DATASET_NAME_TO_HUMAN_READABLE = {
 }
 
 
-class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
+class CrossEncoderNanoBEIREvaluator(BaseEvaluator):
     """
     This class evaluates a CrossEncoder model on the NanoBEIR collection of Information Retrieval datasets.
 

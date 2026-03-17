@@ -12,7 +12,7 @@ import torch
 from torch import Tensor
 from tqdm import trange
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.util.similarity import SimilarityFunction
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class InformationRetrievalEvaluator(SentenceEvaluator):
+class InformationRetrievalEvaluator(BaseEvaluator):
     """
     This class evaluates an Information Retrieval (IR) setting.
 

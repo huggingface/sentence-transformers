@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.metrics import average_precision_score, ndcg_score
 from tqdm import tqdm
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 
 if TYPE_CHECKING:
     from sentence_transformers.cross_encoder.model import CrossEncoder
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CrossEncoderRerankingEvaluator(SentenceEvaluator):
+class CrossEncoderRerankingEvaluator(BaseEvaluator):
     """
     This class evaluates a CrossEncoder model for the task of re-ranking.
 

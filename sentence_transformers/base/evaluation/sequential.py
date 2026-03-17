@@ -3,13 +3,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 
 if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
-class SequentialEvaluator(SentenceEvaluator):
+class SequentialEvaluator(BaseEvaluator):
     """
     This evaluator allows that multiple sub-evaluators are passed. When the model is evaluated,
     the data is passed sequentially to all sub-evaluators.
@@ -17,7 +17,7 @@ class SequentialEvaluator(SentenceEvaluator):
     All scores are passed to 'main_score_function', which derives one final score value
 
     Args:
-        evaluators (Iterable[SentenceEvaluator]): A collection of SentenceEvaluator objects.
+        evaluators (Iterable[BaseEvaluator]): A collection of BaseEvaluator objects.
         main_score_function (function, optional): A function that takes a list of scores and returns the main score.
             Defaults to selecting the last score in the list.
 
@@ -30,7 +30,7 @@ class SequentialEvaluator(SentenceEvaluator):
             seq_evaluator = SequentialEvaluator([evaluator1, evaluator2, evaluator3])
     """
 
-    def __init__(self, evaluators: Iterable[SentenceEvaluator], main_score_function=lambda scores: scores[-1]):
+    def __init__(self, evaluators: Iterable[BaseEvaluator], main_score_function=lambda scores: scores[-1]):
         super().__init__()
         self.evaluators = evaluators
         self.main_score_function = main_score_function

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 from sklearn.metrics import average_precision_score, matthews_corrcoef
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import (
     pairwise_cos_sim,
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class BinaryClassificationEvaluator(SentenceEvaluator):
+class BinaryClassificationEvaluator(BaseEvaluator):
     """
     Evaluate a model based on the similarity of the embeddings by calculating the accuracy of identifying similar and
     dissimilar sentences.

@@ -9,12 +9,12 @@ import numpy as np
 from sklearn.metrics import average_precision_score, ndcg_score
 from tqdm import tqdm
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 
 logger = logging.getLogger(__name__)
 
 
-class ReciprocalRankFusionEvaluator(SentenceEvaluator):
+class ReciprocalRankFusionEvaluator(BaseEvaluator):
     """
     This class evaluates a hybrid search approach using Reciprocal Rank Fusion (RRF).
 

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from sklearn.metrics import average_precision_score, f1_score
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.sentence_transformer.evaluation import BinaryClassificationEvaluator
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CrossEncoderClassificationEvaluator(SentenceEvaluator):
+class CrossEncoderClassificationEvaluator(BaseEvaluator):
     """
     Evaluate a CrossEncoder model based on the accuracy of the predicted class vs. the gold labels.
     The evaluator expects a list of sentence pairs and a list of gold labels. If the model has a single output,

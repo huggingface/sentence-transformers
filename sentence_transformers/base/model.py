@@ -27,7 +27,7 @@ from transformers import PreTrainedModel, is_datasets_available, is_torch_npu_av
 from transformers.dynamic_module_utils import get_class_from_dynamic_module, get_relative_import_files
 
 from sentence_transformers import __version__
-from sentence_transformers.base.evaluation import SentenceEvaluator
+from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.base.modality import format_modality, infer_batch_modality
 from sentence_transformers.base.modality_types import Modality, PairInput, SingleInput
 from sentence_transformers.base.model_card import BaseModelCardData, generate_model_card
@@ -1257,12 +1257,12 @@ This pull request has been automatically generated to add {self.__class__.__name
 
         return import_from_string(class_ref)
 
-    def evaluate(self, evaluator: SentenceEvaluator, output_path: str | None = None) -> dict[str, float] | float:
+    def evaluate(self, evaluator: BaseEvaluator, output_path: str | None = None) -> dict[str, float] | float:
         """
         Evaluate the model based on an evaluator
 
         Args:
-            evaluator (SentenceEvaluator): The evaluator used to evaluate the model.
+            evaluator (BaseEvaluator): The evaluator used to evaluate the model.
             output_path (str, optional): The path where the evaluator can write the results. Defaults to None.
 
         Returns:

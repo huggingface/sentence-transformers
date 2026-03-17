@@ -16,7 +16,7 @@ from tqdm.autonotebook import tqdm, trange
 from transformers import TrainerCallback, TrainerControl, TrainerState, is_torch_npu_available
 from transformers.tokenization_utils_base import BatchEncoding
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.base.sampler import BatchSamplers
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
 from sentence_transformers.sentence_transformer.datasets.no_duplicates_dataloader import NoDuplicatesDataLoader
@@ -46,7 +46,7 @@ class SaveModelCallback(TrainerCallback):
     training as well.
     """
 
-    def __init__(self, output_dir: str, evaluator: SentenceEvaluator | None, save_best_model: bool) -> None:
+    def __init__(self, output_dir: str, evaluator: BaseEvaluator | None, save_best_model: bool) -> None:
         super().__init__()
         self.output_dir = output_dir
         self.evaluator = evaluator
@@ -123,7 +123,7 @@ class OriginalCallback(TrainerCallback):
     This callback has the following signature: `(score: float, epoch: int, steps: int) -> None`
     """
 
-    def __init__(self, callback: Callable[[float, int, int], None], evaluator: SentenceEvaluator) -> None:
+    def __init__(self, callback: Callable[[float, int, int], None], evaluator: BaseEvaluator) -> None:
         super().__init__()
         self.callback = callback
         self.evaluator = evaluator
@@ -182,7 +182,7 @@ class FitMixin:
     def fit(
         self: CrossEncoder,
         train_dataloader: DataLoader,
-        evaluator: SentenceEvaluator | None = None,
+        evaluator: BaseEvaluator | None = None,
         epochs: int = 1,
         loss_fct=None,
         activation_fct=nn.Identity(),
@@ -417,7 +417,7 @@ class FitMixin:
     def old_fit(
         self,
         train_dataloader: DataLoader,
-        evaluator: SentenceEvaluator | None = None,
+        evaluator: BaseEvaluator | None = None,
         epochs: int = 1,
         loss_fct=None,
         activation_fct=nn.Identity(),

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import torch
 from torch.utils.data import DataLoader
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.util import batch_to_device
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class LabelAccuracyEvaluator(SentenceEvaluator):
+class LabelAccuracyEvaluator(BaseEvaluator):
     """
     Evaluate a model based on its accuracy on a labeled dataset
 

@@ -37,6 +37,7 @@ DEPRECATED_MODULE_PATHS = {
     "sentence_transformers.evaluation.NanoBEIREvaluator": "sentence_transformers.sentence_transformer.evaluation.nano_beir",
     "sentence_transformers.evaluation.ParaphraseMiningEvaluator": "sentence_transformers.sentence_transformer.evaluation.paraphrase_mining",
     "sentence_transformers.evaluation.RerankingEvaluator": "sentence_transformers.sentence_transformer.evaluation.reranking",
+    "sentence_transformers.evaluation.SentenceEvaluator": "sentence_transformers.base.evaluation.evaluator",
     "sentence_transformers.evaluation.SequentialEvaluator": "sentence_transformers.base.evaluation.sequential",
     "sentence_transformers.evaluation.SimilarityFunction": "sentence_transformers.sentence_transformer.evaluation.similarity_function",
     "sentence_transformers.evaluation.TranslationEvaluator": "sentence_transformers.sentence_transformer.evaluation.translation",

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from scipy.stats import pearsonr, spearmanr
 
 from sentence_transformers import InputExample
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 
 if TYPE_CHECKING:
     from sentence_transformers.cross_encoder.model import CrossEncoder
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CrossEncoderCorrelationEvaluator(SentenceEvaluator):
+class CrossEncoderCorrelationEvaluator(BaseEvaluator):
     """
     This evaluator can be used with the CrossEncoder class. Given sentence pairs and continuous scores,
     it compute the pearson & spearman correlation between the predicted score for the sentence pair

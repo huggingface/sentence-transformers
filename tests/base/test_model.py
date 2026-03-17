@@ -15,7 +15,7 @@ from huggingface_hub import CommitInfo, HfApi, RepoUrl
 from torch import Tensor, nn
 
 from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
-from sentence_transformers.base.evaluation import SentenceEvaluator
+from sentence_transformers.base.evaluation import BaseEvaluator
 
 
 class BaseModelPreprocessTest:
@@ -356,7 +356,7 @@ def test_save_load_roundtrip_cross_encoder(reranker_bert_tiny_model: CrossEncode
     np.testing.assert_allclose(original_preds, loaded_preds, atol=1e-5)
 
 
-class _FakeEvaluator(SentenceEvaluator):
+class _FakeEvaluator(BaseEvaluator):
     def __init__(self, result: dict[str, float]) -> None:
         super().__init__()
         self.result = result

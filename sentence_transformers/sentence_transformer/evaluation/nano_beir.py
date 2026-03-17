@@ -9,7 +9,7 @@ import numpy as np
 from torch import Tensor
 from tqdm import tqdm
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.sentence_transformer.evaluation.information_retrieval import (
     InformationRetrievalEvaluator,
 )
@@ -54,7 +54,7 @@ DATASET_NAME_TO_HUMAN_READABLE = {
 }
 
 
-class NanoBEIREvaluator(SentenceEvaluator):
+class NanoBEIREvaluator(BaseEvaluator):
     """
     This class evaluates the performance of a SentenceTransformer Model on the NanoBEIR collection of Information Retrieval datasets.
 

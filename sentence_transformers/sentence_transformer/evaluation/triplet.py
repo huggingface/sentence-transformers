@@ -5,7 +5,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Literal
 
-from sentence_transformers.base.evaluation.sentence_evaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import (
     pairwise_cos_sim,
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class TripletEvaluator(SentenceEvaluator):
+class TripletEvaluator(BaseEvaluator):
     """
     Evaluate a model based on a triplet: (sentence, positive_example, negative_example).
     Checks if ``similarity(sentence, positive_example) > similarity(sentence, negative_example) + margin``.

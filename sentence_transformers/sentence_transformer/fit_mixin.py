@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 from tqdm.autonotebook import trange
 from transformers import TrainerCallback, TrainerControl, TrainerState
 
-from sentence_transformers.base.evaluation import SentenceEvaluator
+from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.base.training_args import BatchSamplers, MultiDatasetBatchSamplers
 from sentence_transformers.sentence_transformer.datasets.no_duplicates_dataloader import NoDuplicatesDataLoader
 from sentence_transformers.sentence_transformer.datasets.sentence_label import SentenceLabelDataset
@@ -48,7 +48,7 @@ class SaveModelCallback(TrainerCallback):
         We save after the model has been trained.
     """
 
-    def __init__(self, output_dir: str, evaluator: SentenceEvaluator | None, save_best_model: bool) -> None:
+    def __init__(self, output_dir: str, evaluator: BaseEvaluator | None, save_best_model: bool) -> None:
         super().__init__()
         self.output_dir = output_dir
         self.evaluator = evaluator
@@ -96,7 +96,7 @@ class EvaluatorCallback(TrainerCallback):
     The `.trainer` must be provided after the trainer has been created.
     """
 
-    def __init__(self, evaluator: SentenceEvaluator, output_path: str | None = None) -> None:
+    def __init__(self, evaluator: BaseEvaluator, output_path: str | None = None) -> None:
         super().__init__()
         self.evaluator = evaluator
         self.output_path = output_path
@@ -136,7 +136,7 @@ class OriginalCallback(TrainerCallback):
     This callback has the following signature: `(score: float, epoch: int, steps: int) -> None`
     """
 
-    def __init__(self, callback: Callable[[float, int, int], None], evaluator: SentenceEvaluator) -> None:
+    def __init__(self, callback: Callable[[float, int, int], None], evaluator: BaseEvaluator) -> None:
         super().__init__()
         self.callback = callback
         self.evaluator = evaluator
@@ -161,7 +161,7 @@ class FitMixin:
     def fit(
         self,
         train_objectives: Iterable[tuple[DataLoader, nn.Module]],
-        evaluator: SentenceEvaluator | None = None,
+        evaluator: BaseEvaluator | None = None,
         epochs: int = 1,
         steps_per_epoch=None,
         scheduler: str = "WarmupLinear",
@@ -465,7 +465,7 @@ class FitMixin:
     def old_fit(
         self,
         train_objectives: Iterable[tuple[DataLoader, nn.Module]],
-        evaluator: SentenceEvaluator | None = None,
+        evaluator: BaseEvaluator | None = None,
         epochs: int = 1,
         steps_per_epoch=None,
         scheduler: str = "WarmupLinear",

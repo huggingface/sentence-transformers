@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # TODO: Is it okay to import from ... here? Or should we just require users to import from their full paths?
-from ...base.evaluation.sentence_evaluator import SentenceEvaluator
+from ...base.evaluation.evaluator import BaseEvaluator, SentenceEvaluator
 from ...base.evaluation.sequential import SequentialEvaluator
 from .binary_classification import BinaryClassificationEvaluator
 from .embedding_similarity import EmbeddingSimilarityEvaluator
@@ -17,6 +17,7 @@ from .translation import TranslationEvaluator
 from .triplet import TripletEvaluator
 
 __all__ = [
+    "BaseEvaluator",
     "SentenceEvaluator",
     "SimilarityFunction",
     "BinaryClassificationEvaluator",
