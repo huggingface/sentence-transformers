@@ -100,7 +100,7 @@ def test_preprocess_rejects_unsupported_modality(
     """preprocess() should raise ValueError when the inferred modality is not supported."""
     monkeypatch.setattr(
         "sentence_transformers.base.model.infer_batch_modality",
-        lambda inputs: "image",
+        lambda inputs, supported_modalities=None: "image",
     )
     with pytest.raises(ValueError, match="Modality 'image' is not supported"):
         stsb_bert_tiny_model.preprocess(["dummy text"])
@@ -120,7 +120,7 @@ def test_preprocess_rejects_multimodal_without_message_support(
     # Pretend the inferred modality is a combined tuple
     monkeypatch.setattr(
         "sentence_transformers.base.model.infer_batch_modality",
-        lambda inputs: ("text", "image"),
+        lambda inputs, supported_modalities=None: ("text", "image"),
     )
     with pytest.raises(
         ValueError, match=r"This model supports text and image individually, but not in the same input"

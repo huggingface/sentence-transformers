@@ -1249,13 +1249,9 @@ def test_get_model_kwargs(stsb_bert_tiny_model: SentenceTransformer) -> None:
     # This should run fine
     model.encode("Test sentence")
     model.encode_query("Test sentence")
-    with pytest.raises(
-        TypeError,
-        match=r".*?forward\(\) got an unexpected keyword argument '(foo|bar)'",
-    ):
-        # This would run fine, except the model can't actually accept these arguments (we monkeypatched the modules'
-        # forward_kwargs for this test, after all). The model does send the args down to the underlying modules, though!
-        model.encode("Test sentence", foo=True, bar=False)
+    # These kwargs are accepted by encode() since they match forward_kwargs, and the modules
+    # accept **kwargs in their forward() methods, so this should run without error.
+    model.encode("Test sentence", foo=True, bar=False)
 
     # And also if we have a Router in place
     query_pooling_copy = copy.deepcopy(model[1])
@@ -1288,13 +1284,9 @@ def test_get_model_kwargs(stsb_bert_tiny_model: SentenceTransformer) -> None:
     # This should run fine
     model.encode("Test sentence", task="document")
     model.encode_query("Test sentence")
-    with pytest.raises(
-        TypeError,
-        match=r".*?forward\(\) got an unexpected keyword argument '(foo|document_arg_1)'",
-    ):
-        # This would run fine, except the model can't actually accept these arguments (we monkeypatched the modules'
-        # forward_kwargs for this test, after all). The model does send the args down to the underlying modules, though!
-        model.encode("Test sentence", task="document", foo=True, document_arg_1=12)
+    # These kwargs are accepted by encode() since they match forward_kwargs, and the modules
+    # accept **kwargs in their forward() methods, so this should run without error.
+    model.encode("Test sentence", task="document", foo=True, document_arg_1=12)
 
 
 def test_transformers_model_property(stsb_bert_tiny_model: SentenceTransformer) -> None:
