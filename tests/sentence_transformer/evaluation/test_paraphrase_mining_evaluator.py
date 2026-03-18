@@ -6,7 +6,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sentence_transformers import SentenceTransformer, evaluation
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.sentence_transformer.evaluation import ParaphraseMiningEvaluator
 
 
 def test_ParaphraseMiningEvaluator(
@@ -20,6 +21,6 @@ def test_ParaphraseMiningEvaluator(
         2: "The cat is on the table",
         3: "On the table the cat is",
     }
-    data_eval = evaluation.ParaphraseMiningEvaluator(sentences, [(0, 1), (2, 3)])
+    data_eval = ParaphraseMiningEvaluator(sentences, [(0, 1), (2, 3)])
     metrics = data_eval(model, output_path=str(tmp_path))
     assert metrics[data_eval.primary_metric] > 0.99

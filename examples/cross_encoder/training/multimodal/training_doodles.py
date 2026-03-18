@@ -28,6 +28,7 @@ from sentence_transformers.cross_encoder.training_args import CrossEncoderTraini
 from sentence_transformers.modules import CausalScoreHead, Transformer
 
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+# TODO: Ignore all httpx INFO logs
 
 # Config
 train_batch_size = 4
@@ -39,6 +40,7 @@ seed = 42
 output_dir = "output/training_ce_doodles-" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 # 1. Load the model
+# NOTE: It's recommended to use ``pip install kernels`` to avoid having to install the separate ``flash_attn`` package
 model_name = "Qwen/Qwen3.5-0.8B"
 transformer = Transformer(
     model_name,

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from sklearn.metrics import average_precision_score, ndcg_score
-from tqdm import tqdm
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 
@@ -146,16 +145,18 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
 
         logger.info(f"CrossEncoderRerankingEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
+        # First pass: preprocess all samples to build the query-document pairs and relevance labels
+        # without calling model.predict(), so we can batch all pairs into a single predict call.
         base_mrr_scores = []
         base_ndcg_scores = []
         base_ap_scores = []
-        all_mrr_scores = []
-        all_ndcg_scores = []
-        all_ap_scores = []
-        num_queries = 0
         num_positives = []
         num_negatives = []
-        for instance in tqdm(self.samples, desc="Evaluating samples", disable=not self.show_progress_bar, leave=False):
+
+        all_pairs = []  # flat list of [query, doc] pairs for model.predict()
+        sample_metadata = []  # per-sample: (is_relevant, num_pairs, num_ignored_positives) or None if skipped
+
+        for instance in self.samples:
             if "query" not in instance:
                 raise ValueError("CrossEncoderRerankingEvaluator requires a 'query' key in each sample.")
             if "positive" not in instance:
@@ -180,7 +181,6 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                 if sum(base_is_relevant) == 0:
                     base_mrr, base_ndcg, base_ap = 0, 0, 0
                 else:
-                    # If not all positives are in documents, we need to add them at the end
                     base_is_relevant += [1] * (len(positive) - sum(base_is_relevant))
                     base_pred_scores = np.array(range(len(base_is_relevant), 0, -1))
                     base_mrr, base_ndcg, base_ap = self.compute_metrics(base_is_relevant, base_pred_scores)
@@ -198,31 +198,54 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                 docs = positive + negative
                 is_relevant = [1] * len(positive) + [0] * len(negative)
 
-            num_queries += 1
-
             num_positives.append(len(positive))
             num_negatives.append(len(is_relevant) - sum(is_relevant))
 
             if sum(is_relevant) == 0:
+                sample_metadata.append(None)
+                continue
+
+            num_ignored_positives = len(is_relevant) - len(docs)
+            sample_metadata.append((is_relevant, len(docs), num_ignored_positives))
+            all_pairs.extend([query, doc] for doc in docs)
+
+        # Single batched predict call for all query-document pairs
+        if all_pairs:
+            all_pred_scores = model.predict(
+                all_pairs,
+                batch_size=self.batch_size,
+                convert_to_numpy=True,
+                show_progress_bar=self.show_progress_bar,
+            )
+        else:
+            all_pred_scores = np.array([])
+
+        # Second pass: split predictions back per sample and compute metrics
+        all_mrr_scores = []
+        all_ndcg_scores = []
+        all_ap_scores = []
+        score_offset = 0
+
+        for meta in sample_metadata:
+            if meta is None:
                 all_mrr_scores.append(0)
                 all_ndcg_scores.append(0)
                 all_ap_scores.append(0)
                 continue
 
-            model_input = [[query, doc] for doc in docs]
-            pred_scores = model.predict(
-                model_input, batch_size=self.batch_size, convert_to_numpy=True, show_progress_bar=False
-            )
+            is_relevant, num_pairs, num_ignored_positives = meta
+            pred_scores = all_pred_scores[score_offset : score_offset + num_pairs]
+            score_offset += num_pairs
 
-            # Add the ignored positives at the end
-            if num_ignored_positives := len(is_relevant) - len(pred_scores):
+            if num_ignored_positives:
                 pred_scores = np.concatenate([pred_scores, np.zeros(num_ignored_positives)])
 
             mrr, ndcg, ap = self.compute_metrics(is_relevant, pred_scores)
-
             all_mrr_scores.append(mrr)
             all_ndcg_scores.append(ndcg)
             all_ap_scores.append(ap)
+
+        num_queries = len(self.samples)
 
         mean_mrr = np.mean(all_mrr_scores)
         mean_ndcg = np.mean(all_ndcg_scores)
@@ -238,7 +261,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
             f"Positives: Min {np.min(num_positives):.1f}, Mean {np.mean(num_positives):.1f}, Max {np.max(num_positives):.1f}\t"
             f"Negatives: Min {np.min(num_negatives):.1f}, Mean {np.mean(num_negatives):.1f}, Max {np.max(num_negatives):.1f}"
         )
-        if documents:
+        if base_mrr_scores:
             mean_base_mrr = np.mean(base_mrr_scores)
             mean_base_ndcg = np.mean(base_ndcg_scores)
             mean_base_ap = np.mean(base_ap_scores)
