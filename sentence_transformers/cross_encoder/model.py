@@ -34,74 +34,105 @@ logger = transformers_logging.get_logger(__name__)
 
 class CrossEncoder(BaseModel, FitMixin):
     """
-    A CrossEncoder takes exactly two sentences / texts as input and either predicts
-    a score or label for this sentence pair. It can for example predict the similarity of the sentence pair
-    on a scale of 0 ... 1.
+    Loads or creates a CrossEncoder model that takes a sentence pair as input and outputs a score or label.
 
-    It does not yield a sentence embedding and does not work for individual sentences.
-
-    TODO: Reorder this
+    A CrossEncoder does not produce sentence embeddings. Instead, it processes both sentences jointly through the
+    transformer and outputs a score (regression) or class probabilities (classification). This makes it more
+    accurate for pairwise tasks like reranking or semantic textual similarity, but it cannot pre-compute embeddings
+    for individual sentences.
 
     Args:
-        model_name_or_path (str): A model name from Hugging Face Hub that can be loaded with AutoModel, or a path to a local
-            model. We provide several pre-trained CrossEncoder models that can be used for common tasks.
-        num_labels (int, optional): Number of labels of the classifier. If 1, the CrossEncoder is a regression model that
-            outputs a continuous score 0...1. If > 1, it output several scores that can be soft-maxed to get
-            probability scores for the different classes. Defaults to None.
-        max_length (int, optional): Max length for input sequences. Longer sequences will be truncated. If None, max
-            length of the model will be used. Defaults to None.
-        activation_fn (Callable, optional): Callable (like nn.Sigmoid) about the default activation function that
-            should be used on-top of model.predict(). If None. nn.Sigmoid() will be used if num_labels=1,
-            else nn.Identity(). Defaults to None.
-        device (str, optional): Device (like "cuda", "cpu", "mps", "npu") that should be used for computation. If None, checks if a GPU
-            can be used.
-        cache_folder (`str`, `Path`, optional): Path to the folder where cached files are stored.
-        trust_remote_code (bool, optional): Whether or not to allow for custom models defined on the Hub in their own modeling files.
-            This option should only be set to True for repositories you trust and in which you have read the code, as it
-            will execute code present on the Hub on your local machine. Defaults to False.
-        revision (str, optional): The specific model version to use. It can be a branch name, a tag name, or a commit id,
-            for a stored model on Hugging Face. Defaults to None.
-        local_files_only (bool, optional): Whether or not to only look at local files (i.e., do not try to download the model).
+        model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise, tries
+            to download a pre-trained CrossEncoder model. If that fails, tries to construct a model from the
+            Hugging Face Hub with that name. Defaults to None.
+        modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
+            create custom CrossEncoder models from scratch. Defaults to None.
+        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used for
+            computation. If None, checks if a GPU can be used. Defaults to None.
+        prompts (dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt name,
+            the value is the prompt text. The prompt text will be prepended before any text to encode. For example:
+            ``{"query": "query: ", "passage": "passage: "}``. Defaults to None.
+        default_prompt_name (str, optional): The name of the prompt that should be used by default. If not set,
+            no prompt will be applied. Defaults to None.
+        cache_folder (str, optional): Path to store models. Can also be set by the ``SENTENCE_TRANSFORMERS_HOME``
+            environment variable. Defaults to None.
+        trust_remote_code (bool, optional): Whether to allow for custom models defined on the Hub in their own
+            modeling files. Only set to ``True`` for repositories you trust and in which you have read the code,
+            as it will execute code present on the Hub on your local machine. Defaults to False.
+        revision (str, optional): The specific model version to use. It can be a branch name, a tag name, or a
+            commit id, for a stored model on Hugging Face. Defaults to None.
+        local_files_only (bool, optional): Whether to only look at local files (i.e., do not try to download
+            the model). Defaults to False.
         token (bool or str, optional): Hugging Face authentication token to download private models.
-        model_kwargs (Dict[str, Any], optional): Additional model configuration parameters to be passed to the Hugging Face Transformers model.
-            Particularly useful options are:
+            Defaults to None.
+        model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
+            Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
-            - ``torch_dtype``: Override the default `torch.dtype` and load the model under a specific `dtype`.
-              The different options are:
+            - ``torch_dtype``: Override the default ``torch.dtype`` and load the model under a specific
+              dtype. Can be ``torch.float16``, ``torch.bfloat16``, ``torch.float32``, or ``"auto"`` to
+              use the dtype from the model's ``config.json``.
+            - ``attn_implementation``: The attention implementation to use. For example ``"eager"``,
+              ``"sdpa"``, or ``"flash_attention_2"``. If you ``pip install kernels``, then
+              ``"flash_attention_2"`` should work without having to install ``flash_attn``. It is
+              frequently the fastest option. Defaults to ``"sdpa"`` when available (torch>=2.1.1).
+            - ``device_map``: Device map for model parallelism, e.g. ``"auto"``.
+            - ``provider``: For ``backend="onnx"``, the ONNX execution provider
+              (e.g. ``"CUDAExecutionProvider"``).
+            - ``file_name``: For ``backend="onnx"`` or ``"openvino"``, the filename to load
+              (e.g. for optimized or quantized models).
+            - ``export``: For ``backend="onnx"`` or ``"openvino"``, whether to export the model to the
+              backend format. Also set automatically if the exported file doesn't exist.
 
-                    1. ``torch.float16``, ``torch.bfloat16`` or ``torch.float``: load in a specified
-                    ``dtype``, ignoring the model's ``config.torch_dtype`` if one exists. If not specified - the model will
-                    get loaded in ``torch.float`` (fp32).
-
-                    2. ``"auto"`` - A ``torch_dtype`` entry in the ``config.json`` file of the model will be
-                    attempted to be used. If this entry isn't found then next check the ``dtype`` of the first weight in
-                    the checkpoint that's of a floating point type and use that as ``dtype``. This will load the model
-                    using the ``dtype`` it was saved in at the end of the training. It can't be used as an indicator of how
-                    the model was trained. Since it could be trained in one of half precision dtypes, but saved in fp32.
-            - ``attn_implementation``: The attention implementation to use in the model (if relevant). Can be any of
-              `"eager"` (manual implementation of the attention), `"sdpa"` (using `F.scaled_dot_product_attention
-              <https://pytorch.org/docs/master/generated/torch.nn.functional.scaled_dot_product_attention.html>`_),
-              or `"flash_attention_2"` (using `Dao-AILab/flash-attention <https://github.com/Dao-AILab/flash-attention>`_).
-              By default, if available, SDPA will be used for torch>=2.1.1. The default is otherwise the manual `"eager"`
-              implementation.
-
-            See the `AutoModelForSequenceClassification.from_pretrained
-            <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoModelForSequenceClassification.from_pretrained>`_
-            documentation for more details.
-        processor_kwargs (Dict[str, Any], optional): Additional processor/tokenizer configuration parameters to be passed to the Hugging Face Transformers tokenizer/processor.
-            See the `AutoTokenizer.from_pretrained
+            See the `PreTrainedModel.from_pretrained
+            <https://huggingface.co/docs/transformers/en/main_classes/model#transformers.PreTrainedModel.from_pretrained>`_
+            documentation for more details. Defaults to None.
+        processor_kwargs (dict[str, Any], optional): Keyword arguments passed to the Hugging Face Transformers
+            processor/tokenizer via ``AutoProcessor.from_pretrained``. See the `AutoTokenizer.from_pretrained
             <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoTokenizer.from_pretrained>`_
-            documentation for more details.
-        config_kwargs (Dict[str, Any], optional): Additional model configuration parameters to be passed to the Hugging Face Transformers config.
-            See the `AutoConfig.from_pretrained
+            documentation for more details. Defaults to None.
+        config_kwargs (dict[str, Any], optional): Keyword arguments passed to the Hugging Face Transformers
+            config via ``AutoConfig.from_pretrained``. See the `AutoConfig.from_pretrained
             <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoConfig.from_pretrained>`_
-            documentation for more details. For example, you can set ``classifier_dropout`` via this parameter.
-        model_card_data (:class:`~sentence_transformers.sentence_transformer.model_card.SentenceTransformerModelCardData`, optional): A model
-            card data object that contains information about the model. This is used to generate a model card when saving
-            the model. If not set, a default model card data object is created.
-        backend (str): The backend to use for inference. Can be one of "torch" (default), "onnx", or "openvino".
-            See https://sbert.net/docs/cross_encoder/usage/efficiency.html for benchmarking information
-            on the different backends.
+            documentation for more details. For example, you can set ``classifier_dropout`` or ``num_labels``
+            via this parameter. Defaults to None.
+        model_card_data (:class:`~sentence_transformers.cross_encoder.model_card.CrossEncoderModelCardData`, optional):
+            A model card data object that contains information about the model. Used to generate a model card
+            when saving the model. If not set, a default model card data object is created. Defaults to None.
+        backend (str, optional): The backend to use for inference. Can be ``"torch"`` (default), ``"onnx"``,
+            or ``"openvino"``. Defaults to ``"torch"``.
+        num_labels (int, optional): Number of labels of the classifier. If 1, the CrossEncoder is a regression
+            model that outputs a continuous score. If > 1, it outputs several scores that can be soft-maxed to
+            get probability scores for the different classes. Defaults to None.
+        max_length (int, optional): Max length for input sequences. Longer sequences will be truncated. If None,
+            the max length of the model will be used. Defaults to None.
+        activation_fn (Callable, optional): Activation function applied on top of the model's logits during
+            :meth:`predict`. If None, ``nn.Sigmoid()`` is used when ``num_labels=1``, else ``nn.Identity()``.
+            Defaults to None.
+
+    Example:
+        ::
+
+            from sentence_transformers import CrossEncoder
+
+            # Load a pre-trained CrossEncoder model
+            model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
+
+            # Predict scores for sentence pairs
+            pairs = [
+                ("How many people live in Berlin?", "Berlin had a population of 3,520,031 in 2019."),
+                ("How many people live in Berlin?", "Berlin is well known for its museums."),
+            ]
+            scores = model.predict(pairs)
+            print(scores)
+            # [8.607  1.133]
+
+            # Rank documents by relevance to a query
+            results = model.rank(
+                "How many people live in Berlin?",
+                ["Berlin had a population of 3,520,031 in 2019.", "Berlin is well known for its museums."],
+            )
+            print(results)
+            # [{'corpus_id': 0, 'score': 8.607317}, {'corpus_id': 1, 'score': 1.1329174}]
     """
 
     # TODO: Check backwards incompatibilities with the methods that are now handled by the superclass

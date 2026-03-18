@@ -391,47 +391,81 @@ def set_temporary_class_attrs(cls, **overrides):
 
 
 class Transformer(InputModule):
-    """Hugging Face AutoModel wrapper for generating embeddings, scores, or logits.
-    Loads the correct class, e.g. BERT / RoBERTa etc.
+    """Hugging Face AutoModel wrapper that handles loading, preprocessing, and inference.
 
-    TODO: Rewrite this docstring, needs to be more informational
+    Loads the appropriate model class (e.g. BERT, RoBERTa, CLIP, Whisper) based on the model configuration
+    and the specified ``transformer_task``. Supports text, image, audio, and video modalities depending on
+    the underlying model. This module is typically the first module in a
+    :class:`~sentence_transformers.SentenceTransformer`, :class:`~sentence_transformers.SparseEncoder`,
+    or :class:`~sentence_transformers.CrossEncoder` pipeline.
 
     Args:
-        model_name_or_path: Hugging Face model name or path
-            (https://huggingface.co/models).
-        transformer_task: The task to load the model for. Can be
-            ``"feature-extraction"``, ``"sequence-classification"``,
-            ``"text-generation"``, ``"any-to-any"``, or ``"fill-mask"``.
-        model_kwargs: Keyword arguments forwarded to
-            ``AutoModel.from_pretrained`` when loading the model.
-        processor_kwargs: Keyword arguments forwarded to
-            ``AutoProcessor.from_pretrained`` when loading the
-            processor/tokenizer.
-        config_kwargs: Keyword arguments forwarded to
-            ``AutoConfig.from_pretrained`` when loading the config.
-        processing_kwargs: Keyword arguments applied when *calling* the
-            processor during preprocessing. This is a nested dict whose keys
-            are modality names (``"text"``, ``"audio"``, ``"image"``,
-            ``"video"``), ``"common"`` for kwargs shared across all
-            modalities, or ``"chat_template"`` for kwargs forwarded to
-            ``apply_chat_template`` (e.g.
-            ``{"add_generation_prompt": True}``). Modality and common kwargs
-            override the built-in defaults. Saved to and loaded from the
-            model configuration file.
-        backend: Backend used for model inference. Can be ``"torch"``,
-            ``"onnx"``, or ``"openvino"``. Default is ``"torch"``.
-        modality_config: Optional custom modality configuration mapping
-            modality names to method and output name dicts.
-        module_output_name: The name of the output feature this module
-            creates. Required when ``modality_config`` is provided.
-        message_format: How to handle message-format inputs. Default is
-            ``"auto"``.
-        max_seq_length: Truncate any inputs longer than this value. Prefer
-            setting ``model_max_length`` via ``processor_kwargs`` instead.
-        do_lower_case: If true, lowercases the input (independent of whether
-            the model is cased or not). Rarely needed.
-        tokenizer_name_or_path: Name or path of the tokenizer. When
-            None, then ``model_name_or_path`` is used. Deprecated.
+        model_name_or_path (str): Hugging Face model name or path to a local model directory.
+        transformer_task (str, optional): The task determining which ``AutoModel``-like class to load.
+            Supported values:
+
+            - ``"feature-extraction"`` (default): :class:`~transformers.AutoModel`, used by
+              :class:`~sentence_transformers.SentenceTransformer`.
+            - ``"sequence-classification"``: :class:`~transformers.AutoModelForSequenceClassification`,
+              used by :class:`~sentence_transformers.CrossEncoder`.
+            - ``"text-generation"``: :class:`~transformers.AutoModelForCausalLM`, used by generative
+              :class:`~sentence_transformers.CrossEncoder` models.
+            - ``"any-to-any"``: ``AutoModelForMultimodalLM``, for multimodal generative
+              :class:`~sentence_transformers.CrossEncoder` models (requires transformers v5+).
+            - ``"fill-mask"``: :class:`~transformers.AutoModelForMaskedLM`, used by
+              :class:`~sentence_transformers.SparseEncoder`.
+
+            Defaults to ``"feature-extraction"``.
+        model_kwargs (dict[str, Any], optional): Keyword arguments forwarded to
+            ``AutoModel.from_pretrained`` when loading the model. Particularly useful options include:
+
+            - ``torch_dtype``: Override the default ``torch.dtype`` and load the model under a specific
+              dtype. Can be ``torch.float16``, ``torch.bfloat16``, ``torch.float32``, or ``"auto"`` to
+              use the dtype from the model's ``config.json``.
+            - ``attn_implementation``: The attention implementation to use. For example ``"eager"``,
+              ``"sdpa"``, or ``"flash_attention_2"``. If you ``pip install kernels``, then
+              ``"flash_attention_2"`` should work without having to install ``flash_attn``. It is
+              frequently the fastest option. Defaults to ``"sdpa"`` when available (torch>=2.1.1).
+            - ``device_map``: Device map for model parallelism, e.g. ``"auto"``.
+            - ``provider``: For ``backend="onnx"``, the ONNX execution provider
+              (e.g. ``"CUDAExecutionProvider"``).
+            - ``file_name``: For ``backend="onnx"`` or ``"openvino"``, the filename to load
+              (e.g. for optimized or quantized models).
+            - ``export``: For ``backend="onnx"`` or ``"openvino"``, whether to export the model to the
+              backend format. Also set automatically if the exported file doesn't exist.
+
+            See the `PreTrainedModel.from_pretrained
+            <https://huggingface.co/docs/transformers/en/main_classes/model#transformers.PreTrainedModel.from_pretrained>`_
+            documentation for more details. Defaults to None.
+        processor_kwargs (dict[str, Any], optional): Keyword arguments forwarded to
+            ``AutoProcessor.from_pretrained`` when loading the processor/tokenizer. See the
+            `AutoTokenizer.from_pretrained
+            <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoTokenizer.from_pretrained>`_
+            documentation for more details. Defaults to None.
+        config_kwargs (dict[str, Any], optional): Keyword arguments forwarded to
+            ``AutoConfig.from_pretrained`` when loading the config. See the `AutoConfig.from_pretrained
+            <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoConfig.from_pretrained>`_
+            documentation for more details. Defaults to None.
+        processing_kwargs (dict[str, dict[str, Any]], optional): Keyword arguments applied when *calling*
+            the processor during preprocessing. This is a nested dict whose keys are modality names
+            (``"text"``, ``"audio"``, ``"image"``, ``"video"``), ``"common"`` for kwargs shared across all
+            modalities, or ``"chat_template"`` for kwargs forwarded to ``apply_chat_template`` (e.g.
+            ``{"add_generation_prompt": True}``). Modality and common kwargs override the built-in defaults.
+            Saved to and loaded from the model configuration file. Defaults to None.
+        backend (str, optional): Backend used for model inference. Can be ``"torch"`` (default), ``"onnx"``,
+            or ``"openvino"``. Defaults to ``"torch"``.
+        modality_config (dict, optional): Custom modality configuration mapping modality names to method and
+            output name dicts. When provided, ``module_output_name`` must also be set. Defaults to None.
+        module_output_name (str, optional): The name of the output feature this module creates (e.g.
+            ``"token_embeddings"``, ``"scores"``). Required when ``modality_config`` is provided.
+            Defaults to None.
+        message_format (str, optional): How to handle message-format inputs. Defaults to ``"auto"``.
+        max_seq_length (int, optional): Truncate any inputs longer than this value. Prefer setting
+            ``model_max_length`` via ``processor_kwargs`` instead. Defaults to None.
+        do_lower_case (bool, optional): If true, lowercases the input (independent of whether the model
+            is cased or not). Rarely needed. Defaults to False.
+        tokenizer_name_or_path (str, optional): Name or path of the tokenizer. When None,
+            ``model_name_or_path`` is used. Deprecated. Defaults to None.
     """
 
     config_file_name: str = "sentence_bert_config.json"

@@ -5,6 +5,7 @@ import itertools
 import logging
 import math
 import queue
+import warnings
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -39,42 +40,73 @@ ALLOWED_PRECISIONS = {"float32", "int8", "uint8", "binary", "ubinary"}
 
 class SentenceTransformer(BaseModel, FitMixin):
     """
-    Loads or creates a SentenceTransformer model that can be used to map text and other inputs to embeddings.
+    Loads or creates a SentenceTransformer model that can be used to map text and other inputs to dense embeddings.
 
     Args:
-        model_name_or_path (str, optional): If it is a filepath on disk, it loads the model from that path. If it is not a path,
-            it first tries to download a pre-trained SentenceTransformer model. If that fails, tries to construct a model
-            from the Hugging Face Hub with that name.
-        modules (list[nn.Module], optional): A list of torch Modules that should be called sequentially, can be used to create custom
-            SentenceTransformer models from scratch.
-        device (str, optional): Device (like "cuda", "cpu", "mps", "npu") that should be used for computation. If None, checks if a GPU
-            can be used.
-        cache_folder (str, optional): Path to store models. Can also be set by the SENTENCE_TRANSFORMERS_HOME environment variable.
-        trust_remote_code (bool, optional): Whether or not to allow for custom models defined on the Hub in their own modeling files.
-            This option should only be set to True for repositories you trust and in which you have read the code, as it
-            will execute code present on the Hub on your local machine.
-        revision (str, optional): The specific model version to use. It can be a branch name, a tag name, or a commit id,
-            for a stored model on Hugging Face.
-        local_files_only (bool, optional): Whether or not to only look at local files (i.e., do not try to download the model).
-        token (bool or str, optional): Hugging Face authentication token to download private models.
-        use_auth_token (bool or str, optional): Deprecated argument. Please use `token` instead.
-        model_kwargs (Dict[str, Any], optional): Additional model configuration parameters to be passed to the Hugging Face Transformers model.
-        processor_kwargs (Dict[str, Any], optional): Additional processor/tokenizer configuration parameters to be passed to the Hugging Face Transformers tokenizer/processor.
-        config_kwargs (Dict[str, Any], optional): Additional model configuration parameters to be passed to the Hugging Face Transformers config.
-        model_card_data (:class:`~sentence_transformers.sentence_transformer.model_card.SentenceTransformerModelCardData`, optional): A model
-            card data object that contains information about the model. This is used to generate a model card when saving
-            the model. If not set, a default model card data object is created.
-        backend (str): The backend to use for inference. Can be one of "torch" (default), "onnx", or "openvino".
-        prompts (Dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt name, the value is the prompt text.
-            The prompt text will be prepended before any text to encode. For example:
-            `{"query": "query: ", "passage": "passage: "}` or `{"clustering": "Identify the main category based on the
-            titles in "}`.
+        model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise, tries
+            to download a pre-trained SentenceTransformer model. If that fails, tries to construct a model from
+            the Hugging Face Hub with that name. Defaults to None.
+        modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
+            create custom SentenceTransformer models from scratch. Defaults to None.
+        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used for
+            computation. If None, checks if a GPU can be used. Defaults to None.
+        prompts (dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt name,
+            the value is the prompt text. The prompt text will be prepended before any text to encode. For example:
+            ``{"query": "query: ", "passage": "passage: "}``. Defaults to None.
         default_prompt_name (str, optional): The name of the prompt that should be used by default. If not set,
-            no prompt will be applied.
-        similarity_fn_name (str or SimilarityFunction, optional): The name of the similarity function to use. Valid options are "cosine", "dot",
-            "euclidean", and "manhattan". If not set, it is automatically set to "cosine" if `similarity` or
-            `similarity_pairwise` are called while `model.similarity_fn_name` is still `None`.
-        truncate_dim (int, optional): The dimension to truncate sentence embeddings to. Defaults to None.
+            no prompt will be applied. Defaults to None.
+        cache_folder (str, optional): Path to store models. Can also be set by the ``SENTENCE_TRANSFORMERS_HOME``
+            environment variable. Defaults to None.
+        trust_remote_code (bool, optional): Whether to allow for custom models defined on the Hub in their own
+            modeling files. Only set to ``True`` for repositories you trust and in which you have read the code,
+            as it will execute code present on the Hub on your local machine. Defaults to False.
+        revision (str, optional): The specific model version to use. It can be a branch name, a tag name, or a
+            commit id, for a stored model on Hugging Face. Defaults to None.
+        local_files_only (bool, optional): Whether to only look at local files (i.e., do not try to download
+            the model). Defaults to False.
+        token (bool or str, optional): Hugging Face authentication token to download private models.
+            Defaults to None.
+        use_auth_token (bool or str, optional): Deprecated. Use ``token`` instead.
+        model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
+            Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
+
+            - ``torch_dtype``: Override the default ``torch.dtype`` and load the model under a specific
+              dtype. Can be ``torch.float16``, ``torch.bfloat16``, ``torch.float32``, or ``"auto"`` to
+              use the dtype from the model's ``config.json``.
+            - ``attn_implementation``: The attention implementation to use. For example ``"eager"``,
+              ``"sdpa"``, or ``"flash_attention_2"``. If you ``pip install kernels``, then
+              ``"flash_attention_2"`` should work without having to install ``flash_attn``. It is
+              frequently the fastest option. Defaults to ``"sdpa"`` when available (torch>=2.1.1).
+            - ``device_map``: Device map for model parallelism, e.g. ``"auto"``.
+            - ``provider``: For ``backend="onnx"``, the ONNX execution provider
+              (e.g. ``"CUDAExecutionProvider"``).
+            - ``file_name``: For ``backend="onnx"`` or ``"openvino"``, the filename to load
+              (e.g. for optimized or quantized models).
+            - ``export``: For ``backend="onnx"`` or ``"openvino"``, whether to export the model to the
+              backend format. Also set automatically if the exported file doesn't exist.
+
+            See the `PreTrainedModel.from_pretrained
+            <https://huggingface.co/docs/transformers/en/main_classes/model#transformers.PreTrainedModel.from_pretrained>`_
+            documentation for more details. Defaults to None.
+        processor_kwargs (dict[str, Any], optional): Keyword arguments passed to the Hugging Face Transformers
+            processor/tokenizer via ``AutoProcessor.from_pretrained``. See the `AutoTokenizer.from_pretrained
+            <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoTokenizer.from_pretrained>`_
+            documentation for more details. Defaults to None.
+        config_kwargs (dict[str, Any], optional): Keyword arguments passed to the Hugging Face Transformers
+            config via ``AutoConfig.from_pretrained``. See the `AutoConfig.from_pretrained
+            <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoConfig.from_pretrained>`_
+            documentation for more details. Defaults to None.
+        model_card_data (:class:`~sentence_transformers.sentence_transformer.model_card.SentenceTransformerModelCardData`, optional):
+            A model card data object that contains information about the model. Used to generate a model card
+            when saving the model. If not set, a default model card data object is created. Defaults to None.
+        backend (str, optional): The backend to use for inference. Can be ``"torch"`` (default), ``"onnx"``,
+            or ``"openvino"``. Defaults to ``"torch"``.
+        similarity_fn_name (str or SimilarityFunction, optional): The name of the similarity function to use.
+            Valid options are ``"cosine"``, ``"dot"``, ``"euclidean"``, and ``"manhattan"``. If not set, it is
+            automatically set to ``"cosine"`` when :attr:`similarity` or :attr:`similarity_pairwise` are first
+            accessed. Defaults to None.
+        truncate_dim (int, optional): The dimension to truncate sentence embeddings to. ``None`` means no
+            truncation. Defaults to None.
 
     Example:
         ::
@@ -134,6 +166,18 @@ class SentenceTransformer(BaseModel, FitMixin):
         self.similarity_fn_name = similarity_fn_name
         self.truncate_dim = truncate_dim
 
+        # Handle deprecated use_auth_token
+        if use_auth_token is not None:
+            warnings.warn(
+                "The `use_auth_token` argument is deprecated and will be removed in a future release of SentenceTransformers.",
+                FutureWarning,
+            )
+            if token is not None:
+                raise ValueError(
+                    "Both `token` and `use_auth_token` are specified. Please only specify the `token` argument."
+                )
+            token = use_auth_token
+
         super().__init__(
             model_name_or_path=model_name_or_path,
             modules=modules,
@@ -143,7 +187,6 @@ class SentenceTransformer(BaseModel, FitMixin):
             revision=revision,
             local_files_only=local_files_only,
             token=token,
-            use_auth_token=use_auth_token,
             model_kwargs=model_kwargs,
             processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,

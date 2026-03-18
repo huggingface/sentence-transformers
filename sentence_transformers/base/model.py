@@ -9,7 +9,6 @@ import shutil
 import sys
 import tempfile
 import traceback
-import warnings
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from multiprocessing import Queue
@@ -84,7 +83,6 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         revision: str | None = None,
         local_files_only: bool = False,
         token: bool | str | None = None,
-        use_auth_token: bool | str | None = None,
         model_kwargs: dict[str, Any] | None = None,
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
@@ -95,22 +93,64 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         Initialize a BaseModel instance.
 
         Args:
-            model_name_or_path: Model name or path to load from
-            modules: List of modules to compose the model from
-            device: Device to use for computation
-            cache_folder: Folder to cache downloaded models
-            trust_remote_code: Whether to trust remote code
-            revision: Specific model version to use
-            local_files_only: Whether to only use local files
-            token: HuggingFace authentication token
-            use_auth_token: Deprecated, use token instead
-            model_kwargs: Additional model configuration parameters
-            processor_kwargs: Additional processor/tokenizer configuration parameters
-            config_kwargs: Additional config configuration parameters
-            model_card_data: Model card data object
-            backend: Backend to use for inference (torch, onnx, openvino)
-            prompts: Dictionary of named prompts for the model
-            default_prompt_name: Default prompt name to use if none is specified
+            model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise,
+                tries to download a pre-trained model. If that fails, tries to construct a model from the Hugging
+                Face Hub with that name. Defaults to None.
+            modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used
+                to create custom models from scratch. Defaults to None.
+            device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used
+                for computation. If None, checks if a GPU can be used. Defaults to None.
+            prompts (dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt
+                name, the value is the prompt text. The prompt text will be prepended before any text to encode.
+                For example: ``{"query": "query: ", "passage": "passage: "}``. Defaults to None.
+            default_prompt_name (str, optional): The name of the prompt that should be used by default. If not
+                set, no prompt will be applied. Defaults to None.
+            cache_folder (str, optional): Path to store models. Can also be set by the
+                ``SENTENCE_TRANSFORMERS_HOME`` environment variable. Defaults to None.
+            trust_remote_code (bool, optional): Whether to allow for custom models defined on the Hub in their
+                own modeling files. Only set to ``True`` for repositories you trust and in which you have read the
+                code, as it will execute code present on the Hub on your local machine. Defaults to False.
+            revision (str, optional): The specific model version to use. It can be a branch name, a tag name, or
+                a commit id, for a stored model on Hugging Face. Defaults to None.
+            local_files_only (bool, optional): Whether to only look at local files (i.e., do not try to download
+                the model). Defaults to False.
+            token (bool or str, optional): Hugging Face authentication token to download private models.
+                Defaults to None.
+            model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
+                Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
+
+                - ``torch_dtype``: Override the default ``torch.dtype`` and load the model under a specific
+                  dtype. Can be ``torch.float16``, ``torch.bfloat16``, ``torch.float32``, or ``"auto"`` to
+                  use the dtype from the model's ``config.json``.
+                - ``attn_implementation``: The attention implementation to use. For example ``"eager"``,
+                  ``"sdpa"``, or ``"flash_attention_2"``. If you ``pip install kernels``, then
+                  ``"flash_attention_2"`` should work without having to install ``flash_attn``. It is
+                  frequently the fastest option. Defaults to ``"sdpa"`` when available (torch>=2.1.1).
+                - ``device_map``: Device map for model parallelism, e.g. ``"auto"``.
+                - ``provider``: For ``backend="onnx"``, the ONNX execution provider
+                  (e.g. ``"CUDAExecutionProvider"``).
+                - ``file_name``: For ``backend="onnx"`` or ``"openvino"``, the filename to load
+                  (e.g. for optimized or quantized models).
+                - ``export``: For ``backend="onnx"`` or ``"openvino"``, whether to export the model to the
+                  backend format. Also set automatically if the exported file doesn't exist.
+
+                See the `PreTrainedModel.from_pretrained
+                <https://huggingface.co/docs/transformers/en/main_classes/model#transformers.PreTrainedModel.from_pretrained>`_
+                documentation for more details. Defaults to None.
+            processor_kwargs (dict[str, Any], optional): Keyword arguments passed to the Hugging Face Transformers
+                processor/tokenizer via ``AutoProcessor.from_pretrained``. See the
+                `AutoTokenizer.from_pretrained
+                <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoTokenizer.from_pretrained>`_
+                documentation for more details. Defaults to None.
+            config_kwargs (dict[str, Any], optional): Keyword arguments passed to the Hugging Face Transformers
+                config via ``AutoConfig.from_pretrained``. See the `AutoConfig.from_pretrained
+                <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoConfig.from_pretrained>`_
+                documentation for more details. Defaults to None.
+            model_card_data (CardData, optional): A model card data object that contains information about the
+                model. Used to generate a model card when saving the model. If not set, a default model card data
+                object is created. Defaults to None.
+            backend (str, optional): The backend to use for inference. Can be ``"torch"`` (default), ``"onnx"``,
+                or ``"openvino"``. Defaults to ``"torch"``.
         """
         default_prompts = dict(self._default_prompts)
         if prompts:
@@ -124,18 +164,6 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self._model_card_text = None
         self.model_type = self.__class__.__name__
         self.backend = backend
-
-        # Handle deprecated use_auth_token
-        if use_auth_token is not None:
-            warnings.warn(
-                "The `use_auth_token` argument is deprecated and will be removed in v4 of SentenceTransformers.",
-                FutureWarning,
-            )
-            if token is not None:
-                raise ValueError(
-                    "Both `token` and `use_auth_token` are specified. Please only specify the `token` argument."
-                )
-            token = use_auth_token
 
         if cache_folder is None:
             cache_folder = os.getenv("SENTENCE_TRANSFORMERS_HOME")

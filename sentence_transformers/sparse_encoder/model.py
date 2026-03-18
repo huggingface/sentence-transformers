@@ -33,81 +33,73 @@ logger = transformers_logging.get_logger(__name__)
 
 class SparseEncoder(BaseModel):
     """
-    Loads or creates a SparseEncoder model that can be used to map sentences / text to sparse embeddings.
+    Loads or creates a SparseEncoder model that can be used to map text to sparse embeddings.
 
     Args:
-        model_name_or_path (str, optional): If it is a filepath on disk, it loads the model from that path. If it is not a path,
-            it first tries to download a pre-trained SparseEncoder model. If that fails, tries to construct a model
-            from the Hugging Face Hub with that name.
-        modules (Iterable[nn.Module], optional): A list of torch Modules that should be called sequentially, can be used to create custom
-            SparseEncoder models from scratch.
-        device (str, optional): Device (like "cuda", "cpu", "mps", "npu") that should be used for computation. If None, checks if a GPU
-            can be used.
-        prompts (Dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt name, the value is the prompt text.
-            The prompt text will be prepended before any text to encode. For example:
-            `{"query": "query: ", "passage": "passage: "}` or `{"clustering": "Identify the main category based on the
-            titles in "}`.
+        model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise, tries
+            to download a pre-trained SparseEncoder model. If that fails, tries to construct a model from the
+            Hugging Face Hub with that name. Defaults to None.
+        modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
+            create custom SparseEncoder models from scratch. Defaults to None.
+        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used for
+            computation. If None, checks if a GPU can be used. Defaults to None.
+        prompts (dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt name,
+            the value is the prompt text. The prompt text will be prepended before any text to encode. For example:
+            ``{"query": "query: ", "passage": "passage: "}``. Defaults to None.
         default_prompt_name (str, optional): The name of the prompt that should be used by default. If not set,
-            no prompt will be applied.
-        similarity_fn_name (str or SimilarityFunction, optional): The name of the similarity function to use. Valid options are "cosine", "dot",
-            "euclidean", and "manhattan". If not set, it is automatically set to "cosine" if `similarity` or
-            `similarity_pairwise` are called while `model.similarity_fn_name` is still `None`.
-        cache_folder (str, optional): Path to store models. Can also be set by the SENTENCE_TRANSFORMERS_HOME environment variable.
-        trust_remote_code (bool, optional): Whether or not to allow for custom models defined on the Hub in their own modeling files.
-            This option should only be set to True for repositories you trust and in which you have read the code, as it
-            will execute code present on the Hub on your local machine.
-        revision (str, optional): The specific model version to use. It can be a branch name, a tag name, or a commit id,
-            for a stored model on Hugging Face.
-        local_files_only (bool, optional): Whether or not to only look at local files (i.e., do not try to download the model).
+            no prompt will be applied. Defaults to None.
+        cache_folder (str, optional): Path to store models. Can also be set by the ``SENTENCE_TRANSFORMERS_HOME``
+            environment variable. Defaults to None.
+        trust_remote_code (bool, optional): Whether to allow for custom models defined on the Hub in their own
+            modeling files. Only set to ``True`` for repositories you trust and in which you have read the code,
+            as it will execute code present on the Hub on your local machine. Defaults to False.
+        revision (str, optional): The specific model version to use. It can be a branch name, a tag name, or a
+            commit id, for a stored model on Hugging Face. Defaults to None.
+        local_files_only (bool, optional): Whether to only look at local files (i.e., do not try to download
+            the model). Defaults to False.
         token (bool or str, optional): Hugging Face authentication token to download private models.
-        max_active_dims (int, optional): The maximum number of active (non-zero) dimensions in the output of the model. Defaults to None. This means there will be no
-            limit on the number of active dimensions and can be slow or memory-intensive if your model wasn't (yet) finetuned to high sparsity.
-        model_kwargs (Dict[str, Any], optional): Additional model configuration parameters to be passed to the Hugging Face Transformers model.
-            Particularly useful options are:
+            Defaults to None.
+        model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
+            Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
-            - ``torch_dtype``: Override the default `torch.dtype` and load the model under a specific `dtype`.
-              The different options are:
-
-                    1. ``torch.float16``, ``torch.bfloat16`` or ``torch.float``: load in a specified
-                    ``dtype``, ignoring the model's ``config.torch_dtype`` if one exists. If not specified - the model will
-                    get loaded in ``torch.float`` (fp32).
-
-                    2. ``"auto"`` - A ``torch_dtype`` entry in the ``config.json`` file of the model will be
-                    attempted to be used. If this entry isn't found then next check the ``dtype`` of the first weight in
-                    the checkpoint that's of a floating point type and use that as ``dtype``. This will load the model
-                    using the ``dtype`` it was saved in at the end of the training. It can't be used as an indicator of how
-                    the model was trained. Since it could be trained in one of half precision dtypes, but saved in fp32.
-            - ``attn_implementation``: The attention implementation to use in the model (if relevant). Can be any of
-              `"eager"` (manual implementation of the attention), `"sdpa"` (using `F.scaled_dot_product_attention
-              <https://pytorch.org/docs/master/generated/torch.nn.functional.scaled_dot_product_attention.html>`_),
-              or `"flash_attention_2"` (using `Dao-AILab/flash-attention <https://github.com/Dao-AILab/flash-attention>`_).
-              By default, if available, SDPA will be used for torch>=2.1.1. The default is otherwise the manual `"eager"`
-              implementation.
-            - ``provider``: If backend is "onnx", this is the provider to use for inference, for example "CPUExecutionProvider",
-              "CUDAExecutionProvider", etc. See https://onnxruntime.ai/docs/execution-providers/ for all ONNX execution providers.
-            - ``file_name``: If backend is "onnx" or "openvino", this is the file name to load, useful for loading optimized
-              or quantized ONNX or OpenVINO models.
-            - ``export``: If backend is "onnx" or "openvino", then this is a boolean flag specifying whether this model should
-              be exported to the backend. If not specified, the model will be exported only if the model repository or directory
-              does not already contain an exported model.
+            - ``torch_dtype``: Override the default ``torch.dtype`` and load the model under a specific
+              dtype. Can be ``torch.float16``, ``torch.bfloat16``, ``torch.float32``, or ``"auto"`` to
+              use the dtype from the model's ``config.json``.
+            - ``attn_implementation``: The attention implementation to use. For example ``"eager"``,
+              ``"sdpa"``, or ``"flash_attention_2"``. If you ``pip install kernels``, then
+              ``"flash_attention_2"`` should work without having to install ``flash_attn``. It is
+              frequently the fastest option. Defaults to ``"sdpa"`` when available (torch>=2.1.1).
+            - ``device_map``: Device map for model parallelism, e.g. ``"auto"``.
+            - ``provider``: For ``backend="onnx"``, the ONNX execution provider
+              (e.g. ``"CUDAExecutionProvider"``).
+            - ``file_name``: For ``backend="onnx"`` or ``"openvino"``, the filename to load
+              (e.g. for optimized or quantized models).
+            - ``export``: For ``backend="onnx"`` or ``"openvino"``, whether to export the model to the
+              backend format. Also set automatically if the exported file doesn't exist.
 
             See the `PreTrainedModel.from_pretrained
             <https://huggingface.co/docs/transformers/en/main_classes/model#transformers.PreTrainedModel.from_pretrained>`_
-            documentation for more details.
-        processor_kwargs (Dict[str, Any], optional): Additional processor/tokenizer configuration parameters to be passed to the Hugging Face Transformers tokenizer/processor.
-            See the `AutoTokenizer.from_pretrained
+            documentation for more details. Defaults to None.
+        processor_kwargs (dict[str, Any], optional): Keyword arguments passed to the Hugging Face Transformers
+            processor/tokenizer via ``AutoProcessor.from_pretrained``. See the `AutoTokenizer.from_pretrained
             <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoTokenizer.from_pretrained>`_
-            documentation for more details.
-        config_kwargs (Dict[str, Any], optional): Additional model configuration parameters to be passed to the Hugging Face Transformers config.
-            See the `AutoConfig.from_pretrained
+            documentation for more details. Defaults to None.
+        config_kwargs (dict[str, Any], optional): Keyword arguments passed to the Hugging Face Transformers
+            config via ``AutoConfig.from_pretrained``. See the `AutoConfig.from_pretrained
             <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoConfig.from_pretrained>`_
-            documentation for more details.
-        model_card_data (:class:`~sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData`, optional): A model
-            card data object that contains information about the model. This is used to generate a model card when saving
-            the model. If not set, a default model card data object is created.
-        backend (str): The backend to use for inference. Can be one of "torch" (default), "onnx", or "openvino".
-            See https://sbert.net/docs/sentence_transformer/usage/efficiency.html for benchmarking information
-            on the different backends.
+            documentation for more details. Defaults to None.
+        model_card_data (:class:`~sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData`, optional):
+            A model card data object that contains information about the model. Used to generate a model card
+            when saving the model. If not set, a default model card data object is created. Defaults to None.
+        backend (str, optional): The backend to use for inference. Can be ``"torch"`` (default), ``"onnx"``,
+            or ``"openvino"``. Defaults to ``"torch"``.
+        similarity_fn_name (str or SimilarityFunction, optional): The name of the similarity function to use.
+            Valid options are ``"cosine"``, ``"dot"``, ``"euclidean"``, and ``"manhattan"``. If not set, it is
+            automatically set to ``"cosine"`` when :attr:`similarity` or :attr:`similarity_pairwise` are first
+            accessed. Defaults to None.
+        max_active_dims (int, optional): The maximum number of active (non-zero) dimensions in the output of the
+            model. ``None`` means no limit, which can be slow or memory-intensive if your model wasn't (yet)
+            finetuned to high sparsity. Defaults to None.
 
     Example:
         ::
