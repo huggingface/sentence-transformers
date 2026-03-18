@@ -104,7 +104,7 @@ class ADRMSELoss(nn.Module):
         For each document i: approx_rank(i) = 1 + sum_{j != i} sigmoid(s_j - s_i).
         Higher scores get lower (better) ranks. Padded positions are excluded via the mask.
         """
-        score_diffs = scores.unsqueeze(2) - scores.unsqueeze(1)
+        score_diffs = scores.unsqueeze(1) - scores.unsqueeze(2)
         pairwise = torch.sigmoid(score_diffs)
         pairwise = pairwise * mask.unsqueeze(1).float()
         pairwise = pairwise * (1 - torch.eye(scores.size(1), device=scores.device)).unsqueeze(0)
