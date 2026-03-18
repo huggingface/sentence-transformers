@@ -455,6 +455,9 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         Returns:
             Dict[str, Tensor]: A dictionary of tensors with the preprocessed texts.
         """
+        if not inputs:
+            return {}
+
         # Validate that the inputs match a supported modality.
         # If "message" is supported, any modality is allowed since the input module
         # can convert it to message format (e.g. wrapping images in chat messages).

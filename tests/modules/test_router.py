@@ -992,6 +992,16 @@ def test_router_tokenize_with_modality(static_embedding_model: StaticEmbedding):
     assert tokens["modality"] == "text"
 
 
+def test_router_preprocess_empty_inputs(static_embedding_model: StaticEmbedding):
+    """preprocess with an empty list should not crash on the backwards-compat inputs[0] check."""
+    router = Router(
+        {"query": [static_embedding_model], "document": [static_embedding_model]},
+        default_route="query",
+    )
+    result = router.preprocess([])
+    assert isinstance(result, dict)
+
+
 def test_router_tokenizer_property(static_embedding_model: StaticEmbedding):
     """Test the tokenizer property."""
     router = Router({"query": [static_embedding_model], "document": [static_embedding_model]})

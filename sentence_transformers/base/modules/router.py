@@ -540,10 +540,8 @@ class Router(InputModule):
         **kwargs,
     ):
         """Preprocesses a text and maps tokens to token-ids"""
-        # TODO: What if `inputs` is an empty list
-
         # Backwards compatibility branch: for when texts are list of dicts with task types as keys
-        if isinstance(inputs[0], dict) and task is None:
+        if inputs and isinstance(inputs[0], dict) and task is None:
             # Extract the task type key from the dictionaries
             dict_keys = set(key for text in inputs for key in text.keys())
             # If the input keys are not modalities, they might be task types from backwards compatibility

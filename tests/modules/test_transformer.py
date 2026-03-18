@@ -327,6 +327,11 @@ class TestPreprocess:
         result = bert_tiny_transformer.preprocess(["hello world"])
         assert "prompt_length" not in result
 
+    def test_preprocess_empty_inputs(self, bert_tiny_transformer):
+        """preprocess with an empty list should return an empty dict without raising."""
+        result = bert_tiny_transformer.preprocess([])
+        assert result == {}
+
     def test_preprocess_processing_kwargs_text_override(self):
         """processing_kwargs should override default text preprocessing kwargs."""
         # With max_length=5 and truncation, the output should be truncated

@@ -140,12 +140,12 @@ def test_preprocess_skips_modality_check_for_empty_inputs(
 ) -> None:
     """preprocess() should skip the modality check when inputs is empty."""
 
-    def fail_if_called(inputs):
+    def fail_if_called(inputs, **kwargs):
         raise AssertionError("infer_batch_modality should not be called for empty inputs")
 
     monkeypatch.setattr("sentence_transformers.base.model.infer_batch_modality", fail_if_called)
-    with pytest.raises((IndexError, Exception)):
-        stsb_bert_tiny_model.preprocess([])
+    features = stsb_bert_tiny_model.preprocess([])
+    assert isinstance(features, dict)
 
 
 def test_sentence_transformer(stsb_bert_tiny_model: SentenceTransformer) -> None:
