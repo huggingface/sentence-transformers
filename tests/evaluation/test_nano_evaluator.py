@@ -81,7 +81,7 @@ def fake_datasets_module() -> Any:
     return build_fake_datasets_module(
         {
             "sentence-transformers/NanoBEIR-en": ["NanoMSMARCO", "NanoNQ"],
-            "example/NanoFooBar": ["python", "java"],
+            "example/FooBar": ["python", "java"],
         }
     )
 
@@ -101,19 +101,19 @@ def patch_nano_eval(monkeypatch: pytest.MonkeyPatch, fake_datasets_module: Any) 
 def test_nano_evaluator_auto_expand_splits_and_auto_names(patch_nano_eval: None, dummy_model: Any) -> None:
     evaluator = NanoEvaluator(
         dataset_names=None,
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         write_csv=False,
     )
 
     assert evaluator.dataset_names == ["python", "java"]
     assert [sub_evaluator.name for sub_evaluator in evaluator.evaluators] == [
-        "NanoFooBar_python",
-        "NanoFooBar_java",
+        "FooBar_python",
+        "FooBar_java",
     ]
 
     metrics = evaluator(dummy_model)
-    assert evaluator.primary_metric == "NanoFooBar_mean_cosine_ndcg@10"
-    assert "NanoFooBar_mean_cosine_ndcg@10" in metrics
+    assert evaluator.primary_metric == "FooBar_mean_cosine_ndcg@10"
+    assert "FooBar_mean_cosine_ndcg@10" in metrics
 
 
 def test_nano_evaluator_auto_expand_splits_with_mapping_in_strict_mode(
@@ -122,7 +122,7 @@ def test_nano_evaluator_auto_expand_splits_with_mapping_in_strict_mode(
 ) -> None:
     evaluator = NanoEvaluator(
         dataset_names=None,
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         dataset_name_to_human_readable={"msmarco": "MSMARCO"},
         split_prefix="Nano",
         strict_dataset_name_validation=True,
@@ -131,7 +131,7 @@ def test_nano_evaluator_auto_expand_splits_with_mapping_in_strict_mode(
 
     assert evaluator.dataset_names == ["python", "java"]
     metrics = evaluator(dummy_model)
-    assert "NanoFooBar_mean_cosine_ndcg@10" in metrics
+    assert "FooBar_mean_cosine_ndcg@10" in metrics
 
 
 def test_nano_evaluator_mapping_validates_split_exists(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,7 +164,7 @@ def test_nano_evaluator_accepts_direct_split_names_with_mapping(
 ) -> None:
     evaluator = NanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         dataset_name_to_human_readable={"msmarco": "MSMARCO"},
         split_prefix="Nano",
         write_csv=False,
@@ -172,7 +172,7 @@ def test_nano_evaluator_accepts_direct_split_names_with_mapping(
 
     assert [sub_evaluator.name for sub_evaluator in evaluator.evaluators] == ["python"]
     metrics = evaluator(dummy_model)
-    assert "NanoFooBar_mean_cosine_ndcg@10" in metrics
+    assert "FooBar_mean_cosine_ndcg@10" in metrics
 
 
 def test_nano_evaluator_custom_name_and_case_insensitive_prompts(
@@ -181,7 +181,7 @@ def test_nano_evaluator_custom_name_and_case_insensitive_prompts(
 ) -> None:
     evaluator = NanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         query_prompts={"PYTHON": "query: "},
         corpus_prompts={"PYTHON": "passage: "},
         name="CustomNano",
@@ -199,7 +199,7 @@ def test_nano_evaluator_custom_name_and_case_insensitive_prompts(
 def test_nano_evaluator_config_keeps_custom_name(patch_nano_eval: None) -> None:
     evaluator = NanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         name="CustomNano",
         write_csv=False,
     )
@@ -209,7 +209,7 @@ def test_nano_evaluator_config_keeps_custom_name(patch_nano_eval: None) -> None:
     assert config["name"] == "CustomNano"
 
 
-def test_sequential_evaluator_with_nanobeir_and_nanocodesearchnet(
+def test_sequential_evaluator_with_nanobeir_and_generic_nano_dataset(
     patch_nano_eval: None,
     dummy_model: Any,
 ) -> None:
@@ -217,13 +217,13 @@ def test_sequential_evaluator_with_nanobeir_and_nanocodesearchnet(
         dataset_names=["msmarco"],
         write_csv=False,
     )
-    nanocodesearchnet_evaluator = NanoEvaluator(
+    generic_nano_evaluator = NanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         write_csv=False,
     )
     seq_evaluator = SequentialEvaluator(
-        [nanobeir_evaluator, nanocodesearchnet_evaluator],
+        [nanobeir_evaluator, generic_nano_evaluator],
         main_score_function=lambda scores: float(sum(scores) / len(scores)),
     )
 
@@ -231,5 +231,5 @@ def test_sequential_evaluator_with_nanobeir_and_nanocodesearchnet(
 
     assert "sequential_score" in metrics
     assert any(key.startswith("NanoBEIR_mean_") for key in metrics)
-    assert any(key.startswith("NanoFooBar_mean_") for key in metrics)
+    assert any(key.startswith("FooBar_mean_") for key in metrics)
     assert "NanoBEIR_mean_cosine_ndcg@10" in metrics

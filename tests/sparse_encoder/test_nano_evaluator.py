@@ -94,7 +94,7 @@ def fake_datasets_module() -> Any:
     return build_fake_datasets_module(
         {
             "sentence-transformers/NanoBEIR-en": ["NanoMSMARCO", "NanoNQ"],
-            "example/NanoFooBar": ["python", "java"],
+            "example/FooBar": ["python", "java"],
         }
     )
 
@@ -121,21 +121,21 @@ def test_sparse_nano_evaluator_auto_expand_splits_and_auto_names(
 ) -> None:
     evaluator = SparseNanoEvaluator(
         dataset_names=None,
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         write_csv=False,
     )
 
     assert evaluator.dataset_names == ["python", "java"]
     assert [sub_evaluator.name for sub_evaluator in evaluator.evaluators] == [
-        "NanoFooBar_python",
-        "NanoFooBar_java",
+        "FooBar_python",
+        "FooBar_java",
     ]
 
     metrics = evaluator(dummy_sparse_model)
-    assert evaluator.primary_metric == "NanoFooBar_mean_dot_ndcg@10"
-    assert "NanoFooBar_mean_dot_ndcg@10" in metrics
-    assert "NanoFooBar_mean_query_active_dims" in metrics
-    assert "NanoFooBar_mean_avg_flops" in metrics
+    assert evaluator.primary_metric == "FooBar_mean_dot_ndcg@10"
+    assert "FooBar_mean_dot_ndcg@10" in metrics
+    assert "FooBar_mean_query_active_dims" in metrics
+    assert "FooBar_mean_avg_flops" in metrics
 
 
 def test_sparse_nano_evaluator_single_split_path(
@@ -144,14 +144,14 @@ def test_sparse_nano_evaluator_single_split_path(
 ) -> None:
     evaluator = SparseNanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         write_csv=False,
     )
 
     metrics = evaluator(dummy_sparse_model)
-    assert evaluator.primary_metric == "NanoFooBar_mean_dot_ndcg@10"
-    assert "NanoFooBar_python_dot_ndcg@10" in metrics
-    assert "NanoFooBar_mean_avg_flops" in metrics
+    assert evaluator.primary_metric == "FooBar_mean_dot_ndcg@10"
+    assert "FooBar_python_dot_ndcg@10" in metrics
+    assert "FooBar_mean_avg_flops" in metrics
 
 
 def test_sparse_nano_evaluator_mapping_validates_split_exists(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,7 +184,7 @@ def test_sparse_nano_evaluator_accepts_direct_split_names_with_mapping(
 ) -> None:
     evaluator = SparseNanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         dataset_name_to_human_readable={"msmarco": "MSMARCO"},
         split_prefix="Nano",
         write_csv=False,
@@ -192,7 +192,7 @@ def test_sparse_nano_evaluator_accepts_direct_split_names_with_mapping(
 
     assert [sub_evaluator.name for sub_evaluator in evaluator.evaluators] == ["python"]
     metrics = evaluator(dummy_sparse_model)
-    assert "NanoFooBar_mean_dot_ndcg@10" in metrics
+    assert "FooBar_mean_dot_ndcg@10" in metrics
 
 
 def test_sparse_nano_evaluator_custom_name_metric_root(
@@ -201,7 +201,7 @@ def test_sparse_nano_evaluator_custom_name_metric_root(
 ) -> None:
     evaluator = SparseNanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         name="CustomSparseNano",
         write_csv=False,
     )
@@ -212,7 +212,7 @@ def test_sparse_nano_evaluator_custom_name_metric_root(
     assert "CustomSparseNano_mean_dot_ndcg@10" in metrics
 
 
-def test_sequential_evaluator_with_sparse_nanobeir_and_nanocodesearchnet(
+def test_sequential_evaluator_with_sparse_nanobeir_and_generic_nano_dataset(
     patch_sparse_nano_eval: None,
     dummy_sparse_model: Any,
 ) -> None:
@@ -220,13 +220,13 @@ def test_sequential_evaluator_with_sparse_nanobeir_and_nanocodesearchnet(
         dataset_names=["msmarco"],
         write_csv=False,
     )
-    nanocodesearchnet_evaluator = SparseNanoEvaluator(
+    generic_nano_evaluator = SparseNanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         write_csv=False,
     )
     seq_evaluator = SequentialEvaluator(
-        [nanobeir_evaluator, nanocodesearchnet_evaluator],
+        [nanobeir_evaluator, generic_nano_evaluator],
         main_score_function=lambda scores: float(sum(scores) / len(scores)),
     )
 
@@ -234,5 +234,5 @@ def test_sequential_evaluator_with_sparse_nanobeir_and_nanocodesearchnet(
 
     assert "sequential_score" in metrics
     assert any(key.startswith("NanoBEIR_mean_") for key in metrics)
-    assert any(key.startswith("NanoFooBar_mean_") for key in metrics)
+    assert any(key.startswith("FooBar_mean_") for key in metrics)
     assert "NanoBEIR_mean_dot_ndcg@10" in metrics

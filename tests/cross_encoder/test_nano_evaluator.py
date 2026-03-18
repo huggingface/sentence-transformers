@@ -53,7 +53,7 @@ def fake_datasets_module() -> Any:
     return build_fake_datasets_module(
         {
             "sentence-transformers/NanoBEIR-en": ["NanoMSMARCO", "NanoNQ"],
-            "example/NanoFooBar": ["python", "java"],
+            "example/FooBar": ["python", "java"],
         },
         candidate_subsets={"bm25": "corpus-ids"},
     )
@@ -90,18 +90,18 @@ def test_cross_encoder_nano_evaluator_auto_expand_splits_and_auto_names(
 ) -> None:
     evaluator = CrossEncoderNanoEvaluator(
         dataset_names=None,
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         write_csv=False,
     )
 
     assert evaluator.dataset_names == ["python", "java"]
     assert [sub_evaluator.name for sub_evaluator in evaluator.evaluators] == [
-        "NanoFooBar_python_R100",
-        "NanoFooBar_java_R100",
+        "FooBar_python_R100",
+        "FooBar_java_R100",
     ]
 
     metrics = evaluator(dummy_cross_encoder)
-    assert "NanoFooBar_R100_mean_ndcg@10" in metrics
+    assert "FooBar_R100_mean_ndcg@10" in metrics
 
 
 def test_cross_encoder_nano_evaluator_auto_expand_splits_with_mapping_in_strict_mode(
@@ -110,7 +110,7 @@ def test_cross_encoder_nano_evaluator_auto_expand_splits_with_mapping_in_strict_
 ) -> None:
     evaluator = CrossEncoderNanoEvaluator(
         dataset_names=None,
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         dataset_name_to_human_readable={"msmarco": "MSMARCO"},
         split_prefix="Nano",
         strict_dataset_name_validation=True,
@@ -119,7 +119,7 @@ def test_cross_encoder_nano_evaluator_auto_expand_splits_with_mapping_in_strict_
 
     assert evaluator.dataset_names == ["python", "java"]
     metrics = evaluator(dummy_cross_encoder)
-    assert "NanoFooBar_R100_mean_ndcg@10" in metrics
+    assert "FooBar_R100_mean_ndcg@10" in metrics
 
 
 def test_cross_encoder_nano_evaluator_mapping_validates_split_exists(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,7 +152,7 @@ def test_cross_encoder_nano_evaluator_accepts_direct_split_names_with_mapping(
 ) -> None:
     evaluator = CrossEncoderNanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         dataset_name_to_human_readable={"msmarco": "MSMARCO"},
         split_prefix="Nano",
         write_csv=False,
@@ -160,7 +160,7 @@ def test_cross_encoder_nano_evaluator_accepts_direct_split_names_with_mapping(
 
     assert [sub_evaluator.name for sub_evaluator in evaluator.evaluators] == ["python_R100"]
     metrics = evaluator(dummy_cross_encoder)
-    assert "NanoFooBar_R100_mean_ndcg@10" in metrics
+    assert "FooBar_R100_mean_ndcg@10" in metrics
 
 
 def test_cross_encoder_nano_evaluator_custom_name_metric_root(
@@ -169,7 +169,7 @@ def test_cross_encoder_nano_evaluator_custom_name_metric_root(
 ) -> None:
     evaluator = CrossEncoderNanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         write_csv=False,
         name="CustomCrossNano",
     )
@@ -185,7 +185,7 @@ def test_cross_encoder_nano_evaluator_config_keeps_custom_name(
 ) -> None:
     evaluator = CrossEncoderNanoEvaluator(
         dataset_names=["python"],
-        dataset_id="example/NanoFooBar",
+        dataset_id="example/FooBar",
         write_csv=False,
         name="CustomCrossNano",
     )
