@@ -331,11 +331,7 @@ class CrossEncoderNanoBEIREvaluator(SentenceEvaluator):
         corpus = self._load_dataset_subset_split("corpus", split=split_name, required_columns=["_id", "text"])
         queries = self._load_dataset_subset_split("queries", split=split_name, required_columns=["_id", "text"])
         qrels = self._load_dataset_subset_split("qrels", split=split_name, required_columns=["query-id", "corpus-id"])
-        bm25 = self._load_dataset_subset_split(
-            "bm25",
-            split=split_name,
-            required_columns=["query-id", "corpus-ids"],
-        )
+        bm25 = self._load_dataset_subset_split("bm25", split=split_name, required_columns=["query-id", "corpus-ids"])
 
         corpus_mapping = dict(zip(corpus["_id"], corpus["text"]))
         query_mapping = dict(zip(queries["_id"], queries["text"]))
