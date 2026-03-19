@@ -2525,8 +2525,8 @@ print(similarities)
         )
 
         if config_sentence_transformers_json_path is None:
-            return "SentenceTransformer"
+            return self.__class__.__name__
 
         with open(config_sentence_transformers_json_path, encoding="utf8") as fIn:
             config = json.load(fIn)
-            return config.get("model_type", "SentenceTransformer")  # Default to "SentenceTransformer" if not specified
+            return config.get("model_type", self.__class__.__name__)  # Default to caller's class if not specified
