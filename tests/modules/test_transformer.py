@@ -1012,6 +1012,6 @@ class TestCanFlattenInputs:
     Version(transformers_version) >= Version("5.0.0"),
     reason="Test only applies to transformers v4",
 )
-def test_any_to_any_requires_transformers_v5():
+def test_image_text_to_text_requires_transformers_v5():
     with pytest.raises(ImportError, match="transformers v5"):
-        Transformer("hf-internal-testing/tiny-random-LlamaForCausalLM", transformer_task="any-to-any")
+        Transformer("hf-internal-testing/tiny-random-LlamaForCausalLM", transformer_task="image-text-to-text")

@@ -16,7 +16,7 @@ and projects it to a score via a Dense layer, avoiding the expensive LM head com
 the full vocabulary. Both approaches produce comparable results.
 
 Usage:
-    python training_doodles_any_to_any.py
+    python training_doodles_image_text_to_text.py
 """
 
 import logging
@@ -46,13 +46,13 @@ seed = 42
 # 1. Load the model
 model_name = "Qwen/Qwen3.5-0.8B"
 
-# Transformer with "any-to-any" task: loads the full causal LM (with LM head) so the model
+# Transformer with "image-text-to-text" task: loads the full causal LM (with LM head) so the model
 # can generate tokens. add_generation_prompt=True appends the assistant turn start token,
 # so the model generates from the right position.
 # NOTE: ``pip install kernels`` is recommended to avoid installing the separate ``flash_attn`` package
 transformer = Transformer(
     model_name,
-    transformer_task="any-to-any",
+    transformer_task="image-text-to-text",
     model_kwargs={"torch_dtype": "bfloat16", "device_map": "auto", "attn_implementation": "flash_attention_2"},
     processing_kwargs={"chat_template": {"add_generation_prompt": True}},
 )
@@ -188,7 +188,7 @@ loss = BinaryCrossEntropyLoss(model)
 
 # 6. Training arguments
 short_model_name = model_name.split("/")[-1]
-run_name = f"reranker-{short_model_name}-doodles-any-to-any"
+run_name = f"reranker-{short_model_name}-doodles-image-text-to-text"
 args = CrossEncoderTrainingArguments(
     output_dir=f"models/{run_name}",
     num_train_epochs=num_epochs,

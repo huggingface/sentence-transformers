@@ -697,7 +697,10 @@ def load_transformer(arch: str, transformer_task: str = "feature-extraction", **
             model.config.eos_token_id = 0
 
     # Required for saving llama models to disk
-    if transformer_task in ("text-generation", "any-to-any") and model.model.generation_config.pad_token_id == -1:
+    if (
+        transformer_task in ("text-generation", "image-text-to-text")
+        and model.model.generation_config.pad_token_id == -1
+    ):
         model.model.generation_config.pad_token_id = model.model.generation_config.eos_token_id
 
     return model

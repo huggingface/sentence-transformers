@@ -13,7 +13,7 @@ BinaryCrossEntropyLoss with multi-dataset training. Two sub-datasets are created
 
 Each sample is expanded with negatives at a 1:4 positive-to-negative ratio.
 
-See also ``training_doodles_any_to_any.py`` for an alternative approach that uses CausalScoreHead.
+See also ``training_doodles_image_text_to_text.py`` for an alternative approach that uses CausalScoreHead.
 That variant loads the full causal LM, generates a single token, and compares logits for "1" vs
 "0" to produce a score. Both approaches produce comparable results, but this variant is more
 memory-efficient since it doesn't require the LM head.

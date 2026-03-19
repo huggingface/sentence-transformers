@@ -96,7 +96,7 @@ if TYPE_CHECKING and is_peft_available():
     from peft import PeftConfig
 
 TransformerTask = Literal[
-    "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask"
+    "feature-extraction", "sequence-classification", "text-generation", "image-text-to-text", "fill-mask"
 ]
 
 
@@ -117,7 +117,7 @@ TRANSFORMER_TASK_TO_AUTO_MODEL: dict[TransformerTask, Any] = {
 try:
     from transformers import AutoModelForMultimodalLM
 
-    TRANSFORMER_TASK_TO_AUTO_MODEL["any-to-any"] = (
+    TRANSFORMER_TASK_TO_AUTO_MODEL["image-text-to-text"] = (
         AutoModelForMultimodalLM  # Used by CrossEncoder, also covers "image-text-to-text"
     )
 except ImportError:
@@ -139,7 +139,7 @@ TRANSFORMER_TASK_DEFAULTS: dict[TransformerTask, tuple[ModalityConfig, str]] = {
         {"text": {"method": "forward", "method_output_name": "logits"}},
         "causal_logits",
     ),
-    "any-to-any": (
+    "image-text-to-text": (
         {"text": {"method": "forward", "method_output_name": "logits"}},
         "causal_logits",
     ),
@@ -326,7 +326,7 @@ _TEXT_GENERATION_EDGE_CASES = {
     ),
 }
 
-_ANY_TO_ANY_EDGE_CASES = {
+_IMAGE_TEXT_TO_TEXT_EDGE_CASES = {
     # Models supporting text+image without message format, but no image-only
     "git": (
         {
@@ -362,7 +362,7 @@ _ANY_TO_ANY_EDGE_CASES = {
 _EDGE_CASE_MODALITY_CONFIGS: dict[str, dict[str, tuple[ModalityConfig, str, bool]]] = {
     "feature-extraction": _FEATURE_EXTRACTION_EDGE_CASES,
     "text-generation": _TEXT_GENERATION_EDGE_CASES,
-    "any-to-any": _ANY_TO_ANY_EDGE_CASES,
+    "image-text-to-text": _IMAGE_TEXT_TO_TEXT_EDGE_CASES,
     "fill-mask": _FILL_MASK_EDGE_CASES,
 }
 
@@ -410,7 +410,7 @@ class Transformer(InputModule):
               used by :class:`~sentence_transformers.CrossEncoder`.
             - ``"text-generation"``: :class:`~transformers.AutoModelForCausalLM`, used by generative
               :class:`~sentence_transformers.CrossEncoder` models. Sets the ``tokenizer`` padding_side to "left".
-            - ``"any-to-any"``: ``AutoModelForMultimodalLM``, for multimodal generative
+            - ``"image-text-to-text"``: ``AutoModelForMultimodalLM``, for multimodal generative
               :class:`~sentence_transformers.CrossEncoder` models (requires transformers v5+). Sets the
               ``tokenizer`` padding_side to "left".
             - ``"fill-mask"``: :class:`~transformers.AutoModelForMaskedLM`, used by
@@ -499,9 +499,9 @@ class Transformer(InputModule):
     ) -> None:
         super().__init__()
         if transformer_task not in TRANSFORMER_TASK_TO_AUTO_MODEL:
-            if transformer_task == "any-to-any":
+            if transformer_task == "image-text-to-text":
                 raise ImportError(
-                    "The 'any-to-any' transformer task requires transformers v5+. "
+                    "The 'image-text-to-text' transformer task requires transformers v5+. "
                     "Please upgrade transformers with `pip install transformers>=5.0.0`."
                 )
             raise ValueError(
@@ -588,7 +588,7 @@ class Transformer(InputModule):
 
         # Causal models require left padding so the last position is always a real token,
         # which is needed for logits_to_keep=1 and CausalScoreHead.
-        if self.transformer_task in ("text-generation", "any-to-any"):
+        if self.transformer_task in ("text-generation", "image-text-to-text"):
             self.processor.padding_side = "left"
 
         self.input_formatter = InputFormatter(
@@ -813,7 +813,7 @@ class Transformer(InputModule):
         if prompt_length is not None:
             processor_output["prompt_length"] = prompt_length
 
-        if self.transformer_task in ("text-generation", "any-to-any"):
+        if self.transformer_task in ("text-generation", "image-text-to-text"):
             if self.processor.padding_side != "left":
                 raise ValueError(
                     f"The processor padding side is {self.processor.padding_side!r}, but causal models require "
@@ -1147,7 +1147,7 @@ class Transformer(InputModule):
         self,
         model_name_or_path: str,
         transformer_task: Literal[
-            "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask"
+            "feature-extraction", "sequence-classification", "text-generation", "image-text-to-text", "fill-mask"
         ],
         config: PeftConfig | PretrainedConfig,
         backend: str,

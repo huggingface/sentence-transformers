@@ -1,5 +1,5 @@
 """
-Test suite for Transformer module with any-to-any task.
+Test suite for Transformer module with image-text-to-text task.
 Tests various tiny model architectures that support multimodal language modeling,
 which is used by CrossEncoder with CausalScoreHead for models that can also
 input non-text modalities (e.g. images, audio, video).
@@ -36,7 +36,7 @@ from .conftest import (
 try:
     from transformers.models.auto.modeling_auto import MODEL_FOR_MULTIMODAL_LM_MAPPING_NAMES, MODEL_MAPPING_NAMES
 except ImportError:
-    pytest.skip("any-to-any requires transformers v5+", allow_module_level=True)
+    pytest.skip("image-text-to-text requires transformers v5+", allow_module_level=True)
 
 
 EXPECT_FORWARD_FAIL = EXPECT_FORWARD_FAIL.copy() | {
@@ -76,8 +76,8 @@ XFAIL_ARCHITECTURES = XFAIL_ARCHITECTURES.copy() + [
 ]
 
 
-def _get_any_to_any_archs() -> list[str]:
-    """Get architectures that support any-to-any (multimodal LM)."""
+def _get_image_text_to_text_archs() -> list[str]:
+    """Get architectures that support image-text-to-text (multimodal LM)."""
     return [
         key
         for key, value in TINY_MODEL_MAPPING.items()
@@ -90,15 +90,15 @@ def _get_any_to_any_archs() -> list[str]:
     ]
 
 
-@pytest.fixture(params=_get_any_to_any_archs(), scope="class")
+@pytest.fixture(params=_get_image_text_to_text_archs(), scope="class")
 def arch(request):
-    """Get the model architecture name for any-to-any task."""
+    """Get the model architecture name for image-text-to-text task."""
     return request.param
 
 
 @pytest.fixture(scope="class")
 def arch_model(arch):
-    model = load_transformer(arch, transformer_task="any-to-any")
+    model = load_transformer(arch, transformer_task="image-text-to-text")
     return arch, model
 
 
@@ -114,7 +114,7 @@ def arch_model_modalities(arch_model):
 
 
 class TestAnyToAnyArchitectures:
-    """Test suite for Transformer module with any-to-any task."""
+    """Test suite for Transformer module with image-text-to-text task."""
 
     def test_get_embedding_dimension(self, arch_model):
         """Test that embedding dimension can be retrieved."""
@@ -133,7 +133,7 @@ class TestAnyToAnyArchitectures:
         assert loaded_model.get_embedding_dimension() == model.get_embedding_dimension()
 
     def test_module_output_name(self, arch_model):
-        """Test that the module output name is 'causal_logits' for any-to-any."""
+        """Test that the module output name is 'causal_logits' for image-text-to-text."""
         arch, model = arch_model
         assert model.module_output_name == "causal_logits"
 
