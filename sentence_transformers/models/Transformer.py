@@ -275,6 +275,7 @@ class Transformer(InputModule):
                 model_name_or_path=model_name_or_path,
                 config=config,
                 task_name="feature-extraction",
+                cache_dir=cache_dir,
                 **model_args,
             )
         elif backend == "openvino":
@@ -282,6 +283,7 @@ class Transformer(InputModule):
                 model_name_or_path=model_name_or_path,
                 config=config,
                 task_name="feature-extraction",
+                cache_dir=cache_dir,
                 **model_args,
             )
         else:
