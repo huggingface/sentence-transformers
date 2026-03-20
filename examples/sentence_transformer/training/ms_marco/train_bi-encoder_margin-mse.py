@@ -240,15 +240,26 @@ train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=train_batc
 train_loss = losses.MarginMSELoss(model=model)
 
 # Train the model
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    epochs=num_epochs,
+from sentence_transformers import SentenceTransformerTrainer, SentenceTransformerTrainingArguments
+
+training_args = SentenceTransformerTrainingArguments(
+    output_dir=model_save_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=train_batch_size,
     warmup_steps=args.warmup_steps,
-    use_amp=True,
-    checkpoint_path=model_save_path,
-    checkpoint_save_steps=10000,
-    optimizer_params={"lr": args.lr},
+    fp16=True,
+    learning_rate=args.lr,
+    save_steps=10000,
+    save_total_limit=5,
 )
 
-# Train latest model
-model.save(model_save_path)
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+)
+trainer.train()
+
+# Save the model
+model.save_pretrained(model_save_path)
