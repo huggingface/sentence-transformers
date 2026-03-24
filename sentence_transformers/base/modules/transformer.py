@@ -461,6 +461,13 @@ class Transformer(InputModule):
             ``"token_embeddings"``, ``"scores"``). Required when ``modality_config`` is provided.
             Defaults to None.
         message_format (str, optional): How to handle message-format inputs. Defaults to ``"auto"``.
+        unpad_inputs (bool, optional): Controls whether inputs are concatenated without padding for
+            faster inference using flash attention's variable-length functions. If ``None`` (default),
+            unpadding is enabled automatically when all prerequisites are met (flash attention with
+            variable-length support, ``"torch"`` backend, ``"feature-extraction"`` task). Set to
+            ``False`` to force padding, which is needed for architectures that don't support unpadded
+            inputs (e.g. ``qwen2_vl``). Set to ``True`` to request unpadding explicitly; a warning is
+            logged if the prerequisites are not met. Defaults to None.
         max_seq_length (int, optional): Truncate any inputs longer than this value. Prefer setting
             ``model_max_length`` via ``processor_kwargs`` instead. Defaults to None.
         do_lower_case (bool, optional): If true, lowercases the input (independent of whether the model
@@ -476,6 +483,7 @@ class Transformer(InputModule):
         "module_output_name",
         "message_format",
         "processing_kwargs",
+        "unpad_inputs",
     ]
     save_in_root: bool = True
 
@@ -493,6 +501,7 @@ class Transformer(InputModule):
         modality_config: ModalityConfig | None = None,
         module_output_name: str | None = None,
         message_format: MessageFormat = "auto",
+        unpad_inputs: bool | None = None,
         max_seq_length: int | None = None,
         do_lower_case: bool = False,
         tokenizer_name_or_path: str | None = None,
@@ -517,6 +526,7 @@ class Transformer(InputModule):
         self.processing_kwargs: dict[str, dict[str, Any]] = processing_kwargs or {}
         self.backend = backend
         self.message_format = message_format
+        self.unpad_inputs = unpad_inputs
         self.do_lower_case = do_lower_case
         self._prompt_length_mapping = {}
         self._method_signature_cache: dict[str, set[str]] = {}
@@ -623,7 +633,15 @@ class Transformer(InputModule):
             self.model.config.tokenizer_class = self.processor.__class__.__name__
 
         # Check if we can flatten (concatenate) inputs to avoid padding, which heavily speeds up inference.
-        self.use_flattened_inputs = self._can_flatten_inputs()
+        if unpad_inputs is False:
+            self.use_flattened_inputs = False
+        else:
+            self.use_flattened_inputs = self._can_flatten_inputs()
+            if unpad_inputs is True and not self.use_flattened_inputs:
+                logger.warning(
+                    "unpad_inputs=True was set, but the prerequisites for skipping padding are not met. "
+                    "Falling back to padded inputs."
+                )
 
     def _can_flatten_inputs(self) -> bool:
         """Determine whether inputs can be flattened (concatenated without padding) for more efficient inference.
@@ -639,8 +657,8 @@ class Transformer(InputModule):
         3. The ``"torch"`` backend with an attention-interface-compatible model.
         4. Flash attention with variable-length function support.
 
-        TODO: Some architectures simply don't work with non-padded/truncated inputs (e.g. qwen2_vl),
-        so we need to let users disable flattened inputs even when the above conditions are met.
+        Note: Some architectures don't work with unpadded inputs (e.g. ``qwen2_vl``). Use
+        ``unpad_inputs=False`` to disable this optimization for such models.
 
         Returns:
             bool: True if inputs can be flattened for efficient inference.
@@ -1625,12 +1643,13 @@ class Transformer(InputModule):
     def get_config_dict(self) -> dict[str, Any]:
         """Return the config dict for serialization, with tuple modality keys joined as plus-separated strings."""
         config_dict = super().get_config_dict()
-
         config_dict["modality_config"] = {
             format_modality(modality): params for modality, params in self.modality_config.items()
         }
         if not self.processing_kwargs:
             config_dict.pop("processing_kwargs", None)
+        if self.unpad_inputs is None:
+            config_dict.pop("unpad_inputs", None)
         return config_dict
 
     def __repr__(self) -> str:
