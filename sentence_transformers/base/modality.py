@@ -23,6 +23,11 @@ try:
 except ImportError:
     Image = None
 
+try:
+    from torchcodec.decoders import AudioDecoder
+except ImportError:
+    AudioDecoder = None  # type: ignore[assignment,misc]
+
 logger = logging.getLogger(__name__)
 
 
@@ -219,6 +224,9 @@ class InputFormatter:
             if modality == "audio" and isinstance(item, dict):
                 value = item["array"]
                 extra_modality_kwargs["audio"]["sampling_rate"] = item["sampling_rate"]
+            elif modality == "audio" and AudioDecoder is not None and isinstance(item, AudioDecoder):
+                value = item["array"]  # type: ignore[index]
+                extra_modality_kwargs["audio"]["sampling_rate"] = item["sampling_rate"]  # type: ignore[index]
             elif modality == "video" and isinstance(item, dict):
                 value = item["array"]
                 extra_modality_kwargs["video"].setdefault("video_metadata", []).append(item["video_metadata"])
@@ -236,7 +244,8 @@ class InputFormatter:
                 if mod == "pair":
                     messages.append(self.pair_to_messages(value))
                 else:
-                    messages.append(self.to_messages({mod: value}))  # type: ignore[dict-item]
+                    typed = value if isinstance(mod, tuple) else {mod: value}
+                    messages.append(self.to_message(typed))
             return "message", {"message": messages}, extra_modality_kwargs
 
         modalities, processed_inputs = zip(*typed_inputs)
@@ -251,7 +260,12 @@ class InputFormatter:
                 processed_inputs = {mod: [entry[mod] for entry in processed_inputs] for mod in modality}
         else:
             logger.debug(f"Mixed modalities detected: {unique_modalities}. Converting to 'message' format.")
-            processed_inputs = {"message": [self.to_messages({modality: value}) for modality, value in typed_inputs]}
+            processed_inputs = {
+                "message": [
+                    self.to_message(value if isinstance(modality, tuple) else {modality: value})  # type: ignore[arg-type]
+                    for modality, value in typed_inputs
+                ]
+            }
             modality = "message"
 
         return modality, processed_inputs, extra_modality_kwargs
@@ -283,7 +297,7 @@ class InputFormatter:
             {"role": "document", "content": [{"type": doc_modality, doc_modality: doc_item}]},
         ]
 
-    def to_messages(self, typed_input: dict[Modality, Any], role: str = "user") -> list[dict[str, Any]]:
+    def to_message(self, typed_input: dict[Modality, Any], role: str = "user") -> list[dict[str, Any]]:
         """Convert a typed input dictionary to message format.
 
         Produces a single message with the given ``role``. For pair/multi-value inputs,
@@ -307,10 +321,13 @@ class InputFormatter:
                 )
 
         return [
-            {"role": role, "content": [{"type": modality, modality: value} for modality, value in typed_input.items()]}
+            {
+                "role": role,
+                "content": [{"type": modality, modality: value} for modality, value in sorted(typed_input.items())],
+            }
         ]
 
-    def batch_to_messages(
+    def batch_to_message(
         self, modality: Modality, processor_inputs: dict
     ) -> tuple[Literal["message"], dict[str, list]]:
         """Convert a batch of modality-specific inputs into the unified message format.
@@ -333,7 +350,7 @@ class InputFormatter:
                 if isinstance(value, (tuple, list)) and len(value) == 2 and all(isinstance(v, str) for v in value):
                     messages.append(self.pair_to_messages(value))
                     continue
-            messages.append(self.to_messages(typed_input))  # type: ignore[arg-type]
+            messages.append(self.to_message(typed_input))  # type: ignore[arg-type]
         return "message", {"message": messages}
 
     def normalize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -440,8 +457,13 @@ def infer_modality(
         ValueError: If the input type/structure is not recognized.
     """
     # Not a part of the match statement as it would match None if PIL is not installed
+    # TODO: What if Image is just a dummy class if the import fails? Then we can put this in the match statement
     if Image is not None and isinstance(sample, Image):
         return "image"
+
+    # AudioDecoder from torchcodec/datasets supports dict-like ["array"]/["sampling_rate"] access
+    if AudioDecoder is not None and isinstance(sample, AudioDecoder):
+        return "audio"
 
     match sample:
         case str() if is_image_url_or_path(sample):

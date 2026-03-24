@@ -370,15 +370,15 @@ class TestInferFormat:
         assert fmt._infer_format(FakeProcessor()) == "structured"
 
 
-class TestToMessages:
+class TestToMessage:
     def test_flat_single_text(self):
         fmt = InputFormatter(model_type="test", message_format="flat")
-        result = fmt.to_messages({"text": "hello"})
+        result = fmt.to_message({"text": "hello"})
         assert result == [{"role": "user", "content": "hello"}]
 
     def test_flat_multimodal_falls_back_to_structured(self):
         fmt = InputFormatter(model_type="test", message_format="flat")
-        result = fmt.to_messages({"text": "hello", "image": "cat.jpg"})
+        result = fmt.to_message({"text": "hello", "image": "cat.jpg"})
         # Falls back to structured when multiple modalities
         assert len(result) == 1
         assert result[0]["role"] == "user"
@@ -386,12 +386,12 @@ class TestToMessages:
 
     def test_structured_single_modality(self):
         fmt = InputFormatter(model_type="test", message_format="structured")
-        result = fmt.to_messages({"text": "hello"})
+        result = fmt.to_message({"text": "hello"})
         assert result == [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
 
     def test_structured_multimodal(self):
         fmt = InputFormatter(model_type="test", message_format="structured")
-        result = fmt.to_messages({"text": "a cat", "image": "cat.jpg"})
+        result = fmt.to_message({"text": "a cat", "image": "cat.jpg"})
         assert len(result) == 1
         content = result[0]["content"]
         assert len(content) == 2
@@ -400,7 +400,7 @@ class TestToMessages:
 
     def test_custom_role(self):
         fmt = InputFormatter(model_type="test", message_format="flat")
-        result = fmt.to_messages({"text": "hello"}, role="system")
+        result = fmt.to_message({"text": "hello"}, role="system")
         assert result == [{"role": "system", "content": "hello"}]
 
 
@@ -528,7 +528,7 @@ class TestParseInputs:
         assert inputs["image"] == ["cat.jpg", "dog.jpg"]
         assert inputs["text"] == ["a cat", "a dog"]
 
-    def test_mixed_modalities_batch_to_messages(self):
+    def test_mixed_modalities_batch_to_message(self):
         PIL = pytest.importorskip("PIL.Image")
         img = PIL.new("RGB", (10, 10))
         mixed = ["some text", img]
@@ -536,6 +536,29 @@ class TestParseInputs:
         assert modality == "message"
         assert "message" in inputs
         assert len(inputs["message"]) == 2
+
+    def test_mixed_single_and_multimodal_dict(self):
+        """Image + text+image dict should produce valid structured messages for both."""
+        inputs = [
+            "https://example.com/cat.jpg",  # image URL
+            {"image": "https://example.com/dog.jpg", "text": "a dog"},  # multimodal dict
+        ]
+        modality, result, extra = self.fmt.parse_inputs(inputs)
+        assert modality == "message"
+        assert len(result["message"]) == 2
+
+        # First: image-only message
+        img_msg = result["message"][0]
+        assert len(img_msg) == 1
+        assert img_msg[0]["content"] == [{"type": "image", "image": "https://example.com/cat.jpg"}]
+
+        # Second: multimodal message with both image and text content entries
+        multi_msg = result["message"][1]
+        assert len(multi_msg) == 1
+        content = multi_msg[0]["content"]
+        assert len(content) == 2
+        content_types = {item["type"] for item in content}
+        assert content_types == {"image", "text"}
 
     def test_returns_modality_keyed_dict_not_processor_arg_keyed(self):
         """Verify parse_inputs uses modality names as keys, not processor arg names."""
@@ -556,20 +579,20 @@ class TestParseInputs:
         assert inputs == {"text": ["hello", image_url, "world"]}
 
 
-class TestBatchToMessages:
+class TestBatchToMessage:
     def setup_method(self):
         self.fmt = InputFormatter(model_type="test", message_format="structured")
 
     def test_str_modality(self):
         processor_inputs = {"text": ["hello", "world"]}
-        modality, result = self.fmt.batch_to_messages("text", processor_inputs)
+        modality, result = self.fmt.batch_to_message("text", processor_inputs)
         assert modality == "message"
         assert "message" in result
         assert len(result["message"]) == 2
 
     def test_tuple_modality(self):
         processor_inputs = {"image": ["cat.jpg", "dog.jpg"], "text": ["a cat", "a dog"]}
-        modality, result = self.fmt.batch_to_messages(("image", "text"), processor_inputs)
+        modality, result = self.fmt.batch_to_message(("image", "text"), processor_inputs)
         assert modality == "message"
         assert len(result["message"]) == 2
         # Each message should have been created from both modalities
@@ -577,10 +600,10 @@ class TestBatchToMessages:
             assert isinstance(msg_list, list)
 
     def test_roundtrip_parse_then_convert(self):
-        """parse_inputs -> batch_to_messages should work without key mapping issues."""
+        """parse_inputs -> batch_to_message should work without key mapping issues."""
         mod, inputs, extra = self.fmt.parse_inputs(["hello", "world"])
         assert mod == "text"
-        new_mod, new_inputs = self.fmt.batch_to_messages(mod, inputs)
+        new_mod, new_inputs = self.fmt.batch_to_message(mod, inputs)
         assert new_mod == "message"
         assert len(new_inputs["message"]) == 2
 

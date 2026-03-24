@@ -12,6 +12,11 @@ try:
 except ImportError:
     Image = None
 
+try:  # TODO: Perhaps also VideoDecoder?
+    from torchcodec.decoders import AudioDecoder
+except ImportError:
+    AudioDecoder = None  # type: ignore[assignment,misc]
+
 
 # Structured input dicts for audio and video, wrapping raw arrays with metadata
 class AudioDict(TypedDict):
@@ -32,7 +37,7 @@ class MessageDict(TypedDict):
 # Per-modality input types: each defines the accepted formats for a single modality
 TextInput: TypeAlias = str
 ImageInput: TypeAlias = str | Image | np.ndarray | torch.Tensor
-AudioInput: TypeAlias = str | np.ndarray | torch.Tensor | AudioDict
+AudioInput: TypeAlias = str | np.ndarray | torch.Tensor | AudioDict | AudioDecoder
 VideoInput: TypeAlias = str | np.ndarray | torch.Tensor | VideoDict
 MessageInput: TypeAlias = MessageDict | list[MessageDict]
 MultimodalInput: TypeAlias = dict[

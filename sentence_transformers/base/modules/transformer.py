@@ -634,8 +634,13 @@ class Transformer(InputModule):
         This requires:
         1. The ``"feature-extraction"`` task, as model heads (e.g. ``AutoModelForSequenceClassification``)
            are incompatible with flattened inputs.
-        2. The ``"torch"`` backend with an attention-interface-compatible model.
-        3. Flash attention with variable-length function support.
+        2. All modality call methods must be ``"forward"``; ``get_..._features`` methods apply heads
+           that are incompatible with flattened inputs.
+        3. The ``"torch"`` backend with an attention-interface-compatible model.
+        4. Flash attention with variable-length function support.
+
+        TODO: Some architectures simply don't work with non-padded/truncated inputs (e.g. qwen2_vl),
+        so we need to let users disable flattened inputs even when the above conditions are met.
 
         Returns:
             bool: True if inputs can be flattened for efficient inference.
@@ -644,6 +649,7 @@ class Transformer(InputModule):
             self.transformer_task != "feature-extraction"
             or self.backend != "torch"
             or not self.auto_model.is_backend_compatible()
+            or any(params["method"] != "forward" for params in self.modality_config.values())
         ):
             return False
 
@@ -781,7 +787,7 @@ class Transformer(InputModule):
 
         # Always convert to the message format if it's supported, since it's most flexible with e.g. defaults
         if "message" in self.modality_config and modality != "message":
-            modality, processor_inputs = self.input_formatter.batch_to_messages(modality, processor_inputs)
+            modality, processor_inputs = self.input_formatter.batch_to_message(modality, processor_inputs)
         elif modality not in self.modality_config:
             raise ValueError(
                 f"Modality '{format_modality(modality)}' is not supported by this model. "
