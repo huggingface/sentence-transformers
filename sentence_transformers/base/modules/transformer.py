@@ -1643,6 +1643,8 @@ class Transformer(InputModule):
     def get_config_dict(self) -> dict[str, Any]:
         """Return the config dict for serialization, with tuple modality keys joined as plus-separated strings."""
         config_dict = super().get_config_dict()
+        if config_dict.get("message_format") == "auto":
+            config_dict["message_format"] = self.input_formatter.message_format
         config_dict["modality_config"] = {
             format_modality(modality): params for modality, params in self.modality_config.items()
         }
