@@ -787,6 +787,9 @@ class Transformer(InputModule):
             Dictionary containing preprocessed tensors with a ``modality`` key indicating the
             input type and optionally a ``prompt_length`` key for prompt-aware pooling.
         """
+        if not inputs:
+            return {}
+
         common_kwargs = {"return_tensors": "pt"}
         modality_kwargs = {
             "text": {"padding": True, "truncation": "longest_first"},
