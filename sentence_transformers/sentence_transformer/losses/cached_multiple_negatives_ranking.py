@@ -51,23 +51,88 @@ def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
     """
     if "cu_seq_lens_q" in sentence_feature:
         return len(sentence_feature["cu_seq_lens_q"]) - 1
+    # Prefer known batch-indexed keys to avoid accidentally using flattened tensors
+    # like pixel_values whose first dimension may differ from the batch size in
+    # vision-language models (e.g. Qwen2-VL).
+    for key in ("input_ids", "attention_mask"):
+        if key in sentence_feature and isinstance(sentence_feature[key], torch.Tensor):
+            return sentence_feature[key].shape[0]
     return next(
         value.shape[0] for value in sentence_feature.values() if isinstance(value, torch.Tensor) and value.ndim > 0
     )
 
 
 def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) -> dict[str, Any]:
-    """Create a mini-batch from sentence features, handling both padded and flattened inputs.
+    """Create a mini-batch from sentence features, handling padded, flattened, and VLM inputs.
 
     With padded inputs, this simply slices tensors along the batch dimension.
     With flattened inputs (from ``DataCollatorWithFlattening``), this extracts the token ranges
     for sequences ``begin:end`` and rebuilds the metadata (``cu_seq_lens_q``, ``seq_idx``, etc.).
+
+    VLMs like Qwen2-VL flatten per-sample visual tokens into a single tensor
+    (e.g. ``pixel_values`` shape ``(total_visual_tokens, hidden_dim)``) with a grid tensor
+    (e.g. ``image_grid_thw`` shape ``(num_items, 3)``) whose per-row product gives the token
+    count per item.  When ``mm_token_type_ids`` is available, items are mapped to samples via
+    contiguous-group detection; otherwise we fall back to assuming one grid row per sample
+    when ``grid.shape[0] == batch_size``.
     """
     if "cu_seq_lens_q" not in sentence_feature:
-        return {
-            key: value[begin:end] if isinstance(value, torch.Tensor) else value
-            for key, value in sentence_feature.items()
-        }
+        batch_size = _get_batch_size(sentence_feature)
+        end = min(end, batch_size)
+
+        custom_ranges: dict[str, tuple[int, int]] = {}
+        mm_token_type_ids = sentence_feature.get("mm_token_type_ids")
+
+        for grid_key, pixel_key, mm_type_id in (
+            ("image_grid_thw", "pixel_values", 1),
+            ("video_grid_thw", "pixel_values_videos", 2),
+        ):
+            grid = sentence_feature.get(grid_key)
+            pixel_values = sentence_feature.get(pixel_key)
+            if grid is None or pixel_values is None:
+                continue
+            if pixel_values.shape[0] == batch_size and mm_token_type_ids is None:
+                continue
+
+            if mm_token_type_ids is not None:
+                # Count items per sample by finding groups of consecutive mm_type_id
+                is_mm = mm_token_type_ids == mm_type_id
+                shifted = torch.cat(
+                    [torch.zeros(batch_size, 1, dtype=torch.bool, device=is_mm.device), is_mm[:, :-1]], dim=1
+                )
+                num_per_sample = (is_mm & ~shifted).sum(dim=1)
+                if int(num_per_sample.sum().item()) != grid.shape[0]:
+                    # Sanity check to fall back to default slicing if the counts don't match the grid shape
+                    continue
+                cumsum_items = num_per_sample.cumsum(dim=0)
+                grid_begin = 0 if begin == 0 else int(cumsum_items[begin - 1].item())
+                grid_end = int(cumsum_items[end - 1].item())
+                custom_ranges[grid_key] = (grid_begin, grid_end)
+            elif grid.shape[0] == batch_size:
+                # Assume one grid row per sample and slice accordingly
+                grid_begin, grid_end = begin, end
+            else:
+                continue
+
+            if grid_begin < grid_end:
+                tokens_per_item = grid.prod(dim=1)
+                token_cumsum = tokens_per_item.cumsum(dim=0)
+                token_begin = 0 if grid_begin == 0 else int(token_cumsum[grid_begin - 1].item())
+                token_end = int(token_cumsum[grid_end - 1].item())
+            else:
+                token_begin, token_end = 0, 0
+            custom_ranges[pixel_key] = (token_begin, token_end)
+
+        result: dict[str, Any] = {}
+        for key, value in sentence_feature.items():
+            if not isinstance(value, torch.Tensor):
+                result[key] = value
+            elif key in custom_ranges:
+                r_begin, r_end = custom_ranges[key]
+                result[key] = value[r_begin:r_end]
+            else:
+                result[key] = value[begin:end]
+        return result
 
     cu_seq_lens_q = sentence_feature["cu_seq_lens_q"]
     num_seqs = len(cu_seq_lens_q) - 1
