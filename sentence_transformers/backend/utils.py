@@ -211,7 +211,7 @@ You can test this pull request before merging by loading the model from this PR 
 ```python
 from sentence_transformers import SparseEncoder
 
-# TODO: Fill in the PR number
+# NOTE: Update this to the number of your pull request
 pr_number = 2
 model = SparseEncoder(
     "{model_name_or_path}",
@@ -247,7 +247,7 @@ You can test this pull request before merging by loading the model from this PR 
 ```python
 from sentence_transformers import SentenceTransformer
 
-# TODO: Fill in the PR number
+# NOTE: Update this to the number of your pull request
 pr_number = 2
 model = SentenceTransformer(
     "{model_name_or_path}",
@@ -283,7 +283,7 @@ You can test this pull request before merging by loading the model from this PR 
 ```python
 from sentence_transformers import CrossEncoder
 
-# TODO: Fill in the PR number
+# NOTE: Update this to the number of your pull request
 pr_number = 2
 model = CrossEncoder(
     "{model_name_or_path}",

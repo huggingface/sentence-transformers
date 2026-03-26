@@ -194,7 +194,7 @@ See this example for exporting a model with :doc:`optimization level 3 <optimum-
 
       from sentence_transformers import CrossEncoder
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = CrossEncoder(
           "cross-encoder/ms-marco-MiniLM-L6-v2",
           backend="onnx",
@@ -270,7 +270,7 @@ See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <opti
 
       from sentence_transformers import CrossEncoder
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = CrossEncoder(
           "cross-encoder/ms-marco-MiniLM-L6-v2",
           backend="onnx",
@@ -412,7 +412,7 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
 
       from sentence_transformers import CrossEncoder
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = CrossEncoder(
           "cross-encoder/ms-marco-MiniLM-L6-v2",
           backend="openvino",

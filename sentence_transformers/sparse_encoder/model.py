@@ -1245,7 +1245,7 @@ You can test this pull request before merging by loading the model from this PR 
 ```python
 from sentence_transformers import {class_name}
 
-# TODO: Fill in the PR number
+# NOTE: Update this to the number of your pull request
 pr_number = 2
 model = {class_name}(
     "{repo_id}",
