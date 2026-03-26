@@ -398,6 +398,19 @@ class TestToMessage:
         types = {item["type"] for item in content}
         assert types == {"text", "image"}
 
+    def test_structured_multimodal_preserves_dict_ordering(self):
+        """Content items should follow the input dict's key order, not alphabetical."""
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        # "text" before "image" in the dict
+        result = fmt.to_message({"text": "a cat", "image": "cat.jpg"})
+        content = result[0]["content"]
+        assert [item["type"] for item in content] == ["text", "image"]
+
+        # Reversed: "image" before "text"
+        result = fmt.to_message({"image": "cat.jpg", "text": "a cat"})
+        content = result[0]["content"]
+        assert [item["type"] for item in content] == ["image", "text"]
+
     def test_custom_role(self):
         fmt = InputFormatter(model_type="test", message_format="flat")
         result = fmt.to_message({"text": "hello"}, role="system")
@@ -528,6 +541,27 @@ class TestParseInputs:
         assert inputs["image"] == ["cat.jpg", "dog.jpg"]
         assert inputs["text"] == ["a cat", "a dog"]
 
+    def test_multimodal_dict_inputs_preserves_key_ordering(self):
+        """Output dict key order should match the input dicts' key order, not the modality tuple."""
+        # Input dicts have "text" before "image"
+        dicts = [
+            {"text": "a cat", "image": "cat.jpg"},
+            {"text": "a dog", "image": "dog.jpg"},
+        ]
+        modality, inputs, extra = self.fmt.parse_inputs(dicts)
+        # Modality tuple is sorted alphabetically by infer_modality
+        assert modality == ("image", "text")
+        # But the output dict keys should preserve the input ordering: text first
+        assert list(inputs.keys()) == ["text", "image"]
+
+        # Reversed input ordering: "image" before "text"
+        dicts = [
+            {"image": "cat.jpg", "text": "a cat"},
+            {"image": "dog.jpg", "text": "a dog"},
+        ]
+        modality, inputs, extra = self.fmt.parse_inputs(dicts)
+        assert list(inputs.keys()) == ["image", "text"]
+
     def test_mixed_modalities_batch_to_message(self):
         PIL = pytest.importorskip("PIL.Image")
         img = PIL.new("RGB", (10, 10))
@@ -598,6 +632,22 @@ class TestBatchToMessage:
         # Each message should have been created from both modalities
         for msg_list in result["message"]:
             assert isinstance(msg_list, list)
+
+    def test_tuple_modality_preserves_processor_inputs_ordering(self):
+        """Content items should follow processor_inputs key order, not the modality tuple order."""
+        # processor_inputs has "text" before "image", but modality tuple is alphabetical
+        processor_inputs = {"text": ["a cat", "a dog"], "image": ["cat.jpg", "dog.jpg"]}
+        modality, result = self.fmt.batch_to_message(("image", "text"), processor_inputs)
+        for msg_list in result["message"]:
+            content = msg_list[0]["content"]
+            assert [item["type"] for item in content] == ["text", "image"]
+
+        # Reversed: "image" before "text" in processor_inputs
+        processor_inputs = {"image": ["cat.jpg", "dog.jpg"], "text": ["a cat", "a dog"]}
+        modality, result = self.fmt.batch_to_message(("image", "text"), processor_inputs)
+        for msg_list in result["message"]:
+            content = msg_list[0]["content"]
+            assert [item["type"] for item in content] == ["image", "text"]
 
     def test_roundtrip_parse_then_convert(self):
         """parse_inputs -> batch_to_message should work without key mapping issues."""

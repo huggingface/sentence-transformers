@@ -277,7 +277,9 @@ class InputFormatter:
             if isinstance(modality, str):
                 processed_inputs = {modality: processed_inputs}
             else:
-                processed_inputs = {mod: [entry[mod] for entry in processed_inputs] for mod in modality}
+                # Use the first entry's key order to preserve the user's original dict ordering
+                ordered_keys = processed_inputs[0].keys()
+                processed_inputs = {mod: [entry[mod] for entry in processed_inputs] for mod in ordered_keys}
         else:
             logger.debug(f"Mixed modalities detected: {unique_modalities}. Converting to 'message' format.")
             processed_inputs = {
@@ -351,7 +353,7 @@ class InputFormatter:
         return [
             {
                 "role": role,
-                "content": [{"type": modality, modality: value} for modality, value in sorted(typed_input.items())],
+                "content": [{"type": modality, modality: value} for modality, value in typed_input.items()],
             }
         ]
 
@@ -371,7 +373,8 @@ class InputFormatter:
         batch_size = len(next(iter(processor_inputs.values())))
         messages = []
         for i in range(batch_size):
-            typed_input = {mod: processor_inputs[mod][i] for mod in modalities}
+            # Use processor_inputs key order (preserves user's original dict ordering)
+            typed_input = {mod: processor_inputs[mod][i] for mod in processor_inputs if mod in modalities}
             # Text pairs (e.g. ("query", "document")) are routed to pair_to_messages instead
             if len(typed_input) == 1:
                 value = next(iter(typed_input.values()))
