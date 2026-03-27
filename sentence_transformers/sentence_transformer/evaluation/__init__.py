@@ -4,6 +4,7 @@ from __future__ import annotations
 # redirects here) can still resolve `SentenceEvaluator` and `SequentialEvaluator` as attributes.
 from ...base.evaluation.evaluator import BaseEvaluator, SentenceEvaluator
 from ...base.evaluation.sequential import SequentialEvaluator
+from ...util.similarity import SimilarityFunction
 from .binary_classification import BinaryClassificationEvaluator
 from .embedding_similarity import EmbeddingSimilarityEvaluator
 from .information_retrieval import InformationRetrievalEvaluator
@@ -13,7 +14,6 @@ from .mse_from_dataframe import MSEEvaluatorFromDataFrame
 from .nano_beir import NanoBEIREvaluator
 from .paraphrase_mining import ParaphraseMiningEvaluator
 from .reranking import RerankingEvaluator
-from .similarity_function import SimilarityFunction
 from .translation import TranslationEvaluator
 from .triplet import TripletEvaluator
 
