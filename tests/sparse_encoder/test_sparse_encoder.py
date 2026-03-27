@@ -196,6 +196,31 @@ def test_inference_free_splade(inference_free_splade_bert_tiny_model: SparseEnco
     assert model[0].sub_modules["document"][0].max_seq_length == 256
 
 
+def test_inference_free_splade_max_active_dims_routing(inference_free_splade_bert_tiny_model: SparseEncoder):
+    model = inference_free_splade_bert_tiny_model
+    query = "What is the capital of France?"
+    document = "The capital of France is Paris."
+
+    # Encode without max_active_dims — baseline
+    query_emb = model.encode_query(query)
+    doc_emb = model.encode_document(document)
+
+    # Encode with max_active_dims — should route to the same sub-modules
+    query_emb_mad = model.encode_query(query, max_active_dims=50)
+    doc_emb_mad = model.encode_document(document, max_active_dims=50)
+
+    # The non-zero indices of the max_active_dims result should be a subset of the baseline
+    query_baseline_indices = query_emb.coalesce().indices()[0]
+    query_mad_indices = query_emb_mad.coalesce().indices()[0]
+    assert set(query_mad_indices.tolist()).issubset(set(query_baseline_indices.tolist()))
+    assert query_emb_mad._nnz() <= 50
+
+    doc_baseline_indices = doc_emb.coalesce().indices()[0]
+    doc_mad_indices = doc_emb_mad.coalesce().indices()[0]
+    assert set(doc_mad_indices.tolist()).issubset(set(doc_baseline_indices.tolist()))
+    assert doc_emb_mad._nnz() <= 50
+
+
 @pytest.mark.parametrize("sentences", ["Hello world", ["Hello world", "This is a test"], [], [""]])
 @pytest.mark.parametrize("prompt_name", [None, "query", "custom"])
 @pytest.mark.parametrize("prompt", [None, "Custom prompt: "])
