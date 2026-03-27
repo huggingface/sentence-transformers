@@ -597,12 +597,14 @@ class SparseEncoder(SentenceTransformer):
         self.to(device)
 
         max_active_dims = max_active_dims if max_active_dims is not None else self.max_active_dims
-        if max_active_dims is not None:
-            kwargs["max_active_dims"] = max_active_dims
 
         all_embeddings = []
         length_sorted_idx = np.argsort([-self._text_length(sen) for sen in sentences])
         sentences_sorted = [sentences[int(idx)] for idx in length_sorted_idx]
+
+        forward_kwargs = dict(kwargs)
+        if max_active_dims is not None:
+            forward_kwargs["max_active_dims"] = max_active_dims
 
         for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
             sentences_batch = sentences_sorted[start_index : start_index + batch_size]
@@ -611,7 +613,7 @@ class SparseEncoder(SentenceTransformer):
             features.update(extra_features)
 
             with torch.inference_mode():
-                embeddings = self.forward(features, **kwargs)["sentence_embedding"].detach()
+                embeddings = self.forward(features, **forward_kwargs)["sentence_embedding"].detach()
 
                 if max_active_dims:
                     embeddings = select_max_active_dims(embeddings, max_active_dims=max_active_dims)
