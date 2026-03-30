@@ -225,7 +225,15 @@ YAML_FIELDS = [
     "co2_eq_emissions",
     "base_model",
 ]
-IGNORED_FIELDS = ["model", "trainer", "eval_results_dict", "save_dir", "usage_examples_display", "_asset_cache"]
+IGNORED_FIELDS = [
+    "model",
+    "trainer",
+    "eval_results_dict",
+    "save_dir",
+    "usage_examples_display",
+    "_asset_cache",
+    "_cached_dict",
+]
 
 
 def get_versions() -> dict[str, Any]:
@@ -364,6 +372,7 @@ class BaseModelCardData(CardData):
     widget_step: int = field(default=-1, init=False)
     save_dir: str | None = field(default=None, init=False, repr=False)
     _asset_cache: dict = field(default_factory=dict, init=False, repr=False)
+    _cached_dict: dict | None = field(default=None, init=False, repr=False)
 
     # Computed once, always unchanged
     pipeline_tag: str = field(default="sentence-similarity", init=False)
@@ -1844,12 +1853,23 @@ class BaseModelCardData(CardData):
 
         for key in IGNORED_FIELDS:
             super_dict.pop(key, None)
+
+        # Cache result so that to_yaml() can reuse it without re-running expensive
+        # operations like usage snippet generation and dataset example rendering.
+        # This matters because huggingface_hub's ModelCard.from_template() calls
+        # to_dict() and then to_yaml() back-to-back.
+        self._cached_dict = super_dict
+
         return super_dict
 
     def to_yaml(self, line_break=None) -> str:
-        # TODO: Don't rerun usage snippet generation and dataset example rendering just to convert to YAML
+        if self._cached_dict is not None:
+            data = self._cached_dict
+            self._cached_dict = None
+        else:
+            data = self.to_dict()
         return yaml_dump(
-            {key: value for key, value in self.to_dict().items() if key in YAML_FIELDS and value not in (None, [])},
+            {key: value for key, value in data.items() if key in YAML_FIELDS and value not in (None, [])},
             sort_keys=False,
             line_break=line_break,
         ).strip()
