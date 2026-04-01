@@ -8,7 +8,7 @@ The idea is to encode the same sentence twice. Due to the used dropout in transf
 
 ## Usage with SentenceTransformers
 
-SentenceTransformers implements the [MultipleNegativesRankingLoss](https://www.sbert.net/docs/package_reference/sentence_transformer/losses.html#multiplenegativesrankingloss), which makes training with SimCSE trivial:
+SentenceTransformers implements the [MultipleNegativesRankingLoss](../../../../docs/package_reference/sentence_transformer/losses.md#multiplenegativesrankingloss), which makes training with SimCSE trivial:
 
 ```python
 from sentence_transformers import SentenceTransformer, InputExample

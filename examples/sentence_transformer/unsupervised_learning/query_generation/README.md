@@ -82,7 +82,7 @@ In the above code, we use [Top-p (nucleus) sampling](https://huggingface.co/blog
 
 ## Bi-Encoder Training
 
-With the generated queries, we can then train a bi-encoder using the use [MultipleNegativesRankingLoss](https://www.sbert.net/docs/package_reference/sentence_transformer/losses.html#multiplenegativesrankingloss).
+With the generated queries, we can then train a bi-encoder using the use [MultipleNegativesRankingLoss](../../../../docs/package_reference/sentence_transformer/losses.md#multiplenegativesrankingloss).
 
 ## Full Example
 

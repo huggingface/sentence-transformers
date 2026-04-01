@@ -23,7 +23,7 @@ print(similarity)
 # => tensor([[0.7594, 0.7560, 0.4674]])
 ```
 
-See [Prompt Templates](https://sbert.net/examples/applications/computing-embeddings/README.html#prompt-templates) for more information about inference with prompts.
+See [Prompt Templates](../../applications/computing-embeddings/README.rst#prompt-templates) for more information about inference with prompts.
 
 ## Why would we train with Prompts?
 

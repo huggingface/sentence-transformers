@@ -96,8 +96,6 @@ The ``model_kwargs`` enable Flash Attention 2 and bfloat16 precision for faster 
     trainer.train()
 
 After training, the model can be evaluated at each Matryoshka dimension separately to measure the performance-efficiency tradeoff.
-
-.. TODO: Ensure we're not linking to sbert.net directly anywhere
 ```
 
 ## References
