@@ -57,6 +57,7 @@ from sentence_transformers.base.modality_types import (
 )
 from sentence_transformers.base.modules.input_module import InputModule
 from sentence_transformers.util.decorators import transformer_kwargs_decorator
+from sentence_transformers.util.environment import suggest_extra_on_exception
 
 try:
     from typing import Self
@@ -96,7 +97,6 @@ if TYPE_CHECKING and is_peft_available():
 logger = transformers_logging.get_logger(__name__)
 
 _TRANSFORMERS_SUPPORTS_PROCESSOR_KWARGS = parse_version(transformers_version) >= parse_version("5.4.0.dev0")
-
 
 TransformerTask = Literal[
     "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask"
@@ -628,10 +628,11 @@ class Transformer(InputModule):
 
         if max_seq_length is not None and "model_max_length" not in processor_kwargs:
             processor_kwargs["model_max_length"] = max_seq_length
-        self.processor = AutoProcessor.from_pretrained(
-            tokenizer_name_or_path if tokenizer_name_or_path is not None else model_name_or_path,
-            **processor_kwargs,
-        )
+        with suggest_extra_on_exception():
+            self.processor = AutoProcessor.from_pretrained(
+                tokenizer_name_or_path if tokenizer_name_or_path is not None else model_name_or_path,
+                **processor_kwargs,
+            )
 
         # Cap the tokenizer model_max_length at the model's max_position_embeddings
         if self.tokenizer is not None:
@@ -935,7 +936,8 @@ class Transformer(InputModule):
         if self.training and self.track_media_counts and modality == "message":
             num_images_per_sample, num_videos_per_sample = _count_media_per_sample(processor_inputs["message"])
 
-        processor_output = self._call_processor(modality, processor_inputs, modality_kwargs, common_kwargs)
+        with suggest_extra_on_exception():
+            processor_output = self._call_processor(modality, processor_inputs, modality_kwargs, common_kwargs)
 
         if num_images_per_sample is not None and "image_grid_thw" in processor_output:
             processor_output["num_images_per_sample"] = torch.tensor(num_images_per_sample, dtype=torch.long)
