@@ -32,7 +32,6 @@ from sentence_transformers.util.decorators import (
 logger = transformers_logging.get_logger(__name__)
 
 
-# TODO: If I initialize this with modules, do I still have to specify num_labels?
 class CrossEncoder(BaseModel, FitMixin):
     """
     Loads or creates a CrossEncoder model that takes a sentence pair as input and outputs a score or label.
