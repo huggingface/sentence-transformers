@@ -60,7 +60,7 @@ jobs:
 
       - name: Install dependencies (transformers < 5.0.0)
         if: ${{ matrix.transformers-version == '<5.0.0' }}
-        run: uv pip install '.[train, onnx, openvino, dev]' 'transformers<5.0.0' --system
+        run: uv pip install '.[train, onnx, openvino, dev]' 'transformers<5.0.0' 'datasets>=3.3.0' --system
 
       - name: Install dependencies (transformers >= 5.0.0)
         if: ${{ matrix.transformers-version == '>=5.0.0' }}
