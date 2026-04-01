@@ -560,14 +560,16 @@ class BaseTrainer(Trainer, ABC):
             "pixel_values_videos",  # video
         )
         features = []
+        seen_prefixes = set()
         for column in inputs:
             prefix = None
             for suffix in feature_suffixes:
                 if column.endswith("_" + suffix):
                     prefix = column[: -len(suffix)]
                     break
-            if prefix is None:
+            if prefix is None or prefix in seen_prefixes:
                 continue
+            seen_prefixes.add(prefix)
             features.append({key[len(prefix) :]: value for key, value in inputs.items() if key.startswith(prefix)})
         labels = inputs.get("label", None)
         return features, labels
