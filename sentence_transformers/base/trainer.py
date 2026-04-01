@@ -383,7 +383,7 @@ class BaseTrainer(Trainer, ABC):
                     self.loss[key] = loss_fn(model)
                 # Otherwise, we override the original model with the updated model in the loss function
                 elif hasattr(loss_fn, "model"):
-                    self.loss = self.override_model_in_loss(self.loss, model)
+                    self.loss[key] = self.override_model_in_loss(loss_fn, model)
 
         # Loss is a function accepting a model as an argument
         elif not isinstance(self.loss, torch.nn.Module):

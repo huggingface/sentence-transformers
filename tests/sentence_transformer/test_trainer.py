@@ -986,3 +986,57 @@ def test_trainer_get_multi_dataset_batch_sampler_function(
     )
 
     assert batch_sampler is None
+
+
+def test_trainer_call_model_init_multi_loss(
+    stsb_bert_tiny_model: SentenceTransformer, stsb_dataset_dict: DatasetDict
+) -> None:
+    """Test that call_model_init correctly updates the model in each loss function for multi-loss training."""
+    model = stsb_bert_tiny_model
+    train_dataset = DatasetDict(
+        {
+            "stsb-1": stsb_dataset_dict["train"].select(range(10)),
+            "stsb-2": stsb_dataset_dict["train"].select(range(10)),
+        }
+    )
+    eval_dataset = DatasetDict(
+        {
+            "stsb-1": stsb_dataset_dict["validation"].select(range(10)),
+            "stsb-2": stsb_dataset_dict["validation"].select(range(10)),
+        }
+    )
+    loss = {
+        "stsb-1": CosineSimilarityLoss(model=model),
+        "stsb-2": MultipleNegativesRankingLoss(model=model),
+    }
+
+    model_name = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+
+    def model_init():
+        return SentenceTransformer(model_name)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        args = SentenceTransformerTrainingArguments(
+            output_dir=str(temp_dir),
+            max_steps=2,
+            eval_steps=2,
+            eval_strategy="steps",
+            per_device_train_batch_size=2,
+        )
+        trainer = SentenceTransformerTrainer(
+            model=None,
+            args=args,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            loss=loss,
+            model_init=model_init,
+        )
+        trainer.train()
+
+    # Verify the loss dict is preserved with both keys and the model was updated in each
+    assert isinstance(trainer.loss, dict)
+    assert set(trainer.loss.keys()) == {"stsb-1", "stsb-2"}
+    for key, loss_fn in trainer.loss.items():
+        assert isinstance(loss_fn, torch.nn.Module), f"Loss '{key}' is not an nn.Module"
+        assert loss_fn.model is trainer.model, f"Loss '{key}' model was not updated to the trainer's model"
+        assert loss_fn.model is not model, f"Loss '{key}' model was not updated from the original model"
