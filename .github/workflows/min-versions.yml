@@ -56,7 +56,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev
 
       - name: Install with minimum versions
-        run: uv pip install '.[train, dev]' --resolution lowest-direct --system
+        # av==9.2.0 (pulled by transformers[video] at lowest resolution) fails to compile
+        # with modern Cython, so we override it to a buildable version
+        run: uv pip install '.[train, dev]' 'av>=12.0.0' --resolution lowest-direct --system
 
       - name: Show installed versions
         run: uv pip list --system | grep -iE 'transformers|huggingface|torch|numpy|scikit|scipy|typing.ext|tqdm|accelerate'
