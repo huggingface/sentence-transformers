@@ -1114,7 +1114,10 @@ class TestSetMultimodalPredictExampleVideo:
 
     def test_video_column_detected(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """A model supporting 'video' modality picks VideoDecoder examples from Video columns."""
-        from torchcodec.decoders import VideoDecoder
+        try:
+            from torchcodec.decoders import VideoDecoder
+        except (ImportError, OSError):
+            pytest.skip("torchcodec VideoDecoder not available")
 
         with _create_video_dataset(n=5) as ds:
             model = stsb_bert_tiny_model

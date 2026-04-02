@@ -160,7 +160,7 @@ class BaseTrainingArguments(TransformersTrainingArguments):
         )
 
         # In transformers <v4.54.1, the superclass doesn't yet auto-parse dict fields from CLI strings
-        if isinstance(self.prompts, str):
+        if isinstance(self.prompts, str) and self.prompts:
             try:
                 self.prompts = json.loads(self.prompts)
             except json.JSONDecodeError:
