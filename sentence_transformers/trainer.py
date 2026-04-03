@@ -388,8 +388,23 @@ class SentenceTransformerTrainer(Trainer):
         model: SentenceTransformer,
     ) -> torch.nn.Module:
         if isinstance(loss, torch.nn.Module):
-            return loss.to(model.device)
-        return loss(model).to(model.device)
+            loss = loss.to(model.device)
+        else:
+            loss = loss(model).to(model.device)
+
+        # Auto-add SelfGuideWarmupCallback if the loss has self_guide_warmup_ratio > 0
+        warmup_ratio = getattr(loss, "self_guide_warmup_ratio", 0.0)
+        if warmup_ratio and warmup_ratio > 0:
+            from sentence_transformers.callbacks import SelfGuideWarmupCallback
+
+            has_callback = any(
+                isinstance(cb, SelfGuideWarmupCallback) and cb.loss is loss for cb in self.callback_handler.callbacks
+            )
+            if not has_callback:
+                callback = SelfGuideWarmupCallback(loss=loss, warmup_ratio=warmup_ratio)
+                self.add_callback(callback)
+
+        return loss
 
     def compute_loss(
         self,
