@@ -65,7 +65,7 @@ class Dense(Module):
         if init_weight is not None:
             self.linear.weight = nn.Parameter(init_weight)
 
-        if init_bias is not None:
+        if init_bias is not None and bias:
             self.linear.bias = nn.Parameter(init_bias)
 
     def forward(self, features: dict[str, Tensor]):
@@ -105,7 +105,8 @@ class Dense(Module):
             "local_files_only": local_files_only,
         }
         config = cls.load_config(model_name_or_path=model_name_or_path, **hub_kwargs)
-        config["activation_function"] = import_from_string(config["activation_function"])()
+        if "activation_function" in config:
+            config["activation_function"] = import_from_string(config["activation_function"])()
         model = cls(**config)
         model = cls.load_torch_weights(model_name_or_path=model_name_or_path, model=model, **hub_kwargs)
         return model

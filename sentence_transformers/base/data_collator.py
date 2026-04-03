@@ -27,7 +27,7 @@ class BaseDataCollator:
     preprocess_fn: Callable
     valid_label_columns: list[str] = field(default_factory=lambda: ["label", "labels", "score", "scores"])
     router_mapping: dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
-    prompts: dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
+    prompts: str | dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
 
     _warned_columns: set[tuple[str]] = field(default_factory=set, init=False, repr=False)
 
@@ -40,28 +40,30 @@ class BaseDataCollator:
             and isinstance(next(iter(router_mapping.values())), dict)
         ):
             if "dataset_name" in batch and batch["dataset_name"] in router_mapping:
-                router_mapping = router_mapping[batch["dataset_name"]]
-            else:
-                router_mapping = {}
+                return router_mapping[batch["dataset_name"]]
+            return {}
         return router_mapping
 
-    def _resolve_prompts(self, batch: dict[str, Any]) -> str | dict[str, str]:
+    def _resolve_prompts(self, batch: dict[str, Any]) -> str | dict[str, str] | None:
         """Resolve the prompts for this batch, handling nested (per-dataset) mappings."""
         prompts = self.prompts
-        if prompts and isinstance(prompts, dict):
-            is_multi_dataset = "dataset_name" in batch
-            if is_multi_dataset and batch["dataset_name"] in prompts:
-                prompts = prompts[batch["dataset_name"]]
-            elif isinstance(next(iter(prompts.values())), dict):
-                if not is_multi_dataset:
-                    raise ValueError(
-                        "The prompts provided to the trainer are a nested dictionary. In this setting, the first "
-                        "level of the dictionary should map to dataset names and the second level to column names. "
-                        "However, as the provided dataset is a not a DatasetDict, no dataset names can be inferred. "
-                        f"The keys to the provided prompts dictionary are {list(prompts.keys())!r}"
-                    )
-                else:
-                    prompts = {}
+        if not isinstance(prompts, dict) or not prompts:
+            return prompts
+
+        is_multi_dataset = "dataset_name" in batch
+        if is_multi_dataset and batch["dataset_name"] in prompts:
+            return prompts[batch["dataset_name"]]
+
+        if isinstance(next(iter(prompts.values())), dict):
+            if not is_multi_dataset:
+                raise ValueError(
+                    "The prompts provided to the trainer are a nested dictionary. In this setting, the first "
+                    "level of the dictionary should map to dataset names and the second level to column names. "
+                    "However, as the provided dataset is a not a DatasetDict, no dataset names can be inferred. "
+                    f"The keys to the provided prompts dictionary are {list(prompts.keys())!r}"
+                )
+            return {}
+
         return prompts
 
     def _get_prompt_for_column(self, prompts: str | dict[str, str], column_name: str) -> str | None:
@@ -72,7 +74,10 @@ class BaseDataCollator:
             return prompts[column_name]
         return None
 
-    def __call__(self, features: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
+    def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
+        if not features:
+            return {}
+
         column_names = list(features[0].keys())
 
         # We should always be able to return a loss, label or not:

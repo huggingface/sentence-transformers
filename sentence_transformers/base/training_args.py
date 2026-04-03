@@ -164,6 +164,8 @@ class BaseTrainingArguments(TransformersTrainingArguments):
             try:
                 self.prompts = json.loads(self.prompts)
             except json.JSONDecodeError:
+                # If the string is not valid JSON, treat it as a single prompt string applied to all columns.
+                # This is unlike router_mapping/learning_rate_mapping, which must be valid JSON dicts.
                 pass
 
         self.learning_rate_mapping = self.learning_rate_mapping if self.learning_rate_mapping is not None else {}

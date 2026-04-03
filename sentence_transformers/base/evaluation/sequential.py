@@ -47,7 +47,7 @@ class SequentialEvaluator(BaseEvaluator):
                 scores.append(evaluation)
                 evaluation = {f"evaluator_{evaluator_idx}": evaluation}
             else:
-                if hasattr(evaluator, "primary_metric"):
+                if hasattr(evaluator, "primary_metric") and evaluator.primary_metric is not None:
                     scores.append(evaluation[evaluator.primary_metric])
                 else:
                     scores.append(evaluation[list(evaluation.keys())[0]])
@@ -55,7 +55,10 @@ class SequentialEvaluator(BaseEvaluator):
             evaluations.append(evaluation)
 
         self.primary_metric = "sequential_score"
-        main_score = self.main_score_function(scores)
+        if not scores:
+            main_score = 0.0
+        else:
+            main_score = self.main_score_function(scores)
         results = {key: value for evaluation in evaluations for key, value in evaluation.items()}
         results["sequential_score"] = main_score
         return results

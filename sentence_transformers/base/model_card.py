@@ -322,7 +322,7 @@ class BaseModelCardData(CardData):
     task_name: str = (
         "semantic textual similarity, semantic search, paraphrase mining, text classification, clustering, and more"
     )
-    tags: list[str] | None = field(
+    tags: list[str] = field(
         default_factory=lambda: [
             "sentence-transformers",
             "sentence-similarity",
@@ -1499,7 +1499,7 @@ class BaseModelCardData(CardData):
             return {k: BaseModelCardData._prepare_for_inference(v) for k, v in value.items()}
         return value
 
-    def run_usage_snippet(self) -> dict[str, Any]:
+    def run_usage_snippet(self) -> None:
         if self.usage_examples is None:
             self.usage_examples = [
                 "The weather is lovely today.",
@@ -1519,7 +1519,7 @@ class BaseModelCardData(CardData):
         # Use display version (with file paths) if available, otherwise original usage_examples
         display = self.usage_examples_display or self.usage_examples
         if not display:
-            return self._generate_text_snippet(display)
+            return self._generate_text_snippet(None)
 
         # Check the *original* usage_examples for modality detection, since display converts
         # non-text items (PIL images, audio dicts, etc.) to file path strings.
@@ -1625,6 +1625,8 @@ class BaseModelCardData(CardData):
             subsequent calls to avoid filename collisions across datasets.
         """
         dataset_columns = dataset_info["_example_columns"]
+        if not dataset_info["examples"]:
+            return "", asset_counter
         num_samples = len(dataset_info["examples"][list(dataset_info["examples"])[0]])
         examples_lines = []
         for sample_idx in range(num_samples):
@@ -1758,6 +1760,8 @@ class BaseModelCardData(CardData):
         return results
 
     def get_model_specific_metadata(self) -> dict[str, Any]:
+        if self.model is None:
+            return {}
         supported_modalities = [format_modality(m).title() for m in self.model.modalities]
         return {
             "model_max_length": self.model.get_max_seq_length(),

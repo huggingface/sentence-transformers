@@ -55,7 +55,11 @@ class BaseEvaluator:
         if not name:
             return {key: maybe_to_float(value) for key, value in metrics.items()}
         metrics = {name + "_" + key: maybe_to_float(value) for key, value in metrics.items()}
-        if hasattr(self, "primary_metric") and not self.primary_metric.startswith(name + "_"):
+        if (
+            hasattr(self, "primary_metric")
+            and self.primary_metric is not None
+            and not self.primary_metric.startswith(name + "_")
+        ):
             self.primary_metric = name + "_" + self.primary_metric
         return metrics
 

@@ -34,6 +34,7 @@ class Router(InputModule):
         route_mappings: dict[tuple[str | None, str | tuple[str, ...] | None], str] | None = None,
     ) -> None:
         r"""
+        TODO: There's no proper documentation of using Router to make multimodal models yet
         This model allows creating flexible SentenceTransformer models that dynamically route inputs to different
         processing modules based on:
 
@@ -285,7 +286,7 @@ class Router(InputModule):
         """
         super().__init__()
         if sub_modules is None or len(sub_modules) == 0:
-            raise ValueError("The routes dictionary cannot be empty.")
+            raise ValueError("The sub_modules dictionary cannot be empty.")
         if default_route is not None and default_route not in sub_modules:
             raise ValueError(f"Default route '{default_route}' not found in route keys: {list(sub_modules.keys())}")
 
@@ -453,6 +454,23 @@ class Router(InputModule):
         modality: str | tuple[str, ...] | None = None,
         **kwargs,
     ) -> dict[str, Tensor]:
+        """Route ``features`` through the resolved sub-module pipeline.
+
+        Resolves the route from ``task`` and ``modality`` (falling back to values stored in
+        ``features`` if not provided), then sequentially applies all modules in the matched route.
+
+        Args:
+            features: Input features dictionary (e.g. from :meth:`preprocess`).
+            task: Task type used for routing (e.g. ``"query"``, ``"document"``).
+                Falls back to ``features["task"]`` if not provided.
+            modality: Modality used for routing (e.g. ``"text"``, ``"image"``).
+                Falls back to ``features["modality"]`` if not provided.
+            **kwargs: Extra keyword arguments forwarded to each sub-module's ``forward``
+                (filtered by each module's ``forward_kwargs``).
+
+        Returns:
+            The features dictionary after passing through all modules in the resolved route.
+        """
         # Get task from features if not provided
         if task is None:
             task = features.get("task", None)
@@ -550,7 +568,10 @@ class Router(InputModule):
         modality: Modality | None = None,
         **kwargs,
     ):
-        """Preprocesses a text and maps tokens to token-ids"""
+        """Resolve the route from ``task`` and ``modality``, then delegate preprocessing to the
+        first module of the matched route. The returned dictionary includes ``"task"`` and (if
+        available) ``"modality"`` keys so that :meth:`forward` can route without re-inference.
+        """
         # Backwards compatibility branch: for when texts are list of dicts with task types as keys
         if inputs and isinstance(inputs[0], dict) and task is None:
             # Extract the task type key from the dictionaries

@@ -196,8 +196,7 @@ class DefaultBatchSampler(SetEpochMixin, BatchSampler):
     It is equivalent to the PyTorch BatchSampler.
 
     Args:
-        sampler (Sampler or Iterable): The sampler used for sampling elements from the dataset,
-            such as SubsetRandomSampler.
+        dataset (Dataset): The dataset to sample from.
         batch_size (int): Number of samples per batch.
         drop_last (bool): If True, drop the last incomplete batch if the dataset size
             is not divisible by the batch size.
@@ -335,7 +334,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
                     batch = batch[self.batch_size :]
             remaining_labels = [label for label in remaining_labels if queues[label]]
 
-        # At least 4 elements ensures >= 2 distinct labels, each with >= 2 samples.
+        # Due to the round-robin loading, at least 4 elements ensures >= 2 distinct labels, each with >= 2 samples.
         if not self.drop_last and len(batch) >= 4:
             yield batch
 
@@ -537,7 +536,7 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
 
         # Plus a singly linked list over shuffled positions, where the last position is marked with -1
         # for simple termination
-        position_dtype = np.int32 if num_rows <= np.iinfo(np.int32).max else np.int64
+        position_dtype = np.int32 if num_rows + 1 <= np.iinfo(np.int32).max else np.int64
         next_positions = np.arange(1, num_rows + 1, dtype=position_dtype)
         next_positions[-1] = -1
         head_position = 0
@@ -578,6 +577,15 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                     yield batch_indices
 
     def __len__(self) -> int:
+        """Return the approximate number of batches.
+
+        .. note::
+
+            This is an upper-bound estimate. The actual number of batches
+            yielded by :meth:`__iter__` may be smaller when the dataset
+            contains many duplicate values, because those samples are
+            deferred or skipped rather than placed into a batch.
+        """
         if self.drop_last:
             return len(self.dataset) // self.batch_size
         else:
@@ -669,7 +677,8 @@ class ProportionalBatchSampler(MultiDatasetDefaultBatchSampler):
     """
 
     def __iter__(self) -> Iterator[list[int]]:
-        self.generator.manual_seed(self.seed + self.epoch)
+        if self.generator and self.seed is not None:
+            self.generator.manual_seed(self.seed + self.epoch)
 
         num_samples = [len(dataset) for dataset in self.dataset.datasets]
         sample_offsets = [0] + list(accumulate(num_samples))

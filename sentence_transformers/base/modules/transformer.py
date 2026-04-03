@@ -810,29 +810,32 @@ class Transformer(InputModule):
             return False
 
         attn_implementation = self.config._attn_implementation
-        if is_flash_attention_requested(requested_attention_implementation=attn_implementation):
-            (_, flash_varlen_fn, *_), _ = lazy_import_flash_attention(attn_implementation)
-            if flash_varlen_fn is not None:
-                logger.debug(
-                    "Using flattened inputs with flash attention variable-length functions to avoid padding overhead for text-only inputs."
-                )
-                self.data_collator = DataCollatorWithFlattening(
-                    return_seq_idx=True,  # Not always necessary, perhaps only Mamba/Bamba?
-                    return_flash_attn_kwargs=True,
-                    return_position_ids=True,  # Crucial for performance
-                )
-                # Ensure the flash attention keys reach the model through **kwargs. They
-                # are not named parameters in the model's forward signature, but the model
-                # passes them through to its attention layers via **kwargs.
-                self.model_forward_params |= {
-                    "cu_seq_lens_q",
-                    "cu_seq_lens_k",
-                    "max_length_q",
-                    "max_length_k",
-                    "seq_idx",
-                }
-                return True
-        return False
+        if not is_flash_attention_requested(requested_attention_implementation=attn_implementation):
+            return False
+
+        (_, flash_varlen_fn, *_), _ = lazy_import_flash_attention(attn_implementation)
+        if flash_varlen_fn is None:
+            return False
+
+        logger.debug(
+            "Using flattened inputs with flash attention variable-length functions to avoid padding overhead for text-only inputs."
+        )
+        self.data_collator = DataCollatorWithFlattening(
+            return_seq_idx=True,  # Not always necessary, perhaps only Mamba/Bamba?
+            return_flash_attn_kwargs=True,
+            return_position_ids=True,  # Crucial for performance
+        )
+        # Ensure the flash attention keys reach the model through **kwargs. They
+        # are not named parameters in the model's forward signature, but the model
+        # passes them through to its attention layers via **kwargs.
+        self.model_forward_params |= {
+            "cu_seq_lens_q",
+            "cu_seq_lens_k",
+            "max_length_q",
+            "max_length_k",
+            "seq_idx",
+        }
+        return True
 
     @property
     def max_seq_length(self) -> int | None:
@@ -1003,8 +1006,9 @@ class Transformer(InputModule):
 
         Args:
             features: Input features dictionary produced by :meth:`preprocess`. Must contain the
-                keys expected by the underlying model (e.g. ``input_ids``, ``pixel_values``, etc.)
-                and a ``modality`` key indicating which modality config to use.
+                keys expected by the underlying model (e.g. ``input_ids``, ``pixel_values``, etc.).
+                A ``modality`` key selects the modality config to use; defaults to ``"text"``
+                when absent.
             **kwargs: Additional keyword arguments forwarded to the model method (override features).
 
         Returns:
@@ -1051,7 +1055,13 @@ class Transformer(InputModule):
                 except (KeyError, TypeError):
                     # Some models (e.g. chinese_clip) only expose output fields via attribute access,
                     # not dictionary-style indexing. See https://github.com/huggingface/transformers/issues/44079
-                    embedding = getattr(embedding, output_key)
+                    try:
+                        embedding = getattr(embedding, output_key)
+                    except AttributeError:
+                        raise AttributeError(
+                            f"Could not access output key {output_key!r} via indexing or attribute access "
+                            f"on {type(embedding).__name__}."
+                        )
 
         if embedding.ndim == 4:
             # Some image models return (batch_size, num_channels, height, width) instead of (batch_size, seq_len, hidden_size)
@@ -1145,49 +1155,77 @@ class Transformer(InputModule):
     ) -> dict[str, Any]:
         """Call the appropriate processor with the correct arguments.
 
+        Dispatches based on the processor type and modality:
+
+        1. **Message modality**: delegates to :meth:`_process_chat_messages`.
+        2. **Multi-modal processor** (:class:`ProcessorMixin`): delegates to
+           :meth:`_call_multimodal_processor`, which handles both legacy (flat kwargs) and
+           transformers v5 (per-modality kwargs) calling conventions.
+        3. **Single-modality processor** (tokenizer, feature extractor, image/video processor):
+           delegates to :meth:`_call_single_modality_processor`, which matches the processor
+           type and passes the primary input as a positional argument when available.
+
         Args:
-            modality: The modality or tuple of modalities being processed
-            processor_inputs: Dictionary of processor argument names to lists of values
-            modality_kwargs: Configuration kwargs for each modality type
-            common_kwargs: Common kwargs to pass to all processor calls
+            modality: The modality or tuple of modalities being processed.
+            processor_inputs: Dictionary of processor argument names to lists of values.
+            modality_kwargs: Per-modality configuration kwargs (keys: ``"text"``, ``"image"``,
+                ``"audio"``, ``"video"``).
+            common_kwargs: Common kwargs passed to all processor calls (e.g. ``padding``,
+                ``return_tensors``).
 
         Returns:
-            Processor output dictionary
+            Processor output dictionary.
         """
         if modality == "message":
             return self._process_chat_messages(processor_inputs["message"], modality_kwargs, common_kwargs)
 
-        # Multi-modal processor: pass modality-specific kwargs
         if isinstance(self.processor, ProcessorMixin):
-            # Convert modality keys to processor argument names (e.g., "image" -> "images")
-            processor_inputs = {
-                MODALITY_TO_PROCESSOR_ARG.get(key, key): value for key, value in processor_inputs.items()
-            }
+            return self._call_multimodal_processor(modality, processor_inputs, modality_kwargs, common_kwargs)
 
-            # Some transformers processors are still outdated, and don't accept common_kwargs, etc.
-            if (
-                self.config.model_type in {"clipseg", "whisper", "sam3"}
-                or not _TRANSFORMERS_PROCESSOR_SUPPORTS_MODALITY_KWARGS
-            ):
-                # Check against the only valid multimodal modality for these architectures
-                if modality == ("audio", "text"):
-                    # Audio must have priority for whisper, to correctly set padding to max_length
-                    kwargs = {**modality_kwargs["text"], **modality_kwargs["audio"]}
-                else:
-                    kwargs = modality_kwargs[modality]
-                return self.processor(**processor_inputs, **kwargs, **common_kwargs)
+        return self._call_single_modality_processor(modality, processor_inputs, modality_kwargs, common_kwargs)
 
-            # This is the much cleaner transformers v5 approach
-            return self.processor(
-                **processor_inputs,
-                text_kwargs=modality_kwargs["text"],
-                images_kwargs=modality_kwargs["image"],
-                audio_kwargs=modality_kwargs["audio"],
-                videos_kwargs=modality_kwargs["video"],
-                common_kwargs=common_kwargs,
-            )
+    def _call_multimodal_processor(
+        self,
+        modality: Modality,
+        processor_inputs: dict[str, list],
+        modality_kwargs: dict[str, dict[str, Any]],
+        common_kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Call a :class:`ProcessorMixin` processor, handling both legacy and v5 calling conventions."""
+        # Convert modality keys to processor argument names (e.g., "image" -> "images")
+        processor_inputs = {MODALITY_TO_PROCESSOR_ARG.get(key, key): value for key, value in processor_inputs.items()}
 
-        # Single-modality processor: determine type and call appropriately
+        # Some transformers processors are still outdated, and don't accept common_kwargs, etc.
+        if (
+            self.config.model_type in {"clipseg", "whisper", "sam3"}
+            or not _TRANSFORMERS_PROCESSOR_SUPPORTS_MODALITY_KWARGS
+        ):
+            # Check against the only valid multimodal modality for these architectures
+            if modality == ("audio", "text"):
+                # Audio must have priority for whisper, to correctly set padding to max_length
+                kwargs = {**modality_kwargs["text"], **modality_kwargs["audio"]}
+            else:
+                kwargs = modality_kwargs[modality]
+            return self.processor(**processor_inputs, **kwargs, **common_kwargs)
+
+        # This is the much cleaner transformers v5 approach
+        return self.processor(
+            **processor_inputs,
+            text_kwargs=modality_kwargs["text"],
+            images_kwargs=modality_kwargs["image"],
+            audio_kwargs=modality_kwargs["audio"],
+            videos_kwargs=modality_kwargs["video"],
+            common_kwargs=common_kwargs,
+        )
+
+    def _call_single_modality_processor(
+        self,
+        modality: Modality,
+        processor_inputs: dict[str, list],
+        modality_kwargs: dict[str, dict[str, Any]],
+        common_kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Call a single-modality processor (tokenizer, feature extractor, image/video processor)."""
         # Check in order: text, audio, video, image (video before image due to inheritance)
         processor_type_checks = [
             ("text", PreTrainedTokenizerBase, modality_kwargs["text"]),
@@ -1530,6 +1568,11 @@ class Transformer(InputModule):
 
         modality_config: ModalityConfig = {}
         for modality, params in raw_config.items():
+            if not hasattr(model, params["method"]):
+                logger.warning_once(
+                    f"Model does not have method {params['method']!r} for modality {modality!r}. Skipping."
+                )
+                continue
             method = getattr(model, params["method"])
             modality_config[modality] = {
                 "method": params["method"],
@@ -1791,11 +1834,22 @@ class Transformer(InputModule):
 
         if "modality_config" in config:
             # Deserialize modality_config keys: "+" separates tuple modalities (e.g. "image+text")
+            valid_single_modalities = {"text", "image", "audio", "video", "message"}
             deserialized_modality_config = {}
             for modality_key, params in config["modality_config"].items():
                 if "+" in modality_key:
-                    deserialized_modality_config[tuple(modality_key.split("+"))] = params
+                    parts = tuple(modality_key.split("+"))
+                    invalid = [p for p in parts if p not in valid_single_modalities]
+                    if invalid:
+                        logger.warning(
+                            f"Ignoring unknown modality components {invalid!r} in modality_config key {modality_key!r}."
+                        )
+                        continue
+                    deserialized_modality_config[parts] = params
                 else:
+                    if modality_key not in valid_single_modalities:
+                        logger.warning(f"Ignoring unknown modality key {modality_key!r} in modality_config.")
+                        continue
                     deserialized_modality_config[modality_key] = params
             config["modality_config"] = deserialized_modality_config
 

@@ -11,7 +11,13 @@ def peft_wrapper(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         self.check_peft_compatible_model()
-        method = getattr(self.transformers_model, func.__name__)
+        method_name = func.__name__
+        if not hasattr(self.transformers_model, method_name):
+            raise AttributeError(
+                f"The underlying transformers model ({type(self.transformers_model).__name__}) does not have a "
+                f"`{method_name}` method. This may indicate an incompatible or outdated version of transformers or peft."
+            )
+        method = getattr(self.transformers_model, method_name)
         return method(*args, **kwargs)
 
     return wrapper

@@ -369,6 +369,8 @@ class InputFormatter:
         Returns:
             Tuple of ``("message", {"message": [messages_per_sample, ...]})``
         """
+        if not processor_inputs:
+            return "message", {"message": []}
         modalities = (modality,) if isinstance(modality, str) else modality
         batch_size = len(next(iter(processor_inputs.values())))
         messages = []
@@ -551,9 +553,19 @@ def infer_modality(
                 "or 'video_metadata' (for video). "
                 f"Got keys: {set(sample.keys())}"
             )
-        case dict():
+        case dict() if sample:
             # Multimodal dict: keys are modality names (sorted for consistent route lookups)
+            # TODO: Check if the tests are okay with this:
+            valid_modalities = {"text", "image", "audio", "video"}
+            invalid_keys = set(sample.keys()) - valid_modalities
+            if invalid_keys:
+                raise ValueError(
+                    f"Multimodal dict input contains unrecognized modality keys: {invalid_keys}. "
+                    f"Expected keys from: {valid_modalities}"
+                )
             return tuple(sorted(sample.keys()))
+        case dict():
+            raise ValueError("Empty dict input is not a valid input sample.")
         case np.ndarray() | torch.Tensor():
             if sample.ndim in (1, 2):  # mono or multi-channel waveform
                 return "audio"
@@ -591,6 +603,8 @@ def infer_batch_modality(
     Returns:
         The detected modality, or ``"message"`` for mixed-modality batches.
     """
+    if not samples:
+        return "text"
     modalities = {infer_modality(sample, supported_modalities=supported_modalities) for sample in samples}
     return modalities.pop() if len(modalities) == 1 else "message"
 
