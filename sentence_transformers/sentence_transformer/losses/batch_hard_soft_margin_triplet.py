@@ -13,7 +13,7 @@ from .batch_hard_triplet import BatchHardTripletLoss, BatchHardTripletLossDistan
 
 class BatchHardSoftMarginTripletLoss(BatchHardTripletLoss):
     def __init__(
-        self, model: SentenceTransformer, distance_metric=BatchHardTripletLossDistanceFunction.eucledian_distance
+        self, model: SentenceTransformer, distance_metric=BatchHardTripletLossDistanceFunction.euclidean_distance
     ) -> None:
         """
         BatchHardSoftMarginTripletLoss takes a batch with (sentence, label) pairs and computes the loss for all possible, valid

@@ -688,7 +688,7 @@ def test_encode_truncate(
         test(model, expected_dim=final_truncate_dim)
     test(model, expected_dim=new_truncate_dim)  # b/c we've exited the context
 
-    # Test w/ an ouptut_dim that's larger than the original_output_dim. No truncation ends up happening
+    # Test w/ an output_dim that's larger than the original_output_dim. No truncation ends up happening
     model.truncate_dim = 2 * original_output_dim
     test(model, expected_dim=original_output_dim)
 

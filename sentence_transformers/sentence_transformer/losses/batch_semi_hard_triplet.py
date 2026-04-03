@@ -15,7 +15,7 @@ class BatchSemiHardTripletLoss(nn.Module):
     def __init__(
         self,
         model: SentenceTransformer,
-        distance_metric=BatchHardTripletLossDistanceFunction.eucledian_distance,
+        distance_metric=BatchHardTripletLossDistanceFunction.euclidean_distance,
         margin: float = 5,
     ) -> None:
         """

@@ -233,17 +233,6 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
 
         return metrics
 
-    def compute_metrices(
-        self,
-        model: SparseEncoder,
-        corpus_model=None,
-        corpus_embeddings: torch.Tensor | None = None,
-        output_path: str | None = None,
-    ) -> dict[str, float]:
-        return super().compute_metrices(
-            model=model, corpus_model=corpus_model, corpus_embeddings=corpus_embeddings, output_path=output_path
-        )
-
     def embed_inputs(
         self,
         model: SparseEncoder,

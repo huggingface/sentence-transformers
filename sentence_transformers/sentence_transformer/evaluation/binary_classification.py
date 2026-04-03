@@ -178,7 +178,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         if not self.similarity_fn_names:
             self.similarity_fn_names = [model.similarity_fn_name]
             self._append_csv_headers(self.similarity_fn_names)
-        scores = self.compute_metrices(model)
+        scores = self.compute_metrics(model)
 
         file_output_data = [epoch, steps]
 
@@ -221,7 +221,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
 
-    def compute_metrices(self, model: SentenceTransformer) -> dict[str, dict[str, float]]:
+    def compute_metrics(self, model: SentenceTransformer) -> dict[str, dict[str, float]]:
         try:
             # If the sentences are hashable, then we can use a set to avoid embedding the same sentences multiple
             # times
@@ -293,6 +293,9 @@ class BinaryClassificationEvaluator(BaseEvaluator):
             }
 
         return output_scores
+
+    # Backwards compatibility alias
+    compute_metrices = compute_metrics
 
     def embed_inputs(
         self,

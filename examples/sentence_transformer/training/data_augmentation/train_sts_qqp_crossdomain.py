@@ -192,7 +192,7 @@ train_dataloader = DataLoader(qqp_train_data, shuffle=True, batch_size=batch_siz
 train_loss = MultipleNegativesRankingLoss(bi_encoder)
 
 # Classification ######
-# Given (quesiton1, question2), is this a duplicate or not?
+# Given (question1, question2), is this a duplicate or not?
 # The evaluator will compute the embeddings for both questions and then compute
 # a cosine similarity. If the similarity is above a threshold, we have a duplicate.
 logging.info("Read QQP dev dataset")

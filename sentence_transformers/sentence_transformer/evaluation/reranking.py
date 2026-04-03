@@ -162,7 +162,7 @@ class RerankingEvaluator(BaseEvaluator):
 
         logger.info(f"RerankingEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
-        scores = self.compute_metrices(model)
+        scores = self.compute_metrics(model)
         mean_ap = scores["map"]
         mean_mrr = scores["mrr"]
         mean_ndcg = scores["ndcg"]
@@ -199,7 +199,7 @@ class RerankingEvaluator(BaseEvaluator):
         self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
 
-    def compute_metrices(self, model: SentenceTransformer):
+    def compute_metrics(self, model: SentenceTransformer):
         """
         Computes the evaluation metrics for the given model.
 
@@ -210,12 +210,12 @@ class RerankingEvaluator(BaseEvaluator):
             Dict[str, float]: A dictionary containing the evaluation metrics.
         """
         return (
-            self.compute_metrices_batched(model)
+            self.compute_metrics_batched(model)
             if self.use_batched_encoding
-            else self.compute_metrices_individual(model)
+            else self.compute_metrics_individual(model)
         )
 
-    def compute_metrices_batched(self, model: SentenceTransformer):
+    def compute_metrics_batched(self, model: SentenceTransformer):
         """
         Computes the evaluation metrics in a batched way, by batching all queries and all documents together.
 
@@ -288,7 +288,7 @@ class RerankingEvaluator(BaseEvaluator):
 
         return {"map": mean_ap, "mrr": mean_mrr, "ndcg": mean_ndcg}
 
-    def compute_metrices_individual(self, model: SentenceTransformer):
+    def compute_metrics_individual(self, model: SentenceTransformer):
         """
         Computes the evaluation metrics individually by embedding every (query, positive, negative) tuple individually.
 
@@ -342,6 +342,11 @@ class RerankingEvaluator(BaseEvaluator):
         mean_ndcg = np.mean(all_ndcg_scores)
 
         return {"map": mean_ap, "mrr": mean_mrr, "ndcg": mean_ndcg}
+
+    # Backwards compatibility aliases
+    compute_metrices = compute_metrics
+    compute_metrices_batched = compute_metrics_batched
+    compute_metrices_individual = compute_metrics_individual
 
     def embed_inputs(
         self,

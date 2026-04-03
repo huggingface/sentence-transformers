@@ -108,7 +108,7 @@ def test_simple(test_data, tmp_path: Path):
     assert set(results.keys()) == set(expected_keys)
 
 
-def test_metrices(test_data, mock_model, tmp_path: Path):
+def test_metrics(test_data, mock_model, tmp_path: Path):
     queries, corpus, relevant_docs = test_data
 
     ir_evaluator = InformationRetrievalEvaluator(

@@ -240,7 +240,7 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             self.score_function_names = [model.similarity_fn_name]
             self._append_csv_headers(self.score_function_names)
 
-        scores = self.compute_metrices(model, output_path=output_path, *args, **kwargs)
+        scores = self.compute_all_metrics(model, output_path=output_path, *args, **kwargs)
 
         # Write results to disk
         if output_path is not None and self.write_csv:
@@ -296,7 +296,7 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
 
-    def compute_metrices(
+    def compute_all_metrics(
         self,
         model: SentenceTransformer,
         corpus_model=None,
@@ -345,7 +345,7 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             else:
                 sub_corpus_embeddings = corpus_embeddings[corpus_start_idx:corpus_end_idx]
 
-            # Compute cosine similarites
+            # Compute cosine similarities
             for name, score_function in self.score_functions.items():
                 pair_scores = score_function(query_embeddings, sub_corpus_embeddings)
 
@@ -414,6 +414,9 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             self.output_scores(scores[name])
 
         return scores
+
+    # Backwards compatibility alias
+    compute_metrices = compute_all_metrics
 
     def embed_inputs(
         self,

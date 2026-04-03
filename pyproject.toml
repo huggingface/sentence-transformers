@@ -112,3 +112,41 @@ env = [
     # Note: 'D:' means default value from laptop or CI won't be overwritten
     "D:HF_HUB_DOWNLOAD_TIMEOUT=60",
 ]
+
+[tool.typos.default]
+binary = false
+locale = "en"
+
+[tool.typos.default.extend-words]
+NCE = "NCE"
+nce = "nce"
+Ein = "Ein"
+ein = "ein"
+ist = "ist"
+arange = "arange"
+
+
+[tool.typos.files]
+extend-exclude = [
+    "*.json",
+    "*.ipynb",
+    "examples/sentence_transformer/unsupervised_learning/query_generation/3_programming_semantic_search.py",
+    "examples/sentence_transformer/unsupervised_learning/query_generation/1_programming_query_generation.py",
+    "sentence_transformers/sentence_transformer/modules/tokenizer/word.py",
+]
+
+[tool.typos.type.py.extend-words]
+thw = "thw"
+nd = "nd"
+Evangelia = "Evangelia"
+aas = "aas"
+sur = "sur"
+paria = "paria"
+ende = "ende"
+
+[tool.typos.type.py.extend-identifiers]
+# for backwards compatibility, as these were previously misspelled
+compute_metrices = "compute_metrices"
+eucledian_distance = "eucledian_distance"
+compute_metrices_batched = "compute_metrices_batched"
+compute_metrices_individual = "compute_metrices_individual"

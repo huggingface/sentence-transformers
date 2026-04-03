@@ -563,7 +563,7 @@ Based on the benchmarks, this flowchart should help you decide which backend to 
 
 .. note::
 
-   Your milage may vary, and you should always test the different backends with your specific model and data to find the best one for your use case.
+   Your mileage may vary, and you should always test the different backends with your specific model and data to find the best one for your use case.
 
 User Interface
 ^^^^^^^^^^^^^^

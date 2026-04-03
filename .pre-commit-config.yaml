@@ -8,3 +8,9 @@ repos:
       args: [ --fix, --show-fixes ]
     # Run the formatter.
     - id: ruff-format
+
+- repo: https://github.com/crate-ci/typos
+  rev: v1.45.0
+  hooks:
+    - id: typos
+      args: ["--diff", "--force-exclude"]

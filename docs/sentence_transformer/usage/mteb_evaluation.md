@@ -29,7 +29,7 @@ results = mteb.evaluate(model, tasks)
 
 .. note::
 
-   If you are evaluating existings models the MTEB team recommends that you use `mteb.get_model("{model_name}")` instead of `SentenceTransformer`. This will load the model as it is implemented in MTEB, typically by the model developers. This ensures reproducible results, which might otherwise vary due to normalization, quantization, prompts or similar. If the model isn't implemented in `mteb` it will attempt to load the model using `SentenceTransformer`.
+   If you are evaluating existing models, the MTEB team recommends that you use `mteb.get_model("{model_name}")` instead of `SentenceTransformer`. This will load the model as it is implemented in MTEB, typically by the model developers. This ensures reproducible results, which might otherwise vary due to normalization, quantization, prompts or similar. If the model isn't implemented in `mteb` it will attempt to load the model using `SentenceTransformer`.
 
 For the full list of available tasks, you can check the MTEB Tasks overview, e.g. for [STS22.v2](https://embeddings-benchmark.github.io/mteb/overview/available_tasks/sts#sts22v2).
 
