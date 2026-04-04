@@ -11,7 +11,7 @@ from sentence_transformers.backend.utils import _save_pretrained_wrapper, backen
 logger = logging.getLogger(__name__)
 
 
-def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name: str, **model_kwargs):
+def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name: str, cache_dir: str | None = None, **model_kwargs):
     """
     Load and perhaps export an ONNX model using the Optimum library.
 
@@ -74,6 +74,7 @@ def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name
         model_name_or_path,
         config=config,
         export=export,
+        cache_dir=cache_dir,
         **model_kwargs,
     )
 
@@ -87,7 +88,7 @@ def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name
     return model
 
 
-def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_name: str, **model_kwargs):
+def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_name: str, cache_dir: str | None = None, **model_kwargs):
     """
     Load and perhaps export an OpenVINO model using the Optimum library.
 
@@ -158,6 +159,7 @@ def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_
         model_name_or_path,
         config=config,
         export=export,
+        cache_dir=cache_dir,
         **model_kwargs,
     )
 
