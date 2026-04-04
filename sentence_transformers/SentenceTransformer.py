@@ -22,6 +22,7 @@ from typing import Any, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
+from PIL import Image
 import torch
 import torch.multiprocessing as mp
 import transformers
@@ -720,7 +721,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
     @overload
     def encode(
         self,
-        sentences: str,
+        sentences: str | Image.Image,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -742,7 +743,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
     @overload
     def encode(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: str | list[str] | np.ndarray | Image.Image | list[Image.Image],
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -764,7 +765,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
     @overload
     def encode(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: str | list[str] | np.ndarray | Image.Image | list[Image.Image],
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -785,7 +786,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
     @overload
     def encode(
         self,
-        sentences: list[str] | np.ndarray,
+        sentences: list[str] | np.ndarray | list[Image.Image],
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -806,7 +807,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
     @overload
     def encode(
         self,
-        sentences: list[str] | np.ndarray,
+        sentences: list[str] | np.ndarray | list[Image.Image],
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -827,7 +828,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
     @overload
     def encode(
         self,
-        sentences: str,
+        sentences: str | Image.Image,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -848,7 +849,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
     @overload
     def encode(
         self,
-        sentences: str,
+        sentences: str | Image.Image,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -868,7 +869,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
     @torch.inference_mode()
     def encode(
         self,
-        sentences: str | list[str] | np.ndarray,
+        sentences: str | list[str] | np.ndarray | Image.Image | list[Image.Image],
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
