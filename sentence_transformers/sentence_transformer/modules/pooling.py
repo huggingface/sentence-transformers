@@ -73,8 +73,6 @@ class Pooling(Module):
     Generates a fixed-size sentence embedding from variable-length token embeddings. Supports
     multiple pooling strategies that can also be combined by passing a tuple of mode names.
 
-    TODO: Should we default to lasttoken pooling if a model is CausalLM-based? Can we nicely detect that?
-
     Args:
         embedding_dimension: The dimensionality of the input token embeddings.
         pooling_mode: The pooling strategy to use. Can be a single mode name (``str``) or

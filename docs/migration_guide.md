@@ -169,6 +169,24 @@ The ``tokenizer_kwargs`` parameter on :class:`~sentence_transformers.sentence_tr
 The ``tags`` parameter has been removed from :meth:`~sentence_transformers.base.model.BaseModel.push_to_hub` on all model types. Use ``model.model_card_data.tags.append("my-tag")`` before calling :meth:`~sentence_transformers.base.model.BaseModel.push_to_hub` instead.
 ```
 
+### Default pooling for CausalLM models
+
+```{eval-rst}
+
+When loading a model without a pre-trained Sentence Transformer configuration (e.g. a raw ``transformers`` model), previous versions always defaulted to mean pooling. Starting with v5.4, CausalLM-based models (e.g. Llama, Qwen, Mistral) now default to last token pooling instead, as the last token has the most complete contextual representation in causal models. All other models continue to default to mean pooling.
+
+If you relied on mean pooling for a CausalLM model, you can explicitly set the pooling mode:
+
+.. code-block:: python
+
+   from sentence_transformers import SentenceTransformer
+   from sentence_transformers.sentence_transformer.modules import Transformer, Pooling
+
+   transformer = Transformer("Qwen/Qwen2-0.5B")
+   pooling = Pooling(transformer.get_embedding_dimension(), pooling_mode="mean")
+   model = SentenceTransformer(modules=[transformer, pooling])
+```
+
 ### Changes for custom module and loss authors
 
 ```{eval-rst}

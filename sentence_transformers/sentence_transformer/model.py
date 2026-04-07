@@ -1024,7 +1024,8 @@ class SentenceTransformer(BaseModel, FitMixin):
         config_kwargs: dict[str, Any] | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """
-        Creates a simple Transformer + Mean Pooling model and returns the modules.
+        Creates a simple Transformer + Mean Pooling model and returns the modules, except for
+        CausalLM-based models which use Last Token pooling instead.
 
         This is used as a fallback when no pre-trained SentenceTransformer model is found.
 
@@ -1062,7 +1063,16 @@ class SentenceTransformer(BaseModel, FitMixin):
         )
         modules = [transformer_model]
         if transformer_model.module_output_name == "token_embeddings":
-            modules.append(Pooling(transformer_model.get_embedding_dimension(), "mean"))
+            config = transformer_model.config
+            # If a model was originally designed for causal language modeling, then we use last token pooling,
+            # except if is_causal=False, then it's still bidirectional and we default to mean pooling.
+            is_causal_lm = (
+                getattr(config, "architectures", None)
+                and config.architectures[0].endswith("ForCausalLM")
+                and getattr(config, "is_causal", True)
+            )
+            pooling_mode = "lasttoken" if is_causal_lm else "mean"
+            modules.append(Pooling(transformer_model.get_embedding_dimension(), pooling_mode))
         if not local_files_only:
             self.model_card_data.set_base_model(model_name_or_path, revision=revision)
         return modules, {}

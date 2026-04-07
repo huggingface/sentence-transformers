@@ -135,7 +135,7 @@ To load a Sentence Transformer model from a saved model directory, the ``modules
 Sentence Transformer Model from a Transformers Model
 ----------------------------------------------------
 
-When you initialize a Sentence Transformer model with a pure ``transformers`` model (e.g., BERT, RoBERTa, DistilBERT, T5), Sentence Transformers creates a Transformer module and a Mean Pooling module by default. This provides a simple way to leverage pre-trained language models for embeddings.
+When you initialize a Sentence Transformer model with a pure ``transformers`` model (e.g., BERT, RoBERTa, DistilBERT, T5), Sentence Transformers creates a Transformer module and a mean Pooling module by default, except for CausalLM-based models (e.g., Llama, Qwen, Mistral) which use last token Pooling instead.
 
 To be specific, these two snippets are identical::
 
