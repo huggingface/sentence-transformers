@@ -146,7 +146,10 @@ class GISTEmbedLoss(nn.Module):
                 ]
                 sentence_features = [self.guide.preprocess(sentences) for sentences in decoded]
                 sentence_features = [
-                    {key: value.to(self.guide.device) for key, value in sentence_feature.items()}
+                    {
+                        key: value.to(self.guide.device) if isinstance(value, Tensor) else value
+                        for key, value in sentence_feature.items()
+                    }
                     for sentence_feature in sentence_features
                 ]
 
