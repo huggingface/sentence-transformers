@@ -734,6 +734,11 @@ class SparseEncoder(BaseModel):
                 key=lambda x: x[0],
             )
 
+            # Check for errors from worker processes
+            for output in output_list:
+                if isinstance(output[1], Exception):
+                    raise output[1]
+
             # Handle the various output formats
             embeddings = [output[1] for output in output_list]
             if embeddings:
