@@ -1106,7 +1106,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         model_type: str | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         # Create default SentenceTransformer modules for models saved as a different model type (e.g. CrossEncoder, SparseEncoder)
-        return super()._load_default_modules(
+        return self._load_default_modules(
             model_name_or_path,
             token,
             cache_folder,
