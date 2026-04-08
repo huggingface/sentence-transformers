@@ -170,7 +170,7 @@ class SparseMarginMSELoss(MarginMSELoss):
                 trainer = SparseEncoderTrainer(model=student_model, train_dataset=train_dataset, loss=loss)
                 trainer.train()
         """
-        return super().__init__(model, similarity_fct=similarity_fct)
+        super().__init__(model, similarity_fct=similarity_fct)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         raise AttributeError("SparseMarginMSELoss should not be used alone. Use it with SpladeLoss or CSRLoss.")

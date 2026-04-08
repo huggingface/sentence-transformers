@@ -42,7 +42,7 @@ class BaseDataCollator:
             if "dataset_name" in batch and batch["dataset_name"] in router_mapping:
                 return router_mapping[batch["dataset_name"]]
             return {}
-        return router_mapping
+        return router_mapping or {}
 
     def _resolve_prompts(self, batch: dict[str, Any]) -> str | dict[str, str] | None:
         """Resolve the prompts for this batch, handling nested (per-dataset) mappings."""

@@ -56,4 +56,4 @@ class SparseMSELoss(MSELoss):
                 trainer.train()
 
         """
-        return super().__init__(model)
+        super().__init__(model)

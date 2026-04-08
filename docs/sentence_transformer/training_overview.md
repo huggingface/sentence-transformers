@@ -188,7 +188,7 @@ But if instead you want to train from another checkpoint, or from scratch, then 
             <ul class="simple">
                 <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Router"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Router</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Pooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Pooling</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.Pooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.Pooling</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Dense"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Dense</span></code></a></li>
             </ul>
         </div>

@@ -11,7 +11,7 @@ import traceback
 
 from datasets import load_dataset
 
-from sentence_transformers.sentence_transformer import SentenceTransformer
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
 from sentence_transformers.sentence_transformer.losses import CachedMultipleNegativesRankingLoss, MatryoshkaLoss
 from sentence_transformers.sentence_transformer.model_card import SentenceTransformerModelCardData

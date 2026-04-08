@@ -626,7 +626,7 @@ class SparseEncoder(BaseModel):
                 ...     "He's driving to the movie theater.",
                 ...     "She's going to the cinema.",
                 ... ]
-                >>> embeddings = model.encode(sentences, normalize_embeddings=True)
+                >>> embeddings = model.encode(sentences)
                 >>> model.similarity(embeddings, embeddings)
                 tensor([[   30.953,    12.871,     0.000,     0.011],
                         [   12.871,    27.505,     0.580,     0.578],
@@ -777,7 +777,7 @@ class SparseEncoder(BaseModel):
             except Exception as e:
                 logger.error(f"Error in worker process on {target_device}: {e}")
                 try:
-                    results_queue.put([chunk_id, None, str(e)])
+                    results_queue.put([chunk_id, e])
                 except Exception:
                     pass
                 break

@@ -127,7 +127,7 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
                 trainer = SparseEncoderTrainer(model=model, train_dataset=train_dataset, loss=loss)
                 trainer.train()
         """
-        return super().__init__(
+        super().__init__(
             model,
             scale=scale,
             similarity_fct=similarity_fct,

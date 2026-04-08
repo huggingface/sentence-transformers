@@ -20,7 +20,7 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
         from the student model, then calculates the KL divergence between these distributions.
 
         Args:
-            model: SentenceTransformer model (student model)
+            model: SparseEncoder model (student model)
             similarity_fct: Which similarity function to use for the student model
             temperature: Temperature parameter to soften probability distributions (higher temperature = softer distributions)
                 When combined with other losses, a temperature of 1.0 is also viable, but a higher temperature (e.g., 2.0 or 4.0)

@@ -41,7 +41,7 @@ class FlopsLoss(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         raise NotImplementedError(
-            "FlopsLoss is not intended to be used directly. Use it as a regulizer within the SpladeLoss class."
+            "FlopsLoss is not intended to be used directly. Use it as a regularizer within the SpladeLoss class."
         )
 
     def compute_loss_from_embeddings(self, embeddings: torch.Tensor) -> torch.Tensor:

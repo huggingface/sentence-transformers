@@ -1792,7 +1792,7 @@ class BaseModelCardData(CardData):
             return {}
         supported_modalities = [format_modality(m).title() for m in self.model.modalities]
         return {
-            "model_max_length": self.model.get_max_seq_length(),
+            "model_max_length": self.model.max_seq_length,
             "model_string": str(self.model),
             "supported_modalities": supported_modalities,
         }

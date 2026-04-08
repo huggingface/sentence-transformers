@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 
 if TYPE_CHECKING:
-    from sentence_transformers.sentence_transformer.model import SentenceTransformer
+    from sentence_transformers.base.model import BaseModel
 
 
 class SequentialEvaluator(BaseEvaluator):
@@ -36,7 +36,7 @@ class SequentialEvaluator(BaseEvaluator):
         self.main_score_function = main_score_function
 
     def __call__(
-        self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
+        self, model: BaseModel, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
         evaluations = []
         scores = []

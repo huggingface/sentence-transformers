@@ -364,17 +364,16 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
     def get_max_seq_length(self) -> int | None:
         """
+        .. deprecated::
+            Use the :attr:`max_seq_length` property instead.
+
         Returns the maximal sequence length that the first module of the model accepts.
         Longer inputs will be truncated.
 
         Returns:
             Optional[int]: The maximal sequence length that the model accepts, or None if it is not defined.
         """
-        first = self[0]
-        if first is not None and hasattr(first, "max_seq_length"):
-            return first.max_seq_length
-
-        return None
+        return self.max_seq_length
 
     def _first_module(self) -> torch.nn.Module:
         """Returns the first module of this sequential embedder"""

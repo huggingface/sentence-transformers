@@ -41,7 +41,7 @@ Training a multimodal model follows the same steps as training a text-only model
 
 ### Training Example: Document Screenshot Embedding
 
-The [training_document_screenshot_embedding.py](training_document_screenshot_embedding.py) script finetunes [Qwen/Qwen3-VL-Embedding-2B](https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B) on query-document screenshot pairs for visual document retrieval. Here is how it works:
+The [training_visual_document_retrieval.py](training_visual_document_retrieval.py) script finetunes [Qwen/Qwen3-VL-Embedding-2B](https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B) on query-document screenshot pairs for visual document retrieval. Here is how it works:
 
 ```{eval-rst}
 **1. Load the model** with efficient training settings::

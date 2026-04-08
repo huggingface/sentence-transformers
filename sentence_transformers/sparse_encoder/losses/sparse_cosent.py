@@ -70,7 +70,7 @@ class SparseCoSENTLoss(CoSENTLoss):
                 trainer.train()
         """
         model.similarity_fn_name = "cosine"
-        return super().__init__(model, scale=scale, similarity_fct=similarity_fct)
+        super().__init__(model, scale=scale, similarity_fct=similarity_fct)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         raise AttributeError("SparseCoSENTLoss should not be used alone. Use it with SpladeLoss or CSRLoss.")
