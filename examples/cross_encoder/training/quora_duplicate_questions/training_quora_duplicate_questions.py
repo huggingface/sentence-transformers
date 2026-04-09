@@ -27,9 +27,9 @@ train_batch_size = 64
 num_epochs = 1
 output_dir = "output/training_ce_quora-" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-# 1. Define our CrossEncoder model. We use distilroberta-base as the base model and set it up to predict 1 label
-# You can also use other base models, like bert-base-uncased, microsoft/mpnet-base, or rerankers like Alibaba-NLP/gte-reranker-modernbert-base
-model_name = "distilroberta-base"
+# 1. Define our CrossEncoder model. We use distilbert/distilroberta-base as the base model and set it up to predict 1 label
+# You can also use other base models, like google-bert/bert-base-uncased, microsoft/mpnet-base, or rerankers like Alibaba-NLP/gte-reranker-modernbert-base
+model_name = "distilbert/distilroberta-base"
 model = CrossEncoder(model_name, num_labels=1)
 
 # 2. Load the Quora duplicates dataset: https://huggingface.co/datasets/sentence-transformers/quora-duplicates
@@ -63,7 +63,7 @@ args = CrossEncoderTrainingArguments(
     num_train_epochs=num_epochs,
     per_device_train_batch_size=train_batch_size,
     per_device_eval_batch_size=train_batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=True,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:

@@ -145,7 +145,7 @@ ONNX models can be optimized using `Optimum <https://huggingface.co/docs/optimum
 - ``create_pr``: (Optional) a boolean to create a pull request when pushing to the Hugging Face Hub. Useful when you don't have write access to the repository.
 - ``file_suffix``: (Optional) a string to append to the model name when saving it. If not specified, the optimization level name string will be used, or just ``"optimized"`` if the optimization config was not just a string optimization level.
 
-See this example for exporting a model with :doc:`optimization level 3 <optimum:onnxruntime/usage_guides/optimization>` (basic and extended general optimizations, transformers-specific fusions, fast Gelu approximation):
+See this example for exporting a model with :doc:`optimization level 3 <optimum-onnx:onnxruntime/usage_guides/optimization>` (basic and extended general optimizations, transformers-specific fusions, fast Gelu approximation):
 
 .. tab:: Hugging Face Hub Model
 
@@ -166,7 +166,7 @@ See this example for exporting a model with :doc:`optimization level 3 <optimum:
 
       from sentence_transformers import SparseEncoder
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = SparseEncoder(
           "naver/splade-v3",
           backend="onnx",
@@ -221,7 +221,7 @@ ONNX models can be quantized to int8 precision using `Optimum <https://huggingfa
 
 On my CPU, each of the default quantization configurations (``"arm64"``, ``"avx2"``, ``"avx512"``, ``"avx512_vnni"``) resulted in roughly equivalent speedups.
 
-See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <optimum:onnxruntime/usage_guides/quantization>`:
+See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <optimum-onnx:onnxruntime/usage_guides/quantization>`:
 
 .. tab:: Hugging Face Hub Model
 
@@ -242,7 +242,7 @@ See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <opti
 
       from sentence_transformers import SparseEncoder
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = SparseEncoder(
           "naver/splade-v3",
           backend="onnx",
@@ -376,7 +376,7 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
 
       from sentence_transformers import SparseEncoder
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = SparseEncoder(
           "naver/splade-v3",
           backend="openvino",
@@ -557,7 +557,7 @@ Based on the benchmarks, this flowchart should help you decide which backend to 
 
 .. note::
 
-   Your milage may vary, and you should always test the different backends with your specific model and data to find the best one for your use case.
+   Your mileage may vary, and you should always test the different backends with your specific model and data to find the best one for your use case.
 
 User Interface
 ^^^^^^^^^^^^^^

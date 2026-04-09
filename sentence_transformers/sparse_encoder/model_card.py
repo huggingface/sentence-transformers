@@ -5,22 +5,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from sentence_transformers.model_card import SentenceTransformerModelCardCallback, SentenceTransformerModelCardData
-from sentence_transformers.models import Asym, Module, Router
-from sentence_transformers.sparse_encoder.models import SparseAutoEncoder, SparseStaticEmbedding, SpladePooling
+import torch
+
+from sentence_transformers.base.model_card import BaseModelCardCallback, BaseModelCardData
+from sentence_transformers.base.modules import Module, Router
+from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SparseStaticEmbedding, SpladePooling
 
 if TYPE_CHECKING:
-    from sentence_transformers.sparse_encoder.SparseEncoder import SparseEncoder
+    from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 logger = logging.getLogger(__name__)
 
 
-class SparseEncoderModelCardCallback(SentenceTransformerModelCardCallback):
+class SparseEncoderModelCardCallback(BaseModelCardCallback):
     pass
 
 
 @dataclass
-class SparseEncoderModelCardData(SentenceTransformerModelCardData):
+class SparseEncoderModelCardData(BaseModelCardData):
     """A dataclass storing data used in the model card.
 
     Args:
@@ -39,7 +41,7 @@ class SparseEncoderModelCardData(SentenceTransformerModelCardData):
             e.g. "semantic search and sparse retrieval".
         tags (`Optional[List[str]]`): A list of tags for the model,
             e.g. ["sentence-transformers", "sparse-encoder"].
-        local_files_only (`bool`): If True, don't attempt to find dataset or base model information on the Hub.Add commentMore actions
+        local_files_only (`bool`): If True, don't attempt to find dataset or base model information on the Hub.
             Defaults to False.
         generate_widget_examples (`bool`): If True, generate widget examples from the evaluation or training dataset,
             and compute their similarities. Defaults to True.
@@ -63,9 +65,12 @@ class SparseEncoderModelCardData(SentenceTransformerModelCardData):
         ... )
     """
 
+    _snippet_model_class = "SparseEncoder"
+    _snippet_default_model_id = "sparse_encoder_model_id"
+
     # Potentially provided by the user
-    task_name: str = field(default=None)
-    tags: list[str] | None = field(
+    task_name: str | None = None
+    tags: list[str] = field(
         default_factory=lambda: [
             "sentence-transformers",
             "sparse-encoder",
@@ -74,7 +79,7 @@ class SparseEncoderModelCardData(SentenceTransformerModelCardData):
     )
 
     # Automatically filled by `SparseEncoderModelCardCallback` and the Trainer directly
-    predict_example: list[list[str]] | None = field(default=None, init=False)
+    usage_examples: list[list[str]] | None = field(default=None, init=False)
 
     # Computed once, always unchanged
     pipeline_tag: str = field(default=None, init=False)
@@ -94,7 +99,7 @@ class SparseEncoderModelCardData(SentenceTransformerModelCardData):
 
         all_modules = [module.__class__ for module in model.modules() if isinstance(module, Module)]
         model_type = []
-        if Asym in all_modules or Router in all_modules:
+        if Router in all_modules:
             model_type += ["Asymmetric"]
 
         if SparseStaticEmbedding in all_modules:
@@ -111,6 +116,7 @@ class SparseEncoderModelCardData(SentenceTransformerModelCardData):
         self.model_type = " ".join(model_type)
 
     def get_model_specific_metadata(self) -> dict[str, Any]:
+        metadata = super().get_model_specific_metadata()
         similarity_fn_name = "Dot Product"
         if self.model.similarity_fn_name:
             similarity_fn_name = {
@@ -119,13 +125,30 @@ class SparseEncoderModelCardData(SentenceTransformerModelCardData):
                 "euclidean": "Euclidean Distance",
                 "manhattan": "Manhattan Distance",
             }.get(self.model.similarity_fn_name, self.model.similarity_fn_name.replace("_", " ").title())
-        return {
-            "model_max_length": self.model.get_max_seq_length(),
-            "output_dimensionality": self.model.get_sentence_embedding_dimension(),
-            "model_string": str(self.model),
-            "similarity_fn_name": similarity_fn_name,
-            "max_active_dims": getattr(self.model, "max_active_dims", None),
-        }
+        metadata.update(
+            {
+                "output_dimensionality": self.model.get_embedding_dimension(),
+                "similarity_fn_name": similarity_fn_name,
+                "max_active_dims": getattr(self.model, "max_active_dims", None),
+            }
+        )
+        return metadata
 
-    def get_default_model_name(self) -> None:
+    def run_usage_snippet(self) -> None:
+        super().run_usage_snippet()
+
+        if not self.generate_widget_examples:
+            return
+
+        self.usage_examples = self.usage_examples[:3]  # Limit to 3 examples for standard similarity
+
+        # Convert VideoDecoder objects to VideoDict so they can be processed
+        prepared_examples = [self._prepare_for_inference(item) for item in self.usage_examples]
+        embeddings = self.model.encode(prepared_examples, convert_to_tensor=True, show_progress_bar=False)
+        similarity = self.model.similarity(embeddings, embeddings)
+
+        with torch._tensor_str.printoptions(precision=4, sci_mode=False):
+            self.similarities = "\n".join(f"# {line}" for line in str(similarity.cpu()).splitlines())
+
+    def get_default_model_name(self) -> str:
         return self.model_type

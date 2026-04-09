@@ -2,16 +2,15 @@
 
 This folder contains various examples to fine-tune `SentenceTransformers` for specific tasks.
 
-For the beginning, I can recommend to have a look at the Semantic Textual Similarity ([STS](sts/)) or the Natural Language Inference ([NLI](nli/)) examples.
+For the beginning, I can recommend to have a look at the Semantic Textual Similarity ([STS](sts/README.md)) or the Natural Language Inference ([NLI](nli/README.md)) examples.
 
-For the documentation how to train your own models, see [Training Overview](http://www.sbert.net/docs/sentence_transformer/training_overview.html).
+For the documentation how to train your own models, see [Training Overview](../../../docs/sentence_transformer/training_overview.md).
 
 ## Training Examples
 
 - [adaptive_layer](adaptive_layer/) - Examples to train models whose layers can be removed on the fly for faster inference.
 - [avg_word_embeddings](avg_word_embeddings/) - This folder contains examples to train models based on classical word embeddings like GloVe. These models are extremely fast, but are a more inaccurate than transformers based models.
 - [clip](clip/) - Examples to train CLIP image models.
-- [cross-encoder](cross-encoder/) - Examples to train [CrossEncoder](http://www.sbert.net/docs/cross_encoder/usage/usage.html) models.
 - [data_augmentation](data_augmentation/) Examples of how to apply data augmentation strategies to improve embedding models.
 - [distillation](distillation/) - Examples to make models smaller, faster and lighter.
 - [hpo](hpo/) - Examples with hyperparameter search to find the best hyperparameters for your task.

@@ -117,7 +117,7 @@ You can use the models in the following way:
 ```python
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 embeddings = model.encode(["Hello World", "Hallo Welt", "Hola mundo", "Bye, Moon!"])
 similarities = model.similarity(embeddings, embeddings)
 # tensor([[1.0000, 0.9429, 0.8880, 0.4558],
@@ -193,7 +193,7 @@ We extended the STS2017 and added cross-lingual test data for English-German, Fr
     <td colspan="12"><b>Sentence Transformer Models</b></td>
   </tr>
   <tr>
-  <td>distiluse-base-multilingual-cased</td>
+  <td>sentence-transformers/distiluse-base-multilingual-cased</td>
     <td align="center">75.9</td>
     <td align="center">77.6</td>
     <td align="center">85.3</td>

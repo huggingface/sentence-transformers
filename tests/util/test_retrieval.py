@@ -33,7 +33,7 @@ def test_semantic_search() -> None:
 
 
 def test_paraphrase_mining() -> None:
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
     sentences = [
         "This is a test",
         "This is a test!",

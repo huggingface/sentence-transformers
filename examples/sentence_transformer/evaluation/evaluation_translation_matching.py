@@ -16,7 +16,7 @@ Usage:
 python examples/sentence_transformer/evaluation/evaluation_translation_matching.py [model_name_or_path] [dataset_name] [subset1] [subset2] ...
 
 For example:
-python examples/sentence_transformer/evaluation/evaluation_translation_matching.py distiluse-base-multilingual-cased sentence-transformers/parallel-sentences-tatoeba en-ar en-de en-nl
+python examples/sentence_transformer/evaluation/evaluation_translation_matching.py sentence-transformers/distiluse-base-multilingual-cased sentence-transformers/parallel-sentences-tatoeba en-ar en-de en-nl
 """
 
 import logging

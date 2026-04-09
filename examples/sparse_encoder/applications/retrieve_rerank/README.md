@@ -21,7 +21,7 @@ This Jupyter notebook provides an interactive demonstration of retrieve & re-ran
 - Compare different retrieval methods:
   - **BM25** (lexical/keyword search)
   - **Sparse Encoder** [ibm-granite/granite-embedding-30m-sparse](https://huggingface.co/ibm-granite/granite-embedding-30m-sparse)
-  - **Dense Encoder** [multi-qa-MiniLM-L6-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-MiniLM-L6-cos-v1)
+  - **Dense Encoder** [sentence-transformers/multi-qa-MiniLM-L6-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-MiniLM-L6-cos-v1)
 - And re-ranking results using a CrossEncoder [cross-encoder/ms-marco-MiniLM-L6-v2](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2)
 
 ## Comprehensive Evaluation: Hybrid Search Pipeline
@@ -31,7 +31,7 @@ This Jupyter notebook provides an interactive demonstration of retrieve & re-ran
 This script provides a complete evaluation pipeline comparing different retrieval and re-ranking approaches on a given dataset (here in our example [NanoNFCorpus](https://huggingface.co/datasets/zeta-alpha-ai/NanoNFCorpus)). It includes:
 
 1. **Sparse Retrieval** using [ibm-granite/granite-embedding-30m-sparse](https://huggingface.co/ibm-granite/granite-embedding-30m-sparse)
-1. **Dense Retrieval** using [multi-qa-MiniLM-L6-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-MiniLM-L6-cos-v1)
+1. **Dense Retrieval** using [sentence-transformers/multi-qa-MiniLM-L6-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-MiniLM-L6-cos-v1)
 1. **Re-ranking** both sparse and dense results with [cross-encoder/ms-marco-MiniLM-L6-v2](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2)
 1. **Hybrid Search** using Reciprocal Rank Fusion [ReciprocalRankFusionEvaluator](../../../../docs/package_reference/sparse_encoder/evaluation.md#reciprocalrankfusionevaluator)
 1. **Hybrid Re-ranking** applying cross-encoder to fused results

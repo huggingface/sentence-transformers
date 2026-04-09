@@ -33,13 +33,13 @@ classifiers = [
 ]
 dependencies = [
     "transformers>=4.41.0,<6.0.0",
-    "huggingface-hub>=0.20.0",
+    "huggingface-hub>=0.23.0",
     "torch>=1.11.0",
-    "numpy",
-    "scikit-learn",
-    "scipy",
+    "numpy>=1.20.0",
+    "scikit-learn>=0.22.0",
+    "scipy>=1.0.0",
     "typing_extensions>=4.5.0",
-    "tqdm",
+    "tqdm>=4.0.0",
 ]
 
 [project.urls]
@@ -48,12 +48,14 @@ Repository = "https://github.com/huggingface/sentence-transformers/"
 
 
 [project.optional-dependencies]
-image = ["Pillow"]
-train = ["datasets", "accelerate>=0.20.3"]
+image = ["transformers[vision]"]
+audio = ["transformers[audio]"]
+video = ["transformers[video]"]
+train = ["datasets>=2.0.0", "accelerate>=0.20.3"]
 onnx = ["optimum-onnx[onnxruntime]"]
 onnx-gpu = ["optimum-onnx[onnxruntime-gpu]"]
 openvino = ["optimum-intel[openvino]"]
-dev = ["datasets", "accelerate>=0.20.3", "pre-commit", "pytest", "pytest-cov", "pytest-env", "peft", "Pillow"]
+dev = ["datasets>=2.0.0", "accelerate>=0.20.3", "pre-commit", "pytest", "pytest-cov", "pytest-env", "pytest-subtests", "pytest-xdist", "peft", "transformers[vision,audio,video]"]
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
@@ -93,6 +95,8 @@ ignore = [
 known-third-party = ["datasets"]
 required-imports = ["from __future__ import annotations"]
 
+[tool.ty.rules]
+unresolved-attribute = "ignore" # Not nicely compatible with 'torch' its custom __setattr__
 
 [tool.pytest.ini_options]
 testpaths = [
@@ -108,3 +112,41 @@ env = [
     # Note: 'D:' means default value from laptop or CI won't be overwritten
     "D:HF_HUB_DOWNLOAD_TIMEOUT=60",
 ]
+
+[tool.typos.default]
+binary = false
+locale = "en"
+
+[tool.typos.default.extend-words]
+NCE = "NCE"
+nce = "nce"
+Ein = "Ein"
+ein = "ein"
+ist = "ist"
+arange = "arange"
+
+
+[tool.typos.files]
+extend-exclude = [
+    "*.json",
+    "*.ipynb",
+    "examples/sentence_transformer/unsupervised_learning/query_generation/3_programming_semantic_search.py",
+    "examples/sentence_transformer/unsupervised_learning/query_generation/1_programming_query_generation.py",
+    "sentence_transformers/sentence_transformer/modules/tokenizer/word.py",
+]
+
+[tool.typos.type.py.extend-words]
+thw = "thw"
+nd = "nd"
+Evangelia = "Evangelia"
+aas = "aas"
+sur = "sur"
+paria = "paria"
+ende = "ende"
+
+[tool.typos.type.py.extend-identifiers]
+# for backwards compatibility, as these were previously misspelled
+compute_metrices = "compute_metrices"
+eucledian_distance = "eucledian_distance"
+compute_metrices_batched = "compute_metrices_batched"
+compute_metrices_individual = "compute_metrices_individual"

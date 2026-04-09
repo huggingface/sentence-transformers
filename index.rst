@@ -1,13 +1,13 @@
 
 .. note::
 
-   Sentence Transformers v5.3 recently released, introducing alternative InfoNCE formulations and hardness weighting for :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`, new :class:`~sentence_transformers.losses.GlobalOrthogonalRegularizationLoss` and :class:`~sentence_transformers.sparse_encoder.losses.CachedSpladeLoss` losses, a faster hashed batch sampler, and more. Read the `v5.3 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.3.0>`_ for more information.
+   Sentence Transformers v5.3 recently released, introducing alternative InfoNCE formulations and hardness weighting for :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, new :class:`~sentence_transformers.sentence_transformer.losses.GlobalOrthogonalRegularizationLoss` and :class:`~sentence_transformers.sparse_encoder.losses.CachedSpladeLoss` losses, a faster hashed batch sampler, and more. Read the `v5.3 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.3.0>`_ for more information.
 
 SentenceTransformers Documentation
 ==================================
 
-Sentence Transformers (a.k.a. SBERT) is the go-to Python module for accessing, using, and training state-of-the-art embedding and reranker models.
-It can be used to compute embeddings using Sentence Transformer models (`quickstart <docs/quickstart.html#sentence-transformer>`_), to calculate similarity scores using Cross-Encoder (a.k.a. reranker) models (`quickstart <docs/quickstart.html#cross-encoder>`_), or to generate sparse embeddings using Sparse Encoder models (`quickstart <docs/quickstart.html#sparse-encoder>`_). This unlocks a wide range of applications, including `semantic search <examples/sentence_transformer/applications/semantic-search/README.html>`_, `semantic textual similarity <docs/sentence_transformer/usage/semantic_textual_similarity.html>`_, and `paraphrase mining <examples/sentence_transformer/applications/paraphrase-mining/README.html>`_.
+Sentence Transformers (a.k.a. SBERT) is the go-to Python module for using and training state-of-the-art embedding and reranker models.
+It can be used to compute embeddings from text, images, audio, or video using Sentence Transformer models (`quickstart <docs/quickstart.html#sentence-transformer>`_), to calculate similarity scores using Cross-Encoder (a.k.a. reranker) models (`quickstart <docs/quickstart.html#cross-encoder>`_), or to generate sparse embeddings using Sparse Encoder models (`quickstart <docs/quickstart.html#sparse-encoder>`_). This unlocks a wide range of applications, including `semantic search <examples/sentence_transformer/applications/semantic-search/README.html>`_, `semantic textual similarity <docs/sentence_transformer/usage/semantic_textual_similarity.html>`_, and `paraphrase mining <examples/sentence_transformer/applications/paraphrase-mining/README.html>`_.
 
 A wide selection of over `10,000 pre-trained Sentence Transformers models <https://huggingface.co/models?library=sentence-transformers>`_ are available for immediate use on 🤗 Hugging Face, including many of the state-of-the-art models from the `Massive Text Embeddings Benchmark (MTEB) leaderboard <https://huggingface.co/spaces/mteb/leaderboard>`_. Additionally, it is easy to train or finetune your own `embedding models <docs/sentence_transformer/training_overview.html>`_, `reranker models <docs/cross_encoder/training_overview.html>`_, or `sparse encoder models <docs/sparse_encoder/training_overview.html>`_ using Sentence Transformers, enabling you to create custom models for your specific use cases.
 
@@ -15,6 +15,7 @@ Sentence Transformers was created by `UKP Lab <http://www.ukp.tu-darmstadt.de/>`
 
 Usage
 =====
+
 .. seealso::
   
    See the `Quickstart <docs/quickstart.html>`_ for more quick information on how to use Sentence Transformers.
@@ -33,66 +34,135 @@ Working with Sentence Transformer models is straightforward:
 
 .. tab:: Embedding Models
 
-   .. code-block:: python
-   
-      from sentence_transformers import SentenceTransformer
-   
-      # 1. Load a pretrained Sentence Transformer model
-      model = SentenceTransformer("all-MiniLM-L6-v2")
-   
-      # The sentences to encode
-      sentences = [
-          "The weather is lovely today.",
-          "It's so sunny outside!",
-          "He drove to the stadium.",
-      ]
-   
-      # 2. Calculate embeddings by calling model.encode()
-      embeddings = model.encode(sentences)
-      print(embeddings.shape)
-      # [3, 384]
-   
-      # 3. Calculate the embedding similarities
-      similarities = model.similarity(embeddings, embeddings)
-      print(similarities)
-      # tensor([[1.0000, 0.6660, 0.1046],
-      #         [0.6660, 1.0000, 0.1411],
-      #         [0.1046, 0.1411, 1.0000]])
+   .. tab:: Text
+
+      .. code-block:: python
+
+         from sentence_transformers import SentenceTransformer
+
+         # 1. Load a pretrained Sentence Transformer model
+         model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+         # The sentences to encode
+         sentences = [
+             "The weather is lovely today.",
+             "It's so sunny outside!",
+             "He drove to the stadium.",
+         ]
+
+         # 2. Calculate embeddings by calling model.encode()
+         embeddings = model.encode(sentences)
+         print(embeddings.shape)
+         # [3, 384]
+
+         # 3. Calculate the embedding similarities
+         similarities = model.similarity(embeddings, embeddings)
+         print(similarities)
+         # tensor([[1.0000, 0.6660, 0.1046],
+         #         [0.6660, 1.0000, 0.1411],
+         #         [0.1046, 0.1411, 1.0000]])
+
+   .. tab:: Multimodal
+
+      .. code-block:: python
+
+         from sentence_transformers import SentenceTransformer
+
+         # 1. Load a model that supports both text and images
+         model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B", revision="refs/pr/23")
+
+         # 2. Encode images from URLs
+         img_embeddings = model.encode([
+             "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg",
+             "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/bee.jpg",
+         ])
+
+         # 3. Encode text queries (one matching + one hard negative per image)
+         text_embeddings = model.encode([
+             "A green car parked in front of a yellow building",
+             "A red car driving on a highway",
+             "A bee on a pink flower",
+             "A wasp on a wooden table",
+         ])
+
+         # 4. Compute cross-modal similarities
+         similarities = model.similarity(text_embeddings, img_embeddings)
+         print(similarities)
+         # tensor([[0.5115, 0.1078],
+         #         [0.1999, 0.1108],
+         #         [0.1255, 0.6749],
+         #         [0.1283, 0.2704]])
 
 .. tab:: Reranker Models
 
-   .. code-block:: python
-   
-      from sentence_transformers import CrossEncoder
-      
-      # 1. Load a pretrained CrossEncoder model
-      model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
-      
-      # The texts for which to predict similarity scores
-      query = "How many people live in Berlin?"
-      passages = [
-          "Berlin had a population of 3,520,031 registered inhabitants in an area of 891.82 square kilometers.",
-          "Berlin has a yearly total of about 135 million day visitors, making it one of the most-visited cities in the European Union.",
-          "In 2013 around 600,000 Berliners were registered in one of the more than 2,300 sport and fitness clubs.",
-      ]
-      
-      # 2a. Either predict scores pairs of texts
-      scores = model.predict([(query, passage) for passage in passages])
-      print(scores)
-      # => [8.607139 5.506266 6.352977]
-      
-      # 2b. Or rank a list of passages for a query
-      ranks = model.rank(query, passages, return_documents=True)
-      
-      print("Query:", query)
-      for rank in ranks:
-          print(f"- #{rank['corpus_id']} ({rank['score']:.2f}): {rank['text']}")
-      """
-      Query: How many people live in Berlin?
-      - #0 (8.61): Berlin had a population of 3,520,031 registered inhabitants in an area of 891.82 square kilometers.
-      - #2 (6.35): In 2013 around 600,000 Berliners were registered in one of the more than 2,300 sport and fitness clubs.
-      - #1 (5.51): Berlin has a yearly total of about 135 million day visitors, making it one of the most-visited cities in the European Union.
-      """
+   .. tab:: Text
+
+      .. code-block:: python
+
+         from sentence_transformers import CrossEncoder
+
+         # 1. Load a pretrained CrossEncoder model
+         model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
+
+         # The texts for which to predict similarity scores
+         query = "How many people live in Berlin?"
+         passages = [
+             "Berlin had a population of 3,520,031 registered inhabitants in an area of 891.82 square kilometers.",
+             "Berlin has a yearly total of about 135 million day visitors, making it one of the most-visited cities in the European Union.",
+             "In 2013 around 600,000 Berliners were registered in one of the more than 2,300 sport and fitness clubs.",
+         ]
+
+         # 2a. Either predict scores pairs of texts
+         scores = model.predict([(query, passage) for passage in passages])
+         print(scores)
+         # => [8.607139 5.506266 6.352977]
+
+         # 2b. Or rank a list of passages for a query
+         ranks = model.rank(query, passages, return_documents=True)
+
+         print("Query:", query)
+         for rank in ranks:
+             print(f"- #{rank['corpus_id']} ({rank['score']:.2f}): {rank['text']}")
+         """
+         Query: How many people live in Berlin?
+         - #0 (8.61): Berlin had a population of 3,520,031 registered inhabitants in an area of 891.82 square kilometers.
+         - #2 (6.35): In 2013 around 600,000 Berliners were registered in one of the more than 2,300 sport and fitness clubs.
+         - #1 (5.51): Berlin has a yearly total of about 135 million day visitors, making it one of the most-visited cities in the European Union.
+         """
+
+   .. tab:: Multimodal
+
+      .. code-block:: python
+
+         from sentence_transformers import CrossEncoder
+
+         # 1. Load a multimodal CrossEncoder model
+         model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B", revision="refs/pr/11")
+
+         # 2. Rank images by relevance to a text query
+         query = "A green car parked in front of a yellow building"
+         documents = [
+             # Image documents (URL or local file path)
+             "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg",
+             "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/bee.jpg",
+             # Text document
+             "A vintage Volkswagen Beetle painted in bright green sits in a driveway.",
+             # Combined text + image document
+             {
+                 "text": "A car in a European city",
+                 "image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg",
+             },
+         ]
+
+         rankings = model.rank(query, documents)
+         for rank in rankings:
+             print(f"{rank['score']:.4f}\t(document {rank['corpus_id']})")
+         """
+         0.9375  (document 0)
+         0.5000  (document 3)
+         -1.2500 (document 2)
+         -2.4375 (document 1)
+         """
 
 .. tab:: Sparse Encoder Models
 
@@ -231,6 +301,7 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/cross_encoder/usage/usage
    docs/cross_encoder/pretrained_models
    docs/cross_encoder/training_overview
+   docs/sentence_transformer/dataset_overview
    docs/cross_encoder/loss_overview
    docs/cross_encoder/training/examples
 
@@ -255,4 +326,5 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/package_reference/sentence_transformer/index
    docs/package_reference/cross_encoder/index
    docs/package_reference/sparse_encoder/index
-   docs/package_reference/util
+   docs/package_reference/base/index
+   docs/package_reference/util/index

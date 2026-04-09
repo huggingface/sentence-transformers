@@ -40,7 +40,7 @@ The PyTorch backend is the default backend for Sentence Transformers. If you don
 
    from sentence_transformers import SentenceTransformer
    
-   model = SentenceTransformer("all-MiniLM-L6-v2")
+   model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
    sentences = ["This is an example sentence", "Each sentence is converted"]
    embeddings = model.encode(sentences)
@@ -55,7 +55,7 @@ If you're using a GPU, then you can use the following options to speed up your i
 
       from sentence_transformers import SentenceTransformer
 
-      model = SentenceTransformer("all-MiniLM-L6-v2", model_kwargs={"torch_dtype": "float16"})
+      model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", model_kwargs={"torch_dtype": "float16"})
       # or: model.half()
 
       sentences = ["This is an example sentence", "Each sentence is converted"]
@@ -69,11 +69,53 @@ If you're using a GPU, then you can use the following options to speed up your i
 
       from sentence_transformers import SentenceTransformer
 
-      model = SentenceTransformer("all-MiniLM-L6-v2", model_kwargs={"torch_dtype": "bfloat16"})
+      model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", model_kwargs={"torch_dtype": "bfloat16"})
       # or: model.bfloat16()
 
       sentences = ["This is an example sentence", "Each sentence is converted"]
       embeddings = model.encode(sentences)
+
+.. tab:: Flash Attention
+
+   `Flash Attention <https://github.com/Dao-AILab/flash-attention>`_ is an efficient attention implementation that can significantly
+   speed up inference on GPUs. When flash attention with variable-length support is available, Sentence Transformers automatically
+   skips padding for text-only inputs by concatenating them into a single sequence. This eliminates the overhead of padding shorter
+   texts to the longest text in the batch, which is especially beneficial when input lengths vary widely.
+
+   To use flash attention, specify ``attn_implementation="flash_attention_2"`` in ``model_kwargs``. Flash attention can be installed
+   via ``pip install kernels``, which provides flash attention support without needing the ``flash-attn`` package, or alternatively
+   via ``pip install flash-attn``:
+
+   .. code-block:: python
+
+      from sentence_transformers import SentenceTransformer
+
+      model = SentenceTransformer(
+          "sentence-transformers/all-MiniLM-L6-v2",
+          model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": "bfloat16"},
+      )
+
+      sentences = ["This is an example sentence", "Each sentence is converted"]
+      embeddings = model.encode(sentences)
+
+   .. note::
+
+      Automatic input unpadding requires ``transformers >= 5.0.0`` and is enabled by default when flash attention
+      with variable-length support is installed and compatible with the model architecture. You can control this
+      via :attr:`~sentence_transformers.base.modules.transformer.Transformer.unpad_inputs` on the underlying
+      :class:`~sentence_transformers.base.modules.transformer.Transformer` module:
+
+      .. code-block:: python
+
+         model[0].unpad_inputs = False   # Force padding (e.g. for architectures that don't support unpadded inputs)
+         model[0].unpad_inputs = True    # Explicitly request unpadding
+         model[0].unpad_inputs = None    # Auto-detect (default)
+
+   .. seealso::
+
+      The `Transformers Attention Interface <https://huggingface.co/docs/transformers/en/attention_interface>`_ documentation
+      for a full overview of available ``attn_implementation`` options, including ``"flash_attention_2"``,
+      ``"flash_attention_3"``, ``"sdpa"``, and more.
 
 ONNX
 ----
@@ -94,7 +136,7 @@ To convert a model to ONNX format, you can use the following code:
 
    from sentence_transformers import SentenceTransformer
 
-   model = SentenceTransformer("all-MiniLM-L6-v2", backend="onnx")
+   model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", backend="onnx")
    
    sentences = ["This is an example sentence", "Each sentence is converted"]
    embeddings = model.encode(sentences)
@@ -113,14 +155,14 @@ All keyword arguments passed via ``model_kwargs`` will be passed on to :meth:`OR
 
 .. tip::
 
-   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.SentenceTransformer.save_pretrained>` if your model was local:
+   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.sentence_transformer.model.SentenceTransformer.save_pretrained>` if your model was local:
 
    .. code-block:: python
 
       model = SentenceTransformer("path/to/my/model", backend="onnx")
       model.save_pretrained("path/to/my/model")
    
-   or with :meth:`model.push_to_hub() <sentence_transformers.SentenceTransformer.push_to_hub>` if your model was from the Hugging Face Hub:
+   or with :meth:`model.push_to_hub() <sentence_transformers.sentence_transformer.model.SentenceTransformer.push_to_hub>` if your model was from the Hugging Face Hub:
 
    .. code-block:: python
 
@@ -141,7 +183,7 @@ ONNX models can be optimized using `Optimum <https://huggingface.co/docs/optimum
 - ``create_pr``: (Optional) a boolean to create a pull request when pushing to the Hugging Face Hub. Useful when you don't have write access to the repository.
 - ``file_suffix``: (Optional) a string to append to the model name when saving it. If not specified, the optimization level name string will be used, or just ``"optimized"`` if the optimization config was not just a string optimization level.
 
-See this example for exporting a model with :doc:`optimization level 3 <optimum:onnxruntime/usage_guides/optimization>` (basic and extended general optimizations, transformers-specific fusions, fast Gelu approximation):
+See this example for exporting a model with :doc:`optimization level 3 <optimum-onnx:onnxruntime/usage_guides/optimization>` (basic and extended general optimizations, transformers-specific fusions, fast Gelu approximation):
 
 .. tab:: Hugging Face Hub Model
 
@@ -149,7 +191,7 @@ See this example for exporting a model with :doc:`optimization level 3 <optimum:
 
       from sentence_transformers import SentenceTransformer, export_optimized_onnx_model
 
-      model = SentenceTransformer("all-MiniLM-L6-v2", backend="onnx")
+      model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", backend="onnx")
       export_optimized_onnx_model(
           model=model,
           optimization_config="O3",
@@ -162,9 +204,9 @@ See this example for exporting a model with :doc:`optimization level 3 <optimum:
 
       from sentence_transformers import SentenceTransformer
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = SentenceTransformer(
-          "all-MiniLM-L6-v2",
+          "sentence-transformers/all-MiniLM-L6-v2",
           backend="onnx",
           model_kwargs={"file_name": "onnx/model_O3.onnx"},
           revision=f"refs/pr/{pull_request_nr}"
@@ -175,7 +217,7 @@ See this example for exporting a model with :doc:`optimization level 3 <optimum:
       from sentence_transformers import SentenceTransformer
 
       model = SentenceTransformer(
-          "all-MiniLM-L6-v2",
+          "sentence-transformers/all-MiniLM-L6-v2",
           backend="onnx",
           model_kwargs={"file_name": "onnx/model_O3.onnx"},
       )
@@ -217,7 +259,7 @@ ONNX models can be quantized to int8 precision using `Optimum <https://huggingfa
 
 On my CPU, each of the default quantization configurations (``"arm64"``, ``"avx2"``, ``"avx512"``, ``"avx512_vnni"``) resulted in roughly equivalent speedups.
 
-See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <optimum:onnxruntime/usage_guides/quantization>`:
+See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <optimum-onnx:onnxruntime/usage_guides/quantization>`:
 
 .. tab:: Hugging Face Hub Model
 
@@ -225,7 +267,7 @@ See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <opti
 
       from sentence_transformers import SentenceTransformer, export_dynamic_quantized_onnx_model
 
-      model = SentenceTransformer("all-MiniLM-L6-v2", backend="onnx")
+      model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", backend="onnx")
       export_dynamic_quantized_onnx_model(
           model=model,
           quantization_config="avx512_vnni",
@@ -238,9 +280,9 @@ See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <opti
 
       from sentence_transformers import SentenceTransformer
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = SentenceTransformer(
-          "all-MiniLM-L6-v2",
+          "sentence-transformers/all-MiniLM-L6-v2",
           backend="onnx",
           model_kwargs={"file_name": "onnx/model_qint8_avx512_vnni.onnx"},
           revision=f"refs/pr/{pull_request_nr}",
@@ -251,7 +293,7 @@ See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <opti
       from sentence_transformers import SentenceTransformer
 
       model = SentenceTransformer(
-          "all-MiniLM-L6-v2",
+          "sentence-transformers/all-MiniLM-L6-v2",
           backend="onnx",
           model_kwargs={"file_name": "onnx/model_qint8_avx512_vnni.onnx"},
       )
@@ -294,7 +336,7 @@ To convert a model to OpenVINO format, you can use the following code:
 
    from sentence_transformers import SentenceTransformer
 
-   model = SentenceTransformer("all-MiniLM-L6-v2", backend="openvino")
+   model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", backend="openvino")
    
    sentences = ["This is an example sentence", "Each sentence is converted"]
    embeddings = model.encode(sentences)
@@ -314,14 +356,14 @@ If the model path or repository already contains a model in OpenVINO format, Sen
 
 .. tip::
 
-   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.SentenceTransformer.save_pretrained>` if your model was local:
+   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.sentence_transformer.model.SentenceTransformer.save_pretrained>` if your model was local:
 
    .. code-block:: python
 
       model = SentenceTransformer("path/to/my/model", backend="openvino")
       model.save_pretrained("path/to/my/model")
    
-   or with :meth:`model.push_to_hub() <sentence_transformers.SentenceTransformer.push_to_hub>` if your model was from the Hugging Face Hub:
+   or with :meth:`model.push_to_hub() <sentence_transformers.sentence_transformer.model.SentenceTransformer.push_to_hub>` if your model was from the Hugging Face Hub:
 
    .. code-block:: python
 
@@ -359,7 +401,7 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
 
       from sentence_transformers import SentenceTransformer, export_static_quantized_openvino_model
 
-      model = SentenceTransformer("all-MiniLM-L6-v2", backend="openvino")
+      model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", backend="openvino")
       export_static_quantized_openvino_model(
           model=model,
           quantization_config=None,
@@ -372,9 +414,9 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
 
       from sentence_transformers import SentenceTransformer
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = SentenceTransformer(
-          "all-MiniLM-L6-v2",
+          "sentence-transformers/all-MiniLM-L6-v2",
           backend="openvino",
           model_kwargs={"file_name": "openvino/openvino_model_qint8_quantized.xml"},
           revision=f"refs/pr/{pull_request_nr}"
@@ -385,7 +427,7 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
       from sentence_transformers import SentenceTransformer
 
       model = SentenceTransformer(
-          "all-MiniLM-L6-v2",
+          "sentence-transformers/all-MiniLM-L6-v2",
           backend="openvino",
           model_kwargs={"file_name": "openvino/openvino_model_qint8_quantized.xml"},
       )
@@ -563,7 +605,7 @@ Based on the benchmarks, this flowchart should help you decide which backend to 
 
 .. note::
 
-   Your milage may vary, and you should always test the different backends with your specific model and data to find the best one for your use case.
+   Your mileage may vary, and you should always test the different backends with your specific model and data to find the best one for your use case.
 
 User Interface
 ^^^^^^^^^^^^^^

@@ -8,17 +8,18 @@ The idea is to encode the same sentence twice. Due to the used dropout in transf
 
 ## Usage with SentenceTransformers
 
-SentenceTransformers implements the [MultipleNegativesRankingLoss](https://www.sbert.net/docs/package_reference/sentence_transformer/losses.html#multiplenegativesrankingloss), which makes training with SimCSE trivial:
+SentenceTransformers implements the [MultipleNegativesRankingLoss](../../../../docs/package_reference/sentence_transformer/losses.md#multiplenegativesrankingloss), which makes training with SimCSE trivial:
 
 ```python
 from sentence_transformers import SentenceTransformer, InputExample
-from sentence_transformers import models, losses
+from sentence_transformers.sentence_transformer.modules import Transformer, Pooling
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 from torch.utils.data import DataLoader
 
 # Define your sentence transformer model using CLS pooling
-model_name = "distilroberta-base"
-word_embedding_model = models.Transformer(model_name, max_seq_length=32)
-pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
+model_name = "distilbert/distilroberta-base"
+word_embedding_model = Transformer(model_name, max_seq_length=32)
+pooling_model = Pooling(word_embedding_model.get_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 # Define a list with sentences (1k - 100k sentences)
@@ -36,7 +37,7 @@ train_data = [InputExample(texts=[s, s]) for s in train_sentences]
 train_dataloader = DataLoader(train_data, batch_size=128, shuffle=True)
 
 # Use the denoising auto-encoder loss
-train_loss = losses.MultipleNegativesRankingLoss(model)
+train_loss = MultipleNegativesRankingLoss(model)
 
 # Call the fit method
 model.fit(
@@ -65,12 +66,12 @@ Using mean pooling, with max_seq_length=32 and batch_size=128
 
 | Base Model | AskUbuntu Test-Performance (MAP) |
 | ---- | :----: |
-| distilbert-base-uncased | 53.59 |
-| bert-base-uncased | 54.89 |
-| **distilroberta-base** | **56.16** |
-| roberta-base | 55.89 |
+| distilbert/distilbert-base-uncased | 53.59 |
+| google-bert/bert-base-uncased | 54.89 |
+| **distilbert/distilroberta-base** | **56.16** |
+| FacebookAI/roberta-base | 55.89 |
 
-Using mean pooling, with max_seq_length=32 and distilroberta-base model.
+Using mean pooling, with max_seq_length=32 and distilbert/distilroberta-base model.
 
 | Batch Size | AskUbuntu Test-Performance (MAP) |
 | ---- | :----: |
@@ -78,7 +79,7 @@ Using mean pooling, with max_seq_length=32 and distilroberta-base model.
 | 256 | 56.63 |
 | **512** | **56.69** |
 
-Using max_seq_length=32, distilroberta-base model, and 512 batch size.
+Using max_seq_length=32, distilbert/distilroberta-base model, and 512 batch size.
 
 | Pooling Mode | AskUbuntu Test-Performance (MAP) |
 | ---- | :----: |

@@ -25,11 +25,63 @@ Note that it is often simple to transform a dataset from one format to another, 
 
 .. tip::
 
-   You can use :func:`~sentence_transformers.util.mine_hard_negatives` to convert a dataset of positive pairs into a dataset of triplets. It uses a :class:`~sentence_transformers.SentenceTransformer` model to find hard negatives: texts that are similar to the first dataset column, but are not quite as similar as the text in the second dataset column. Datasets with hard triplets often outperform datasets with just positive pairs.
+   You can use :func:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` to convert a dataset of positive pairs into a dataset of triplets. It uses a :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` model to find hard negatives: texts that are similar to the first dataset column, but are not quite as similar as the text in the second dataset column. Datasets with hard triplets often outperform datasets with just positive pairs.
    
    For example, we mined hard negatives from `sentence-transformers/gooaq <https://huggingface.co/datasets/sentence-transformers/gooaq>`_ to produce `tomaarsen/gooaq-hard-negatives <https://huggingface.co/datasets/tomaarsen/gooaq-hard-negatives>`_ and trained `tomaarsen/mpnet-base-gooaq <https://huggingface.co/tomaarsen/mpnet-base-gooaq>`_ and `tomaarsen/mpnet-base-gooaq-hard-negatives <https://huggingface.co/tomaarsen/mpnet-base-gooaq-hard-negatives>`_ on the two datasets, respectively. Sadly, the two models use a different evaluation split, so their performance can't be compared directly.
 
 ```
+
+## Multimodal Datasets
+
+```{eval-rst}
+
+.. tip::
+
+   Multimodal models require additional dependencies. Install them with e.g. ``pip install -U "sentence-transformers[image]"`` for image support. See `Installation <../installation.html>`_ for all options.
+
+```
+
+Dataset columns are not limited to text. When using a multimodal model (e.g. a vision-language model like [Qwen/Qwen3-VL-Embedding-2B](https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B)), columns can contain images, audio, video, or combinations of these modalities. The same dataset format categories described above (Positive Pair, Triplets, etc.) apply. The only difference is that one or more columns hold non-text data instead of strings.
+
+### Accepted column types
+
+```{eval-rst}
+The following input types are supported:
+
+- **Text**: strings.
+- **Image**: PIL images, file paths, URLs, or numpy/torch arrays.
+- **Audio**: file paths, numpy/torch arrays, dicts with ``"array"`` and ``"sampling_rate"`` keys, or (if ``torchcodec`` installed) :class:`torchcodec.AudioDecoder <torchcodec.decoders.AudioDecoder>` instances.
+- **Video**: file paths, numpy/torch arrays, dicts with ``"array"`` and ``"video_metadata"`` keys, or (if ``torchcodec`` installed) :class:`torchcodec.VideoDecoder <torchcodec.decoders.VideoDecoder>` instances.
+- **Multimodal dicts**: a dict mapping modality names to values, e.g. ``{"text": ..., "audio": ...}``. The keys must be ``"text"``, ``"image"``, ``"audio"``, or ``"video"``.
+- **Chat messages**: a list of dicts with ``"role"`` and ``"content"`` keys for multimodal models that use an uncommon chat template to combine text and non-text inputs.
+```
+
+### Cross-modal dataset example
+
+A common use case is matching text queries to document screenshots (images). This is simply a **Positive Pair** dataset where the first column contains text and the second column contains images:
+
+```python
+from datasets import load_dataset
+
+dataset = load_dataset("tomaarsen/llamaindex-vdr-en-train-preprocessed", "train", split="train")
+"""
+Dataset({
+    features: ['query', 'image', 'negative_0', 'negative_1', 'negative_2', 'negative_3'],
+    num_rows: 10000
+})
+"""
+print(dataset[0]["query"])
+# "What are the new anthropological perspectives on development as discussed by Quarles Van Ufford and Giri in 2003?"
+
+print(dataset[0]["image"])
+# <PIL.Image.Image image mode=RGB size=...>
+```
+
+Here, `query` is a text column and `image` is an image column. The first column is the anchor and the second is the positive, just like a standard Positive Pair dataset. The negative columns (`negative_0` through `negative_3`) contain additional hard-negative images.
+
+### Automatic preprocessing
+
+You do not need to manually tokenize text or transform images before training. The data collator calls the model's ``preprocess`` method on each column, which automatically detects the modality (text, image, audio, or video) and applies the appropriate preprocessing (tokenization, pixel processing, audio feature extraction, etc.). This means you can pass raw `PIL.Image` objects, file paths, or URLs directly in your dataset and they will be handled correctly.
 
 ## Datasets on the Hugging Face Hub
 

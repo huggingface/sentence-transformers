@@ -19,7 +19,7 @@ logging.basicConfig(
 
 
 # Load pre-trained Sentence Transformer Model. It will be downloaded automatically
-model = SentenceTransformer("all-MiniLM-L6-v2")
+model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 # Embed a list of sentences
 sentences = [

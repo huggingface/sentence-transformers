@@ -1,6 +1,6 @@
 # Adaptive Layers
 
-Embedding models are often encoder models with numerous layers, such as 12 (e.g. [all-mpnet-base-v2](https://huggingface.co/sentence-transformers/all-mpnet-base-v2)) or 6 (e.g. [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)). To get embeddings, every single one of these layers must be traversed. The [2D Matryoshka Sentence Embeddings](https://huggingface.co/papers/2402.14776) (2DMSE) preprint revisits this concept by proposing an approach to train embedding models that will perform well when only using a selection of all layers. This results in faster inference speeds at relatively low performance costs.
+Embedding models are often encoder models with numerous layers, such as 12 (e.g. [sentence-transformers/all-mpnet-base-v2](https://huggingface.co/sentence-transformers/all-mpnet-base-v2)) or 6 (e.g. [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)). To get embeddings, every single one of these layers must be traversed. The [2D Matryoshka Sentence Embeddings](https://huggingface.co/papers/2402.14776) (2DMSE) preprint revisits this concept by proposing an approach to train embedding models that will perform well when only using a selection of all layers. This results in faster inference speeds at relatively low performance costs.
 
 ```{eval-rst}
 .. note::
@@ -34,7 +34,7 @@ For example, with the 12-layer [microsoft/mpnet-base](https://huggingface.co/mic
 
 ```python
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.losses import CoSENTLoss, AdaptiveLayerLoss
+from sentence_transformers.sentence_transformer.losses import CoSENTLoss, AdaptiveLayerLoss
 
 model = SentenceTransformer("microsoft/mpnet-base")
 
@@ -50,7 +50,7 @@ Additionally, this can be combined with the `MatryoshkaLoss` such that the resul
 
 ```python
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.losses import CoSENTLoss, Matryoshka2dLoss
+from sentence_transformers.sentence_transformer.losses import CoSENTLoss, Matryoshka2dLoss
 
 model = SentenceTransformer("microsoft/mpnet-base")
 
@@ -124,7 +124,7 @@ new_num_layers = 3
 model.transformers_model.encoder.layer = model.transformers_model.encoder.layer[:new_num_layers]
 ```
 
-Then we can run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
+Then we can run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.sentence_transformer.model.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
 
 ```python
 from sentence_transformers import SentenceTransformer

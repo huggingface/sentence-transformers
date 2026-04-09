@@ -5,19 +5,16 @@ import traceback
 from datasets import Dataset, load_dataset
 from unsloth import FastSentenceTransformer
 
-from sentence_transformers import (
-    SentenceTransformerTrainer,
-    SentenceTransformerTrainingArguments,
-)
-from sentence_transformers.evaluation import NanoBEIREvaluator
-from sentence_transformers.losses import CachedMultipleNegativesRankingLoss
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.sentence_transformer import SentenceTransformerTrainer, SentenceTransformerTrainingArguments
+from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
+from sentence_transformers.sentence_transformer.losses import CachedMultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.training_args import BatchSamplers
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
-# You can specify any Hugging Face pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
-model_name = sys.argv[1] if len(sys.argv) > 1 else "bert-base-uncased"
+# You can specify any Hugging Face pre-trained model here, for example, google-bert/bert-base-uncased, FacebookAI/roberta-base, FacebookAI/xlm-roberta-base
+model_name = sys.argv[1] if len(sys.argv) > 1 else "google-bert/bert-base-uncased"
 model_name_only = model_name.split("/")[-1]
 
 # 1. Load a model to finetune using FastSentenceTransformer

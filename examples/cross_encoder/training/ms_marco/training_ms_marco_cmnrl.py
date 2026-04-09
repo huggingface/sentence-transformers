@@ -6,14 +6,12 @@ import torch
 from datasets import load_dataset
 from torch import nn
 
+from sentence_transformers.base.sampler import BatchSamplers
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderNanoBEIREvaluator
-from sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss import (
-    CachedMultipleNegativesRankingLoss,
-)
+from sentence_transformers.cross_encoder.losses import CachedMultipleNegativesRankingLoss
 from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
-from sentence_transformers.training_args import BatchSamplers
 
 
 def main():
@@ -85,7 +83,7 @@ def main():
         per_device_train_batch_size=train_batch_size,
         per_device_eval_batch_size=train_batch_size,
         learning_rate=2e-5,
-        warmup_ratio=0.1,
+        warmup_steps=0.1,
         fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=True,  # Set to True if you have a GPU that supports BF16
         # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch

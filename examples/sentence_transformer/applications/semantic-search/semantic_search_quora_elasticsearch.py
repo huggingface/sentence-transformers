@@ -30,14 +30,12 @@ import time
 import tqdm.autonotebook
 from elasticsearch import Elasticsearch, helpers
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import http_get
 
-es = Elasticsearch(
-    "http://localhost:9200",
-    basic_auth=("elastic", os.environ["ELASTIC_PASSWORD"]),
-)
+es = Elasticsearch("http://localhost:9200", basic_auth=("elastic", os.environ["ELASTIC_PASSWORD"]))
 
-model = SentenceTransformer("quora-distilbert-multilingual")
+model = SentenceTransformer("sentence-transformers/quora-distilbert-multilingual")
 
 url = "http://qim.fs.quoracdn.net/quora_duplicate_questions.tsv"
 dataset_path = "quora_duplicate_questions.tsv"
@@ -46,7 +44,7 @@ max_corpus_size = 100000
 # Download dataset if needed
 if not os.path.exists(dataset_path):
     print("Download dataset")
-    util.http_get(url, dataset_path)
+    http_get(url, dataset_path)
 
 # Get all unique sentences from the file
 all_questions = {}

@@ -20,7 +20,7 @@ You can evaluate your SentenceTransformer model on individual tasks from the MTE
 import mteb
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 # Example 1: Run a specific single task
 tasks = mteb.get_tasks(tasks=["STS22.v2"], languages=["eng"])
@@ -29,7 +29,7 @@ results = mteb.evaluate(model, tasks)
 
 .. note::
 
-   If you are evaluating existings models the MTEB team recommends that you use `mteb.get_model("{model_name}")` instead of `SentenceTransformer`. This will load the model as it is implemented in MTEB, typically by the model developers. This ensures reproducible results, which might otherwise vary due to normalization, quantization, prompts or similar. If the model isn't implemented in `mteb` it will attempt to load the model using `SentenceTransformer`.
+   If you are evaluating existing models, the MTEB team recommends that you use `mteb.get_model("{model_name}")` instead of `SentenceTransformer`. This will load the model as it is implemented in MTEB, typically by the model developers. This ensures reproducible results, which might otherwise vary due to normalization, quantization, prompts or similar. If the model isn't implemented in `mteb` it will attempt to load the model using `SentenceTransformer`.
 
 For the full list of available tasks, you can check the MTEB Tasks overview, e.g. for [STS22.v2](https://embeddings-benchmark.github.io/mteb/overview/available_tasks/sts#sts22v2).
 
@@ -40,7 +40,7 @@ For example, the following snippet evaluates on English retrieval tasks in the m
 import mteb
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 # Example 2: Run all English retrieval tasks in the medical domain
 tasks = mteb.get_tasks(
@@ -57,7 +57,7 @@ Lastly, it's often valuable to evaluate on predefined benchmarks. For example, t
 import mteb
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 # Example 3: Run the MTEB benchmark for English tasks
 benchmark = mteb.get_benchmark("MTEB(eng, v2)")
@@ -92,7 +92,7 @@ from sentence_transformers import SentenceTransformer
 
 cache = ResultCache("my_mteb_results_folder")
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 tasks = mteb.get_tasks(tasks=["STS17", "STS22.v2"], languages=["eng"])
 results = mteb.evaluate(model, tasks, cache=cache)
 

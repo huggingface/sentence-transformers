@@ -8,16 +8,16 @@ from typing import TYPE_CHECKING
 import numpy as np
 from sklearn.metrics import average_precision_score, f1_score
 
-from sentence_transformers.evaluation import BinaryClassificationEvaluator
-from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.sentence_transformer.evaluation import BinaryClassificationEvaluator
 
 if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+    from sentence_transformers.cross_encoder.model import CrossEncoder
 
 logger = logging.getLogger(__name__)
 
 
-class CrossEncoderClassificationEvaluator(SentenceEvaluator):
+class CrossEncoderClassificationEvaluator(BaseEvaluator):
     """
     Evaluate a CrossEncoder model based on the accuracy of the predicted class vs. the gold labels.
     The evaluator expects a list of sentence pairs and a list of gold labels. If the model has a single output,
@@ -29,6 +29,8 @@ class CrossEncoderClassificationEvaluator(SentenceEvaluator):
         sentence_pairs (List[List[str]]): A list of sentence pairs with each element being a list of two strings.
         labels (List[int]): A list of integers with the gold labels for each sentence pair.
         name (str): Name of the evaluator, useful for the generated model card.
+        prompt_name (str, optional): The name of the prompt to use when calling ``model.predict()``.
+            Must be a key in the model's ``prompts`` dictionary. Defaults to None.
         batch_size (int): Batch size used for the evaluation. Defaults to 32.
         show_progress_bar (bool): Output a progress bar. Defaults to None, which shows the progress bar if the logging level is INFO or DEBUG.
         write_csv (bool): Write results to a CSV file. If a CSV already exists, then values are appended. Defaults to True.
@@ -76,6 +78,7 @@ class CrossEncoderClassificationEvaluator(SentenceEvaluator):
         labels: list[int],
         *,
         name: str = "",
+        prompt_name: str | None = None,
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
         write_csv: bool = True,
@@ -87,6 +90,7 @@ class CrossEncoderClassificationEvaluator(SentenceEvaluator):
         self.sentence_pairs = sentence_pairs
         self.labels = np.asarray(labels)
         self.name = name
+        self.prompt_name = prompt_name
         self.batch_size = batch_size
         if show_progress_bar is None:
             show_progress_bar = logger.getEffectiveLevel() in (logging.INFO, logging.DEBUG)
@@ -109,6 +113,7 @@ class CrossEncoderClassificationEvaluator(SentenceEvaluator):
         logger.info(f"CrossEncoderClassificationEvaluator: Evaluating the model on {self.name} dataset{out_txt}:")
         pred_scores = model.predict(
             self.sentence_pairs,
+            prompt_name=self.prompt_name,
             batch_size=self.batch_size,
             convert_to_numpy=True,
             show_progress_bar=self.show_progress_bar,

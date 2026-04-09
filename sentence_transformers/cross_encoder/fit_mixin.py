@@ -16,21 +16,21 @@ from tqdm.autonotebook import tqdm, trange
 from transformers import TrainerCallback, TrainerControl, TrainerState, is_torch_npu_available
 from transformers.tokenization_utils_base import BatchEncoding
 
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.base.sampler import BatchSamplers
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
-from sentence_transformers.datasets.NoDuplicatesDataLoader import NoDuplicatesDataLoader
-from sentence_transformers.datasets.SentenceLabelDataset import SentenceLabelDataset
-from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
-from sentence_transformers.readers import InputExample
-from sentence_transformers.SentenceTransformer import SentenceTransformer
-from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.sentence_transformer.datasets.no_duplicates_dataloader import NoDuplicatesDataLoader
+from sentence_transformers.sentence_transformer.datasets.sentence_label import SentenceLabelDataset
+from sentence_transformers.sentence_transformer.model import SentenceTransformer
+from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
     from datasets import Dataset
 
 if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
-    from sentence_transformers.readers.InputExample import InputExample
+    from sentence_transformers.cross_encoder.model import CrossEncoder
+    from sentence_transformers.sentence_transformer.readers.input_example import InputExample
 
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class SaveModelCallback(TrainerCallback):
     training as well.
     """
 
-    def __init__(self, output_dir: str, evaluator: SentenceEvaluator | None, save_best_model: bool) -> None:
+    def __init__(self, output_dir: str, evaluator: BaseEvaluator | None, save_best_model: bool) -> None:
         super().__init__()
         self.output_dir = output_dir
         self.evaluator = evaluator
@@ -83,7 +83,7 @@ class EvaluatorCallback(TrainerCallback):
     The `.trainer` must be provided after the trainer has been created.
     """
 
-    def __init__(self, evaluator: CrossEncoder, output_path: str | None = None) -> None:
+    def __init__(self, evaluator: BaseEvaluator, output_path: str | None = None) -> None:
         super().__init__()
         self.evaluator = evaluator
         self.output_path = output_path
@@ -123,7 +123,7 @@ class OriginalCallback(TrainerCallback):
     This callback has the following signature: `(score: float, epoch: int, steps: int) -> None`
     """
 
-    def __init__(self, callback: Callable[[float, int, int], None], evaluator: SentenceEvaluator) -> None:
+    def __init__(self, callback: Callable[[float, int, int], None], evaluator: BaseEvaluator) -> None:
         super().__init__()
         self.callback = callback
         self.evaluator = evaluator
@@ -182,7 +182,7 @@ class FitMixin:
     def fit(
         self: CrossEncoder,
         train_dataloader: DataLoader,
-        evaluator: SentenceEvaluator | None = None,
+        evaluator: BaseEvaluator | None = None,
         epochs: int = 1,
         loss_fct=None,
         activation_fct=nn.Identity(),
@@ -201,15 +201,15 @@ class FitMixin:
     ) -> None:
         """
         Deprecated training method from before Sentence Transformers v4.0, it is recommended to use
-        :class:`~sentence_transformers.trainer.CrossEncoderTrainer` instead. This method uses
-        :class:`~sentence_transformers.trainer.CrossEncoderTrainer` behind the scenes, but does
+        :class:`~sentence_transformers.sentence_transformer.trainer.CrossEncoderTrainer` instead. This method uses
+        :class:`~sentence_transformers.sentence_transformer.trainer.CrossEncoderTrainer` behind the scenes, but does
         not provide as much flexibility as the Trainer itself.
 
         This training approach uses a DataLoader and Loss function to train the model.
 
         This method should produce equivalent results in v4.0 as before v4.0, but if you encounter any issues
         with your existing training scripts, then you may wish to use
-        :meth:`CrossEncoder.old_fit <sentence_transformers.cross_encoder.CrossEncoder.old_fit>` instead.
+        :meth:`CrossEncoder.old_fit <sentence_transformers.cross_encoder.model.CrossEncoder.old_fit>` instead.
         That uses the old training method from before v4.0.
 
         Args:
@@ -252,8 +252,8 @@ class FitMixin:
             raise ImportError("Please install `datasets` to use this function: `pip install datasets`.")
 
         # Delayed import to counter the CrossEncoder -> FitMixin -> CrossEncoderTrainer -> CrossEncoder circular import
-        from sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss import BinaryCrossEntropyLoss
-        from sentence_transformers.cross_encoder.losses.CrossEntropyLoss import CrossEntropyLoss
+        from sentence_transformers.cross_encoder.losses.binary_cross_entropy import BinaryCrossEntropyLoss
+        from sentence_transformers.cross_encoder.losses.cross_entropy import CrossEntropyLoss
         from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
 
         # Clear the dataloaders from collate functions as we just want raw InputExamples
@@ -417,7 +417,7 @@ class FitMixin:
     def old_fit(
         self,
         train_dataloader: DataLoader,
-        evaluator: SentenceEvaluator | None = None,
+        evaluator: BaseEvaluator | None = None,
         epochs: int = 1,
         loss_fct=None,
         activation_fct=nn.Identity(),
@@ -436,7 +436,7 @@ class FitMixin:
     ) -> None:
         """
         Deprecated training method from before Sentence Transformers v4.0, it is recommended to use
-        :class:`~sentence_transformers.trainer.CrossEncoderTrainer` instead. This method should
+        :class:`~sentence_transformers.sentence_transformer.trainer.CrossEncoderTrainer` instead. This method should
         only be used if you encounter issues with your existing training scripts after upgrading to v4.0.
 
         This training approach uses a DataLoader and Loss function to train the model.

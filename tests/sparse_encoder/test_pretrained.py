@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import gc
+from typing import Any
 
 import numpy as np
 import pytest
 import torch
+import transformers
 from torch import Tensor
 
 from sentence_transformers import SparseEncoder
+
+IS_TRANSFORMERS_V5 = int(transformers.__version__.split(".")[0]) >= 5
 
 QUERY = "Which planet is known as the Red Planet?"
 DOCUMENTS = [
@@ -17,58 +21,107 @@ DOCUMENTS = [
     "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
 ]
 
-MODELS_TO_SIMILARITIES = {
-    "CATIE-AQ/SPLADE_camembert-base_STS": [0.51461, 0.44732, 0.35746, 0.29244],
-    "CATIE-AQ/SPLADE_camemberta2.0_STS": [0.5243, 0.61159, 0.53372, 0.47433],
-    "NeuML/pubmedbert-base-splade": [0.27906, 0.62092, 0.47355, 0.45589],
-    "ibm-granite/granite-embedding-30m-sparse": [6.04771, 16.77029, 10.85245, 10.59154],
-    "naver/efficient-splade-V-large-doc": [4.91852, 13.95462, 11.87605, 12.65839],
-    "naver/efficient-splade-V-large-query": [4.91852, 13.95462, 11.87605, 12.65839],
-    "naver/efficient-splade-VI-BT-large-doc": [4.89399, 13.49699, 11.25572, 12.38231],
-    "naver/splade-cocondenser-ensembledistil": [8.3984, 22.53437, 17.49611, 17.43306],
-    "naver/splade-cocondenser-selfdistil": [7.46435, 19.78329, 17.04635, 18.57447],
-    "naver/splade-v3": [12.14491, 26.104, 22.00245, 23.3877],
-    "naver/splade-v3-distilbert": [14.09051, 26.74469, 20.17685, 21.46064],
-    "naver/splade-v3-doc": [2.59649, 5.20825, 3.98631, 4.80111],
-    "naver/splade-v3-lexical": [2.72184, 5.90968, 5.28795, 5.69247],
-    "naver/splade_v2_distil": [10.31571, 27.80097, 21.33898, 24.31745],
-    "naver/splade_v2_max": [9.8665, 21.85902, 15.46679, 19.21293],
-    "nickprock/csr-multi-sentence-BERTino-cv": [305.24219, 306.28333, 302.29523, 299.80865],
-    "nickprock/splade-bert-base-italian-xxl-uncased-cv": [8.93991, 12.32588, 6.85424, 11.53487],
-    "opensearch-project/opensearch-neural-sparse-encoding-doc-v1": [5.60338, 15.5549, 11.63231, 14.3729],
-    "opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill": [8.87648, 21.10651, 16.59742, 18.52468],
-    "opensearch-project/opensearch-neural-sparse-encoding-doc-v2-mini": [5.63165, 14.10177, 12.41127, 13.27736],
-    "opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill": [5.40216, 11.59338, 9.66898, 10.57229],
-    "opensearch-project/opensearch-neural-sparse-encoding-doc-v3-gte": [6.5672, 14.57547, 10.91119, 12.51505],
-    "opensearch-project/opensearch-neural-sparse-encoding-multilingual-v1": [4.70941, 12.14164, 9.9167, 10.65915],
-    "opensearch-project/opensearch-neural-sparse-encoding-v1": [7.81391, 20.89011, 17.19859, 18.00109],
-    "opensearch-project/opensearch-neural-sparse-encoding-v2-distill": [11.66555, 39.72486, 31.46797, 29.06855],
-    "prithivida/Splade_PP_en_v1": [7.53973, 21.1464, 15.389, 16.90205],
-    "prithivida/Splade_PP_en_v2": [6.62724, 19.52456, 16.87119, 16.45899],
-    "rasyosef/SPLADE-RoBERTa-Amharic-Medium": [3.59452, 3.55411, 1.13841, 4.14062],
-    "rasyosef/splade-mini": [5.89081, 17.4685, 13.97732, 16.45229],
-    "rasyosef/splade-tiny": [4.99237, 18.62739, 12.62022, 13.89826],
-    "sparse-encoder-testing/splade-bert-tiny-nq": [137.20848, 152.30518, 151.26659, 152.64423],
-    "sparse-encoder/splade-camembert-base-v2": [8.58515, 18.15598, 10.564, 18.45705],
-    "sparse-encoder/splade-robbert-dutch-base-v1": [1.85174, 15.94728, 6.88332, 9.34534],
-    "telepix/PIXIE-Splade-Preview": [2.65884, 11.46005, 4.92347, 9.00645],
-    "telepix/PIXIE-Splade-v1.0": [10.2899, 37.16295, 25.01773, 26.30672],
-    "thierrydamiba/splade-ecommerce-multidomain": [73.12199, 83.1591, 78.17178, 76.7075],
-    "thivy/norbert4-base-splade-retrieval": [18.17628, 46.48474, 36.90033, 35.92578],
-    "tomaarsen/csr-mxbai-embed-large-v1-nq": [0.44248, 0.64907, 0.59476, 0.56807],
-    "tomaarsen/splade-modernbert-base-miriad": [1.09753, 5.8977, 6.20096, 5.68861],
-    "yjoonjang/splade-ko-v1": [22.02576, 69.67833, 52.54121, 62.20011],
+_BF16_EAGER = {"model_kwargs": {"torch_dtype": torch.bfloat16, "attn_implementation": "eager"}}
+MODELS_TO_SIMILARITIES_BF16_SDPA: dict[
+    str, tuple[list[float], dict[str, Any]] | tuple[list[float], dict[str, Any], float]
+] = {
+    "CATIE-AQ/SPLADE_camembert-base_STS": ([0.52231, 0.4428, 0.35997, 0.29591], {}),
+    "CATIE-AQ/SPLADE_camemberta2.0_STS": ([0.52307, 0.61048, 0.53052, 0.47117], _BF16_EAGER),
+    "NeuML/pubmedbert-base-splade": ([0.2794, 0.61665, 0.47218, 0.45467], {}),
+    "ibm-granite/granite-embedding-30m-sparse": ([6.00505, 16.71692, 10.86701, 10.55007], {}),
+    "naver/efficient-splade-V-large-doc": ([4.89868, 13.9572, 11.87854, 12.6793], {}),
+    "naver/efficient-splade-V-large-query": ([4.89868, 13.9572, 11.87854, 12.6793], {}),
+    "naver/efficient-splade-VI-BT-large-doc": ([4.88232, 13.47363, 11.2034, 12.34973], {}),
+    "naver/splade-cocondenser-ensembledistil": ([8.41891, 22.5582, 17.54648, 17.4428], {}),
+    "naver/splade-cocondenser-selfdistil": ([7.44103, 19.79603, 16.96597, 18.57211], {}),
+    "naver/splade-v3": ([12.21746, 26.23663, 22.12236, 23.50005], {}),
+    "naver/splade-v3-distilbert": ([14.03558, 26.66816, 20.15914, 21.42739], {}),
+    "naver/splade-v3-doc": ([2.58567, 5.2024, 3.97555, 4.79319], {}),
+    "naver/splade-v3-lexical": ([2.70985, 5.89883, 5.25828, 5.68214], {}),
+    "naver/splade_v2_distil": ([10.31202, 27.77854, 21.31266, 24.30212], {}),
+    "naver/splade_v2_max": ([9.85695, 21.89957, 15.50354, 19.20435], {}),
+    "nickprock/csr-multi-sentence-BERTino-cv": ([305.10794, 306.19806, 302.21585, 299.69501], {}),
+    "nickprock/splade-bert-base-italian-xxl-uncased-cv": ([8.85758, 12.10891, 6.72638, 11.37667], {}),
+    "opensearch-project/opensearch-neural-sparse-encoding-doc-v1": ([5.60053, 15.55479, 11.6238, 14.37797], {}),
+    "opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill": ([8.8719, 21.10436, 16.59436, 18.5146], {}),
+    "opensearch-project/opensearch-neural-sparse-encoding-doc-v2-mini": ([5.62505, 14.09715, 12.41688, 13.27353], {}),
+    "opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill": ([5.4128, 11.59968, 9.66586, 10.57532], {}),
+    **(
+        {}
+        if IS_TRANSFORMERS_V5
+        else {
+            "opensearch-project/opensearch-neural-sparse-encoding-doc-v3-gte": (
+                [6.58088, 14.59468, 10.92079, 12.53643],
+                {"trust_remote_code": True},
+            ),
+        }
+    ),
+    "opensearch-project/opensearch-neural-sparse-encoding-multilingual-v1": (
+        [4.69841, 12.14315, 9.92087, 10.66483],
+        {},
+    ),
+    "opensearch-project/opensearch-neural-sparse-encoding-v1": ([7.77229, 20.76931, 17.1524, 17.97482], {}),
+    "opensearch-project/opensearch-neural-sparse-encoding-v2-distill": ([11.62976, 39.75696, 31.38527, 29.09985], {}),
+    "prithivida/Splade_PP_en_v1": ([7.5134, 21.08889, 15.38447, 16.8887], {}),
+    "prithivida/Splade_PP_en_v2": ([6.66362, 19.54046, 16.84394, 16.52267], {}),
+    "rasyosef/SPLADE-RoBERTa-Amharic-Medium": ([3.59602, 3.64454, 1.13516, 4.16695], {}),
+    "rasyosef/splade-mini": ([5.95379, 17.59016, 14.06384, 16.56858], {}),
+    "rasyosef/splade-tiny": ([4.93406, 18.5358, 12.60999, 13.88597], {}),
+    "sparse-encoder-testing/splade-bert-tiny-nq": ([137.12651, 152.06038, 151.48663, 152.78661], {}),
+    "sparse-encoder/splade-camembert-base-v2": ([8.57059, 18.12678, 10.4873, 18.47635], {}),
+    "sparse-encoder/splade-robbert-dutch-base-v1": (
+        [1.80892, 14.74882, 5.97042, 6.94052] if IS_TRANSFORMERS_V5 else [1.85773, 15.96318, 6.94405, 9.30947],
+        {},
+    ),
+    "telepix/PIXIE-Splade-Preview": (
+        [2.76069, 11.45358, 5.02983, 9.03306] if IS_TRANSFORMERS_V5 else [2.62051, 11.44341, 4.9242, 8.94279],
+        {},
+        0.03,
+    ),
+    "telepix/PIXIE-Splade-v1.0": (
+        [10.1284, 36.94011, 25.10815, 25.92997] if IS_TRANSFORMERS_V5 else [10.41965, 37.15937, 25.17496, 26.31808],
+        {},
+        0.02,
+    ),
+    "thierrydamiba/splade-ecommerce-multidomain": ([73.08874, 83.1048, 78.1364, 76.66033], {}),
+    **(
+        {}
+        if IS_TRANSFORMERS_V5
+        else {
+            "thivy/norbert4-base-splade-retrieval": (
+                [18.24023, 46.84647, 37.37273, 36.52657],
+                {"trust_remote_code": True},
+            ),
+        }
+    ),
+    "tomaarsen/csr-mxbai-embed-large-v1-nq": ([0.44531, 0.6524, 0.59419, 0.57389], {}),
+    "tomaarsen/splade-modernbert-base-miriad": (
+        [1.03479, 5.89473, 5.92011, 5.49567] if IS_TRANSFORMERS_V5 else [1.00182, 5.71606, 6.1798, 5.60904],
+        {},
+        0.09,
+    ),
+    "yjoonjang/splade-ko-v1": (
+        [22.42146, 69.34254, 52.45633, 62.36565] if IS_TRANSFORMERS_V5 else [22.38146, 69.97343, 52.51928, 62.40695],
+        {},
+        0.03,
+    ),
 }
 
 
-@pytest.mark.parametrize("model_name, expected_score", MODELS_TO_SIMILARITIES.items())
-@pytest.mark.slow  # Also marked as slow to avoid running it with CI: results in too many requests/downloads to the Hugging Face Hub
-def test_pretrained_model(model_name: str, expected_score: list[float]) -> None:
-    model = SparseEncoder(model_name, trust_remote_code=True, model_kwargs={"torch_dtype": torch.float32})
+@pytest.mark.parametrize("model_name, expected_config", MODELS_TO_SIMILARITIES_BF16_SDPA.items())
+@pytest.mark.slow
+def test_pretrained_model_bf16_sdpa(
+    model_name: str, expected_config: tuple[list[float], dict[str, Any]] | tuple[list[float], dict[str, Any], float]
+) -> None:
+    expected_score, kwargs_override, *rest = expected_config
+    rtol = rest[0] if rest else 0.01
+    kwargs = {"model_kwargs": {"torch_dtype": torch.bfloat16, "attn_implementation": "sdpa"}}
+    kwargs.update(kwargs_override)
+    model = SparseEncoder(model_name, **kwargs)
     query_embedding = model.encode_query(QUERY)
     document_embeddings = model.encode_document(DOCUMENTS)
     similarities = model.similarity(query_embedding, document_embeddings)[0].cpu()
-    assert np.allclose(similarities, expected_score, atol=0.01), (
+    assert np.allclose(similarities, expected_score, rtol=rtol), (
         f"Expected similarity for {model_name} to be close to {expected_score}, but got {similarities}"
     )
     del model

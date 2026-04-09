@@ -18,7 +18,7 @@ You can use them in the following way:
 ```
 from sentence_transformers import SentenceTransformer
 
-embedder = SentenceTransformer("bert-base-wikipedia-sections-mean-tokens")
+embedder = SentenceTransformer("sentence-transformers/bert-base-wikipedia-sections-mean-tokens")
 ```
 
 # Performance Comparison

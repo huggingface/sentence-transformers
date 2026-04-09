@@ -38,7 +38,7 @@ print(f"Finish loading data. Corpus size: {len(corpus)}")
 queries = dataset["query"][:2]
 
 # 3. Load the model
-model = SentenceTransformer("nq-distilbert-base-v1")
+model = SentenceTransformer("sentence-transformers/nq-distilbert-base-v1")
 
 # 4. Encode the corpus
 print("Start encoding corpus...")

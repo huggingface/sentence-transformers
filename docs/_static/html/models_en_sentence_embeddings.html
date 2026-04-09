@@ -235,7 +235,7 @@
             show_all_models: false,
             models: [
                 {
-                    "name": "average_word_embeddings_glove.6B.300d",
+                    "name": "sentence-transformers/average_word_embeddings_glove.6B.300d",
                     "base_model": "Word Embeddings: GloVe",
                     "pooling": "Mean Pooling",
                     "training_data": "-",
@@ -249,7 +249,7 @@
                     "score_functions": ["cos"]
                 },
                 {
-                    "name": "average_word_embeddings_komninos",
+                    "name": "sentence-transformers/average_word_embeddings_komninos",
                     "base_model": "Word Embeddings: Komninos et al.",
                     "pooling": "Mean Pooling",
                     "training_data": "-",
@@ -263,7 +263,7 @@
                     "score_functions": ["cos"]
                 },
                  {
-                    "name": "paraphrase-MiniLM-L3-v2",
+                    "name": "sentence-transformers/paraphrase-MiniLM-L3-v2",
                     "base_model": '<a href="https://huggingface.co/nreimers/MiniLM-L6-H384-uncased" target="_blank">nreimers/MiniLM-L3-H384-uncased</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "AllNLI, sentence-compression, SimpleWiki, altlex, msmarco-triplets, quora_duplicates, coco_captions,flickr30k_captions, yahoo_answers_title_question, S2ORC_citation_pairs, stackexchange_duplicate_questions, wiki-atomic-edits",
@@ -279,7 +279,7 @@
                      "recommended_model": true
                 },
                 {
-                    "name": "paraphrase-MiniLM-L6-v2",
+                    "name": "sentence-transformers/paraphrase-MiniLM-L6-v2",
                     "base_model": '<a href="https://huggingface.co/nreimers/MiniLM-L6-H384-uncased" target="_blank">nreimers/MiniLM-L6-H384-uncased</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "AllNLI, sentence-compression, SimpleWiki, altlex, msmarco-triplets, quora_duplicates, coco_captions,flickr30k_captions, yahoo_answers_title_question, S2ORC_citation_pairs, stackexchange_duplicate_questions, wiki-atomic-edits",
@@ -294,7 +294,7 @@
                     "score_functions": ["cos"]
                 },
                 {
-                    "name": "paraphrase-MiniLM-L12-v2",
+                    "name": "sentence-transformers/paraphrase-MiniLM-L12-v2",
                     "base_model": '<a href="https://huggingface.co/microsoft/MiniLM-L12-H384-uncased" target="_blank">microsoft/MiniLM-L12-H384-uncased</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "AllNLI, sentence-compression, SimpleWiki, altlex, msmarco-triplets, quora_duplicates, coco_captions,flickr30k_captions, yahoo_answers_title_question, S2ORC_citation_pairs, stackexchange_duplicate_questions, wiki-atomic-edits",
@@ -309,8 +309,8 @@
                     "score_functions": ["cos"]
                 },
                 {
-                    "name": "paraphrase-distilroberta-base-v2",
-                    "base_model": '<a href="https://huggingface.co/distilroberta-base" target="_blank">distilroberta-base</a>',
+                    "name": "sentence-transformers/paraphrase-distilroberta-base-v2",
+                    "base_model": '<a href="https://huggingface.co/distilbert/distilroberta-base" target="_blank">distilbert/distilroberta-base</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "AllNLI, sentence-compression, SimpleWiki, altlex, msmarco-triplets, quora_duplicates, coco_captions,flickr30k_captions, yahoo_answers_title_question, S2ORC_citation_pairs, stackexchange_duplicate_questions, wiki-atomic-edits",
                     "sentence_performance": 66.27,
@@ -324,7 +324,7 @@
                     "score_functions": ["cos"]
                 },
                 {
-                    "name": "paraphrase-TinyBERT-L6-v2",
+                    "name": "sentence-transformers/paraphrase-TinyBERT-L6-v2",
                     "base_model": '<a href="https://huggingface.co/nreimers/TinyBERT_L-6_H-768_v2" target="_blank">nreimers/TinyBERT_L-6_H-768_v2</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "AllNLI, sentence-compression, SimpleWiki, altlex, msmarco-triplets, quora_duplicates, coco_captions,flickr30k_captions, yahoo_answers_title_question, S2ORC_citation_pairs, stackexchange_duplicate_questions, wiki-atomic-edits",
@@ -339,7 +339,7 @@
                     "score_functions": ["cos"]
                 },
                 {
-                    "name": "paraphrase-mpnet-base-v2",
+                    "name": "sentence-transformers/paraphrase-mpnet-base-v2",
                     "base_model": '<a href="https://huggingface.co/microsoft/mpnet-base" target="_blank">microsoft/mpnet-base</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "AllNLI, sentence-compression, SimpleWiki, altlex, msmarco-triplets, quora_duplicates, coco_captions,flickr30k_captions, yahoo_answers_title_question, S2ORC_citation_pairs, stackexchange_duplicate_questions, wiki-atomic-edits",
@@ -354,7 +354,7 @@
                     "score_functions": ["cos"]
                 },
                 {
-                    "name": "paraphrase-albert-small-v2",
+                    "name": "sentence-transformers/paraphrase-albert-small-v2",
                     "base_model": '<a href="https://huggingface.co/nreimers/albert-small-v2" target="_blank">nreimers/albert-small-v2</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "AllNLI, sentence-compression, SimpleWiki, altlex, msmarco-triplets, quora_duplicates, coco_captions,flickr30k_captions, yahoo_answers_title_question, S2ORC_citation_pairs, stackexchange_duplicate_questions, wiki-atomic-edits",
@@ -370,10 +370,10 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "paraphrase-multilingual-mpnet-base-v2",
-                    "base_model": "Teacher: paraphrase-mpnet-base-v2; Student: xlm-roberta-base",
+                    "name": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+                    "base_model": "Teacher: sentence-transformers/paraphrase-mpnet-base-v2; Student: FacebookAI/xlm-roberta-base",
                     "pooling": "Mean Pooling",
-                    "training_data": "Multi-lingual model of paraphrase-mpnet-base-v2, extended to 50+ languages.",
+                    "training_data": "Multi-lingual model of sentence-transformers/paraphrase-mpnet-base-v2, extended to 50+ languages.",
                     "sentence_performance": 65.83,
                     "semantic_search": 41.68,
                     "speed": 2500,
@@ -386,10 +386,10 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "paraphrase-multilingual-MiniLM-L12-v2",
-                    "base_model": "Teacher: paraphrase-MiniLM-L12-v2; Student: microsoft/Multilingual-MiniLM-L12-H384",
+                    "name": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                    "base_model": "Teacher: sentence-transformers/paraphrase-MiniLM-L12-v2; Student: microsoft/Multilingual-MiniLM-L12-H384",
                     "pooling": "Mean Pooling",
-                    "training_data": "Multi-lingual model of paraphrase-multilingual-MiniLM-L12-v2, extended to 50+ languages.",
+                    "training_data": "Multi-lingual model of sentence-transformers/paraphrase-MiniLM-L12-v2, extended to 50+ languages.",
                     "sentence_performance": 64.25,
                     "semantic_search": 39.19,
                     "speed": 7500,
@@ -402,7 +402,7 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "distiluse-base-multilingual-cased-v1",
+                    "name": "sentence-transformers/distiluse-base-multilingual-cased-v1",
                     "base_model": "Teacher: mUSE; Student: distilbert-base-multilingual",
                     "pooling": "Mean Pooling",
                     "training_data": "Multi-Lingual model of Universal Sentence Encoder for 15 languages: Arabic, Chinese, Dutch, English, French, German, Italian, Korean, Polish, Portuguese, Russian, Spanish, Turkish.",
@@ -418,7 +418,7 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "distiluse-base-multilingual-cased-v2",
+                    "name": "sentence-transformers/distiluse-base-multilingual-cased-v2",
                     "base_model": "Teacher: mUSE; Student: distilbert-base-multilingual",
                     "pooling": "Mean Pooling",
                     "training_data": "Multi-Lingual model of Universal Sentence Encoder for 50 languages.",
@@ -434,9 +434,9 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "all-distilroberta-v1",
+                    "name": "sentence-transformers/all-distilroberta-v1",
                     "description": "All-round model tuned for many use-cases. Trained on a large and diverse dataset of over 1 billion training pairs.",
-                    "base_model": '<a href="https://huggingface.co/distilroberta-base" target="_blank">distilroberta-base</a>',
+                    "base_model": '<a href="https://huggingface.co/distilbert/distilroberta-base" target="_blank">distilbert/distilroberta-base</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "1B+ training pairs. For details, see model card.",
                     "sentence_performance": 68.73,
@@ -451,7 +451,7 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "all-MiniLM-L6-v1",
+                    "name": "sentence-transformers/all-MiniLM-L6-v1",
                     "description": "All-round model tuned for many use-cases. Trained on a large and diverse dataset of over 1 billion training pairs.",
                     "base_model": '<a href="https://huggingface.co/nreimers/MiniLM-L6-H384-uncased" target="_blank">nreimers/MiniLM-L6-H384-uncased</a>',
                     "pooling": "Mean Pooling",
@@ -467,7 +467,7 @@
                     "score_functions": ["dot", "cos", "eucl"]
                 },
                 {
-                    "name": "all-MiniLM-L6-v2",
+                    "name": "sentence-transformers/all-MiniLM-L6-v2",
                     "description": "All-round model tuned for many use-cases. Trained on a large and diverse dataset of over 1 billion training pairs.",
                     "base_model": '<a href="https://huggingface.co/nreimers/MiniLM-L6-H384-uncased" target="_blank">nreimers/MiniLM-L6-H384-uncased</a>',
                     "pooling": "Mean Pooling",
@@ -484,7 +484,7 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "all-MiniLM-L12-v1",
+                    "name": "sentence-transformers/all-MiniLM-L12-v1",
                     "description": "All-round model tuned for many use-cases. Trained on a large and diverse dataset of over 1 billion training pairs.",
                     "base_model": '<a href="https://huggingface.co/microsoft/MiniLM-L12-H384-uncased" target="_blank">microsoft/MiniLM-L12-H384-uncased</a>',
                     "pooling": "Mean Pooling",
@@ -500,7 +500,7 @@
                     "score_functions": ["dot", "cos", "eucl"]
                 },
                 {
-                    "name": "all-MiniLM-L12-v2",
+                    "name": "sentence-transformers/all-MiniLM-L12-v2",
                     "description": "All-round model tuned for many use-cases. Trained on a large and diverse dataset of over 1 billion training pairs.",
                     "base_model": '<a href="https://huggingface.co/microsoft/MiniLM-L12-H384-uncased" target="_blank">microsoft/MiniLM-L12-H384-uncased</a>',
                     "pooling": "Mean Pooling",
@@ -517,7 +517,7 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "all-mpnet-base-v1",
+                    "name": "sentence-transformers/all-mpnet-base-v1",
                     "description": "All-round model tuned for many use-cases. Trained on a large and diverse dataset of over 1 billion training pairs.",
                     "base_model": '<a href="https://huggingface.co/microsoft/mpnet-base" target="_blank">microsoft/mpnet-base</a>',
                     "pooling": "Mean Pooling",
@@ -533,7 +533,7 @@
                     "score_functions": ["dot", "cos", "eucl"]
                 },
                 {
-                    "name": "all-mpnet-base-v2",
+                    "name": "sentence-transformers/all-mpnet-base-v2",
                     "description": "All-round model tuned for many use-cases. Trained on a large and diverse dataset of over 1 billion training pairs.",
                     "base_model": '<a href="https://huggingface.co/microsoft/mpnet-base" target="_blank">microsoft/mpnet-base</a>',
                     "pooling": "Mean Pooling",
@@ -550,9 +550,9 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "all-roberta-large-v1",
+                    "name": "sentence-transformers/all-roberta-large-v1",
                     "description": "All-round model tuned for many use-cases. Trained on a large and diverse dataset of over 1 billion training pairs.",
-                    "base_model": '<a href="https://huggingface.co/microsoft/roberta-large" target="_blank">roberta-large</a>',
+                    "base_model": '<a href="https://huggingface.co/FacebookAI/roberta-large" target="_blank">FacebookAI/roberta-large</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "1B+ training pairs. For details, see model card.",
                     "sentence_performance": 70.23,
@@ -566,7 +566,7 @@
                     "score_functions": ["dot", "cos", "eucl"]
                 },
                 {
-                    "name": "multi-qa-MiniLM-L6-dot-v1",
+                    "name": "sentence-transformers/multi-qa-MiniLM-L6-dot-v1",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages. It was trained on a large and diverse set of (question, answer) pairs.",
                     "base_model": '<a href="https://huggingface.co/nreimers/MiniLM-L6-H384-uncased" target="_blank">nreimers/MiniLM-L6-H384-uncased</a>',
                     "pooling": "CLS Pooling",
@@ -582,7 +582,7 @@
                     "score_functions": ["dot"]
                 },
                 {
-                    "name": "multi-qa-MiniLM-L6-cos-v1",
+                    "name": "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages. It was trained on a large and diverse set of (question, answer) pairs.",
                     "base_model": '<a href="https://huggingface.co/nreimers/MiniLM-L6-H384-uncased" target="_blank">nreimers/MiniLM-L6-H384-uncased</a>',
                     "pooling": "Mean Pooling",
@@ -599,9 +599,9 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "multi-qa-distilbert-dot-v1",
+                    "name": "sentence-transformers/multi-qa-distilbert-dot-v1",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages. It was trained on a large and diverse set of (question, answer) pairs.",
-                    "base_model": '<a href="https://huggingface.co/distilbert-base" target="_blank">distilbert-base</a>',
+                    "base_model": '<a href="https://huggingface.co/distilbert/distilbert-base-uncased" target="_blank">distilbert/distilbert-base-uncased</a>',
                     "pooling": "CLS Pooling",
                     "training_data": "215M (question, answer) pairs from diverse sources.",
                     "sentence_performance": 66.67,
@@ -615,9 +615,9 @@
                     "score_functions": ["dot"]
                 },
                 {
-                    "name": "multi-qa-distilbert-cos-v1",
+                    "name": "sentence-transformers/multi-qa-distilbert-cos-v1",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages. It was trained on a large and diverse set of (question, answer) pairs.",
-                    "base_model": '<a href="https://huggingface.co/distilbert-base" target="_blank">distilbert-base</a>',
+                    "base_model": '<a href="https://huggingface.co/distilbert/distilbert-base-uncased" target="_blank">distilbert/distilbert-base-uncased</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "215M (question, answer) pairs from diverse sources.",
                     "sentence_performance": 65.98,
@@ -632,9 +632,9 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "multi-qa-mpnet-base-dot-v1",
+                    "name": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages. It was trained on a large and diverse set of (question, answer) pairs.",
-                    "base_model": '<a href="https://huggingface.co/microsoft/mpnet-base" target="_blank"microsoft/mpnet-base</a>',
+                    "base_model": '<a href="https://huggingface.co/microsoft/mpnet-base" target="_blank">microsoft/mpnet-base</a>',
                     "pooling": "CLS Pooling",
                     "training_data": "215M (question, answer) pairs from diverse sources.",
                     "sentence_performance": 66.76,
@@ -649,7 +649,7 @@
                     "recommended_model": true
                 },
                 {
-                    "name": "multi-qa-mpnet-base-cos-v1",
+                    "name": "sentence-transformers/multi-qa-mpnet-base-cos-v1",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages. It was trained on a large and diverse set of (question, answer) pairs.",
                     "base_model": '<a href="https://huggingface.co/microsoft/mpnet-base" target="_blank">microsoft/mpnet-base</a>',
                     "pooling": "Mean Pooling",
@@ -665,9 +665,9 @@
                     "score_functions": ["dot", "cos", "eucl"],
                 },
                 {
-                    "name": "msmarco-distilbert-dot-v5",
+                    "name": "sentence-transformers/msmarco-distilbert-dot-v5",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages. It was trained on the MS MARCO passages dataset.",
-                    "base_model": '<a href="https://huggingface.co/distilbert-base" target="_blank">distilbert-base</a>',
+                    "base_model": '<a href="https://huggingface.co/distilbert/distilbert-base-uncased" target="_blank">distilbert/distilbert-base-uncased</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "500k (query, answer) pairs from MS MARCO Passages dataset.",
                     "sentence_performance": 61.84,
@@ -681,7 +681,7 @@
                     "score_functions": ["dot"],
                 },
                 {
-                    "name": "msmarco-bert-base-dot-v5",
+                    "name": "sentence-transformers/msmarco-bert-base-dot-v5",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages. It was trained on the MS MARCO passages dataset.",
                     "base_model": '<a href="https://huggingface.co/Luyu/co-condenser-marco" target="_blank">Luyu/co-condenser-marco</a>',
                     "pooling": "Mean Pooling",
@@ -697,9 +697,9 @@
                     "score_functions": ["dot"],
                 },
                 {
-                    "name": "msmarco-distilbert-base-tas-b",
+                    "name": "sentence-transformers/msmarco-distilbert-base-tas-b",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages. It was trained on the MS MARCO passages dataset.",
-                    "base_model": '<a href="https://huggingface.co/distilbert-base" target="_blank">distilbert-base</a>',
+                    "base_model": '<a href="https://huggingface.co/distilbert/distilbert-base-uncased" target="_blank">distilbert/distilbert-base-uncased</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "500k (query, answer) pairs from MS MARCO Passages dataset.",
                     "sentence_performance": 62.57,
@@ -713,9 +713,9 @@
                     "score_functions": ["dot"],
                 },
                 {
-                    "name": "sentence-t5-base",
+                    "name": "sentence-transformers/sentence-t5-base",
                     "description": "This model was tuned for sentence similarity tasks.",
-                    "base_model": '<a href="https://huggingface.co/t5-base" target="_blank">t5-base</a>',
+                    "base_model": '<a href="https://huggingface.co/google-t5/t5-base" target="_blank">google-t5/t5-base</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "2B question-answer pairs from diverse online communities.",
                     "sentence_performance": 67.84,
@@ -729,9 +729,9 @@
                     "score_functions": ["dot", "cos", "eucl"],
                 },
                 {
-                    "name": "sentence-t5-large",
+                    "name": "sentence-transformers/sentence-t5-large",
                     "description": "This model was tuned for sentence similarity tasks.",
-                    "base_model": '<a href="https://huggingface.co/t5-large" target="_blank">t5-large</a>',
+                    "base_model": '<a href="https://huggingface.co/google-t5/t5-large" target="_blank">google-t5/t5-large</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "2B question-answer pairs from diverse online communities.",
                     "sentence_performance": 68.74,
@@ -745,9 +745,9 @@
                     "score_functions": ["dot", "cos", "eucl"],
                 },
                 {
-                    "name": "sentence-t5-xl",
+                    "name": "sentence-transformers/sentence-t5-xl",
                     "description": "This model was tuned for sentence similarity tasks.",
-                    "base_model": '<a href="https://huggingface.co/t5-3b" target="_blank">t5-3b</a>',
+                    "base_model": '<a href="https://huggingface.co/google-t5/t5-3b" target="_blank">google-t5/t5-3b</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "2B question-answer pairs from diverse online communities.",
                     "sentence_performance": 69.23,
@@ -761,9 +761,9 @@
                     "score_functions": ["dot", "cos", "eucl"],
                 },
                 {
-                    "name": "sentence-t5-xxl",
+                    "name": "sentence-transformers/sentence-t5-xxl",
                     "description": "This model was tuned for sentence similarity tasks.",
-                    "base_model": '<a href="https://huggingface.co/t5-11b" target="_blank">t5-11b</a>',
+                    "base_model": '<a href="https://huggingface.co/google-t5/t5-11b" target="_blank">google-t5/t5-11b</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "2B question-answer pairs from diverse online communities.",
                     "sentence_performance": 70.88,
@@ -777,9 +777,9 @@
                     "score_functions": ["dot", "cos", "eucl"],
                 },
                 {
-                    "name": "gtr-t5-base",
+                    "name": "sentence-transformers/gtr-t5-base",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages.",
-                    "base_model": '<a href="https://huggingface.co/t5-base" target="_blank">t5-base</a>',
+                    "base_model": '<a href="https://huggingface.co/google-t5/t5-base" target="_blank">google-t5/t5-base</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "2B question-answer pairs from diverse online communities and then on MS-MARCO.",
                     "sentence_performance": 67.65,
@@ -793,9 +793,9 @@
                     "score_functions": ["dot", "cos", "eucl"],
                 },
                 {
-                    "name": "gtr-t5-large",
+                    "name": "sentence-transformers/gtr-t5-large",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages.",
-                    "base_model": '<a href="https://huggingface.co/t5-large" target="_blank">t5-large</a>',
+                    "base_model": '<a href="https://huggingface.co/google-t5/t5-large" target="_blank">google-t5/t5-large</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "2B question-answer pairs from diverse online communities and then on MS-MARCO.",
                     "sentence_performance": 69.90,
@@ -809,9 +809,9 @@
                     "score_functions": ["dot", "cos", "eucl"],
                 },
                 {
-                    "name": "gtr-t5-xl",
+                    "name": "sentence-transformers/gtr-t5-xl",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages.",
-                    "base_model": '<a href="https://huggingface.co/t5-3b" target="_blank">t5-3b</a>',
+                    "base_model": '<a href="https://huggingface.co/google-t5/t5-3b" target="_blank">google-t5/t5-3b</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "2B question-answer pairs from diverse online communities and then on MS-MARCO.",
                     "sentence_performance": 69.88,
@@ -825,9 +825,9 @@
                     "score_functions": ["dot", "cos", "eucl"],
                 },
                 {
-                    "name": "gtr-t5-xxl",
+                    "name": "sentence-transformers/gtr-t5-xxl",
                     "description": "This model was tuned for semantic search: Given a query/question, it can find relevant passages.",
-                    "base_model": '<a href="https://huggingface.co/t5-11b" target="_blank">t5-11b</a>',
+                    "base_model": '<a href="https://huggingface.co/google-t5/t5-11b" target="_blank">google-t5/t5-11b</a>',
                     "pooling": "Mean Pooling",
                     "training_data": "2B question-answer pairs from diverse online communities and then on MS-MARCO.",
                     "sentence_performance": 70.73,

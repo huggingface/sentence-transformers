@@ -82,7 +82,7 @@ In the above code, we use [Top-p (nucleus) sampling](https://huggingface.co/blog
 
 ## Bi-Encoder Training
 
-With the generated queries, we can then train a bi-encoder using the use [MultipleNegativesRankingLoss](https://www.sbert.net/docs/package_reference/sentence_transformer/losses.html#multiplenegativesrankingloss).
+With the generated queries, we can then train a bi-encoder using the use [MultipleNegativesRankingLoss](../../../../docs/package_reference/sentence_transformer/losses.md#multiplenegativesrankingloss).
 
 ## Full Example
 
@@ -95,5 +95,5 @@ Assembly language, C , C# , C++, Go , Java , JavaScript, Keras, Laravel, MATLAB,
 In:
 
 - [1_programming_query_generation.py](1_programming_query_generation.py) - We generate queries for all paragraphs from these articles
-- [2_programming_train_bi-encoder.py](2_programming_train_bi-encoder.py) - We train a SentenceTransformer bi-encoder with these generated queries. This results in a model we can then use for semantic search (for the given Wikipedia articles).
+- [2_programming_train_bi_encoder.py](2_programming_train_bi_encoder.py) - We train a SentenceTransformer bi-encoder with these generated queries. This results in a model we can then use for semantic search (for the given Wikipedia articles).
 - [3_programming_semantic_search.py](3_programming_semantic_search.py) - Shows how the trained model can be used for semantic search.

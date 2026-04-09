@@ -24,19 +24,19 @@ from datetime import datetime
 
 from datasets import Dataset, load_dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, losses
-from sentence_transformers.evaluation import TripletEvaluator
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
+from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers.base.sampler import BatchSamplers
+from sentence_transformers.sentence_transformer.evaluation import TripletEvaluator
+from sentence_transformers.sentence_transformer.losses import BatchAllTripletLoss
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
 
 
-def trec_dataset(
-    validation_dataset_nb=500,
-):
+def trec_dataset(validation_dataset_nb=500):
     dataset = load_dataset("omkar334/trec")
 
     train_set = dataset["train"].remove_columns(["coarse_label"]).rename_column("fine_label", "label")
@@ -83,8 +83,8 @@ def triplets_from_labeled_dataset(dataset):
     return Dataset.from_list(triplets)
 
 
-# You can specify any huggingface/transformers pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
-model_name = "all-distilroberta-v1"
+# You can specify any huggingface/transformers pre-trained model here, for example, google-bert/bert-base-uncased, FacebookAI/roberta-base, FacebookAI/xlm-roberta-base
+model_name = "sentence-transformers/all-distilroberta-v1"
 
 # Create training dataset
 batch_size = 32
@@ -106,7 +106,7 @@ model = SentenceTransformer(model_name)
 # - BatchSemiHardTripletLoss
 # - BatchAllTripletLoss
 
-train_loss = losses.BatchAllTripletLoss(model=model)
+train_loss = BatchAllTripletLoss(model=model)
 # train_loss = losses.BatchHardTripletLoss(model=model)
 # train_loss = losses.BatchHardSoftMarginTripletLoss(model=model)
 # train_loss = losses.BatchSemiHardTripletLoss(model=model)

@@ -11,16 +11,16 @@ from datetime import datetime
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import TripletEvaluator
-from sentence_transformers.losses import TripletLoss
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.sentence_transformer.evaluation import TripletEvaluator
+from sentence_transformers.sentence_transformer.losses import TripletLoss
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
-# You can specify any huggingface/transformers pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
-model_name = "distilbert-base-uncased"
+# You can specify any huggingface/transformers pre-trained model here, for example, google-bert/bert-base-uncased, FacebookAI/roberta-base, FacebookAI/xlm-roberta-base
+model_name = "distilbert/distilbert-base-uncased"
 batch_size = 16
 num_train_epochs = 1
 
@@ -63,7 +63,7 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=num_train_epochs,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:

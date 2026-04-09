@@ -10,7 +10,7 @@ To train a CrossEncoder on NLI, see the following example file:
   ```
 
 ```{eval-rst}
-You can also train and use :class:`~sentence_transformers.SentenceTransformer` models for this task. See `Sentence Transformer > Training Examples > Natural Language Inference <../../../sentence_transformer/training/nli/README.html>`_ for more details.
+You can also train and use :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models for this task. See `Sentence Transformer > Training Examples > Natural Language Inference <../../../sentence_transformer/training/nli/README.html>`_ for more details.
 ```
 
 ## Data
