@@ -534,9 +534,6 @@ def test_trainer_prompts(
         elif (train_dict, eval_dict) == (True, True):
             expected = {prompts + sample for sample in all_train} | {prompts + sample for sample in all_eval}
 
-        if not pool_include_prompt:
-            expected.add(prompts)
-
     elif prompts == {"stsb-1": "Prompt 1: ", "stsb-2": "Prompt 2: "}:
         # If we don't have dataset dictionaries, the prompts will be seen as column names
         if (train_dict, eval_dict) == (False, False):
@@ -560,11 +557,6 @@ def test_trainer_prompts(
                 | {prompts["stsb-1"] + sample for sample in all_eval_1}
                 | {prompts["stsb-2"] + sample for sample in all_eval_2}
             )
-
-        # We need to add the prompt to the expected set because we need to collect prompt lengths if
-        # not pool_include_prompt, except if the datasets aren't dictionaries
-        if (train_dict, eval_dict) != (False, False) and not pool_include_prompt:
-            expected.update(set(prompts.values()))
 
     elif prompts == {"sentence1": "Prompt 1: ", "sentence2": "Prompt 2: "}:
         if (train_dict, eval_dict) == (False, False):
@@ -604,9 +596,6 @@ def test_trainer_prompts(
                 | {prompts["sentence2"] + sample for sample in all_eval_2_2}
             )
 
-        if not pool_include_prompt:
-            expected.update(set(prompts.values()))
-
     elif prompts == {
         "stsb-1": {"sentence1": "Prompt 1: ", "sentence2": "Prompt 2: "},
         "stsb-2": {"sentence1": "Prompt 3: ", "sentence2": "Prompt 4: "},
@@ -623,9 +612,6 @@ def test_trainer_prompts(
                 | {prompts["stsb-2"]["sentence1"] + sample for sample in all_eval_2_1}
                 | {prompts["stsb-2"]["sentence2"] + sample for sample in all_eval_2_2}
             )
-
-        if not pool_include_prompt:
-            expected.update({prompt for inner_dict in prompts.values() for prompt in inner_dict.values()})
 
     assert set(tracked_texts) == expected
 
