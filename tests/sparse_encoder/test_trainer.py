@@ -198,9 +198,12 @@ def test_trainer_prompts(
     tracked_texts = []
     old_preprocess = model.preprocess
 
-    def preprocess_tracker(texts, *args, **kwargs):
-        tracked_texts.extend(texts)
-        return old_preprocess(texts, *args, **kwargs)
+    def preprocess_tracker(texts, prompt=None, **kwargs):
+        if prompt:
+            tracked_texts.extend([prompt + text for text in texts])
+        else:
+            tracked_texts.extend(texts)
+        return old_preprocess(texts, prompt=prompt, **kwargs)
 
     model.preprocess = preprocess_tracker
 
@@ -327,9 +330,8 @@ def test_trainer_prompts(
         if not isinstance(context, nullcontext):
             return
 
-    # SparseEncoder models using SpladePooling never compute prompt lengths (no Pooling.include_prompt),
-    # so no _prompt_length keys should appear in the batch.
-    assert not any("_prompt_length" in key for key in datacollator_keys)
+    # prompt_length keys may appear in the batch when prompts are provided (Transformer.preprocess always
+    # computes them), but SpladePooling simply ignores them. Only Pooling uses them when include_prompt=False.
 
     # We only need the dataset_name if the loss requires it, or the prompts are a nested dictionary
     if (train_dict or eval_dict) and (loss_dict or (isinstance(prompts, dict))):
