@@ -111,6 +111,16 @@ If you're using a GPU, then you can use the following options to speed up your i
          model[0].unpad_inputs = True    # Explicitly request unpadding
          model[0].unpad_inputs = None    # Auto-detect (default)
 
+   The following benchmark compares throughput and VRAM usage across three attention configurations using
+   `BAAI/bge-base-en-v1.5 <https://huggingface.co/BAAI/bge-base-en-v1.5>`_, averaged across batch sizes.
+   Four datasets with varying text lengths are tested.
+
+   .. image:: ../../img/benchmark_fa2_unpadding.png
+      :alt: Flash Attention 2 Input Flattening Benchmark
+      :width: 100%
+
+   Flash Attention 2 with input flattening always outperforms standard Flash Attention 2, while using considerably less VRAM. The gains grow with the variance in input length, with the mixed dataset with wildly varying lengths (10-500 tokens) benefitting the most.
+
    .. seealso::
 
       The `Transformers Attention Interface <https://huggingface.co/docs/transformers/en/attention_interface>`_ documentation
