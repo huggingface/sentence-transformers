@@ -288,6 +288,32 @@ def test_encode_advanced_parameters(splade_bert_tiny_model: SparseEncoder, monke
     assert kwargs["custom_param"] == "value"
 
 
+def test_csr_max_active_dims_passed_to_forward(csr_bert_tiny_model: SparseEncoder, monkeypatch: pytest.MonkeyPatch):
+    model = csr_bert_tiny_model
+    assert isinstance(model[-1], SparseAutoEncoder)
+    assert model[-1].k == 16
+
+    # Verify that max_active_dims is passed to SparseAutoEncoder.forward()
+    forward_calls = []
+    original_forward = model[-1].forward
+
+    def spy_forward(*args, **kwargs):
+        forward_calls.append(kwargs)
+        return original_forward(*args, **kwargs)
+
+    monkeypatch.setattr(model[-1], "forward", spy_forward)
+
+    model.encode("Hello world", max_active_dims=5)
+    assert len(forward_calls) == 1
+    assert forward_calls[0]["max_active_dims"] == 5
+
+    # Without max_active_dims, the model's default max_active_dims is used
+    forward_calls.clear()
+    model.encode("Hello world")
+    assert len(forward_calls) == 1
+    assert forward_calls[0]["max_active_dims"] == model.max_active_dims
+
+
 def test_max_active_dims_set_init(splade_bert_tiny_model: SparseEncoder, csr_bert_tiny_model: SparseEncoder, tmp_path):
     splade_bert_tiny_model.save_pretrained(str(tmp_path / "splade_bert_tiny"))
     csr_bert_tiny_model.save_pretrained(str(tmp_path / "csr_bert_tiny"))
