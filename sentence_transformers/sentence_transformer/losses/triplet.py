@@ -15,8 +15,8 @@ class TripletDistanceMetric(Enum):
     """The metric for the triplet loss"""
 
     COSINE = lambda x, y: 1 - pairwise_cos_sim(x, y)
-    EUCLIDEAN = lambda x, y: pairwise_euclidean_sim(x, y)
-    MANHATTAN = lambda x, y: pairwise_manhattan_sim(x, y)
+    EUCLIDEAN = lambda x, y: -pairwise_euclidean_sim(x, y)
+    MANHATTAN = lambda x, y: -pairwise_manhattan_sim(x, y)
 
 
 class TripletLoss(nn.Module):
