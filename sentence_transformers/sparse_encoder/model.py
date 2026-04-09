@@ -502,6 +502,10 @@ class SparseEncoder(BaseModel):
 
         max_active_dims = max_active_dims if max_active_dims is not None else self.max_active_dims
 
+        forward_kwargs = dict(kwargs)
+        if max_active_dims is not None:
+            forward_kwargs["max_active_dims"] = max_active_dims
+
         all_embeddings = []
         length_sorted_idx = np.argsort([-self._input_length(sen) for sen in inputs])
         if self._can_flatten_inputs():
@@ -514,7 +518,7 @@ class SparseEncoder(BaseModel):
             features = batch_to_device(features, device)
 
             with torch.inference_mode():
-                embeddings = self.forward(features, **kwargs)["sentence_embedding"]
+                embeddings = self.forward(features, **forward_kwargs)["sentence_embedding"]
 
                 if max_active_dims is not None:
                     embeddings = select_max_active_dims(embeddings, max_active_dims=max_active_dims)
