@@ -1,3 +1,4 @@
-include sentence_transformers/model_card_template.md
+include sentence_transformers/base/model_card_template.md
+include sentence_transformers/sentence_transformer/model_card_template.md
 include sentence_transformers/cross_encoder/model_card_template.md
 include sentence_transformers/sparse_encoder/model_card_template.md
