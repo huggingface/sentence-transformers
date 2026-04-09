@@ -1,7 +1,7 @@
 
-.. note::
+.. tip::
 
-   Sentence Transformers v5.3 recently released, introducing alternative InfoNCE formulations and hardness weighting for :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, new :class:`~sentence_transformers.sentence_transformer.losses.GlobalOrthogonalRegularizationLoss` and :class:`~sentence_transformers.sparse_encoder.losses.CachedSpladeLoss` losses, a faster hashed batch sampler, and more. Read the `v5.3 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.3.0>`_ for more information.
+   Sentence Transformers v5.4 recently released, introducing first-class multimodal support for :class:`~sentence_transformers.sentence_transformer.SentenceTransformer` and :class:`~sentence_transformers.cross_encoder.CrossEncoder` (text, images, audio, video, and combinations of these), a fully modular :class:`~sentence_transformers.cross_encoder.CrossEncoder` architecture with generative reranker support via :class:`~sentence_transformers.cross_encoder.modules.LogitScore`, and automatic Flash Attention 2 input flattening for faster inference. Read the `Multimodal Embedding & Reranker Models with Sentence Transformers <https://huggingface.co/blog/multimodal-sentence-transformers>`_ blogpost, the `v5.4 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.4.0>`_, or the `migration guide <docs/migration_guide.html>`_ for more details.
 
 SentenceTransformers Documentation
 ==================================
