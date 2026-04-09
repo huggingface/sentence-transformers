@@ -47,6 +47,10 @@ The top-level imports are unchanged. ``from sentence_transformers import Sentenc
         - ``from sentence_transformers.sparse_encoder.modules import ...``
       * - ``from sentence_transformers.sampler import ...``
         - ``from sentence_transformers.base.sampler import ...``
+      * - ``from sentence_transformers.similarity_functions import SimilarityFunction``
+        - ``from sentence_transformers.util.similarity import SimilarityFunction``
+      * - ``from sentence_transformers.quantization import quantize_embeddings``
+        - ``from sentence_transformers.util.quantization import quantize_embeddings``
 ```
 
 <br>
@@ -69,6 +73,10 @@ Several methods and constructor parameters have been renamed to use more consist
      - ``SparseEncoder.get_embedding_dimension()``
    * - ``SentenceTransformer.truncate_sentence_embeddings(dim)``
      - ``SentenceTransformer.truncate_embeddings(dim)``
+   * - ``model.encode(sentences=...)``
+     - | ``model.encode(inputs=...)``
+       |
+       | Also :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_query`, :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_document`, the corresponding :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` methods, :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder.predict` and :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder.rank`
 
 .. list-table:: Module-level renames
    :widths: 50 50
@@ -105,6 +113,20 @@ Several methods and constructor parameters have been renamed to use more consist
      - ``CNN(in_embedding_dimension=...)``
    * - ``SoftmaxLoss(sentence_embedding_dimension=...)``
      - ``SoftmaxLoss(embedding_dimension=...)``
+```
+
+### ``CrossEncoder.max_length`` property renamed to ``max_seq_length``
+
+```{eval-rst}
+
+The ``max_length`` property on :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` has been renamed to ``max_seq_length`` for consistency with :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`. Accessing ``model.max_length`` still works but emits a deprecation warning.
+```
+
+### Trainer ``tokenizer`` parameter renamed to ``processing_class``
+
+```{eval-rst}
+
+The ``tokenizer`` parameter on :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer`, :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer`, and :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` has been renamed to ``processing_class`` to align with the upstream ``transformers`` :class:`~transformers.Trainer`. The old name is accepted with a deprecation warning.
 ```
 
 ### ``tokenizer_kwargs`` renamed to ``processor_kwargs``
