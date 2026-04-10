@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 try:
@@ -11,6 +12,8 @@ from torch import Tensor, nn
 
 from sentence_transformers.base.modules.module import Module
 from sentence_transformers.util import fullname, import_from_string
+
+logger = logging.getLogger(__name__)
 
 
 class Dense(Module):
@@ -95,6 +98,7 @@ class Dense(Module):
         cache_folder: str | None = None,
         revision: str | None = None,
         local_files_only: bool = False,
+        trust_remote_code: bool = False,
         **kwargs,
     ) -> Self:
         hub_kwargs = {
@@ -106,7 +110,16 @@ class Dense(Module):
         }
         config = cls.load_config(model_name_or_path=model_name_or_path, **hub_kwargs)
         if "activation_function" in config:
-            config["activation_function"] = import_from_string(config["activation_function"])()
+            if trust_remote_code or config["activation_function"].startswith("torch."):
+                config["activation_function"] = import_from_string(config["activation_function"])()
+            else:
+                logger.warning(
+                    f"Activation function path '{config['activation_function']}' is not trusted, "
+                    "falling back to the default activation function (Tanh). "
+                    "Please load the model with `trust_remote_code=True` to allow loading custom activation "
+                    "functions via the configuration."
+                )
+                del config["activation_function"]
         model = cls(**config)
         model = cls.load_torch_weights(model_name_or_path=model_name_or_path, model=model, **hub_kwargs)
         return model
