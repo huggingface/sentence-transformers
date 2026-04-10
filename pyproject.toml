@@ -40,6 +40,7 @@ dependencies = [
     "scipy>=1.0.0",
     "typing_extensions>=4.5.0",
     "tqdm>=4.0.0",
+    "requests>=2.33.1",
 ]
 
 [project.urls]
