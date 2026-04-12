@@ -68,3 +68,7 @@ tmp
 .DS_Store
 /runs
 /tmp_trainer/
+
+# Lock files
+poetry.lock
+uv.lock

@@ -196,7 +196,9 @@ class InputFormatter:
                 - tuple/list of mixed types: Non-text pairs (e.g. image + text)
                 - dict: Chat messages, audio data, or multimodal inputs
                 - PIL.Image.Image: Image inputs
-                - np.ndarray/torch.Tensor: Audio (1-2D) or video (3-5D) inputs
+                - np.ndarray/torch.Tensor: Audio (1-2D), image (3D), or video (4-5D) inputs.
+                  Numpy string arrays (dtype kind ``'U'`` or ``'S'``) are treated as text
+                  regardless of ndim.
 
         Returns:
             Tuple of (modality, processor_inputs_dict, extra_modality_kwargs) where:
@@ -567,6 +569,12 @@ def infer_modality(
             return tuple(sorted(sample.keys()))
         case dict():
             raise ValueError("Empty dict input is not a valid input sample.")
+        case np.ndarray() if sample.dtype.kind in ("U", "S"):
+            # Numpy Unicode (<U...) and byte-string (|S...) arrays contain text.
+            # They are produced by e.g. np.array(["hello"]) or np.unique(list_of_str).
+            # Without this guard the ndim-based branch below would misclassify a 1D
+            # string array as audio (ndim=1 → "mono waveform").
+            return "text"
         case np.ndarray() | torch.Tensor():
             if sample.ndim in (1, 2):  # mono or multi-channel waveform
                 return "audio"

@@ -134,6 +134,40 @@ class TestInferModality:
         img = PIL.new("RGB", (10, 10))
         assert infer_modality(img) == "image"
 
+    def test_ndarray_unicode_dtype_1d_is_text(self):
+        # Regression: 1D numpy Unicode string array (dtype=<U...) must be "text", not "audio".
+        # np.array(list_of_str) and np.unique() both produce this dtype.
+        arr = np.array(["Access Management", "Financial Reports", "Press Coordination"])
+        assert arr.dtype.kind == "U"
+        assert infer_modality(arr) == "text"
+
+    def test_ndarray_unicode_dtype_from_unique_is_text(self):
+        # Regression: np.unique() returns a Unicode string array — must route to "text".
+        arr = np.unique(["Finance", "Finance", "Press"])
+        assert infer_modality(arr) == "text"
+
+    def test_ndarray_bytes_dtype_1d_is_text(self):
+        # Byte-string arrays (dtype=|S...) are also text content.
+        arr = np.array([b"hello", b"world"])
+        assert arr.dtype.kind == "S"
+        assert infer_modality(arr) == "text"
+
+    @pytest.mark.parametrize(
+        ("dtype", "expected_kind"),
+        [
+            pytest.param(np.int16, "i", id="signed-integer"),
+            pytest.param(np.uint8, "u", id="unsigned-integer"),
+            pytest.param(np.float32, "f", id="float32"),
+            pytest.param(np.float64, "f", id="float64"),
+            pytest.param(np.complex64, "c", id="complex64"),
+        ],
+    )
+    def test_ndarray_numeric_1d_is_still_audio(self, dtype: np.dtype, expected_kind: str):
+        # Regression: dtype.kind guards for string-like arrays must not affect numeric arrays.
+        arr = np.zeros(16000, dtype=dtype)
+        assert arr.dtype.kind == expected_kind
+        assert infer_modality(arr) == "audio"
+
     def test_ndarray_1d_is_audio(self):
         assert infer_modality(np.zeros(16000)) == "audio"
 
