@@ -623,10 +623,13 @@ class CrossEncoder(BaseModel, FitMixin):
         # Cast an individual pair to a list with length 1
         is_singular_input = self.is_singular_input(inputs)
         if is_singular_input:
+            # A 1D numpy string array is a single pair; convert to list so downstream sees ("q", "d").
+            if isinstance(inputs, np.ndarray):
+                inputs = inputs.tolist()
             inputs = [inputs]
         elif not isinstance(inputs, list):
             # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
-            inputs = list(inputs)
+            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
 
         # If pool or a list of devices is provided, use multi-process prediction
         if pool is not None or (isinstance(device, list) and len(device) > 0):
@@ -840,7 +843,12 @@ class CrossEncoder(BaseModel, FitMixin):
                 list_types += (Column,)
             except ImportError:
                 pass
-        return (not isinstance(inputs, list_types)) or (len(inputs) > 0 and not isinstance(inputs[0], list_types))
+        if isinstance(inputs, list_types):
+            return len(inputs) > 0 and not isinstance(inputs[0], list_types)
+        # Numpy string/bytes/object arrays: 1D is a single pair, 2D+ is a batch of pairs.
+        if isinstance(inputs, np.ndarray) and inputs.dtype.kind in ("U", "S", "O"):
+            return inputs.ndim < 2
+        return True
 
     def _get_model_config(self) -> dict[str, Any]:
         return super()._get_model_config() | {

@@ -576,7 +576,12 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 list_types += (Column,)
             except ImportError:
                 pass
-        return not isinstance(inputs, list_types)
+        if isinstance(inputs, list_types):
+            return False
+        # Numpy arrays of strings/bytes/objects are batches
+        if isinstance(inputs, np.ndarray) and inputs.ndim >= 1 and inputs.dtype.kind in ("U", "S", "O"):
+            return False
+        return True
 
     def save(
         self,
