@@ -164,6 +164,19 @@ def test_is_singular_input_numpy_2d_pairs(reranker_bert_tiny_model: CrossEncoder
     assert reranker_bert_tiny_model.is_singular_input(np.array([["q1", "d1"], ["q2", "d2"]])) is False
 
 
+def test_is_singular_input_numpy_empty(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """An empty 1D string ndarray is an empty batch, not a singular pair, matching ``predict([])``."""
+    assert reranker_bert_tiny_model.is_singular_input(np.array([], dtype=str)) is False
+
+
+def test_predict_numpy_empty(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """Predicting on an empty string ndarray should return an empty array, like ``predict([])``."""
+    scores = reranker_bert_tiny_model.predict(np.array([], dtype=str), show_progress_bar=False)
+    expected = reranker_bert_tiny_model.predict([], show_progress_bar=False)
+    assert scores.shape == (0,)
+    assert np.array_equal(scores, expected)
+
+
 def test_predict_numpy_1d_pair(reranker_bert_tiny_model: CrossEncoder) -> None:
     """Predicting on a 1D numpy string array (a single pair) should match the tuple equivalent
     and return a scalar score. Exercises the singular-branch .tolist() conversion."""

@@ -578,8 +578,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 pass
         if isinstance(inputs, list_types):
             return False
-        # Numpy arrays of strings/bytes/objects are batches
-        if isinstance(inputs, np.ndarray) and inputs.ndim >= 1 and inputs.dtype.kind in ("U", "S", "O"):
+        # Numpy arrays of unicode strings or objects are batches
+        if isinstance(inputs, np.ndarray) and inputs.ndim >= 1 and inputs.dtype.kind in ("U", "O"):
             return False
         return True
 

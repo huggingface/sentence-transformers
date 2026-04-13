@@ -453,6 +453,15 @@ def test_encode_numpy_2d_string_array(splade_bert_tiny_model: SparseEncoder) -> 
     assert torch.allclose(embeddings.to_dense(), expected.to_dense())
 
 
+def test_encode_numpy_empty(splade_bert_tiny_model: SparseEncoder) -> None:
+    """Encoding an empty string ndarray should return an empty tensor, like ``encode([])``."""
+    model = splade_bert_tiny_model
+    embeddings = model.encode(np.array([], dtype=str), convert_to_tensor=True, save_to_cpu=True)
+    expected = model.encode([], convert_to_tensor=True, save_to_cpu=True)
+    assert embeddings.numel() == 0
+    assert torch.equal(embeddings.to_dense(), expected.to_dense())
+
+
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
 @pytest.mark.parametrize("convert_to_sparse_tensor", [True, False])
 @pytest.mark.parametrize("save_to_cpu", [True, False])

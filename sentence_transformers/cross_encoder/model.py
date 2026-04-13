@@ -623,7 +623,7 @@ class CrossEncoder(BaseModel, FitMixin):
         # Cast an individual pair to a list with length 1
         is_singular_input = self.is_singular_input(inputs)
         if is_singular_input:
-            # A 1D numpy string array is a single pair; convert to list so downstream sees ("q", "d").
+            # A 1D numpy string array is a single pair; convert to a list so downstream sees ["q", "d"].
             if isinstance(inputs, np.ndarray):
                 inputs = inputs.tolist()
             inputs = [inputs]
@@ -845,8 +845,10 @@ class CrossEncoder(BaseModel, FitMixin):
                 pass
         if isinstance(inputs, list_types):
             return len(inputs) > 0 and not isinstance(inputs[0], list_types)
-        # Numpy string/bytes/object arrays: 1D is a single pair, 2D+ is a batch of pairs.
-        if isinstance(inputs, np.ndarray) and inputs.dtype.kind in ("U", "S", "O"):
+        # Numpy string/object arrays: 1D is a single pair, 2D+ is a batch, empty is an empty batch
+        if isinstance(inputs, np.ndarray) and inputs.dtype.kind in ("U", "O"):
+            if inputs.size == 0:
+                return False
             return inputs.ndim < 2
         return True
 

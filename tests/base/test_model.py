@@ -768,8 +768,9 @@ def test_is_singular_input_numpy_2d_strings(stsb_bert_tiny_model: SentenceTransf
 
 
 def test_is_singular_input_numpy_bytes(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """A 1D numpy byte-string array is a batch of texts."""
-    assert stsb_bert_tiny_model.is_singular_input(np.array([b"hello", b"world"])) is False
+    """A numpy byte-string array is not treated as a text batch (downstream modality inference
+    does not handle Python ``bytes``), so it falls through to the default singular interpretation."""
+    assert stsb_bert_tiny_model.is_singular_input(np.array([b"hello", b"world"])) is True
 
 
 def test_is_singular_input_numpy_object(stsb_bert_tiny_model: SentenceTransformer) -> None:
@@ -799,6 +800,13 @@ def test_encode_numpy_2d_string_array(stsb_bert_tiny_model: SentenceTransformer)
     expected = stsb_bert_tiny_model.encode(pairs.tolist(), show_progress_bar=False)
     assert embeddings.shape[0] == 2
     assert np.allclose(embeddings, expected)
+
+
+def test_encode_numpy_empty(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Encoding an empty string ndarray should return an empty result, like ``encode([])``."""
+    embeddings = stsb_bert_tiny_model.encode(np.array([], dtype=str), show_progress_bar=False)
+    expected = stsb_bert_tiny_model.encode([], show_progress_bar=False)
+    assert np.array_equal(embeddings, expected)
 
 
 @pytest.mark.parametrize(
