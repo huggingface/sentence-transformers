@@ -453,7 +453,7 @@ class SparseEncoder(BaseModel):
             inputs = [inputs]
         elif not isinstance(inputs, list):
             # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
-            inputs = list(inputs)
+            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
 
         # Throw an error if unused kwargs are passed, except 'task' which is always allowed, even
         # when it does not do anything (as e.g. there's no Router module in the model)

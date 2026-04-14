@@ -579,7 +579,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             inputs = [inputs]
         elif not isinstance(inputs, list):
             # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
-            inputs = list(inputs)
+            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
 
         # Validate kwargs
         model_kwargs = self.get_model_kwargs()

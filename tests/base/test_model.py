@@ -747,13 +747,66 @@ def test_is_singular_input_tuple(stsb_bert_tiny_model: SentenceTransformer) -> N
 
 
 def test_is_singular_input_numpy(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """A numpy array should be singular (not a list type)."""
+    """A numeric numpy array should be singular (treated as an audio waveform)."""
     assert stsb_bert_tiny_model.is_singular_input(np.array([1, 2, 3])) is True
 
 
 def test_is_singular_input_tensor(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """A torch tensor should be singular (not a list type)."""
     assert stsb_bert_tiny_model.is_singular_input(torch.tensor([1, 2, 3])) is True
+
+
+def test_is_singular_input_numpy_1d_strings(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """A 1D numpy string array is a batch of texts (e.g. from np.unique), not a single audio input."""
+    assert stsb_bert_tiny_model.is_singular_input(np.array(["hello", "world"])) is False
+    assert stsb_bert_tiny_model.is_singular_input(np.unique(["a", "b", "a"])) is False
+
+
+def test_is_singular_input_numpy_2d_strings(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """A 2D numpy string array is a batch of text pairs."""
+    assert stsb_bert_tiny_model.is_singular_input(np.array([["q1", "d1"], ["q2", "d2"]])) is False
+
+
+def test_is_singular_input_numpy_bytes(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """A numpy byte-string array is not treated as a text batch (downstream modality inference
+    does not handle Python ``bytes``), so it falls through to the default singular interpretation."""
+    assert stsb_bert_tiny_model.is_singular_input(np.array([b"hello", b"world"])) is True
+
+
+def test_is_singular_input_numpy_object(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """A numpy object array is a batch (no valid single-sample type is an object ndarray)."""
+    assert stsb_bert_tiny_model.is_singular_input(np.array(["hello", "world"], dtype=object)) is False
+
+
+def test_is_singular_input_numpy_0d_string(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """A 0-dim numpy string array represents a single text."""
+    assert stsb_bert_tiny_model.is_singular_input(np.array("hello")) is True
+
+
+def test_encode_numpy_1d_string_array(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Regression test for #3718: encoding a 1D numpy string array should not raise and
+    should produce one embedding per element."""
+    texts = np.array(["Access Management", "Press Coordination", "Financial Reports"])
+    embeddings = stsb_bert_tiny_model.encode(texts, show_progress_bar=False)
+    expected = stsb_bert_tiny_model.encode(texts.tolist(), show_progress_bar=False)
+    assert embeddings.shape[0] == 3
+    assert np.allclose(embeddings, expected)
+
+
+def test_encode_numpy_2d_string_array(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Encoding a 2D numpy string array should match encoding the equivalent nested list."""
+    pairs = np.array([["what is AI?", "AI is artificial intelligence."], ["what is ML?", "ML is machine learning."]])
+    embeddings = stsb_bert_tiny_model.encode(pairs, show_progress_bar=False)
+    expected = stsb_bert_tiny_model.encode(pairs.tolist(), show_progress_bar=False)
+    assert embeddings.shape[0] == 2
+    assert np.allclose(embeddings, expected)
+
+
+def test_encode_numpy_empty(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Encoding an empty string ndarray should return an empty result, like ``encode([])``."""
+    embeddings = stsb_bert_tiny_model.encode(np.array([], dtype=str), show_progress_bar=False)
+    expected = stsb_bert_tiny_model.encode([], show_progress_bar=False)
+    assert np.array_equal(embeddings, expected)
 
 
 @pytest.mark.parametrize(

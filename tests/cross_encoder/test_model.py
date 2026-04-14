@@ -154,6 +154,49 @@ def test_predict_single_input(model_name: str):
         assert pair_score.shape == (model.num_labels,)
 
 
+def test_is_singular_input_numpy_1d_pair(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """A 1D numpy string array represents a single (query, document) pair."""
+    assert reranker_bert_tiny_model.is_singular_input(np.array(["query", "document"])) is True
+
+
+def test_is_singular_input_numpy_2d_pairs(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """A 2D numpy string array is a batch of pairs."""
+    assert reranker_bert_tiny_model.is_singular_input(np.array([["q1", "d1"], ["q2", "d2"]])) is False
+
+
+def test_is_singular_input_numpy_empty(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """An empty 1D string ndarray is an empty batch, not a singular pair, matching ``predict([])``."""
+    assert reranker_bert_tiny_model.is_singular_input(np.array([], dtype=str)) is False
+
+
+def test_predict_numpy_empty(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """Predicting on an empty string ndarray should return an empty array, like ``predict([])``."""
+    scores = reranker_bert_tiny_model.predict(np.array([], dtype=str), show_progress_bar=False)
+    expected = reranker_bert_tiny_model.predict([], show_progress_bar=False)
+    assert scores.shape == (0,)
+    assert np.array_equal(scores, expected)
+
+
+def test_predict_numpy_1d_pair(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """Predicting on a 1D numpy string array (a single pair) should match the tuple equivalent
+    and return a scalar score. Exercises the singular-branch .tolist() conversion."""
+    model = reranker_bert_tiny_model
+    pair = np.array(["what is AI?", "AI is artificial intelligence."])
+    score = model.predict(pair, show_progress_bar=False)
+    expected = model.predict(tuple(pair.tolist()), show_progress_bar=False)
+    assert isinstance(score, np.float32)
+    assert np.allclose(score, expected)
+
+
+def test_predict_numpy_2d_pairs(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """Predicting on a 2D numpy string array should match predicting on the equivalent nested list."""
+    pairs = np.array([["what is AI?", "AI is artificial intelligence."], ["what is ML?", "ML is machine learning."]])
+    scores = reranker_bert_tiny_model.predict(pairs, show_progress_bar=False)
+    expected = reranker_bert_tiny_model.predict(pairs.tolist(), show_progress_bar=False)
+    assert scores.shape == (2,)
+    assert np.allclose(scores, expected)
+
+
 def test_predict_batch_size_1(reranker_bert_tiny_model: CrossEncoder) -> None:
     """Regression test: batch_size=1 with num_labels=1 used to fail because squeeze produced a 0-d tensor.
 

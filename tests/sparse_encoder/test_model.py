@@ -433,6 +433,35 @@ def test_encode_with_dataset_column(splade_bert_tiny_model: SparseEncoder) -> No
     assert embeddings.shape == (2, model.get_embedding_dimension())
 
 
+def test_encode_numpy_1d_string_array(splade_bert_tiny_model: SparseEncoder) -> None:
+    """Regression test for #3718: encoding a 1D numpy string array should produce one embedding per element."""
+    model = splade_bert_tiny_model
+    texts = np.array(["Access Management", "Press Coordination", "Financial Reports"])
+    embeddings = model.encode(texts, convert_to_tensor=True, save_to_cpu=True)
+    expected = model.encode(texts.tolist(), convert_to_tensor=True, save_to_cpu=True)
+    assert embeddings.shape == (3, model.get_embedding_dimension())
+    assert torch.allclose(embeddings.to_dense(), expected.to_dense())
+
+
+def test_encode_numpy_2d_string_array(splade_bert_tiny_model: SparseEncoder) -> None:
+    """Encoding a 2D numpy string array should match encoding the equivalent nested list."""
+    model = splade_bert_tiny_model
+    pairs = np.array([["what is AI?", "AI is artificial intelligence."], ["what is ML?", "ML is machine learning."]])
+    embeddings = model.encode(pairs, convert_to_tensor=True, save_to_cpu=True)
+    expected = model.encode(pairs.tolist(), convert_to_tensor=True, save_to_cpu=True)
+    assert embeddings.shape == (2, model.get_embedding_dimension())
+    assert torch.allclose(embeddings.to_dense(), expected.to_dense())
+
+
+def test_encode_numpy_empty(splade_bert_tiny_model: SparseEncoder) -> None:
+    """Encoding an empty string ndarray should return an empty tensor, like ``encode([])``."""
+    model = splade_bert_tiny_model
+    embeddings = model.encode(np.array([], dtype=str), convert_to_tensor=True, save_to_cpu=True)
+    expected = model.encode([], convert_to_tensor=True, save_to_cpu=True)
+    assert embeddings.numel() == 0
+    assert torch.equal(embeddings.to_dense(), expected.to_dense())
+
+
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
 @pytest.mark.parametrize("convert_to_sparse_tensor", [True, False])
 @pytest.mark.parametrize("save_to_cpu", [True, False])
