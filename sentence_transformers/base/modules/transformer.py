@@ -1401,7 +1401,7 @@ class Transformer(InputModule):
                 f"`transformers` version ({transformers_version}) may not support this parameter, "
                 "in which case it will be silently ignored and the model will fall back to causal "
                 "attention, likely producing degraded model outputs. Consider upgrading with "
-                f"`pip install -U transformers>={min_version}`."
+                f'`pip install -U "transformers>={min_version}"`.'
             )
 
         warn_if_unsupported(
