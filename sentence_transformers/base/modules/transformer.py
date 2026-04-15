@@ -1399,8 +1399,8 @@ class Transformer(InputModule):
             logger.warning(
                 f"The model config specifies `{param}={expected_value}`, but the installed "
                 f"`transformers` version ({transformers_version}) may not support this parameter, "
-                "in which case it will be silently ignored and the model will fall back to causal "
-                "attention, likely producing degraded model outputs. Consider upgrading with "
+                "in which case it may be silently ignored and the model will fall back to its default attention "
+                "behavior (often causal), likely producing degraded model outputs. Consider upgrading with "
                 f'`pip install -U "transformers>={min_version}"`.'
             )
 
