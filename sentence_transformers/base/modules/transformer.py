@@ -1380,7 +1380,8 @@ class Transformer(InputModule):
 
         return AutoConfig.from_pretrained(model_name_or_path, **config_kwargs), False
 
-    def _warn_on_unsupported_attention_config(self, config: PeftConfig | PretrainedConfig) -> None:
+    @staticmethod
+    def _warn_on_unsupported_attention_config(config: PeftConfig | PretrainedConfig) -> None:
         """Warn if the config requests bidirectional attention settings not supported by the installed transformers version."""
         if not isinstance(config, PretrainedConfig):
             return
@@ -1399,7 +1400,7 @@ class Transformer(InputModule):
                 f"The model config specifies `{param}={expected_value}`, but the installed "
                 f"`transformers` version ({transformers_version}) may not support this parameter, "
                 "in which case it will be silently ignored and the model will fall back to causal "
-                "attention, likely producing degraded embeddings. Consider upgrading with "
+                "attention, likely producing degraded model outputs. Consider upgrading with "
                 f"`pip install -U transformers>={min_version}`."
             )
 

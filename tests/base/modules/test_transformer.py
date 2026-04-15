@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -245,22 +246,30 @@ class TestWarnOnUnsupportedAttentionConfig:
         ],
     )
     def test_warn_on_unsupported_attention_config(
-        self, caplog, monkeypatch, param, value, support_flag, min_version, set_on, supports, expect_warn
+        self,
+        caplog,
+        monkeypatch,
+        bert_tiny_transformer,
+        param,
+        value,
+        support_flag,
+        min_version,
+        set_on,
+        supports,
+        expect_warn,
     ):
-        from transformers import AutoConfig
-
         monkeypatch.setattr(transformer_module, support_flag, supports)
-        config = AutoConfig.from_pretrained(TINY_BERT)
+        config = bert_tiny_transformer.config
         if set_on == "main":
             setattr(config, param, value)
         elif set_on == "sub":
-            sub = AutoConfig.from_pretrained(TINY_BERT)
+            sub = deepcopy(config)
             setattr(sub, param, value)
             config.sub_configs = {"text_config": type(sub)}
             config.text_config = sub
 
         with caplog.at_level(logging.WARNING):
-            Transformer._warn_on_unsupported_attention_config(None, config)
+            Transformer._warn_on_unsupported_attention_config(config)
 
         matching = [
             r
