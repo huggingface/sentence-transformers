@@ -19,7 +19,10 @@ if is_datasets_available():
 # Sentence Transformers
 @pytest.fixture(scope="session")
 def _stsb_bert_tiny_model() -> SentenceTransformer:
-    model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = SentenceTransformer(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -31,7 +34,10 @@ def stsb_bert_tiny_model(_stsb_bert_tiny_model: SentenceTransformer) -> Sentence
 
 @pytest.fixture(scope="session")
 def _avg_word_embeddings_levy() -> SentenceTransformer:
-    model = SentenceTransformer("sentence-transformers/average_word_embeddings_levy_dependency")
+    model_id = "sentence-transformers/average_word_embeddings_levy_dependency"
+    model = SentenceTransformer(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -58,7 +64,10 @@ def paraphrase_distilroberta_base_v1_model() -> SentenceTransformer:
 
 @pytest.fixture(scope="session")
 def _static_retrieval_mrl_en_v1_model() -> SentenceTransformer:
-    model = SentenceTransformer("sentence-transformers/static-retrieval-mrl-en-v1")
+    model_id = "sentence-transformers/static-retrieval-mrl-en-v1"
+    model = SentenceTransformer(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     return model
 
 
@@ -74,9 +83,12 @@ def clip_vit_b_32_model() -> SentenceTransformer:
 
 @pytest.fixture(scope="session")
 def _distilbert_base_uncased_model() -> SentenceTransformer:
-    word_embedding_model = Transformer("distilbert/distilbert-base-uncased")
+    model_id = "distilbert/distilbert-base-uncased"
+    word_embedding_model = Transformer(model_id)
     pooling_model = Pooling(word_embedding_model.get_embedding_dimension())
     model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     return model
 
 
@@ -88,7 +100,10 @@ def distilbert_base_uncased_model(_distilbert_base_uncased_model: SentenceTransf
 # Cross Encoders
 @pytest.fixture(scope="session")
 def _reranker_bert_tiny_model() -> CrossEncoder:
-    model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
+    model_id = "cross-encoder-testing/reranker-bert-tiny-gooaq-bce"
+    model = CrossEncoder(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -101,7 +116,10 @@ def reranker_bert_tiny_model(_reranker_bert_tiny_model) -> CrossEncoder:
 # Sparse Encoders
 @pytest.fixture(scope="session")
 def _splade_bert_tiny_model() -> SparseEncoder:
-    model = SparseEncoder("sparse-encoder-testing/splade-bert-tiny-nq")
+    model_id = "sparse-encoder-testing/splade-bert-tiny-nq"
+    model = SparseEncoder(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -113,7 +131,10 @@ def splade_bert_tiny_model(_splade_bert_tiny_model: SparseEncoder) -> SparseEnco
 
 @pytest.fixture(scope="session")
 def _inference_free_splade_bert_tiny_model() -> SparseEncoder:
-    model = SparseEncoder("sparse-encoder-testing/inference-free-splade-bert-tiny-nq")
+    model_id = "sparse-encoder-testing/inference-free-splade-bert-tiny-nq"
+    model = SparseEncoder(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -125,7 +146,10 @@ def inference_free_splade_bert_tiny_model(_inference_free_splade_bert_tiny_model
 
 @pytest.fixture(scope="session")
 def _csr_bert_tiny_model() -> SparseEncoder:
-    model = SparseEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = SparseEncoder(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     model[-1].k = 16
     model[-1].k_aux = 32
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
