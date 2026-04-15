@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from sentence_transformers.sparse_encoder import SparseEncoder
 from sentence_transformers.sparse_encoder.modules import Router, SparseStaticEmbedding, SpladePooling, Transformer
 
 
+@pytest.mark.slow
 def test_opensearch_v2_distill_similarity():
     """Test OpenSearch v2 distill model produces expected similarity scores."""
     # Setup the model
@@ -81,6 +83,7 @@ def test_opensearch_v2_distill_similarity():
         )
 
 
+@pytest.mark.slow
 def test_opensearch_v3_distill_similarity():
     """Test OpenSearch v3 distill model produces expected similarity scores."""
     # Setup the model

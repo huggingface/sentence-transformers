@@ -132,7 +132,7 @@ def test_pretrained_model_bf16_sdpa(
 @pytest.mark.parametrize(
     "model_name",
     [
-        ("sentence-transformers/all-MiniLM-L6-v2"),
+        ("sentence-transformers-testing/stsb-bert-tiny-safetensors"),
     ],
 )
 def test_load_and_encode(model_name: str) -> None:
