@@ -88,7 +88,7 @@ The two elements in a pair can have different modalities (e.g. a text query with
 
       from sentence_transformers import CrossEncoder
 
-      model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B", revision="refs/pr/11")
+      model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B")
 
       # List all supported modalities
       print(model.modalities)
@@ -105,7 +105,7 @@ The two elements in a pair can have different modalities (e.g. a text query with
 
    from sentence_transformers import CrossEncoder
 
-   model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B", revision="refs/pr/11")
+   model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B")
 
    query = "A green car parked in front of a yellow building"
    documents = [

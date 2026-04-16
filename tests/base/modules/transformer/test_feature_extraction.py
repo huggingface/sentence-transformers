@@ -15,7 +15,15 @@ import pytest
 import torch
 from packaging.version import Version
 from transformers import __version__ as transformers_version
-from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES
+
+try:
+    from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES
+
+    MODEL_KEYS = list(MODEL_MAPPING_NAMES.keys())
+except ImportError:
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING_NAMES
+
+    MODEL_KEYS = list(CONFIG_MAPPING_NAMES.keys())
 
 from sentence_transformers.base.modality_types import Modality
 from sentence_transformers.base.model import BaseModel
@@ -59,7 +67,7 @@ XFAIL_FEATURE_EXTRACTION = [
         and key not in XFAIL_FEATURE_EXTRACTION
         and (key not in TRANSFORMERS_V4_XFAIL_ARCHITECTURES or Version(transformers_version) >= Version("5.0.0"))
         and key not in FAULTY_CHECKPOINTS
-        and key in MODEL_MAPPING_NAMES
+        and key in MODEL_KEYS
     ],
     scope="class",
 )

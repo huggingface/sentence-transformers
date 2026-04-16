@@ -160,7 +160,7 @@ You can check which modalities a model supports using the :attr:`~sentence_trans
 ```python
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B", revision="refs/pr/23")
+model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
 print(model.modalities)
 # => ['text', 'image', 'video', 'message']
 print(model.supports("image"))
@@ -199,7 +199,7 @@ VLM-based models support additional modalities and input formats compared to CLI
 ```python
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B", revision="refs/pr/23")
+model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
 print(model.modalities)
 # => ['text', 'image', 'video', 'message']
 ```

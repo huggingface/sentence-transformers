@@ -69,7 +69,7 @@ Working with Sentence Transformer models is straightforward:
          from sentence_transformers import SentenceTransformer
 
          # 1. Load a model that supports both text and images
-         model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B", revision="refs/pr/23")
+         model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
 
          # 2. Encode images from URLs
          img_embeddings = model.encode([
@@ -137,7 +137,7 @@ Working with Sentence Transformer models is straightforward:
          from sentence_transformers import CrossEncoder
 
          # 1. Load a multimodal CrossEncoder model
-         model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B", revision="refs/pr/11")
+         model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B")
 
          # 2. Rank images by relevance to a text query
          query = "A green car parked in front of a yellow building"

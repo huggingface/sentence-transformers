@@ -114,6 +114,8 @@ _TRANSFORMERS_PROCESSOR_SUPPORTS_MODALITY_KWARGS = parse_version(transformers_ve
 _TRANSFORMERS_APPLY_CHAT_TEMPLATE_RECOMMENDS_PROCESSOR_KWARGS = parse_version(transformers_version) >= parse_version(
     "5.4.0.dev0"
 )
+_TRANSFORMERS_SUPPORTS_USE_BIDIRECTIONAL_ATTENTION = parse_version(transformers_version) >= parse_version("4.56.2")
+_TRANSFORMERS_SUPPORTS_IS_CAUSAL_FALSE = parse_version(transformers_version) >= parse_version("5.2.0")
 
 TransformerTask = Literal[
     "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask"
@@ -626,6 +628,7 @@ class Transformer(InputModule):
         self._method_signature_cache: dict[str, set[str]] = {}
 
         config, is_peft_model = self._load_config(model_name_or_path, backend, config_kwargs)
+        self._warn_on_unsupported_attention_config(config)
 
         if (
             transformer_task == "sequence-classification"
@@ -1376,6 +1379,35 @@ class Transformer(InputModule):
             return PeftConfig.from_pretrained(model_name_or_path, **config_kwargs), True
 
         return AutoConfig.from_pretrained(model_name_or_path, **config_kwargs), False
+
+    @staticmethod
+    def _warn_on_unsupported_attention_config(config: PeftConfig | PretrainedConfig) -> None:
+        """Warn if the config requests bidirectional attention settings not supported by the installed transformers version."""
+        if not isinstance(config, PretrainedConfig):
+            return
+
+        configs_to_check: list[PretrainedConfig] = [config]
+        if hasattr(config, "sub_configs"):
+            for sub_config_name in config.sub_configs.keys():
+                sub_config = getattr(config, sub_config_name, None)
+                if isinstance(sub_config, PretrainedConfig):
+                    configs_to_check.append(sub_config)
+
+        def warn_if_unsupported(param: str, expected_value: bool, is_supported: bool, min_version: str) -> None:
+            if is_supported or not any(getattr(cfg, param, None) is expected_value for cfg in configs_to_check):
+                return
+            logger.warning(
+                f"The model config specifies `{param}={expected_value}`, but the installed "
+                f"`transformers` version ({transformers_version}) may not support this parameter, "
+                "in which case it may be silently ignored and the model will fall back to its default attention "
+                "behavior (often causal), likely producing degraded model outputs. Consider upgrading with "
+                f'`pip install -U "transformers>={min_version}"`.'
+            )
+
+        warn_if_unsupported(
+            "use_bidirectional_attention", True, _TRANSFORMERS_SUPPORTS_USE_BIDIRECTIONAL_ATTENTION, "4.56.2"
+        )
+        warn_if_unsupported("is_causal", False, _TRANSFORMERS_SUPPORTS_IS_CAUSAL_FALSE, "5.2.0")
 
     def _load_model(
         self,

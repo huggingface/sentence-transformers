@@ -32,6 +32,7 @@ def test_semantic_search() -> None:
             assert np.abs(hits[qid][hit_num]["score"] - cos_scores_values[qid][hit_num]) < 0.001
 
 
+@pytest.mark.slow
 def test_paraphrase_mining() -> None:
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
     sentences = [

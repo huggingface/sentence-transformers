@@ -66,7 +66,7 @@ The following example loads a multimodal model and computes similarities between
 
       from sentence_transformers import SentenceTransformer
    
-      model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B", revision="refs/pr/23")
+      model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
    
       # List all supported modalities
       print(model.modalities)
@@ -83,7 +83,7 @@ The following example loads a multimodal model and computes similarities between
    from sentence_transformers import SentenceTransformer
 
    # 1. Load a model that supports both text and images
-   model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B", revision="refs/pr/23")
+   model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
 
    # 2. Encode images from URLs
    img_embeddings = model.encode([
@@ -118,7 +118,7 @@ These methods accept all the same input types as :meth:`~sentence_transformers.s
 
    from sentence_transformers import SentenceTransformer
 
-   model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B", revision="refs/pr/23")
+   model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
 
    # Encode text queries with the query prompt
    query_embeddings = model.encode_query([

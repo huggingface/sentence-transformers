@@ -71,7 +71,7 @@ Once you have `installed <installation.html>`_ Sentence Transformers, you can ea
       from sentence_transformers import SentenceTransformer
 
       # 1. Load a model that supports both text and images
-      model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B", revision="refs/pr/23")
+      model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
 
       # 2. Encode images from URLs
       img_embeddings = model.encode([
@@ -196,7 +196,7 @@ The usage for Cross Encoder (a.k.a. reranker) models is similar to Sentence Tran
 
       from sentence_transformers import CrossEncoder
 
-      model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B", revision="refs/pr/11")
+      model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B")
 
       query = "A green car parked in front of a yellow building"
       documents = [

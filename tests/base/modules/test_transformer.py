@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -219,6 +220,63 @@ class TestTransformerInit:
             "tokenizer_name_or_path" in record.message and "deprecated" in record.message for record in caplog.records
         )
         assert transformer is not None
+
+
+class TestWarnOnUnsupportedAttentionConfig:
+    """Warn when the config requests attention settings not supported by the installed transformers version."""
+
+    _BIDIR = ("use_bidirectional_attention", True, "_TRANSFORMERS_SUPPORTS_USE_BIDIRECTIONAL_ATTENTION", "4.56.2")
+    _CAUSAL = ("is_causal", False, "_TRANSFORMERS_SUPPORTS_IS_CAUSAL_FALSE", "5.2.0")
+
+    @pytest.mark.parametrize(
+        ("param", "value", "support_flag", "min_version", "set_on", "supports", "expect_warn"),
+        [
+            # Warns when flag is set on the main config and version is unsupported
+            (*_BIDIR, "main", False, True),
+            (*_CAUSAL, "main", False, True),
+            # Warns when flag is set on a sub-config (e.g. multimodal text_config)
+            (*_BIDIR, "sub", False, True),
+            (*_CAUSAL, "sub", False, True),
+            # No warning when version supports the flag
+            (*_BIDIR, "main", True, False),
+            (*_CAUSAL, "main", True, False),
+            # No warning when flag is absent, even if version is unsupported
+            (*_BIDIR, None, False, False),
+            (*_CAUSAL, None, False, False),
+        ],
+    )
+    def test_warn_on_unsupported_attention_config(
+        self,
+        caplog,
+        monkeypatch,
+        bert_tiny_transformer,
+        param,
+        value,
+        support_flag,
+        min_version,
+        set_on,
+        supports,
+        expect_warn,
+    ):
+        monkeypatch.setattr(transformer_module, support_flag, supports)
+        config = bert_tiny_transformer.config
+        if set_on == "main":
+            setattr(config, param, value)
+        elif set_on == "sub":
+            sub = deepcopy(config)
+            setattr(sub, param, value)
+            config.sub_configs = {"text_config": type(sub)}
+            config.text_config = sub
+
+        with caplog.at_level(logging.WARNING):
+            Transformer._warn_on_unsupported_attention_config(config)
+
+        matching = [
+            r
+            for r in caplog.records
+            if f"{param}={value}" in r.message and f"transformers>={min_version}" in r.message
+        ]
+        assert bool(matching) is expect_warn
 
 
 class TestTransformerMaxSeqLength:
