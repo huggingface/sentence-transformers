@@ -61,8 +61,8 @@ jobs:
         # scipy>=1.7.2 because older scipy has no wheels for Python 3.10+ and fails to build from source
         # datasets>=2.14.7 because older datasets uses pyarrow's removed PyExtensionType
         run: |
-          uv pip install '.[train]' 'transformers[vision,audio,video]' 'av>=12.0.0' 'scipy>=1.7.2' 'datasets>=2.14.7' --resolution lowest-direct --system
-          uv pip install pytest pytest-cov pytest-env pytest-subtests pytest-xdist peft --system
+          uv pip install --prerelease=allow '.[train]' 'transformers[vision,audio,video]' 'av>=12.0.0' 'scipy>=1.7.2' 'datasets>=2.14.7' --resolution lowest-direct --system
+          uv pip install --prerelease=allow pytest pytest-cov pytest-env pytest-subtests pytest-xdist peft --system
 
       - name: Show installed versions
         run: uv pip list --system | grep -iE 'transformers|huggingface|torch|numpy|scikit|scipy|typing.ext|tqdm|accelerate'
