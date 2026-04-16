@@ -5,7 +5,15 @@ import time
 from pathlib import Path
 
 from huggingface_hub import list_models
-from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES
+
+try:
+    from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES
+
+    MODEL_KEYS = list(MODEL_MAPPING_NAMES.keys())
+except ImportError:
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING_NAMES
+
+    MODEL_KEYS = list(CONFIG_MAPPING_NAMES.keys())
 
 
 def find_model_for_architecture(architecture):
@@ -89,7 +97,7 @@ if __name__ == "__main__":
         tiny_model_mapping = json.load(f)
 
     # Add any missing architectures with None value
-    for arch in sorted(set(MODEL_MAPPING_NAMES.keys()) - set(tiny_model_mapping.keys())):
+    for arch in sorted(set(MODEL_KEYS) - set(tiny_model_mapping.keys())):
         tiny_model_mapping[arch] = None
     tiny_model_mapping = dict(sorted(tiny_model_mapping.items()))
 

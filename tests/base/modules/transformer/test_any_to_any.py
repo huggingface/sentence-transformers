@@ -34,9 +34,18 @@ from .conftest import (
 )
 
 try:
-    from transformers.models.auto.modeling_auto import MODEL_FOR_MULTIMODAL_LM_MAPPING_NAMES, MODEL_MAPPING_NAMES
+    from transformers.models.auto.modeling_auto import MODEL_FOR_MULTIMODAL_LM_MAPPING_NAMES
 except ImportError:
     pytest.skip("any-to-any requires transformers v5+", allow_module_level=True)
+
+try:
+    from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES
+
+    MODEL_KEYS = list(MODEL_MAPPING_NAMES.keys())
+except ImportError:
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING_NAMES
+
+    MODEL_KEYS = list(CONFIG_MAPPING_NAMES.keys())
 
 
 EXPECT_FORWARD_FAIL = EXPECT_FORWARD_FAIL.copy() | {
@@ -71,7 +80,7 @@ def _get_any_to_any_archs() -> list[str]:
         and (key not in TRANSFORMERS_V4_XFAIL_ARCHITECTURES or Version(transformers_version) >= Version("5.0.0"))
         and key not in FAULTY_CHECKPOINTS
         and key in MODEL_FOR_MULTIMODAL_LM_MAPPING_NAMES
-        and key in MODEL_MAPPING_NAMES
+        and key in MODEL_KEYS
     ]
 
 
