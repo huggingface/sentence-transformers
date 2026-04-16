@@ -34,12 +34,13 @@ model = SentenceTransformer(
     ),
     model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": "bfloat16"},
     processor_kwargs={"min_pixels": 28 * 28, "max_pixels": 600 * 600},
-    revision="refs/pr/23",
+    revision="refs/pr/23",  # Loads https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B/discussions/23
 )
 
-# 2. Load a dataset to finetune on
-# https://huggingface.co/datasets/tomaarsen/llamaindex-vdr-en-train-preprocessed
+# 2. Load a dataset to finetune on: https://huggingface.co/datasets/tomaarsen/llamaindex-vdr-en-train-preprocessed
+# This script uses just one negative per query for training, but 4 are available, and 4 are used for evaluation
 train_dataset = load_dataset("tomaarsen/llamaindex-vdr-en-train-preprocessed", "train", split="train")
+train_dataset = train_dataset.select_columns(["query", "image", "negative_0"])
 eval_dataset = load_dataset("tomaarsen/llamaindex-vdr-en-train-preprocessed", "eval", split="train")
 logging.info(train_dataset)
 logging.info(eval_dataset)
