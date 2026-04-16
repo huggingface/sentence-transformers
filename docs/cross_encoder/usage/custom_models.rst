@@ -13,7 +13,7 @@ You can inspect the module chain by printing the model:
 
    from sentence_transformers import CrossEncoder
 
-   model = CrossEncoder("Qwen/Qwen3-Reranker-0.6B", revision="refs/pr/11")
+   model = CrossEncoder("Qwen/Qwen3-Reranker-0.6B")
    print(model)
    """
    CrossEncoder(
@@ -108,7 +108,7 @@ You can manually construct a :class:`~sentence_transformers.cross_encoder.model.
    from sentence_transformers import CrossEncoder
    from sentence_transformers.cross_encoder.modules import Transformer, LogitScore
 
-   transformer = Transformer("Qwen/Qwen3-Reranker-0.6B", transformer_task="text-generation", revision="refs/pr/11")
+   transformer = Transformer("Qwen/Qwen3-Reranker-0.6B", transformer_task="text-generation")
 
    # Look up the token IDs for "1" and "0" in the tokenizer
    true_id = transformer.tokenizer.convert_tokens_to_ids("1")
@@ -235,7 +235,7 @@ The :class:`~sentence_transformers.base.modules.Transformer` module handles mult
 
    from sentence_transformers import CrossEncoder
 
-   model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B", revision="refs/pr/11")
+   model = CrossEncoder("Qwen/Qwen3-VL-Reranker-2B")
    print(model)
    """
    CrossEncoder(
@@ -394,7 +394,7 @@ This can now be used as a module in a :class:`~sentence_transformers.cross_encod
    from sentence_transformers.cross_encoder.modules import Transformer
    from temperature_logit_score import TemperatureLogitScore
 
-   transformer = Transformer("Qwen/Qwen3-Reranker-0.6B", transformer_task="text-generation", revision="refs/pr/11")
+   transformer = Transformer("Qwen/Qwen3-Reranker-0.6B", transformer_task="text-generation")
    score_head = TemperatureLogitScore(
        true_token_id=transformer.tokenizer.convert_tokens_to_ids("yes"),
        false_token_id=transformer.tokenizer.convert_tokens_to_ids("no"),

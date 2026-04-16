@@ -124,8 +124,8 @@ Multimodal rerankers can score pairs involving different modalities such as imag
 
 Here are some community models:
 
-- [Qwen/Qwen3-VL-Reranker-2B](https://huggingface.co/Qwen/Qwen3-VL-Reranker-2B) (`revision="refs/pr/11"`)
-- [Qwen/Qwen3-VL-Reranker-8B](https://huggingface.co/Qwen/Qwen3-VL-Reranker-8B) (`revision="refs/pr/9"`)
+- [Qwen/Qwen3-VL-Reranker-2B](https://huggingface.co/Qwen/Qwen3-VL-Reranker-2B)
+- [Qwen/Qwen3-VL-Reranker-8B](https://huggingface.co/Qwen/Qwen3-VL-Reranker-8B)
 - [nvidia/llama-nemotron-rerank-vl-1b-v2](https://huggingface.co/nvidia/llama-nemotron-rerank-vl-1b-v2)
 - [jinaai/jina-reranker-m0](https://huggingface.co/jinaai/jina-reranker-m0)
 

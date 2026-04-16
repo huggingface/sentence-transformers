@@ -34,7 +34,6 @@ model = SentenceTransformer(
     ),
     model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": "bfloat16"},
     processor_kwargs={"min_pixels": 28 * 28, "max_pixels": 600 * 600},
-    revision="refs/pr/23",
 )
 
 # 2. Load a dataset to finetune on
