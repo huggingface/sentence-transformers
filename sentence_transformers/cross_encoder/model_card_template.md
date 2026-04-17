@@ -211,6 +211,12 @@ Carbon emissions were measured using [CodeCarbon](https://github.com/mlco2/codec
 - Datasets: {{ version["datasets"] }}
 - Tokenizers: {{ version["tokenizers"] }}
 
+## Additional Resources
+
+- [Training and Finetuning Reranker Models with Sentence Transformers](https://huggingface.co/blog/train-reranker): the end-to-end guide for training or finetuning Cross Encoder (reranker) models.
+- [Multimodal Embedding & Reranker Models with Sentence Transformers](https://huggingface.co/blog/multimodal-sentence-transformers): use text, image, audio, and video reranker models through the same API.
+- [Training and Finetuning Multimodal Embedding & Reranker Models with Sentence Transformers](https://huggingface.co/blog/train-multimodal-sentence-transformers): training multimodal Cross Encoders, including Any-to-Any and Feature Extraction architectures.
+
 ## Citation
 
 ### BibTeX

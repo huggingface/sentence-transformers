@@ -209,6 +209,10 @@ Carbon emissions were measured using [CodeCarbon](https://github.com/mlco2/codec
 - Datasets: {{ version["datasets"] }}
 - Tokenizers: {{ version["tokenizers"] }}
 
+## Additional Resources
+
+- [Training and Finetuning Sparse Embedding Models with Sentence Transformers](https://huggingface.co/blog/train-sparse-encoder): the end-to-end guide for training or finetuning SPLADE and other sparse encoder models.
+
 ## Citation
 
 ### BibTeX
