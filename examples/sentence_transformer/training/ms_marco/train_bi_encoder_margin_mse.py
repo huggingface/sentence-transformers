@@ -11,11 +11,13 @@ from datetime import datetime
 from shutil import copyfile
 
 import tqdm
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer
+from sentence_transformers import LoggingHandler, SentenceTransformer
 from sentence_transformers.sentence_transformer.losses import MarginMSELoss
 from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers import SentenceTransformerTrainer
 from sentence_transformers.util import http_get
 
 #### Just some code to print debug information to stdout
@@ -231,27 +233,41 @@ class MSMARCODataset(Dataset):
         pos_score = self.ce_scores[qid][pos_id]
         neg_score = self.ce_scores[qid][neg_id]
 
-        return InputExample(texts=[query_text, pos_text, neg_text], label=pos_score - neg_score)
+        return {"sentence_0": query_text, "sentence_1": pos_text, "sentence_2": neg_text, "label": pos_score - neg_score}
 
     def __len__(self):
         return len(self.queries)
 
 
-# For training the SentenceTransformer model, we need a dataset, a dataloader, and a loss used for training.
+# For training the SentenceTransformer model, we need a dataset and a loss used for training.
 train_dataset = MSMARCODataset(queries=train_queries, corpus=corpus, ce_scores=ce_scores)
-train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=train_batch_size, drop_last=True)
 train_loss = MarginMSELoss(model=model)
 
-# Train the model
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    epochs=num_epochs,
+# Migrated from deprecated model.fit(...) API to the modern v3.x SentenceTransformerTrainer API
+epochs = num_epochs
+batch_size = train_batch_size
+
+training_args = SentenceTransformerTrainingArguments(
+    output_dir=model_save_path,
+    num_train_epochs=epochs,
+    per_device_train_batch_size=batch_size,
+    learning_rate=args.lr,
     warmup_steps=args.warmup_steps,
-    use_amp=True,
-    checkpoint_path=model_save_path,
-    checkpoint_save_steps=10000,
-    optimizer_params={"lr": args.lr},
+    fp16=True,
+    save_strategy="steps",
+    save_steps=10000,
+    dataloader_drop_last=True,
 )
 
-# Train latest model
-model.save(model_save_path)
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+)
+
+# Train the model
+trainer.train()
+
+# Save the model
+model.save_pretrained(model_save_path)
