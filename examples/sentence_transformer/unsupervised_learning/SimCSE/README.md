@@ -11,12 +11,17 @@ The idea is to encode the same sentence twice. Due to the used dropout in transf
 SentenceTransformers implements the [MultipleNegativesRankingLoss](../../../../docs/package_reference/sentence_transformer/losses.md#multiplenegativesrankingloss), which makes training with SimCSE trivial:
 
 ```python
-from sentence_transformers import SentenceTransformer, InputExample
-from sentence_transformers.sentence_transformer.modules import Transformer, Pooling
-from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
-from torch.utils.data import DataLoader
+from datasets import Dataset
 
-# Define your sentence transformer model using CLS pooling
+from sentence_transformers import (
+    SentenceTransformer,
+    SentenceTransformerTrainer,
+    SentenceTransformerTrainingArguments,
+)
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+
+# Define your sentence transformer model using mean pooling
 model_name = "distilbert/distilroberta-base"
 word_embedding_model = Transformer(model_name, max_seq_length=32)
 pooling_model = Pooling(word_embedding_model.get_embedding_dimension())
@@ -30,21 +35,32 @@ train_sentences = [
     "You should provide at least 1k sentences",
 ]
 
-# Convert train sentences to sentence pairs
-train_data = [InputExample(texts=[s, s]) for s in train_sentences]
+# SimCSE trains on pairs of the same sentence: encoding it twice with dropout
+# yields two slightly different embeddings, and in-batch negatives come from
+# the other sentences in the same batch.
+train_dataset = Dataset.from_dict({"sentence1": train_sentences, "sentence2": train_sentences})
 
-# DataLoader to batch your data
-train_dataloader = DataLoader(train_data, batch_size=128, shuffle=True)
-
-# Use the denoising auto-encoder loss
+# Use MultipleNegativesRankingLoss with in-batch negatives
 train_loss = MultipleNegativesRankingLoss(model)
 
-# Call the fit method
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)], epochs=1, show_progress_bar=True
+# Configure training
+args = SentenceTransformerTrainingArguments(
+    output_dir="output/simcse-model",
+    num_train_epochs=1,
+    per_device_train_batch_size=128,
+    save_strategy="no",
 )
 
-model.save("output/simcse-model")
+# Train
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+)
+trainer.train()
+
+model.save_pretrained("output/simcse-model")
 ```
 
 ## SimCSE from Sentences File
