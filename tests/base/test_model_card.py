@@ -733,7 +733,6 @@ class TestComputeDatasetMetricsStringMediaPath:
             assert "positive" in result["stats"]
             assert result["stats"]["positive"]["dtype"] == "string (image path)"
             assert result["stats"]["positive"]["data"] == {"samples": "3"}
-            # The whole point of the fix: no preprocess call on the path column.
             assert preprocess_calls == [], (
                 f"model.preprocess was called on a media-path column: {preprocess_calls!r}"
             )
