@@ -700,6 +700,61 @@ class TestComputeDatasetMetricsNonText:
                 assert os.path.isfile(os.path.join(tmpdir, "assets", f"example_image_{i}.jpg"))
 
 
+class TestComputeDatasetMetricsStringMediaPath:
+    """Test dataset statistics for string columns containing media file paths."""
+
+    def test_image_path_column_skips_preprocess(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        model = stsb_bert_tiny_model
+        _reset_for_text_snippet(model)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = []
+            for i in range(3):
+                p = os.path.join(tmpdir, f"img_{i}.jpg")
+                _make_pil_image(32, 32).save(p, "JPEG")
+                paths.append(p)
+
+            ds = Dataset.from_dict({"positive": paths})
+
+            preprocess_calls = []
+            original_preprocess = model.preprocess
+
+            def _tracking_preprocess(*args, **kwargs):
+                preprocess_calls.append((args, kwargs))
+                return original_preprocess(*args, **kwargs)
+
+            info = {"name": "test"}
+            with patch.object(
+                type(model), "modalities", new_callable=PropertyMock, return_value=["text", "image"]
+            ), patch.object(model, "preprocess", side_effect=_tracking_preprocess):
+                result = model.model_card_data.compute_dataset_metrics(ds, info, _FakeLoss())
+
+            assert "stats" in result
+            assert "positive" in result["stats"]
+            assert result["stats"]["positive"]["dtype"] == "string (image path)"
+            assert result["stats"]["positive"]["data"] == {"samples": "3"}
+            # The whole point of the fix: no preprocess call on the path column.
+            assert preprocess_calls == [], (
+                f"model.preprocess was called on a media-path column: {preprocess_calls!r}"
+            )
+
+    def test_text_column_still_tokenizes(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        """Plain text columns still get token-length stats (no regression for the common case)."""
+        model = stsb_bert_tiny_model
+        _reset_for_text_snippet(model)
+
+        ds = Dataset.from_dict({"anchor": ["hello world", "sentence transformers are great", "short"]})
+        info = {"name": "test"}
+        result = model.model_card_data.compute_dataset_metrics(ds, info, _FakeLoss())
+
+        assert "stats" in result
+        assert result["stats"]["anchor"]["dtype"] == "string"
+        data = result["stats"]["anchor"]["data"]
+        assert "min" in data and "tokens" in data["min"]
+        assert "mean" in data and "tokens" in data["mean"]
+        assert "max" in data and "tokens" in data["max"]
+
+
 class TestEndToEnd:
     """End-to-end: model card generation produces valid output."""
 

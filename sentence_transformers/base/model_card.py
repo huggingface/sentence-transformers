@@ -30,7 +30,7 @@ from transformers.modelcard import make_markdown_table
 from transformers.trainer_callback import TrainerControl, TrainerState
 
 from sentence_transformers import __version__ as sentence_transformers_version
-from sentence_transformers.base.modality import format_modality
+from sentence_transformers.base.modality import format_modality, infer_modality
 from sentence_transformers.base.training_args import BaseTrainingArguments
 from sentence_transformers.util import fullname, is_accelerate_available, is_datasets_available
 
@@ -989,6 +989,22 @@ class BaseModelCardData(CardData):
                 subsection = dataset[:1000][column]
                 first = subsection[0]
                 if isinstance(first, str):
+                    # Skip ``model.preprocess`` for string columns storing media file
+                    # paths: it would load 1000 real files per column, exhausting RAM
+                    # on multimodal datasets with many path columns.
+                    try:
+                        probed_modality = infer_modality(
+                            first,
+                            supported_modalities=getattr(self.model, "modalities", None),
+                        )
+                    except Exception:
+                        probed_modality = "text"
+                    if probed_modality != "text":
+                        dataset_info["stats"][column] = {
+                            "dtype": f"string ({format_modality(probed_modality)} path)",
+                            "data": {"samples": f"{len(subsection)}"},
+                        }
+                        continue
                     tokenized = self.model.preprocess(subsection, task="document")
                     if isinstance(tokenized, (dict, UserDict)) and "attention_mask" in tokenized:
                         lengths = tokenized["attention_mask"].sum(dim=1).tolist()
