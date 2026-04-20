@@ -633,17 +633,22 @@ class TestParseInputs:
 
         num_frames, fps, height, width = 4, 30, 32, 32
         buf = io.BytesIO()
-        with av.open(buf, mode="w", format="mp4") as container:
-            stream = container.add_stream("h264", rate=fps)
-            stream.width = width
-            stream.height = height
-            stream.pix_fmt = "yuv420p"
-            for _ in range(num_frames):
-                frame = av.VideoFrame.from_ndarray(np.zeros((height, width, 3), dtype=np.uint8), format="rgb24")
-                for packet in stream.encode(frame):
+        try:
+            with av.open(buf, mode="w", format="mp4") as container:
+                stream = container.add_stream("h264", rate=fps)
+                stream.width = width
+                stream.height = height
+                stream.pix_fmt = "yuv420p"
+                for _ in range(num_frames):
+                    frame = av.VideoFrame.from_ndarray(
+                        np.zeros((height, width, 3), dtype=np.uint8), format="rgb24"
+                    )
+                    for packet in stream.encode(frame):
+                        container.mux(packet)
+                for packet in stream.encode():
                     container.mux(packet)
-            for packet in stream.encode():
-                container.mux(packet)
+        except Exception as exc:
+            pytest.skip(f"H.264 encoding support is unavailable in this PyAV/FFmpeg build: {exc}")
         decoder = VideoDecoder(torch.frombuffer(buf.getvalue(), dtype=torch.uint8))
 
         modality, inputs, extra = self.fmt.parse_inputs([{"video": decoder}])
