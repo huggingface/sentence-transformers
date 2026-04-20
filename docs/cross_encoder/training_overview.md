@@ -1139,3 +1139,8 @@ Training :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models
 See the `Sentence Transformer > Training Overview <../sentence_transformer/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models.
 
 ```
+
+## End-to-End Example
+
+For a complete end-to-end training example, see the [Training and Finetuning Reranker Models](https://huggingface.co/blog/train-reranker) blogpost. It applies the components described on this page to a real training task, then benchmarks the resulting reranker against its base checkpoint and against other reranker models of various sizes. For multimodal reranker training, there's some details in the [Training and Finetuning Multimodal Embedding & Reranker Models](https://huggingface.co/blog/train-multimodal-sentence-transformers) blogpost.
+

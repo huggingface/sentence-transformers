@@ -149,6 +149,11 @@ Extending a model to new languages is easy by following [Training Examples > Mul
 Sentence Transformers supports multimodal models that can embed text alongside images, audio, or video into a joint vector space. This enables cross-modal tasks like text-to-image search, image-to-image search, image clustering, and zero-shot classification.
 
 ```{eval-rst}
+.. seealso::
+   See the `Multimodal Embedding & Reranker Models <https://huggingface.co/blog/multimodal-sentence-transformers>`_ blogpost for an inference walkthrough and an overview of the multimodal models supported at the time of writing.
+```
+
+```{eval-rst}
 
 .. tip::
 

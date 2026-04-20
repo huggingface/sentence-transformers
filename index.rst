@@ -1,7 +1,7 @@
 
 .. tip::
 
-   Sentence Transformers v5.4 recently released, introducing first-class multimodal support for :class:`~sentence_transformers.sentence_transformer.SentenceTransformer` and :class:`~sentence_transformers.cross_encoder.CrossEncoder` (text, images, audio, video, and combinations of these), a fully modular :class:`~sentence_transformers.cross_encoder.CrossEncoder` architecture with generative reranker support via :class:`~sentence_transformers.cross_encoder.modules.LogitScore`, and automatic Flash Attention 2 input flattening for faster inference. Read the `Multimodal Embedding & Reranker Models with Sentence Transformers <https://huggingface.co/blog/multimodal-sentence-transformers>`_ blogpost, the `v5.4 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.4.0>`_, or the `migration guide <docs/migration_guide.html>`_ for more details.
+   Sentence Transformers v5.4 recently released, introducing first-class multimodal support for :class:`~sentence_transformers.sentence_transformer.SentenceTransformer` and :class:`~sentence_transformers.cross_encoder.CrossEncoder` (text, images, audio, video, and combinations of these), a fully modular :class:`~sentence_transformers.cross_encoder.CrossEncoder` architecture with generative reranker support via :class:`~sentence_transformers.cross_encoder.modules.LogitScore`, and automatic Flash Attention 2 input flattening for faster inference. Read the `Multimodal Embedding & Reranker Models <https://huggingface.co/blog/multimodal-sentence-transformers>`_ blogpost for inference, the `Training and Finetuning Multimodal Embedding & Reranker Models <https://huggingface.co/blog/train-multimodal-sentence-transformers>`_ blogpost for training, the `v5.4 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.4.0>`_, or the `migration guide <docs/migration_guide.html>`_ for more details.
 
 SentenceTransformers Documentation
 ==================================
@@ -218,6 +218,28 @@ Consider reading one of the following sections to answer the related questions:
    * How do I make Sparse Encoder models **faster**? `Sparse Encoder > Usage > Speeding up Inference <docs/sparse_encoder/usage/efficiency.html>`_
    * How do I **train/finetune** a Sparse Encoder model? `Sparse Encoder > Training Overview <docs/sparse_encoder/training_overview.html>`_
    * How do I **integrate** Sparse Encoder models with search engines? `Sparse Encoder > Vector Database Integration <examples/sparse_encoder/applications/semantic_search/README.html#vector-database-search>`_
+
+Companion Blog Posts
+====================
+
+The following Hugging Face blog posts complement this documentation with narrative walkthroughs and full training examples:
+
+* Training guides:
+
+   * `Training and Finetuning Embedding Models <https://huggingface.co/blog/train-sentence-transformers>`_: end-to-end training of bi-encoder embedding models.
+   * `Training and Finetuning Reranker Models <https://huggingface.co/blog/train-reranker>`_: training Cross Encoder (reranker) models.
+   * `Training and Finetuning Sparse Embedding Models <https://huggingface.co/blog/train-sparse-encoder>`_: training SPLADE and other sparse encoders.
+
+* Multimodal:
+
+   * `Multimodal Embedding & Reranker Models <https://huggingface.co/blog/multimodal-sentence-transformers>`_: text, image, audio, and video models through a single API.
+   * `Training and Finetuning Multimodal Embedding & Reranker Models <https://huggingface.co/blog/train-multimodal-sentence-transformers>`_: finetuning a multimodal embedding model for Visual Document Retrieval.
+
+* Efficiency techniques:
+
+   * `Introduction to Matryoshka Embedding Models <https://huggingface.co/blog/matryoshka>`_: variable-size embeddings that truncate gracefully.
+   * `Train 400x faster Static Embedding Models <https://huggingface.co/blog/static-embeddings>`_: attention-free CPU-friendly embedding models.
+   * `Binary and Scalar Embedding Quantization for Significantly Faster & Cheaper Retrieval <https://huggingface.co/blog/embedding-quantization>`_: post-training compression of embedding vectors.
 
 Citing
 ======

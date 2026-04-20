@@ -935,3 +935,8 @@ Training :class:`~sentence_transformers.sentence_transformer.model.SentenceTrans
 See the `Cross Encoder > Training Overview <../cross_encoder/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models.
 
 ```
+
+## End-to-End Example
+
+For a complete end-to-end training example, see the [Training and Finetuning Embedding Models](https://huggingface.co/blog/train-sentence-transformers) blogpost. It applies the components described on this page to a real training task, then benchmarks the resulting embedding model against its base checkpoint and against existing models of various sizes. For multimodal embedding training (text + image + audio + video), see the [Training and Finetuning Multimodal Embedding & Reranker Models](https://huggingface.co/blog/train-multimodal-sentence-transformers) blogpost, which performs the same kind of evaluation for a Visual Document Retrieval model.
+

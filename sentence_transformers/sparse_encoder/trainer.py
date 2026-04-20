@@ -54,7 +54,7 @@ class SparseEncoderTrainer(BaseTrainer):
         args (:class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments`, *optional*):
             The arguments to tweak for training. Will default to a basic instance of
             :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments` with the
-            `output_dir` set to a directory named *tmp_trainer* in the current directory if not provided.
+            ``output_dir`` set to a directory named ``"tmp_trainer"`` in the current directory if not provided.
         train_dataset (Union[:class:`datasets.Dataset`, :class:`datasets.DatasetDict`, :class:`datasets.IterableDataset`, Dict[str, :class:`datasets.Dataset`]], *optional*):
             The dataset to use for training. Must have a format accepted by your loss function, see
             `Training Overview > Dataset Format <../../../docs/sparse_encoder/training_overview.html#dataset-format>`_.
@@ -77,28 +77,31 @@ class SparseEncoderTrainer(BaseTrainer):
             wrapped in a :class:`~sentence_transformers.base.evaluation.SequentialEvaluator` to run them sequentially.
         callbacks (List of [:class:`transformers.TrainerCallback`], *optional*):
             A list of callbacks to customize the training loop. Will add those to the list of default callbacks
-            detailed in [here](callback).
+            detailed in :doc:`here <transformers:main_classes/callback>`.
 
-            If you want to remove one of the default callbacks used, use the [`Trainer.remove_callback`] method.
-        optimizers (`Tuple[:class:`torch.optim.Optimizer`, :class:`torch.optim.lr_scheduler.LambdaLR`]`, *optional*, defaults to `(None, None)`):
+            If you want to remove one of the default callbacks used, use the :meth:`~transformers.Trainer.remove_callback` method.
+        optimizers (Tuple[:class:`torch.optim.Optimizer`, :class:`torch.optim.lr_scheduler.LambdaLR`], *optional*, defaults to ``(None, None)``):
             A tuple containing the optimizer and the scheduler to use. Will default to an instance of :class:`torch.optim.AdamW`
             on your model and a scheduler given by :func:`transformers.get_linear_schedule_with_warmup` controlled by `args`.
 
     Important attributes:
 
-        - **model** -- Always points to the core model. If using a transformers model, it will be a [`PreTrainedModel`]
-          subclass.
-        - **model_wrapped** -- Always points to the most external model in case one or more other modules wrap the
-          original model. This is the model that should be used for the forward pass. For example, under `DeepSpeed`,
-          the inner model is wrapped in `DeepSpeed` and then again in `torch.nn.DistributedDataParallel`. If the inner
-          model hasn't been wrapped, then `self.model_wrapped` is the same as `self.model`.
-        - **is_model_parallel** -- Whether or not a model has been switched to a model parallel mode (different from
+        - **model**: Always points to the :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` model to be trained.
+        - **model_wrapped**: Always points to the most external model in case one or more other modules wrap the
+          original model. This is the model that should be used for the forward pass. For example, under ``DeepSpeed``,
+          the inner model is wrapped in ``DeepSpeed`` and then again in :class:`~torch.nn.parallel.DistributedDataParallel`. If the inner
+          model hasn't been wrapped, then ``self.model_wrapped`` is the same as ``self.model``.
+        - **is_model_parallel**: Whether or not a model has been switched to a model parallel mode (different from
           data parallelism, this means some of the model layers are split on different GPUs).
-        - **place_model_on_device** -- Whether or not to automatically place the model on the device - it will be set
-          to `False` if model parallel or deepspeed is used, or if the default
-          `TrainingArguments.place_model_on_device` is overridden to return `False` .
-        - **is_in_train** -- Whether or not a model is currently running `train` (e.g. when `evaluate` is called while
-          in `train`)
+        - **place_model_on_device**: Whether or not to automatically place the model on the device - it will be set
+          to ``False`` if model parallel or deepspeed is used, or if the default
+          :attr:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments.place_model_on_device` is overridden to return ``False``.
+        - **is_in_train**: Whether or not a model is currently running :meth:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer.train` (e.g. when :meth:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer.evaluate` is called while
+          in :meth:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer.train`)
+
+    End-to-end example:
+
+        - `Training and Finetuning Sparse Embedding Models <https://huggingface.co/blog/train-sparse-encoder>`_: end-to-end training example with benchmarks against the base model and other sparse retrieval models.
     """
 
     model_class = SparseEncoder

@@ -122,6 +122,11 @@ labels = [label_mapping[score_max] for score_max in scores.argmax(axis=1)]
 Multimodal rerankers can score pairs involving different modalities such as images, video, audio, and text. These models use the same :class:`~sentence_transformers.base.modules.Transformer` + :class:`~sentence_transformers.cross_encoder.modules.LogitScore` architecture as text-only decoder rerankers, but with a multimodal backbone that can process non-text inputs. You can check whether a model supports a given modality using :attr:`~sentence_transformers.cross_encoder.model.CrossEncoder.modalities` and :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder.supports`.
 ```
 
+```{eval-rst}
+.. seealso::
+   See the `Multimodal Embedding & Reranker Models <https://huggingface.co/blog/multimodal-sentence-transformers>`_ blogpost for an inference walkthrough and an overview of the multimodal models supported at the time of writing.
+```
+
 Here are some community models:
 
 - [Qwen/Qwen3-VL-Reranker-2B](https://huggingface.co/Qwen/Qwen3-VL-Reranker-2B)

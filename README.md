@@ -20,32 +20,13 @@ For the **full documentation**, see **[www.SBERT.net](https://www.sbert.net)**.
 
 ## Installation
 
-We recommend **Python 3.10+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.34.0+](https://github.com/huggingface/transformers)**.
-
-**Install with pip**
+We recommend **Python 3.10+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.41.0+](https://github.com/huggingface/transformers)**.
 
 ```
 pip install -U sentence-transformers
 ```
 
-**Install with conda**
-
-```
-conda install -c conda-forge sentence-transformers
-```
-
-**Install from sources**
-
-Alternatively, you can also clone the latest version from the [repository](https://github.com/huggingface/sentence-transformers) and install it directly from the source code:
-
-```
-pip install -e .
-```
-
-**PyTorch with CUDA**
-
-If you want to use a GPU / CUDA, you must install PyTorch with the matching CUDA Version. Follow
-[PyTorch - Get Started](https://pytorch.org/get-started/locally/) for further details how to install PyTorch.
+See [Installation](https://www.sbert.net/docs/installation.html) in the docs for uv, conda, source, and editable installs, CUDA setup, and extras (`[image]`, `[audio]`, `[video]`, `[train]`, `[onnx]`, `[openvino]`, `[dev]`).
 
 ## Getting Started
 
@@ -190,9 +171,30 @@ This framework allows you to fine-tune your own sentence embedding methods, so t
 Some highlights across the different types of training are:
 
 - Support of various transformer networks including BERT, RoBERTa, XLM-R, DistilBERT, Electra, BART, ...
-- Multi-Lingual and multi-task learning
+- Multilingual and multi-task learning
 - Evaluation during training to find optimal model
 - [20+ loss functions](https://www.sbert.net/docs/package_reference/sentence_transformer/losses.html) for embedding models, [10+ loss functions](https://www.sbert.net/docs/package_reference/cross_encoder/losses.html) for reranker models and [10+ loss functions](https://www.sbert.net/docs/package_reference/sparse_encoder/losses.html) for sparse embedding models, allowing you to tune models specifically for semantic search, paraphrase mining, semantic similarity comparison, clustering, triplet loss, contrastive loss, etc.
+
+## Companion Blog Posts
+
+The following Hugging Face blog posts complement this documentation with narrative walkthroughs and full training examples:
+
+**Training guides:**
+
+- [Training and Finetuning Embedding Models](https://huggingface.co/blog/train-sentence-transformers): end-to-end training of bi-encoder embedding models.
+- [Training and Finetuning Reranker Models](https://huggingface.co/blog/train-reranker): training Cross Encoder models for the second stage of retrieve-and-rerank pipelines.
+- [Training and Finetuning Sparse Embedding Models](https://huggingface.co/blog/train-sparse-encoder): training SPLADE and other sparse encoders.
+
+**Multimodal:**
+
+- [Multimodal Embedding & Reranker Models](https://huggingface.co/blog/multimodal-sentence-transformers): using text, image, audio, and video models through a single API.
+- [Training and Finetuning Multimodal Embedding & Reranker Models](https://huggingface.co/blog/train-multimodal-sentence-transformers): training multimodal models, with a Visual Document Retrieval walkthrough.
+
+**Efficiency techniques:**
+
+- [Introduction to Matryoshka Embedding Models](https://huggingface.co/blog/matryoshka): variable-size embeddings that can be truncated with minimal quality loss.
+- [Train 400x faster Static Embedding Models](https://huggingface.co/blog/static-embeddings): CPU-friendly embedding models without attention.
+- [Binary and Scalar Embedding Quantization for Significantly Faster & Cheaper Retrieval](https://huggingface.co/blog/embedding-quantization): post-training compression of embedding vectors.
 
 ## Application Examples
 

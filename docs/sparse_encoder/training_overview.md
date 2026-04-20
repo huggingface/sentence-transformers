@@ -904,6 +904,10 @@ Sparse Encoder models have a few quirks that you should be aware of when trainin
 
 ```
 
+## End-to-End Example
+
+For a complete end-to-end training example, see the [Training and Finetuning Sparse Embedding Models](https://huggingface.co/blog/train-sparse-encoder) blogpost. It applies the components described on this page to a real training task, then benchmarks the resulting sparse encoder against its base checkpoint and against other sparse retrieval models.
+
 <!--
 ## Comparisons with SentenceTransformer Training
 

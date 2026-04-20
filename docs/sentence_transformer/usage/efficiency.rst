@@ -2,6 +2,9 @@
 Speeding up Inference
 =====================
 
+.. seealso::
+   This page focuses on backend-level optimizations (ONNX, OpenVINO, model quantization). For complementary techniques that reduce storage and search cost at the embedding level, see the `Binary and Scalar Embedding Quantization for Significantly Faster & Cheaper Retrieval <https://huggingface.co/blog/embedding-quantization>`_ blogpost (post-training compression of output vectors), the `🪆 Introduction to Matryoshka Embedding Models <https://huggingface.co/blog/matryoshka>`_ blogpost (truncatable embeddings), and the `Train 400x faster Static Embedding Models <https://huggingface.co/blog/static-embeddings>`_ blogpost (attention-free CPU-friendly models).
+
 Sentence Transformers supports 3 backends for computing embeddings, each with its own optimizations for speeding up inference:
 
 

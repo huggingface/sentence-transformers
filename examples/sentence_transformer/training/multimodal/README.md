@@ -1,6 +1,11 @@
 # Multimodal Training
 
 ```{eval-rst}
+.. seealso::
+   See the `Multimodal Embedding & Reranker Models <https://huggingface.co/blog/multimodal-sentence-transformers>`_ blogpost for an inference walkthrough, and the `Training and Finetuning Multimodal Embedding & Reranker Models <https://huggingface.co/blog/train-multimodal-sentence-transformers>`_ blogpost for a full Visual Document Retrieval training example built on the script described on this page.
+```
+
+```{eval-rst}
 Sentence Transformer models can handle multimodal inputs (text, images, audio, and video), enabling cross-modal retrieval tasks such as text-to-image search or audio-to-text matching. The key enabler is the :class:`~sentence_transformers.base.modules.Transformer` module's automatic modality detection: it inspects the underlying model's processor to determine which modalities are supported, then handles preprocessing for each modality transparently.
 
 This means multimodal training uses the exact same pipeline as text-only training: the same losses, the same trainer, and the same evaluation tools. The data collator handles multimodal preprocessing automatically.
