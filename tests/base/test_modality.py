@@ -640,9 +640,7 @@ class TestParseInputs:
                 stream.height = height
                 stream.pix_fmt = "yuv420p"
                 for _ in range(num_frames):
-                    frame = av.VideoFrame.from_ndarray(
-                        np.zeros((height, width, 3), dtype=np.uint8), format="rgb24"
-                    )
+                    frame = av.VideoFrame.from_ndarray(np.zeros((height, width, 3), dtype=np.uint8), format="rgb24")
                     for packet in stream.encode(frame):
                         container.mux(packet)
                 for packet in stream.encode():
