@@ -107,7 +107,8 @@ def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict
     Passes through unchanged if ``audio_value`` is already a raw array/tensor/URL/path.
     """
     if isinstance(audio_value, dict):
-        extra_modality_kwargs["audio"]["sampling_rate"] = audio_value["sampling_rate"]
+        if "sampling_rate" in audio_value:
+            extra_modality_kwargs["audio"]["sampling_rate"] = audio_value["sampling_rate"]
         return audio_value["array"]
     if AudioDecoder is not None and isinstance(audio_value, AudioDecoder):
         samples = audio_value.get_all_samples()
@@ -123,7 +124,8 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
     Passes through unchanged if ``video_value`` is already a raw array/tensor/URL/path.
     """
     if isinstance(video_value, dict):
-        extra_modality_kwargs["video"].setdefault("video_metadata", []).append(video_value["video_metadata"])
+        if "video_metadata" in video_value:
+            extra_modality_kwargs["video"].setdefault("video_metadata", []).append(video_value["video_metadata"])
         return video_value["array"]
     if VideoDecoder is not None and isinstance(video_value, VideoDecoder):
         frame_batch = video_value.get_frames_in_range(0, len(video_value))
