@@ -63,14 +63,6 @@ def _make_pil_image(width: int = 64, height: int = 64) -> PILModule.Image:
     return PILModule.new("RGB", (width, height), color=(255, 0, 0))
 
 
-def _reset_for_text_snippet(model: SentenceTransformer) -> None:
-    """Reset model_card_data fields to ensure a clean text-only snippet test."""
-    model.model_card_data.usage_examples = None
-    model.model_card_data.usage_examples_display = None
-    model.model_card_data.similarities = None
-    model.model_card_data.ir_model = None
-
-
 class _FakeLoss:
     """Minimal stand-in for a loss object in compute_dataset_metrics calls."""
 
@@ -339,7 +331,6 @@ class TestGenerateUsageSnippet:
     def test_text_default_examples(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Default examples are used when usage_examples is None."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         snippet = model.model_card_data.generate_usage_snippet()
 
         assert "```python" in snippet
@@ -352,7 +343,6 @@ class TestGenerateUsageSnippet:
     def test_text_custom_examples(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """usage_examples strings appear in the snippet."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.usage_examples = ["Hello", "World", "Test"]
         snippet = model.model_card_data.generate_usage_snippet()
 
@@ -364,7 +354,6 @@ class TestGenerateUsageSnippet:
     def test_text_with_similarities(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """When similarities are computed, they appear in the snippet."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.usage_examples = ["A", "B"]
         model.model_card_data.similarities = "# tensor([[1.0, 0.5],\n#         [0.5, 1.0]])"
         snippet = model.model_card_data.generate_usage_snippet()
@@ -375,7 +364,6 @@ class TestGenerateUsageSnippet:
     def test_text_without_similarities(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """When no similarities, shape comment is shown."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.usage_examples = ["A", "B"]
         snippet = model.model_card_data.generate_usage_snippet()
 
@@ -393,7 +381,6 @@ class TestGenerateUsageSnippet:
     def test_text_model_id(self, stsb_bert_tiny_model: SentenceTransformer, model_id, expected) -> None:
         """model_id appears in the loading line, or a placeholder is used when None."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.model_id = model_id
         model.model_card_data.usage_examples = ["test"]
         snippet = model.model_card_data.generate_usage_snippet()
@@ -403,7 +390,6 @@ class TestGenerateUsageSnippet:
     def test_text_output_dimensionality(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Embedding dimension appears in the shape comment."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.usage_examples = ["A", "B"]
         dim = model.get_embedding_dimension()
         snippet = model.model_card_data.generate_usage_snippet()
@@ -503,7 +489,6 @@ class TestSetMultimodalPredictExample:
     def test_combined_modality_builds_dicts(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """A model with tuple modality ("image", "text") builds multimodal dicts from text+image columns."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         dd = self._make_text_image_dataset()
 
         # BLIP-like: supports text, image, and the combined ("image", "text")
@@ -528,7 +513,6 @@ class TestSetMultimodalPredictExample:
         Instead, it picks the first non-text modality and shows single-modality examples.
         """
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         dd = self._make_text_image_dataset()
 
         # CLIP-like: supports text and image independently, but no ("image", "text") tuple
@@ -548,7 +532,6 @@ class TestSetMultimodalPredictExample:
     def test_image_only_model(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Image-only model: usage_examples is a list of images, not dicts."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         dd = self._make_image_dataset()
 
         with patch.object(type(model), "modalities", new_callable=PropertyMock, return_value=["image"]):
@@ -561,7 +544,6 @@ class TestSetMultimodalPredictExample:
     def test_text_only_model_skips(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Text-only model does not produce multimodal usage_examples."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.usage_examples = ["original"]
         dd = self._make_text_image_dataset()
 
@@ -573,7 +555,6 @@ class TestSetMultimodalPredictExample:
     def test_combined_only_model(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """A Kosmos-like model with only ("image", "text") still builds combined dicts."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         dd = self._make_text_image_dataset()
 
         with patch.object(
@@ -592,7 +573,6 @@ class TestSetMultimodalPredictExample:
     def test_small_dataset_fewer_examples(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Dataset smaller than 3 examples: uses what's available."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         dd = self._make_image_dataset(n=1)
 
         with patch.object(type(model), "modalities", new_callable=PropertyMock, return_value=["image"]):
@@ -603,7 +583,6 @@ class TestSetMultimodalPredictExample:
     def test_no_matching_columns_skips(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """If dataset has no columns matching the model's non-text modalities, nothing happens."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.usage_examples = ["original"]
 
         # Dataset with only text, but model wants audio
@@ -618,7 +597,6 @@ class TestSetMultimodalPredictExample:
     def test_duplicate_images_deduplicated(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Duplicate images in the first rows are skipped; unique images are picked from later rows."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
 
         # First 3 rows have the same image, rows 3-5 have distinct images
         same_image = _make_pil_image(64, 64)
@@ -648,7 +626,6 @@ class TestComputeDatasetMetricsNonText:
     def test_image_column_stats(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Image columns show width x height stats."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         images = [_make_pil_image(w, w) for w in [32, 64, 128]]
         ds = Dataset.from_dict({"image": images})
         ds = ds.cast_column("image", ImageFeature())
@@ -665,7 +642,6 @@ class TestComputeDatasetMetricsNonText:
     def test_image_example_placeholder_without_save_dir(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Without save_dir, image examples show placeholder text."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.save_dir = None
         images = [_make_pil_image(64, 64) for _ in range(5)]
         ds = Dataset.from_dict({"image": images})
@@ -681,7 +657,6 @@ class TestComputeDatasetMetricsNonText:
     def test_image_example_saved_with_save_dir(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """With save_dir, image examples are saved as files and rendered with <img> tags."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         # Use different sizes so they're not deduplicated
         images = [_make_pil_image(32 + i * 16, 32 + i * 16) for i in range(5)]
         ds = Dataset.from_dict({"image": images})
@@ -705,7 +680,6 @@ class TestComputeDatasetMetricsStringMediaPath:
 
     def test_image_path_column_skips_preprocess(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = []
@@ -724,23 +698,22 @@ class TestComputeDatasetMetricsStringMediaPath:
                 return original_preprocess(*args, **kwargs)
 
             info = {"name": "test"}
-            with patch.object(
-                type(model), "modalities", new_callable=PropertyMock, return_value=["text", "image"]
-            ), patch.object(model, "preprocess", side_effect=_tracking_preprocess):
+            with (
+                patch.object(type(model), "modalities", new_callable=PropertyMock, return_value=["text", "image"]),
+                patch.object(model, "preprocess", side_effect=_tracking_preprocess),
+            ):
                 result = model.model_card_data.compute_dataset_metrics(ds, info, _FakeLoss())
 
             assert "stats" in result
             assert "positive" in result["stats"]
-            assert result["stats"]["positive"]["dtype"] == "string (image path)"
-            assert result["stats"]["positive"]["data"] == {"samples": "3"}
-            assert preprocess_calls == [], (
-                f"model.preprocess was called on a media-path column: {preprocess_calls!r}"
-            )
+            assert result["stats"]["positive"]["dtype"] == "string"
+            assert result["stats"]["positive"]["modality"] == "image"
+            assert result["stats"]["positive"]["data"] == {}
+            assert preprocess_calls == [], f"model.preprocess was called on a media-path column: {preprocess_calls!r}"
 
     def test_text_column_still_tokenizes(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Plain text columns still get token-length stats (no regression for the common case)."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
 
         ds = Dataset.from_dict({"anchor": ["hello world", "sentence transformers are great", "short"]})
         info = {"name": "test"}
@@ -754,13 +727,117 @@ class TestComputeDatasetMetricsStringMediaPath:
         assert "max" in data and "tokens" in data["max"]
 
 
+class TestComputeDatasetMetricsColumns:
+    """Cover the remaining column-type branches in _compute_column_stats."""
+
+    def test_int_column_stats(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        model = stsb_bert_tiny_model
+        ds = Dataset.from_dict({"label": [0, 1, 0, 1, 0]})
+        result = model.model_card_data.compute_dataset_metrics(ds, {"name": "t"}, _FakeLoss())
+        entry = result["stats"]["label"]
+        assert entry["dtype"] == "int"
+        assert entry["modality"] == ""
+        assert set(entry["data"].keys()) == {0, 1}
+        assert "60" in entry["data"][0]
+        assert "40" in entry["data"][1]
+
+    def test_bool_column_stats(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        model = stsb_bert_tiny_model
+        ds = Dataset.from_dict({"flag": [True, False, True, True]})
+        result = model.model_card_data.compute_dataset_metrics(ds, {"name": "t"}, _FakeLoss())
+        entry = result["stats"]["flag"]
+        assert entry["dtype"] == "bool"
+        assert entry["modality"] == ""
+        assert set(entry["data"].keys()) == {True, False}
+
+    def test_float_column_stats(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        model = stsb_bert_tiny_model
+        ds = Dataset.from_dict({"score": [0.1, 0.5, 0.9]})
+        result = model.model_card_data.compute_dataset_metrics(ds, {"name": "t"}, _FakeLoss())
+        entry = result["stats"]["score"]
+        assert entry["dtype"] == "float"
+        assert entry["modality"] == ""
+        assert entry["data"] == {"min": 0.1, "mean": 0.5, "max": 0.9}
+
+    def test_list_column_all_same_length(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        model = stsb_bert_tiny_model
+        ds = Dataset.from_dict({"embeddings": [[1, 2, 3], [4, 5, 6], [7, 8, 9]]})
+        result = model.model_card_data.compute_dataset_metrics(ds, {"name": "t"}, _FakeLoss())
+        entry = result["stats"]["embeddings"]
+        assert entry["dtype"] == "list"
+        assert entry["modality"] == ""
+        assert entry["data"] == {"size": "3 elements"}
+
+    def test_list_column_varying_lengths(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        model = stsb_bert_tiny_model
+        ds = Dataset.from_dict({"tokens": [[1], [2, 3], [4, 5, 6]]})
+        result = model.model_card_data.compute_dataset_metrics(ds, {"name": "t"}, _FakeLoss())
+        entry = result["stats"]["tokens"]
+        assert entry["dtype"] == "list"
+        assert entry["modality"] == ""
+        assert entry["data"]["min"] == "1 elements"
+        assert entry["data"]["max"] == "3 elements"
+        assert "2.00" in entry["data"]["mean"]
+
+    def test_audio_dict_column_stats(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        model = stsb_bert_tiny_model
+        ds = Dataset.from_dict(
+            {
+                "audio": [
+                    {"array": [0.0] * 16000, "sampling_rate": 16000},
+                    {"array": [0.0] * 32000, "sampling_rate": 16000},
+                ]
+            }
+        )
+        result = model.model_card_data.compute_dataset_metrics(ds, {"name": "t"}, _FakeLoss())
+        entry = result["stats"]["audio"]
+        assert entry["dtype"] == "audio"
+        assert entry["modality"] == "audio"
+        assert entry["data"]["min"] == "1.00s"
+        assert entry["data"]["max"] == "2.00s"
+        assert entry["data"]["sampling_rate"] == "16000 Hz"
+
+    def test_tensor_video_falls_through_to_fallback(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        """A 4D tensor column (video modality) isn't handled by the VideoDecoder branch,
+        so it hits the fallback: dtype is the fully-qualified class name, modality is populated."""
+        model = stsb_bert_tiny_model
+
+        videos = [np.zeros((8, 3, 32, 32), dtype=np.uint8) for _ in range(3)]
+        ds = Dataset.from_dict({"video": videos}).with_format("numpy")
+
+        with patch.object(type(model), "modalities", new_callable=PropertyMock, return_value=["video"]):
+            result = model.model_card_data.compute_dataset_metrics(ds, {"name": "t"}, _FakeLoss())
+
+        entry = result["stats"]["video"]
+        assert entry["modality"] == "video"
+        assert "ndarray" in entry["dtype"]
+        assert entry["data"] == {}
+
+    def test_modality_row_in_stats_table(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        """The rendered stats_table contains a modality row alongside type and details."""
+        model = stsb_bert_tiny_model
+        ds = Dataset.from_dict(
+            {
+                "anchor": ["hello", "world", "foo"],
+                "score": [0.1, 0.5, 0.9],
+            }
+        )
+        result = model.model_card_data.compute_dataset_metrics(ds, {"name": "t"}, _FakeLoss())
+
+        table = result["stats_table"]
+        lines = [line.strip() for line in table.splitlines() if line.strip()]
+        modality_lines = [line for line in lines if line.startswith("| modality")]
+        assert len(modality_lines) == 1, f"Expected one modality row, got: {modality_lines}"
+        # anchor → "text"; score → "" (numeric has no modality)
+        assert "text" in modality_lines[0]
+
+
 class TestEndToEnd:
     """End-to-end: model card generation produces valid output."""
 
     def test_text_model_card_valid(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Text model generates a valid card with no triple newlines."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.local_files_only = True
         model_card = generate_model_card(model)
 
@@ -771,7 +848,6 @@ class TestEndToEnd:
     def test_model_card_with_model_id(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """model_id flows through to the generated card."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.local_files_only = True
         model.model_card_data.model_id = "tomaarsen/test-model"
         model_card = generate_model_card(model)
@@ -781,7 +857,6 @@ class TestEndToEnd:
     def test_text_modality_in_card(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Text-only model shows 'Text' in supported modalities."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.local_files_only = True
         model.model_card_data.usage_examples = ["A", "B"]
         model_card = generate_model_card(model)
@@ -793,7 +868,6 @@ class TestEndToEnd:
     def test_model_card_with_image_usage_examples(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Image usage_examples causes multimodal snippet generation."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.local_files_only = True
         model.model_card_data.model_id = "user/multimodal-model"
         model.model_card_data.usage_examples = [
@@ -816,7 +890,6 @@ class TestEndToEnd:
     def test_model_card_with_image_only_usage_examples(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Image-only usage_examples generates single-modality snippet."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.local_files_only = True
         model.model_card_data.model_id = "user/image-model"
         model.model_card_data.usage_examples = [_make_pil_image(), _make_pil_image()]
@@ -1183,7 +1256,6 @@ class TestSetMultimodalPredictExampleVideo:
 
         with _create_video_dataset(n=5) as ds:
             model = stsb_bert_tiny_model
-            _reset_for_text_snippet(model)
             dd = DatasetDict(train=ds)
             with patch.object(type(model), "modalities", new_callable=PropertyMock, return_value=["video"]):
                 model.model_card_data._set_multimodal_usage_examples(dd)
@@ -1201,7 +1273,6 @@ class TestComputeDatasetMetricsVideo:
         """VideoDecoder columns produce duration/resolution/fps stats."""
         with _create_video_dataset(n=5) as ds:
             model = stsb_bert_tiny_model
-            _reset_for_text_snippet(model)
             info = {"name": "test"}
             result = model.model_card_data.compute_dataset_metrics(ds, info, _FakeLoss())
 
@@ -1240,7 +1311,6 @@ class TestGenerateModelCardUrlRewriting:
     def test_asset_src_urls_rewritten(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
         """Training example table asset paths are rewritten to absolute Hub URLs."""
         model = stsb_bert_tiny_model
-        _reset_for_text_snippet(model)
         model.model_card_data.local_files_only = True
         model.model_card_data.model_id = "user/my-model"
         # Inject training dataset info with an image example that will be re-rendered

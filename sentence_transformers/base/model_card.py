@@ -67,6 +67,30 @@ except (ImportError, OSError):
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class _MinMeanMax:
+    """Running min/mean/max accumulator. Holds scalars only."""
+
+    min: float = float("inf")
+    max: float = float("-inf")
+    total: float = 0.0
+    count: int = 0
+
+    def add_many(self, values) -> None:
+        for value in values:
+            if value < self.min:
+                self.min = value
+            if value > self.max:
+                self.max = value
+            self.total += value
+            self.count += 1
+
+    @property
+    def mean(self) -> float:
+        return self.total / self.count if self.count else 0.0
+
+
 if TYPE_CHECKING:
     from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
     from sentence_transformers.base.model import BaseModel
@@ -952,6 +976,162 @@ class BaseModelCardData(CardData):
 
         return [dataset_output]
 
+    def _compute_column_stats(self, dataset: Dataset, column: str) -> dict[str, Any]:
+        """Compute the stats entry for a single column using bounded-memory chunking.
+
+        Iterates at most 100 rows in chunks of 8 so
+        peak memory is the chunk, not the full subsection. Matters for typed
+        ``datasets.Image``/``Audio`` columns (each slice eagerly decodes) and for media-path
+        string columns (``model.preprocess`` loads files).
+        """
+        n_total = min(len(dataset), 100)
+        first = dataset[0][column]
+
+        # Columns like int/float/list don't map to a modality; ValueError signals that
+        try:
+            raw_modality = infer_modality(first, supported_modalities=getattr(self.model, "modalities", None))
+        except ValueError:
+            raw_modality = ""
+        modality = format_modality(raw_modality) if raw_modality else ""
+        stat_chunk_size = 8
+
+        def chunks():
+            for start in range(0, n_total, stat_chunk_size):
+                yield dataset[start : start + stat_chunk_size][column]
+
+        match first:
+            case str():
+                if raw_modality in {"image", "video", "audio"}:
+                    # Skip preprocess: it would load every referenced file/URL just for token stats
+                    return {"dtype": "string", "modality": modality, "data": {}}
+
+                stats = _MinMeanMax()
+                suffix = "characters"
+                for chunk in chunks():
+                    tokenized = self.model.preprocess(chunk, task="document")
+                    if isinstance(tokenized, (dict, UserDict)) and "attention_mask" in tokenized:
+                        stats.add_many(tokenized["attention_mask"].sum(dim=1).tolist())
+                        suffix = "tokens"
+                    else:
+                        stats.add_many(len(sentence) for sentence in chunk)
+                return {
+                    "dtype": "string",
+                    "modality": modality,
+                    "data": {
+                        "min": f"{round(stats.min, 2)} {suffix}",
+                        "mean": f"{round(stats.mean, 2)} {suffix}",
+                        "max": f"{round(stats.max, 2)} {suffix}",
+                    },
+                }
+
+            case bool() | int():
+                counter: Counter = Counter()
+                seen = 0
+                for chunk in chunks():
+                    counter.update(chunk)
+                    seen += len(chunk)
+                return {
+                    "dtype": type(first).__name__,
+                    "modality": modality,
+                    "data": {
+                        key: f"{'~' if len(counter) > 1 else ''}{counter[key] / seen:.2%}" for key in sorted(counter)
+                    },
+                }
+
+            case float():
+                stats = _MinMeanMax()
+                for chunk in chunks():
+                    stats.add_many(chunk)
+                return {
+                    "dtype": "float",
+                    "modality": modality,
+                    "data": {
+                        "min": round(stats.min, 2),
+                        "mean": round(stats.mean, 2),
+                        "max": round(stats.max, 2),
+                    },
+                }
+
+            case list():
+                stats = _MinMeanMax()
+                for chunk in chunks():
+                    stats.add_many(len(lst) for lst in chunk)
+                if stats.min == stats.max:
+                    return {
+                        "dtype": "list",
+                        "modality": modality,
+                        "data": {"size": f"{int(stats.min)} elements"},
+                    }
+                return {
+                    "dtype": "list",
+                    "modality": modality,
+                    "data": {
+                        "min": f"{int(stats.min)} elements",
+                        "mean": f"{stats.mean:.2f} elements",
+                        "max": f"{int(stats.max)} elements",
+                    },
+                }
+
+            case _ if PILImage is not None and isinstance(first, PILImage):
+                widths, heights = _MinMeanMax(), _MinMeanMax()
+                for chunk in chunks():
+                    widths.add_many(img.width for img in chunk if isinstance(img, PILImage))
+                    heights.add_many(img.height for img in chunk if isinstance(img, PILImage))
+                return {
+                    "dtype": "image",
+                    "modality": modality,
+                    "data": {
+                        "min": f"{int(widths.min)}x{int(heights.min)} px",
+                        "mean": f"{int(widths.mean)}x{int(heights.mean)} px",
+                        "max": f"{int(widths.max)}x{int(heights.max)} px",
+                    },
+                }
+
+            case _ if (isinstance(first, dict) and "array" in first and raw_modality == "audio") or (
+                AudioDecoder is not None and isinstance(first, AudioDecoder)
+            ):
+                sampling_rate = first["sampling_rate"] if isinstance(first, dict) else None
+                durations = _MinMeanMax()
+                for chunk in chunks():
+                    durations.add_many(
+                        len(d["array"]) / d["sampling_rate"]
+                        for d in chunk
+                        if (isinstance(d, dict) and "array" in d and "sampling_rate" in d)
+                        or (AudioDecoder is not None and isinstance(d, AudioDecoder))
+                    )
+                data: dict[str, Any] = {}
+                if durations.count:
+                    data["min"] = f"{durations.min:.2f}s"
+                    data["mean"] = f"{durations.mean:.2f}s"
+                    data["max"] = f"{durations.max:.2f}s"
+                if sampling_rate is not None:
+                    data["sampling_rate"] = f"{sampling_rate} Hz"
+                return {"dtype": "audio", "modality": modality, "data": data}
+
+            case _ if VideoDecoder is not None and isinstance(first, VideoDecoder):
+                durations, widths, heights = _MinMeanMax(), _MinMeanMax(), _MinMeanMax()
+                fps = first.metadata.average_fps
+                for chunk in chunks():
+                    videos = [v for v in chunk if isinstance(v, VideoDecoder)]
+                    durations.add_many(v.metadata.duration_seconds for v in videos)
+                    widths.add_many(v.metadata.width for v in videos)
+                    heights.add_many(v.metadata.height for v in videos)
+                if not durations.count:
+                    return {"dtype": "video", "modality": modality, "data": {}}
+                return {
+                    "dtype": "video",
+                    "modality": modality,
+                    "data": {
+                        "min": f"{durations.min:.2f}s, {int(widths.min)}x{int(heights.min)} px",
+                        "mean": f"{durations.mean:.2f}s, {int(widths.mean)}x{int(heights.mean)} px",
+                        "max": f"{durations.max:.2f}s, {int(widths.max)}x{int(heights.max)} px",
+                        "fps": f"{fps:.0f}",
+                    },
+                }
+
+            case _:
+                return {"dtype": fullname(first), "modality": modality, "data": {}}
+
     def compute_dataset_metrics(
         self,
         dataset: Dataset | IterableDataset | None,
@@ -986,146 +1166,19 @@ class BaseModelCardData(CardData):
         dataset_info["stats"] = {}
         if isinstance(dataset, Dataset):
             for column in dataset_columns:
-                subsection = dataset[:1000][column]
-                first = subsection[0]
-                if isinstance(first, str):
-                    # Skip ``model.preprocess`` for string columns storing media file
-                    # paths: it would load 1000 real files per column, exhausting RAM
-                    # on multimodal datasets with many path columns.
-                    try:
-                        probed_modality = infer_modality(
-                            first,
-                            supported_modalities=getattr(self.model, "modalities", None),
-                        )
-                    except Exception:
-                        probed_modality = "text"
-                    if probed_modality != "text":
-                        dataset_info["stats"][column] = {
-                            "dtype": f"string ({format_modality(probed_modality)} path)",
-                            "data": {"samples": f"{len(subsection)}"},
-                        }
-                        continue
-                    tokenized = self.model.preprocess(subsection, task="document")
-                    if isinstance(tokenized, (dict, UserDict)) and "attention_mask" in tokenized:
-                        lengths = tokenized["attention_mask"].sum(dim=1).tolist()
-                        suffix = "tokens"
-                    else:
-                        lengths = [len(sentence) for sentence in subsection]
-                        suffix = "characters"
-                    dataset_info["stats"][column] = {
-                        "dtype": "string",
-                        "data": {
-                            "min": f"{round(min(lengths), 2)} {suffix}",
-                            "mean": f"{round(sum(lengths) / len(lengths), 2)} {suffix}",
-                            "max": f"{round(max(lengths), 2)} {suffix}",
-                        },
-                    }
-                elif isinstance(first, (int, bool)):
-                    counter = Counter(subsection)
-                    dataset_info["stats"][column] = {
-                        "dtype": "int",
-                        "data": {
-                            key: f"{'~' if len(counter) > 1 else ''}{counter[key] / len(subsection):.2%}"
-                            for key in sorted(counter)
-                        },
-                    }
-                elif isinstance(first, float):
-                    dataset_info["stats"][column] = {
-                        "dtype": "float",
-                        "data": {
-                            "min": round(min(subsection), 2),
-                            "mean": round(sum(subsection) / len(subsection), 2),
-                            "max": round(max(subsection), 2),
-                        },
-                    }
-                elif isinstance(first, list):
-                    counter = Counter([len(lst) for lst in subsection])
-                    if len(counter) == 1:
-                        dataset_info["stats"][column] = {
-                            "dtype": "list",
-                            "data": {
-                                "size": f"{len(first)} elements",
-                            },
-                        }
-                    else:
-                        dataset_info["stats"][column] = {
-                            "dtype": "list",
-                            "data": {
-                                "min": f"{min(counter)} elements",
-                                "mean": f"{sum(counter) / len(counter):.2f} elements",
-                                "max": f"{max(counter)} elements",
-                            },
-                        }
-                else:
-                    # Handle non-text types: PIL Images, Audio dicts, etc.
-                    if PILImage and isinstance(first, PILImage):
-                        widths = [img.width for img in subsection if isinstance(img, PILImage)]
-                        heights = [img.height for img in subsection if isinstance(img, PILImage)]
-                        dataset_info["stats"][column] = {
-                            "dtype": "image",
-                            "data": {
-                                "min": f"{min(widths)}x{min(heights)} px",
-                                "mean": f"{sum(widths) // len(widths)}x{sum(heights) // len(heights)} px",
-                                "max": f"{max(widths)}x{max(heights)} px",
-                            },
-                        }
-                    elif (isinstance(first, dict) and "array" in first and "sampling_rate" in first) or (
-                        AudioDecoder is not None and isinstance(first, AudioDecoder)
-                    ):
-                        durations = [
-                            len(d["array"]) / d["sampling_rate"]
-                            for d in subsection
-                            if (isinstance(d, dict) and "array" in d and "sampling_rate" in d)
-                            or (AudioDecoder is not None and isinstance(d, AudioDecoder))
-                        ]
-                        if durations:
-                            dataset_info["stats"][column] = {
-                                "dtype": "audio",
-                                "data": {
-                                    "min": f"{min(durations):.2f}s",
-                                    "mean": f"{sum(durations) / len(durations):.2f}s",
-                                    "max": f"{max(durations):.2f}s",
-                                    "sampling_rate": f"{first['sampling_rate']} Hz",
-                                },
-                            }
-                        else:
-                            dataset_info["stats"][column] = {"dtype": "audio", "data": {}}
-                    elif VideoDecoder is not None and isinstance(first, VideoDecoder):
-                        durations = [
-                            v.metadata.duration_seconds
-                            for v in subsection
-                            if VideoDecoder is not None and isinstance(v, VideoDecoder)
-                        ]
-                        widths = [
-                            v.metadata.width
-                            for v in subsection
-                            if VideoDecoder is not None and isinstance(v, VideoDecoder)
-                        ]
-                        heights = [
-                            v.metadata.height
-                            for v in subsection
-                            if VideoDecoder is not None and isinstance(v, VideoDecoder)
-                        ]
-                        if durations:
-                            dataset_info["stats"][column] = {
-                                "dtype": "video",
-                                "data": {
-                                    "min": f"{min(durations):.2f}s, {min(widths)}x{min(heights)} px",
-                                    "mean": f"{sum(durations) / len(durations):.2f}s, {sum(widths) // len(widths)}x{sum(heights) // len(heights)} px",
-                                    "max": f"{max(durations):.2f}s, {max(widths)}x{max(heights)} px",
-                                    "fps": f"{first.metadata.average_fps:.0f}",
-                                },
-                            }
-                        else:
-                            dataset_info["stats"][column] = {"dtype": "video", "data": {}}
-                    else:
-                        dataset_info["stats"][column] = {"dtype": fullname(first), "data": {}}
+                dataset_info["stats"][column] = self._compute_column_stats(dataset, column)
 
             def to_html_list(data: dict):
+                if not data:
+                    return ""
                 return "<ul><li>" + "</li><li>".join(f"{key}: {value}" for key, value in data.items()) + "</li></ul>"
 
             stats_lines = [
                 {"": "type", **{key: value["dtype"] for key, value in dataset_info["stats"].items()}},
+                {
+                    "": "modality",
+                    **{key: value.get("modality", "") for key, value in dataset_info["stats"].items()},
+                },
                 {"": "details", **{key: to_html_list(value["data"]) for key, value in dataset_info["stats"].items()}},
             ]
             dataset_info["stats_table"] = indent(make_markdown_table(stats_lines).replace("-:|", "--|"), "  ")
