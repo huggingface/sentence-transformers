@@ -562,6 +562,95 @@ class TestParseInputs:
         modality, inputs, extra = self.fmt.parse_inputs(dicts)
         assert list(inputs.keys()) == ["image", "text"]
 
+    def test_multimodal_dict_audio_only_wrapper_raw_array(self):
+        """A ``{"audio": array}`` wrapper with a raw array should behave like bare audio inputs."""
+        arr = np.zeros(16000)
+        modality, inputs, extra = self.fmt.parse_inputs([{"audio": arr}])
+        assert modality == ("audio",)
+        assert len(inputs["audio"]) == 1
+        assert inputs["audio"][0] is arr
+        assert dict(extra) == {}
+
+    def test_multimodal_dict_unwraps_nested_audio_dict(self):
+        """A ``{"audio": {"array": ..., "sampling_rate": ...}}`` wrapper should unwrap the nested dict."""
+        arr = np.zeros(16000)
+        modality, inputs, extra = self.fmt.parse_inputs([{"audio": {"array": arr, "sampling_rate": 16000}}])
+        assert modality == ("audio",)
+        assert len(inputs["audio"]) == 1
+        assert inputs["audio"][0] is arr
+        assert extra["audio"]["sampling_rate"] == 16000
+
+    def test_multimodal_dict_unwraps_nested_video_dict(self):
+        """A ``{"video": {"array": ..., "video_metadata": ...}}`` wrapper should unwrap the nested dict."""
+        arr = np.zeros((8, 3, 224, 224))
+        modality, inputs, extra = self.fmt.parse_inputs([{"video": {"array": arr, "video_metadata": {"fps": 30}}}])
+        assert modality == ("video",)
+        assert len(inputs["video"]) == 1
+        assert inputs["video"][0] is arr
+        assert extra["video"]["video_metadata"] == [{"fps": 30}]
+
+    def test_multimodal_dict_unwraps_audio_alongside_text(self):
+        """Audio should unwrap even when combined with other modalities in the same dict."""
+        arr = np.zeros(16000)
+        modality, inputs, extra = self.fmt.parse_inputs(
+            [{"audio": {"array": arr, "sampling_rate": 16000}, "text": "describe this"}]
+        )
+        assert modality == ("audio", "text")
+        assert inputs["audio"][0] is arr
+        assert inputs["text"] == ["describe this"]
+        assert extra["audio"]["sampling_rate"] == 16000
+
+    def test_multimodal_dict_unwraps_audio_decoder(self):
+        """A ``{"audio": AudioDecoder}`` wrapper should unwrap the decoder into a raw array."""
+        pytest.importorskip("torchcodec")
+        import io
+        import wave
+
+        from torchcodec.decoders import AudioDecoder
+
+        sample_rate = 16000
+        pcm = np.zeros(sample_rate, dtype=np.int16)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as f:
+            f.setnchannels(1)
+            f.setsampwidth(2)
+            f.setframerate(sample_rate)
+            f.writeframes(pcm.tobytes())
+        decoder = AudioDecoder(torch.frombuffer(buf.getvalue(), dtype=torch.uint8))
+
+        modality, inputs, extra = self.fmt.parse_inputs([{"audio": decoder}])
+        assert modality == ("audio",)
+        assert isinstance(inputs["audio"][0], np.ndarray)
+        assert extra["audio"]["sampling_rate"] == sample_rate
+
+    def test_multimodal_dict_unwraps_video_decoder(self):
+        """A ``{"video": VideoDecoder}`` wrapper should unwrap the decoder and collect metadata."""
+        pytest.importorskip("torchcodec")
+        av = pytest.importorskip("av")
+        import io
+
+        from torchcodec.decoders import VideoDecoder
+
+        num_frames, fps, height, width = 4, 30, 32, 32
+        buf = io.BytesIO()
+        with av.open(buf, mode="w", format="mp4") as container:
+            stream = container.add_stream("h264", rate=fps)
+            stream.width = width
+            stream.height = height
+            stream.pix_fmt = "yuv420p"
+            for _ in range(num_frames):
+                frame = av.VideoFrame.from_ndarray(np.zeros((height, width, 3), dtype=np.uint8), format="rgb24")
+                for packet in stream.encode(frame):
+                    container.mux(packet)
+            for packet in stream.encode():
+                container.mux(packet)
+        decoder = VideoDecoder(torch.frombuffer(buf.getvalue(), dtype=torch.uint8))
+
+        modality, inputs, extra = self.fmt.parse_inputs([{"video": decoder}])
+        assert modality == ("video",)
+        assert inputs["video"][0].shape[0] == num_frames
+        assert extra["video"]["video_metadata"][0]["total_num_frames"] == num_frames
+
     def test_mixed_modalities_batch_to_message(self):
         PIL = pytest.importorskip("PIL.Image")
         img = PIL.new("RGB", (10, 10))

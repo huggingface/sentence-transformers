@@ -12,10 +12,12 @@ import numpy as np
 import torch
 
 from sentence_transformers.base.modality_types import (
+    AudioInput,
     MessageFormat,
     Modality,
     PairInput,
     SingleInput,
+    VideoInput,
 )
 
 try:
@@ -97,6 +99,43 @@ def _is_non_text_pair(sample: Any) -> bool:
         if isinstance(elem, list) and elem and isinstance(elem[0], dict):
             return False
     return True
+
+
+def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict[str, Any]]) -> Any:
+    """Unwrap dict-wrapped audio or an ``AudioDecoder`` into a raw array, collecting ``sampling_rate``.
+
+    Passes through unchanged if ``audio_value`` is already a raw array/tensor/URL/path.
+    """
+    if isinstance(audio_value, dict):
+        extra_modality_kwargs["audio"]["sampling_rate"] = audio_value["sampling_rate"]
+        return audio_value["array"]
+    if AudioDecoder is not None and isinstance(audio_value, AudioDecoder):
+        samples = audio_value.get_all_samples()
+        # AudioDecoder returns (channels, samples); mean over channels to get 1D numpy
+        extra_modality_kwargs["audio"]["sampling_rate"] = samples.sample_rate
+        return samples.data.mean(dim=0).numpy()
+    return audio_value
+
+
+def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict[str, Any]]) -> Any:
+    """Unwrap dict-wrapped video or a ``VideoDecoder`` into a raw array, collecting ``video_metadata``.
+
+    Passes through unchanged if ``video_value`` is already a raw array/tensor/URL/path.
+    """
+    if isinstance(video_value, dict):
+        extra_modality_kwargs["video"].setdefault("video_metadata", []).append(video_value["video_metadata"])
+        return video_value["array"]
+    if VideoDecoder is not None and isinstance(video_value, VideoDecoder):
+        frame_batch = video_value.get_frames_in_range(0, len(video_value))
+        extra_modality_kwargs["video"].setdefault("video_metadata", []).append(
+            {
+                "fps": video_value.metadata.average_fps,
+                "total_num_frames": video_value.metadata.num_frames,
+                "frames_indices": list(range(frame_batch.data.shape[0])),
+            }
+        )
+        return frame_batch.data
+    return video_value
 
 
 class InputFormatter:
@@ -222,30 +261,19 @@ class InputFormatter:
 
             modality = infer_modality(item, supported_modalities=self.supported_modalities)  # type: ignore[arg-type]  # non-text pairs filtered above
 
-            # For dict-wrapped audio/video, unwrap the array and collect extra kwargs.
-            # For a single message dict, wrap it in a list. All other values pass through as-is.
-            if modality == "audio" and isinstance(item, dict):
-                value = item["array"]
-                extra_modality_kwargs["audio"]["sampling_rate"] = item["sampling_rate"]
-            elif modality == "audio" and AudioDecoder is not None and isinstance(item, AudioDecoder):
-                samples = item.get_all_samples()
-                # AudioDecoder returns (channels, samples); mean over channels to get 1D numpy
-                value = samples.data.mean(dim=0).numpy()
-                extra_modality_kwargs["audio"]["sampling_rate"] = samples.sample_rate
-            elif modality == "video" and isinstance(item, dict):
-                value = item["array"]
-                extra_modality_kwargs["video"].setdefault("video_metadata", []).append(item["video_metadata"])
-            elif modality == "video" and VideoDecoder is not None and isinstance(item, VideoDecoder):
-                num_frames = len(item)
-                frame_batch = item.get_frames_in_range(0, num_frames)
-                value = frame_batch.data
-                extra_modality_kwargs["video"].setdefault("video_metadata", []).append(
-                    {
-                        "fps": item.metadata.average_fps,
-                        "total_num_frames": item.metadata.num_frames,
-                        "frames_indices": list(range(frame_batch.data.shape[0])),
-                    }
-                )
+            # For dict-wrapped audio/video (including inside a multimodal dict), unwrap the array
+            # and collect extra kwargs. For a single message dict, wrap it in a list.
+            # All other values pass through as-is.
+            if modality == "audio":
+                value = _unwrap_audio(item, extra_modality_kwargs)
+            elif modality == "video":
+                value = _unwrap_video(item, extra_modality_kwargs)
+            elif isinstance(modality, tuple):
+                value = dict(item)
+                if "audio" in value:
+                    value["audio"] = _unwrap_audio(value["audio"], extra_modality_kwargs)
+                if "video" in value:
+                    value["video"] = _unwrap_video(value["video"], extra_modality_kwargs)
             elif modality == "message" and isinstance(item, dict):
                 value = [item]
             else:
