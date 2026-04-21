@@ -4,31 +4,43 @@ import torch
 from torch import Tensor, nn
 
 from sentence_transformers.cross_encoder.model import CrossEncoder
-from sentence_transformers.util import fullname
+from sentence_transformers.util import batch_to_device, fullname
 
 
 class ADRMSELoss(nn.Module):
     def __init__(
         self,
         model: CrossEncoder,
+        alpha: float = 1.0,
         activation_fn: nn.Module | None = nn.Identity(),
         mini_batch_size: int | None = None,
     ) -> None:
-        """
+        r"""
         ADR-MSE (Approx Discounted Rank Mean Squared Error) listwise ranking loss for cross-encoders.
         This loss directly minimizes the error between true rank positions and differentiable
         approximations of predicted ranks, with log-discount weighting inspired by nDCG.
 
-        The predicted ranks are approximated in a differentiable manner using the ApproxRank
-        formulation: for each document, the approximate rank is the sum of sigmoids over score
-        differences with all other documents.
+        The predicted rank of each document is approximated in a differentiable manner using the
+        ApproxRank formulation :math:`\hat{\pi}(d_i) = 1 + \sum_{j \neq i} \sigma(\alpha \cdot (s_j - s_i))`,
+        where :math:`\sigma` is the logistic sigmoid. Tied labels are handled with average ranks,
+        so documents sharing a relevance label share a fractional target rank that the ApproxRank
+        can attain when the model assigns them equal scores.
 
         .. note::
 
             The number of documents per query can vary between samples with the ``ADRMSELoss``.
 
+        .. note::
+
+            Ranks for tied labels are averaged so that the ApproxRank target is attainable
+            when the model assigns tied documents equal scores, avoiding a non-zero minimum
+            loss from arbitrary tie-breaking.
+
         Args:
             model (CrossEncoder): CrossEncoder model to be trained
+            alpha (float): Temperature inside the ApproxRank sigmoid. Higher values give a tighter
+                (less smooth) approximation of the hard rank, at the cost of weaker gradients for
+                well-separated pairs. Defaults to 1.0, matching the Rank-DistiLLM paper.
             activation_fn (:class:`~torch.nn.Module`): Activation function applied to the logits before computing the
                 loss. Defaults to :class:`~torch.nn.Identity`.
             mini_batch_size (int, optional): Number of samples to process in each forward pass. This has a significant
@@ -89,6 +101,7 @@ class ADRMSELoss(nn.Module):
         """
         super().__init__()
         self.model = model
+        self.alpha = alpha
         self.activation_fn = activation_fn or nn.Identity()
         self.mini_batch_size = mini_batch_size
 
@@ -101,11 +114,11 @@ class ADRMSELoss(nn.Module):
     def approximate_ranks(self, scores: Tensor, mask: Tensor) -> Tensor:
         """Compute differentiable approximate ranks using the ApproxRank formulation.
 
-        For each document i: approx_rank(i) = 1 + sum_{j != i} sigmoid(s_j - s_i).
+        For each document i: ``approx_rank(i) = 1 + sum_{j != i} sigmoid(alpha * (s_j - s_i))``.
         Higher scores get lower (better) ranks. Padded positions are excluded via the mask.
         """
         score_diffs = scores.unsqueeze(1) - scores.unsqueeze(2)
-        pairwise = torch.sigmoid(score_diffs)
+        pairwise = torch.sigmoid(self.alpha * score_diffs)
         pairwise = pairwise * mask.unsqueeze(1).float()
         pairwise = pairwise * (1 - torch.eye(scores.size(1), device=scores.device)).unsqueeze(0)
         approx_ranks = 1.0 + pairwise.sum(dim=2)
@@ -113,7 +126,7 @@ class ADRMSELoss(nn.Module):
 
     def forward(
         self,
-        inputs: list[list[str], list[list[str]]],
+        inputs: list[list[str] | list[list[str]]],
         labels: list[Tensor],
         prompt: str | None = None,
         task: str | None = None,
@@ -160,10 +173,10 @@ class ADRMSELoss(nn.Module):
         for i in range(0, len(pairs), mini_batch_size):
             mini_batch_pairs = pairs[i : i + mini_batch_size]
 
-            inputs = self.model.preprocess(mini_batch_pairs, prompt=prompt, task=task)
-            inputs = inputs.to(self.model.device)
+            tokens = self.model.preprocess(mini_batch_pairs, prompt=prompt, task=task)
+            tokens = batch_to_device(tokens, self.model.device)
 
-            logits = self.model(inputs)["scores"].view(-1)
+            logits = self.model(tokens)["scores"].view(-1)
             logits_list.append(logits)
 
         logits = torch.cat(logits_list, dim=0)
@@ -183,10 +196,16 @@ class ADRMSELoss(nn.Module):
         labels_matrix = torch.full((batch_size, max_docs), 0.0, device=self.model.device)
         labels_matrix[batch_indices, doc_indices] = torch.cat(labels, dim=0).float()
 
-        # Derive true ranks from labels (padded positions get worst ranks)
-        labels_for_ranking = labels_matrix.clone()
-        labels_for_ranking[~mask] = float("-inf")
-        true_ranks = labels_for_ranking.argsort(dim=1, descending=True).argsort(dim=1).float() + 1.0
+        # Derive true ranks from labels with average-rank handling of ties, so that
+        # documents sharing a label share a fractional target rank that the ApproxRank
+        # can attain when the model assigns tied docs equal scores. Padded positions are
+        # excluded from the counts via the mask and are masked out of the loss later.
+        labels_j = labels_matrix.unsqueeze(1)
+        labels_i = labels_matrix.unsqueeze(2)
+        valid_j = mask.unsqueeze(1)
+        greater = ((labels_j > labels_i) & valid_j).sum(dim=-1).float()
+        equal = ((labels_j == labels_i) & valid_j).sum(dim=-1).float()
+        true_ranks = greater + (equal + 1.0) / 2.0
 
         approx_ranks = self.approximate_ranks(logits_matrix, mask)
 
@@ -205,6 +224,7 @@ class ADRMSELoss(nn.Module):
 
     def get_config_dict(self) -> dict[str, float | int | str | None]:
         return {
+            "alpha": self.alpha,
             "activation_fn": fullname(self.activation_fn),
             "mini_batch_size": self.mini_batch_size,
         }

@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, nn
 
 from sentence_transformers.cross_encoder import CrossEncoder
-from sentence_transformers.util import fullname
+from sentence_transformers.util import batch_to_device, fullname
 
 
 class ListNetLoss(nn.Module):
@@ -100,7 +100,7 @@ class ListNetLoss(nn.Module):
 
     def forward(
         self,
-        inputs: list[list[str], list[list[str]]],
+        inputs: list[list[str] | list[list[str]]],
         labels: list[Tensor],
         prompt: str | None = None,
         task: str | None = None,
@@ -150,7 +150,7 @@ class ListNetLoss(nn.Module):
             mini_batch_pairs = pairs[i : i + mini_batch_size]
 
             tokens = self.model.preprocess(mini_batch_pairs, prompt=prompt, task=task)
-            tokens = tokens.to(self.model.device)
+            tokens = batch_to_device(tokens, self.model.device)
 
             logits = self.model(tokens)["scores"].view(-1)
             logits_list.append(logits)

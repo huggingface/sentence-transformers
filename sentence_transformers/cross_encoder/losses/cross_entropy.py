@@ -3,6 +3,7 @@ from __future__ import annotations
 from torch import Tensor, nn
 
 from sentence_transformers.cross_encoder.model import CrossEncoder
+from sentence_transformers.util import batch_to_device
 
 
 class CrossEntropyLoss(nn.Module):
@@ -74,7 +75,7 @@ class CrossEntropyLoss(nn.Module):
 
         pairs = list(zip(inputs[0], inputs[1]))
         tokens = self.model.preprocess(pairs, prompt=prompt, task=task)
-        tokens = tokens.to(self.model.device)
+        tokens = batch_to_device(tokens, self.model.device)
         logits = self.model(tokens)["scores"]
         logits = self.activation_fn(logits)
         loss = self.ce_loss(logits, labels)
