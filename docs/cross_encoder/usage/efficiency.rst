@@ -145,14 +145,14 @@ All keyword arguments passed via ``model_kwargs`` will be passed on to :meth:`OR
 
 .. tip::
 
-   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.cross_encoder.CrossEncoder.save_pretrained>` if your model was local:
+   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained>` if your model was local:
 
    .. code-block:: python
 
       model = CrossEncoder("path/to/my/model", backend="onnx")
       model.save_pretrained("path/to/my/model")
    
-   or with :meth:`model.push_to_hub() <sentence_transformers.cross_encoder.CrossEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
+   or with :meth:`model.push_to_hub() <sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
 
    .. code-block:: python
 
@@ -173,7 +173,7 @@ ONNX models can be optimized using `Optimum <https://huggingface.co/docs/optimum
 - ``create_pr``: (Optional) a boolean to create a pull request when pushing to the Hugging Face Hub. Useful when you don't have write access to the repository.
 - ``file_suffix``: (Optional) a string to append to the model name when saving it. If not specified, the optimization level name string will be used, or just ``"optimized"`` if the optimization config was not just a string optimization level.
 
-See this example for exporting a model with :doc:`optimization level 3 <optimum:onnxruntime/usage_guides/optimization>` (basic and extended general optimizations, transformers-specific fusions, fast Gelu approximation):
+See this example for exporting a model with :doc:`optimization level 3 <optimum-onnx:onnxruntime/usage_guides/optimization>` (basic and extended general optimizations, transformers-specific fusions, fast Gelu approximation):
 
 .. tab:: Hugging Face Hub Model
 
@@ -194,7 +194,7 @@ See this example for exporting a model with :doc:`optimization level 3 <optimum:
 
       from sentence_transformers import CrossEncoder
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = CrossEncoder(
           "cross-encoder/ms-marco-MiniLM-L6-v2",
           backend="onnx",
@@ -249,7 +249,7 @@ ONNX models can be quantized to int8 precision using `Optimum <https://huggingfa
 
 On my CPU, each of the default quantization configurations (``"arm64"``, ``"avx2"``, ``"avx512"``, ``"avx512_vnni"``) resulted in roughly equivalent speedups.
 
-See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <optimum:onnxruntime/usage_guides/quantization>`:
+See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <optimum-onnx:onnxruntime/usage_guides/quantization>`:
 
 .. tab:: Hugging Face Hub Model
 
@@ -270,7 +270,7 @@ See this example for quantizing a model to ``int8`` with :doc:`avx512_vnni <opti
 
       from sentence_transformers import CrossEncoder
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = CrossEncoder(
           "cross-encoder/ms-marco-MiniLM-L6-v2",
           backend="onnx",
@@ -354,14 +354,14 @@ If the model path or repository already contains a model in OpenVINO format, Sen
 
 .. tip::
 
-   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.cross_encoder.CrossEncoder.save_pretrained>` if your model was local:
+   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained>` if your model was local:
 
    .. code-block:: python
 
       model = CrossEncoder("path/to/my/model", backend="openvino")
       model.save_pretrained("path/to/my/model")
    
-   or with :meth:`model.push_to_hub() <sentence_transformers.cross_encoder.CrossEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
+   or with :meth:`model.push_to_hub() <sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
 
    .. code-block:: python
 
@@ -412,7 +412,7 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
 
       from sentence_transformers import CrossEncoder
 
-      pull_request_nr = 2 # TODO: Update this to the number of your pull request
+      pull_request_nr = 2 # NOTE: Update this to the number of your pull request
       model = CrossEncoder(
           "cross-encoder/ms-marco-MiniLM-L6-v2",
           backend="openvino",
@@ -598,7 +598,7 @@ Based on the benchmarks, this flowchart should help you decide which backend to 
 
 .. note::
 
-   Your milage may vary, and you should always test the different backends with your specific model and data to find the best one for your use case.
+   Your mileage may vary, and you should always test the different backends with your specific model and data to find the best one for your use case.
 
 User Interface
 ^^^^^^^^^^^^^^

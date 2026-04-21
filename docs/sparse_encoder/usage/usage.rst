@@ -12,10 +12,10 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
 
 .. sidebar:: Documentation
 
-   1. :class:`SparseEncoder <sentence_transformers.sparse_encoder.SparseEncoder>`
-   2. :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.SparseEncoder.encode>`
-   3. :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.SparseEncoder.similarity>`
-   4. :meth:`SparseEncoder.sparsity <sentence_transformers.sparse_encoder.SparseEncoder.sparsity>`
+   1. :class:`SparseEncoder <sentence_transformers.sparse_encoder.model.SparseEncoder>`
+   2. :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.model.SparseEncoder.encode>`
+   3. :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity>`
+   4. :meth:`SparseEncoder.sparsity <sentence_transformers.sparse_encoder.model.SparseEncoder.sparsity>`
 
 ::
 
@@ -48,6 +48,36 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    print(f"Sparsity: {stats['sparsity_ratio']:.2%}")  # Typically >99% zeros
    print(f"Avg non-zero dimensions per embedding: {stats['active_dims']:.2f}")
 
+Prompts
+-------
+
+Some Sparse Encoder models are trained with specific prompts for different use cases (e.g., queries vs. documents).
+You can use :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.model.SparseEncoder.encode>` with the ``prompt_name`` parameter,
+or the convenience methods :meth:`~sentence_transformers.sparse_encoder.model.SparseEncoder.encode_query` and
+:meth:`~sentence_transformers.sparse_encoder.model.SparseEncoder.encode_document`:
+
+::
+
+   from sentence_transformers import SparseEncoder
+
+   model = SparseEncoder("model-with-prompts")
+
+   # Encode queries and documents with the appropriate prompts
+   query_embeddings = model.encode_query(["What is the weather like?"])
+   document_embeddings = model.encode_document(["The weather is lovely today."])
+
+   # Equivalent to:
+   query_embeddings = model.encode(["What is the weather like?"], prompt_name="query")
+   document_embeddings = model.encode(["The weather is lovely today."], prompt_name="document")
+
+You can inspect or set the available prompts via the ``prompts`` and ``default_prompt_name`` attributes:
+
+::
+
+   print(model.prompts)
+   # {'query': 'query: ', 'document': 'document: '}
+
+   model.default_prompt_name = "query"
 
 .. toctree::
    :maxdepth: 1

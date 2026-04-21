@@ -32,7 +32,7 @@ if __name__ == "__main__":
     dataloader = DataLoader(dataset.with_format("torch"), batch_size=data_stream_size)
 
     # Define the model
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
     # Start the multi-process pool on all available CUDA devices
     pool = model.start_multi_process_pool()

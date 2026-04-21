@@ -8,19 +8,21 @@ import numpy as np
 import pytest
 from tokenizers import Tokenizer
 
-from sentence_transformers import SentenceTransformer
-from sentence_transformers.cross_encoder import CrossEncoder
-from sentence_transformers.models import Pooling, StaticEmbedding, Transformer
-from sentence_transformers.sparse_encoder import SparseEncoder
+from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
+from sentence_transformers.sentence_transformer.modules import Pooling, StaticEmbedding, Transformer
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
     from datasets import DatasetDict, load_dataset
 
 
+# Sentence Transformers
 @pytest.fixture(scope="session")
 def _stsb_bert_tiny_model() -> SentenceTransformer:
-    model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = SentenceTransformer(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -32,7 +34,10 @@ def stsb_bert_tiny_model(_stsb_bert_tiny_model: SentenceTransformer) -> Sentence
 
 @pytest.fixture(scope="session")
 def _avg_word_embeddings_levy() -> SentenceTransformer:
-    model = SentenceTransformer("sentence-transformers/average_word_embeddings_levy_dependency")
+    model_id = "sentence-transformers/average_word_embeddings_levy_dependency"
+    model = SentenceTransformer(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -54,12 +59,15 @@ def stsb_bert_tiny_model_openvino() -> SentenceTransformer:
 
 @pytest.fixture()
 def paraphrase_distilroberta_base_v1_model() -> SentenceTransformer:
-    return SentenceTransformer("paraphrase-distilroberta-base-v1")
+    return SentenceTransformer("sentence-transformers/paraphrase-distilroberta-base-v1")
 
 
 @pytest.fixture(scope="session")
 def _static_retrieval_mrl_en_v1_model() -> SentenceTransformer:
-    model = SentenceTransformer("sentence-transformers/static-retrieval-mrl-en-v1")
+    model_id = "sentence-transformers/static-retrieval-mrl-en-v1"
+    model = SentenceTransformer(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
     return model
 
 
@@ -70,12 +78,93 @@ def static_retrieval_mrl_en_v1_model(_static_retrieval_mrl_en_v1_model: Sentence
 
 @pytest.fixture()
 def clip_vit_b_32_model() -> SentenceTransformer:
-    return SentenceTransformer("clip-ViT-B-32")
+    return SentenceTransformer("sentence-transformers/clip-ViT-B-32")
 
 
 @pytest.fixture(scope="session")
+def _distilbert_base_uncased_model() -> SentenceTransformer:
+    model_id = "distilbert/distilbert-base-uncased"
+    word_embedding_model = Transformer(model_id)
+    pooling_model = Pooling(word_embedding_model.get_embedding_dimension())
+    model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
+    return model
+
+
+@pytest.fixture()
+def distilbert_base_uncased_model(_distilbert_base_uncased_model: SentenceTransformer) -> SentenceTransformer:
+    return deepcopy(_distilbert_base_uncased_model)
+
+
+# Cross Encoders
+@pytest.fixture(scope="session")
+def _reranker_bert_tiny_model() -> CrossEncoder:
+    model_id = "cross-encoder-testing/reranker-bert-tiny-gooaq-bce"
+    model = CrossEncoder(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
+    model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
+    return model
+
+
+@pytest.fixture()
+def reranker_bert_tiny_model(_reranker_bert_tiny_model) -> CrossEncoder:
+    return deepcopy(_reranker_bert_tiny_model)
+
+
+# Sparse Encoders
+@pytest.fixture(scope="session")
+def _splade_bert_tiny_model() -> SparseEncoder:
+    model_id = "sparse-encoder-testing/splade-bert-tiny-nq"
+    model = SparseEncoder(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
+    model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
+    return model
+
+
+@pytest.fixture()
+def splade_bert_tiny_model(_splade_bert_tiny_model: SparseEncoder) -> SparseEncoder:
+    return deepcopy(_splade_bert_tiny_model)
+
+
+@pytest.fixture(scope="session")
+def _inference_free_splade_bert_tiny_model() -> SparseEncoder:
+    model_id = "sparse-encoder-testing/inference-free-splade-bert-tiny-nq"
+    model = SparseEncoder(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
+    model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
+    return model
+
+
+@pytest.fixture()
+def inference_free_splade_bert_tiny_model(_inference_free_splade_bert_tiny_model: SparseEncoder) -> SparseEncoder:
+    return deepcopy(_inference_free_splade_bert_tiny_model)
+
+
+@pytest.fixture(scope="session")
+def _csr_bert_tiny_model() -> SparseEncoder:
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = SparseEncoder(model_id)
+    if not model.model_card_data.base_model:
+        model.model_card_data.base_model = model_id
+    model[-1].k = 16
+    model[-1].k_aux = 32
+    model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
+    return model
+
+
+@pytest.fixture()
+def csr_bert_tiny_model(_csr_bert_tiny_model: SparseEncoder) -> SparseEncoder:
+    return deepcopy(_csr_bert_tiny_model)
+
+
+# Tokenization & Datasets
+@pytest.fixture(scope="session")
 def tokenizer() -> Tokenizer:
-    return Tokenizer.from_pretrained("bert-base-uncased")
+    return Tokenizer.from_pretrained("google-bert/bert-base-uncased")
 
 
 @pytest.fixture
@@ -88,51 +177,9 @@ def static_embedding_model(tokenizer: Tokenizer, embedding_weights) -> StaticEmb
     return StaticEmbedding(tokenizer, embedding_weights=embedding_weights)
 
 
-@pytest.fixture()
-def distilbert_base_uncased_model() -> SentenceTransformer:
-    word_embedding_model = Transformer("distilbert-base-uncased")
-    pooling_model = Pooling(word_embedding_model.get_word_embedding_dimension())
-    model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
-    return model
-
-
 @pytest.fixture(scope="session")
 def stsb_dataset_dict() -> DatasetDict:
     return load_dataset("sentence-transformers/stsb")
-
-
-@pytest.fixture(scope="session")
-def _reranker_bert_tiny_model() -> CrossEncoder:
-    return CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
-
-
-@pytest.fixture()
-def reranker_bert_tiny_model(_reranker_bert_tiny_model) -> CrossEncoder:
-    return deepcopy(_reranker_bert_tiny_model)
-
-
-@pytest.fixture(scope="session")
-def _splade_bert_tiny_model() -> SparseEncoder:
-    model = SparseEncoder("sparse-encoder-testing/splade-bert-tiny-nq")
-    model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
-    return model
-
-
-@pytest.fixture()
-def splade_bert_tiny_model(_splade_bert_tiny_model: SparseEncoder) -> SparseEncoder:
-    return deepcopy(_splade_bert_tiny_model)
-
-
-@pytest.fixture(scope="session")
-def _inference_free_splade_bert_tiny_model() -> SparseEncoder:
-    model = SparseEncoder("sparse-encoder-testing/inference-free-splade-bert-tiny-nq")
-    model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
-    return model
-
-
-@pytest.fixture()
-def inference_free_splade_bert_tiny_model(_inference_free_splade_bert_tiny_model: SparseEncoder) -> SparseEncoder:
-    return deepcopy(_inference_free_splade_bert_tiny_model)
 
 
 @pytest.fixture()

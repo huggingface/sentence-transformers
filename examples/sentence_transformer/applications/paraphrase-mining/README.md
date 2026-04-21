@@ -8,7 +8,7 @@ However, as this has a quadratic runtime, it fails to scale to large (10,000 and
     from sentence_transformers import SentenceTransformer
     from sentence_transformers.util import paraphrase_mining
 
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
     # Single list of sentences - Possible tens of thousands of sentences
     sentences = [

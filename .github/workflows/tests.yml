@@ -48,26 +48,37 @@ jobs:
         if: runner.os == 'Linux'
 
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Setup Python environment
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff  # v6
+
+      # kenlm doesn't compile on Python 3.13, and pyctcdecode pins numpy<2.0.0
+      # which conflicts with the rest of the stack. Exclude both on Python 3.13.
+      - name: Create excludes file for packages without Python 3.13 support
+        shell: bash
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.13" ]; then
+            echo -e "kenlm\npyctcdecode" > excludes.txt
+          else
+            touch excludes.txt
+          fi
 
       - name: Install dependencies (transformers < 5.0.0)
         if: ${{ matrix.transformers-version == '<5.0.0' }}
-        run: uv pip install '.[train, onnx, openvino, dev]' 'transformers<5.0.0' --system
+        run: uv pip install '.[train, onnx, openvino, dev]' 'transformers<5.0.0' 'accelerate>=1.13.0' 'datasets>=3.3.0' --excludes excludes.txt --system
 
       - name: Install dependencies (transformers >= 5.0.0)
         if: ${{ matrix.transformers-version == '>=5.0.0' }}
-        run: uv pip install '.[train, dev]' 'transformers>=5.0.0' --system
+        run: uv pip install '.[train, dev]' 'transformers>=5.0.0' 'accelerate>=1.13.0' --excludes excludes.txt --system
 
       - name: Install model2vec
-        run: uv pip install model2vec --system
+        run: uv pip install model2vec[distill] --system
         if: ${{ contains(fromJSON('["3.10", "3.11", "3.12", "3.13"]'), matrix.python-version) }}
 
       - name: Run unit tests

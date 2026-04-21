@@ -23,6 +23,9 @@ This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.h
 {%- endif %}
 - **Maximum Sequence Length:** {{ model_max_length }} tokens
 - **Number of Output Labels:** {{ model_num_labels }} label{{ "s" if model_num_labels > 1 else "" }}
+{% if supported_modalities -%}
+    - **Supported Modalit{{"ies" if supported_modalities | length > 1 else "y"}}:** {{ supported_modalities | join(", ") }}
+{%- endif %}
 {% if train_datasets | selectattr("name") | list -%}
     - **Training Dataset{{"s" if train_datasets | selectattr("name") | list | length > 1 else ""}}:**
     {%- for dataset in (train_datasets | selectattr("name")) %}
@@ -58,6 +61,12 @@ This is a [Cross Encoder](https://www.sbert.net/docs/cross_encoder/usage/usage.h
 - **Repository:** [Sentence Transformers on GitHub](https://github.com/huggingface/sentence-transformers)
 - **Hugging Face:** [Cross Encoders on Hugging Face](https://huggingface.co/models?library=sentence-transformers&other=cross-encoder)
 
+### Full Model Architecture
+
+```
+{{ model_string }}
+```
+
 ## Usage
 
 ### Direct Usage (Sentence Transformers)
@@ -69,32 +78,7 @@ pip install -U sentence-transformers
 ```
 
 Then you can load this model and run inference.
-```python
-from sentence_transformers import CrossEncoder
-
-# Download from the {{ hf_emoji }} Hub
-model = CrossEncoder("{{ model_id | default('cross_encoder_model_id', true) }}")
-# Get scores for pairs of texts
-pairs = [
-{%- for text in (predict_example or [["How many calories in an egg", "There are on average between 55 and 80 calories in an egg depending on its size."], ["How many calories in an egg", "Egg whites are very low in calories, have no fat, no cholesterol, and are loaded with protein."], ["How many calories in an egg", "Most of the calories in an egg come from the yellow yolk in the center."]]) %}
-    {{ "%r" | format(text) }},
-{%- endfor %}
-]
-scores = model.predict(pairs)
-print(scores.shape)
-# ({{ (predict_example or ["dummy", "dummy", "dummy"]) | length }},{{ (" %d" | format(model_num_labels)) if model_num_labels > 1 else "" }}){% if model_num_labels == 1 %}
-
-# Or rank different texts based on similarity to a single text
-ranks = model.rank(
-    {{ "%r" | format(predict_example[0][0] if predict_example else "How many calories in an egg") }},
-    [
-{%- for pair in (predict_example or [["How many calories in an egg", "There are on average between 55 and 80 calories in an egg depending on its size."], ["How many calories in an egg", "Egg whites are very low in calories, have no fat, no cholesterol, and are loaded with protein."], ["How many calories in an egg", "Most of the calories in an egg come from the yellow yolk in the center."]]) %}
-        {{ "%r" | format(pair[1]) }},
-{%- endfor %}
-    ]
-)
-# [{'corpus_id': ..., 'score': ...}, {'corpus_id': ..., 'score': ...}, ...]{% endif %}
-```
+{{ usage_snippet }}
 
 <!--
 ### Direct Usage (Transformers)
@@ -203,13 +187,20 @@ You can finetune this model on your own dataset.
 Carbon emissions were measured using [CodeCarbon](https://github.com/mlco2/codecarbon).
 - **Energy Consumed**: {{ "%.3f"|format(co2_eq_emissions["energy_consumed"]) }} kWh
 - **Carbon Emitted**: {{ "%.3f"|format(co2_eq_emissions["emissions"] / 1000) }} kg of CO2
-- **Hours Used**: {{ co2_eq_emissions["hours_used"] }} hours
 
 ### Training Hardware
 - **On Cloud**: {{ "Yes" if co2_eq_emissions["on_cloud"] else "No" }}
 - **GPU Model**: {{ co2_eq_emissions["hardware_used"] or "No GPU used" }}
 - **CPU Model**: {{ co2_eq_emissions["cpu_model"] }}
 - **RAM Size**: {{ "%.2f"|format(co2_eq_emissions["ram_total_size"]) }} GB
+{% endif %}
+{%- if training_time is not none %}
+### Training Time
+- **Training**: {{ training_time }}
+{%- if evaluation_time is not none %}
+- **Evaluation**: {{ evaluation_time }}
+- **Total**: {{ total_time }}
+{%- endif %}
 {% endif %}
 ### Framework Versions
 - Python: {{ version["python"] }}
@@ -219,6 +210,12 @@ Carbon emissions were measured using [CodeCarbon](https://github.com/mlco2/codec
 - Accelerate: {{ version["accelerate"] }}
 - Datasets: {{ version["datasets"] }}
 - Tokenizers: {{ version["tokenizers"] }}
+
+## Additional Resources
+
+- [Training and Finetuning Reranker Models with Sentence Transformers](https://huggingface.co/blog/train-reranker): the end-to-end guide for training or finetuning Cross Encoder (reranker) models.
+- [Multimodal Embedding & Reranker Models with Sentence Transformers](https://huggingface.co/blog/multimodal-sentence-transformers): use text, image, audio, and video reranker models through the same API.
+- [Training and Finetuning Multimodal Embedding & Reranker Models with Sentence Transformers](https://huggingface.co/blog/train-multimodal-sentence-transformers): training multimodal Cross Encoders, including Any-to-Any and Feature Extraction architectures.
 
 ## Citation
 

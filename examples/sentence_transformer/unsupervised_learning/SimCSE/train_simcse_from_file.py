@@ -1,7 +1,7 @@
 """
 This file loads sentences from a provided text file. It is expected, that the there is one sentence per line in that text file.
 
-SimCSE will be training using these sentences. Checkpoints are stored every 500 steps to the output folder.
+SimCSE will be training using these sentences. Checkpoints are stored every 10% of training to the output folder.
 
 Usage:
 python train_simcse_from_file.py path/to/sentences.txt
@@ -16,20 +16,19 @@ from datetime import datetime
 import tqdm
 from datasets import Dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 # Just some code to print debug information to stdout
 logging.basicConfig(
-    format="%(asctime)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    level=logging.INFO,
-    handlers=[LoggingHandler()],
+    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
 
 # Training parameters
-model_name = "distilroberta-base"
+model_name = "distilbert/distilroberta-base"
 train_batch_size = 128
 max_seq_length = 32
 num_epochs = 1
@@ -50,10 +49,10 @@ model_output_path = "output/train_simcse{}-{}".format(output_name, datetime.now(
 
 
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for mapping tokens to embeddings
-word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
+word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
 
 # Apply mean pooling to get one fixed sized sentence vector
-pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
+pooling_model = Pooling(word_embedding_model.get_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 # Read the train corpus
@@ -70,7 +69,7 @@ logging.info(f"Train sentences: {len(train_samples)}")
 train_dataset = Dataset.from_list(train_samples)
 
 # We train our model using the MultipleNegativesRankingLoss
-train_loss = losses.MultipleNegativesRankingLoss(model)
+train_loss = MultipleNegativesRankingLoss(model)
 
 # Prepare training arguments
 args = SentenceTransformerTrainingArguments(

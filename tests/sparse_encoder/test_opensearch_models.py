@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
-from sentence_transformers.models import Router
 from sentence_transformers.sparse_encoder import SparseEncoder
-from sentence_transformers.sparse_encoder.models import MLMTransformer, SparseStaticEmbedding, SpladePooling
+from sentence_transformers.sparse_encoder.modules import Router, SparseStaticEmbedding, SpladePooling, Transformer
 
 
+@pytest.mark.slow
 def test_opensearch_v2_distill_similarity():
     """Test OpenSearch v2 distill model produces expected similarity scores."""
     # Setup the model
-    doc_encoder = MLMTransformer("opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill")
+    doc_encoder = Transformer(
+        "opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill", transformer_task="fill-mask"
+    )
     router = Router.for_query_document(
         query_modules=[
             SparseStaticEmbedding.from_json(
@@ -80,10 +83,13 @@ def test_opensearch_v2_distill_similarity():
         )
 
 
+@pytest.mark.slow
 def test_opensearch_v3_distill_similarity():
     """Test OpenSearch v3 distill model produces expected similarity scores."""
     # Setup the model
-    doc_encoder = MLMTransformer("opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill")
+    doc_encoder = Transformer(
+        "opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill", transformer_task="fill-mask"
+    )
     router = Router.for_query_document(
         query_modules=[
             SparseStaticEmbedding.from_json(

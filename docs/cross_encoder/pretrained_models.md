@@ -22,7 +22,7 @@ scores = model.predict([
 # => array([0.9998173 , 0.01312432], dtype=float32)
 ```
 
-Cross-Encoders require text pairs as inputs and output a score 0...1 (if the Sigmoid activation function is used). They do not work for individual sentences and they don't compute embeddings for individual texts.
+Cross-Encoders require pairs as inputs and output a score (0 to 1 if the Sigmoid activation function is used). Most models work with text pairs, but some also support non-text inputs such as images (see [Multimodal Rerankers](#multimodal-rerankers)). Cross-Encoders do not work for individual sentences and they don't compute embeddings for individual texts.
 
 ## MS MARCO
 
@@ -85,7 +85,7 @@ These models have been trained on the [Quora duplicate questions dataset](https:
 
 ```{eval-rst}
 .. note::
-    The model don't work for question similarity. The question "How to learn Java?" and "How to learn Python?" will get a low score, as these questions are not duplicates. For question similarity, a :class:`~sentence_transformers.SentenceTransformer` trained on the Quora dataset will yield much more meaningful results.
+    The model don't work for question similarity. The question "How to learn Java?" and "How to learn Python?" will get a low score, as these questions are not duplicates. For question similarity, a :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` trained on the Quora dataset will yield much more meaningful results.
 ```
 
 ## NLI
@@ -115,6 +115,26 @@ label_mapping = ["contradiction", "entailment", "neutral"]
 labels = [label_mapping[score_max] for score_max in scores.argmax(axis=1)]
 # => ['entailment', 'contradiction']
 ```
+
+## Multimodal Rerankers
+
+```{eval-rst}
+Multimodal rerankers can score pairs involving different modalities such as images, video, audio, and text. These models use the same :class:`~sentence_transformers.base.modules.Transformer` + :class:`~sentence_transformers.cross_encoder.modules.LogitScore` architecture as text-only decoder rerankers, but with a multimodal backbone that can process non-text inputs. You can check whether a model supports a given modality using :attr:`~sentence_transformers.cross_encoder.model.CrossEncoder.modalities` and :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder.supports`.
+```
+
+```{eval-rst}
+.. seealso::
+   See the `Multimodal Embedding & Reranker Models <https://huggingface.co/blog/multimodal-sentence-transformers>`_ blogpost for an inference walkthrough and an overview of the multimodal models supported at the time of writing.
+```
+
+Here are some community models:
+
+- [Qwen/Qwen3-VL-Reranker-2B](https://huggingface.co/Qwen/Qwen3-VL-Reranker-2B)
+- [Qwen/Qwen3-VL-Reranker-8B](https://huggingface.co/Qwen/Qwen3-VL-Reranker-8B)
+- [nvidia/llama-nemotron-rerank-vl-1b-v2](https://huggingface.co/nvidia/llama-nemotron-rerank-vl-1b-v2)
+- [jinaai/jina-reranker-m0](https://huggingface.co/jinaai/jina-reranker-m0)
+
+See [Cross Encoder > Usage](usage/usage.rst) for usage examples, and the training scripts in `examples/cross_encoder/training/multimodal/` to fine-tune your own multimodal reranker.
 
 ## Community Models
 

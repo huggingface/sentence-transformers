@@ -39,17 +39,18 @@ import torch
 import tqdm
 from datasets import Dataset, concatenate_datasets, load_dataset
 
-from sentence_transformers import SentenceTransformer, losses
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.similarity_functions import SimilarityFunction
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
-# You can specify any huggingface/transformers pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
-model_name = sys.argv[1] if len(sys.argv) > 1 else "bert-base-uncased"
+# You can specify any huggingface/transformers pre-trained model here, for example, google-bert/bert-base-uncased, FacebookAI/roberta-base, FacebookAI/xlm-roberta-base
+model_name = sys.argv[1] if len(sys.argv) > 1 else "google-bert/bert-base-uncased"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 batch_size = 16
 num_epochs = 1
@@ -120,7 +121,7 @@ logging.info(f"Number of silver pairs generated: {len(silver_samples)}")
 ###################################################################
 
 train_dataset = concatenate_datasets([train_dataset, silver_dataset])
-train_loss = losses.CosineSimilarityLoss(model=model)
+train_loss = CosineSimilarityLoss(model=model)
 
 logging.info("Read STSbenchmark dev dataset")
 evaluator = EmbeddingSimilarityEvaluator(
@@ -139,7 +140,7 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=num_epochs,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:

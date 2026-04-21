@@ -17,7 +17,7 @@ from sentence_transformers import SentenceTransformer
 from PIL import Image
 
 # Load CLIP model
-model = SentenceTransformer("clip-ViT-B-32")
+model = SentenceTransformer("sentence-transformers/clip-ViT-B-32")
 
 # Encode an image:
 img_emb = model.encode(Image.open("two_dogs_in_snow.jpg"))
@@ -40,7 +40,7 @@ You can use the CLIP model for:
 ## Examples
 
 - [Image_Search.ipynb](Image_Search.ipynb) ([Colab Version](https://colab.research.google.com/drive/16OdADinjAg3w3ceZy3-cOR9A-5ZW9BYr?usp=sharing)) depicts a larger example for **text-to-image** and **image-to-image** search using 25,000 free pictures from [Unsplash](https://unsplash.com/).
-- [Image_Search-multilingual.ipynb](Image_Search-multilingual.ipynb) ([Colab Version](https://colab.research.google.com/drive/1N6woBKL4dzYsHboDNqtv-8gjZglKOZcn?usp=sharing)) example of multilingual text2image search for 50+ languages.
+- [image_search_multilingual.ipynb](image_search_multilingual.ipynb) ([Colab Version](https://colab.research.google.com/drive/1N6woBKL4dzYsHboDNqtv-8gjZglKOZcn?usp=sharing)) example of multilingual text2image search for 50+ languages.
 - [Image_Clustering.ipynb](Image_Clustering.ipynb) ([Colab Version](https://colab.research.google.com/drive/1T3gfEF7pkXgPPajNa9ZjurB25B0RJ3_X?usp=sharing)) shows how to perform **image clustering**. Given 25,000 free pictures from [Unsplash](https://unsplash.com/), we find clusters of similar images. You can control how sensitive the clustering should be.
 - [Image_Duplicates.ipynb](Image_Duplicates.ipynb) ([Colab Version](https://colab.research.google.com/drive/1wLiZNedMwlM-FxBVbp3aA353yohV_wJ1?usp=sharing)) shows an example how to find duplicate and near duplicate images in a large collection of photos.
 - [Image_Classification.ipynb](Image_Classification.ipynb) ([Colab Version](https://colab.research.google.com/drive/1J0a29kSZ7qJwu2bGqjo1GYRz77v1oWq0?usp=sharing)) example for (multi-lingual) zero-shot image classification.

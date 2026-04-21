@@ -11,7 +11,8 @@ import os
 import sys
 import tarfile
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation, util
+from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation
+from sentence_transformers.util import http_get
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(
@@ -43,16 +44,14 @@ if not os.path.exists(collection_filepath) or not os.path.exists(dev_queries_fil
     tar_filepath = os.path.join(data_folder, "collectionandqueries.tar.gz")
     if not os.path.exists(tar_filepath):
         logging.info("Download: " + tar_filepath)
-        util.http_get(
-            "https://msmarco.z22.web.core.windows.net/msmarcoranking/collectionandqueries.tar.gz", tar_filepath
-        )
+        http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/collectionandqueries.tar.gz", tar_filepath)
 
     with tarfile.open(tar_filepath, "r:gz") as tar:
         tar.extractall(path=data_folder)
 
 
 if not os.path.exists(qrels_filepath):
-    util.http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/qrels.dev.tsv", qrels_filepath)
+    http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/qrels.dev.tsv", qrels_filepath)
 
 ### Load data
 

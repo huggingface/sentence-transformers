@@ -2,7 +2,7 @@
 This scripts show how to mine parallel (translated) sentences from two list of monolingual sentences.
 
 As input, you specific two text files that have sentences in every line. Then, the
-LaBSE model is used to find parallel (translated) across these two files.
+sentence-transformers/LaBSE model is used to find parallel (translated) across these two files.
 
 The result is written to disk.
 
@@ -21,10 +21,11 @@ import tqdm
 from bitext_mining_utils import file_open, kNN, score_candidates
 from sklearn.decomposition import PCA
 
-from sentence_transformers import SentenceTransformer, models
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.sentence_transformer.modules import Dense
 
-# Model we want to use for bitext mining. LaBSE achieves state-of-the-art performance
-model_name = "LaBSE"
+# Model we want to use for bitext mining. sentence-transformers/LaBSE achieves state-of-the-art performance
+model_name = "sentence-transformers/LaBSE"
 model = SentenceTransformer(model_name)
 
 # Input files. We interpret every line as sentence.
@@ -81,8 +82,8 @@ if use_pca:
     pca = PCA(n_components=pca_dimensions)
     pca.fit(train_matrix)
 
-    dense = models.Dense(
-        in_features=model.get_sentence_embedding_dimension(),
+    dense = Dense(
+        in_features=model.get_embedding_dimension(),
         out_features=pca_dimensions,
         bias=False,
         activation_function=torch.nn.Identity(),

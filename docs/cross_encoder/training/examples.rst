@@ -12,6 +12,7 @@ Training Examples
    ../../../examples/cross_encoder/training/ms_marco/README
    ../../../examples/cross_encoder/training/rerankers/README
    ../../../examples/cross_encoder/training/distillation/README
+   ../../../examples/cross_encoder/training/multimodal/README
 
 .. toctree::
    :maxdepth: 1

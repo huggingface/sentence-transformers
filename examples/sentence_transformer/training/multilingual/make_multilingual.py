@@ -25,15 +25,15 @@ import numpy as np
 from datasets import DatasetDict, load_dataset
 
 from sentence_transformers import LoggingHandler, SentenceTransformer
-from sentence_transformers.evaluation import (
+from sentence_transformers.sentence_transformer.evaluation import (
     EmbeddingSimilarityEvaluator,
     MSEEvaluator,
     SequentialEvaluator,
     TranslationEvaluator,
 )
-from sentence_transformers.losses import MSELoss
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.sentence_transformer.losses import MSELoss
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
@@ -42,9 +42,9 @@ logger = logging.getLogger(__name__)
 
 
 # The teacher model is monolingual, we use it for English embeddings
-teacher_model_name = "paraphrase-distilroberta-base-v2"
+teacher_model_name = "sentence-transformers/paraphrase-distilroberta-base-v2"
 # The student model is multilingual, we train it such that embeddings of non-English texts mimic the teacher model's English embeddings
-student_model_name = "xlm-roberta-base"
+student_model_name = "FacebookAI/xlm-roberta-base"
 
 student_max_seq_length = 128  # Student model max. lengths for inputs (number of word pieces)
 train_batch_size = 64  # Batch size for training
@@ -203,7 +203,7 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=num_train_epochs,
     per_device_train_batch_size=train_batch_size,
     per_device_eval_batch_size=train_batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     learning_rate=2e-5,

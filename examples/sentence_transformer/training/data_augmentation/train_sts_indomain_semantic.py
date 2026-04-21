@@ -16,7 +16,7 @@ python train_sts_indomain_semantic.py
 OR
 python train_sts_indomain_semantic.py pretrained_transformer_model_name top_k
 
-python train_sts_indomain_semantic.py bert-base-uncased 3
+python train_sts_indomain_semantic.py google-bert/bert-base-uncased 3
 """
 
 import logging
@@ -29,11 +29,14 @@ import tqdm
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, losses, models, util
+from sentence_transformers import LoggingHandler, SentenceTransformer
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.readers import InputExample
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss
+from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+from sentence_transformers.sentence_transformer.readers import InputExample
+from sentence_transformers.util import cos_sim
 
 # Just some code to print debug information to stdout
 logging.basicConfig(
@@ -42,8 +45,8 @@ logging.basicConfig(
 # /print debug information to stdout
 
 
-# You can specify any huggingface/transformers pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
-model_name = sys.argv[1] if len(sys.argv) > 1 else "bert-base-uncased"
+# You can specify any huggingface/transformers pre-trained model here, for example, google-bert/bert-base-uncased, FacebookAI/roberta-base, FacebookAI/xlm-roberta-base
+model_name = sys.argv[1] if len(sys.argv) > 1 else "google-bert/bert-base-uncased"
 top_k = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 
 batch_size = 16
@@ -77,11 +80,11 @@ cross_encoder = CrossEncoder(model_name, num_labels=1)
 # Bi-encoder (sentence-transformers) ######
 logging.info(f"Loading bi-encoder model: {model_name}")
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for mapping tokens to embeddings
-word_embedding_model = models.Transformer(model_name, max_seq_length=max_seq_length)
+word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
 
 # Apply mean pooling to get one fixed sized sentence vector
-pooling_model = models.Pooling(
-    word_embedding_model.get_word_embedding_dimension(),
+pooling_model = Pooling(
+    word_embedding_model.get_embedding_dimension(),
     pooling_mode_mean_tokens=True,
     pooling_mode_cls_token=False,
     pooling_mode_max_tokens=False,
@@ -162,7 +165,7 @@ duplicates = set(
 
 
 # For simplicity we use a pretrained model
-semantic_model_name = "paraphrase-MiniLM-L6-v2"
+semantic_model_name = "sentence-transformers/paraphrase-MiniLM-L6-v2"
 semantic_search_model = SentenceTransformer(semantic_model_name)
 logging.info(f"Encoding unique sentences with semantic search model: {semantic_model_name}")
 
@@ -175,7 +178,7 @@ logging.info(f"Retrieve top-{top_k} with semantic search model: {semantic_model_
 progress = tqdm.tqdm(unit="docs", total=len(sent2idx))
 for idx in range(len(sentences)):
     sentence_embedding = embeddings[idx]
-    cos_scores = util.cos_sim(sentence_embedding, embeddings)[0]
+    cos_scores = cos_sim(sentence_embedding, embeddings)[0]
     cos_scores = cos_scores.cpu()
     progress.update(1)
 
@@ -214,7 +217,7 @@ silver_samples = list(
 
 
 train_dataloader = DataLoader(gold_samples + silver_samples, shuffle=True, batch_size=batch_size)
-train_loss = losses.CosineSimilarityLoss(model=bi_encoder)
+train_loss = CosineSimilarityLoss(model=bi_encoder)
 
 logging.info("Read STSbenchmark dev dataset")
 evaluator = EmbeddingSimilarityEvaluator.from_input_examples(dev_samples, name="sts-dev")
