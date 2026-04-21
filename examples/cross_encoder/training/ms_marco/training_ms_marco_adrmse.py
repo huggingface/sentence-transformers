@@ -65,6 +65,9 @@ def main():
     logging.info(train_dataset[0])
 
     # 3. Define our training loss
+    # Note: the Rank-DistiLLM paper trains ADR-MSE in two stages: an InfoNCE (MultipleNegativesRankingLoss)
+    # warmup on labeled MS MARCO first, then continued training on the LLM-distilled ordering. This script
+    # skips the warmup and trains ADR-MSE directly from the base checkpoint for simplicity.
     loss = ADRMSELoss(model=model, mini_batch_size=mini_batch_size)
 
     # 4. Define the evaluator. We use the CENanoBEIREvaluator, which is a light-weight evaluator for English reranking
