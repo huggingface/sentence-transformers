@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, nn
 
 from sentence_transformers.cross_encoder.model import CrossEncoder
-from sentence_transformers.util import fullname
+from sentence_transformers.util import batch_to_device, fullname
 
 
 class MarginMSELoss(nn.Module):
@@ -159,7 +159,7 @@ class MarginMSELoss(nn.Module):
             Tensor: The logits for the pairs.
         """
         inputs = self.model.preprocess(pairs, prompt=prompt, task=task)
-        inputs = inputs.to(self.model.device)
+        inputs = batch_to_device(inputs, self.model.device)
         logits = self.model(inputs)["scores"].view(-1)
         return self.activation_fn(logits)
 

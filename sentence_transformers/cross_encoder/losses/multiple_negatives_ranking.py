@@ -6,7 +6,7 @@ import torch
 from torch import Tensor, nn
 
 from sentence_transformers.cross_encoder.model import CrossEncoder
-from sentence_transformers.util import fullname
+from sentence_transformers.util import batch_to_device, fullname
 
 
 class MultipleNegativesRankingLoss(nn.Module):
@@ -121,7 +121,7 @@ class MultipleNegativesRankingLoss(nn.Module):
         self, pairs: list[list[str]], prompt: str | None = None, task: str | None = None
     ) -> Tensor:
         inputs = self.model.preprocess(pairs, prompt=prompt, task=task)
-        inputs = inputs.to(self.model.device)
+        inputs = batch_to_device(inputs, self.model.device)
         logits = self.model(inputs)["scores"]
         return logits.squeeze(1)
 

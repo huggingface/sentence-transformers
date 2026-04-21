@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .adr_mse import ADRMSELoss
 from .binary_cross_entropy import BinaryCrossEntropyLoss
 from .cached_multiple_negatives_ranking import CachedMultipleNegativesRankingLoss
 from .cross_entropy import CrossEntropyLoss
@@ -20,6 +21,7 @@ from .plist_mle import PListMLELambdaWeight, PListMLELoss
 from .rank_net import RankNetLoss
 
 __all__ = [
+    "ADRMSELoss",
     "BinaryCrossEntropyLoss",
     "CrossEntropyLoss",
     "MultipleNegativesRankingLoss",

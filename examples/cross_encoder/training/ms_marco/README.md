@@ -64,8 +64,12 @@ In all scripts, the model is evaluated on subsets of `MS MARCO <https://huggingf
   ```{eval-rst}
   This example uses the :class:`~sentence_transformers.cross_encoder.losses.RankNetLoss`. The script applies dataset pre-processing into ``(query, [doc1, doc2, ..., docN])`` with ``labels`` as ``[score1, score2, ..., scoreN]``.
   ```
+- **[training_ms_marco_adrmse.py](training_ms_marco_adrmse.py)**:
+  ```{eval-rst}
+  This example uses the :class:`~sentence_transformers.cross_encoder.losses.ADRMSELoss` on the `RankZephyr-ordered MS MARCO subset <https://huggingface.co/datasets/sentence-transformers/msmarco>`_, the LLM-distillation setting the loss was designed for. Per-document scores are derived from the LLM-provided order (top doc gets the highest score).
+  ```
 
-Out of these training scripts, I suspect that **[training_ms_marco_lambda_preprocessed.py](training_ms_marco_lambda_preprocessed.py)**, **[training_ms_marco_lambda_hard_neg.py](training_ms_marco_lambda_hard_neg.py)** or **[training_ms_marco_bce_preprocessed.py](training_ms_marco_bce_preprocessed.py)** produces the strongest model, as anecdotally `LambdaLoss` and `BinaryCrossEntropyLoss` are quite strong. It seems that `LambdaLoss` > `PListMLELoss` > `ListNetLoss` > `RankNetLoss` > `ListMLELoss` out of all learning to rank losses, but your mileage may vary.
+Out of these training scripts, I suspect that **[training_ms_marco_lambda_preprocessed.py](training_ms_marco_lambda_preprocessed.py)**, **[training_ms_marco_lambda_hard_neg.py](training_ms_marco_lambda_hard_neg.py)** or **[training_ms_marco_bce_preprocessed.py](training_ms_marco_bce_preprocessed.py)** produces the strongest model, as anecdotally `LambdaLoss` and `BinaryCrossEntropyLoss` are quite strong. It seems that `LambdaLoss` > `PListMLELoss` > `ListNetLoss` > `RankNetLoss` > `ListMLELoss` out of all learning to rank losses, but your mileage may vary. The Rank-DistiLLM paper reports `ADRMSELoss` within ~0.002 nDCG@10 of `RankNetLoss` on LLM-distilled data.
 
 Additionally, you can also train with Distillation. See [Cross Encoder > Training Examples > Distillation](../distillation/README.md) for more details.
 
