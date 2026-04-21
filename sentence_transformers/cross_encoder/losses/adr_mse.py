@@ -74,6 +74,9 @@ class ADRMSELoss(nn.Module):
         Relations:
             - :class:`~sentence_transformers.cross_encoder.losses.LambdaLoss` takes the same inputs, and generally
               outperforms other listwise losses.
+            - :class:`~sentence_transformers.cross_encoder.losses.RankNetLoss` is the pairwise loss that the
+              Rank-DistiLLM paper directly compares against ``ADRMSELoss``. RankNet was found to be marginally
+              more effective (within ~0.002 nDCG@10) on the paper's LLM-distillation setup.
 
         Example:
             ::
@@ -88,7 +91,7 @@ class ADRMSELoss(nn.Module):
                         ["Pandas are a kind of bear.", "Pandas are kind of like fish."],
                         ["The capital of France is Paris.", "Paris is the capital of France.", "Paris is quite large."],
                     ],
-                    "labels": [[1, 0], [1, 1, 0]],
+                    "scores": [[0.95, 0.1], [0.98, 0.92, 0.2]],
                 })
                 loss = losses.ADRMSELoss(model)
 
@@ -152,16 +155,13 @@ class ADRMSELoss(nn.Module):
         max_docs = max(docs_per_query)
         batch_size = len(queries)
 
-        if docs_per_query != [len(labels) for labels in labels]:
+        if docs_per_query != [len(lbls) for lbls in labels]:
             raise ValueError(
-                f"Number of documents per query in inputs ({docs_per_query}) does not match number of labels per query ({[len(labels) for labels in labels]})."
+                f"Number of documents per query in inputs ({docs_per_query}) does not match number of labels per query ({[len(lbls) for lbls in labels]})."
             )
 
         # Create input pairs for the model
         pairs = [(query, document) for query, docs in zip(queries, docs_list) for document in docs]
-
-        if not pairs:
-            return torch.tensor(0.0, device=self.model.device, requires_grad=True)
 
         mini_batch_size = self.mini_batch_size or batch_size
         if mini_batch_size <= 0:
@@ -214,11 +214,7 @@ class ADRMSELoss(nn.Module):
 
         # Apply mask and reduction
         loss = loss * mask.float()
-        num_valid = mask.sum()
-        if num_valid == 0:
-            return torch.tensor(0.0, device=self.model.device, requires_grad=True)
-
-        return loss.sum() / num_valid
+        return loss.sum() / mask.sum()
 
     def get_config_dict(self) -> dict[str, float | int | str | None]:
         return {
@@ -230,11 +226,11 @@ class ADRMSELoss(nn.Module):
     @property
     def citation(self) -> str:
         return """
-@inbook{schlatt2025rankdistillm,
-   title={Rank-DistiLLM: Closing the Effectiveness Gap Between Cross-Encoders and LLMs for Passage Re-ranking},
-   author={Schlatt, Ferdinand and Fröbe, Maik and Scells, Harrisen and Zhuang, Shengyao and Koopman, Bevan and Zuccon, Guido and Stein, Benno and Potthast, Martin and Hagen, Matthias},
-   booktitle={Advances in Information Retrieval (ECIR 2025)},
-   year={2025},
-   doi={10.1007/978-3-031-88714-7_31},
+@inproceedings{schlatt2025rankdistillm,
+    title={Rank-DistiLLM: Closing the Effectiveness Gap Between Cross-Encoders and LLMs for Passage Re-ranking},
+    author={Schlatt, Ferdinand and Fröbe, Maik and Scells, Harrisen and Zhuang, Shengyao and Koopman, Bevan and Zuccon, Guido and Stein, Benno and Potthast, Martin and Hagen, Matthias},
+    booktitle={Advances in Information Retrieval (ECIR 2025)},
+    year={2025},
+    doi={10.1007/978-3-031-88714-7_31},
 }
 """

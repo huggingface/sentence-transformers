@@ -130,16 +130,12 @@ class ListNetLoss(nn.Module):
         max_docs = max(docs_per_query)
         batch_size = len(queries)
 
-        if docs_per_query != [len(labels) for labels in labels]:
+        if docs_per_query != [len(lbls) for lbls in labels]:
             raise ValueError(
-                f"Number of documents per query in inputs ({docs_per_query}) does not match number of labels per query ({[len(labels) for labels in labels]})."
+                f"Number of documents per query in inputs ({docs_per_query}) does not match number of labels per query ({[len(lbls) for lbls in labels]})."
             )
 
         pairs = [(query, document) for query, docs in zip(queries, docs_list) for document in docs]
-
-        if not pairs:
-            # Handle edge case where there are no documents
-            return torch.tensor(0.0, device=self.model.device, requires_grad=True)
 
         mini_batch_size = self.mini_batch_size or batch_size
         if mini_batch_size <= 0:
