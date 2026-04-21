@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor, nn
 
-from sentence_transformers.cross_encoder.model import CrossEncoder
+from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.util import batch_to_device, fullname
 
 
@@ -118,11 +118,9 @@ class ADRMSELoss(nn.Module):
         Higher scores get lower (better) ranks. Padded positions are excluded via the mask.
         """
         score_diffs = scores.unsqueeze(1) - scores.unsqueeze(2)
-        pairwise = torch.sigmoid(self.alpha * score_diffs)
-        pairwise = pairwise * mask.unsqueeze(1).float()
-        pairwise = pairwise * (1 - torch.eye(scores.size(1), device=scores.device)).unsqueeze(0)
-        approx_ranks = 1.0 + pairwise.sum(dim=2)
-        return approx_ranks
+        pairwise = torch.sigmoid(self.alpha * score_diffs) * mask.unsqueeze(1).float()
+        # Each valid diagonal contributes sigmoid(0) = 0.5; subtract it to exclude the self-term
+        return 1.0 + pairwise.sum(dim=2) - 0.5 * mask.float()
 
     def forward(
         self,
