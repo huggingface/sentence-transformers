@@ -212,12 +212,11 @@ class ADRMSELoss(nn.Module):
     @property
     def citation(self) -> str:
         return """
-@inproceedings{reddy2024rankdistillm,
-    title={Rank-DistiLLM: Closing the Effectiveness Gap Between Cross-Encoders and LLMs for Passage Re-Ranking},
-    author={Reddy, Revanth Gangi and Doo, JaeHyeok and Xu, Yifei and Sultan, Arafat and Bhat, Ganesh and Zhai, ChengXiang and Ji, Heng},
-    year={2024},
-    eprint={2405.07920},
-    archivePrefix={arXiv},
-    primaryClass={cs.IR}
+@inbook{schlatt2025rankdistillm,
+   title={Rank-DistiLLM: Closing the Effectiveness Gap Between Cross-Encoders and LLMs for Passage Re-ranking},
+   author={Schlatt, Ferdinand and Fröbe, Maik and Scells, Harrisen and Zhuang, Shengyao and Koopman, Bevan and Zuccon, Guido and Stein, Benno and Potthast, Martin and Hagen, Matthias},
+   booktitle={Advances in Information Retrieval (ECIR 2025)},
+   year={2025},
+   doi={10.1007/978-3-031-88714-7_31},
 }
 """
