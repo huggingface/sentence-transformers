@@ -1,7 +1,7 @@
 """
 This file loads sentences from a provided text file. It is expected, that the there is one sentence per line in that text file.
 
-SimCSE will be training using these sentences. Checkpoints are stored every 500 steps to the output folder.
+SimCSE will be training using these sentences. Checkpoints are stored every 10% of training to the output folder.
 
 Usage:
 python train_simcse_from_file.py path/to/sentences.txt

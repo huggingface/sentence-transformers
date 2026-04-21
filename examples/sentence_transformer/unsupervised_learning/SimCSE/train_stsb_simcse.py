@@ -14,7 +14,6 @@ from sentence_transformers.sentence_transformer.training_args import SentenceTra
 logging.basicConfig(
     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
 )
-# /print debug information to stdout
 
 # Training parameters
 model_name = "distilbert/distilbert-base-uncased"
@@ -47,11 +46,7 @@ def simcse_map(example):
     }
 
 
-train_dataset = (
-    load_dataset("sentence-transformers/wiki1m-for-simcse", split="train")
-    .filter(lambda x: len(x["text"].strip()) >= 10)
-    .map(simcse_map, remove_columns=["text"])
-)
+train_dataset = train_dataset.filter(lambda x: len(x["text"].strip()) >= 10).map(simcse_map, remove_columns=["text"])
 logging.info(train_dataset)
 
 # Download and load STSb

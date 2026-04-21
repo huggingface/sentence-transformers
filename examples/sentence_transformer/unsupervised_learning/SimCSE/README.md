@@ -2,7 +2,7 @@
 
 Gao et al. present in [SimCSE](https://huggingface.co/papers/2104.08821) a simple method to train sentence embeddings without having training data.
 
-The idea is to encode the same sentence twice. Due to the used dropout in transformer models, both sentence embeddings will be at slightly different positions. The distance between these two embeddings will be minimized, while the distance to other embeddings of the other sentences in the same batch will be maximized (they serve as negative examples).
+The idea is to encode the same sentence twice. Because transformer models apply dropout, the two sentence embeddings end up at slightly different positions. The distance between these two embeddings will be minimized, while the distance to other embeddings of the other sentences in the same batch will be maximized (they serve as negative examples).
 
 ![SimCSE working](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/SimCSE.png)
 
@@ -30,14 +30,12 @@ model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 # Define a list with sentences (1k - 100k sentences)
 train_sentences = [
     "Your set of sentences",
-    "Model will automatically add the noise",
-    "And re-construct it",
+    "This is an example sentence",
+    "And here is another one",
     "You should provide at least 1k sentences",
 ]
 
-# SimCSE trains on pairs of the same sentence: encoding it twice with dropout
-# yields two slightly different embeddings, and in-batch negatives come from
-# the other sentences in the same batch.
+# Use the same sentence as both columns, dropout gives the positive pair.
 train_dataset = Dataset.from_dict({"sentence1": train_sentences, "sentence2": train_sentences})
 
 # Use MultipleNegativesRankingLoss with in-batch negatives
@@ -65,9 +63,9 @@ model.save_pretrained("output/simcse-model")
 
 ## SimCSE from Sentences File
 
-**[train_simcse_from_file.py](train_simcse_from_file.py)** loads sentences from a provided text file. It is expected, that the there is one sentence per line in that text file.
+**[train_simcse_from_file.py](train_simcse_from_file.py)** loads sentences from a provided text file (plain text or gzipped). One sentence per line is expected.
 
-SimCSE will be training using these sentences. Checkpoints are stored every 500 steps to the output folder.
+SimCSE will be training using these sentences. Checkpoints are stored every 10% of training to the output folder.
 
 ## Training Examples
 
@@ -104,4 +102,4 @@ Using max_seq_length=32, distilbert/distilroberta-base model, and 512 batch size
 | Max pooling | 52.91 |
 
 **Note:**
-This is a re-implementation of SimCSE within sentence-transformers. For the official CT code, see: [princeton-nlp/SimCSE](https://github.com/princeton-nlp/SimCSE)
+This is a re-implementation of SimCSE within sentence-transformers. For the official SimCSE code, see: [princeton-nlp/SimCSE](https://github.com/princeton-nlp/SimCSE)
