@@ -144,7 +144,7 @@ class ADRMSELoss(nn.Module):
         """
         if isinstance(labels, Tensor):
             raise ValueError(
-                "ADRMSELoss expects a list of labels for each sample, but got a single value for each sample."
+                "ADRMSELoss expects `labels` to be a list of per-query Tensors (list[Tensor]), but got a single Tensor."
             )
 
         if len(inputs) != 2:
