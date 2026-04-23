@@ -11,8 +11,8 @@ from sentence_transformers.base.modules import Dense
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 
 
-def test_dense_load_and_save_in_other_precisions(static_embedding_model: StaticEmbedding, tmp_path: Path) -> None:
-    base_model = SentenceTransformer(modules=[static_embedding_model, Dense(768, 256, activation_function=nn.Tanh())])
+def test_dense_load_and_save_in_other_precisions(static_embedding: StaticEmbedding, tmp_path: Path) -> None:
+    base_model = SentenceTransformer(modules=[static_embedding, Dense(768, 256, activation_function=nn.Tanh())])
     test_text = ["This is a test"]
     base_embedding = base_model.encode(test_text, convert_to_tensor=True)
 
@@ -85,7 +85,7 @@ def test_dense_custom_features_key() -> None:
     assert "input_embeddings" in output_different  # Original key should still be present
 
 
-def test_dense_save_load_custom_keys(static_embedding_model: StaticEmbedding, tmp_path: Path) -> None:
+def test_dense_save_load_custom_keys(static_embedding: StaticEmbedding, tmp_path: Path) -> None:
     """Test that Dense with custom keys can be saved and loaded."""
     import os
 

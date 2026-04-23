@@ -32,27 +32,27 @@ def test_initialization_with_embedding_dim(tokenizer: Tokenizer) -> None:
     assert model.embedding.weight.shape == (30522, 768)
 
 
-def test_tokenize(static_embedding_model: StaticEmbedding) -> None:
+def test_tokenize(static_embedding: StaticEmbedding) -> None:
     texts = ["Hello world!", "How are you?"]
-    tokens = static_embedding_model.preprocess(texts)
+    tokens = static_embedding.preprocess(texts)
     assert "input_ids" in tokens
     assert "offsets" in tokens
 
 
-def test_forward(static_embedding_model: StaticEmbedding) -> None:
+def test_forward(static_embedding: StaticEmbedding) -> None:
     texts = ["Hello world!", "How are you?"]
-    tokens = static_embedding_model.preprocess(texts)
-    output = static_embedding_model(tokens)
+    tokens = static_embedding.preprocess(texts)
+    output = static_embedding(tokens)
     assert "sentence_embedding" in output
 
 
-def test_save_and_load(tmp_path: Path, static_embedding_model: StaticEmbedding) -> None:
+def test_save_and_load(tmp_path: Path, static_embedding: StaticEmbedding) -> None:
     save_dir = tmp_path / "model"
     save_dir.mkdir()
-    static_embedding_model.save(str(save_dir))
+    static_embedding.save(str(save_dir))
 
     loaded_model = StaticEmbedding.load(str(save_dir))
-    assert loaded_model.embedding.weight.shape == static_embedding_model.embedding.weight.shape
+    assert loaded_model.embedding.weight.shape == static_embedding.embedding.weight.shape
 
 
 @skip_if_transformers_5_or_higher()  # Model2vec distillation is not yet compatible with transformers v5+
@@ -71,10 +71,10 @@ def test_from_model2vec() -> None:
     assert model.embedding.weight.shape == (29528, 256)
 
 
-def test_unsupported_modality(static_embedding_model: StaticEmbedding) -> None:
+def test_unsupported_modality(static_embedding: StaticEmbedding) -> None:
     from PIL import Image
 
-    model = SentenceTransformer(modules=[static_embedding_model])
+    model = SentenceTransformer(modules=[static_embedding])
     dummy_image = Image.new("RGB", (10, 10))
 
     # Image-only input
