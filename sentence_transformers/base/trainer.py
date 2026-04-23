@@ -22,24 +22,26 @@ from transformers.image_processing_utils import BaseImageProcessor
 from transformers.integrations import WandbCallback
 from transformers.processing_utils import ProcessorMixin
 from transformers.trainer import (
+    OPTIMIZER_NAME,
+    OPTIMIZER_NAME_BIN,
+    SCALER_NAME,
+    SCHEDULER_NAME,
+    TRAINER_STATE_NAME,
+    TRAINING_ARGS_NAME,
+)
+from transformers.trainer_utils import EvalLoopOutput, HubStrategy
+from transformers.utils import (
     ADAPTER_CONFIG_NAME,
     ADAPTER_SAFE_WEIGHTS_NAME,
     ADAPTER_WEIGHTS_NAME,
     CONFIG_NAME,
     GENERATION_CONFIG_NAME,
-    OPTIMIZER_NAME,
-    OPTIMIZER_NAME_BIN,
     SAFE_WEIGHTS_INDEX_NAME,
     SAFE_WEIGHTS_NAME,
-    SCALER_NAME,
-    SCHEDULER_NAME,
-    TRAINER_STATE_NAME,
-    TRAINING_ARGS_NAME,
     WEIGHTS_INDEX_NAME,
     WEIGHTS_NAME,
+    is_peft_available,
 )
-from transformers.trainer_utils import EvalLoopOutput, HubStrategy
-from transformers.utils.import_utils import is_peft_available
 
 from sentence_transformers.base.data_collator import BaseDataCollator
 from sentence_transformers.base.evaluation import BaseEvaluator, SequentialEvaluator
