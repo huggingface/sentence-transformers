@@ -173,8 +173,15 @@ def embedding_weights():
 
 
 @pytest.fixture
-def static_embedding_model(tokenizer: Tokenizer, embedding_weights) -> StaticEmbedding:
+def static_embedding(tokenizer: Tokenizer, embedding_weights) -> StaticEmbedding:
     return StaticEmbedding(tokenizer, embedding_weights=embedding_weights)
+
+
+@pytest.fixture
+def static_embedding_model(static_embedding: StaticEmbedding) -> SentenceTransformer:
+    model = SentenceTransformer(modules=[static_embedding])
+    model.model_card_data.generate_widget_examples = False
+    return model
 
 
 @pytest.fixture(scope="session")

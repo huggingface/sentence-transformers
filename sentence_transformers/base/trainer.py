@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import os
 import re
+import shutil
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Callable
@@ -19,8 +21,27 @@ from transformers.feature_extraction_utils import FeatureExtractionMixin
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.integrations import WandbCallback
 from transformers.processing_utils import ProcessorMixin
-from transformers.trainer import TRAINING_ARGS_NAME
-from transformers.trainer_utils import EvalLoopOutput
+from transformers.trainer import (
+    OPTIMIZER_NAME,
+    OPTIMIZER_NAME_BIN,
+    SCALER_NAME,
+    SCHEDULER_NAME,
+    TRAINER_STATE_NAME,
+    TRAINING_ARGS_NAME,
+)
+from transformers.trainer_utils import EvalLoopOutput, HubStrategy
+from transformers.utils import (
+    ADAPTER_CONFIG_NAME,
+    ADAPTER_SAFE_WEIGHTS_NAME,
+    ADAPTER_WEIGHTS_NAME,
+    CONFIG_NAME,
+    GENERATION_CONFIG_NAME,
+    SAFE_WEIGHTS_INDEX_NAME,
+    SAFE_WEIGHTS_NAME,
+    WEIGHTS_INDEX_NAME,
+    WEIGHTS_NAME,
+    is_peft_available,
+)
 
 from sentence_transformers.base.data_collator import BaseDataCollator
 from sentence_transformers.base.evaluation import BaseEvaluator, SequentialEvaluator
@@ -959,6 +980,57 @@ class BaseTrainer(Trainer, ABC):
 
         # Good practice: save your training arguments together with the trained model
         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
+
+    def _push_from_checkpoint(self, checkpoint_folder: str) -> None:
+        # The parent only copies a transformers-layout subset into output_dir before uploading.
+        # Extend it with the rest of the sentence-transformers layout (modules.json, README.md,
+        # module subfolders, ...) so mid-training pushes aren't missing files. Super still runs
+        # and handles the actual upload plus its own file list (weights, config, adapters).
+        if (
+            self.is_world_process_zero()
+            and self.args.hub_strategy != HubStrategy.END
+            and (self.args.hub_always_push or self.push_in_progress is None or self.push_in_progress.is_done())
+        ):
+            skip_names = self._checkpoint_push_skip_names(checkpoint_folder)
+            os.makedirs(self.args.output_dir, exist_ok=True)
+            for name in os.listdir(checkpoint_folder):
+                if name in skip_names or name.startswith("rng_state") or name.startswith("global_step"):
+                    continue
+                src = os.path.join(checkpoint_folder, name)
+                dst = os.path.join(self.args.output_dir, name)
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                else:
+                    shutil.copy(src, dst)
+
+        super()._push_from_checkpoint(checkpoint_folder)
+
+    def _checkpoint_push_skip_names(self, checkpoint_folder: str) -> set[str]:
+        # Training state files (never pushed) + files the parent will copy itself (avoid
+        # double-writing large weight shards). Mirrors `modeling_files` in
+        # `Trainer._push_from_checkpoint`, including shards listed in a weights index.
+        skip = {
+            OPTIMIZER_NAME,
+            OPTIMIZER_NAME_BIN,
+            SCHEDULER_NAME,
+            SCALER_NAME,
+            TRAINER_STATE_NAME,
+            TRAINING_ARGS_NAME,
+            CONFIG_NAME,
+            GENERATION_CONFIG_NAME,
+            WEIGHTS_NAME,
+            SAFE_WEIGHTS_NAME,
+            WEIGHTS_INDEX_NAME,
+            SAFE_WEIGHTS_INDEX_NAME,
+        }
+        if is_peft_available():
+            skip |= {ADAPTER_CONFIG_NAME, ADAPTER_WEIGHTS_NAME, ADAPTER_SAFE_WEIGHTS_NAME}
+        for index_name in (WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_INDEX_NAME):
+            index_path = os.path.join(checkpoint_folder, index_name)
+            if os.path.isfile(index_path):
+                with open(index_path) as f:
+                    skip.update(json.load(f).get("weight_map", {}).values())
+        return skip
 
     def _load_from_checkpoint(self, checkpoint_path: str) -> None:
         model_class = self.model.__class__

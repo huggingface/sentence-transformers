@@ -1334,3 +1334,94 @@ class TestGenerateModelCardUrlRewriting:
             # Relative src="assets/..." should have been rewritten
             assert 'src="assets/' not in model_card
             assert 'src="https://huggingface.co/user/my-model/resolve/main/assets/' in model_card
+
+
+def _make_ir_evaluator():
+    from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
+
+    return InformationRetrievalEvaluator(
+        queries={"q1": "query"},
+        corpus={"d1": "document"},
+        relevant_docs={"q1": {"d1"}},
+    )
+
+
+def _make_similarity_evaluator():
+    from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+
+    return EmbeddingSimilarityEvaluator(sentences1=["a"], sentences2=["b"], scores=[0.5])
+
+
+def _make_nano_beir_evaluator():
+    from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
+
+    # Bypass __init__ to skip downloading NanoBEIR datasets. We only need the class for isinstance.
+    return NanoBEIREvaluator.__new__(NanoBEIREvaluator)
+
+
+def _make_sparse_ir_evaluator():
+    from sentence_transformers.sparse_encoder.evaluation import SparseInformationRetrievalEvaluator
+
+    # Subclass of InformationRetrievalEvaluator: exercises the isinstance path.
+    return SparseInformationRetrievalEvaluator(
+        queries={"q1": "query"},
+        corpus={"d1": "document"},
+        relevant_docs={"q1": {"d1"}},
+    )
+
+
+def _make_sequential_with_ir_evaluator():
+    from sentence_transformers.base.evaluation import SequentialEvaluator
+
+    return SequentialEvaluator([_make_similarity_evaluator(), _make_ir_evaluator()])
+
+
+class TestTryToSetIrModelFromEvaluators:
+    """Lazy IR-model fallback that fires when evaluators reveal IR intent."""
+
+    @pytest.mark.parametrize(
+        "evaluator_factory",
+        [
+            _make_ir_evaluator,
+            _make_nano_beir_evaluator,
+            _make_sparse_ir_evaluator,
+            _make_sequential_with_ir_evaluator,
+        ],
+        ids=["information_retrieval", "nano_beir", "sparse_ir_subclass", "sequential_with_ir"],
+    )
+    def test_ir_evaluator_sets_ir_model(self, evaluator_factory) -> None:
+        data = _make_model_card_data()
+        data.eval_results_dict[evaluator_factory()] = {"ndcg@10": 0.5}
+        data.try_to_set_ir_model_from_evaluators()
+        assert data.ir_model is True
+
+    def test_non_ir_evaluator_does_not_set_ir_model(self) -> None:
+        data = _make_model_card_data()
+        data.eval_results_dict[_make_similarity_evaluator()] = {"spearman_cosine": 0.7}
+        data.try_to_set_ir_model_from_evaluators()
+        assert data.ir_model is None
+
+    def test_to_dict_skips_when_already_set(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        """to_dict guards the call so an already-set ir_model is never overwritten."""
+        model = stsb_bert_tiny_model
+        model.model_card_data.local_files_only = True
+        model.model_card_data.ir_model = True
+        model.model_card_data.eval_results_dict[_make_ir_evaluator()] = {"ndcg@10": 0.5}
+
+        model.model_card_data.to_dict()
+
+        assert model.model_card_data.ir_model is True
+
+    def test_to_dict_triggers_lazy_detection(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        """End-to-end: to_dict() runs the fallback so the snippet uses encode_query/encode_document."""
+        model = stsb_bert_tiny_model
+        model.model_card_data.local_files_only = True
+        model.model_card_data.ir_model = None
+        model.model_card_data.usage_examples = ["q?", "d1", "d2"]
+        model.model_card_data.eval_results_dict[_make_ir_evaluator()] = {"ndcg@10": 0.5}
+
+        result = model.model_card_data.to_dict()
+
+        assert model.model_card_data.ir_model is True
+        assert "model.encode_query(queries)" in result["usage_snippet"]
+        assert "model.encode_document(documents)" in result["usage_snippet"]

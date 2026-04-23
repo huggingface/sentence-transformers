@@ -1291,6 +1291,20 @@ class BaseModelCardData(CardData):
                 self.ir_model = True
                 return
 
+    def try_to_set_ir_model_from_evaluators(self) -> None:
+        from sentence_transformers.base.evaluation import SequentialEvaluator
+        from sentence_transformers.sentence_transformer.evaluation import (
+            InformationRetrievalEvaluator,
+            NanoBEIREvaluator,
+        )
+
+        ir_classes = (InformationRetrievalEvaluator, NanoBEIREvaluator)
+        for evaluator in self.eval_results_dict or {}:
+            sub_evaluators = evaluator.evaluators if isinstance(evaluator, SequentialEvaluator) else [evaluator]
+            if any(isinstance(sub_evaluator, ir_classes) for sub_evaluator in sub_evaluators):
+                self.ir_model = True
+                return
+
     def set_model_id(self, model_id: str) -> None:
         self.model_id = model_id
 
@@ -1883,6 +1897,13 @@ class BaseModelCardData(CardData):
         # Set the model name
         if not self.model_name:
             self.model_name = self.get_default_model_name()
+
+        # Fallback IR detection from evaluators (architecture/prompts/dataset columns took priority)
+        if self.ir_model is None and self.eval_results_dict:
+            try:
+                self.try_to_set_ir_model_from_evaluators()
+            except Exception as exc:
+                logger.warning(f"Error while inferring ir_model from evaluators: {exc}")
 
         # Compute the similarity scores for the usage snippet
         try:
