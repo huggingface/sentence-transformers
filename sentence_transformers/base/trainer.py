@@ -990,6 +990,7 @@ class BaseTrainer(Trainer, ABC):
             and (self.args.hub_always_push or self.push_in_progress is None or self.push_in_progress.is_done())
         ):
             skip_names = self._checkpoint_push_skip_names(checkpoint_folder)
+            os.makedirs(self.args.output_dir, exist_ok=True)
             for name in os.listdir(checkpoint_folder):
                 if name in skip_names or name.startswith("rng_state") or name.startswith("global_step"):
                     continue
@@ -1026,7 +1027,7 @@ class BaseTrainer(Trainer, ABC):
             index_path = os.path.join(checkpoint_folder, index_name)
             if os.path.isfile(index_path):
                 with open(index_path) as f:
-                    skip.update(json.loads(f.read())["weight_map"].values())
+                    skip.update(json.load(f).get("weight_map", {}).values())
         return skip
 
     def _load_from_checkpoint(self, checkpoint_path: str) -> None:
