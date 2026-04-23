@@ -330,6 +330,81 @@ def test_num_labels_fresh_model():
     assert model.num_labels == 1
 
 
+@pytest.mark.parametrize("out_features", [1, 3, 7])
+def test_num_labels_from_dense_scores_module(static_embedding_model, out_features: int):
+    """A Dense module with ``module_output_name="scores"`` should dictate ``num_labels``."""
+    from sentence_transformers.base.modules import Dense
+    from sentence_transformers.sentence_transformer.modules import Pooling
+
+    pooling = Pooling(static_embedding_model.get_embedding_dimension(), "mean")
+    dense = Dense(
+        static_embedding_model.get_embedding_dimension(),
+        out_features,
+        activation_function=None,
+        module_output_name="scores",
+    )
+    model = CrossEncoder(modules=[static_embedding_model, pooling, dense])
+    assert model.num_labels == out_features
+
+
+def test_num_labels_ignores_dense_without_scores_output(static_embedding_model):
+    """A trailing Dense whose ``module_output_name`` is not ``"scores"`` must not be
+    treated as the classification head by ``num_labels``.
+    """
+    from sentence_transformers.base.modules import Dense
+    from sentence_transformers.sentence_transformer.modules import Pooling
+
+    pooling = Pooling(static_embedding_model.get_embedding_dimension(), "mean")
+    dense = Dense(
+        static_embedding_model.get_embedding_dimension(),
+        64,
+        activation_function=None,
+    )
+    model = CrossEncoder(modules=[static_embedding_model, pooling, dense])
+    # No Transformer/LogitScore in the stack, and the Dense doesn't expose "scores",
+    # so num_labels falls through to the default of 1 rather than picking up Dense.out_features.
+    assert model.num_labels == 1
+
+
+def test_config_and_model_none_without_transformer(static_embedding_model):
+    """``.config`` and ``.model`` must degrade to ``None`` when the module stack has no
+    underlying HuggingFace Transformer — rather than raising AttributeError on ``self[0].model``.
+    """
+    from sentence_transformers.base.modules import Dense
+    from sentence_transformers.sentence_transformer.modules import Pooling
+
+    pooling = Pooling(static_embedding_model.get_embedding_dimension(), "mean")
+    dense = Dense(static_embedding_model.get_embedding_dimension(), 1, module_output_name="scores")
+    model = CrossEncoder(modules=[static_embedding_model, pooling, dense])
+
+    assert model.config is None
+    assert model.model is None
+
+
+@pytest.mark.parametrize(
+    ["out_features", "expected_activation_cls"],
+    [(1, torch.nn.Sigmoid), (3, torch.nn.Identity)],
+)
+def test_default_activation_fn_without_transformer(
+    static_embedding_model, out_features: int, expected_activation_cls: type
+):
+    """``get_default_activation_fn`` must pick Sigmoid/Identity based on ``num_labels`` even
+    when there's no Transformer (and thus no ``config``) to inspect for a saved activation.
+    """
+    from sentence_transformers.base.modules import Dense
+    from sentence_transformers.sentence_transformer.modules import Pooling
+
+    pooling = Pooling(static_embedding_model.get_embedding_dimension(), "mean")
+    dense = Dense(
+        static_embedding_model.get_embedding_dimension(),
+        out_features,
+        activation_function=None,
+        module_output_name="scores",
+    )
+    model = CrossEncoder(modules=[static_embedding_model, pooling, dense])
+    assert isinstance(model.activation_fn, expected_activation_cls)
+
+
 def test_push_to_hub(
     reranker_bert_tiny_model: CrossEncoder, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
