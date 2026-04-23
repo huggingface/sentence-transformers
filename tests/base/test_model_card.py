@@ -1355,8 +1355,8 @@ def _make_similarity_evaluator():
 def _make_nano_beir_evaluator():
     from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
 
-    # Construction does not download datasets
-    return NanoBEIREvaluator(dataset_names=["nq"])
+    # Bypass __init__ to skip downloading NanoBEIR datasets. We only need the class for isinstance.
+    return NanoBEIREvaluator.__new__(NanoBEIREvaluator)
 
 
 def _make_sparse_ir_evaluator():
