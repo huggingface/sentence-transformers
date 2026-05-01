@@ -419,6 +419,12 @@ class BaseTrainer(Trainer, ABC):
 
         for name, child in loss.named_children():
             if name == "model" and isinstance(child, BaseModel):
+                # DDP/compile wrappers don't expose BaseModel methods; bind the ones
+                # losses call inside `forward` (CE: `preprocess`, MatryoshkaLoss:
+                # `get_embedding_dimension`).
+                for attr in ("preprocess", "get_embedding_dimension"):
+                    if hasattr(child, attr) and not hasattr(model, attr):
+                        setattr(model, attr, getattr(child, attr))
                 loss.model = model
             elif isinstance(child, torch.nn.Module):
                 setattr(loss, name, self.override_model_in_loss(child, model))
