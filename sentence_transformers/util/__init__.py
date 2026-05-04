@@ -19,6 +19,7 @@ from .misc import (
     disable_logging,
     fullname,
     import_from_string,
+    import_module_class,
 )
 from .quantization import quantize_embeddings
 from .retrieval import (
@@ -77,6 +78,7 @@ __all__ = [
     # From misc.py
     "fullname",
     "import_from_string",
+    "import_module_class",
     "disable_datasets_caching",
     "disable_logging",
     "append_to_last_row",

@@ -913,8 +913,9 @@ class Transformer(InputModule):
             "video": {},
         }
         if self.config.model_type == "whisper":
-            # Whisper requires inputs to be exactly 30 seconds long, while its WhisperFeatureExtractor defaults to
-            # padding=True (a.k.a. "longest"), instead of defaulting to the required "max_length".
+            # Whisper requires inputs to be exactly 30 seconds long. WhisperFeatureExtractor pads
+            # to that length by default, but ST's general "audio" modality kwargs above set
+            # padding=True ("longest") which would override that default. Restore "max_length".
             modality_kwargs["audio"]["padding"] = "max_length"
 
         # Apply user-configured processing_kwargs on top of the defaults

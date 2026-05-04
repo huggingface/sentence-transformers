@@ -16,7 +16,7 @@ from sentence_transformers.base.modality import format_modality, infer_batch_mod
 from sentence_transformers.base.modality_types import MODALITY_TO_PROCESSOR_ARG, Modality, PairInput, SingleInput
 from sentence_transformers.base.modules.input_module import InputModule
 from sentence_transformers.base.modules.module import Module
-from sentence_transformers.util import import_from_string, load_dir_path
+from sentence_transformers.util import import_module_class, load_dir_path
 
 logger = logging.get_logger(__name__)
 
@@ -638,6 +638,7 @@ class Router(InputModule):
             "revision": revision,
             "local_files_only": local_files_only,
         }
+        trust_remote_code = kwargs.get("trust_remote_code", False)
         # Try the official config file first, then fall back to the legacy config file
         config = cls.load_config(model_name_or_path=model_name_or_path, subfolder=subfolder, **hub_kwargs)
         if not config:
@@ -646,7 +647,12 @@ class Router(InputModule):
             )
         modules = {}
         for model_id, model_type in config["types"].items():
-            module_class: Module = import_from_string(model_type)
+            module_class: Module = import_module_class(
+                model_type,
+                model_name_or_path=model_name_or_path,
+                trust_remote_code=trust_remote_code,
+                revision=revision,
+            )
             try:
                 module = module_class.load(
                     model_name_or_path, subfolder=Path(subfolder, model_id).as_posix(), **hub_kwargs, **kwargs

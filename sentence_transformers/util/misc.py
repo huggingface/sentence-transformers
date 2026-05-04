@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import importlib
 import logging
+import os
 import warnings
 from contextlib import contextmanager
 from inspect import isclass
@@ -73,6 +74,61 @@ def import_from_string(dotted_path: str) -> type:
     except AttributeError:
         msg = f'Module "{module_path}" does not define a "{class_name}" attribute/class'
         raise ImportError(msg)
+
+
+def import_module_class(
+    class_ref: str,
+    model_name_or_path: str | None = None,
+    *,
+    trust_remote_code: bool = False,
+    revision: str | None = None,
+    code_revision: str | None = None,
+) -> type:
+    """
+    Resolve a module class reference to a class object.
+
+    For class refs in the ``sentence_transformers.*`` namespace, this imports directly via
+    :func:`import_from_string`. For other class refs (e.g. repository-local custom classes
+    like ``modeling_my_model.CustomTransformer``), it first tries
+    :func:`transformers.dynamic_module_utils.get_class_from_dynamic_module` to fetch the
+    modeling file from the model directory, then falls back to :func:`import_from_string`
+    if dynamic loading is not applicable or fails.
+
+    Dynamic loading is attempted when ``trust_remote_code`` is set, or when
+    ``model_name_or_path`` resolves to a local directory (i.e. the user already has the
+    file on disk and is implicitly trusted).
+
+    Args:
+        class_ref: Dotted class path. Either a fully-qualified ``sentence_transformers.*``
+            path or a repository-local reference like ``modeling_<name>.<ClassName>``.
+        model_name_or_path: Hub repo id or local directory used to source repository-local
+            modeling files. Required for dynamic loading.
+        trust_remote_code: Whether to permit dynamic loading from an unverified Hub repo.
+        revision: Hub revision to fetch the modeling file from.
+        code_revision: Optional separate revision pinning for the modeling code (overrides
+            ``revision`` when set).
+
+    Returns:
+        The resolved class.
+    """
+    if class_ref.startswith("sentence_transformers."):
+        return import_from_string(class_ref)
+
+    if model_name_or_path is not None and (trust_remote_code or os.path.exists(model_name_or_path)):
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        try:
+            return get_class_from_dynamic_module(
+                class_ref,
+                model_name_or_path,
+                revision=revision,
+                code_revision=code_revision,
+            )
+        except (OSError, ValueError):
+            # 1) the file does not exist, or 2) the class_ref is not correctly formatted/found
+            pass
+
+    return import_from_string(class_ref)
 
 
 @contextmanager

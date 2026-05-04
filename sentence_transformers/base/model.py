@@ -22,7 +22,7 @@ from huggingface_hub import CardData, HfApi
 from packaging import version
 from torch import Tensor, nn
 from transformers import PreTrainedModel, is_datasets_available, is_torch_npu_available
-from transformers.dynamic_module_utils import get_class_from_dynamic_module, get_relative_import_files
+from transformers.dynamic_module_utils import get_relative_import_files
 from transformers.utils import logging as transformers_logging
 
 from sentence_transformers import __version__
@@ -34,7 +34,7 @@ from sentence_transformers.base.modules import Module, Router, Transformer
 from sentence_transformers.base.peft_mixin import PeftAdapterMixin
 from sentence_transformers.util import (
     get_device_name,
-    import_from_string,
+    import_module_class,
     load_dir_path,
     load_file_path,
     save_to_hub_args_decorator,
@@ -1298,25 +1298,14 @@ This pull request has been automatically generated to add {self.__class__.__name
         Returns:
             The module class
         """
-        # If the class is from sentence_transformers, we can directly import it,
-        # otherwise, we try to import it dynamically, and if that fails, we fall back to the default import
-        if class_ref.startswith("sentence_transformers."):
-            return import_from_string(class_ref)
-
-        if trust_remote_code or os.path.exists(model_name_or_path):
-            code_revision = model_kwargs.pop("code_revision", None) if model_kwargs else None
-            try:
-                return get_class_from_dynamic_module(
-                    class_ref,
-                    model_name_or_path,
-                    revision=revision,
-                    code_revision=code_revision,
-                )
-            except (OSError, ValueError):
-                # Ignore the error if 1) the file does not exist, or 2) the class_ref is not correctly formatted/found
-                pass
-
-        return import_from_string(class_ref)
+        code_revision = model_kwargs.pop("code_revision", None) if model_kwargs else None
+        return import_module_class(
+            class_ref,
+            model_name_or_path=model_name_or_path,
+            trust_remote_code=trust_remote_code,
+            revision=revision,
+            code_revision=code_revision,
+        )
 
     def evaluate(self, evaluator: BaseEvaluator, output_path: str | None = None) -> dict[str, float] | float:
         """

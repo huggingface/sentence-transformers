@@ -459,7 +459,7 @@ def test_load_module_class_from_ref_trust_remote_code_fallback(
         raise OSError("not found")
 
     monkeypatch.setattr(
-        "sentence_transformers.base.model.get_class_from_dynamic_module",
+        "transformers.dynamic_module_utils.get_class_from_dynamic_module",
         mock_get_class,
     )
 
@@ -484,7 +484,7 @@ def test_load_module_class_from_ref_code_revision(
         raise ValueError("not found")
 
     monkeypatch.setattr(
-        "sentence_transformers.base.model.get_class_from_dynamic_module",
+        "transformers.dynamic_module_utils.get_class_from_dynamic_module",
         mock_get_class,
     )
 
