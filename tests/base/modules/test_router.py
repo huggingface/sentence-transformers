@@ -640,6 +640,33 @@ def test_router_load_with_config(
     assert loaded_router.default_route == router.default_route
 
 
+def test_router_load_forwards_trust_remote_code(
+    static_embedding: StaticEmbedding, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Router.load() forwards trust_remote_code and revision to import_module_class so
+    repository-local custom child class refs (e.g. modeling_my_model.MyModule) can be
+    resolved via the dynamic-module mechanism."""
+    router = Router({"query": [static_embedding], "document": [static_embedding]}, default_route="query")
+    SentenceTransformer(modules=[router]).save_pretrained(tmp_path)
+
+    captured = []
+
+    def fake_import_module_class(class_ref, **kwargs):
+        captured.append({"class_ref": class_ref, **kwargs})
+        return StaticEmbedding
+
+    monkeypatch.setattr("sentence_transformers.base.modules.router.import_module_class", fake_import_module_class)
+
+    SentenceTransformer(str(tmp_path), trust_remote_code=True)
+
+    assert len(captured) == 2  # one resolution per child route
+    for call in captured:
+        assert call["trust_remote_code"] is True
+        assert call["model_name_or_path"] == str(tmp_path)
+        assert "revision" in call
+        assert "StaticEmbedding" in call["class_ref"]
+
+
 def test_router_as_middle_module(static_embedding: StaticEmbedding, tmp_path: Path):
     """Test SentenceTransformer with multiple modules including a Router."""
 
