@@ -1808,7 +1808,7 @@ class BaseModelCardData(CardData):
         if isinstance(value, list) and len(value) > 5:
             return str(value[:5])[:-1] + ", ...]"
         if isinstance(value, str) and len(value) > 1000:
-            return value[:1000] + "..."
+            value = value[:1000] + "..."
         result = str(value).replace("\n", "<br>").replace("|", "\\|")
         return result
 
