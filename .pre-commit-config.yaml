@@ -13,4 +13,13 @@ repos:
   rev: v1.45.0
   hooks:
     - id: typos
-      args: ["--diff", "--force-exclude"]
+      args: ["--force-exclude"]
+
+- repo: local
+  hooks:
+    - id: sync-skills-shared
+      name: Sync shared docs across sentence-transformers skills
+      entry: python skills/sync_shared.py
+      language: system
+      pass_filenames: false
+      files: ^skills/.*\.(md|py)$

@@ -1,0 +1,105 @@
+name: Sync skills to huggingface/skills
+
+# Pushes the canonical skills under skills/ to the huggingface/skills
+# marketplace so users can install them via `hf skills add <name>` or
+# `/plugin install <name>@huggingface/skills` (Claude Code).
+#
+# Each skill under skills/<name>/ is fully self-contained (its own
+# references/ + scripts/, including a copy of mine_hard_negatives.py and
+# the cross-cutting reference docs). The sync is therefore just a per-skill
+# directory copy — no path rewriting or shared-dir inlining needed.
+#
+# This workflow only refreshes skill folders that already exist in
+# huggingface/skills; on first publication, open a manual PR there adding
+# the skill folders + matching entries in `.claude-plugin/marketplace.json`.
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '!v*rc*'
+  workflow_dispatch:
+
+env:
+  SKILLS: train-sentence-transformer train-cross-encoder train-sparse-encoder
+
+jobs:
+  sync-skills:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout sentence-transformers
+        uses: actions/checkout@v4
+
+      - name: Determine PR title
+        id: pr_title
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
+            echo "title=Sync sentence-transformers skills (${{ github.ref_name }})" >> "$GITHUB_OUTPUT"
+          else
+            echo "title=Sync sentence-transformers skills (manual trigger)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub App token
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID_HUB_SKILLS_REPO }}
+          private-key: ${{ secrets.APP_SECRET_PREM_HUB_SKILLS_REPO }}
+          repositories: skills
+
+      - name: Checkout huggingface/skills
+        uses: actions/checkout@v4
+        with:
+          repository: huggingface/skills
+          token: ${{ steps.app_token.outputs.token }}
+          path: skills-repo
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Copy skills
+        run: |
+          set -euo pipefail
+          for skill in $SKILLS; do
+            dst="skills-repo/skills/$skill"
+            # Replace destination wholesale so deletions in source are reflected.
+            rm -rf "$dst"
+            cp -r "skills/$skill" "$dst"
+          done
+
+      - name: Regenerate marketplace + cross-tool manifests
+        working-directory: skills-repo
+        run: ./scripts/publish.sh
+
+      - name: Check for changes
+        id: check_changes
+        working-directory: skills-repo
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Pull Request
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.app_token.outputs.token }}
+          path: skills-repo
+          branch: sync/sentence-transformers-${{ github.run_id }}
+          delete-branch: true
+          title: ${{ steps.pr_title.outputs.title }}
+          body: |
+            Auto-generated from [sentence-transformers@${{ github.sha }}](https://github.com/huggingface/sentence-transformers/commit/${{ github.sha }}).
+
+            Triggered by changes under `skills/` on tag `${{ github.ref_name }}`.
+
+            ---
+            This PR was created automatically by the [sync-skills](https://github.com/huggingface/sentence-transformers/blob/main/.github/workflows/sync-skills.yml) workflow.
+          commit-message: "Sync sentence-transformers skills from sentence-transformers@${{ github.sha }}"
+          labels: |
+            automated
+            sentence-transformers-sync
