@@ -282,10 +282,13 @@ class Pooling(Module):
                     mean_sum = torch.zeros(num_seqs, hidden_dim, device=device, dtype=embeddings.dtype)
                     mean_sum = mean_sum.index_add(0, segment_ids, embeddings)
                 if mode == "mean":
-                    output_vectors.append(mean_sum / torch.clamp(effective_lengths.unsqueeze(1), min=1e-9))
+                    output_vectors.append(
+                        mean_sum / torch.clamp(effective_lengths.unsqueeze(1), min=1e-9).to(mean_sum.dtype)
+                    )
                 else:
                     output_vectors.append(
-                        mean_sum / torch.sqrt(torch.clamp(effective_lengths.unsqueeze(1).float(), min=1e-9))
+                        mean_sum
+                        / torch.sqrt(torch.clamp(effective_lengths.unsqueeze(1).float(), min=1e-9)).to(mean_sum.dtype)
                     )
 
             elif mode == "max":
