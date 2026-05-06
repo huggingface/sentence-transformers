@@ -1,17 +1,18 @@
-name: Sync skills to huggingface/skills
+name: Sync skill to huggingface/skills
 
-# Pushes the canonical skills under skills/ to the huggingface/skills
-# marketplace so users can install them via `hf skills add <name>` or
-# `/plugin install <name>@huggingface/skills` (Claude Code).
+# Pushes the canonical skill under skills/train-sentence-transformer/ to
+# the huggingface/skills marketplace so users can install it via
+# `hf skills add train-sentence-transformer` or
+# `/plugin install train-sentence-transformer@huggingface/skills` (Claude Code).
 #
-# Each skill under skills/<name>/ is fully self-contained (its own
-# references/ + scripts/, including a copy of mine_hard_negatives.py and
-# the cross-cutting reference docs). The sync is therefore just a per-skill
-# directory copy — no path rewriting or shared-dir inlining needed.
+# The skill is fully self-contained (its own references/ + scripts/) and
+# covers all three sentence-transformers architectures (bi-encoder, cross-encoder,
+# SPLADE) in one place. The sync is therefore just a directory copy — no path
+# rewriting or shared-dir inlining needed.
 #
-# This workflow only refreshes skill folders that already exist in
+# This workflow only refreshes the skill folder if it already exists in
 # huggingface/skills; on first publication, open a manual PR there adding
-# the skill folders + matching entries in `.claude-plugin/marketplace.json`.
+# the skill folder + matching entry in `.claude-plugin/marketplace.json`.
 
 on:
   push:
@@ -21,10 +22,10 @@ on:
   workflow_dispatch:
 
 env:
-  SKILLS: train-sentence-transformer train-cross-encoder train-sparse-encoder
+  SKILL: train-sentence-transformer
 
 jobs:
-  sync-skills:
+  sync-skill:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -36,9 +37,9 @@ jobs:
         id: pr_title
         run: |
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
-            echo "title=Sync sentence-transformers skills (${{ github.ref_name }})" >> "$GITHUB_OUTPUT"
+            echo "title=Sync $SKILL (${{ github.ref_name }})" >> "$GITHUB_OUTPUT"
           else
-            echo "title=Sync sentence-transformers skills (manual trigger)" >> "$GITHUB_OUTPUT"
+            echo "title=Sync $SKILL (manual trigger)" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create GitHub App token
@@ -59,15 +60,13 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Copy skills
+      - name: Copy skill
         run: |
           set -euo pipefail
-          for skill in $SKILLS; do
-            dst="skills-repo/skills/$skill"
-            # Replace destination wholesale so deletions in source are reflected.
-            rm -rf "$dst"
-            cp -r "skills/$skill" "$dst"
-          done
+          dst="skills-repo/skills/$SKILL"
+          # Replace destination wholesale so deletions in source are reflected.
+          rm -rf "$dst"
+          cp -r "skills/$SKILL" "$dst"
 
       - name: Regenerate marketplace + cross-tool manifests
         working-directory: skills-repo
@@ -99,7 +98,7 @@ jobs:
 
             ---
             This PR was created automatically by the [sync-skills](https://github.com/huggingface/sentence-transformers/blob/main/.github/workflows/sync-skills.yml) workflow.
-          commit-message: "Sync sentence-transformers skills from sentence-transformers@${{ github.sha }}"
+          commit-message: "Sync ${{ env.SKILL }} from sentence-transformers@${{ github.sha }}"
           labels: |
             automated
             sentence-transformers-sync

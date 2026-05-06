@@ -77,7 +77,7 @@ Skipping `transformer_task="text-generation"` or `pooling_mode="lasttoken"` on a
 
 For training decoder bases:
 - Learning rate: typically `1e-4` or higher (not `2e-5` like encoders).
-- LoRA is almost always the right choice for >1B-param bases; see `../scripts/train_with_lora_example.py` (its docstring covers when to use, hyperparams, QLoRA for 7B+, and adapter sharing).
+- LoRA is almost always the right choice for >1B-param bases; see `../scripts/train_sentence_transformer_with_lora_example.py` (its docstring covers when to use, hyperparams, QLoRA for 7B+, and adapter sharing).
 
 ## Static embeddings
 
@@ -116,7 +116,7 @@ static_embedding = StaticEmbedding.from_model2vec("minishlab/potion-base-8M")
 static_embedding = StaticEmbedding.from_distillation("sentence-transformers/all-MiniLM-L6-v2", vocabulary=list(tokenizer.get_vocab().keys()))
 ```
 
-See `scripts/train_static_embedding_example.py` for a runnable end-to-end recipe (random init + MNRL + Matryoshka + bf16 + lr=2e-1) and the [Static Embeddings blog post](https://huggingface.co/blog/static-embeddings) for benchmarks.
+See `../scripts/train_sentence_transformer_static_embedding_example.py` for a runnable end-to-end recipe (random init + MNRL + Matryoshka + bf16 + lr=2e-1) and the [Static Embeddings blog post](https://huggingface.co/blog/static-embeddings) for benchmarks.
 
 ## Multimodal via VLM backbone
 

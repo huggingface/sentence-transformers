@@ -20,7 +20,7 @@ Three distillation patterns:
   same output dim and you have a pile of unlabeled text.
 - Pattern 2: `(query, positive, negative, score_diff)` + `MarginMSELoss` from a
   CrossEncoder teacher's score differences. Workhorse of ms-marco distillation.
-  See `../references/losses.md` (MarginMSELoss section).
+  See `../references/losses_sentence_transformer.md` (MarginMSELoss section).
 - Pattern 3: `(query, positive, neg_1, ..., neg_n, labels)` + `DistillKLDivLoss`
   to preserve the full teacher distribution. More data-hungry; natural fit when
   distilling from an ensemble of rerankers.
@@ -45,8 +45,8 @@ or eval ranking collapses silently. Every non-BCE CE loss expects raw logits
 during training, but the model's `activation_fn` runs at eval time inside
 `predict()`. Default `Sigmoid` (when `num_labels=1`) saturates raw logits >5 to
 ~1.0, dropping nDCG from e.g. ~0.59 to ~0.14 with healthy-looking training loss.
-Applies to all CE distillation / listwise / pairwise losses; see
-`train-cross-encoder/SKILL.md` Directive 6.
+Applies to all CE distillation / listwise / pairwise losses; see SKILL.md
+Directive 7 ([CE]).
 
 Layer pruning shortcut for Pattern 1: copy the teacher, delete layers (often
 keeps 99%+ of quality at a fraction of the layers), then distill with MSELoss:
@@ -66,7 +66,7 @@ teacher strong on YOUR task; if the teacher expects an instruction prefix,
 include it during teacher encoding so the student's target matches inference.
 
 For multilingual student distillation (extend an English teacher to other
-languages without in-language supervised data), see `train_make_multilingual_example.py`.
+languages without in-language supervised data), see `train_sentence_transformer_make_multilingual_example.py`.
 """
 
 from __future__ import annotations

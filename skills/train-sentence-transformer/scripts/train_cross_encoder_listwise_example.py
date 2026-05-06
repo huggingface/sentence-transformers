@@ -8,24 +8,35 @@
 #     "trackio",
 # ]
 # ///
-"""Production-ready cross-encoder (reranker) training template.
+"""CrossEncoder listwise training with LambdaLoss.
 
-Demonstrates:
-- BinaryCrossEntropyLoss on (query, passage, label) pointwise data
-- Hard-negative mining (`mine_hard_negatives` with `output_format="labeled-pair"`)
-  to produce the labeled training data BCE needs, starting from (question, answer)
-  pairs
-- `pos_weight=num_negatives` to offset the positive/negative imbalance
-- CrossEncoderNanoBEIREvaluator for retrieval reranking metrics
-- load_best_model_at_end on the retrieval metric
-- Auto model card + optional Hub push
+LambdaLoss is the state-of-the-art listwise ranking loss — it optimizes a
+surrogate of nDCG via weighted pairwise comparisons over a per-query candidate
+list. Use this when you have multiple candidates per query with graded
+relevance, and you want a stronger ranker than pointwise BCE.
+
+Data shape: `(query, [doc_1, ..., doc_K], [score_1, ..., score_K])` per row.
+This script builds it via `mine_hard_negatives(..., output_format="labeled-list")`
+starting from `(question, answer)` pairs: each row gets the positive plus K
+hard negatives, with binary scores (1 for positive, 0 for negatives).
+
+CRITICAL: `activation_fn=nn.Identity()` is mandatory for LambdaLoss / ListNet /
+ListMLE / PListMLE / RankNet / MarginMSE / MSE — anything that's not
+`BinaryCrossEntropyLoss` or `CrossEntropyLoss`. The default `Sigmoid` (with
+`num_labels=1`) saturates raw logits >5 to ~1.0 inside `predict()`, silently
+collapsing eval ranking. See SKILL.md Directive 7 ([CE]).
+
+OOM recovery for LambdaLoss: drop `mini_batch_size` first (chunking inside the
+loss preserves the K-list semantic), then `per_device_train_batch_size` paired
+with `gradient_accumulation_steps`, then reduce K (the per-query candidate-list
+length) only as a last resort. Lowering K changes the experiment.
 
 Run locally:
     pip install "sentence-transformers[train]>=5.0"
-    python train_example.py
+    python train_cross_encoder_listwise_example.py
 
 Multi-GPU:
-    accelerate launch train_example.py
+    accelerate launch train_cross_encoder_listwise_example.py
 
 Hugging Face Jobs: paste this file's contents as the `script` in hf_jobs(...).
 """
@@ -38,6 +49,7 @@ import os
 from contextlib import nullcontext
 
 import torch
+import torch.nn as nn
 from datasets import load_dataset, load_from_disk
 from transformers import EarlyStoppingCallback
 
@@ -48,8 +60,12 @@ from sentence_transformers import (
     CrossEncoderTrainingArguments,
     SentenceTransformer,
 )
-from sentence_transformers.cross_encoder.evaluation import CrossEncoderNanoBEIREvaluator
-from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss
+from sentence_transformers.base.evaluation import SequentialEvaluator
+from sentence_transformers.cross_encoder.evaluation import (
+    CrossEncoderNanoBEIREvaluator,
+    CrossEncoderRerankingEvaluator,
+)
+from sentence_transformers.cross_encoder.losses import LambdaLoss
 from sentence_transformers.util import mine_hard_negatives
 
 
@@ -75,15 +91,17 @@ def log_trackio_dashboard():
         pass
 
 
-MODEL_NAME = "microsoft/MiniLM-L12-H384-uncased"
+MODEL_NAME = "answerdotai/ModernBERT-base"
 DATASET_NAME = "sentence-transformers/gooaq"
 RETRIEVER_NAME = "sentence-transformers/static-retrieval-mrl-en-v1"
 TRAIN_SIZE = 100_000
 EVAL_SIZE = 1_000
-NUM_NEGATIVES = 5
-OUTPUT_DIR = "models/minilm-gooaq-ce"
-RUN_NAME = "minilm-gooaq-ce"
-HARD_NEG_CACHE = f"data/{RUN_NAME}-hard-negatives"  # delete this dir to remine
+NUM_NEGATIVES = 7  # K-1 negatives + 1 positive per row
+EVAL_RERANK_DEPTH = 30  # candidates per query in the in-domain eval set
+OUTPUT_DIR = "models/modernbert-gooaq-lambda"
+RUN_NAME = "modernbert-gooaq-lambda"
+HARD_NEG_CACHE = f"data/{RUN_NAME}-hard-negatives"
+HARD_EVAL_CACHE = f"data/{RUN_NAME}-hard-eval"
 
 
 def setup_logging():
@@ -99,7 +117,7 @@ def setup_logging():
     for noisy in ("httpx", "httpcore", "huggingface_hub", "urllib3", "filelock", "fsspec"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     if torch.cuda.is_available():
-        torch.set_float32_matmul_precision("high")  # TF32 on Ampere+, no quality loss
+        torch.set_float32_matmul_precision("high")
 
 
 def main() -> None:
@@ -123,57 +141,72 @@ def main() -> None:
     model = CrossEncoder(
         MODEL_NAME,
         num_labels=1,
+        activation_fn=nn.Identity(),  # Mandatory for LambdaLoss; Sigmoid would saturate eval logits.
         model_card_data=CrossEncoderModelCardData(
             language="en",
             license="apache-2.0",
-            model_name=f"{MODEL_NAME.split('/')[-1]} reranker finetuned on GooAQ",
+            model_name=f"{MODEL_NAME.split('/')[-1]} reranker trained with LambdaLoss on GooAQ",
         ),
     )
 
-    logging.info(f"Loading dataset: {DATASET_NAME}")
-    pairs = load_dataset(DATASET_NAME, split="train").select(range(TRAIN_SIZE + EVAL_SIZE))
+    full_dataset = load_dataset(DATASET_NAME, split="train").select(range(TRAIN_SIZE))
+    split = full_dataset.train_test_split(test_size=EVAL_SIZE, seed=12)
+    train_pairs, eval_pairs = split["train"], split["test"]
 
-    if os.path.isdir(HARD_NEG_CACHE):
-        logging.info(f"Loading cached mined hard negatives from {HARD_NEG_CACHE}")
-        labeled = load_from_disk(HARD_NEG_CACHE)
+    if os.path.isdir(HARD_NEG_CACHE) and os.path.isdir(HARD_EVAL_CACHE):
+        logging.info("Loading cached mined hard-negative datasets")
+        hard_train = load_from_disk(HARD_NEG_CACHE)
+        hard_eval = load_from_disk(HARD_EVAL_CACHE)
     else:
         logging.info(f"Mining hard negatives with {RETRIEVER_NAME}")
         retriever = SentenceTransformer(RETRIEVER_NAME)
-        labeled = mine_hard_negatives(
-            dataset=pairs,
-            model=retriever,
+        hard_train = mine_hard_negatives(
+            train_pairs,
+            retriever,
             num_negatives=NUM_NEGATIVES,
-            range_min=10,  # skip the top-10 (likely to contain true positives)
+            range_min=10,
             range_max=100,
             sampling_strategy="top",
-            output_format="labeled-pair",
+            output_format="labeled-list",  # Listwise: (query, [docs], [scores])
             use_faiss=True,
+            batch_size=4096,
         )
-        labeled.save_to_disk(HARD_NEG_CACHE)
-        logging.info(f"Saved mined dataset to {HARD_NEG_CACHE} (delete to remine)")
+        hard_eval = mine_hard_negatives(
+            eval_pairs,
+            retriever,
+            corpus=full_dataset["answer"],
+            num_negatives=EVAL_RERANK_DEPTH,
+            include_positives=True,  # gold positive lives in the candidate list
+            output_format="n-tuple",
+            use_faiss=True,
+            batch_size=4096,
+        )
+        hard_train.save_to_disk(HARD_NEG_CACHE)
+        hard_eval.save_to_disk(HARD_EVAL_CACHE)
         del retriever
         torch.cuda.empty_cache()
-    # EVAL_SIZE here counts labeled-pair rows, not distinct queries: each
-    # query contributes 1 positive + NUM_NEGATIVES negatives, so e.g. 1000
-    # rows is approximately 1000 / (1 + NUM_NEGATIVES) distinct queries.
-    split = labeled.train_test_split(test_size=EVAL_SIZE, seed=12)
-    train_dataset = split["train"]
-    eval_dataset = split["test"]
-    logging.info(f"  train: {len(train_dataset):,} rows | eval: {len(eval_dataset):,} rows")
-    logging.info(f"  columns: {train_dataset.column_names}")
+    logging.info(f"  train: {len(hard_train):,} rows | columns: {hard_train.column_names}")
 
-    # pos_weight = negatives / positives, derived from the actual label distribution
-    # so it stays correct if rows get filtered or the mining ratio drifts.
-    n_pos = sum(1 for label in train_dataset["label"] if label > 0.5)
-    n_neg = len(train_dataset) - n_pos
-    pos_weight_value = n_neg / max(n_pos, 1)
-    logging.info(f"  positives: {n_pos:,} | negatives: {n_neg:,} | pos_weight: {pos_weight_value:.2f}")
-    loss = BinaryCrossEntropyLoss(model, pos_weight=torch.tensor(pos_weight_value))
+    loss = LambdaLoss(model=model, mini_batch_size=16)  # mini_batch_size: drop first if OOM
 
-    evaluator = CrossEncoderNanoBEIREvaluator(dataset_names=["msmarco", "nfcorpus", "nq"])
+    nano_beir = CrossEncoderNanoBEIREvaluator(dataset_names=["msmarco", "nfcorpus", "nq"])
+    in_domain = CrossEncoderRerankingEvaluator(
+        samples=[
+            {
+                "query": row["question"],
+                "positive": [row["answer"]],
+                "documents": [row[col] for col in hard_eval.column_names[2:]],
+            }
+            for row in hard_eval
+        ],
+        batch_size=64,
+        name="gooaq-dev",
+        always_rerank_positives=False,  # End-to-end retriever+reranker quality
+    )
+    evaluator = SequentialEvaluator([in_domain, nano_beir])
     logging.info("Baseline evaluation:")
     with autocast_ctx():
-        baseline_eval = evaluator(model)[evaluator.primary_metric]
+        baseline_eval = evaluator(model)[in_domain.primary_metric]
 
     args = CrossEncoderTrainingArguments(
         output_dir=OUTPUT_DIR,
@@ -193,22 +226,17 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_NanoBEIR_R100_mean_ndcg@10",
+        metric_for_best_model=f"eval_{in_domain.primary_metric}",  # in-domain reranker > NanoBEIR
         greater_is_better=True,
-        report_to="trackio",  # Optional
+        report_to="trackio",
         run_name=RUN_NAME,
         seed=12,
     )
 
-    # EarlyStoppingCallback earns its keep for cross-encoders: CE rerankers
-    # typically peak mid-training and then degrade, so stopping at the best
-    # eval checkpoint is load-bearing (unlike bi-encoders, which tend to
-    # plateau rather than regress).
     trainer = CrossEncoderTrainer(
         model=model,
         args=args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
+        train_dataset=hard_train,
         loss=loss,
         evaluator=evaluator,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
@@ -218,7 +246,7 @@ def main() -> None:
 
     logging.info("Post-training evaluation:")
     with autocast_ctx():
-        score = evaluator(model)[evaluator.primary_metric]
+        score = evaluator(model)[in_domain.primary_metric]
     delta = score - baseline_eval
     verdict = "WIN" if delta >= 0.005 else "MARGINAL" if delta >= 0 else "REGRESSION"
     logging.info(f"VERDICT: {verdict} | score={score:.4f} | baseline={baseline_eval:.4f} | delta={delta:+.4f}")

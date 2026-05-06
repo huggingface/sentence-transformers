@@ -170,4 +170,4 @@ Large dataset or slow cold-cache. Increase `timeout` or pre-cache to a persisten
 
 The cached losses are incompatible with gradient checkpointing. Disable `gradient_checkpointing`.
 
-After submission, the MCP returns a job ID. Monitor with `hf_jobs("logs", {"job_id": ...})` when you want an update — don't poll in a tight loop. End-to-end submission templates live in each skill's `scripts/train_example.py`; wrap the script contents in the inline pattern from §1 above.
+After submission, the MCP returns a job ID. Monitor with `hf_jobs("logs", {"job_id": ...})` when you want an update — don't poll in a tight loop. End-to-end submission templates live in `scripts/train_sentence_transformer_example.py` / `scripts/train_cross_encoder_example.py` / `scripts/train_sparse_encoder_example.py`; wrap the script contents in the inline pattern from §1 above.

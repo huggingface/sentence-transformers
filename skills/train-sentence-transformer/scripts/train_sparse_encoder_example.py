@@ -21,10 +21,10 @@ checkpoint works (DistilBERT, BERT, MiniLM MLM variants, existing SPLADE models)
 
 Run locally:
     pip install "sentence-transformers[train]>=5.0"
-    python train_example.py
+    python train_sparse_encoder_example.py
 
 Multi-GPU:
-    accelerate launch train_example.py
+    accelerate launch train_sparse_encoder_example.py
 
 Hugging Face Jobs: paste this file's contents as the `script` in hf_jobs(...).
 """
@@ -153,8 +153,10 @@ def main() -> None:
     evaluator = SparseNanoBEIREvaluator(dataset_names=["msmarco", "nfcorpus", "nq"])
     logging.info("Baseline evaluation:")
     with autocast_ctx():
+        # Must run before deriving metric_key: evaluator(model) mutates primary_metric to add the name_ prefix.
         baseline_result = evaluator(model)
         baseline_eval = baseline_result[evaluator.primary_metric]
+    metric_key = f"eval_{evaluator.primary_metric}"
 
     args = SparseEncoderTrainingArguments(
         output_dir=OUTPUT_DIR,
@@ -175,7 +177,7 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_NanoBEIR_mean_dot_ndcg@10",
+        metric_for_best_model=metric_key,
         greater_is_better=True,
         report_to="trackio",  # Optional
         run_name=RUN_NAME,
@@ -199,9 +201,12 @@ def main() -> None:
         score = result[evaluator.primary_metric]
     delta = score - baseline_eval
     verdict = "WIN" if delta >= 0.005 else "MARGINAL" if delta >= 0 else "REGRESSION"
+    # Active-dim keys come back name-prefixed (e.g. "NanoBEIR_..._query_active_dims"); suffix-match for compat.
+    qad = next((v for k, v in result.items() if k.endswith("query_active_dims")), "n/a")
+    cad = next((v for k, v in result.items() if k.endswith("corpus_active_dims")), "n/a")
     logging.info(
         f"VERDICT: {verdict} | score={score:.4f} | baseline={baseline_eval:.4f} | delta={delta:+.4f} "
-        f"| query_active={result.get('query_active_dims', 'n/a')} doc_active={result.get('document_active_dims', 'n/a')}"
+        f"| query_active={qad} corpus_active={cad}"
     )
 
     final_dir = f"{OUTPUT_DIR}/final"

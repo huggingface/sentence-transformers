@@ -19,7 +19,7 @@ index + 6x faster ANN with minimal quality loss.
 
 Run locally:
     pip install "sentence-transformers[train]>=5.0"
-    python train_matryoshka_example.py
+    python train_sentence_transformer_matryoshka_example.py
 """
 
 from __future__ import annotations

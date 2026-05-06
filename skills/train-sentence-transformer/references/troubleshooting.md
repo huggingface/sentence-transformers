@@ -13,7 +13,7 @@ Common failures in sentence-transformers training, with root causes and fixes. O
 3. Enable `gradient_checkpointing=True`. ~30% slower, ~40% less activation memory. **Incompatible with `Cached*` losses.**
 4. Use `bf16=True` instead of fp32 (if your GPU supports Ampere+).
 5. Reduce `max_seq_length` on the transformer module: `model[0].max_seq_length = 128`.
-6. Use LoRA (`peft`) for large decoder bases. See `../train-sentence-transformer/scripts/train_with_lora_example.py` (docstring covers when to use, hyperparams, QLoRA, gotchas).
+6. Use LoRA (`peft`) for large decoder bases. See `../scripts/train_sentence_transformer_with_lora_example.py` (docstring covers when to use, hyperparams, QLoRA, gotchas).
 7. Move to a bigger GPU or multi-GPU (`accelerate launch`).
 
 **See also**: `hardware_guide.md` for VRAM estimates by batch size.
@@ -222,4 +222,4 @@ This ensures gradient flow through the frozen base + trainable adapter.
 - `training_args.md` (shared) — the args that affect all of the above.
 - `hardware_guide.md` (shared) — VRAM sizing and multi-GPU.
 - `dataset_formats.md` (shared) — column/loss validation.
-- `references/losses.md` (in your skill: `train-sentence-transformer`, `train-cross-encoder`, or `train-sparse-encoder`) — loss-specific quirks.
+- `losses_sentence_transformer.md` / `losses_cross_encoder.md` / `losses_sparse_encoder.md` (per-model-type catalogs) — loss-specific quirks.

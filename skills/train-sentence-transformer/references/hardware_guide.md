@@ -12,7 +12,7 @@ Try in this order:
    - `CachedMultipleNegativesRankingLoss(model, mini_batch_size=32)` — forwards in mini-batches, accumulates the contrastive loss over the full batch. Can simulate batch sizes of 1024+ on a 24GB GPU.
    - `CachedSpladeLoss(model, loss=..., mini_batch_size=16)` — same trick for sparse.
    - `CachedGISTEmbedLoss(model, guide_model, mini_batch_size=32)` — GIST variant.
-4. **Enable PEFT / LoRA** for decoder models >1B. `LoraConfig(r=64, lora_alpha=128, task_type="FEATURE_EXTRACTION")`. See `../train-sentence-transformer/scripts/train_with_lora_example.py` (docstring covers when to use, hyperparams, QLoRA, sharing).
+4. **Enable PEFT / LoRA** for decoder models >1B. `LoraConfig(r=64, lora_alpha=128, task_type="FEATURE_EXTRACTION")`. See `../scripts/train_sentence_transformer_with_lora_example.py` (docstring covers when to use, hyperparams, QLoRA, sharing).
 5. **Move to multi-GPU**. See below.
 6. **Shorten sequences**. If truncating to 128 is already sufficient for your task, set `max_seq_length` on the transformer module.
 

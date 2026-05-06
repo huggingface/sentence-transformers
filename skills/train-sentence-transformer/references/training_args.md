@@ -259,7 +259,7 @@ When training on a dict of datasets with a dict of losses, add:
 multi_dataset_batch_sampler=MultiDatasetBatchSamplers.PROPORTIONAL,  # or ROUND_ROBIN
 ```
 
-See `../train-sentence-transformer/scripts/train_multi_dataset_example.py` (docstring covers per-dataset losses, single-loss + DatasetDict variant, samplers, gotchas).
+See `../scripts/train_sentence_transformer_multi_dataset_example.py` (docstring covers per-dataset losses, single-loss + DatasetDict variant, samplers, gotchas).
 
 ## Don't
 

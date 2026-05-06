@@ -28,10 +28,10 @@ target and reaches stronger nDCG faster than MNRL-only.
 
 Run locally:
     pip install "sentence-transformers[train]>=5.0"
-    python train_distillation_example.py
+    python train_sparse_encoder_distillation_example.py
 
 Multi-GPU:
-    accelerate launch train_distillation_example.py
+    accelerate launch train_sparse_encoder_distillation_example.py
 
 Hugging Face Jobs: paste this file's contents as the `script` in hf_jobs(...).
 """

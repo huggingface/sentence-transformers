@@ -179,7 +179,7 @@ KL-divergence distillation: student's softmax distribution over candidates shoul
 - **Data**: `(query, passages[], teacher_scores[])`.
 - Good for list-wise distillation when you have multiple candidates per query.
 
-See `../scripts/train_distillation_example.py` for the end-to-end pattern (its docstring covers Embedding MSE / Margin MSE / Listwise KL with full recipes).
+See `../scripts/train_sentence_transformer_distillation_example.py` for the end-to-end pattern (its docstring covers Embedding MSE / Margin MSE / Listwise KL with full recipes).
 
 ## Regularizer / wrapper losses
 

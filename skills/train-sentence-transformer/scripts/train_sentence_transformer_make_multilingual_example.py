@@ -32,7 +32,7 @@ Picks:
 - Student: must be multilingual (xlm-roberta-base, paraphrase-multilingual-MiniLM-L12-v2,
   microsoft/mdeberta-v3-base).
 - Student dim must match teacher dim, otherwise add a PCA-init Dense projection
-  (see train_distillation_example.py).
+  (see train_sentence_transformer_distillation_example.py).
 """
 
 from __future__ import annotations
@@ -205,7 +205,7 @@ def main() -> None:
             f"Student dim ({student.get_embedding_dimension()}) != teacher dim "
             f"({teacher.get_embedding_dimension()}). MSELoss requires matching dims. "
             "Either pick a student with matching dim, or add a Dense projection layer "
-            "(see train_distillation_example.py 'MISMATCHED EMBEDDING DIMS')."
+            "(see train_sentence_transformer_distillation_example.py 'MISMATCHED EMBEDDING DIMS')."
         )
 
     logging.info("Loading parallel data")

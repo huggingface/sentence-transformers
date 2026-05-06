@@ -30,10 +30,10 @@ Demonstrates:
 
 Run locally (CPU works for inference, but training needs a GPU for batch=1024+):
     pip install "sentence-transformers[train]>=5.0"
-    python train_static_embedding_example.py
+    python train_sentence_transformer_static_embedding_example.py
 
 Multi-GPU:
-    accelerate launch train_static_embedding_example.py
+    accelerate launch train_sentence_transformer_static_embedding_example.py
 
 Hugging Face Jobs: paste this file's contents as the `script` in hf_jobs(...).
 

@@ -21,13 +21,13 @@ Runs identically in two modes:
 
     # Local
     pip install "sentence-transformers[train]>=5.0"
-    python train_example.py
+    python train_sentence_transformer_example.py
 
     # Or with uv (no explicit install needed)
-    uv run train_example.py
+    uv run train_sentence_transformer_example.py
 
     # Multi-GPU
-    accelerate launch train_example.py
+    accelerate launch train_sentence_transformer_example.py
 
     # Hugging Face Jobs (paste the entire file contents as `script`)
     hf_jobs("uv", {
@@ -151,7 +151,9 @@ def main() -> None:
     evaluator = NanoBEIREvaluator()
     logging.info("Baseline evaluation (before training):")
     with autocast_ctx():
+        # Must run before deriving metric_key: evaluator(model) mutates primary_metric to add the name_ prefix.
         baseline_eval = evaluator(model)[evaluator.primary_metric]
+    metric_key = f"eval_{evaluator.primary_metric}"
 
     args = SentenceTransformerTrainingArguments(
         output_dir=OUTPUT_DIR,
@@ -172,7 +174,7 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_NanoBEIR_mean_cosine_ndcg@10",
+        metric_for_best_model=metric_key,
         greater_is_better=True,
         report_to="trackio",  # Optional
         run_name=RUN_NAME,
