@@ -767,6 +767,22 @@ def test_predict_with_dataset_column(reranker_bert_tiny_model: CrossEncoder) -> 
     assert embeddings.shape == (2,)
 
 
+def test_predict_per_call_processing_kwargs(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """Per-call ``processing_kwargs`` should be accepted by ``predict`` and reach ``preprocess``.
+
+    If the kwarg were silently dropped, truncated and full predictions on the same pair would
+    produce identical scores.
+    """
+    model = reranker_bert_tiny_model
+    pair = ["this is a moderately long query sentence", "this is a moderately long candidate sentence"]
+    truncated = model.predict(
+        [pair],
+        processing_kwargs={"text": {"max_length": 4, "truncation": True}},
+    )
+    full = model.predict([pair])
+    assert not np.isclose(truncated[0], full[0])
+
+
 # Test suite converted from demo_3406_simple_og.py
 def format_queries(query, instruction=None):
     """Helper function to format queries with the template."""

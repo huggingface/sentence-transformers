@@ -592,6 +592,12 @@ class CrossEncoder(BaseModel, FitMixin):
                 Defaults to None.
             chunk_size (int, optional): Size of chunks for multiprocessing. If None, a sensible default is calculated.
                 Only used when ``pool`` is not None or ``device`` is a list. Defaults to None.
+            **kwargs: Additional keyword arguments forwarded to the model's ``preprocess`` and ``forward``. A notable
+                one is ``processing_kwargs``, which lets you override the processor kwargs configured on the
+                underlying :class:`~sentence_transformers.base.modules.Transformer` for this call only (e.g.
+                ``processing_kwargs={"text": {"max_length": 256, "truncation": True}}``). See
+                :meth:`Transformer.preprocess <sentence_transformers.base.modules.Transformer.preprocess>` for the
+                accepted structure.
 
         Returns:
             Union[List[torch.Tensor], np.ndarray, torch.Tensor]: Predictions for the passed input pairs.

@@ -547,6 +547,11 @@ class SentenceTransformer(BaseModel, FitMixin):
                 ``start_multi_process_pool()``.
             chunk_size (int, optional): Size of chunks for multi-process encoding.
             **kwargs: Additional keyword arguments to pass to the model's ``preprocess`` and ``forward`` methods.
+                A notable one is ``processing_kwargs``, which lets you override the processor kwargs configured on
+                the underlying :class:`~sentence_transformers.base.modules.Transformer` for this call only (e.g.
+                ``processing_kwargs={"text": {"max_length": 256, "truncation": True}}``). See
+                :meth:`Transformer.preprocess <sentence_transformers.base.modules.Transformer.preprocess>` for the
+                accepted structure.
 
         Returns:
             Union[List[Tensor], ndarray, Tensor, dict[str, Tensor], list[dict[str, Tensor]]]: By default, a 2d numpy
@@ -583,7 +588,7 @@ class SentenceTransformer(BaseModel, FitMixin):
 
         # Validate kwargs
         model_kwargs = self.get_model_kwargs()
-        if unused_kwargs := set(kwargs) - set(model_kwargs) - {"task"}:
+        if unused_kwargs := set(kwargs) - set(model_kwargs) - {"task", "processing_kwargs"}:
             raise ValueError(
                 f"{self.__class__.__name__}.encode() has been called with additional keyword arguments that this model does not use: {list(unused_kwargs)}. "
                 + (

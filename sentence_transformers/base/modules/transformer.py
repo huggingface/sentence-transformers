@@ -575,6 +575,7 @@ class Transformer(InputModule):
         "unpad_inputs",
     ]
     save_in_root: bool = True
+    _VALID_PROCESSING_KWARGS_KEYS: set[str] = {"common", "text", "audio", "image", "video", "chat_template"}
 
     @transformer_kwargs_decorator
     def __init__(
@@ -612,12 +613,11 @@ class Transformer(InputModule):
         if config_kwargs is None:
             config_kwargs = {}
         self.processing_kwargs: ProcessingKwargs = processing_kwargs or {}
-        valid_keys = {"common", "text", "audio", "image", "video", "chat_template"}
-        unknown_keys = set(self.processing_kwargs) - valid_keys
+        unknown_keys = set(self.processing_kwargs) - self._VALID_PROCESSING_KWARGS_KEYS
         if unknown_keys:
             logger.warning(
                 f"Unknown keys in `processing_kwargs`: {unknown_keys}. "
-                f"Valid keys are: {sorted(valid_keys)}. "
+                f"Valid keys are: {sorted(self._VALID_PROCESSING_KWARGS_KEYS)}. "
                 "Unknown keys will be ignored. Did you mean to nest them under "
                 "'common' or a modality key ('text', 'audio', 'image', 'video')?"
             )
@@ -887,6 +887,7 @@ class Transformer(InputModule):
         self,
         inputs: list[SingleInput | PairInput],
         prompt: str | None = None,
+        processing_kwargs: ProcessingKwargs | None = None,
         **kwargs,
     ) -> dict[str, Any]:
         """Preprocess inputs into model-ready features.
@@ -895,6 +896,12 @@ class Transformer(InputModule):
             inputs: List of inputs. Can contain strings, dicts with modality keys, PIL images,
                 or numpy/torch arrays for audio/video.
             prompt: Optional prompt to prepend to text inputs or inject as a system message.
+            processing_kwargs: Per-call overrides for the processor kwargs configured on the module
+                via the ``processing_kwargs`` constructor argument. Same nested structure (modality
+                keys plus ``"common"`` and ``"chat_template"``); per-call values are merged on top of
+                the instance-level kwargs with shallow per-modality merge, so individual settings
+                (e.g. only ``max_length``) can be overridden without replacing the entire modality
+                dict. Defaults to None.
             **kwargs: Additional keyword arguments forwarded to prompt length computation
                 (e.g. ``task``). Only used when ``prompt`` is provided for text inputs.
 
@@ -918,12 +925,13 @@ class Transformer(InputModule):
             # padding=True ("longest") which would override that default. Restore "max_length".
             modality_kwargs["audio"]["padding"] = "max_length"
 
-        # Apply user-configured processing_kwargs on top of the defaults
-        if "common" in self.processing_kwargs:
-            common_kwargs.update(self.processing_kwargs["common"])
+        effective_processing_kwargs = self._merge_processing_kwargs(processing_kwargs)
+        if "common" in effective_processing_kwargs:
+            common_kwargs.update(effective_processing_kwargs["common"])
         for modality_key in modality_kwargs:
-            if overrides := self.processing_kwargs.get(modality_key):  # type: ignore[arg-type]
+            if overrides := effective_processing_kwargs.get(modality_key):  # type: ignore[arg-type]
                 modality_kwargs[modality_key].update(overrides)
+        chat_template_kwargs = effective_processing_kwargs.get("chat_template", {})
 
         modality, processor_inputs, extra_modality_kwargs = self.input_formatter.parse_inputs(inputs)
 
@@ -971,7 +979,13 @@ class Transformer(InputModule):
             num_images_per_sample, num_videos_per_sample = _count_media_per_sample(processor_inputs["message"])
 
         with suggest_extra_on_exception():
-            processor_output = self._call_processor(modality, processor_inputs, modality_kwargs, common_kwargs)
+            processor_output = self._call_processor(
+                modality,
+                processor_inputs,
+                modality_kwargs,
+                common_kwargs,
+                chat_template_kwargs=chat_template_kwargs,
+            )
 
         if num_images_per_sample is not None and "image_grid_thw" in processor_output:
             processor_output["num_images_per_sample"] = torch.tensor(num_images_per_sample, dtype=torch.long)
@@ -999,6 +1013,32 @@ class Transformer(InputModule):
             processor_output["logits_to_keep"] = 1
 
         return processor_output
+
+    def _merge_processing_kwargs(self, per_call: ProcessingKwargs | None) -> ProcessingKwargs:
+        """Merge per-call ``processing_kwargs`` on top of the instance-level ``self.processing_kwargs``.
+
+        The merge is shallow per top-level key: for each modality (or ``"common"`` /
+        ``"chat_template"``), per-call entries override individual instance entries, leaving
+        non-overridden settings intact. Unknown top-level keys in ``per_call`` are warned about
+        and ignored.
+        """
+        if not per_call:
+            return self.processing_kwargs
+
+        unknown_keys = set(per_call) - self._VALID_PROCESSING_KWARGS_KEYS
+        if unknown_keys:
+            logger.warning_once(
+                f"Unknown keys in per-call `processing_kwargs`: {unknown_keys}. "
+                f"Valid keys are: {sorted(self._VALID_PROCESSING_KWARGS_KEYS)}. Unknown keys will be ignored."
+            )
+
+        merged: ProcessingKwargs = {}
+        for key in self._VALID_PROCESSING_KWARGS_KEYS:
+            instance_value = self.processing_kwargs.get(key, {})
+            per_call_value = per_call.get(key, {})
+            if instance_value or per_call_value:
+                merged[key] = {**instance_value, **per_call_value}
+        return merged
 
     def forward(self, features: dict[str, Any], **kwargs) -> dict[str, Any]:
         """Forward pass through the transformer model.
@@ -1154,6 +1194,7 @@ class Transformer(InputModule):
         processor_inputs: dict[str, list],
         modality_kwargs: dict[str, dict[str, Any]],
         common_kwargs: dict[str, Any],
+        chat_template_kwargs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Call the appropriate processor with the correct arguments.
 
@@ -1174,12 +1215,19 @@ class Transformer(InputModule):
                 ``"audio"``, ``"video"``).
             common_kwargs: Common kwargs passed to all processor calls (e.g. ``padding``,
                 ``return_tensors``).
+            chat_template_kwargs: Kwargs forwarded to ``apply_chat_template`` when the modality
+                is ``"message"``. Ignored for non-message modalities.
 
         Returns:
             Processor output dictionary.
         """
         if modality == "message":
-            return self._process_chat_messages(processor_inputs["message"], modality_kwargs, common_kwargs)
+            return self._process_chat_messages(
+                processor_inputs["message"],
+                modality_kwargs,
+                common_kwargs,
+                chat_template_kwargs=chat_template_kwargs,
+            )
 
         if isinstance(self.processor, ProcessorMixin):
             return self._call_multimodal_processor(modality, processor_inputs, modality_kwargs, common_kwargs)
@@ -1258,8 +1306,12 @@ class Transformer(InputModule):
         messages: list[list[MessageInput]],
         modality_kwargs: dict[str, dict[str, Any]],
         common_kwargs: dict[str, Any],
+        chat_template_kwargs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Process chat messages using the processor's chat template."""
+        """Process chat messages using the processor's chat template.
+
+        ``chat_template_kwargs`` is forwarded to ``apply_chat_template``.
+        """
         if "message" not in self.modality_config:
             raise ValueError(
                 f"The model does not support 'message' modality, but the input looks like a chat message. "
@@ -1268,7 +1320,7 @@ class Transformer(InputModule):
 
         # Ideally we'd use the same code path for both ProcessorMixin and Tokenizers, but the latter expects
         # the text kwargs to be passed at the top level instead of in a nested "text_kwargs" dict.
-        chat_template_kwargs = self.processing_kwargs.get("chat_template", {})
+        chat_template_kwargs = chat_template_kwargs or {}
         if isinstance(self.processor, ProcessorMixin):
             # Transformers v5.4.0 prefers us to pass processor_kwargs as a single dict, but there's still some top level
             # kwargs that need to be hoisted out for backwards compatibility.

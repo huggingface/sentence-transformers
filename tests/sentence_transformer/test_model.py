@@ -1208,6 +1208,24 @@ def test_encode_with_dataset_column(stsb_bert_tiny_model: SentenceTransformer) -
     assert embeddings.shape == (2, model.get_embedding_dimension())
 
 
+def test_encode_per_call_processing_kwargs(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Per-call ``processing_kwargs`` should be accepted by ``encode`` and reach ``preprocess``.
+
+    If the kwarg were silently dropped (or rejected by encode's allowlist), truncated and full
+    encodings of the same text would either raise or produce identical embeddings.
+    """
+    model = stsb_bert_tiny_model
+    text = "this sentence is much longer than four tokens for sure"
+    truncated = model.encode(
+        [text],
+        convert_to_tensor=True,
+        processing_kwargs={"text": {"max_length": 4, "truncation": True}},
+    )
+    full = model.encode([text], convert_to_tensor=True)
+    assert truncated.shape == full.shape
+    assert not torch.allclose(truncated, full)
+
+
 def test_get_model_kwargs(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """Test that get_model_kwargs returns the correct keyword arguments."""
     model = stsb_bert_tiny_model

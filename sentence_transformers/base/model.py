@@ -502,6 +502,10 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             prompt (str, optional): A prompt string to prepend to text inputs. Defaults to None.
                 If the model supports the ``message`` modality, the prompt will be added as a system message to the
                 input messages instead of being prepended to text.
+            **kwargs: Forwarded to the input module's ``preprocess``. For :class:`~sentence_transformers.base.modules.Transformer`
+                input modules this notably includes ``processing_kwargs``, which overrides the processor kwargs
+                configured on the module for this call only (see
+                :meth:`Transformer.preprocess <sentence_transformers.base.modules.Transformer.preprocess>`).
 
         Returns:
             dict[str, Tensor | Any]: A dictionary of tensors with the preprocessed inputs.

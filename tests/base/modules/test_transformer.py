@@ -428,6 +428,60 @@ class TestPreprocess:
         result = transformer.preprocess(["hello world"])
         assert isinstance(result["input_ids"], np.ndarray)
 
+    def test_preprocess_per_call_processing_kwargs_text_override(self, bert_tiny_transformer):
+        """Per-call processing_kwargs should override defaults for that call only."""
+        result = bert_tiny_transformer.preprocess(
+            ["this is a longer sentence that should get truncated"],
+            processing_kwargs={"text": {"max_length": 5, "truncation": True}},
+        )
+        assert result["input_ids"].shape[1] == 5
+
+        # Without per-call overrides, the default behaviour is restored
+        next_result = bert_tiny_transformer.preprocess(["this is a longer sentence that should get truncated"])
+        assert next_result["input_ids"].shape[1] > 5
+
+    def test_preprocess_per_call_processing_kwargs_common_override(self, bert_tiny_transformer):
+        """Per-call processing_kwargs 'common' should override return_tensors for that call only."""
+        result = bert_tiny_transformer.preprocess(
+            ["hello world"],
+            processing_kwargs={"common": {"return_tensors": "np"}},
+        )
+        assert isinstance(result["input_ids"], np.ndarray)
+
+        next_result = bert_tiny_transformer.preprocess(["hello world"])
+        assert isinstance(next_result["input_ids"], torch.Tensor)
+
+    def test_preprocess_per_call_merges_with_instance_processing_kwargs(self):
+        """Per-call values override matching instance values; non-overridden settings are preserved."""
+        transformer = Transformer(
+            TINY_BERT,
+            processing_kwargs={"text": {"max_length": 5, "truncation": True}},
+        )
+        # Per-call only changes max_length; truncation from the instance must still apply
+        result = transformer.preprocess(
+            ["this is a longer sentence that should get truncated"],
+            processing_kwargs={"text": {"max_length": 8}},
+        )
+        assert result["input_ids"].shape[1] == 8
+
+    def test_preprocess_per_call_processing_kwargs_unknown_keys_warning(self, bert_tiny_transformer, caplog):
+        """Unknown top-level keys in per-call processing_kwargs should emit a warning."""
+        with caplog.at_level(logging.WARNING):
+            bert_tiny_transformer.preprocess(
+                ["hello world"],
+                processing_kwargs={"texts": {"max_length": 5}},
+            )
+        assert "Unknown keys in per-call `processing_kwargs`" in caplog.text
+
+    def test_preprocess_per_call_processing_kwargs_does_not_mutate_instance(self, bert_tiny_transformer):
+        """Per-call overrides must not leak into self.processing_kwargs."""
+        before = deepcopy(bert_tiny_transformer.processing_kwargs)
+        bert_tiny_transformer.preprocess(
+            ["hello world"],
+            processing_kwargs={"text": {"max_length": 5, "truncation": True}},
+        )
+        assert bert_tiny_transformer.processing_kwargs == before
+
 
 class TestForward:
     def test_missing_method_error(self, bert_tiny_transformer):
@@ -616,7 +670,7 @@ class TestProcessChatMessages:
             )
 
     def test_processing_kwargs_chat_template_passed_through(self, bert_tiny_transformer, monkeypatch):
-        """processing_kwargs['chat_template'] should be forwarded to apply_chat_template."""
+        """Instance ``processing_kwargs['chat_template']`` should reach ``apply_chat_template`` via preprocess."""
         model = bert_tiny_transformer
         model.processing_kwargs = {"chat_template": {"add_generation_prompt": True, "continue_final_message": False}}
         model.modality_config["message"] = {"method": "forward", "method_output_name": "last_hidden_state"}
@@ -628,13 +682,28 @@ class TestProcessChatMessages:
             return {"input_ids": torch.tensor([[1, 2, 3]]), "attention_mask": torch.tensor([[1, 1, 1]])}
 
         monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
-        model._process_chat_messages(
-            messages=[[{"role": "user", "content": "test"}]],
-            modality_kwargs={"text": {}, "audio": {}, "image": {}, "video": {}},
-            common_kwargs={"return_tensors": "pt"},
-        )
+        model.preprocess([[{"role": "user", "content": "test"}]])
         assert captured_kwargs["add_generation_prompt"] is True
         assert captured_kwargs["continue_final_message"] is False
+
+    def test_per_call_chat_template_overrides_instance_via_preprocess(self, bert_tiny_transformer, monkeypatch):
+        """Per-call ``processing_kwargs={'chat_template': ...}`` should override instance-level via preprocess."""
+        model = bert_tiny_transformer
+        model.processing_kwargs = {"chat_template": {"add_generation_prompt": False}}
+        model.modality_config["message"] = {"method": "forward", "method_output_name": "last_hidden_state"}
+
+        captured_kwargs = {}
+
+        def mock_apply_chat_template(messages, **kwargs):
+            captured_kwargs.update(kwargs)
+            return {"input_ids": torch.tensor([[1, 2, 3]]), "attention_mask": torch.tensor([[1, 1, 1]])}
+
+        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        model.preprocess(
+            [[{"role": "user", "content": "test"}]],
+            processing_kwargs={"chat_template": {"add_generation_prompt": True}},
+        )
+        assert captured_kwargs["add_generation_prompt"] is True
 
 
 class TestModelLoading:
@@ -1211,7 +1280,7 @@ class TestConditionalFlattening:
         monkeypatch.setattr(
             transformer,
             "_call_processor",
-            lambda modality, inputs, modality_kwargs, common_kwargs: {
+            lambda modality, inputs, modality_kwargs, common_kwargs, **_: {
                 "input_ids": torch.tensor([[1, 2, 3]]),
                 "attention_mask": torch.tensor([[1, 1, 1]]),
             },
@@ -1235,7 +1304,7 @@ class TestConditionalFlattening:
         monkeypatch.setattr(
             transformer,
             "_call_processor",
-            lambda modality, inputs, modality_kwargs, common_kwargs: {"input_ids": [[1, 2, 3]]},
+            lambda modality, inputs, modality_kwargs, common_kwargs, **_: {"input_ids": [[1, 2, 3]]},
         )
 
         transformer.preprocess(["dummy"])
