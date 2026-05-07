@@ -27,11 +27,13 @@ tasks = mteb.get_tasks(tasks=["STS22.v2"], languages=["eng"])
 results = mteb.evaluate(model, tasks)
 ```
 
+```{eval-rst}
 .. note::
 
-   If you are evaluating existing models, the MTEB team recommends that you use `mteb.get_model("{model_name}")` instead of `SentenceTransformer`. This will load the model as it is implemented in MTEB, typically by the model developers. This ensures reproducible results, which might otherwise vary due to normalization, quantization, prompts or similar. If the model isn't implemented in `mteb` it will attempt to load the model using `SentenceTransformer`.
+   If you are evaluating existing models, the MTEB team recommends that you use ``mteb.get_model("{model_name}")`` instead of ``SentenceTransformer``. This will load the model as it is implemented in MTEB, typically by the model developers. This ensures reproducible results, which might otherwise vary due to normalization, quantization, prompts or similar. If the model isn't implemented in ``mteb`` it will attempt to load the model using ``SentenceTransformer``.
+```
 
-For the full list of available tasks, you can check the MTEB Tasks overview, e.g. for [STS22.v2](https://embeddings-benchmark.github.io/mteb/overview/available_tasks/sts#sts22v2).
+For the full list of available tasks, you can check the MTEB Tasks overview, e.g. for [STS22.v2](https://embeddings-benchmark.github.io/mteb/overview/available_tasks/semantic-similarity/#sts22v2).
 
 You can also filter available MTEB tasks based on task type, domain, language, and more.
 For example, the following snippet evaluates on English retrieval tasks in the medical domain:
@@ -80,7 +82,7 @@ results = mteb.evaluate(
 )
 ```
 
-Additionally, your SentenceTransformer model may have been configured to use `prompts`. MTEB will automatically detect and use these prompts if they are defined in your model's configuration. For task-specific or document/query-specific prompts, you should read the MTEB Documentation on [Running SentenceTransformer models with prompts](https://embeddings-benchmark.github.io/mteb/usage/running_the_evaluation#running-sentencetransformer-model-with-prompts).
+Additionally, your SentenceTransformer model may have been configured to use `prompts`. MTEB will automatically detect and use these prompts if they are defined in your model's configuration. For task-specific or document/query-specific prompts, you should read the MTEB Documentation on [Running SentenceTransformer models with prompts](https://embeddings-benchmark.github.io/mteb/get_started/usage/running_the_evaluation/#running-sentencetransformer-model-with-prompts).
 
 ## Results Handling
 
@@ -125,11 +127,11 @@ results = mteb.evaluate(
 )
 ```
 
-To read more about how to load and work with results check out the [MTEB documentation](https://embeddings-benchmark.github.io/mteb/usage/loading_results/).
+To read more about how to load and work with results check out the [MTEB documentation](https://embeddings-benchmark.github.io/mteb/get_started/usage/loading_results/).
 
 ## Leaderboard Submission
 
-To add your model to the [MTEB Leaderboard](https://huggingface.co/spaces/mteb/leaderboard), you will need to follow the [Adding a Model](https://github.com/embeddings-benchmark/mteb/blob/main/docs/adding_a_model.md) MTEB Documentation.
+To add your model to the [MTEB Leaderboard](https://huggingface.co/spaces/mteb/leaderboard), you will need to follow the [Adding a Model](https://embeddings-benchmark.github.io/mteb/contributing/adding_a_model/) MTEB Documentation.
 
 For the process, you'll need to follow these steps:
 1. Add your model metadata (name, languages, number of parameters, framework, training datasets, etc.) to the [MTEB Repository](https://github.com/embeddings-benchmark/mteb/tree/main/mteb/models).
