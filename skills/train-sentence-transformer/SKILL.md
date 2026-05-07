@@ -1,6 +1,6 @@
 ---
 name: train-sentence-transformer
-description: Train or fine-tune sentence-transformers models — covers all three architectures in one skill. SentenceTransformer (bi-encoder; fixed-dimension dense vectors for retrieval, similarity, clustering, classification, paraphrase mining, dedup, multimodal). CrossEncoder (reranker; pair scoring for two-stage retrieval / pair classification with pointwise BCE, pairwise RankNet, listwise LambdaLoss / ListNet / ListMLE / PListMLE, MarginMSE distillation). SparseEncoder (SPLADE; learned-sparse retrieval inverted-index-compatible with Elasticsearch / OpenSearch / Lucene). Loss / evaluator / example references are split by model type — this SKILL.md tells you which to load. Use for any sentence-transformers training task.
+description: Train or fine-tune sentence-transformers models across `SentenceTransformer` (bi-encoder; dense or static embedding model; for retrieval, similarity, clustering, classification, paraphrase mining, dedup, multimodal), `CrossEncoder` (reranker; pair scoring for two-stage retrieval / pair classification), and `SparseEncoder` (SPLADE, sparse embedding model; for learned-sparse retrieval). Covers loss selection, hard-negative mining, evaluators, distillation, LoRA, Matryoshka, and Hugging Face Hub publishing. Use for any sentence-transformers training task.
 ---
 
 # Train a sentence-transformers Model
