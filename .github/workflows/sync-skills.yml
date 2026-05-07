@@ -1,9 +1,9 @@
 name: Sync skill to huggingface/skills
 
-# Pushes the canonical skill under skills/train-sentence-transformer/ to
+# Pushes the canonical skill under skills/train-sentence-transformers/ to
 # the huggingface/skills marketplace so users can install it via
-# `hf skills add train-sentence-transformer` or
-# `/plugin install train-sentence-transformer@huggingface/skills` (Claude Code).
+# `hf skills add train-sentence-transformers` or
+# `/plugin install train-sentence-transformers@huggingface/skills` (Claude Code).
 #
 # The skill is fully self-contained (its own references/ + scripts/) and
 # covers all three sentence-transformers architectures (bi-encoder, cross-encoder,
@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
 
 env:
-  SKILL: train-sentence-transformer
+  SKILL: train-sentence-transformers
 
 jobs:
   sync-skill:

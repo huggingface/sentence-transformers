@@ -2,7 +2,7 @@
 
 Tool-neutral [Agent Skill](https://agentskills.io) for training models with the
 `sentence-transformers` library. The single `SKILL.md` + references + runnable
-example scripts in [`train-sentence-transformer/`](train-sentence-transformer/)
+example scripts in [`train-sentence-transformers/`](train-sentence-transformers/)
 covers all three architectures and lets any compatible coding agent drive a
 training run end-to-end (model selection, hard-negative mining, loss / evaluator
 choice, training, evaluation, Hub publishing):
@@ -27,7 +27,7 @@ installable via your agent's standard plugin / skill mechanism.
 ### Hugging Face CLI (works for Claude Code, Codex, Gemini CLI, Cursor)
 
 ```bash
-hf skills add train-sentence-transformer
+hf skills add train-sentence-transformers
 ```
 
 This installs the skill into `~/.agents/skills/` (the cross-tool standard
@@ -41,7 +41,7 @@ hf skills update
 
 ```text
 /plugin marketplace add huggingface/skills
-/plugin install train-sentence-transformer@huggingface/skills
+/plugin install train-sentence-transformers@huggingface/skills
 ```
 
 ### Other agents
@@ -74,22 +74,22 @@ lets it coexist with any other skills you already have installed there.
 
 ```bash
 mkdir -p .claude/skills .agents/skills
-ln -sfn "$(pwd)/skills/train-sentence-transformer" .claude/skills/train-sentence-transformer
-ln -sfn "$(pwd)/skills/train-sentence-transformer" .agents/skills/train-sentence-transformer
+ln -sfn "$(pwd)/skills/train-sentence-transformers" .claude/skills/train-sentence-transformers
+ln -sfn "$(pwd)/skills/train-sentence-transformers" .agents/skills/train-sentence-transformers
 ```
 
 **Windows** (directory junctions — no admin or Developer Mode needed):
 
 ```cmd
 if not exist .claude\skills mkdir .claude\skills
-mklink /J ".claude\skills\train-sentence-transformer" "%cd%\skills\train-sentence-transformer"
+mklink /J ".claude\skills\train-sentence-transformers" "%cd%\skills\train-sentence-transformers"
 
 if not exist .agents\skills mkdir .agents\skills
-mklink /J ".agents\skills\train-sentence-transformer" "%cd%\skills\train-sentence-transformer"
+mklink /J ".agents\skills\train-sentence-transformers" "%cd%\skills\train-sentence-transformers"
 ```
 
 After this, edits to `SKILL.md` / any reference / any script under
-`skills/train-sentence-transformer/` are immediately visible to your agent on
+`skills/train-sentence-transformers/` are immediately visible to your agent on
 the next skill invocation. If you only use one tool, drop the corresponding
 line for the other.
 
