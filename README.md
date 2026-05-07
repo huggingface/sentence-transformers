@@ -156,6 +156,8 @@ We provide a large list of pretrained models for more than 100 languages. Some m
 
 ## Training
 
+> **Tip:** Using an AI coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...)? Install the [`train-sentence-transformers`](skills/) Hugging Face Agent Skill via `hf skills add train-sentence-transformers [--claude] [--global]` and ask your agent to fine-tune a model on your data.
+
 This framework allows you to fine-tune your own sentence embedding methods, so that you get task-specific sentence embeddings. You have various options to choose from in order to get perfect sentence embeddings for your specific task.
 
 - Embedding Models
