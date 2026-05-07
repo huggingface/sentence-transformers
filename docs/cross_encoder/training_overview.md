@@ -1,5 +1,18 @@
 # Training Overview
 
+```{eval-rst}
+.. tip::
+
+   Using an AI coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...)?
+
+   .. code-block:: bash
+      :class: tight-code
+
+      hf skills add train-sentence-transformers [--claude] [--global]
+
+   And ask your agent to fine-tune a reranker for whatever task you have in mind.
+```
+
 ## Why Finetune?
 
 Cross Encoder models are very often used as 2nd stage rerankers in a [Retrieve and Rerank](../../examples/sentence_transformer/applications/retrieve_rerank/README.md) search stack. In such a situation, the Cross Encoder reranks the top X candidates from the retriever (which can be a [Sentence Transformer model](../sentence_transformer/usage/usage.rst)). To avoid the reranker model reducing the performance on your use case, finetuning it can be crucial. Rerankers always have just 1 output label.

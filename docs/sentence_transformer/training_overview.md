@@ -1,5 +1,18 @@
 # Training Overview
 
+```{eval-rst}
+.. tip::
+
+   Using an AI coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...)?
+
+   .. code-block:: bash
+      :class: tight-code
+
+      hf skills add train-sentence-transformers [--claude] [--global]
+
+   And ask your agent to fine-tune an embedding model for whatever task you have in mind.
+```
+
 ## Why Finetune?
 
 Finetuning Sentence Transformer models often heavily improves the performance of the model on your use case, because each task requires a different notion of similarity. For example, given news articles:

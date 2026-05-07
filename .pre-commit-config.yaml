@@ -13,4 +13,4 @@ repos:
   rev: v1.45.0
   hooks:
     - id: typos
-      args: ["--diff", "--force-exclude"]
+      args: ["--force-exclude"]
