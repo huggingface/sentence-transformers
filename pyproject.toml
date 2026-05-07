@@ -107,7 +107,7 @@ include = ["sentence_transformers*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-sentence_transformers = ["**/model_card_template.md"]
+sentence_transformers = ["**/model_card_template.md", "py.typed"]
 
 [tool.uv]
 default-groups = ["dev"]
