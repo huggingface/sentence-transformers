@@ -46,13 +46,13 @@ Tiebreakers when the request is ambiguous: "embedding model" / "vector search" /
 - `references/training_args.md` — `TrainingArguments` knobs, precision rules (load fp32 + autocast bf16/fp16; never `torch_dtype=bfloat16`), `warmup_steps` (float) vs deprecated `warmup_ratio`, `save_steps` must be a multiple of `eval_steps` for `load_best_model_at_end`, schedulers, HPO, tracker, resume, hub-push variants.
 - `references/dataset_formats.md` — column-matching rules (label name auto-detection; column-order-not-name); reshaping recipes; hard-negative mining options.
 - `references/base_model_selection.md` — discovery commands; per-type model namespaces; ModernBERT-family `max_seq_length=8192` trap; `datasets >= 4` script-loader rejection; non-English starting-point shortcuts.
+- `references/troubleshooting.md` — symptom-indexed failure recipes. Skim the section headings on every run, even a healthy one; the "Metrics don't improve" and "Hub push fails" entries cover bugs that bite frequently and are cheaper to recognize before they fire than to debug after.
 
 ### Cross-cutting — load when applicable
 
 - `references/hardware_guide.md` — VRAM sizing, multi-GPU, FSDP / DeepSpeed, HF Jobs flavors. Required for >24GB models, multi-GPU, or HF Jobs runs.
 - `references/hf_jobs_execution.md` — required when running on HF Jobs.
 - `references/prompts_and_instructions.md` — required when using prompt-tuned bases (E5, BGE, GTE, Qwen3-Embedding, Instructor, Nomic, etc.) or adding `query: ` / `passage: ` style prefixes.
-- `references/troubleshooting.md` — open when something fails or behaves unexpectedly. Skim the section index even on a healthy run; the "Metrics don't improve" and "Hub push fails" entries cover bugs that bite frequently.
 
 ### Variant scripts (open when the task matches)
 - **[SentenceTransformer]** `scripts/train_sentence_transformer_<matryoshka|multi_dataset|with_lora|distillation|make_multilingual|static_embedding>_example.py`.

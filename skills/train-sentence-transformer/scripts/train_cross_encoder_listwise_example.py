@@ -102,6 +102,7 @@ OUTPUT_DIR = "models/modernbert-gooaq-lambda"
 RUN_NAME = "modernbert-gooaq-lambda"
 HARD_NEG_CACHE = f"data/{RUN_NAME}-hard-negatives"
 HARD_EVAL_CACHE = f"data/{RUN_NAME}-hard-eval"
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -185,6 +186,10 @@ def main() -> None:
         hard_eval.save_to_disk(HARD_EVAL_CACHE)
         del retriever
         torch.cuda.empty_cache()
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimmed mined datasets; will run max_steps=1 and skip Hub push")
+        hard_train = hard_train.select(range(min(50, len(hard_train))))
+        hard_eval = hard_eval.select(range(min(20, len(hard_eval))))
     logging.info(f"  train: {len(hard_train):,} rows | columns: {hard_train.column_names}")
 
     loss = LambdaLoss(model=model, mini_batch_size=16)  # mini_batch_size: drop first if OOM
@@ -211,6 +216,7 @@ def main() -> None:
     args = CrossEncoderTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=1,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=64,
         per_device_eval_batch_size=64,
         learning_rate=2e-5,
@@ -228,7 +234,7 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model=f"eval_{in_domain.primary_metric}",  # in-domain reranker > NanoBEIR
         greater_is_better=True,
-        report_to="trackio",
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
         seed=12,
     )
@@ -241,7 +247,8 @@ def main() -> None:
         evaluator=evaluator,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     logging.info("Post-training evaluation:")
@@ -254,6 +261,10 @@ def main() -> None:
     final_dir = f"{OUTPUT_DIR}/final"
     model.save_pretrained(final_dir)
     logging.info(f"Saved final model to {final_dir}")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         model.push_to_hub(RUN_NAME)

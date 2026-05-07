@@ -95,6 +95,7 @@ TRAIN_SIZE = 50_000
 EVAL_SIZE = 1_000
 OUTPUT_DIR = "models/mpnet-base-all-nli"
 RUN_NAME = "mpnet-base-all-nli"
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -141,8 +142,12 @@ def main() -> None:
     )
 
     logging.info(f"Loading dataset: {DATASET_NAME} ({DATASET_SUBSET})")
-    train_dataset = load_dataset(DATASET_NAME, DATASET_SUBSET, split="train").select(range(TRAIN_SIZE))
-    eval_dataset = load_dataset(DATASET_NAME, DATASET_SUBSET, split="dev").select(range(EVAL_SIZE))
+    train_size = 50 if SMOKE_TEST else TRAIN_SIZE
+    eval_size = 20 if SMOKE_TEST else EVAL_SIZE
+    train_dataset = load_dataset(DATASET_NAME, DATASET_SUBSET, split="train").select(range(train_size))
+    eval_dataset = load_dataset(DATASET_NAME, DATASET_SUBSET, split="dev").select(range(eval_size))
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimmed dataset; will run max_steps=1 and skip Hub push")
     logging.info(f"  train: {len(train_dataset):,} examples")
     logging.info(f"  eval:  {len(eval_dataset):,} examples")
 
@@ -158,6 +163,7 @@ def main() -> None:
     args = SentenceTransformerTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=1,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=64,
         per_device_eval_batch_size=64,
         learning_rate=2e-5,
@@ -176,7 +182,7 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model=metric_key,
         greater_is_better=True,
-        report_to="trackio",  # Optional
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
         seed=12,
     )
@@ -189,7 +195,8 @@ def main() -> None:
         loss=loss,
         evaluator=evaluator,
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     logging.info("Post-training evaluation:")
@@ -202,6 +209,10 @@ def main() -> None:
     final_dir = f"{OUTPUT_DIR}/final"
     model.save_pretrained(final_dir)
     logging.info(f"Saved final model to {final_dir}")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         model.push_to_hub(RUN_NAME)  # public by default; uses your authenticated user

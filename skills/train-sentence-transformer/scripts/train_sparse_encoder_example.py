@@ -84,6 +84,7 @@ RUN_NAME = "distilbert-splade-gooaq"
 
 QUERY_REGULARIZER_WEIGHT = 5e-5
 DOCUMENT_REGULARIZER_WEIGHT = 3e-5
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -136,9 +137,13 @@ def main() -> None:
     )
 
     logging.info(f"Loading dataset: {DATASET_NAME}")
+    train_size = 50 if SMOKE_TEST else TRAIN_SIZE
+    eval_size = 20 if SMOKE_TEST else EVAL_SIZE
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimmed dataset; will run max_steps=1 and skip Hub push")
     full = load_dataset(DATASET_NAME, split="train")
-    split = full.train_test_split(test_size=EVAL_SIZE, seed=12)
-    train_dataset = split["train"].select(range(min(TRAIN_SIZE, len(split["train"]))))
+    split = full.train_test_split(test_size=eval_size, seed=12)
+    train_dataset = split["train"].select(range(min(train_size, len(split["train"]))))
     eval_dataset = split["test"]
     logging.info(f"  train: {len(train_dataset):,} rows | eval: {len(eval_dataset):,} rows")
     logging.info(f"  columns: {train_dataset.column_names}")
@@ -161,6 +166,7 @@ def main() -> None:
     args = SparseEncoderTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=1,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=32,
         per_device_eval_batch_size=32,
         learning_rate=2e-5,
@@ -179,7 +185,7 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model=metric_key,
         greater_is_better=True,
-        report_to="trackio",  # Optional
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
         seed=12,
     )
@@ -192,7 +198,8 @@ def main() -> None:
         loss=loss,
         evaluator=evaluator,
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     logging.info("Post-training evaluation:")
@@ -212,6 +219,10 @@ def main() -> None:
     final_dir = f"{OUTPUT_DIR}/final"
     model.save_pretrained(final_dir)
     logging.info(f"Saved final model to {final_dir}")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         model.push_to_hub(RUN_NAME)

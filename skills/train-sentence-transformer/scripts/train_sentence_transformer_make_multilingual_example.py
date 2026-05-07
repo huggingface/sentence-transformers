@@ -58,6 +58,7 @@ from sentence_transformers.sentence_transformer.evaluation import (
     TranslationEvaluator,
 )
 from sentence_transformers.sentence_transformer.losses import MSELoss
+from sentence_transformers.sentence_transformer.modules import Normalize
 
 
 def autocast_ctx():
@@ -98,6 +99,7 @@ RUN_NAME = "xlm-roberta-multilingual-from-mpnet"
 
 TEACHER_ENCODE_BATCH_SIZE = 256
 TRAIN_BATCH_SIZE = 64
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -199,6 +201,10 @@ def main() -> None:
         ),
     )
     student.max_seq_length = STUDENT_MAX_SEQ_LENGTH
+    # Match the teacher's final Normalize. MSELoss against unit-norm targets fights student
+    # outputs at norm ~5-10 and can silently regress
+    if any(isinstance(m, Normalize) for m in teacher) and not any(isinstance(m, Normalize) for m in student):
+        student.append(Normalize())
 
     if student.get_embedding_dimension() != teacher.get_embedding_dimension():
         raise SystemExit(
@@ -210,6 +216,10 @@ def main() -> None:
 
     logging.info("Loading parallel data")
     train_dict, eval_dict = load_parallel_data()
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimming each language subset; will run max_steps=1 and skip Hub push")
+        train_dict = DatasetDict({k: v.select(range(min(50, len(v)))) for k, v in train_dict.items()})
+        eval_dict = DatasetDict({k: v.select(range(min(20, len(v)))) for k, v in eval_dict.items()})
 
     def attach_teacher_label(batch):
         return {
@@ -228,11 +238,16 @@ def main() -> None:
     evaluator = build_evaluator(eval_dict, teacher)
     logging.info("Student baseline (before training):")
     with autocast_ctx():
+        # Must run before deriving metric_key: each sub-evaluator mutates its primary_metric to add the name_ prefix.
         baseline_eval = evaluator(student)[evaluator.primary_metric]
+    # Drive on the first language's MSE; SequentialEvaluator's own primary_metric ("sequential_score") is also valid.
+    first_sub_evaluator = next(iter(evaluator.evaluators))
+    metric_key = f"eval_{first_sub_evaluator.primary_metric}"
 
     args = SentenceTransformerTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=3,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=TRAIN_BATCH_SIZE,
         per_device_eval_batch_size=TRAIN_BATCH_SIZE,
         learning_rate=2e-5,
@@ -247,9 +262,9 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model=f"eval_{list(eval_dict.keys())[0]}_negative_mse",
+        metric_for_best_model=metric_key,
         greater_is_better=True,
-        report_to="trackio",
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
         seed=12,
     )
@@ -262,7 +277,8 @@ def main() -> None:
         loss=loss,
         evaluator=evaluator,
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     logging.info("Final student evaluation:")
@@ -275,6 +291,10 @@ def main() -> None:
     final_dir = f"{OUTPUT_DIR}/final"
     student.save_pretrained(final_dir)
     logging.info(f"Saved to {final_dir}")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         student.push_to_hub(RUN_NAME)

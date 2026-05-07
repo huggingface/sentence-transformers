@@ -89,6 +89,7 @@ DATA_CACHE = f"data/{RUN_NAME}-resolved"
 
 QUERY_REGULARIZER_WEIGHT = 0.1  # higher than contrastive recipe; distillation tolerates more sparsity pressure
 DOCUMENT_REGULARIZER_WEIGHT = 0.08
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -163,7 +164,11 @@ def main() -> None:
     model.max_seq_length = 256
 
     resolved = load_resolved_dataset()
-    split = resolved.train_test_split(test_size=EVAL_SIZE, seed=12)
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimmed dataset; will run max_steps=1 and skip Hub push")
+        resolved = resolved.select(range(min(70, len(resolved))))
+    eval_size = 20 if SMOKE_TEST else EVAL_SIZE
+    split = resolved.train_test_split(test_size=eval_size, seed=12)
     train_dataset = split["train"]
     eval_dataset = split["test"]
     logging.info(f"  train: {len(train_dataset):,} rows | eval: {len(eval_dataset):,} rows")
@@ -179,12 +184,15 @@ def main() -> None:
     evaluator = SparseNanoBEIREvaluator(dataset_names=["msmarco", "nfcorpus", "nq"])
     logging.info("Baseline evaluation (fill-mask base scores near zero, confirms pipeline):")
     with autocast_ctx():
+        # Must run before deriving metric_key: evaluator(model) mutates primary_metric to add the name_ prefix.
         baseline_result = evaluator(model)
         baseline_eval = baseline_result[evaluator.primary_metric]
+    metric_key = f"eval_{evaluator.primary_metric}"
 
     args = SparseEncoderTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=1,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=16,
         per_device_eval_batch_size=16,
         learning_rate=2e-5,
@@ -200,9 +208,9 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_NanoBEIR_mean_dot_ndcg@10",
+        metric_for_best_model=metric_key,
         greater_is_better=True,
-        report_to="trackio",
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
         seed=12,
     )
@@ -215,7 +223,8 @@ def main() -> None:
         loss=loss,
         evaluator=evaluator,
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     logging.info("Post-training evaluation:")
@@ -232,6 +241,10 @@ def main() -> None:
     final_dir = f"{OUTPUT_DIR}/final"
     model.save_pretrained(final_dir)
     logging.info(f"Saved final model to {final_dir}")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         model.push_to_hub(RUN_NAME)

@@ -7,22 +7,28 @@
 #     "accelerate>=0.26.0",
 #     "trackio",
 #     "tokenizers>=0.20",
+#     "model2vec",  # only needed when WARMSTART=True (StaticEmbedding.from_model2vec)
 # ]
 # ///
-"""Train a StaticEmbedding model from scratch on a large contrastive dataset.
+"""Train a StaticEmbedding model on a contrastive dataset.
 
 StaticEmbedding is a token-bag model: a per-token embedding table averaged over
 the tokens of an input. No transformer, no attention. Inference is ~20x faster
 on GPU and ~80x faster on CPU than a small encoder, with surprisingly competitive
 quality on retrieval benchmarks when trained on >=1M contrastive pairs.
 
+Two init paths via `WARMSTART` constant:
+- `WARMSTART=False`: random init. Use with >=1M contrastive pairs; reaches a
+  higher ceiling than warm-start when given enough data.
+- `WARMSTART=True` (default): `StaticEmbedding.from_model2vec(...)` — distil from
+  a model2vec checkpoint. Recommended for <1M pair budgets; converges much
+  faster and reaches better quality at lower data scales.
+
 Demonstrates:
-- Random-init StaticEmbedding (with >=1M training samples this beats from_model2vec
-  and from_distillation warm-starts; for smaller datasets, see model_architectures.md)
 - MultipleNegativesRankingLoss wrapped in MatryoshkaLoss for nested embedding dims
-- Large batch size (1024+) with a high LR (~2e-1, multiple orders of magnitude
-  higher than encoder fine-tuning) since the loss surface for a freshly
-  initialized embedding table is much flatter than for a pretrained encoder
+- Large batch size (1024+) with a high LR (~2e-1 for random init, ~5e-2 for warm-
+  start) since the loss surface for a token-bag is much flatter than for a
+  pretrained encoder
 - BatchSamplers.NO_DUPLICATES (load-bearing for in-batch negatives with duplicated
   anchors)
 - NanoBEIREvaluator at full embedding dim
@@ -95,8 +101,14 @@ TOKENIZER_NAME = "google-bert/bert-base-uncased"
 EMBEDDING_DIM = 1024
 MATRYOSHKA_DIMS = [1024, 512, 256, 128, 64, 32]  # ordered largest-first per MatryoshkaLoss
 
+# True: warm-start from a model2vec checkpoint (recommended for <1M pairs).
+# False: random init (recommended for >=1M pairs; reaches a higher ceiling).
+WARMSTART = True
+WARMSTART_MODEL2VEC = "minishlab/potion-base-8M"
+
 OUTPUT_DIR = "models/static-embedding-bert-uncased"
 RUN_NAME = "static-embedding-bert-uncased"
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -149,13 +161,16 @@ def main() -> None:
             evaluator(model)
         return
 
-    logging.info(f"Building StaticEmbedding from {TOKENIZER_NAME} tokenizer (dim={EMBEDDING_DIM}, random init)")
-    # Random init beats from_model2vec / from_distillation when the training set
-    # has >=1M pairs. For smaller datasets (<100k), warm-start instead via
-    # StaticEmbedding.from_model2vec("minishlab/potion-base-8M") or
-    # StaticEmbedding.from_distillation("sentence-transformers/all-MiniLM-L6-v2", ...)
-    tokenizer = Tokenizer.from_pretrained(TOKENIZER_NAME)
-    static_embedding = StaticEmbedding(tokenizer, embedding_dim=EMBEDDING_DIM)
+    if WARMSTART:
+        logging.info(f"Warm-starting StaticEmbedding from model2vec: {WARMSTART_MODEL2VEC}")
+        # `StaticEmbedding.from_distillation("<bi-encoder>", vocabulary=...)` is the
+        # alternative warm-start path (distil from a stronger teacher's vectors); pick
+        # one. model2vec is faster to load and converges quickly on smaller datasets.
+        static_embedding = StaticEmbedding.from_model2vec(WARMSTART_MODEL2VEC)
+    else:
+        logging.info(f"Random-init StaticEmbedding from {TOKENIZER_NAME} tokenizer (dim={EMBEDDING_DIM})")
+        tokenizer = Tokenizer.from_pretrained(TOKENIZER_NAME)
+        static_embedding = StaticEmbedding(tokenizer, embedding_dim=EMBEDDING_DIM)
     model = SentenceTransformer(
         modules=[static_embedding],
         model_card_data=SentenceTransformerModelCardData(
@@ -167,7 +182,11 @@ def main() -> None:
 
     logging.info("Loading + concatenating training datasets")
     full = load_pair_dataset()
-    split = full.train_test_split(test_size=10_000, seed=12)
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimmed dataset; will run max_steps=1 and skip Hub push")
+        full = full.select(range(min(200, len(full))))
+    eval_size = 20 if SMOKE_TEST else 10_000
+    split = full.train_test_split(test_size=eval_size, seed=12)
     train_dataset = split["train"]
     eval_dataset = split["test"]
     logging.info(f"  train: {len(train_dataset):,} rows | eval: {len(eval_dataset):,} rows")
@@ -177,16 +196,21 @@ def main() -> None:
     loss = MatryoshkaLoss(model, inner, matryoshka_dims=MATRYOSHKA_DIMS)
 
     evaluator = NanoBEIREvaluator(dataset_names=["msmarco", "nfcorpus", "nq"])
-    logging.info("Baseline evaluation (random init scores near zero, confirming the pipeline runs):")
+    logging.info("Baseline evaluation (random init scores near zero; warm-start scores 0.3+):")
     with autocast_ctx():
+        # Must run before deriving metric_key: evaluator(model) mutates primary_metric to add the name_ prefix.
         baseline_eval = evaluator(model)[evaluator.primary_metric]
+    metric_key = f"eval_{evaluator.primary_metric}"
 
     args = SentenceTransformerTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=1,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=2048,
         per_device_eval_batch_size=2048,
-        learning_rate=2e-1,  # ~10000x higher than encoder fine-tuning, by design
+        learning_rate=5e-2
+        if WARMSTART
+        else 2e-1,  # warm-start needs less LR; both far higher than encoder fine-tuning
         weight_decay=0.0,  # weight decay on a token-bag is usually harmful
         warmup_steps=0.1,
         lr_scheduler_type="linear",
@@ -200,9 +224,9 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_NanoBEIR_mean_cosine_ndcg@10",
+        metric_for_best_model=metric_key,
         greater_is_better=True,
-        report_to="trackio",
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
         seed=12,
     )
@@ -215,7 +239,8 @@ def main() -> None:
         loss=loss,
         evaluator=evaluator,
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     logging.info("Post-training evaluation:")
@@ -228,6 +253,10 @@ def main() -> None:
     final_dir = f"{OUTPUT_DIR}/final"
     model.save_pretrained(final_dir)
     logging.info(f"Saved final model to {final_dir}")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         model.push_to_hub(RUN_NAME)

@@ -118,6 +118,7 @@ def log_trackio_dashboard():
 
 
 RUN_NAME = "mpnet-nli-stsb"
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -155,10 +156,18 @@ def main() -> None:
 
     model = SentenceTransformer("microsoft/mpnet-base")
 
-    nli_train = load_dataset("sentence-transformers/all-nli", "triplet", split="train").select(range(50_000))
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimmed datasets; will run max_steps=1 and skip Hub push")
+    nli_train_size = 50 if SMOKE_TEST else 50_000
+    nli_eval_size = 20 if SMOKE_TEST else 500
+    nli_train = load_dataset("sentence-transformers/all-nli", "triplet", split="train").select(range(nli_train_size))
     stsb_train = load_dataset("sentence-transformers/stsb", split="train")
-    nli_eval = load_dataset("sentence-transformers/all-nli", "triplet", split="dev").select(range(500))
+    if SMOKE_TEST:
+        stsb_train = stsb_train.select(range(min(50, len(stsb_train))))
+    nli_eval = load_dataset("sentence-transformers/all-nli", "triplet", split="dev").select(range(nli_eval_size))
     stsb_eval = load_dataset("sentence-transformers/stsb", split="validation")
+    if SMOKE_TEST:
+        stsb_eval = stsb_eval.select(range(min(20, len(stsb_eval))))
 
     train_datasets = {"all-nli": nli_train, "stsb": stsb_train}
     eval_datasets = {"all-nli": nli_eval, "stsb": stsb_eval}
@@ -175,6 +184,11 @@ def main() -> None:
         main_similarity=SimilarityFunction.COSINE,
         name="sts-dev",
     )
+    logging.info("Baseline evaluation (before training):")
+    with autocast_ctx():
+        # Must run before deriving metric_key: evaluator(model) mutates primary_metric to add the name_ prefix.
+        evaluator(model)
+    metric_key = f"eval_{evaluator.primary_metric}"
 
     # multi_dataset_batch_sampler defaults to PROPORTIONAL (samples each dataset
     # in proportion to its size). To force equal alternation between datasets:
@@ -183,6 +197,7 @@ def main() -> None:
     args = SentenceTransformerTrainingArguments(
         output_dir="models/mpnet-nli-stsb",
         num_train_epochs=1,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=32,
         per_device_eval_batch_size=32,
         learning_rate=2e-5,
@@ -198,9 +213,9 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_sts-dev_spearman_cosine",
+        metric_for_best_model=metric_key,
         greater_is_better=True,
-        report_to="trackio",  # Optional
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name="mpnet-nli-stsb",
         seed=12,
     )
@@ -213,10 +228,15 @@ def main() -> None:
         loss=losses,
         evaluator=evaluator,
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     model.save_pretrained("models/mpnet-nli-stsb/final")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         model.push_to_hub(RUN_NAME)

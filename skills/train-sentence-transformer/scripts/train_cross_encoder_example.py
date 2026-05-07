@@ -84,6 +84,7 @@ NUM_NEGATIVES = 5
 OUTPUT_DIR = "models/minilm-gooaq-ce"
 RUN_NAME = "minilm-gooaq-ce"
 HARD_NEG_CACHE = f"data/{RUN_NAME}-hard-negatives"  # delete this dir to remine
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -131,7 +132,11 @@ def main() -> None:
     )
 
     logging.info(f"Loading dataset: {DATASET_NAME}")
-    pairs = load_dataset(DATASET_NAME, split="train").select(range(TRAIN_SIZE + EVAL_SIZE))
+    train_size = 50 if SMOKE_TEST else TRAIN_SIZE
+    eval_size = 20 if SMOKE_TEST else EVAL_SIZE
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimmed dataset; will run max_steps=1 and skip Hub push")
+    pairs = load_dataset(DATASET_NAME, split="train").select(range(train_size + eval_size))
 
     if os.path.isdir(HARD_NEG_CACHE):
         logging.info(f"Loading cached mined hard negatives from {HARD_NEG_CACHE}")
@@ -156,7 +161,7 @@ def main() -> None:
     # EVAL_SIZE here counts labeled-pair rows, not distinct queries: each
     # query contributes 1 positive + NUM_NEGATIVES negatives, so e.g. 1000
     # rows is approximately 1000 / (1 + NUM_NEGATIVES) distinct queries.
-    split = labeled.train_test_split(test_size=EVAL_SIZE, seed=12)
+    split = labeled.train_test_split(test_size=eval_size, seed=12)
     train_dataset = split["train"]
     eval_dataset = split["test"]
     logging.info(f"  train: {len(train_dataset):,} rows | eval: {len(eval_dataset):,} rows")
@@ -180,6 +185,7 @@ def main() -> None:
     args = CrossEncoderTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=1,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=64,
         per_device_eval_batch_size=64,
         learning_rate=2e-5,
@@ -197,7 +203,7 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model=metric_key,
         greater_is_better=True,
-        report_to="trackio",  # Optional
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
         seed=12,
     )
@@ -215,7 +221,8 @@ def main() -> None:
         evaluator=evaluator,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     logging.info("Post-training evaluation:")
@@ -228,6 +235,10 @@ def main() -> None:
     final_dir = f"{OUTPUT_DIR}/final"
     model.save_pretrained(final_dir)
     logging.info(f"Saved final model to {final_dir}")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         model.push_to_hub(RUN_NAME)

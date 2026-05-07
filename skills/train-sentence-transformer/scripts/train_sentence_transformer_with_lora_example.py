@@ -134,6 +134,7 @@ def log_trackio_dashboard():
 MODEL_NAME = "google-bert/bert-base-uncased"
 OUTPUT_DIR = "models/bert-base-gooaq-lora"
 RUN_NAME = "bert-base-gooaq-lora"
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -191,8 +192,13 @@ def main() -> None:
     logging.info(f"trainable params: {trainable:,} / {total:,} ({100 * trainable / total:.2f}%)")
 
     full = load_dataset("sentence-transformers/gooaq", split="train")
-    split = full.train_test_split(test_size=10_000, seed=12)
-    train_dataset = split["train"].select(range(min(500_000, len(split["train"]))))
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimmed dataset; will run max_steps=1 and skip Hub push")
+        full = full.select(range(min(200, len(full))))
+    eval_size = 20 if SMOKE_TEST else 10_000
+    train_cap = 50 if SMOKE_TEST else 500_000
+    split = full.train_test_split(test_size=eval_size, seed=12)
+    train_dataset = split["train"].select(range(min(train_cap, len(split["train"]))))
     eval_dataset = split["test"]
     logging.info(f"train={len(train_dataset):,} eval={len(eval_dataset):,}")
 
@@ -201,11 +207,14 @@ def main() -> None:
     evaluator = NanoBEIREvaluator()
     logging.info("Baseline:")
     with autocast_ctx():
+        # Must run before deriving metric_key: evaluator(model) mutates primary_metric to add the name_ prefix.
         evaluator(model)
+    metric_key = f"eval_{evaluator.primary_metric}"
 
     args = SentenceTransformerTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=1,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=512,
         per_device_eval_batch_size=512,
         learning_rate=1e-4,
@@ -221,9 +230,9 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_NanoBEIR_mean_cosine_ndcg@10",
+        metric_for_best_model=metric_key,
         greater_is_better=True,
-        report_to="trackio",  # Optional
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
         seed=12,
     )
@@ -236,12 +245,17 @@ def main() -> None:
         loss=loss,
         evaluator=evaluator,
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     with autocast_ctx():
         evaluator(model)
     model.save_pretrained(f"{OUTPUT_DIR}/final")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         model.push_to_hub(RUN_NAME)

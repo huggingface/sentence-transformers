@@ -87,6 +87,7 @@ from sentence_transformers import (
 )
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.sentence_transformer.losses import MSELoss
+from sentence_transformers.sentence_transformer.modules import Normalize
 from sentence_transformers.util.similarity import SimilarityFunction
 
 
@@ -125,6 +126,7 @@ RUN_NAME = "distilbert-distill-from-mpnet"
 
 TEACHER_ENCODE_BATCH_SIZE = 256
 TRAIN_BATCH_SIZE = 128
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -179,6 +181,10 @@ def main() -> None:
             model_name=f"{STUDENT_MODEL_NAME.split('/')[-1]} distilled from {TEACHER_MODEL_NAME.split('/')[-1]}",
         ),
     )
+    # Match the teacher's final Normalize. MSELoss against unit-norm targets fights student
+    # outputs at norm ~5-10 and can silently regress
+    if any(isinstance(m, Normalize) for m in teacher) and not any(isinstance(m, Normalize) for m in student):
+        student.append(Normalize())
 
     if student.get_embedding_dimension() != teacher.get_embedding_dimension():
         raise SystemExit(
@@ -190,11 +196,15 @@ def main() -> None:
         )
 
     logging.info(f"Loading corpus: {CORPUS_DATASET} ({CORPUS_SUBSET})")
+    train_size = 50 if SMOKE_TEST else TRAIN_SIZE
+    eval_size = 20 if SMOKE_TEST else EVAL_SIZE
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimmed dataset; will run max_steps=1 and skip Hub push")
     raw = load_dataset(CORPUS_DATASET, CORPUS_SUBSET, split="train")
     sentences = list(dict.fromkeys(s for row in raw for s in (row["anchor"], row["positive"]) if isinstance(s, str)))
-    sentences = sentences[: TRAIN_SIZE + EVAL_SIZE]
-    train_sentences = sentences[:TRAIN_SIZE]
-    eval_sentences = sentences[TRAIN_SIZE : TRAIN_SIZE + EVAL_SIZE]
+    sentences = sentences[: train_size + eval_size]
+    train_sentences = sentences[:train_size]
+    eval_sentences = sentences[train_size : train_size + eval_size]
 
     logging.info(f"Encoding {len(train_sentences):,} training sentences with the teacher (may take a while)")
     teacher_train = teacher.encode(
@@ -225,11 +235,14 @@ def main() -> None:
     logging.info("Teacher performance:")
     evaluator(teacher)
     logging.info("Student performance before distillation:")
+    # Must run before deriving metric_key: evaluator(model) mutates primary_metric to add the name_ prefix.
     baseline_eval = evaluator(student)[evaluator.primary_metric]
+    metric_key = f"eval_{evaluator.primary_metric}"
 
     args = SentenceTransformerTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=1,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=TRAIN_BATCH_SIZE,
         per_device_eval_batch_size=TRAIN_BATCH_SIZE,
         learning_rate=1e-4,
@@ -244,9 +257,9 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_sts-dev_spearman_cosine",
+        metric_for_best_model=metric_key,
         greater_is_better=True,
-        report_to="trackio",  # Optional
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
         seed=12,
     )
@@ -259,7 +272,8 @@ def main() -> None:
         loss=loss,
         evaluator=evaluator,
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     logging.info("Student performance after distillation:")
@@ -271,6 +285,10 @@ def main() -> None:
     final_dir = f"{OUTPUT_DIR}/final"
     student.save_pretrained(final_dir)
     logging.info(f"Saved to {final_dir}")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         student.push_to_hub(RUN_NAME)

@@ -73,6 +73,7 @@ MODEL_NAME = "microsoft/mpnet-base"
 MATRYOSHKA_DIMS = [768, 512, 256, 128, 64]
 OUTPUT_DIR = "models/mpnet-matryoshka"
 RUN_NAME = "mpnet-matryoshka"
+SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
 
 def setup_logging():
@@ -110,8 +111,12 @@ def main() -> None:
 
     model = SentenceTransformer(MODEL_NAME)
 
-    train_dataset = load_dataset("sentence-transformers/all-nli", "triplet", split="train").select(range(50_000))
-    eval_dataset = load_dataset("sentence-transformers/all-nli", "triplet", split="dev").select(range(1_000))
+    train_size = 50 if SMOKE_TEST else 50_000
+    eval_size = 20 if SMOKE_TEST else 1_000
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: trimmed dataset; will run max_steps=1 and skip Hub push")
+    train_dataset = load_dataset("sentence-transformers/all-nli", "triplet", split="train").select(range(train_size))
+    eval_dataset = load_dataset("sentence-transformers/all-nli", "triplet", split="dev").select(range(eval_size))
 
     inner_loss = MultipleNegativesRankingLoss(model)
     loss = MatryoshkaLoss(model, inner_loss, matryoshka_dims=MATRYOSHKA_DIMS)
@@ -132,10 +137,17 @@ def main() -> None:
         [*per_dim_evaluators, NanoBEIREvaluator()],
         main_score_function=lambda scores: scores[0],
     )
+    logging.info("Baseline evaluation (before training):")
+    with autocast_ctx():
+        # Must run before deriving metric_key: each sub-evaluator mutates its primary_metric to add the name_ prefix.
+        evaluator(model)
+    # Drive on the first per-dim evaluator's metric (matches main_score_function above).
+    metric_key = f"eval_{per_dim_evaluators[0].primary_metric}"
 
     args = SentenceTransformerTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=1,
+        max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=128,
         per_device_eval_batch_size=128,
         learning_rate=2e-5,
@@ -151,9 +163,9 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model=f"eval_sts-dev-{MATRYOSHKA_DIMS[0]}_spearman_cosine",
+        metric_for_best_model=metric_key,
         greater_is_better=True,
-        report_to="trackio",  # Optional
+        report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
         seed=12,
     )
@@ -166,13 +178,18 @@ def main() -> None:
         loss=loss,
         evaluator=evaluator,
     )
-    log_trackio_dashboard()
+    if not SMOKE_TEST:
+        log_trackio_dashboard()
     trainer.train()
 
     final_dir = f"{OUTPUT_DIR}/final"
     model.save_pretrained(final_dir)
     logging.info(f"Saved to {final_dir}")
     logging.info(f"To use at a specific dimension, load with: SentenceTransformer({final_dir!r}, truncate_dim=128)")
+
+    if SMOKE_TEST:
+        logging.info("SMOKE_TEST=1: skipping Hub push")
+        return
 
     try:
         model.push_to_hub(RUN_NAME)
