@@ -55,7 +55,7 @@ loss = CachedMultipleNegativesRankingLoss(model, mini_batch_size=16)
 
 ## Distillation losses
 
-> **`activation_fn=nn.Identity()` is mandatory** for all distillation, listwise, and pairwise losses below — only `BinaryCrossEntropyLoss` and `CrossEntropyLoss` tolerate the default `Sigmoid`. The loss sees raw logits during training, but the model's `activation_fn` is applied at evaluation via `predict()`; the default `Sigmoid` (with `num_labels=1`) saturates raw logits >5 to ~1.0 inside `predict()`, silently collapsing eval ranking (training loss looks healthy while nDCG crashes from ~0.59 to ~0.14). Construct as `CrossEncoder("...", num_labels=1, activation_fn=torch.nn.Identity())`. See SKILL.md Directive 6.
+> **`activation_fn=nn.Identity()` is mandatory** for all distillation, listwise, and pairwise losses below — only `BinaryCrossEntropyLoss` and `CrossEntropyLoss` tolerate the default `Sigmoid`. The loss sees raw logits during training, but the model's `activation_fn` is applied at evaluation via `predict()`; the default `Sigmoid` (with `num_labels=1`) saturates raw logits >5 to ~1.0 inside `predict()`, silently collapsing eval ranking (training loss looks healthy while nDCG crashes from ~0.59 to ~0.14). Construct as `CrossEncoder("...", num_labels=1, activation_fn=torch.nn.Identity())`. See `troubleshooting.md` ("CrossEncoder eval nDCG crashes after distillation / listwise / pairwise training") for the failure-mode walkthrough.
 
 ### `MSELoss` (cross-encoder)
 
@@ -123,7 +123,7 @@ Pairwise classification: for each pair of candidates, predict which is ranked hi
 
 Alternative listwise formulation (Approx Discounted Rank MSE) from the Rank-DistiLLM paper. Same data shape as `LambdaLoss`. In practice LambdaLoss is the stronger default; `RankNetLoss` was reported as marginally more effective (~0.002 nDCG@10) than ADRMSELoss on the paper's LLM-distillation setup, and LambdaLoss generally beats both.
 
-Hard-negative mining is essential for any contrastive reranker (random negatives teach nothing). See SKILL.md Directive 4 + Dataset Preparation for the recipe and `../scripts/mine_hard_negatives.py`.
+Hard-negative mining is essential for any contrastive reranker (random negatives teach nothing). See `dataset_formats.md` (Hard-negative mining section) and `../scripts/mine_hard_negatives.py`.
 
 ## Gotchas
 

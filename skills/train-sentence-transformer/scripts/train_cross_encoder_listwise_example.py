@@ -24,7 +24,8 @@ CRITICAL: `activation_fn=nn.Identity()` is mandatory for LambdaLoss / ListNet /
 ListMLE / PListMLE / RankNet / MarginMSE / MSE — anything that's not
 `BinaryCrossEntropyLoss` or `CrossEntropyLoss`. The default `Sigmoid` (with
 `num_labels=1`) saturates raw logits >5 to ~1.0 inside `predict()`, silently
-collapsing eval ranking. See SKILL.md Directive 7 ([CE]).
+collapsing eval ranking. See `../references/troubleshooting.md` ("CrossEncoder
+eval nDCG crashes after distillation / listwise / pairwise training").
 
 OOM recovery for LambdaLoss: drop `mini_batch_size` first (chunking inside the
 loss preserves the K-list semantic), then `per_device_train_batch_size` paired
@@ -149,6 +150,9 @@ def main() -> None:
             model_name=f"{MODEL_NAME.split('/')[-1]} reranker trained with LambdaLoss on GooAQ",
         ),
     )
+    # ModernBERT defaults to max_seq_length=8192, which allocates activation memory
+    # for 8192-token sequences regardless of input length. Pin to a (q, doc) cap.
+    model.max_seq_length = 512
 
     full_dataset = load_dataset(DATASET_NAME, split="train").select(range(TRAIN_SIZE))
     split = full_dataset.train_test_split(test_size=EVAL_SIZE, seed=12)
@@ -177,7 +181,6 @@ def main() -> None:
             retriever,
             corpus=full_dataset["answer"],
             num_negatives=EVAL_RERANK_DEPTH,
-            include_positives=True,  # gold positive lives in the candidate list
             output_format="n-tuple",
             use_faiss=True,
             batch_size=4096,
@@ -195,18 +198,18 @@ def main() -> None:
     loss = LambdaLoss(model=model, mini_batch_size=16)  # mini_batch_size: drop first if OOM
 
     nano_beir = CrossEncoderNanoBEIREvaluator(dataset_names=["msmarco", "nfcorpus", "nq"])
+    # Pure reranker quality: positive is in `documents` and `always_rerank_positives=True` (default).
     in_domain = CrossEncoderRerankingEvaluator(
         samples=[
             {
                 "query": row["question"],
                 "positive": [row["answer"]],
-                "documents": [row[col] for col in hard_eval.column_names[2:]],
+                "documents": [row["answer"]] + [row[col] for col in hard_eval.column_names[2:]],
             }
             for row in hard_eval
         ],
         batch_size=64,
         name="gooaq-dev",
-        always_rerank_positives=False,  # End-to-end retriever+reranker quality
     )
     evaluator = SequentialEvaluator([in_domain, nano_beir])
     logging.info("Baseline evaluation:")

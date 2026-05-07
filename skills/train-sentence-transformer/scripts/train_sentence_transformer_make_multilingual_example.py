@@ -146,10 +146,12 @@ def load_parallel_data() -> tuple[DatasetDict, DatasetDict]:
 
 
 def build_evaluator(eval_dict: DatasetDict, teacher: SentenceTransformer) -> SequentialEvaluator:
-    """Per-language MSE + TranslationEvaluator (the real success signal)."""
-    evaluators = []
+    """Per-language MSE + TranslationEvaluator. `main_score_function` averages
+    translation accuracies only; MSE (`negative_mse * 100`) is on a different
+    scale and would break the verdict threshold if mixed in."""
+    sub_evaluators = []
     for subset, ds in eval_dict.items():
-        evaluators.append(
+        sub_evaluators.append(
             MSEEvaluator(
                 source_sentences=ds["english"],
                 target_sentences=ds["non_english"],
@@ -158,7 +160,7 @@ def build_evaluator(eval_dict: DatasetDict, teacher: SentenceTransformer) -> Seq
                 batch_size=TEACHER_ENCODE_BATCH_SIZE,
             )
         )
-        evaluators.append(
+        sub_evaluators.append(
             TranslationEvaluator(
                 source_sentences=ds["english"],
                 target_sentences=ds["non_english"],
@@ -166,7 +168,8 @@ def build_evaluator(eval_dict: DatasetDict, teacher: SentenceTransformer) -> Seq
                 batch_size=TEACHER_ENCODE_BATCH_SIZE,
             )
         )
-    return SequentialEvaluator(evaluators, main_score_function=lambda scores: float(np.mean(scores)))
+    # Sub-evaluators alternate MSE / Translation per language; scores[1::2] are the translation accuracies.
+    return SequentialEvaluator(sub_evaluators, main_score_function=lambda scores: float(np.mean(scores[1::2])))
 
 
 def main() -> None:
@@ -238,11 +241,7 @@ def main() -> None:
     evaluator = build_evaluator(eval_dict, teacher)
     logging.info("Student baseline (before training):")
     with autocast_ctx():
-        # Must run before deriving metric_key: each sub-evaluator mutates its primary_metric to add the name_ prefix.
-        baseline_eval = evaluator(student)[evaluator.primary_metric]
-    # Drive on the first language's MSE; SequentialEvaluator's own primary_metric ("sequential_score") is also valid.
-    first_sub_evaluator = next(iter(evaluator.evaluators))
-    metric_key = f"eval_{first_sub_evaluator.primary_metric}"
+        baseline_eval = evaluator(student)["sequential_score"]
 
     args = SentenceTransformerTrainingArguments(
         output_dir=OUTPUT_DIR,
@@ -262,7 +261,7 @@ def main() -> None:
         logging_steps=0.01,
         logging_first_step=True,
         load_best_model_at_end=True,
-        metric_for_best_model=metric_key,
+        metric_for_best_model="eval_sequential_score",
         greater_is_better=True,
         report_to="none" if SMOKE_TEST else "trackio",
         run_name=RUN_NAME,
@@ -283,7 +282,7 @@ def main() -> None:
 
     logging.info("Final student evaluation:")
     with autocast_ctx():
-        score = evaluator(student)[evaluator.primary_metric]
+        score = evaluator(student)["sequential_score"]
     delta = score - baseline_eval
     verdict = "WIN" if delta >= 0.005 else "MARGINAL" if delta >= 0 else "REGRESSION"
     logging.info(f"VERDICT: {verdict} | score={score:.4f} | baseline={baseline_eval:.4f} | delta={delta:+.4f}")

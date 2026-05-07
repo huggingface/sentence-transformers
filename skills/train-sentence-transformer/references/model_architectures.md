@@ -175,4 +175,4 @@ model = SentenceTransformer(modules=[router])
 - **Decoder base with mean pooling**: silently produces garbage embeddings. Always use `lasttoken`.
 - **Router multimodal without training**: the separate encoders' embedding spaces are unaligned at init. Don't expect useful cross-modal similarity until you've trained with a loss that aligns the spaces.
 - **StaticEmbedding with fewer than 100k pairs**: the model won't learn enough. Either warm-start via `from_model2vec` / `from_distillation`, or use a regular encoder.
-- **Large VLM backbones on consumer GPUs**: consider `torch_dtype="bfloat16"` + `attn_implementation="flash_attention_2"` + LoRA.
+- **Large VLM backbones on consumer GPUs**: combine LoRA + `attn_implementation="flash_attention_2"`. With LoRA only, you can additionally pass `torch_dtype="bfloat16"` — the bf16 base weights are frozen, so the Adam-state precision concern from the precision rule above doesn't apply (the LoRA adapter stays fp32, so its optimizer state stays fp32). Without LoRA, follow the precision rule: keep weights fp32 and rely on `bf16=True` autocast.

@@ -18,11 +18,12 @@ on GPU and ~80x faster on CPU than a small encoder, with surprisingly competitiv
 quality on retrieval benchmarks when trained on >=1M contrastive pairs.
 
 Two init paths via `WARMSTART` constant:
-- `WARMSTART=False`: random init. Use with >=1M contrastive pairs; reaches a
-  higher ceiling than warm-start when given enough data.
-- `WARMSTART=True` (default): `StaticEmbedding.from_model2vec(...)` — distil from
-  a model2vec checkpoint. Recommended for <1M pair budgets; converges much
-  faster and reaches better quality at lower data scales.
+- `WARMSTART=False` (default): random init. Use with >=1M contrastive pairs;
+  reaches a higher ceiling than warm-start when given enough data. The default
+  dataset below (GooAQ, ~3M pairs) is comfortably in this regime.
+- `WARMSTART=True`: `StaticEmbedding.from_model2vec(...)` — distil from a
+  model2vec checkpoint. Flip to True if you swap in a smaller dataset (<1M
+  pairs); converges faster and reaches better quality at lower data scales.
 
 Demonstrates:
 - MultipleNegativesRankingLoss wrapped in MatryoshkaLoss for nested embedding dims
@@ -101,9 +102,10 @@ TOKENIZER_NAME = "google-bert/bert-base-uncased"
 EMBEDDING_DIM = 1024
 MATRYOSHKA_DIMS = [1024, 512, 256, 128, 64, 32]  # ordered largest-first per MatryoshkaLoss
 
-# True: warm-start from a model2vec checkpoint (recommended for <1M pairs).
 # False: random init (recommended for >=1M pairs; reaches a higher ceiling).
-WARMSTART = True
+# True: warm-start from a model2vec checkpoint (recommended for <1M pairs).
+# Default False because the example dataset (GooAQ, ~3M pairs) is well above the threshold.
+WARMSTART = False
 WARMSTART_MODEL2VEC = "minishlab/potion-base-8M"
 
 OUTPUT_DIR = "models/static-embedding-bert-uncased"

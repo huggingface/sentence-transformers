@@ -13,7 +13,7 @@ Example: `CoSENTLoss` expects 2 inputs + a float label. A dataset with columns `
 
 ## Per-loss data shapes
 
-The SKILL.md "Loss Selection" table is the canonical mapping from data shape to loss. Cross-cutting recipe bits the table doesn't show:
+The per-type loss references (`losses_sentence_transformer.md`, `losses_cross_encoder.md`, `losses_sparse_encoder.md`) are the canonical mappings from data shape to loss. Cross-cutting recipe bits those tables don't show:
 
 - **`CosineSimilarityLoss`** wants `score` normalized to `[0, 1]`; `CoSENTLoss` / `AnglELoss` are pairwise-ranking and ignore absolute scale, so on `stsb` (raw 0-5) divide by 5 only when using cosine-similarity.
 - **`BatchAllTripletLoss` / `BatchHardTripletLoss` / `BatchSemiHardTripletLoss`** need `batch_sampler=BatchSamplers.GROUP_BY_LABEL` so multiple samples per label appear in the same batch.

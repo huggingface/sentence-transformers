@@ -26,7 +26,7 @@ Tiebreakers when the request is ambiguous: "embedding model" / "vector search" /
 ### Per-type — always required
 
 **[SentenceTransformer]**
-- `references/losses_sentence_transformer.md` — loss-to-data-shape mapping (28 losses); `BatchSamplers.NO_DUPLICATES` requirement for MNRL-family; `Cached*` ↔ `gradient_checkpointing` incompatibility.
+- `references/losses_sentence_transformer.md` — loss-to-data-shape mapping; `BatchSamplers.NO_DUPLICATES` requirement for MNRL-family; `Cached*` ↔ `gradient_checkpointing` incompatibility.
 - `references/evaluators_sentence_transformer.md` — evaluator-to-task mapping; `metric_for_best_model` key construction (named vs unnamed); per-evaluator `primary_metric` values.
 - `references/model_architectures.md` — encoder vs decoder vs static vs Router pipelines; pooling rules (mean / cls / lasttoken); auto-mean-pooling behavior for fresh-start MLM bases.
 - `scripts/train_sentence_transformer_example.py` — production template; copy this as your starting point.

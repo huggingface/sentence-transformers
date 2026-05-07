@@ -21,7 +21,8 @@ sibling `train_sentence_transformer_distillation_example.py` docstring.
 CRITICAL: `activation_fn=nn.Identity()` is mandatory. The default `Sigmoid` (with
 `num_labels=1`) saturates raw logits >5 to ~1.0 inside `predict()` at eval time,
 silently collapsing eval ranking (training loss stays healthy while nDCG drops
-from e.g. ~0.59 to ~0.14). See SKILL.md Directive 7 ([CE]).
+from e.g. ~0.59 to ~0.14). See `../references/troubleshooting.md` ("CrossEncoder
+eval nDCG crashes after distillation / listwise / pairwise training").
 
 Data: this script uses `sentence-transformers/msmarco` (`bert-ensemble-margin-mse`
 subset), which has precomputed teacher score diffs per (q, pos, neg) row. To

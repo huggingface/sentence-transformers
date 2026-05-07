@@ -96,7 +96,7 @@ Listwise KL-div distillation — student's softmax distribution over candidates 
 
 Standalone FLOPS regularizer. Usually you use this via `SpladeLoss`, not directly.
 
-For regularizer-weight tuning, sparsity targets, MLM-head requirement, and inference-time `max_active_dims`, see SKILL.md (Key Directives + Loss Selection / Tuning FLOPS regularization).
+For regularizer-weight tuning and dense-output recovery, see `troubleshooting.md` ("SPLADE embeddings are dense"). MLM-head requirement: `base_model_selection.md` (SPARSE section). Active-dim sparsity targets and how to monitor them: `evaluators_sparse_encoder.md` (Sparsity tracking).
 
 ## Gotchas
 
