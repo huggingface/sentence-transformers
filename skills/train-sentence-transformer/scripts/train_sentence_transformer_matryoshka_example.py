@@ -140,9 +140,10 @@ def main() -> None:
     logging.info("Baseline evaluation (before training):")
     with autocast_ctx():
         # Must run before deriving metric_key: each sub-evaluator mutates its primary_metric to add the name_ prefix.
-        evaluator(model)
+        baseline_result = evaluator(model)
     # Drive on the first per-dim evaluator's metric (matches main_score_function above).
     metric_key = f"eval_{per_dim_evaluators[0].primary_metric}"
+    baseline_eval = baseline_result[per_dim_evaluators[0].primary_metric]
 
     args = SentenceTransformerTrainingArguments(
         output_dir=OUTPUT_DIR,
@@ -181,6 +182,13 @@ def main() -> None:
     if not SMOKE_TEST:
         log_trackio_dashboard()
     trainer.train()
+
+    logging.info("Post-training evaluation:")
+    with autocast_ctx():
+        score = evaluator(model)[per_dim_evaluators[0].primary_metric]
+    delta = score - baseline_eval
+    verdict = "WIN" if delta >= 0.005 else "MARGINAL" if delta >= 0 else "REGRESSION"
+    logging.info(f"VERDICT: {verdict} | score={score:.4f} | baseline={baseline_eval:.4f} | delta={delta:+.4f}")
 
     final_dir = f"{OUTPUT_DIR}/final"
     model.save_pretrained(final_dir)

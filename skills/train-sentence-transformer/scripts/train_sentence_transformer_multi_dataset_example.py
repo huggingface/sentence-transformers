@@ -187,7 +187,7 @@ def main() -> None:
     logging.info("Baseline evaluation (before training):")
     with autocast_ctx():
         # Must run before deriving metric_key: evaluator(model) mutates primary_metric to add the name_ prefix.
-        evaluator(model)
+        baseline_eval = evaluator(model)[evaluator.primary_metric]
     metric_key = f"eval_{evaluator.primary_metric}"
 
     # multi_dataset_batch_sampler defaults to PROPORTIONAL (samples each dataset
@@ -231,6 +231,13 @@ def main() -> None:
     if not SMOKE_TEST:
         log_trackio_dashboard()
     trainer.train()
+
+    logging.info("Post-training evaluation:")
+    with autocast_ctx():
+        score = evaluator(model)[evaluator.primary_metric]
+    delta = score - baseline_eval
+    verdict = "WIN" if delta >= 0.005 else "MARGINAL" if delta >= 0 else "REGRESSION"
+    logging.info(f"VERDICT: {verdict} | score={score:.4f} | baseline={baseline_eval:.4f} | delta={delta:+.4f}")
 
     model.save_pretrained("models/mpnet-nli-stsb/final")
 

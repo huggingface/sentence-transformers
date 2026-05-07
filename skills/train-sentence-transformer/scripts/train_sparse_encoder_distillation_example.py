@@ -233,9 +233,12 @@ def main() -> None:
         score = result[evaluator.primary_metric]
     delta = score - baseline_eval
     verdict = "WIN" if delta >= 0.005 else "MARGINAL" if delta >= 0 else "REGRESSION"
+    # Active-dim keys come back name-prefixed (e.g. "NanoBEIR_..._query_active_dims"); suffix-match for compat.
+    qad = next((v for k, v in result.items() if k.endswith("query_active_dims")), "n/a")
+    cad = next((v for k, v in result.items() if k.endswith("corpus_active_dims")), "n/a")
     logging.info(
         f"VERDICT: {verdict} | score={score:.4f} | baseline={baseline_eval:.4f} | delta={delta:+.4f} "
-        f"| query_active={result.get('query_active_dims', 'n/a')} doc_active={result.get('document_active_dims', 'n/a')}"
+        f"| query_active={qad} corpus_active={cad}"
     )
 
     final_dir = f"{OUTPUT_DIR}/final"

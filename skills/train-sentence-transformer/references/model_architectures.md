@@ -127,7 +127,7 @@ from sentence_transformers import SentenceTransformer
 
 model = SentenceTransformer(
     "Qwen/Qwen3-VL-Embedding-2B",
-    model_kwargs={"torch_dtype": "bfloat16", "attn_implementation": "flash_attention_2"},
+    model_kwargs={"attn_implementation": "flash_attention_2"},  # do NOT set torch_dtype here; see training_args.md
     processor_kwargs={"min_pixels": 28 * 28, "max_pixels": 600 * 600},
 )
 
@@ -139,6 +139,8 @@ print(model.modalities)
 Training data can mix text, PIL images, image paths/URLs, audio, and mixed-modality dicts like `{"image": <PIL>, "text": "describe this"}`. The data collator handles preprocessing via the model's `preprocess` method.
 
 Install multimodal extras: `pip install "sentence-transformers[image]"` (or `[audio]`, `[video]`).
+
+**Precision**: load in fp32 and pass `bf16=True` (or `fp16=True`) to TrainingArguments — autocast handles the inference path. Don't set `torch_dtype="bfloat16"` in `model_kwargs`: it puts Adam state in bf16 and silently degrades quality (see `training_args.md`).
 
 ## Multimodal via Router
 
