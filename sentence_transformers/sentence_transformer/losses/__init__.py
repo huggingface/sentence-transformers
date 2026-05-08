@@ -21,6 +21,7 @@ from .contrastive_tension import (
 from .cosine_similarity import CosineSimilarityLoss
 from .denoising_auto_encoder import DenoisingAutoEncoderLoss
 from .distill_kl_div import DistillKLDivLoss
+from .embed_distill import EmbedDistillLoss
 from .gist_embed import GISTEmbedLoss
 from .global_orthogonal_regularization import GlobalOrthogonalRegularizationLoss
 from .margin_mse import MarginMSELoss
@@ -67,4 +68,5 @@ __all__ = [
     "BatchSemiHardTripletLoss",
     "BatchAllTripletLoss",
     "DistillKLDivLoss",
+    "EmbedDistillLoss",
 ]

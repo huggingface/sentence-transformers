@@ -12,8 +12,8 @@ The fast student model imitates the teacher model and achieves by this a high pe
 
 We implement two options for creating the student model:
 
-1. [model_distillation.py](model_distillation.py): Use a light transformer model like TinyBERT or BERT-Small to imitate the bigger teacher.
-1. [model_distillation_layer_reduction.py](model_distillation_layer_reduction.py): We take the teacher model and keep only certain layers, for example, only 4 layers.
+1. [model_distillation.py](model_distillation.py): Use a light transformer model like TinyBERT or BERT-Small to imitate the bigger teacher. Trained with [`EmbedDistillLoss`](../../../../docs/package_reference/sentence_transformer/losses.md#embeddistillloss), which carries an optional learnable projection so the student and teacher don't have to share an embedding dimension. The student keeps its native (smaller) output dimension after training.
+2. [model_distillation_layer_reduction.py](model_distillation_layer_reduction.py): Take the teacher model and keep only certain layers, for example, only 4 layers. Trained with [`MSELoss`](../../../../docs/package_reference/sentence_transformer/losses.md#mseloss); no projection is needed because the layer-reduced student inherits the teacher's hidden size, so it stays a drop-in replacement at the same dimensionality.
 
 Option 2) works usually better, as we keep most of the weights from the teacher. In Option 1, we have to tune all weights in the student from scratch.
 

@@ -1,38 +1,42 @@
 """
-This file contains an example how to make a SentenceTransformer model faster and lighter.
+Distill a slow but high-quality teacher SentenceTransformer into a smaller, faster student
+by training the student to imitate the teacher's sentence embeddings.
 
-This is achieved by using Knowledge Distillation: We use a well working teacher model to train
-a fast and light student model. The student model learns to imitate the produced
-sentence embeddings from the teacher. We train this on a diverse set of sentences we got
-from SNLI + Multi+NLI + Wikipedia.
+This script trains a light transformer (TinyBERT) to match the embeddings of a
+``stsb-roberta-base-v2`` teacher on a diverse corpus (SNLI + Multi-NLI + Wikipedia).
+For the alternative that keeps a subset of the teacher's own layers (and produces a
+drop-in replacement at the teacher's dimensionality), see
+``model_distillation_layer_reduction.py``.
 
-After the distillation is finished, the student model produce nearly the same embeddings as the
-teacher, however, it will be much faster.
+Pipeline:
 
-The script implements to options two options to initialize the student:
-Option 1: Train a light transformer model like TinyBERT to imitate the teacher
-Option 2: We take the teacher model and keep only certain layers, for example, only 4 layers.
+1. Pre-compute teacher embeddings for every training sentence and store them as the
+   dataset's ``label`` column. This is cached to disk so subsequent runs skip the
+   teacher inference step.
+2. Train the student with :class:`EmbedDistillLoss` using cosine distance. When the
+   student and teacher have different embedding dimensions (the default here: 312-dim
+   student vs 768-dim teacher), the loss carries a learnable projection that maps
+   student embeddings into the teacher's space for the comparison. The projection
+   lives on the loss, not the model, so the final student keeps its native output
+   dimension.
 
-Option 2) works usually better, as we keep most of the weights from the teacher. In Option 1, we have to tune all
-weights in the student from scratch.
-
-There is a performance - speed trade-off. However, we found that a student with 4 instead of 12 layers keeps about 99.4%
-of the teacher performance, while being 2.3 times faster.
+The student we get is a faster, narrower model, not a drop-in replacement for the
+teacher. For a drop-in replacement at the teacher's dimensionality, use the
+layer-reduction recipe instead. Even with this trade-off, the student typically
+retains 97-99% of the teacher's benchmark performance while being 2-3x faster.
 """
 
 import logging
 import traceback
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
-import torch
-from datasets import Dataset, concatenate_datasets, load_dataset
-from sklearn.decomposition import PCA
+from datasets import Dataset, DatasetDict, concatenate_datasets, load_dataset, load_from_disk
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation
+from sentence_transformers import LoggingHandler, SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.sentence_transformer.losses import MSELoss
-from sentence_transformers.sentence_transformer.modules import Dense
+from sentence_transformers.sentence_transformer.losses import EmbedDistillLoss
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -44,13 +48,13 @@ logging.basicConfig(
 #### /print debug information to stdout
 
 
-# Teacher Model: Model we want to distill to a smaller model
+# Teacher Model: Model we want to distill into a smaller model
 teacher_model_name = "sentence-transformers/stsb-roberta-base-v2"
 teacher_model = SentenceTransformer(teacher_model_name)
 
 output_dir = "output/model-distillation-" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-# We will train a small model like TinyBERT to imitate the teacher.
+# We will train a small TinyBERT model to imitate the teacher.
 # You can find some small BERT models here: https://huggingface.co/nreimers
 student_model_name = "nreimers/TinyBERT_L-4_H-312_v2"
 student_model = SentenceTransformer(student_model_name)
@@ -111,7 +115,7 @@ eval_dataset: Dataset = concatenate_datasets(
 )
 
 # Create an STSB evaluator
-dev_evaluator_stsb = EmbeddingSimilarityEvaluator(
+dev_evaluator = EmbeddingSimilarityEvaluator(
     sentences1=stsb_eval_dataset["sentence1"],
     sentences2=stsb_eval_dataset["sentence2"],
     scores=stsb_eval_dataset["score"],
@@ -119,31 +123,10 @@ dev_evaluator_stsb = EmbeddingSimilarityEvaluator(
     name="sts-dev",
 )
 logging.info("Teacher Performance")
-dev_evaluator_stsb(teacher_model)
-
-# Student model has fewer dimensions. Compute PCA for the teacher to reduce the dimensions
-if student_model.get_embedding_dimension() < teacher_model.get_embedding_dimension():
-    logging.info("Student model has fewer dimensions than the teacher. Compute PCA for down projection")
-    pca_sentences = nli_train_dataset[:20000]["sentence"] + wikipedia_train_dataset[:20000]["sentence"]
-    pca_embeddings = teacher_model.encode(pca_sentences, convert_to_numpy=True)
-    pca = PCA(n_components=student_model.get_embedding_dimension())
-    pca.fit(pca_embeddings)
-
-    # Add Dense layer to teacher that projects the embeddings down to the student embedding size
-    dense = Dense(
-        in_features=teacher_model.get_embedding_dimension(),
-        out_features=student_model.get_embedding_dimension(),
-        bias=False,
-        activation_function=torch.nn.Identity(),
-    )
-    dense.linear.weight = torch.nn.Parameter(torch.tensor(pca.components_))
-    teacher_model.add_module("dense", dense)
-
-    logging.info(f"Teacher Performance with {teacher_model.get_embedding_dimension()} dimensions:")
-    dev_evaluator_stsb(teacher_model)
+dev_evaluator(teacher_model)
 
 
-# Use the teacher model to get the gold embeddings
+# Use the teacher model to get the gold embeddings for each sentence
 def map_embeddings(batch):
     return {
         "label": teacher_model.encode(
@@ -152,23 +135,33 @@ def map_embeddings(batch):
     }
 
 
-train_dataset = train_dataset.select(range(200000))
-train_dataset = train_dataset.map(map_embeddings, batched=True, batch_size=50000)
-# Optionally, save the dataset to disk to speed up future runs
-train_dataset.save_to_disk("datasets/distillation_train_dataset")
-# from datasets import DatasetDict, load_from_disk
+# Pre-compute teacher embeddings for the training set, caching to disk so reruns skip
+# the teacher inference step. Eval is small enough to recompute each run.
+train_cache_dir = Path("datasets/distillation_train_dataset")
+if train_cache_dir.exists():
+    logging.info("Loading pre-computed teacher embeddings from disk...")
+    train_dataset = load_from_disk(str(train_cache_dir))
+    if isinstance(train_dataset, DatasetDict):
+        train_dataset = train_dataset["train"]
+else:
+    train_dataset = train_dataset.select(range(200000))
+    train_dataset = train_dataset.map(map_embeddings, batched=True, batch_size=50000)
+    train_dataset.save_to_disk(str(train_cache_dir))
 
-# train_dataset = load_from_disk("datasets/distillation_train_dataset")
-# if isinstance(train_dataset, DatasetDict):
-#     train_dataset = train_dataset["train"]
 eval_dataset = eval_dataset.map(map_embeddings, batched=True, batch_size=50000)
 
-train_loss = MSELoss(model=student_model)
-
-# We create an evaluator, that measure the Mean Squared Error (MSE) between the teacher and the student embeddings
-eval_sentences = eval_dataset["sentence"]
-dev_evaluator_mse = evaluation.MSEEvaluator(eval_sentences, eval_sentences, teacher_model=teacher_model)
-dev_evaluator = evaluation.SequentialEvaluator([dev_evaluator_stsb, dev_evaluator_mse])
+# If the student and teacher have different embedding dimensions (the default here:
+# 312-dim student vs 768-dim teacher), we ask the loss for a learnable projection that
+# maps student embeddings into the teacher's space during training. The projection only
+# exists on the loss; the saved student keeps its native output dimension.
+student_dim = student_model.get_embedding_dimension()
+teacher_dim = teacher_model.get_embedding_dimension()
+projection_dim = teacher_dim if student_dim != teacher_dim else None
+train_loss = EmbedDistillLoss(
+    model=student_model,
+    distance_metric="cosine",
+    projection_dim=projection_dim,
+)
 
 # Define the training arguments
 args = SentenceTransformerTrainingArguments(
@@ -191,7 +184,7 @@ args = SentenceTransformerTrainingArguments(
     save_steps=500,
     save_total_limit=2,
     logging_steps=100,
-    run_name="distillation-layer-reduction",  # Will be used in W&B if `wandb` is installed
+    run_name="distillation-tinybert",  # Will be used in W&B if `wandb` is installed
 )
 
 # Create the trainer & start training

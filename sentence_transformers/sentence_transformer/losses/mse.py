@@ -1,25 +1,35 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import Any
-
-import torch
-from torch import Tensor, nn
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
+from .embed_distill import EmbedDistillLoss
 
-class MSELoss(nn.Module):
-    def __init__(self, model: SentenceTransformer) -> None:
+
+class MSELoss(EmbedDistillLoss):
+    def __init__(self, model: SentenceTransformer, projection_dim: int | None = None) -> None:
         """
-        Computes the MSE loss between the computed sentence embedding and a target sentence embedding. This loss
-        is used when extending sentence embeddings to new languages as described in our publication
-        Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation.
+        Computes the MSE loss between the student's sentence embedding and a pre-computed
+        target sentence embedding (passed as a label). Used to extend sentence embeddings
+        to new languages, as described in *Making Monolingual Sentence Embeddings Multilingual
+        using Knowledge Distillation*.
 
-        For an example, see `the distillation documentation <../../../examples/sentence_transformer/training/distillation/README.html>`_ on extending language models to new languages.
+        ``MSELoss`` is a thin subclass of :class:`EmbedDistillLoss` that fixes
+        ``distance_metric="mse"``. The shared parent handles the per-column distance
+        reduction, optional projection, and label-shape contract.
+
+        For an example, see `the distillation documentation
+        <../../../examples/sentence_transformer/training/distillation/README.html>`_ on
+        extending language models to new languages.
 
         Args:
-            model: SentenceTransformerModel
+            model: The student SentenceTransformer model to be trained.
+            projection_dim: If set, adds a learnable ``nn.Linear(student_dim, projection_dim)``
+                that maps student embeddings into the teacher's embedding space before MSE
+                is computed. Use this when the student and teacher have different embedding
+                dimensions. The projection layer lives on the loss, gets trained alongside
+                the student, and is discarded after training. Defaults to None (no projection).
 
         References:
             - Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation: https://huggingface.co/papers/2004.09813
@@ -27,19 +37,28 @@ class MSELoss(nn.Module):
             - `Training > Multilingual Models <../../../examples/sentence_transformer/training/multilingual/README.html>`_
 
         Requirements:
-            1. Usually uses a finetuned teacher M in a knowledge distillation setup
+            1. Pre-computed teacher embeddings stored in a ``label`` column. For a single
+               text column, shape ``(batch_size, teacher_dim)``. For multiple text columns
+               with per-column teacher embeddings, shape ``(batch_size, num_columns, teacher_dim)``.
+               2D labels with multiple text columns are broadcast (same teacher embedding
+               targeted by every column; useful for multilingual distillation).
 
         Inputs:
-            +-----------------------------------------+-----------------------------+
-            | Texts                                   | Labels                      |
-            +=========================================+=============================+
-            | sentence                                | model sentence embeddings   |
-            +-----------------------------------------+-----------------------------+
-            | sentence_1, sentence_2, ..., sentence_N | model sentence embeddings   |
-            +-----------------------------------------+-----------------------------+
+            +-----------------------------------------+-----------------------------------------------------+
+            | Texts                                   | Labels                                              |
+            +=========================================+=====================================================+
+            | sentence                                | teacher embeddings ``(batch_size, teacher_dim)``    |
+            +-----------------------------------------+-----------------------------------------------------+
+            | sentence_1, sentence_2, ..., sentence_N | teacher embeddings ``(batch_size, N, teacher_dim)`` |
+            | sentence_1, sentence_2, ..., sentence_N | teacher embeddings ``(batch_size, teacher_dim)``    |
+            +-----------------------------------------+-----------------------------------------------------+
 
         Relations:
-            - :class:`MarginMSELoss` is equivalent to this loss, but with a margin through a negative pair.
+            - :class:`EmbedDistillLoss` is the parent class. Use it directly to pick a
+              non-MSE distance metric (e.g. ``"cosine"`` or ``"l2"``) or to provide
+              per-column teacher embeddings.
+            - :class:`MarginMSELoss` is equivalent in form but distills a *score margin*
+              between (anchor, positive) and (anchor, negative) pairs.
 
         Example:
             ::
@@ -69,23 +88,10 @@ class MSELoss(nn.Module):
                 )
                 trainer.train()
         """
-        super().__init__()
-        self.model = model
-        self.loss_fct = nn.MSELoss()
-
-    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
-        # Concatenate multiple inputs on the batch dimension
-        if len(sentence_features) > 1:
-            embeddings = torch.cat([self.model(inputs)["sentence_embedding"] for inputs in sentence_features], dim=0)
-            # Repeat the labels for each input
-            repeat_dims = [len(sentence_features)] + [1] * (labels.dim() - 1)
-            return self.loss_fct(embeddings, labels.repeat(*repeat_dims))
-
-        embeddings = self.model(sentence_features[0])["sentence_embedding"]
-        return self.loss_fct(embeddings, labels)
+        super().__init__(model, distance_metric="mse", projection_dim=projection_dim)
 
     def get_config_dict(self) -> dict[str, Any]:
-        return {}
+        return {"projection_dim": self.projection_dim}
 
     @property
     def citation(self) -> str:
