@@ -162,3 +162,76 @@ def test_mseloss_get_config_dict_exposes_projection_dim(stsb_bert_tiny_model: Se
     cards reflect cross-dim distillation runs."""
     loss = MSELoss(stsb_bert_tiny_model, projection_dim=64)
     assert loss.get_config_dict() == {"projection_dim": 64}
+
+
+def test_save_projection_without_projection_raises(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
+    loss = EmbedDistillLoss(stsb_bert_tiny_model)
+    with pytest.raises(ValueError, match="No projection layer to save"):
+        loss.save_projection(tmp_path / "proj.pt")
+
+
+def test_save_load_projection_round_trip(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
+    """save_projection -> load_projection should preserve weights bit-for-bit."""
+    teacher_dim = stsb_bert_tiny_model.get_embedding_dimension() + 16
+    src = EmbedDistillLoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
+    assert src.projection is not None
+
+    # Mutate weights so we know we're not just matching a fresh random init.
+    with torch.no_grad():
+        src.projection.weight.add_(0.1)
+        src.projection.bias.add_(0.2)
+
+    path = tmp_path / "proj.pt"
+    src.save_projection(path)
+
+    dst = EmbedDistillLoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
+    dst.load_projection(path)
+
+    assert torch.equal(src.projection.weight, dst.projection.weight)
+    assert torch.equal(src.projection.bias, dst.projection.bias)
+
+
+def test_pretrained_projection_path_loads_on_init(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
+    """`pretrained_projection_path` should populate the projection at __init__ time."""
+    teacher_dim = stsb_bert_tiny_model.get_embedding_dimension() + 8
+    src = EmbedDistillLoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
+    with torch.no_grad():
+        src.projection.weight.fill_(0.5)
+        src.projection.bias.fill_(0.25)
+
+    path = tmp_path / "proj.pt"
+    src.save_projection(path)
+
+    dst = EmbedDistillLoss(stsb_bert_tiny_model, pretrained_projection_path=path)
+
+    assert dst.projection is not None
+    assert dst.projection_dim == teacher_dim
+    assert torch.equal(src.projection.weight, dst.projection.weight)
+    assert torch.equal(src.projection.bias, dst.projection.bias)
+
+
+def test_load_projection_dim_mismatch_raises(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
+    """Loading into a loss whose projection has a different shape should raise."""
+    teacher_dim = stsb_bert_tiny_model.get_embedding_dimension() + 16
+    src = EmbedDistillLoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
+    path = tmp_path / "proj.pt"
+    src.save_projection(path)
+
+    dst = EmbedDistillLoss(stsb_bert_tiny_model, projection_dim=teacher_dim + 1)
+    with pytest.raises(ValueError, match="does not"):
+        dst.load_projection(path)
+
+
+def test_mseloss_pretrained_projection_path(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
+    """MSELoss should pass `pretrained_projection_path` through to the parent class."""
+    teacher_dim = stsb_bert_tiny_model.get_embedding_dimension() + 8
+    src = MSELoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
+    with torch.no_grad():
+        src.projection.weight.fill_(0.3)
+
+    path = tmp_path / "proj.pt"
+    src.save_projection(path)
+
+    dst = MSELoss(stsb_bert_tiny_model, pretrained_projection_path=path)
+    assert dst.projection is not None
+    assert torch.equal(src.projection.weight, dst.projection.weight)
