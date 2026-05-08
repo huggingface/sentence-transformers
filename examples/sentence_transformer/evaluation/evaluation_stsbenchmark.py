@@ -15,8 +15,8 @@ import torch
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.similarity_functions import SimilarityFunction
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.util.similarity import SimilarityFunction
 
 script_folder_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -26,7 +26,7 @@ torch.set_num_threads(4)
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
-model_name = sys.argv[1] if len(sys.argv) > 1 else "stsb-distilroberta-base-v2"
+model_name = sys.argv[1] if len(sys.argv) > 1 else "sentence-transformers/stsb-distilroberta-base-v2"
 
 # Load a named sentence model (based on BERT). This will download the model from our server.
 # Alternatively, you can also pass a filepath to SentenceTransformer()

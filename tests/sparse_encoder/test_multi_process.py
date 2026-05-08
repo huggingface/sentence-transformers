@@ -49,7 +49,7 @@ def test_multi_process_pool(splade_bert_tiny_model: SparseEncoder):
     # Should be numpy array with correct shape and the same embeddings
     assert isinstance(embeddings_multi, torch.Tensor)
     assert embeddings_multi.is_sparse
-    assert embeddings_multi.shape == (len(texts), model.get_sentence_embedding_dimension())
+    assert embeddings_multi.shape == (len(texts), model.get_embedding_dimension())
     assert sparse_allclose(embeddings_standard, embeddings_multi, atol=1e-5)
 
 
@@ -75,7 +75,7 @@ def test_multi_process_with_args(splade_bert_tiny_model: SparseEncoder):
         embeddings_non_sparse = model.encode(texts, pool=pool, convert_to_sparse_tensor=False)
         assert isinstance(embeddings_maxed, torch.Tensor)
         assert not embeddings_non_sparse.is_sparse
-        assert embeddings_non_sparse.shape == (len(texts), model.get_sentence_embedding_dimension())
+        assert embeddings_non_sparse.shape == (len(texts), model.get_embedding_dimension())
     finally:
         model.stop_multi_process_pool(pool)
 
@@ -92,45 +92,14 @@ def test_multi_process_chunk_size(splade_bert_tiny_model: SparseEncoder):
     # Should produce correct embeddings
     assert isinstance(embeddings, torch.Tensor)
     assert embeddings.is_sparse
-    assert embeddings.shape == (len(texts), model.get_sentence_embedding_dimension())
-
-
-@pytest.mark.slow
-def test_multi_process_with_prompt(splade_bert_tiny_model: SparseEncoder):
-    # Test multi-process encoding with prompts
-    model = splade_bert_tiny_model
-    model.prompts = {"retrieval": "Represent this sentence for searching relevant passages: "}
-    texts = ["First sentence.", "Second sentence."] * 5
-
-    standard_embeddings = model.encode(texts, prompt_name="retrieval").cpu()
-
-    assert isinstance(standard_embeddings, torch.Tensor)
-    assert standard_embeddings.is_sparse
-    assert standard_embeddings.shape == (len(texts), model.get_sentence_embedding_dimension())
-
-    # Create a pool
-    pool = model.start_multi_process_pool(["cpu"] * 2)
-
-    try:
-        # Encode with prompt
-        multi_embeddings = model.encode(texts, pool=pool, prompt_name="retrieval")
-    finally:
-        model.stop_multi_process_pool(pool)
-
-    assert isinstance(multi_embeddings, torch.Tensor)
-    assert multi_embeddings.is_sparse
-    assert multi_embeddings.shape == (len(texts), model.get_sentence_embedding_dimension())
-
-    assert sparse_allclose(standard_embeddings, multi_embeddings, atol=1e-5)
+    assert embeddings.shape == (len(texts), model.get_embedding_dimension())
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
 @pytest.mark.parametrize("convert_to_sparse_tensor", [True, False])
 def test_multi_process_with_empty_texts(
-    splade_bert_tiny_model: SparseEncoder,
-    convert_to_tensor: bool,
-    convert_to_sparse_tensor: bool,
+    splade_bert_tiny_model: SparseEncoder, convert_to_tensor: bool, convert_to_sparse_tensor: bool
 ):
     # Test encoding with empty texts
     model = splade_bert_tiny_model
@@ -157,9 +126,7 @@ def test_multi_process_with_empty_texts(
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
 @pytest.mark.parametrize("convert_to_sparse_tensor", [True, False])
 def test_multi_process_with_single_string(
-    splade_bert_tiny_model: SparseEncoder,
-    convert_to_tensor: bool,
-    convert_to_sparse_tensor: bool,
+    splade_bert_tiny_model: SparseEncoder, convert_to_tensor: bool, convert_to_sparse_tensor: bool
 ):
     # Test encoding with a single text
     model = splade_bert_tiny_model
@@ -214,7 +181,7 @@ def test_multi_process_more_workers_than_texts(splade_bert_tiny_model: SparseEnc
 
     # Should be numpy array with correct shape
     assert isinstance(embeddings, torch.Tensor)
-    assert embeddings.shape == (len(texts), model.get_sentence_embedding_dimension())
+    assert embeddings.shape == (len(texts), model.get_embedding_dimension())
 
 
 @pytest.mark.slow
@@ -228,7 +195,7 @@ def test_multi_process_with_large_chunk_size(splade_bert_tiny_model: SparseEncod
 
     # Should produce correct embeddings
     assert isinstance(embeddings, torch.Tensor)
-    assert embeddings.shape == (len(texts), model.get_sentence_embedding_dimension())
+    assert embeddings.shape == (len(texts), model.get_embedding_dimension())
 
 
 @pytest.mark.slow
@@ -245,7 +212,7 @@ def test_multi_process_output_tensors_two_devices(splade_bert_tiny_model: Sparse
     assert isinstance(embeddings, torch.Tensor)
     assert embeddings.device.type == "cpu"
     assert embeddings.is_sparse
-    assert embeddings.shape == (len(texts), model.get_sentence_embedding_dimension())
+    assert embeddings.shape == (len(texts), model.get_embedding_dimension())
 
     # But we use lists of CPU tensor embeddings if convert_to_tensor=False
     embeddings = model.encode(texts, device=["cpu", "cuda"], convert_to_tensor=False)

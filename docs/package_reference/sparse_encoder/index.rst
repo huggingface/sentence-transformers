@@ -1,14 +1,14 @@
 Sparse Encoder
-=============
+==============
 
 .. toctree::
 
-   SparseEncoder
+   model
    trainer
    training_args
    losses
    ../sentence_transformer/sampler
    evaluation
-   models
+   modules
    callbacks
    search_engines

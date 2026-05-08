@@ -1,14 +1,40 @@
 from __future__ import annotations
 
+import contextlib
 import importlib
 import logging
 import os
+from collections.abc import Generator
 from importlib.metadata import PackageNotFoundError, metadata
 
 import torch
 from transformers import is_torch_npu_available
 
 logger = logging.getLogger(__name__)
+
+# Maps keywords found in dependency errors to the recommended sentence-transformers extra(s).
+_DEPENDENCY_EXTRA_HINTS: list[tuple[tuple[str, ...], str]] = [
+    (("pillow", "pil"), 'pip install -U "sentence-transformers[image]"'),
+    # When torchcodec is missing, transformers falls back to torchvision's removed `read_video`.
+    # This must be checked before the generic "torchvision" hint below.
+    (("read_video",), 'pip install -U "sentence-transformers[video]"  # or [audio] for audio-only models'),
+    (("torchvision",), 'pip install -U "sentence-transformers[image]"'),
+    (("torchcodec",), "pip install -U torchcodec"),
+    (("soundfile", "librosa"), 'pip install -U "sentence-transformers[audio]"'),
+]
+
+
+@contextlib.contextmanager
+def suggest_extra_on_exception() -> Generator[None, None, None]:
+    """Re-raise ImportError/AttributeError with an install hint when a multimodal dependency is missing."""
+    try:
+        yield
+    except (ImportError, AttributeError) as e:
+        msg = str(e).lower()
+        for keywords, hint in _DEPENDENCY_EXTRA_HINTS:
+            if any(kw in msg for kw in keywords):
+                raise type(e)(f"{str(e).strip()}\n\nTo install the required dependencies, run:\n{hint}") from e
+        raise
 
 
 def get_device_name() -> str:
@@ -49,7 +75,8 @@ def check_package_availability(package_name: str, owner: str) -> bool:
     """
     try:
         meta = metadata(package_name)
-        return meta["Name"] == package_name and owner in meta["Home-page"]
+        home_page = meta["Home-page"]
+        return meta["Name"] == package_name and home_page is not None and owner in home_page
     except PackageNotFoundError:
         return False
 

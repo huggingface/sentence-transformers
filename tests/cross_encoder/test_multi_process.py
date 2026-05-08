@@ -114,9 +114,7 @@ def test_multi_process_chunk_size(reranker_bert_tiny_model: CrossEncoder):
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
 @pytest.mark.parametrize("convert_to_numpy", [True, False])
 def test_multi_process_with_empty_pairs(
-    reranker_bert_tiny_model: CrossEncoder,
-    convert_to_tensor: bool,
-    convert_to_numpy: bool,
+    reranker_bert_tiny_model: CrossEncoder, convert_to_tensor: bool, convert_to_numpy: bool
 ):
     # Test predicting with empty pairs
     model = reranker_bert_tiny_model
@@ -148,9 +146,7 @@ def test_multi_process_with_empty_pairs(
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
 @pytest.mark.parametrize("convert_to_numpy", [True, False])
 def test_multi_process_with_single_pair(
-    reranker_bert_tiny_model: CrossEncoder,
-    convert_to_tensor: bool,
-    convert_to_numpy: bool,
+    reranker_bert_tiny_model: CrossEncoder, convert_to_tensor: bool, convert_to_numpy: bool
 ):
     # Test predicting with a single pair
     model = reranker_bert_tiny_model

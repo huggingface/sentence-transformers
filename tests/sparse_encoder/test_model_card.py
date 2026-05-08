@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 
 from sentence_transformers import SparseEncoderTrainer, SparseEncoderTrainingArguments
-from sentence_transformers.model_card import generate_model_card
-from sentence_transformers.sparse_encoder import losses
+from sentence_transformers.base.model_card import generate_model_card
+from sentence_transformers.sparse_encoder import SparseEncoder
+from sentence_transformers.sparse_encoder.losses import SparseMultipleNegativesRankingLoss, SpladeLoss
+from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCardData
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 if is_datasets_available():
@@ -55,10 +57,11 @@ def dummy_dataset():
                 "**Output Dimensionality:** 30522 dimensions",
                 "**Similarity Function:** Dot Product",
                 "#### Unnamed Dataset",
-                "| details | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> |",
+                "| modality | text                                                                           | text                                                                           | text                                                                           |",
+                "| details  | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> |",
                 " | <code>anchor 1</code> | <code>positive 1</code> | <code>negative 1</code> |",
                 "* Loss: [<code>SpladeLoss</code>](https://sbert.net/docs/package_reference/sparse_encoder/losses.html#spladeloss) with these parameters:",
-                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\')",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
+                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\', hardness_mode=None, hardness_strength=0.0)",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
             ],
         ),
         (
@@ -68,7 +71,7 @@ def dummy_dataset():
                 "This is a [SPLADE Sparse Encoder](https://www.sbert.net/docs/sparse_encoder/usage/usage.html) model finetuned from [sparse-encoder-testing/splade-bert-tiny-nq](https://huggingface.co/sparse-encoder-testing/splade-bert-tiny-nq) on the train_0 dataset using the [sentence-transformers](https://www.SBERT.net) library.",
                 "#### train_0",
                 "* Loss: [<code>SpladeLoss</code>](https://sbert.net/docs/package_reference/sparse_encoder/losses.html#spladeloss) with these parameters:",
-                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\')",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
+                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\', hardness_mode=None, hardness_strength=0.0)",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
             ],
         ),
         (
@@ -79,7 +82,7 @@ def dummy_dataset():
                 "#### train_0",
                 "#### train_1",
                 "* Loss: [<code>SpladeLoss</code>](https://sbert.net/docs/package_reference/sparse_encoder/losses.html#spladeloss) with these parameters:",
-                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\')",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
+                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\', hardness_mode=None, hardness_strength=0.0)",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
             ],
         ),
         (
@@ -92,7 +95,7 @@ def dummy_dataset():
                 "</details>\n<details><summary>train_9</summary>",
                 "#### train_9",
                 "* Loss: [<code>SpladeLoss</code>](https://sbert.net/docs/package_reference/sparse_encoder/losses.html#spladeloss) with these parameters:",
-                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\')",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
+                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\', hardness_mode=None, hardness_strength=0.0)",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
             ],
         ),
         # We start using "50 datasets" when the ", "-joined dataset name exceed 200 characters
@@ -106,7 +109,7 @@ def dummy_dataset():
                 "</details>\n<details><summary>train_49</summary>",
                 "#### train_49",
                 "* Loss: [<code>SpladeLoss</code>](https://sbert.net/docs/package_reference/sparse_encoder/losses.html#spladeloss) with these parameters:",
-                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\')",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
+                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\', hardness_mode=None, hardness_strength=0.0)",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
             ],
         ),
         (
@@ -122,10 +125,11 @@ def dummy_dataset():
                 "**Output Dimensionality:** 512 dimensions",
                 "**Similarity Function:** Dot Product",
                 "#### Unnamed Dataset",
-                "| details | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> |",
+                "| modality | text                                                                           | text                                                                           | text                                                                           |",
+                "| details  | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> |",
                 " | <code>anchor 1</code> | <code>positive 1</code> | <code>negative 1</code> |",
                 "* Loss: [<code>SpladeLoss</code>](https://sbert.net/docs/package_reference/sparse_encoder/losses.html#spladeloss) with these parameters:",
-                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\')",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
+                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\', hardness_mode=None, hardness_strength=0.0)",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
             ],
         ),
         (
@@ -143,10 +147,11 @@ def dummy_dataset():
                 "**Output Dimensionality:** 30522 dimensions",
                 "**Similarity Function:** Dot Product",
                 "#### Unnamed Dataset",
-                "| details | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> |",
+                "| modality | text                                                                           | text                                                                           | text                                                                           |",
+                "| details  | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> | <ul><li>min: 4 tokens</li><li>mean: 4.0 tokens</li><li>max: 4 tokens</li></ul> |",
                 " | <code>anchor 1</code> | <code>positive 1</code> | <code>negative 1</code> |",
                 "* Loss: [<code>SpladeLoss</code>](https://sbert.net/docs/package_reference/sparse_encoder/losses.html#spladeloss) with these parameters:",
-                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\')",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
+                '  ```json\n  {\n      "loss": "SparseMultipleNegativesRankingLoss(scale=1.0, similarity_fct=\'dot_score\', gather_across_devices=False, directions=(\'query_to_doc\',), partition_mode=\'joint\', hardness_mode=None, hardness_strength=0.0)",\n      "document_regularizer_weight": 3e-05,\n      "query_regularizer_weight": 5e-05\n  }\n  ```',
             ],
         ),
     ],
@@ -168,9 +173,9 @@ def test_model_card_base(
     if num_datasets:
         train_dataset = DatasetDict({f"train_{i}": train_dataset for i in range(num_datasets)})
 
-    loss = losses.SpladeLoss(
+    loss = SpladeLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        loss=SparseMultipleNegativesRankingLoss(model=model),
         query_regularizer_weight=5e-5,  # Weight for query loss
         document_regularizer_weight=3e-5,  # Weight for document loss
     )
@@ -199,3 +204,69 @@ def test_model_card_base(
 
     # We don't want to have two consecutive empty lines anywhere
     assert "\n\n\n" not in model_card
+
+
+def test_model_card_set_transform(
+    splade_bert_tiny_model: SparseEncoder, dummy_dataset: Dataset, tmp_path: Path
+) -> None:
+    model = splade_bert_tiny_model
+
+    # Let's avoid requesting the Hub for e.g. checking if a base model exists there
+    model.model_card_data.local_files_only = True
+
+    def dummy_transform(batch):
+        return {
+            "new_anchor": [text.upper() for text in batch["anchor"]],
+            "new_positive": [text.upper() for text in batch["positive"]],
+            "new_negative": [text.upper() for text in batch["negative"]],
+        }
+
+    # Use a copy to avoid mutating the session-scoped fixture
+    dataset = dummy_dataset.select(range(len(dummy_dataset)))
+    dataset.set_transform(dummy_transform)
+
+    loss = SpladeLoss(
+        model=model,
+        loss=SparseMultipleNegativesRankingLoss(model=model),
+        query_regularizer_weight=5e-5,
+        document_regularizer_weight=3e-5,
+    )
+    SparseEncoderTrainer(
+        model,
+        args=SparseEncoderTrainingArguments(output_dir=tmp_path),
+        train_dataset=dataset,
+        loss=loss,
+    )
+    model_card = generate_model_card(model)
+
+    # Post-transform column names should appear as column headers
+    for substring in ["<code>new_anchor</code>", "<code>new_positive</code>", "<code>new_negative</code>"]:
+        assert substring in model_card
+
+    # Pre-transform column names should not appear as column headers
+    for substring in ["<code>anchor</code>", "<code>positive</code>", "<code>negative</code>"]:
+        assert substring not in model_card
+
+
+class TestGenerateUsageSnippetSparseEncoder:
+    """Verify SparseEncoder uses its own class name in usage snippets."""
+
+    def test_sparse_encoder_class_name(self) -> None:
+        data = SparseEncoderModelCardData()
+        data.usage_examples = ["A", "B"]
+        data.similarities = None
+        data.model = None
+        snippet = data.generate_usage_snippet()
+
+        assert "from sentence_transformers import SparseEncoder" in snippet
+        assert 'SparseEncoder("sparse_encoder_model_id")' in snippet
+        assert "SentenceTransformer" not in snippet
+
+    def test_sparse_encoder_custom_model_id(self) -> None:
+        data = SparseEncoderModelCardData(model_id="my-org/my-sparse-model")
+        data.usage_examples = ["test"]
+        data.similarities = None
+        data.model = None
+        snippet = data.generate_usage_snippet()
+
+        assert 'SparseEncoder("my-org/my-sparse-model")' in snippet

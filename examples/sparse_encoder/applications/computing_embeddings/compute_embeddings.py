@@ -22,7 +22,7 @@ sentences = [
 embeddings = model.encode(sentences)
 
 # Print embedding sim and sparsity
-print(f"Embedding dim: {model.get_sentence_embedding_dimension()}")
+print(f"Embedding dim: {model.get_embedding_dimension()}")
 
 stats = model.sparsity(embeddings)
 print(f"Embedding sparsity: {stats}")

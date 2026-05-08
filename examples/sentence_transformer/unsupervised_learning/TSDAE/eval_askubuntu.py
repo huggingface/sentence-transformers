@@ -11,7 +11,7 @@ import sys
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.evaluation import RerankingEvaluator
+from sentence_transformers.sentence_transformer.evaluation import RerankingEvaluator
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)

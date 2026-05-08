@@ -6,7 +6,7 @@
 ```python
 from sentence_transformers import SentenceTransformer, util
 
-model = SentenceTransformer("nq-distilbert-base-v1")
+model = SentenceTransformer("sentence-transformers/nq-distilbert-base-v1")
 
 query_embedding = model.encode("How many people live in London?")
 

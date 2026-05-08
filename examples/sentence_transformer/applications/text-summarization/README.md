@@ -4,4 +4,4 @@ SentenceTransformers can be used for (extractive) text summarization: The docume
 
 We then use [LexRank](https://www.aaai.org/Papers/JAIR/Vol22/JAIR-2214.pdf) to find the most central sentences in the document. These central sentences form a good basis for a summarization of the document.
 
-An example is shown in [text-summarization.py](text-summarization.py)
+An example is shown in [text_summarization.py](text_summarization.py)

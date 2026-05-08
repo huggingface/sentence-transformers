@@ -1,19 +1,19 @@
 # Semantic Textual Similarity
 
 ```{eval-rst}
-Semantic Textual Similarity (STS) assigns a score on the similarity of two texts. In this example, we use the `stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_ dataset as training data to fine-tune a :class:`~sentence_transformers.cross_encoder.CrossEncoder` model. See the following example script how to tune :class:`~sentence_transformers.cross_encoder.CrossEncoder` models on STS data:
+Semantic Textual Similarity (STS) assigns a score on the similarity of two texts. In this example, we use the `stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_ dataset as training data to fine-tune a :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` model. See the following example script how to tune :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models on STS data:
 ```
 
-- **[training_stsbenchmark.py](training_stsbenchmark.py)** - This example shows how to create and finetune a CrossEncoder model from a pre-trained transformer model (e.g. [`distilroberta-base`](https://huggingface.co/distilbert/distilroberta-base)).
+- **[training_stsbenchmark.py](training_stsbenchmark.py)** - This example shows how to create and finetune a CrossEncoder model from a pre-trained transformer model (e.g. [`distilbert/distilroberta-base`](https://huggingface.co/distilbert/distilroberta-base)).
 
 ```{eval-rst}
-You can also train and use :class:`~sentence_transformers.SentenceTransformer` models for this task. See `Sentence Transformer > Training Examples > Semantic Textual Similarity <../../../sentence_transformer/training/sts/README.html>`_ for more details.
+You can also train and use :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models for this task. See `Sentence Transformer > Training Examples > Semantic Textual Similarity <../../../sentence_transformer/training/sts/README.html>`_ for more details.
 ```
 
 ## Training data
 
 ```{eval-rst}
-In STS, we have sentence pairs annotated together with a score indicating the similarity. In the original STSbenchmark dataset, the scores range from 0 to 5. We have normalized these scores to range between 0 and 1 in `stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_, as that is required for :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss` as you can see in the `Loss Overiew <../../../../docs/cross_encoder/loss_overview.html>`_.
+In STS, we have sentence pairs annotated together with a score indicating the similarity. In the original STSbenchmark dataset, the scores range from 0 to 5. We have normalized these scores to range between 0 and 1 in `stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_, as that is required for :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss` as you can see in the `Loss Overview <../../../../docs/cross_encoder/loss_overview.html>`_.
 ```
 
 Here is a simplified version of our training data:

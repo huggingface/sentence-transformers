@@ -92,7 +92,7 @@ def main():
         per_device_train_batch_size=train_batch_size,
         per_device_eval_batch_size=train_batch_size,
         learning_rate=learning_rate,
-        warmup_ratio=0.1,
+        warmup_steps=0.1,
         load_best_model_at_end=True,
         metric_for_best_model="eval_NanoBEIR_mean_dot_ndcg@10",
         fp16=False,  # Set to False if you get an error that your GPU can't run on FP16

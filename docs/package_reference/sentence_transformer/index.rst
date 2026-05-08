@@ -4,12 +4,10 @@ Sentence Transformer
 
 .. toctree::
 
-   SentenceTransformer
+   model
    trainer
    training_args
    losses
-   sampler
    evaluation
    datasets
-   models
-   quantization
+   modules

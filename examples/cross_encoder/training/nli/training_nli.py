@@ -16,7 +16,7 @@ from datasets import load_dataset
 
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderClassificationEvaluator
-from sentence_transformers.cross_encoder.losses.CrossEntropyLoss import CrossEntropyLoss
+from sentence_transformers.cross_encoder.losses import CrossEntropyLoss
 from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
 
@@ -27,9 +27,9 @@ train_batch_size = 64
 num_epochs = 1
 output_dir = "output/training_ce_allnli-" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-# 1. Define our CrossEncoder model. We use distilroberta-base as the base model and set it up to predict 3 labels
-# You can also use other base models, like bert-base-uncased, microsoft/mpnet-base, etc.
-model_name = "distilroberta-base"
+# 1. Define our CrossEncoder model. We use distilbert/distilroberta-base as the base model and set it up to predict 3 labels
+# You can also use other base models, like google-bert/bert-base-uncased, microsoft/mpnet-base, etc.
+model_name = "distilbert/distilroberta-base"
 model = CrossEncoder(model_name, num_labels=3)
 
 # 2. Load the AllNLI dataset: https://huggingface.co/datasets/sentence-transformers/all-nli
@@ -61,7 +61,7 @@ args = CrossEncoderTrainingArguments(
     num_train_epochs=num_epochs,
     per_device_train_batch_size=train_batch_size,
     per_device_eval_batch_size=train_batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=True,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:
@@ -87,9 +87,7 @@ trainer.train()
 
 # 7. Evaluate the final model on test dataset
 test_cls_evaluator = CrossEncoderClassificationEvaluator(
-    list(zip(test_dataset["premise"], test_dataset["hypothesis"])),
-    test_dataset["label"],
-    name="AllNLI-test",
+    list(zip(test_dataset["premise"], test_dataset["hypothesis"])), test_dataset["label"], name="AllNLI-test"
 )
 test_cls_evaluator(model)
 

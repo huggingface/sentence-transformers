@@ -18,7 +18,7 @@ Queries are encoded with **question_encoder**:
 ```python
 from sentence_transformers import SentenceTransformer, util
 
-passage_encoder = SentenceTransformer("facebook-dpr-ctx_encoder-single-nq-base")
+passage_encoder = SentenceTransformer("sentence-transformers/facebook-dpr-ctx_encoder-single-nq-base")
 
 passages = [
     "London [SEP] London is the capital and largest city of England and the United Kingdom.",
@@ -28,7 +28,7 @@ passages = [
 
 passage_embeddings = passage_encoder.encode(passages)
 
-query_encoder = SentenceTransformer("facebook-dpr-question_encoder-single-nq-base")
+query_encoder = SentenceTransformer("sentence-transformers/facebook-dpr-question_encoder-single-nq-base")
 query = "What is the capital of England?"
 query_embedding = query_encoder.encode(query)
 

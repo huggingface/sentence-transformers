@@ -7,7 +7,7 @@ Semantic Textual Similarity (STS) assigns a score on the similarity of two texts
 ## Training data
 
 ```{eval-rst}
-In STS, we have sentence pairs annotated together with a score indicating the similarity. In the original STSbenchmark dataset, the scores range from 0 to 5. They have been normalized to range between 0 and 1 in `stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_, as that is required for :class:`~sentence_transformers.sparse_encoder.losses.SparseCosineSimilarityLoss` as you can see in the `Loss Overiew <../../../../docs/sparse_encoder/loss_overview.html>`_.
+In STS, we have sentence pairs annotated together with a score indicating the similarity. In the original STSbenchmark dataset, the scores range from 0 to 5. They have been normalized to range between 0 and 1 in `stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_, as that is required for :class:`~sentence_transformers.sparse_encoder.losses.SparseCosineSimilarityLoss` as you can see in the `Loss Overview <../../../../docs/sparse_encoder/loss_overview.html>`_.
 ```
 
 Here is a simplified version of our training data:

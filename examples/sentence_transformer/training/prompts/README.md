@@ -23,7 +23,7 @@ print(similarity)
 # => tensor([[0.7594, 0.7560, 0.4674]])
 ```
 
-See [Prompt Templates](https://sbert.net/examples/applications/computing-embeddings/README.html#prompt-templates) for more information about inference with prompts.
+See [Prompt Templates](../../applications/computing-embeddings/README.rst#prompt-templates) for more information about inference with prompts.
 
 ## Why would we train with Prompts?
 
@@ -44,7 +44,7 @@ In essence, using instructions or prompts allows for improved performance as lon
 ## How do we train with Prompts?
 
 ```{eval-rst}
-Since the v3.3.0 Sentence Transformers release, it's possible to finetune embedding models with prompts using the ``prompts`` argument in the :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments` class. There are 4 separate accepted formats for this argument:
+Since the v3.3.0 Sentence Transformers release, it's possible to finetune embedding models with prompts using the ``prompts`` argument in the :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments` class. There are 4 separate accepted formats for this argument:
 
 1. ``str``: A single prompt to use for all columns in all datasets. For example::
 
@@ -90,7 +90,7 @@ Since the v3.3.0 Sentence Transformers release, it's possible to finetune embedd
         ...,
     )
 
-Additionally, some research papers (`INSTRUCTOR <https://huggingface.co/papers/2212.09741>`_, `NV-Embed <https://huggingface.co/papers/2405.17428>`_) exclude the prompt from the mean pooling step, such that it's only used in the Transformer blocks. In Sentence Transformers, this can be configured with the ``include_prompt`` argument/attribute in the :class:`~sentence_transformers.models.Pooling` module or via the :meth:`SentenceTransformer.set_pooling_include_prompt() <sentence_transformers.SentenceTransformer.set_pooling_include_prompt>` method. In my personal experience, models that include the prompt in the pooling tend to perform better.
+Additionally, some research papers (`INSTRUCTOR <https://huggingface.co/papers/2212.09741>`_, `NV-Embed <https://huggingface.co/papers/2405.17428>`_) exclude the prompt from the mean pooling step, such that it's only used in the Transformer blocks. In Sentence Transformers, this can be configured with the ``include_prompt`` argument/attribute in the :class:`~sentence_transformers.sentence_transformer.modules.Pooling` module or via the :meth:`SentenceTransformer.set_pooling_include_prompt() <sentence_transformers.sentence_transformer.model.SentenceTransformer.set_pooling_include_prompt>` method. In my personal experience, models that include the prompt in the pooling tend to perform better.
 ```
 
 ### Training Script
@@ -98,11 +98,11 @@ Additionally, some research papers (`INSTRUCTOR <https://huggingface.co/papers/2
 ```{eval-rst}
 See the following script as an example of how to train with prompts in practice:
 
-* `training_nq_prompts.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/prompts/training_nq_prompts.py>`_: This script finetunes `mpnet-base <https://huggingface.co/microsoft/mpnet-base>`_ on 100k query-answer pairs from the `natural-questions <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset using the :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss` loss. The model is evaluated during training using the :class:`~sentence_transformers.evaluation.NanoBEIREvaluator`.
+* `training_nq_prompts.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/training/prompts/training_nq_prompts.py>`_: This script finetunes `microsoft/mpnet-base <https://huggingface.co/microsoft/mpnet-base>`_ on 100k query-answer pairs from the `natural-questions <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_ dataset using the :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss` loss. The model is evaluated during training using the :class:`~sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator`.
 
-This script has two variables that affect 1) whether prompts are used and 2) whether prompts are included in the pooling. I have finetuned both ``mpnet-base`` and ``bert-base-uncased`` under the various different settings, resulting in a 0.66% and 0.90% relative improvements on ``NDCG@10`` at no extra cost.
+This script has two variables that affect 1) whether prompts are used and 2) whether prompts are included in the pooling. I have finetuned both ``microsoft/mpnet-base`` and ``google-bert/bert-base-uncased`` under the various different settings, resulting in a 0.66% and 0.90% relative improvements on ``NDCG@10`` at no extra cost.
 
-.. tab:: Experiments with ``mpnet-base``
+.. tab:: Experiments with ``microsoft/mpnet-base``
 
     Running the script under various settings resulted in these checkpoints:
 
@@ -111,7 +111,7 @@ This script has two variables that affect 1) whether prompts are used and 2) whe
 
     .. note::
     
-        ``mpnet-base`` seems to be a tad unstable when training with prompts and excluding those prompts in the pooling: the loss spikes at some point, an effect not observed with e.g. ``bert-base-uncased``.
+        ``microsoft/mpnet-base`` seems to be a tad unstable when training with prompts and excluding those prompts in the pooling: the loss spikes at some point, an effect not observed with e.g. ``google-bert/bert-base-uncased``.
 
     For these two models, the model trained with prompts consistently outperforms the baseline model all throughout training:
 
@@ -122,7 +122,7 @@ This script has two variables that affect 1) whether prompts are used and 2) whe
     Additionally, the model trained with prompts includes these prompts in the training dataset details in the automatically generated model card: `tomaarsen/mpnet-base-nq-prompts#natural-questions <https://huggingface.co/tomaarsen/mpnet-base-nq-prompts#natural-questions>`_.
 
     .. important::
-        If you train with prompts, then it's heavily recommended to store prompts in the model configuration as a mapping of prompt names to prompt strings. You can do this by initializing the :class:`~sentence_transformers.SentenceTransformer` with a ``prompts`` dictionary before saving it, updating the ``model.prompts`` of a loaded model before saving it, and/or updating the `config_sentence_transformers.json <https://huggingface.co/tomaarsen/mpnet-base-nq-prompts/blob/main/config_sentence_transformers.json>`_ file of the saved model.
+        If you train with prompts, then it's heavily recommended to store prompts in the model configuration as a mapping of prompt names to prompt strings. You can do this by initializing the :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` with a ``prompts`` dictionary before saving it, updating the ``model.prompts`` of a loaded model before saving it, and/or updating the `config_sentence_transformers.json <https://huggingface.co/tomaarsen/mpnet-base-nq-prompts/blob/main/config_sentence_transformers.json>`_ file of the saved model.
 
     After adding the prompts in the model configuration, the final usage of the prompt-trained model becomes::
 
@@ -141,7 +141,7 @@ This script has two variables that affect 1) whether prompts are used and 2) whe
         print(similarity)
         # => tensor([[0.4725, 0.7339, 0.4369]])
 
-.. tab:: Experiments with ``bert-base-uncased``
+.. tab:: Experiments with ``google-bert/bert-base-uncased``
 
     Running the script under various settings resulted in these checkpoints:
 
@@ -158,7 +158,7 @@ This script has two variables that affect 1) whether prompts are used and 2) whe
     Additionally, the model trained with prompts includes these prompts in the training dataset details in the automatically generated model card: `tomaarsen/bert-base-nq-prompts#natural-questions <https://huggingface.co/tomaarsen/bert-base-nq-prompts#natural-questions>`_.
     
     .. important::
-        If you train with prompts, then it's heavily recommended to store prompts in the model configuration as a mapping of prompt names to prompt strings. You can do this by initializing the :class:`~sentence_transformers.SentenceTransformer` with a ``prompts`` dictionary before saving it, updating the ``model.prompts`` of a loaded model before saving it, and/or updating the `config_sentence_transformers.json <https://huggingface.co/tomaarsen/mpnet-base-nq-prompts/blob/main/config_sentence_transformers.json>`_ file of the saved model.
+        If you train with prompts, then it's heavily recommended to store prompts in the model configuration as a mapping of prompt names to prompt strings. You can do this by initializing the :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` with a ``prompts`` dictionary before saving it, updating the ``model.prompts`` of a loaded model before saving it, and/or updating the `config_sentence_transformers.json <https://huggingface.co/tomaarsen/mpnet-base-nq-prompts/blob/main/config_sentence_transformers.json>`_ file of the saved model.
 
     After adding the prompts in the model configuration, the final usage of the prompt-trained model becomes::
     

@@ -19,7 +19,7 @@ from sentence_transformers import SentenceTransformer
 torch.set_num_threads(4)
 
 
-model_name = sys.argv[1] if len(sys.argv) > 1 else "bert-base-nli-mean-tokens"
+model_name = sys.argv[1] if len(sys.argv) > 1 else "sentence-transformers/bert-base-nli-mean-tokens"
 
 # Load a sentence transformer model
 model = SentenceTransformer(model_name)

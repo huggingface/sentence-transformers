@@ -4,7 +4,7 @@ This folder contains various examples to fine-tune `SparseEncoder` models for sp
 
 For the beginning, I can recommend to have a look at the [MS MARCO](ms_marco/) examples.
 
-For the documentation how to train your own models, see [Training Overview](http://www.sbert.net/docs/sparse_encoder/training_overview.html).
+For the documentation how to train your own models, see [Training Overview](../../../docs/sparse_encoder/training_overview.md).
 
 ## Training Examples
 

@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.base.training_args import BaseTrainingArguments
 
 
 @dataclass
-class SparseEncoderTrainingArguments(SentenceTransformerTrainingArguments):
+class SparseEncoderTrainingArguments(BaseTrainingArguments):
     r"""
-    SparseEncoderTrainingArguments extends :class:`~SentenceTransformerTrainingArguments` which itself extend
-    :class:`~transformers.TrainingArguments` with additional arguments specific to Sentence Transformers.
-    See :class:`~transformers.TrainingArguments` for the complete list of available arguments.
+    SparseEncoderTrainingArguments extends :class:`~sentence_transformers.base.training_args.BaseTrainingArguments`
+    with additional arguments specific to Sentence Transformers. See :class:`~transformers.TrainingArguments` for
+    the complete list of available arguments.
 
     Args:
         output_dir (`str`):
@@ -28,11 +28,11 @@ class SparseEncoderTrainingArguments(SentenceTransformerTrainingArguments):
                prompts. This should only be used if your training/evaluation/test datasets are a
                :class:`datasets.DatasetDict` or a dictionary of :class:`datasets.Dataset`.
 
-        batch_sampler (Union[:class:`~sentence_transformers.training_args.BatchSamplers`, `str`], *optional*):
-            The batch sampler to use. See :class:`~sentence_transformers.training_args.BatchSamplers` for valid options.
+        batch_sampler (Union[:class:`~sentence_transformers.sentence_transformer.training_args.BatchSamplers`, `str`, :class:`~sentence_transformers.base.sampler.DefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.base.sampler.DefaultBatchSampler`]], *optional*):
+            The batch sampler to use. See :class:`~sentence_transformers.sentence_transformer.training_args.BatchSamplers` for valid options.
             Defaults to ``BatchSamplers.BATCH_SAMPLER``.
-        multi_dataset_batch_sampler (Union[:class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`, `str`], *optional*):
-            The multi-dataset batch sampler to use. See :class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`
+        multi_dataset_batch_sampler (Union[:class:`~sentence_transformers.sentence_transformer.training_args.MultiDatasetBatchSamplers`, `str`, :class:`~sentence_transformers.base.sampler.MultiDatasetDefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.base.sampler.MultiDatasetDefaultBatchSampler`]], *optional*):
+            The multi-dataset batch sampler to use. See :class:`~sentence_transformers.sentence_transformer.training_args.MultiDatasetBatchSamplers`
             for valid options. Defaults to ``MultiDatasetBatchSamplers.PROPORTIONAL``.
         router_mapping (`Dict[str, str] | Dict[str, Dict[str, str]]`, *optional*):
             A mapping of dataset column names to Router routes, like "query" or "document". This is used to specify

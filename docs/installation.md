@@ -1,14 +1,90 @@
 # Installation
 
-We recommend **Python 3.10+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.41.0+](https://github.com/huggingface/transformers)**. There are 5 extra options to install Sentence Transformers:
+We recommend **Python 3.10+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.41.0+](https://github.com/huggingface/transformers)**. There are several extra options to install Sentence Transformers:
 
-- **Default:** This allows for loading, saving, and inference (i.e., getting embeddings) of models.
-- **ONNX:** This allows for loading, saving, inference, optimizing, and quantizing of models using the ONNX backend.
-- **OpenVINO:** This allows for loading, saving, and inference of models using the OpenVINO backend.
-- **Default and Training**: Like **Default**, plus training.
+- **Default:** Allows loading, saving, and inference (i.e., getting embeddings) of text models.
+- **Image:** Adds dependencies for models that process images (e.g., CLIP, VLM-based models).
+- **Audio:** Adds dependencies for models that process audio inputs.
+- **Video:** Adds dependencies for models that process video inputs.
+- **Training:** Adds dependencies for training and finetuning models.
+- **ONNX:** Adds dependencies for loading, saving, inference, optimizing, and quantizing of models using the ONNX backend.
+- **OpenVINO:** Adds dependencies for loading, saving, and inference of models using the OpenVINO backend.
 - **Development**: All of the above plus some dependencies for developing Sentence Transformers, see [Editable Install](#editable-install).
 
-Note that you can mix and match the various extras, e.g. `pip install -U "sentence-transformers[train,onnx-gpu]"`.
+```{eval-rst}
+| To pass :class:`torchcodec.AudioDecoder <torchcodec.decoders.AudioDecoder>` or :class:`torchcodec.VideoDecoder <torchcodec.decoders.VideoDecoder>` instances as inputs, you must install `torchcodec <https://github.com/pytorch/torchcodec>`_ separately, e.g. with: ``pip install torchcodec``.
+| Note that you can mix and match the various extras, e.g. ``pip install -U "sentence-transformers[train,image,video,onnx-gpu]"``.
+```
+
+## Install with uv
+
+```{eval-rst}
+
+.. tab:: Default
+
+    ::
+
+        uv pip install -U sentence-transformers
+
+.. tab:: Image
+
+    ::
+
+        uv pip install -U "sentence-transformers[image]"
+
+.. tab:: Audio
+
+    ::
+
+        uv pip install -U "sentence-transformers[audio]"
+
+.. tab:: Video
+
+    ::
+
+        uv pip install -U "sentence-transformers[video]"
+
+.. tab:: Training
+
+    ::
+
+        uv pip install -U "sentence-transformers[train]"
+
+    To use `Weights and Biases <https://wandb.ai/>`_ or `Trackio <https://github.com/gradio-app/trackio>`_ to track your training logs, you should also install ``wandb`` or ``trackio`` **(recommended)**::
+
+        uv pip install trackio
+    
+    And to track your carbon emissions while training and have this information automatically included in your model cards, also install ``codecarbon`` **(recommended)**::
+
+        uv pip install codecarbon
+
+    Don't forget to add the module names to ``report_to`` in the Training Arguments when training, or they will not be used.
+
+.. tab:: ONNX
+
+    For GPU and CPU:
+    ::
+
+        uv pip install -U "sentence-transformers[onnx-gpu]"
+
+    For CPU only:
+    ::
+
+        uv pip install -U "sentence-transformers[onnx]"
+
+.. tab:: OpenVINO
+
+    ::
+
+        uv pip install -U "sentence-transformers[openvino]"
+
+.. tab:: Development
+
+    ::
+
+        uv pip install -U "sentence-transformers[dev]"
+
+```
 
 ## Install with pip
 
@@ -20,6 +96,40 @@ Note that you can mix and match the various extras, e.g. `pip install -U "senten
 
         pip install -U sentence-transformers
 
+.. tab:: Image
+
+    ::
+
+        pip install -U "sentence-transformers[image]"
+
+.. tab:: Audio
+
+    ::
+
+        pip install -U "sentence-transformers[audio]"
+
+.. tab:: Video
+
+    ::
+
+        pip install -U "sentence-transformers[video]"
+
+.. tab:: Training
+
+    ::
+
+        pip install -U "sentence-transformers[train]"
+
+    To use `Weights and Biases <https://wandb.ai/>`_ or `Trackio <https://github.com/gradio-app/trackio>`_ to track your training logs, you should also install ``wandb`` or ``trackio`` **(recommended)**::
+
+        pip install trackio
+    
+    And to track your carbon emissions while training and have this information automatically included in your model cards, also install ``codecarbon`` **(recommended)**::
+
+        pip install codecarbon
+
+    Don't forget to add the module names to ``report_to`` in the Training Arguments when training, or they will not be used.
+
 .. tab:: ONNX
 
     For GPU and CPU:
@@ -37,20 +147,6 @@ Note that you can mix and match the various extras, e.g. `pip install -U "senten
     ::
 
         pip install -U "sentence-transformers[openvino]"
-
-.. tab:: Default and Training
-
-    ::
-
-        pip install -U "sentence-transformers[train]"
-
-    To use `Weights and Biases <https://wandb.ai/>`_ to track your training logs, you should also install ``wandb`` **(recommended)**::
-
-        pip install wandb
-    
-    And to track your Carbon Emissions while training and have this information automatically included in your model cards, also install ``codecarbon`` **(recommended)**::
-
-        pip install codecarbon
 
 .. tab:: Development
 
@@ -62,6 +158,8 @@ Note that you can mix and match the various extras, e.g. `pip install -U "senten
 
 ## Install with Conda
 
+The base package is available on conda-forge. Extras (e.g. `[image]`, `[train]`) are a pip concept and not available via conda, so they are installed with pip.
+
 ```{eval-rst}
 
 .. tab:: Default
@@ -69,6 +167,40 @@ Note that you can mix and match the various extras, e.g. `pip install -U "senten
     ::
 
         conda install -c conda-forge sentence-transformers
+
+.. tab:: Image
+
+    ::
+
+        pip install -U "sentence-transformers[image]"
+
+.. tab:: Audio
+
+    ::
+
+        pip install -U "sentence-transformers[audio]"
+
+.. tab:: Video
+
+    ::
+
+        pip install -U "sentence-transformers[video]"
+
+.. tab:: Training
+
+    ::
+
+        conda install -c conda-forge sentence-transformers accelerate datasets
+
+    To use `Weights and Biases <https://wandb.ai/>`_ or `Trackio <https://github.com/gradio-app/trackio>`_ to track your training logs, you should also install ``wandb`` or ``trackio`` **(recommended)**::
+
+        pip install trackio
+    
+    And to track your carbon emissions while training and have this information automatically included in your model cards, also install ``codecarbon`` **(recommended)**::
+
+        pip install codecarbon
+
+    Don't forget to add the module names to ``report_to`` in the Training Arguments when training, or they will not be used.
 
 .. tab:: ONNX
 
@@ -87,20 +219,6 @@ Note that you can mix and match the various extras, e.g. `pip install -U "senten
     ::
 
         pip install -U "sentence-transformers[openvino]"
-
-.. tab:: Default and Training
-
-    ::
-
-        conda install -c conda-forge sentence-transformers accelerate datasets
-
-    To use `Weights and Biases <https://wandb.ai/>`_ to track your training logs, you should also install ``wandb`` **(recommended)**::
-
-        pip install wandb
-    
-    And to track your Carbon Emissions while training and have this information automatically included in your model cards, also install ``codecarbon`` **(recommended)**::
-
-        pip install codecarbon
 
 .. tab:: Development
 
@@ -122,6 +240,40 @@ You can install `sentence-transformers` directly from source to take advantage o
 
         pip install git+https://github.com/huggingface/sentence-transformers.git
 
+.. tab:: Image
+
+    ::
+
+        pip install -U "sentence-transformers[image] @ git+https://github.com/huggingface/sentence-transformers.git"
+
+.. tab:: Audio
+
+    ::
+
+        pip install -U "sentence-transformers[audio] @ git+https://github.com/huggingface/sentence-transformers.git"
+
+.. tab:: Video
+
+    ::
+
+        pip install -U "sentence-transformers[video] @ git+https://github.com/huggingface/sentence-transformers.git"
+
+.. tab:: Training
+
+    ::
+
+        pip install -U "sentence-transformers[train] @ git+https://github.com/huggingface/sentence-transformers.git"
+
+    To use `Weights and Biases <https://wandb.ai/>`_ or `Trackio <https://github.com/gradio-app/trackio>`_ to track your training logs, you should also install ``wandb`` or ``trackio`` **(recommended)**::
+
+        pip install trackio
+    
+    And to track your carbon emissions while training and have this information automatically included in your model cards, also install ``codecarbon`` **(recommended)**::
+
+        pip install codecarbon
+
+    Don't forget to add the module names to ``report_to`` in the Training Arguments when training, or they will not be used.
+
 .. tab:: ONNX
 
     For GPU and CPU:
@@ -139,20 +291,6 @@ You can install `sentence-transformers` directly from source to take advantage o
     ::
 
         pip install -U "sentence-transformers[openvino] @ git+https://github.com/huggingface/sentence-transformers.git"
-
-.. tab:: Default and Training
-
-    ::
-
-        pip install -U "sentence-transformers[train] @ git+https://github.com/huggingface/sentence-transformers.git"
-
-    To use `Weights and Biases <https://wandb.ai/>`_ to track your training logs, you should also install ``wandb`` **(recommended)**::
-
-        pip install wandb
-    
-    And to track your carbon emissions while training and have this information automatically included in your model cards, also install ``codecarbon`` **(recommended)**::
-
-        pip install codecarbon
 
 .. tab:: Development
 

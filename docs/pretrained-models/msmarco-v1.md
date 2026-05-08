@@ -14,7 +14,7 @@ They can be used like this:
 ```python
 from sentence_transformers import SentenceTransformer, util
 
-model = SentenceTransformer("distilroberta-base-msmarco-v1")
+model = SentenceTransformer("sentence-transformers/distilroberta-base-msmarco-v1")
 
 query_embedding = model.encode("[QRY] " + "How big is London")
 passage_embedding = model.encode("[DOC] " + "London has 9,787,426 inhabitants at the 2011 census")

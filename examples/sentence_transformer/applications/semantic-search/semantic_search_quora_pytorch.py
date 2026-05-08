@@ -20,7 +20,7 @@ import time
 
 from sentence_transformers import SentenceTransformer, util
 
-model_name = "quora-distilbert-multilingual"
+model_name = "sentence-transformers/quora-distilbert-multilingual"
 model = SentenceTransformer(model_name)
 
 url = "http://qim.fs.quoracdn.net/quora_duplicate_questions.tsv"

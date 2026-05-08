@@ -19,6 +19,7 @@ Training Examples
    ../../../examples/sentence_transformer/training/prompts/README
    ../../../examples/sentence_transformer/training/peft/README
    ../../../examples/sentence_transformer/training/unsloth/README
+   ../../../examples/sentence_transformer/training/multimodal/README
 
 .. toctree::
    :maxdepth: 1

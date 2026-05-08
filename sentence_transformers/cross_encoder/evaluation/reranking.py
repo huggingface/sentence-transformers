@@ -7,17 +7,16 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from sklearn.metrics import average_precision_score, ndcg_score
-from tqdm import tqdm
 
-from sentence_transformers.evaluation.SentenceEvaluator import SentenceEvaluator
+from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 
 if TYPE_CHECKING:
-    from sentence_transformers.cross_encoder.CrossEncoder import CrossEncoder
+    from sentence_transformers.cross_encoder.model import CrossEncoder
 
 logger = logging.getLogger(__name__)
 
 
-class CrossEncoderRerankingEvaluator(SentenceEvaluator):
+class CrossEncoderRerankingEvaluator(BaseEvaluator):
     """
     This class evaluates a CrossEncoder model for the task of re-ranking.
 
@@ -39,17 +38,20 @@ class CrossEncoderRerankingEvaluator(SentenceEvaluator):
 
     Args:
         samples (list): A list of dictionaries, where each dictionary represents a sample and has the following keys:
+
             - 'query' (mandatory): The search query.
             - 'positive' (mandatory): A list of positive (relevant) documents.
             - 'negative' (optional): A list of negative (irrelevant) documents. Mutually exclusive with 'documents'.
             - 'documents' (optional): A list of all documents, including the positive ones. This list is assumed to be
-                ranked by similarity, with the most similar documents first. Mutually exclusive with 'negative'.
+              ranked by similarity, with the most similar documents first. Mutually exclusive with 'negative'.
         at_k (int, optional): Only consider the top k most similar documents to each query for the evaluation. Defaults to 10.
         always_rerank_positives (bool): If True, always evaluate with all positives included. If False, only include
             the positives that are already in the documents list. Always set to True if your ``samples`` contain ``negative``
             instead of ``documents``. When using ``documents``, setting this to True will result in a more useful evaluation
             signal, but setting it to False will result in a more realistic evaluation. Defaults to True.
         name (str, optional): Name of the evaluator, used for logging, saving in a CSV, and the model card. Defaults to "".
+        prompt_name (str, optional): The name of the prompt to use when calling ``model.predict()``.
+            Must be a key in the model's ``prompts`` dictionary. Defaults to None.
         batch_size (int): Batch size to compute sentence embeddings. Defaults to 64.
         show_progress_bar (bool): Show progress bar when computing embeddings. Defaults to False.
         write_csv (bool): Write results to CSV file. Defaults to True.
@@ -104,8 +106,9 @@ class CrossEncoderRerankingEvaluator(SentenceEvaluator):
         self,
         samples: list[dict[str, str | list[str]]],
         at_k: int = 10,
-        always_rerank_positives: bool = True,  # TODO: This is also confusing, perhaps setting=""
+        always_rerank_positives: bool = True,
         name: str = "",
+        prompt_name: str | None = None,
         batch_size: int = 64,
         show_progress_bar: bool = False,
         write_csv: bool = True,
@@ -121,6 +124,7 @@ class CrossEncoderRerankingEvaluator(SentenceEvaluator):
         self.always_rerank_positives = always_rerank_positives
 
         self.name = name
+        self.prompt_name = prompt_name
         self.batch_size = batch_size
         self.show_progress_bar = show_progress_bar
 
@@ -145,16 +149,18 @@ class CrossEncoderRerankingEvaluator(SentenceEvaluator):
 
         logger.info(f"CrossEncoderRerankingEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
+        # First pass: preprocess all samples to build the query-document pairs and relevance labels
+        # without calling model.predict(), so we can batch all pairs into a single predict call.
         base_mrr_scores = []
         base_ndcg_scores = []
         base_ap_scores = []
-        all_mrr_scores = []
-        all_ndcg_scores = []
-        all_ap_scores = []
-        num_queries = 0
         num_positives = []
         num_negatives = []
-        for instance in tqdm(self.samples, desc="Evaluating samples", disable=not self.show_progress_bar, leave=False):
+
+        all_pairs = []  # flat list of [query, doc] pairs for model.predict()
+        sample_metadata = []  # per-sample: (is_relevant, num_pairs, num_ignored_positives) or None if skipped
+
+        for instance in self.samples:
             if "query" not in instance:
                 raise ValueError("CrossEncoderRerankingEvaluator requires a 'query' key in each sample.")
             if "positive" not in instance:
@@ -179,7 +185,6 @@ class CrossEncoderRerankingEvaluator(SentenceEvaluator):
                 if sum(base_is_relevant) == 0:
                     base_mrr, base_ndcg, base_ap = 0, 0, 0
                 else:
-                    # If not all positives are in documents, we need to add them at the end
                     base_is_relevant += [1] * (len(positive) - sum(base_is_relevant))
                     base_pred_scores = np.array(range(len(base_is_relevant), 0, -1))
                     base_mrr, base_ndcg, base_ap = self.compute_metrics(base_is_relevant, base_pred_scores)
@@ -197,31 +202,51 @@ class CrossEncoderRerankingEvaluator(SentenceEvaluator):
                 docs = positive + negative
                 is_relevant = [1] * len(positive) + [0] * len(negative)
 
-            num_queries += 1
-
             num_positives.append(len(positive))
             num_negatives.append(len(is_relevant) - sum(is_relevant))
 
             if sum(is_relevant) == 0:
+                sample_metadata.append(None)
+                continue
+
+            sample_metadata.append((is_relevant, len(docs)))
+            all_pairs.extend([query, doc] for doc in docs)
+
+        # Single batched predict call for all query-document pairs
+        if all_pairs:
+            all_pred_scores = model.predict(
+                all_pairs,
+                prompt_name=self.prompt_name,
+                batch_size=self.batch_size,
+                convert_to_numpy=True,
+                show_progress_bar=self.show_progress_bar,
+            )
+        else:
+            all_pred_scores = np.array([])
+
+        # Second pass: split predictions back per sample and compute metrics
+        all_mrr_scores = []
+        all_ndcg_scores = []
+        all_ap_scores = []
+        score_offset = 0
+
+        for meta in sample_metadata:
+            if meta is None:
                 all_mrr_scores.append(0)
                 all_ndcg_scores.append(0)
                 all_ap_scores.append(0)
                 continue
 
-            model_input = [[query, doc] for doc in docs]
-            pred_scores = model.predict(
-                model_input, batch_size=self.batch_size, convert_to_numpy=True, show_progress_bar=False
-            )
-
-            # Add the ignored positives at the end
-            if num_ignored_positives := len(is_relevant) - len(pred_scores):
-                pred_scores = np.concatenate([pred_scores, np.zeros(num_ignored_positives)])
+            is_relevant, num_pairs = meta
+            pred_scores = all_pred_scores[score_offset : score_offset + num_pairs]
+            score_offset += num_pairs
 
             mrr, ndcg, ap = self.compute_metrics(is_relevant, pred_scores)
-
             all_mrr_scores.append(mrr)
             all_ndcg_scores.append(ndcg)
             all_ap_scores.append(ap)
+
+        num_queries = len(self.samples)
 
         mean_mrr = np.mean(all_mrr_scores)
         mean_ndcg = np.mean(all_ndcg_scores)
@@ -237,7 +262,7 @@ class CrossEncoderRerankingEvaluator(SentenceEvaluator):
             f"Positives: Min {np.min(num_positives):.1f}, Mean {np.mean(num_positives):.1f}, Max {np.max(num_positives):.1f}\t"
             f"Negatives: Min {np.min(num_negatives):.1f}, Mean {np.mean(num_negatives):.1f}, Max {np.max(num_negatives):.1f}"
         )
-        if documents:
+        if base_mrr_scores:
             mean_base_mrr = np.mean(base_mrr_scores)
             mean_base_ndcg = np.mean(base_ndcg_scores)
             mean_base_ap = np.mean(base_ap_scores)

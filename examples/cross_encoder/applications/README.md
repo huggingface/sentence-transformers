@@ -37,7 +37,7 @@ You pass to `model.predict` a list of sentence **pairs**. Note, Cross-Encoder do
 
 As model name, you can pass any model or path that is compatible with Hugging Face [AutoModel](https://huggingface.co/transformers/model_doc/auto.html) class.
 
-For a full example, to score a query with all possible sentences in a corpus see [cross-encoder_usage.py](cross-encoder_usage.py).
+For a full example, to score a query with all possible sentences in a corpus see [cross_encoder_usage.py](cross_encoder_usage.py).
 
 ## Combining Bi- and Cross-Encoders
 

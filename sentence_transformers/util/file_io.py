@@ -152,7 +152,7 @@ def load_dir_path(
         # Otherwise, try local (i.e. cache) only
         download_kwargs["local_files_only"] = True
         repo_path = snapshot_download(**download_kwargs)
-    return Path(repo_path, subfolder)
+    return str(Path(repo_path, subfolder))
 
 
 def http_get(url: str, path: str) -> None:

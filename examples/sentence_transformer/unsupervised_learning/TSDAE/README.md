@@ -22,7 +22,7 @@ from sentence_transformers.trainer import SentenceTransformerTrainer
 from sentence_transformers.training_args import SentenceTransformerTrainingArguments
 
 # 1. Define a SentenceTransformer model
-model = SentenceTransformer("bert-base-uncased")
+model = SentenceTransformer("google-bert/bert-base-uncased")
 
 # 2. Some example sentences
 sentences = [
@@ -51,7 +51,7 @@ dataset.set_transform(transform=lambda batch: noise_transform(batch), columns=["
 # 4. Define the TSDAE loss
 train_loss = DenoisingAutoEncoderLoss(
     model,
-    decoder_name_or_path="bert-base-uncased",
+    decoder_name_or_path="google-bert/bert-base-uncased",
     tie_encoder_decoder=True,
 )
 
@@ -90,11 +90,11 @@ The [AskUbuntu dataset](https://github.com/taolei87/askubuntu) is a manually ann
 
 | Model | MAP-Score on test set |
 | ---- | :----: |
-| TSDAE (bert-base-uncased) | 59.4 |
+| TSDAE (google-bert/bert-base-uncased) | 59.4 |
 | **pretrained SentenceTransformer models** | |
-| nli-bert-base | 50.7 |
-| paraphrase-distilroberta-base-v1 | 54.8 |
-| stsb-roberta-large | 54.6 |
+| sentence-transformers/nli-bert-base | 50.7 |
+| sentence-transformers/paraphrase-distilroberta-base-v1 | 54.8 |
+| sentence-transformers/stsb-roberta-large | 54.6 |
 
 
 ## TSDAE as Pre-Training Task

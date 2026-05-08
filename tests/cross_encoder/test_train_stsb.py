@@ -9,7 +9,7 @@ from datasets import Dataset, load_dataset
 
 from sentence_transformers import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
-from sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss import BinaryCrossEntropyLoss
+from sentence_transformers.cross_encoder.losses.binary_cross_entropy import BinaryCrossEntropyLoss
 from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
 from sentence_transformers.util import is_training_available
@@ -28,10 +28,7 @@ def sts_resource() -> Generator[tuple[Dataset, Dataset], None, None]:
 
 
 def evaluate_stsb_test(
-    model: CrossEncoder,
-    expected_score: float,
-    test_dataset: Dataset,
-    num_test_samples: int = -1,
+    model: CrossEncoder, expected_score: float, test_dataset: Dataset, num_test_samples: int = -1
 ) -> None:
     if num_test_samples > 0:
         test_dataset = test_dataset.select(range(num_test_samples))

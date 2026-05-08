@@ -11,7 +11,7 @@ import torch
 
 from sentence_transformers import SentenceTransformer
 
-embedder = SentenceTransformer("all-MiniLM-L6-v2")
+embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 # Corpus with example documents
 corpus = [

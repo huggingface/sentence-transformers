@@ -30,10 +30,7 @@ def dummy_sparse_encoder_model() -> SparseEncoder:
 
 
 def evaluate_stsb_test(
-    model: SparseEncoder,
-    expected_score: float,
-    test_dataset: Dataset,
-    num_test_samples: int = -1,
+    model: SparseEncoder, expected_score: float, test_dataset: Dataset, num_test_samples: int = -1
 ) -> None:
     if num_test_samples > 0:
         test_dataset = test_dataset.select(range(num_test_samples))
@@ -74,7 +71,7 @@ def test_train_stsb_slow(
         output_dir=tmp_path,
         num_train_epochs=1,
         per_device_train_batch_size=16,  # Smaller batch for faster test
-        warmup_ratio=0.1,
+        warmup_steps=10,
         logging_steps=10,
         eval_strategy="no",
         save_strategy="no",
@@ -111,7 +108,7 @@ def test_train_stsb(
         output_dir=tmp_path,
         num_train_epochs=1,
         per_device_train_batch_size=8,  # Even smaller batch
-        warmup_ratio=0.1,
+        warmup_steps=10,
         logging_steps=5,
         # eval_strategy="steps", # No eval during this very short training
         # eval_steps=20,

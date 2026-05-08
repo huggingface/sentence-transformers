@@ -1,5 +1,5 @@
 """
-Test different backends (PyTorch, ONNX, OpenVINO) for the MLMTransformer class and SparseEncoder.
+Test different backends (PyTorch, ONNX, OpenVINO) for the Transformer class with transformer_task="fill-mask" and SparseEncoder.
 
 This module tests loading and using models with different inference backends.
 """
@@ -50,7 +50,7 @@ def test_backend_export(backend, expected_auto_model_class, model_kwargs) -> Non
     assert isinstance(model[0].auto_model, expected_auto_model_class)
 
     embedding = model.encode("Hello, World!")
-    assert embedding.shape == (model.get_sentence_embedding_dimension(),)
+    assert embedding.shape == (model.get_embedding_dimension(),)
 
 
 def test_backend_no_export_crash():

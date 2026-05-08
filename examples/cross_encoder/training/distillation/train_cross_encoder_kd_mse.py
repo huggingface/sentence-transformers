@@ -5,7 +5,7 @@ from datasets import load_dataset, load_from_disk
 
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderNanoBEIREvaluator
-from sentence_transformers.cross_encoder.losses.MSELoss import MSELoss
+from sentence_transformers.cross_encoder.losses import MSELoss
 from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
 
@@ -78,7 +78,7 @@ def main():
         per_device_train_batch_size=train_batch_size,
         per_device_eval_batch_size=train_batch_size,
         learning_rate=8e-6,  # Lower than usual, for MSELoss
-        warmup_ratio=0.1,
+        warmup_steps=0.1,
         fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=True,  # Set to True if you have a GPU that supports BF16
         load_best_model_at_end=True,

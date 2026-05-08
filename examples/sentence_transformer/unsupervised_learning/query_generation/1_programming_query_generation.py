@@ -7,7 +7,7 @@ Assembly language, C , C Sharp , C++, Go , Java , JavaScript, Keras, Laravel, MA
 
 In:
 1_programming_query_generation.py - We generate queries for all paragraphs from these articles
-2_programming_train_bi-encoder.py - We train a SentenceTransformer bi-encoder with these generated queries. This results in a model we can then use for semantic search (for the given Wikipedia articles).
+2_programming_train_bi_encoder.py - We train a SentenceTransformer bi-encoder with these generated queries. This results in a model we can then use for semantic search (for the given Wikipedia articles).
 3_programming_semantic_search.py - Shows how the trained model can be used for semantic search
 """
 
@@ -19,14 +19,14 @@ import torch
 import tqdm
 from transformers import T5ForConditionalGeneration, T5Tokenizer
 
-from sentence_transformers import util
+from sentence_transformers.util import http_get
 
 paragraphs = set()
 
 # We use the Wikipedia articles of certain programming languages
 corpus_filepath = "wiki-programmming-20210101.jsonl.gz"
 if not os.path.exists(corpus_filepath):
-    util.http_get("https://sbert.net/datasets/wiki-programmming-20210101.jsonl.gz", corpus_filepath)
+    http_get("https://sbert.net/datasets/wiki-programmming-20210101.jsonl.gz", corpus_filepath)
 
 with gzip.open(corpus_filepath, "rt") as fIn:
     for line in fIn:

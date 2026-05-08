@@ -17,7 +17,7 @@ Each of these models can be easily downloaded and used like so:
 from sentence_transformers import SentenceTransformer
 
 # Load https://huggingface.co/sentence-transformers/all-mpnet-base-v2
-model = SentenceTransformer("all-mpnet-base-v2")
+model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
 embeddings = model.encode([
     "The weather is lovely today.",
     "It's so sunny outside!",
@@ -42,7 +42,7 @@ similarities = model.similarity(embeddings, embeddings)
 
 The following table provides an overview of a selection of our models. They have been extensively evaluated for their quality to embedded sentences (Performance Sentence Embeddings) and to embedded search queries & paragraphs (Performance Semantic Search).
 
-The **all-*** models were trained on all available training data (more than 1 billion training pairs) and are designed as **general purpose** models. The [**all-mpnet-base-v2**](https://huggingface.co/sentence-transformers/all-mpnet-base-v2) model provides the best quality, while [**all-MiniLM-L6-v2**](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) is 5 times faster and still offers good quality. Toggle *All models* to see all evaluated original models.
+The **all-*** models were trained on all available training data (more than 1 billion training pairs) and are designed as **general purpose** models. The [**sentence-transformers/all-mpnet-base-v2**](https://huggingface.co/sentence-transformers/all-mpnet-base-v2) model provides the best quality, while [**sentence-transformers/all-MiniLM-L6-v2**](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) is 5 times faster and still offers good quality. Toggle *All models* to see all evaluated original models.
 
 
 <iframe src="../../../_static/html/models_en_sentence_embeddings.html" height="600" style="width:100%; border:none;" title="Iframe Example"></iframe>
@@ -56,17 +56,17 @@ The following models have been specifically trained for **Semantic Search**: Giv
 ```{eval-rst}
 .. sidebar:: Documentation
 
-   #. `multi-qa-mpnet-base-cos-v1 <https://huggingface.co/sentence-transformers/multi-qa-mpnet-base-cos-v1>`_
-   #. :class:`SentenceTransformer <sentence_transformers.SentenceTransformer>`
-   #. :meth:`SentenceTransformer.encode <sentence_transformers.SentenceTransformer.encode>`
-   #. :meth:`SentenceTransformer.similarity <sentence_transformers.SentenceTransformer.similarity>`
+   #. `sentence-transformers/multi-qa-mpnet-base-cos-v1 <https://huggingface.co/sentence-transformers/multi-qa-mpnet-base-cos-v1>`_
+   #. :class:`SentenceTransformer <sentence_transformers.sentence_transformer.model.SentenceTransformer>`
+   #. :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>`
+   #. :meth:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`
 
 ```
 
 ```python
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("multi-qa-mpnet-base-cos-v1")
+model = SentenceTransformer("sentence-transformers/multi-qa-mpnet-base-cos-v1")
 
 query_embedding = model.encode("How big is London")
 passage_embeddings = model.encode([
@@ -89,17 +89,17 @@ These models were tuned to be used with the dot-product similarity score:
 
 | Model | Performance Semantic Search (6 Datasets) | Queries (GPU / CPU) per sec. | 
 | --- | :---: | :---: |
-| [multi-qa-mpnet-base-dot-v1](https://huggingface.co/sentence-transformers/multi-qa-mpnet-base-dot-v1) | 57.60 | 4,000 / 170 |
-| [multi-qa-distilbert-dot-v1](https://huggingface.co/sentence-transformers/multi-qa-distilbert-dot-v1) | 52.51  | 7,000 / 350 |
-| [multi-qa-MiniLM-L6-dot-v1](https://huggingface.co/sentence-transformers/multi-qa-MiniLM-L6-dot-v1) | 49.19 | 18,000 / 750 |
+| [sentence-transformers/multi-qa-mpnet-base-dot-v1](https://huggingface.co/sentence-transformers/multi-qa-mpnet-base-dot-v1) | 57.60 | 4,000 / 170 |
+| [sentence-transformers/multi-qa-distilbert-dot-v1](https://huggingface.co/sentence-transformers/multi-qa-distilbert-dot-v1) | 52.51  | 7,000 / 350 |
+| [sentence-transformers/multi-qa-MiniLM-L6-dot-v1](https://huggingface.co/sentence-transformers/multi-qa-MiniLM-L6-dot-v1) | 49.19 | 18,000 / 750 |
 
 These models produce normalized vectors of length 1, which can be used with dot-product, cosine-similarity and Euclidean distance as the similarity functions:
 
 | Model | Performance Semantic Search (6 Datasets) | Queries (GPU / CPU) per sec. | 
 | --- | :---: | :---: |
-| [multi-qa-mpnet-base-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-mpnet-base-cos-v1) | 57.46 | 4,000 / 170 |
-| [multi-qa-distilbert-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-distilbert-cos-v1) |  52.83 | 7,000 / 350 |
-| [multi-qa-MiniLM-L6-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-MiniLM-L6-cos-v1) | 51.83 | 18,000 / 750 |
+| [sentence-transformers/multi-qa-mpnet-base-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-mpnet-base-cos-v1) | 57.46 | 4,000 / 170 |
+| [sentence-transformers/multi-qa-distilbert-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-distilbert-cos-v1) |  52.83 | 7,000 / 350 |
+| [sentence-transformers/multi-qa-MiniLM-L6-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-MiniLM-L6-cos-v1) | 51.83 | 18,000 / 750 |
 
 ### MSMARCO Passage Models
 
@@ -109,17 +109,17 @@ These models were tuned to be used with the dot-product similarity score:
 
 | Model | MSMARCO MRR@10 dev set | Performance Semantic Search (6 Datasets) | Queries (GPU / CPU) per sec. | 
 | --- | :---: | :---: | :---: |
-| [msmarco-bert-base-dot-v5](https://huggingface.co/sentence-transformers/msmarco-bert-base-dot-v5) | 38.08 | 52.11 | 4,000 / 170 |
-| [msmarco-distilbert-dot-v5](https://huggingface.co/sentence-transformers/msmarco-distilbert-dot-v5) | 37.25 | 49.47 | 7,000 / 350 |
-| [msmarco-distilbert-base-tas-b](https://huggingface.co/sentence-transformers/msmarco-distilbert-base-tas-b) | 34.43 | 49.25 | 7,000 / 350 |
+| [sentence-transformers/msmarco-bert-base-dot-v5](https://huggingface.co/sentence-transformers/msmarco-bert-base-dot-v5) | 38.08 | 52.11 | 4,000 / 170 |
+| [sentence-transformers/msmarco-distilbert-dot-v5](https://huggingface.co/sentence-transformers/msmarco-distilbert-dot-v5) | 37.25 | 49.47 | 7,000 / 350 |
+| [sentence-transformers/msmarco-distilbert-base-tas-b](https://huggingface.co/sentence-transformers/msmarco-distilbert-base-tas-b) | 34.43 | 49.25 | 7,000 / 350 |
 
 These models produce normalized vectors of length 1, which can be used with dot-product, cosine-similarity and Euclidean distance as the similarity functions:
 
 | Model | MSMARCO MRR@10 dev set | Performance Semantic Search (6 Datasets) | Queries (GPU / CPU) per sec. | 
 | --- | :---: | :---: | :---: |
-| [msmarco-distilbert-cos-v5](https://huggingface.co/sentence-transformers/msmarco-distilbert-cos-v5) | 33.79 | 44.98 | 7,000 / 350 |
-| [msmarco-MiniLM-L12-cos-v5](https://huggingface.co/sentence-transformers/msmarco-MiniLM-L12-cos-v5) | 32.75 | 43.89 | 11,000 / 400 |
-| [msmarco-MiniLM-L6-cos-v5](https://huggingface.co/sentence-transformers/msmarco-MiniLM-L6-cos-v5) | 32.27 | 42.16 | 18,000 / 750 |
+| [sentence-transformers/msmarco-distilbert-cos-v5](https://huggingface.co/sentence-transformers/msmarco-distilbert-cos-v5) | 33.79 | 44.98 | 7,000 / 350 |
+| [sentence-transformers/msmarco-MiniLM-L12-cos-v5](https://huggingface.co/sentence-transformers/msmarco-MiniLM-L12-cos-v5) | 32.75 | 43.89 | 11,000 / 400 |
+| [sentence-transformers/msmarco-MiniLM-L6-cos-v5](https://huggingface.co/sentence-transformers/msmarco-MiniLM-L6-cos-v5) | 32.27 | 42.16 | 18,000 / 750 |
 
 [MSMARCO Models - More details](../pretrained-models/msmarco-v5.md)
 
@@ -132,31 +132,90 @@ The following models similar embeddings for the same texts in different language
 
 These models find semantically similar sentences within one language or across languages:
 
-- **[distiluse-base-multilingual-cased-v1](https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v1)**: Multilingual knowledge distilled version of [multilingual Universal Sentence Encoder](https://huggingface.co/papers/1907.04307). Supports 15 languages:  Arabic, Chinese, Dutch, English, French, German, Italian, Korean, Polish, Portuguese, Russian, Spanish, Turkish. 
-- **[distiluse-base-multilingual-cased-v2](https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2)**: Multilingual knowledge distilled version of [multilingual Universal Sentence Encoder](https://huggingface.co/papers/1907.04307). This version supports 50+ languages, but performs a bit weaker than the v1 model.
-- **[paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2)** - Multilingual version of [paraphrase-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-MiniLM-L12-v2), trained on parallel data for 50+ languages. 
-- **[paraphrase-multilingual-mpnet-base-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-mpnet-base-v2)** - Multilingual version of [paraphrase-mpnet-base-v2](https://huggingface.co/sentence-transformers/paraphrase-mpnet-base-v2), trained on parallel data for 50+ languages. 
+- **[sentence-transformers/distiluse-base-multilingual-cased-v1](https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v1)**: Multilingual knowledge distilled version of [multilingual Universal Sentence Encoder](https://huggingface.co/papers/1907.04307). Supports 15 languages:  Arabic, Chinese, Dutch, English, French, German, Italian, Korean, Polish, Portuguese, Russian, Spanish, Turkish. 
+- **[sentence-transformers/distiluse-base-multilingual-cased-v2](https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2)**: Multilingual knowledge distilled version of [multilingual Universal Sentence Encoder](https://huggingface.co/papers/1907.04307). This version supports 50+ languages, but performs a bit weaker than the v1 model.
+- **[sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2)** - Multilingual version of [sentence-transformers/paraphrase-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-MiniLM-L12-v2), trained on parallel data for 50+ languages. 
+- **[sentence-transformers/paraphrase-multilingual-mpnet-base-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-mpnet-base-v2)** - Multilingual version of [sentence-transformers/paraphrase-mpnet-base-v2](https://huggingface.co/sentence-transformers/paraphrase-mpnet-base-v2), trained on parallel data for 50+ languages. 
 
 ### Bitext Mining
 
 Bitext mining describes the process of finding translated sentence pairs in two languages. If this is your use-case, the following model gives the best performance:
-- **[LaBSE](https://huggingface.co/sentence-transformers/LaBSE)** - [LaBSE](https://huggingface.co/papers/2007.01852) Model. Supports 109 languages. Works well for finding translation pairs in multiple languages. As detailed  [here](https://huggingface.co/papers/2004.09813), LaBSE works less well for assessing the similarity of sentence pairs that are not translations of each other.
+- **[sentence-transformers/LaBSE](https://huggingface.co/sentence-transformers/LaBSE)** - [LaBSE](https://huggingface.co/papers/2007.01852) Model. Supports 109 languages. Works well for finding translation pairs in multiple languages. As detailed  [here](https://huggingface.co/papers/2004.09813), LaBSE works less well for assessing the similarity of sentence pairs that are not translations of each other.
 
 Extending a model to new languages is easy by following [Training Examples > Multilingual Models](../../examples/sentence_transformer/training/multilingual/README.md).
 
-## Image & Text-Models
-The following models can embed images and text into a joint vector space. See [Usage > Image Search](../../examples/sentence_transformer/applications/image-search/README.md) for more details how to use for text2image-search, image2image-search, image clustering, and zero-shot image classification.
+## Multimodal Models
 
-The following models are available with their respective Top 1 accuracy on zero-shot ImageNet validation dataset.
+Sentence Transformers supports multimodal models that can embed text alongside images, audio, or video into a joint vector space. This enables cross-modal tasks like text-to-image search, image-to-image search, image clustering, and zero-shot classification.
+
+```{eval-rst}
+.. seealso::
+   See the `Multimodal Embedding & Reranker Models <https://huggingface.co/blog/multimodal-sentence-transformers>`_ blogpost for an inference walkthrough and an overview of the multimodal models supported at the time of writing.
+```
+
+```{eval-rst}
+
+.. tip::
+
+   Multimodal models require additional dependencies. Install them with e.g. ``pip install -U "sentence-transformers[image]"`` for image support. See `Installation <../installation.html>`_ for all options.
+
+You can check which modalities a model supports using the :attr:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.modalities` property and :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.supports` method:
+```
+
+```python
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
+print(model.modalities)
+# => ['text', 'image', 'video', 'message']
+print(model.supports("image"))
+# => True
+print(model.supports("audio"))
+# => False
+```
+
+### Image & Text Models
+
+Image-text models embed both images and text into the same vector space.
+
+The original Sentence Transformers image-text models are based on CLIP. See [Usage > Image Search](../../examples/sentence_transformer/applications/image-search/README.md) for details on text-to-image search, image-to-image search, image clustering, and zero-shot image classification.
+
+The following CLIP models are available with their respective Top 1 accuracy on zero-shot ImageNet validation dataset:
 
 | Model | Top 1 Performance |
 | --- | :---: |
-| [clip-ViT-L-14](https://huggingface.co/sentence-transformers/clip-ViT-L-14) | 75.4 |
-| [clip-ViT-B-16](https://huggingface.co/sentence-transformers/clip-ViT-B-16) | 68.1 |
-| [clip-ViT-B-32](https://huggingface.co/sentence-transformers/clip-ViT-B-32) | 63.3 |
+| [sentence-transformers/clip-ViT-L-14](https://huggingface.co/sentence-transformers/clip-ViT-L-14) | 75.4 |
+| [sentence-transformers/clip-ViT-B-16](https://huggingface.co/sentence-transformers/clip-ViT-B-16) | 68.1 |
+| [sentence-transformers/clip-ViT-B-32](https://huggingface.co/sentence-transformers/clip-ViT-B-32) | 63.3 |
 
 We further provide this multilingual text-image model:
-- **[clip-ViT-B-32-multilingual-v1](https://huggingface.co/sentence-transformers/clip-ViT-B-32-multilingual-v1)** - Multilingual text encoder for the [clip-ViT-B-32](https://huggingface.co/sentence-transformers/clip-ViT-B-32) model using [Multilingual Knowledge Distillation](https://huggingface.co/papers/2004.09813). This model can encode text in 50+ languages to match the image vectors from the [clip-ViT-B-32](https://huggingface.co/sentence-transformers/clip-ViT-B-32) model.
+- **[sentence-transformers/clip-ViT-B-32-multilingual-v1](https://huggingface.co/sentence-transformers/clip-ViT-B-32-multilingual-v1)** - Multilingual text encoder for the [sentence-transformers/clip-ViT-B-32](https://huggingface.co/sentence-transformers/clip-ViT-B-32) model using [Multilingual Knowledge Distillation](https://huggingface.co/papers/2004.09813). This model can encode text in 50+ languages to match the image vectors from the [sentence-transformers/clip-ViT-B-32](https://huggingface.co/sentence-transformers/clip-ViT-B-32) model.
+
+```{eval-rst}
+Newer multimodal models use the unified :class:`~sentence_transformers.base.modules.Transformer` module, which automatically detects supported modalities from the underlying model and processor. These models typically support richer input formats, including interleaved image-text inputs via chat messages. Notable examples include:
+```
+
+- **[Qwen/Qwen3-VL-Embedding-2B](https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B)** - A Qwen3-VL-based embedding model that supports text, image, and interleaved image-text inputs via message format. Useful for document screenshot embedding and cross-modal retrieval. See [Training Examples > Multimodal](../../examples/sentence_transformer/training/multimodal/README.md) for a finetuning example.
+
+```{eval-rst}
+VLM-based models support additional modalities and input formats compared to CLIP models. You can verify this with :attr:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.modalities`:
+```
+
+```python
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
+print(model.modalities)
+# => ['text', 'image', 'video', 'message']
+```
+
+The `"message"` modality means the model accepts chat-style message inputs, allowing you to combine text and images in a single input. This is how VLM-based models handle interleaved multimodal content.
+
+### Audio & Video Models
+
+```{eval-rst}
+The :class:`~sentence_transformers.base.modules.Transformer` module also supports audio and video modalities when the underlying model and processor provide them. Audio models accept file paths, numpy/torch arrays, dicts with ``"array"`` and ``"sampling_rate"`` keys, or ``torchcodec.AudioDecoder`` instances, while video models accept file paths, numpy/torch arrays, dicts with ``"array"`` and ``"video_metadata"`` keys, or ``torchcodec.VideoDecoder`` instances. As pretrained audio and video embedding models become available on the Hugging Face Hub, they can be loaded with :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` just like any other model.
+```
 
 ## INSTRUCTOR models
 Some INSTRUCTOR models, such as [hkunlp/instructor-large](https://huggingface.co/hkunlp/instructor-large), are natively supported in Sentence Transformers. These models are special, as they are trained with instructions in mind. Notably, the primary difference between normal Sentence Transformer models and Instructor models is that the latter do not include the instructions themselves in the pooling step.

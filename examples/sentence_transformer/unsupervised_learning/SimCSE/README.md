@@ -2,55 +2,70 @@
 
 Gao et al. present in [SimCSE](https://huggingface.co/papers/2104.08821) a simple method to train sentence embeddings without having training data.
 
-The idea is to encode the same sentence twice. Due to the used dropout in transformer models, both sentence embeddings will be at slightly different positions. The distance between these two embeddings will be minimized, while the distance to other embeddings of the other sentences in the same batch will be maximized (they serve as negative examples).
+The idea is to encode the same sentence twice. Because transformer models apply dropout, the two sentence embeddings end up at slightly different positions. The distance between these two embeddings will be minimized, while the distance to other embeddings of the other sentences in the same batch will be maximized (they serve as negative examples).
 
 ![SimCSE working](https://raw.githubusercontent.com/huggingface/sentence-transformers/main/docs/img/SimCSE.png)
 
 ## Usage with SentenceTransformers
 
-SentenceTransformers implements the [MultipleNegativesRankingLoss](https://www.sbert.net/docs/package_reference/sentence_transformer/losses.html#multiplenegativesrankingloss), which makes training with SimCSE trivial:
+SentenceTransformers implements the [MultipleNegativesRankingLoss](../../../../docs/package_reference/sentence_transformer/losses.md#multiplenegativesrankingloss), which makes training with SimCSE trivial:
 
 ```python
-from sentence_transformers import SentenceTransformer, InputExample
-from sentence_transformers import models, losses
-from torch.utils.data import DataLoader
+from datasets import Dataset
 
-# Define your sentence transformer model using CLS pooling
-model_name = "distilroberta-base"
-word_embedding_model = models.Transformer(model_name, max_seq_length=32)
-pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
+from sentence_transformers import (
+    SentenceTransformer,
+    SentenceTransformerTrainer,
+    SentenceTransformerTrainingArguments,
+)
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+
+# Define your sentence transformer model using mean pooling
+model_name = "distilbert/distilroberta-base"
+word_embedding_model = Transformer(model_name, max_seq_length=32)
+pooling_model = Pooling(word_embedding_model.get_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 # Define a list with sentences (1k - 100k sentences)
 train_sentences = [
     "Your set of sentences",
-    "Model will automatically add the noise",
-    "And re-construct it",
+    "This is an example sentence",
+    "And here is another one",
     "You should provide at least 1k sentences",
 ]
 
-# Convert train sentences to sentence pairs
-train_data = [InputExample(texts=[s, s]) for s in train_sentences]
+# Use the same sentence as both columns, dropout gives the positive pair.
+train_dataset = Dataset.from_dict({"sentence1": train_sentences, "sentence2": train_sentences})
 
-# DataLoader to batch your data
-train_dataloader = DataLoader(train_data, batch_size=128, shuffle=True)
+# Use MultipleNegativesRankingLoss with in-batch negatives
+train_loss = MultipleNegativesRankingLoss(model)
 
-# Use the denoising auto-encoder loss
-train_loss = losses.MultipleNegativesRankingLoss(model)
-
-# Call the fit method
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)], epochs=1, show_progress_bar=True
+# Configure training
+args = SentenceTransformerTrainingArguments(
+    output_dir="output/simcse-model",
+    num_train_epochs=1,
+    per_device_train_batch_size=128,
+    save_strategy="no",
 )
 
-model.save("output/simcse-model")
+# Train
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+)
+trainer.train()
+
+model.save_pretrained("output/simcse-model")
 ```
 
 ## SimCSE from Sentences File
 
-**[train_simcse_from_file.py](train_simcse_from_file.py)** loads sentences from a provided text file. It is expected, that the there is one sentence per line in that text file.
+**[train_simcse_from_file.py](train_simcse_from_file.py)** loads sentences from a provided text file (plain text or gzipped). One sentence per line is expected.
 
-SimCSE will be training using these sentences. Checkpoints are stored every 500 steps to the output folder.
+SimCSE will be training using these sentences. Checkpoints are stored every 10% of training to the output folder.
 
 ## Training Examples
 
@@ -65,12 +80,12 @@ Using mean pooling, with max_seq_length=32 and batch_size=128
 
 | Base Model | AskUbuntu Test-Performance (MAP) |
 | ---- | :----: |
-| distilbert-base-uncased | 53.59 |
-| bert-base-uncased | 54.89 |
-| **distilroberta-base** | **56.16** |
-| roberta-base | 55.89 |
+| distilbert/distilbert-base-uncased | 53.59 |
+| google-bert/bert-base-uncased | 54.89 |
+| **distilbert/distilroberta-base** | **56.16** |
+| FacebookAI/roberta-base | 55.89 |
 
-Using mean pooling, with max_seq_length=32 and distilroberta-base model.
+Using mean pooling, with max_seq_length=32 and distilbert/distilroberta-base model.
 
 | Batch Size | AskUbuntu Test-Performance (MAP) |
 | ---- | :----: |
@@ -78,7 +93,7 @@ Using mean pooling, with max_seq_length=32 and distilroberta-base model.
 | 256 | 56.63 |
 | **512** | **56.69** |
 
-Using max_seq_length=32, distilroberta-base model, and 512 batch size.
+Using max_seq_length=32, distilbert/distilroberta-base model, and 512 batch size.
 
 | Pooling Mode | AskUbuntu Test-Performance (MAP) |
 | ---- | :----: |
@@ -87,4 +102,4 @@ Using max_seq_length=32, distilroberta-base model, and 512 batch size.
 | Max pooling | 52.91 |
 
 **Note:**
-This is a re-implementation of SimCSE within sentence-transformers. For the official CT code, see: [princeton-nlp/SimCSE](https://github.com/princeton-nlp/SimCSE)
+This is a re-implementation of SimCSE within sentence-transformers. For the official SimCSE code, see: [princeton-nlp/SimCSE](https://github.com/princeton-nlp/SimCSE)

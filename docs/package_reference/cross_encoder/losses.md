@@ -4,6 +4,12 @@
 
 Sadly, there is no "one size fits all" loss function. Which loss function is suitable depends on the available training data and on the target task. Consider checking out the [Loss Overview](../../cross_encoder/loss_overview.md) to help narrow down your choice of loss function(s).
 
+## ADRMSELoss
+
+```{eval-rst}
+.. autoclass:: sentence_transformers.cross_encoder.losses.ADRMSELoss
+```
+
 ## BinaryCrossEntropyLoss
 
 ```{eval-rst}

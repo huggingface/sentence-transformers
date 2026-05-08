@@ -2,7 +2,7 @@
 
 ```{eval-rst}
 .. warning:: 
-    To train a :class:`~sentence_transformers.sparse_encoder.SparseEncoder`, you need either :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss`, :class:`~sentence_transformers.sparse_encoder.losses.CachedSpladeLoss`, or :class:`~sentence_transformers.sparse_encoder.losses.CSRLoss`, depending on the architecture. These are wrapper losses that add sparsity regularization on top of a main loss function, which must be provided as a parameter. The only loss that can be used independently is :class:`~sentence_transformers.sparse_encoder.losses.SparseMSELoss`, as it performs embedding-level distillation, ensuring sparsity by directly copying the teacher's sparse embedding.
+    To train a :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder`, you need either :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss`, :class:`~sentence_transformers.sparse_encoder.losses.CachedSpladeLoss`, or :class:`~sentence_transformers.sparse_encoder.losses.CSRLoss`, depending on the architecture. These are wrapper losses that add sparsity regularization on top of a main loss function, which must be provided as a parameter. The only loss that can be used independently is :class:`~sentence_transformers.sparse_encoder.losses.SparseMSELoss`, as it performs embedding-level distillation, ensuring sparsity by directly copying the teacher's sparse embedding.
     
 ```
 
@@ -25,7 +25,7 @@ Main losses that use in-batch negatives, primarily <a href="../package_reference
 
 ### CSR Loss
 
-If you are using the <a href="../package_reference/sparse_encoder/models.html#sparseautoencoder"><code>SparseAutoEncoder</code></a> module, then you have to use the <a href="../package_reference/sparse_encoder/losses.html#csrloss"><code>CSRLoss</code></a> (Contrastive Sparse Representation Loss). It combines two components:
+If you are using the <a href="../package_reference/sparse_encoder/modules.html#sparseautoencoder"><code>SparseAutoEncoder</code></a> module, then you have to use the <a href="../package_reference/sparse_encoder/losses.html#csrloss"><code>CSRLoss</code></a> (Contrastive Sparse Representation Loss). It combines two components:
 
 1. Main loss: Supports all the losses from the <a href="#loss-table">Loss Table</a> and <a href="#distillation">Distillation</a>, with <a href="../package_reference/sparse_encoder/losses.html#sparsemultiplenegativesrankingloss"><code>SparseMultipleNegativesRankingLoss</code></a> used in the CSR Paper.
 2. Reconstruction loss: <a href="../package_reference/sparse_encoder/losses.html#csrreconstructionloss"><code>CSRReconstructionLoss</code></a> is used to ensure that sparse representation can faithfully reconstruct the original dense embeddings.

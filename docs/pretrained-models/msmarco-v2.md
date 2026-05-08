@@ -7,7 +7,7 @@ The training data consists of over 500k examples, while the complete  corpus con
 ```python
 from sentence_transformers import SentenceTransformer, util
 
-model = SentenceTransformer("msmarco-distilroberta-base-v2")
+model = SentenceTransformer("sentence-transformers/msmarco-distilroberta-base-v2")
 
 query_embedding = model.encode("How big is London")
 passage_embedding = model.encode("London has 9,787,426 inhabitants at the 2011 census")
@@ -27,9 +27,9 @@ As baseline we show the results for lexical search with BM25 using Elasticsearch
 | Approach       | NDCG@10 (TREC DL 19 Reranking) | MRR@10 (MS Marco Dev) |  
 | ------------- |:-------------: | :---: |
 | BM25 (Elasticsearch)   | 45.46 | 17.29  |
-| msmarco-distilroberta-base-v2   | 65.65 |  28.55    |  
-| msmarco-roberta-base-v2 | 67.18 | 29.17 | 
-| msmarco-distilbert-base-v2 | 68.35 | 30.77 |
+| [sentence-transformers/msmarco-distilroberta-base-v2](https://huggingface.co/sentence-transformers/msmarco-distilroberta-base-v2) | 65.65 |  28.55    |  
+| [sentence-transformers/msmarco-roberta-base-v2](https://huggingface.co/sentence-transformers/msmarco-roberta-base-v2) | 67.18 | 29.17 | 
+| [sentence-transformers/msmarco-distilbert-base-v2](https://huggingface.co/sentence-transformers/msmarco-distilbert-base-v2) | 68.35 | 30.77 |
 
 
 

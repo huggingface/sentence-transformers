@@ -17,17 +17,18 @@ from datetime import datetime
 
 from datasets import load_dataset
 
-from sentence_transformers import SentenceTransformer, losses
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.similarity_functions import SimilarityFunction
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.losses import SoftmaxLoss
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
-# You can specify any Hugging Face pre-trained model here, for example, bert-base-uncased, roberta-base, xlm-roberta-base
-model_name = sys.argv[1] if len(sys.argv) > 1 else "bert-base-uncased"
+# You can specify any Hugging Face pre-trained model here, for example, google-bert/bert-base-uncased, FacebookAI/roberta-base, FacebookAI/xlm-roberta-base
+model_name = sys.argv[1] if len(sys.argv) > 1 else "google-bert/bert-base-uncased"
 train_batch_size = 16
 
 output_dir = "output/training_nli_" + model_name.replace("/", "-") + "-" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -45,11 +46,7 @@ eval_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split
 logging.info(train_dataset)
 
 # 3. Define our training loss: https://sbert.net/docs/package_reference/sentence_transformer/losses.html#softmaxloss
-train_loss = losses.SoftmaxLoss(
-    model=model,
-    sentence_embedding_dimension=model.get_sentence_embedding_dimension(),
-    num_labels=3,
-)
+train_loss = SoftmaxLoss(model=model, embedding_dimension=model.get_embedding_dimension(), num_labels=3)
 
 # 4. Define an evaluator for use during training. This is useful to keep track of alongside the evaluation loss.
 stsb_eval_dataset = load_dataset("sentence-transformers/stsb", split="validation")
@@ -71,7 +68,7 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=1,
     per_device_train_batch_size=train_batch_size,
     per_device_eval_batch_size=train_batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:

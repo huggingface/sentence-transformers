@@ -121,3 +121,26 @@ dd > dl {
     padding: 0.5rem;
     border: 1px solid #e1e4e5;
 }
+
+/* Tight code block: reduces vertical margin around AND within the highlighted block,
+   plus the paragraph immediately before it. Used in tip admonitions where the default
+   margins break the visual flow.
+   Sphinx code-block HTML structure:
+       <div class="tight-code highlight-bash notranslate">     <- .tight-code (outer)
+           <div class="highlight">                              <- inner wrapper, default 24px below-margin
+               <pre>...</pre>
+           </div>
+       </div>
+*/
+.tight-code {
+    margin-top: 0.6em !important;
+    margin-bottom: 0.6em !important;
+}
+
+.tight-code .highlight {
+    margin: 0 !important;
+}
+
+p:has(+ .tight-code) {
+    margin-bottom: 0.6em !important;
+}

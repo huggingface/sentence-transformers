@@ -17,18 +17,14 @@ from datetime import datetime
 
 from datasets import load_dataset
 
-from sentence_transformers import (
-    SentenceTransformer,
-    SentenceTransformerTrainer,
-    SentenceTransformerTrainingArguments,
-    losses,
-)
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
+from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
+from sentence_transformers.sentence_transformer.losses import AdaptiveLayerLoss, CoSENTLoss
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
-model_name = sys.argv[1] if len(sys.argv) > 1 else "distilbert-base-uncased"
+model_name = sys.argv[1] if len(sys.argv) > 1 else "distilbert/distilbert-base-uncased"
 batch_size = 16
 num_train_epochs = 4
 
@@ -51,8 +47,8 @@ logging.info(train_dataset)
 # 3. Define our training loss
 # CoSENTLoss (https://sbert.net/docs/package_reference/sentence_transformer/losses.html#cosentloss) needs two text
 # columns and one similarity score column (between 0 and 1)
-inner_train_loss = losses.CoSENTLoss(model=model)
-train_loss = losses.AdaptiveLayerLoss(model, inner_train_loss)
+inner_train_loss = CoSENTLoss(model=model)
+train_loss = AdaptiveLayerLoss(model, inner_train_loss)
 
 # 4. Define an evaluator for use during training. This is useful to keep track of alongside the evaluation loss.
 dev_evaluator = EmbeddingSimilarityEvaluator(
@@ -71,7 +67,7 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=num_train_epochs,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
-    warmup_ratio=0.1,
+    warmup_steps=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:

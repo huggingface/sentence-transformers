@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Collection
-from dataclasses import dataclass, field
+from collections.abc import Collection
+from dataclasses import dataclass
 from typing import Any
 
 import torch
 
-from sentence_transformers.data_collator import SentenceTransformerDataCollator
+from sentence_transformers.base.data_collator import BaseDataCollator
 
 
 @dataclass
-class CrossEncoderDataCollator(SentenceTransformerDataCollator):
+class CrossEncoderDataCollator(BaseDataCollator):
     """Collator for a CrossEncoder model.
-    This encodes the text columns to {column}_input_ids and {column}_attention_mask columns.
-    This works with the two text dataset that is used as the example in the training overview:
-    https://www.sbert.net/docs/sentence_transformer/training_overview.html
+    This returns raw text columns (not tokenized), as CrossEncoder loss functions handle
+    preprocessing. A single prompt and task (resolved per dataset if needed) are passed
+    through in the batch so that losses can forward them to ``model.preprocess``.
 
     It is important that the columns are in the expected order. For example, if your dataset has columns
     "answer", "question" in that order, then the MultipleNegativesRankingLoss will consider
@@ -22,9 +22,27 @@ class CrossEncoderDataCollator(SentenceTransformerDataCollator):
     "given the answer, what is the question?".
     """
 
-    tokenize_fn: Callable
-    valid_label_columns: list[str] = field(default_factory=lambda: ["label", "labels", "score", "scores"])
-    _warned_columns: set[tuple[str]] = field(default_factory=set, init=False, repr=False)
+    def __post_init__(self) -> None:
+        # For cross-encoders, inputs from multiple columns are combined into pairs, so
+        # per-column prompts and per-column router mappings don't make sense.
+        # Only a single value or a per-dataset mapping is allowed for each.
+        if isinstance(self.prompts, dict):
+            for value in self.prompts.values():
+                if isinstance(value, dict):
+                    raise ValueError(
+                        "CrossEncoder prompts cannot be per-column. Inputs from multiple columns are "
+                        "combined into pairs, so only a single prompt string or a per-dataset mapping "
+                        "of prompt strings is supported. For example: prompts='Search: ' or "
+                        "prompts={'dataset_a': 'Search: ', 'dataset_b': 'Retrieve: '}"
+                    )
+        if isinstance(self.router_mapping, dict):
+            for value in self.router_mapping.values():
+                if isinstance(value, dict):
+                    raise ValueError(
+                        "CrossEncoder router_mapping cannot be per-column. Inputs from multiple columns "
+                        "are combined into pairs, so only a per-dataset mapping of task strings is "
+                        "supported. For example: router_mapping={'dataset_a': 'rerank', 'dataset_b': 'rerank'}"
+                    )
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         column_names = list(features[0].keys())
@@ -48,12 +66,26 @@ class CrossEncoderDataCollator(SentenceTransformerDataCollator):
                 column_names.remove(label_column)
                 break
 
-        for column_name in column_names:
-            # If the prompt length has been set, we should add it to the batch
-            if column_name.endswith("_prompt_length") and column_name[: -len("_prompt_length")] in column_names:
-                batch[column_name] = torch.tensor([row[column_name] for row in features], dtype=torch.int)
-                continue
+        # Resolve prompt and task to single values for this batch
+        prompt = self._resolve_scalar(self.prompts, batch)
+        if prompt:
+            batch["prompt"] = prompt
+        task = self._resolve_scalar(self.router_mapping, batch)
+        if task:
+            batch["task"] = task
 
+        for column_name in column_names:
             batch[column_name] = [row[column_name] for row in features]
 
         return batch
+
+    @staticmethod
+    def _resolve_scalar(mapping: str | dict[str, str] | None, batch: dict[str, Any]) -> str | None:
+        """Resolve a string-or-per-dataset mapping to a single string for this batch."""
+        if not mapping:
+            return None
+        if isinstance(mapping, str):
+            return mapping
+        if isinstance(mapping, dict) and "dataset_name" in batch:
+            return mapping.get(batch["dataset_name"], None)
+        return None

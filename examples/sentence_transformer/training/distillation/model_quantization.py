@@ -18,7 +18,7 @@ from sentence_transformers import (
     export_dynamic_quantized_onnx_model,
     export_static_quantized_openvino_model,
 )
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -29,7 +29,7 @@ sentences = train_dataset["sentence1"] + train_dataset["sentence2"]
 sentences = sentences[:10_000]
 test_dataset = load_dataset("sentence-transformers/stsb", split="test")
 
-model_name = "all-mpnet-base-v2"
+model_name = "sentence-transformers/all-mpnet-base-v2"
 
 # 1. Load a baseline model with just fp32 torch
 model = SentenceTransformer(model_name, device="cpu")
@@ -72,10 +72,7 @@ quantized_onnx_model = SentenceTransformer(
 
 # To make sure that `onnx_model` itself didn't get quantized, we reload it
 onnx_model = SentenceTransformer(
-    model_name,
-    backend="onnx",
-    device="cpu",
-    model_kwargs={"provider": "CPUExecutionProvider"},
+    model_name, backend="onnx", device="cpu", model_kwargs={"provider": "CPUExecutionProvider"}
 )
 
 # 4. Load an OpenVINO model to quantize
@@ -85,9 +82,7 @@ openvino_model = SentenceTransformer(model_name, backend="openvino", device="cpu
 quantized_ov_model_path = f"{model_name.replace('/', '-')}-ov-quantized"
 openvino_model.save_pretrained(quantized_ov_model_path)
 export_static_quantized_openvino_model(
-    openvino_model,
-    quantization_config=None,
-    model_name_or_path=quantized_ov_model_path,
+    openvino_model, quantization_config=None, model_name_or_path=quantized_ov_model_path
 )
 quantized_ov_model = SentenceTransformer(
     quantized_ov_model_path,
