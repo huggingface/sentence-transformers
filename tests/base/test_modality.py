@@ -56,13 +56,18 @@ class TestIsImageUrlOrPath:
     def test_url_with_spaces_not_image(self):
         assert is_image_url_or_path("https://example.com/photo.jpg this is a sentence") is False
 
+    def test_malformed_url_crash(self):
+        """Malformed URLs (e.g. containing unclosed brackets) should not crash."""
+        assert is_image_url_or_path("https://[[ooga-booga<<<<") is False
+        assert is_image_url_or_path("https://www.google.com)[google.com]") is False
+
 
 class TestIsVideoUrlOrPath:
     def test_https_mp4(self):
         assert is_video_url_or_path("https://example.com/video.mp4") is True
 
     def test_https_with_query_params(self):
-        assert is_video_url_or_path("https://cdn.example.com/clip.mp4?token=abc") is True
+        assert is_video_url_or_path("https://cdn.example.com/clip.mp4?token=***") is True
 
     def test_youtube_www(self):
         assert is_video_url_or_path("https://www.youtube.com/watch?v=dQw4w9WgXcQ") is True
@@ -86,6 +91,11 @@ class TestIsVideoUrlOrPath:
 
     def test_video_url_with_spaces_not_video(self):
         assert is_video_url_or_path("https://example.com/video.mp4 some extra text") is False
+
+    def test_malformed_url_crash(self):
+        """Malformed URLs (e.g. containing unclosed brackets) should not crash."""
+        assert is_video_url_or_path("https://[[ooga-booga<<<<") is False
+        assert is_video_url_or_path("https://www.google.com)[google.com]") is False
 
 
 class TestIsAudioUrlOrPath:
@@ -128,6 +138,11 @@ class TestInferModality:
 
     def test_video_https_url(self):
         assert infer_modality("https://example.com/video.mp4") == "video"
+
+    def test_malformed_url_does_not_crash(self):
+        """Malformed URLs like bare brackets should return text instead of crashing."""
+        assert infer_modality("https://[[ooga-booga<<<<") == "text"
+        assert infer_modality("https://www.google.com)[google.com]") == "text"
 
     def test_pil_image(self):
         PIL = pytest.importorskip("PIL.Image")

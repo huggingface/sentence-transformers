@@ -51,7 +51,11 @@ def _looks_like_url(text: str) -> bool:
 def _is_media_url_or_path(text: str, extensions: tuple[str, ...]) -> bool:
     """Check if a string is a URL or local file path with one of the given extensions."""
     if _looks_like_url(text):
-        path = urlparse(text).path.lower()
+        try:
+            path = urlparse(text).path.lower()
+        except ValueError:
+            # urlparse can raise ValueError on malformed URLs (e.g. "https://[[invalid]]")
+            return False
         return path.endswith(extensions)
     return text.lower().endswith(extensions) and os.path.isfile(text)
 
@@ -67,7 +71,13 @@ def is_video_url_or_path(text: str) -> bool:
     """Check if a string is a video URL or file path."""
     if _is_media_url_or_path(text, (".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv")):
         return True
-    return _looks_like_url(text) and urlparse(text).netloc in (
+    if not _looks_like_url(text):
+        return False
+    try:
+        netloc = urlparse(text).netloc
+    except ValueError:
+        return False
+    return netloc in (
         "www.youtube.com",
         "youtube.com",
         "youtu.be",
