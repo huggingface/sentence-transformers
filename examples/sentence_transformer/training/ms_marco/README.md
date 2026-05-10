@@ -69,3 +69,11 @@ An **advantage** of :class:`~sentence_transformers.sentence_transformer.losses.M
 
 And **disadvantage** of :class:`~sentence_transformers.sentence_transformer.losses.MarginMSELoss` is the slower training time: We need way more epochs to get good results. In :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, with a batch size of 64, we compare one query against 128 passages. With :class:`~sentence_transformers.sentence_transformer.losses.MarginMSELoss`, we compare a query only against two passages.
 ```
+
+### MarginMSE + MultipleNegativesRanking
+
+**Training code: [train_bi_encoder_margin_mse_mnrl.py](train_bi_encoder_margin_mse_mnrl.py)**
+
+```{eval-rst}
+Combining :class:`~sentence_transformers.sentence_transformer.losses.MarginMSELoss` with :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` recovers the in-batch contrastive signal that pure MarginMSE lacks while keeping the teacher distillation. This is the recipe behind the canonical ``sentence-transformers/msmarco-distilbert-margin-mse-mnrl-mean-v1`` family of models. Hard negatives are mined from the 13 datasets in the `MS MARCO Mined Triplets collection <https://huggingface.co/collections/sentence-transformers/ms-marco-mined-triplets-6644d6f1ff58c5103fe65f23>`_. Both losses share a single forward pass via ``compute_loss_from_embeddings`` so peak memory is the same as a single loss. Both losses score with raw dot product to match the unnormalized embedding regime. MNRL uses ``similarity_fct=dot_score, scale=1.0`` so it doesn't sneak magnitude normalization back in via the default ``cos_sim``.
+```
