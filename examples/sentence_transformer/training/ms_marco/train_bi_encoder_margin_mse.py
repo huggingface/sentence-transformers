@@ -54,19 +54,18 @@ def main():
     # 1. Load a model to finetune with 2. (Optional) model card data. Weights stay in fp32
     # so the optimizer accumulates updates at full precision; `bf16=True` in TrainingArguments
     # below adds bf16 autocast on the forward/backward.
+    short_model_name = model_name.split("/")[-1]
     model = SentenceTransformer(
         model_name,
         model_card_data=SentenceTransformerModelCardData(
             language="en",
             license="apache-2.0",
-            model_name="distilbert-base-uncased finetuned on MSMARCO with MarginMSELoss (BERT-CAT ensemble teacher)",
+            model_name=f"{short_model_name} finetuned on MSMARCO with MarginMSELoss (BERT-CAT ensemble teacher)",
         ),
+        model_kwargs={"torch_dtype": torch.float32},
+        processor_kwargs={"model_max_length": max_seq_length},
+        similarity_fn_name="dot",  # MarginMSELoss matches with raw dot product
     )
-    model.max_seq_length = max_seq_length
-    # MarginMSELoss matches teacher CE-score margins with raw dot product, so the model
-    # outputs unnormalized embeddings. Setting similarity_fn_name = "dot" advertises this
-    # to downstream code (e.g. CSV writers, model card, default in `model.similarity()`).
-    model.similarity_fn_name = "dot"
 
     # 3. Load corpus, queries, and the (query_id, positive_id, negative_id, score) triplets.
     logging.info("Loading MS MARCO corpus, queries, and bert-ensemble-margin-mse triplets")
@@ -95,11 +94,11 @@ def main():
     )
 
     # 5. Define the loss. MarginMSELoss takes one negative per row and learns to match the
-    # teacher's (pos_score - neg_score) margin. No in-batch contrastive term — pure distillation.
+    # teacher's (pos_score - neg_score) margin.
     loss = MarginMSELoss(model)
 
     # 6. (Optional) Specify training arguments
-    run_name = f"{model_name.split('/')[-1]}-msmarco-margin-mse"
+    run_name = f"{short_model_name}-msmarco-margin-mse"
     args = SentenceTransformerTrainingArguments(
         # Required parameter:
         output_dir=f"models/{run_name}",
@@ -107,7 +106,7 @@ def main():
         num_train_epochs=1,
         per_device_train_batch_size=train_batch_size,
         per_device_eval_batch_size=train_batch_size,
-        learning_rate=5e-5,  # Higher than the canonical 1e-5 to compensate for fewer epochs.
+        learning_rate=5e-5,
         warmup_ratio=0.1,
         fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=True,  # Set to True if you have a GPU that supports BF16
@@ -122,9 +121,6 @@ def main():
     )
 
     # 7. (Optional) Create an evaluator & evaluate the base model.
-    # Wrap evaluator calls in bf16 autocast: outside the trainer there's no autocast active,
-    # but FA2 (if used by the model) requires bf16/fp16 inputs. Mid-training evals from the
-    # trainer pick up the `bf16=True` autocast automatically.
     dev_evaluator = NanoBEIREvaluator(dataset_names=["msmarco", "nfcorpus", "nq"], batch_size=train_batch_size)
     with torch.autocast(device_type=model.device.type, dtype=torch.bfloat16):
         dev_evaluator(model)

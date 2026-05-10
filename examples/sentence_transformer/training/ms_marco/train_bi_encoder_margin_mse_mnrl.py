@@ -71,7 +71,7 @@ SYSTEMS = {
 
 def main():
     model_name = "distilbert/distilbert-base-uncased"
-    train_batch_size = 32  # MarginMSELoss has no in-batch contrastive term; MNRL adds it on top.
+    train_batch_size = 32  # The MNRL component benefits from larger batches, but also increases memory usage
     max_seq_length = 300
 
     num_negs_per_system = 5  # How many negatives to take from each mining system per query
@@ -80,19 +80,18 @@ def main():
     # 1. Load a model to finetune with 2. (Optional) model card data. Weights stay in fp32
     # so the optimizer accumulates updates at full precision; `bf16=True` in TrainingArguments
     # below adds bf16 autocast on the forward/backward.
+    short_model_name = model_name.split("/")[-1]
     model = SentenceTransformer(
         model_name,
         model_card_data=SentenceTransformerModelCardData(
             language="en",
             license="apache-2.0",
-            model_name="distilbert-base-uncased finetuned on MSMARCO with MarginMSELoss + MultipleNegativesRankingLoss",
+            model_name=f"{short_model_name} finetuned on MSMARCO with MarginMSELoss + MultipleNegativesRankingLoss",
         ),
+        model_kwargs={"torch_dtype": torch.float32},
+        processor_kwargs={"model_max_length": max_seq_length},
+        similarity_fn_name="dot",  # MarginMSELoss + MNRL with dot product to match the unnormalized teacher scores
     )
-    model.max_seq_length = max_seq_length
-    # MarginMSELoss matches teacher CE-score margins with raw dot product, so the model
-    # outputs unnormalized embeddings. Setting similarity_fn_name = "dot" advertises this
-    # to downstream code (e.g. CSV writers, model card, default in `model.similarity()`).
-    model.similarity_fn_name = "dot"
 
     # 3. Load MS MARCO corpus and queries. These give PID -> text and QID -> text lookups.
     logging.info("Loading MS MARCO corpus and queries")
@@ -182,14 +181,16 @@ def main():
 
         def forward(self, sentence_features, labels):
             embeddings = [self.model(sf)["sentence_embedding"] for sf in sentence_features]
-            margin_mse_loss = self.margin_mse.compute_loss_from_embeddings(embeddings, labels)
-            mnrl_loss = self.mnrl.compute_loss_from_embeddings(embeddings, labels)
-            return margin_mse_loss + self.mnrl_weight * mnrl_loss
+            # Returning a dict lets the trainer log each component separately while training with the sum
+            return {
+                "margin_mse": self.margin_mse.compute_loss_from_embeddings(embeddings, labels),
+                "mnrl": self.mnrl_weight * self.mnrl.compute_loss_from_embeddings(embeddings, labels),
+            }
 
     loss = CombinedMarginMSEMNRLLoss(model)
 
     # 6. (Optional) Specify training arguments
-    run_name = f"{model_name.split('/')[-1]}-msmarco-margin-mse-mnrl"
+    run_name = f"{short_model_name}-msmarco-margin-mse-mnrl"
     args = SentenceTransformerTrainingArguments(
         # Required parameter:
         output_dir=f"models/{run_name}",
@@ -212,9 +213,6 @@ def main():
     )
 
     # 7. (Optional) Create an evaluator & evaluate the base model.
-    # Wrap evaluator calls in bf16 autocast: outside the trainer there's no autocast active,
-    # but FA2 (if used by the model) requires bf16/fp16 inputs. Mid-training evals from the
-    # trainer pick up the `bf16=True` autocast automatically.
     dev_evaluator = NanoBEIREvaluator(dataset_names=["msmarco", "nfcorpus", "nq"], batch_size=train_batch_size)
     with torch.autocast(device_type=model.device.type, dtype=torch.bfloat16):
         dev_evaluator(model)

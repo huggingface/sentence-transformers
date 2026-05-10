@@ -8,14 +8,11 @@ where the negatives are hard negatives mined by different retrieval systems and 
 by a CrossEncoder score margin to remove false negatives.
 
 The hard negatives come from the 13 mining datasets in the
-`MS MARCO Mined Triplets collection <https://huggingface.co/collections/sentence-transformers/ms-marco-mined-triplets-6644d6f1ff58c5103fe65f23>`_.
+`MS MARCO Mined Triplets collection <https://huggingface.co/collections/sentence-transformers/ms-marco-mined-triplets>`_.
 For each query, we union the top N negatives across all mining systems (deduplicated and
 filtered against a teacher CrossEncoder score), then sample ``num_negatives`` of them
 fresh per batch via ``dataset.set_transform`` so the text lookup stays out of memory
 until a batch is actually consumed.
-
-With a distilbert-base-uncased model, the original model.fit version of this script
-achieved about 33.79 MRR@10 on the MSMARCO Passages Dev corpus.
 
 Running this script:
 python train_bi_encoder_mnrl.py
@@ -71,7 +68,7 @@ SYSTEMS = {
 def main():
     model_name = "distilbert/distilbert-base-uncased"
     train_batch_size = 256  # In-batch negatives are the dominant signal in MNRL; larger batches help quality.
-    train_mini_batch_size = 32  # CachedMNRL re-encodes in mini-batches at backprop, keeping peak memory bounded.
+    train_mini_batch_size = 32  # This controls the memory usage
     max_seq_length = 300
 
     num_negs_per_system = 5  # How many negatives to take from each mining system per query
@@ -79,17 +76,19 @@ def main():
     ce_score_margin = 3.0  # CE-score margin between positive and negative to consider a negative valid
 
     # 1. Load a model to finetune with 2. (Optional) model card data. Weights stay in fp32
-    # so the optimizer accumulates updates at full precision; `bf16=True` in TrainingArguments
+    # so the optimizer accumulates updates at full precision. `bf16=True` in TrainingArguments
     # below adds bf16 autocast on the forward/backward.
+    short_model_name = model_name.split("/")[-1]
     model = SentenceTransformer(
         model_name,
         model_card_data=SentenceTransformerModelCardData(
             language="en",
             license="apache-2.0",
-            model_name="distilbert-base-uncased trained on MSMARCO with CachedMultipleNegativesRankingLoss",
+            model_name=f"{short_model_name} trained on MSMARCO with CachedMultipleNegativesRankingLoss",
         ),
+        model_kwargs={"torch_dtype": torch.float32},
+        processor_kwargs={"model_max_length": max_seq_length},
     )
-    model.max_seq_length = max_seq_length
     # Append a Normalize module so the encoder emits unit-length vectors. It's what most
     # users want at inference time for retrieval, and avoids surprises if someone later
     # swaps this script's loss for one that uses raw dot product.
@@ -145,8 +144,6 @@ def main():
     )
 
     # The transform resolves IDs to text on-the-fly and samples fresh negatives per batch.
-    # This matches the "regenerate the dataset each batch" behaviour of the old model.fit version
-    # while avoiding materializing every (query, positive, neg_1..neg_N) text combination to disk.
     def ids_to_text_transform(batch):
         sampled_neg_ids = [random.sample(neg_pids, num_negatives) for neg_pids in batch["neg_pids"]]
         return {
@@ -165,7 +162,7 @@ def main():
     loss = CachedMultipleNegativesRankingLoss(model, mini_batch_size=train_mini_batch_size)
 
     # 6. (Optional) Specify training arguments
-    run_name = f"{model_name.split('/')[-1]}-msmarco-mnrl"
+    run_name = f"{short_model_name}-msmarco-mnrl"
     args = SentenceTransformerTrainingArguments(
         # Required parameter:
         output_dir=f"models/{run_name}",
@@ -173,7 +170,7 @@ def main():
         num_train_epochs=1,
         per_device_train_batch_size=train_batch_size,
         per_device_eval_batch_size=train_batch_size,
-        learning_rate=3.2e-5,  # Original v3/v4 recipe used 2e-5 at batch=100; sqrt-scaled for batch=256.
+        learning_rate=3.2e-5,
         warmup_ratio=0.1,
         fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=True,  # Set to True if you have a GPU that supports BF16
@@ -185,13 +182,10 @@ def main():
         save_steps=0.1,
         save_total_limit=2,
         logging_steps=0.01,
-        run_name=run_name,  # Will be used in W&B if `wandb` is installed
+        run_name=run_name,  # Will be used in experiment tracking
     )
 
     # 7. (Optional) Create an evaluator & evaluate the base model.
-    # Wrap evaluator calls in bf16 autocast: outside the trainer there's no autocast active,
-    # but FA2 requires bf16/fp16 inputs. (Mid-training evals from the trainer pick up the
-    # `bf16=True` autocast automatically.)
     dev_evaluator = NanoBEIREvaluator(dataset_names=["msmarco", "nfcorpus", "nq"], batch_size=train_batch_size)
     with torch.autocast(device_type=model.device.type, dtype=torch.bfloat16):
         dev_evaluator(model)
