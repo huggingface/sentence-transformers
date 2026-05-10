@@ -659,10 +659,29 @@ class Transformer(InputModule):
         if max_seq_length is not None and "model_max_length" not in processor_kwargs:
             processor_kwargs["model_max_length"] = max_seq_length
         with suggest_extra_on_exception():
-            self.processor = AutoProcessor.from_pretrained(
-                tokenizer_name_or_path if tokenizer_name_or_path is not None else model_name_or_path,
-                **processor_kwargs,
-            )
+            try:
+                self.processor = AutoProcessor.from_pretrained(
+                    tokenizer_name_or_path if tokenizer_name_or_path is not None else model_name_or_path,
+                    **processor_kwargs,
+                )
+            except ValueError as proc_err:
+                # AutoProcessor failed because the repo has no processor /
+                # preprocessor config (e.g. a text-only model whose tokenizer
+                # is registered via ``auto_map -> AutoTokenizer`` together with
+                # ``trust_remote_code=True``). Fall back to ``AutoTokenizer``;
+                # the ``tokenizer`` property below already handles the case
+                # where ``self.processor`` itself is a ``PreTrainedTokenizerBase``.
+                if "Unrecognized processing class" in str(proc_err) or "does not contain" in str(proc_err):
+                    from transformers import AutoTokenizer
+
+                    self.processor = AutoTokenizer.from_pretrained(
+                        tokenizer_name_or_path
+                        if tokenizer_name_or_path is not None
+                        else model_name_or_path,
+                        **processor_kwargs,
+                    )
+                else:
+                    raise
 
         # Cap the tokenizer model_max_length at the model's max_position_embeddings
         if self.tokenizer is not None:
