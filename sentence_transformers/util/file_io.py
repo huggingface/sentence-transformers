@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download, snapshot_download
+from huggingface_hub.utils import EntryNotFoundError, HFValidationError, LocalEntryNotFoundError
 from tqdm.autonotebook import tqdm
 
 
@@ -44,8 +45,15 @@ def is_sentence_transformer_model(
         revision (Optional[str]): The revision of the model. Defaults to None.
         local_files_only (bool): Whether to only use local files for the model. Defaults to False.
 
+    Raises:
+        Exception: Propagates errors from the Hub that are not "file not found" (e.g.
+            authentication, rate-limit, or network errors). The probe deliberately surfaces
+            these instead of returning ``False``, so callers don't mistake a flaky Hub for
+            "this isn't a SentenceTransformer".
+
     Returns:
-        bool: True if the model is a SentenceTransformer model, False otherwise.
+        bool: True if the model is a SentenceTransformer model, False if it exists but
+        does not contain a ``modules.json``.
     """
     return bool(
         load_file_path(
@@ -80,13 +88,24 @@ def load_file_path(
         revision (Optional[str], optional): The revision of the file (if applicable). Defaults to None.
         local_files_only (bool, optional): Whether to only consider local files. Defaults to False.
 
+    Raises:
+        Exception: Errors that are not unambiguously "this file is not on the Hub"
+            propagate to the caller (e.g. authentication, rate-limit, network). Only
+            ``EntryNotFoundError``, ``HFValidationError``, and ``LocalEntryNotFoundError``
+            are converted to a ``None`` return.
+
     Returns:
-        Optional[str]: The path to the loaded file, or None if the file could not be found or loaded.
+        Optional[str]: The path to the loaded file, or ``None`` if the file is not present
+        locally and the Hub confirms it is not in the repo (or no valid repo id was given).
     """
     # If file is local
     file_path = Path(model_name_or_path, subfolder, filename)
     if file_path.exists():
         return str(file_path)
+
+    # Skip the Hub fallback when the parent is a real local dir. Avoids a wasted call.
+    if Path(model_name_or_path).is_dir():
+        return None
 
     # If file is remote
     file_path = Path(subfolder, filename)
@@ -101,7 +120,9 @@ def load_file_path(
             cache_dir=cache_folder,
             local_files_only=local_files_only,
         )
-    except Exception:
+    except (EntryNotFoundError, HFValidationError, LocalEntryNotFoundError):
+        # Unambiguous "not found" cases. Other errors (auth, rate limit, network)
+        # propagate so callers don't silently fall back to a different model.
         return None
 
 
@@ -124,8 +145,16 @@ def load_dir_path(
         revision (Optional[str], optional): The revision of the model. Defaults to None.
         local_files_only (bool, optional): Whether to only use local files. Defaults to False.
 
+    Raises:
+        Exception: Errors that are not unambiguously "this is not on the Hub" propagate
+            to the caller. ``HFValidationError`` and ``LocalEntryNotFoundError`` are
+            converted to a ``None`` return. Other failures (auth, rate-limit, network)
+            trigger a single cache-only retry; if the cache also lacks the file, the
+            original exception is re-raised (a cache miss would mask the real cause).
+
     Returns:
-        Optional[str]: The subfolder path if it exists, otherwise None.
+        Optional[str]: The subfolder path, or ``None`` if the parent is a local directory
+        without the subfolder, or no valid repo id was given.
     """
     if isinstance(subfolder, Path):
         subfolder = subfolder.as_posix()
@@ -134,6 +163,10 @@ def load_dir_path(
     dir_path = Path(model_name_or_path, subfolder)
     if dir_path.exists():
         return str(dir_path)
+
+    # Skip the Hub fallback when the parent is a real local dir. Avoids a wasted call.
+    if Path(model_name_or_path).is_dir():
+        return None
 
     download_kwargs = {
         "repo_id": model_name_or_path,
@@ -148,10 +181,19 @@ def load_dir_path(
     # Try to download from the remote
     try:
         repo_path = snapshot_download(**download_kwargs)
-    except Exception:
-        # Otherwise, try local (i.e. cache) only
+    except (HFValidationError, LocalEntryNotFoundError):
+        # Unambiguous "not found" / "not cached" cases.
+        return None
+    except Exception as first_error:
+        # Transient (auth, rate limit, network), try cache as fallback.
         download_kwargs["local_files_only"] = True
-        repo_path = snapshot_download(**download_kwargs)
+        try:
+            repo_path = snapshot_download(**download_kwargs)
+        except LocalEntryNotFoundError:
+            # Cache miss after a transient first failure: re-raise the original error
+            # (with `from None` to suppress the cache miss from the traceback) so the
+            # user sees the real cause, e.g. rate limit, not the misleading cache miss.
+            raise first_error from None
     return str(Path(repo_path, subfolder))
 
 

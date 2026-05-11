@@ -903,10 +903,14 @@ This pull request has been automatically generated to add {self.__class__.__name
                 if replace_model_card:
                     create_model_card_for_path = True
                 else:
-                    # If replace_model_card=False, skip model card creation only if there's already a README.md
-                    existing_readme = load_file_path(
-                        repo_id, "README.md", token=token, revision=revision, local_files_only=False
-                    )
+                    # If replace_model_card=False, skip model card creation only if there's already a README.md.
+                    # README is optional metadata; a transient Hub error here shouldn't block the push.
+                    try:
+                        existing_readme = load_file_path(
+                            repo_id, "README.md", token=token, revision=revision, local_files_only=False
+                        )
+                    except Exception:
+                        existing_readme = None
                     create_model_card_for_path = existing_readme is None
                 self.save(
                     tmp_dir,
@@ -1064,15 +1068,19 @@ This pull request has been automatically generated to add {self.__class__.__name
 
             self._parse_model_config(model_config)
 
-        # Check if a readme exists
-        model_card_path = load_file_path(
-            model_name_or_path,
-            "README.md",
-            token=token,
-            cache_folder=cache_folder,
-            revision=revision,
-            local_files_only=local_files_only,
-        )
+        # Check if a readme exists. README is optional metadata; a transient Hub error
+        # here shouldn't block model loading.
+        try:
+            model_card_path = load_file_path(
+                model_name_or_path,
+                "README.md",
+                token=token,
+                cache_folder=cache_folder,
+                revision=revision,
+                local_files_only=local_files_only,
+            )
+        except Exception:
+            model_card_path = None
         if model_card_path is not None:
             try:
                 with open(model_card_path, encoding="utf8") as fIn:
