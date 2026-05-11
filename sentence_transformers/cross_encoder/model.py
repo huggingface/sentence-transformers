@@ -140,6 +140,7 @@ class CrossEncoder(BaseModel, FitMixin):
     model_card_data_class = CrossEncoderModelCardData
     default_huggingface_organization: str | None = "cross-encoder"
     _model_card_model_id_placeholder = "cross_encoder_model_id"
+    model_type: str = "CrossEncoder"
 
     @cross_encoder_init_args_decorator
     def __init__(

@@ -70,6 +70,10 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     _default_prompts: dict[str, str | None] = {}
     # The placeholder model ID in model card templates that gets replaced with the actual model ID.
     _model_card_model_id_placeholder: str = "sentence_transformers_model_id"
+    # The archetype identifier written to `config_sentence_transformers.json` and used to
+    # discriminate which loader path runs (see `_load_modules`). Subclasses inherit the
+    # archetype value by default; override on a subclass to opt out of that identity.
+    model_type: str
 
     def __init__(
         self,
@@ -165,7 +169,6 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self.module_kwargs = None
         self._model_card_vars = {}
         self._model_card_text = None
-        self.model_type = self.__class__.__name__
         self.backend = backend
 
         if cache_folder is None:

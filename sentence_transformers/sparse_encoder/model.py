@@ -134,6 +134,7 @@ class SparseEncoder(BaseModel):
     default_huggingface_organization: str | None = "sparse-encoder"
     _default_prompts: dict[str, str | None] = {"query": None, "document": None}
     _model_card_model_id_placeholder = "sparse_encoder_model_id"
+    model_type: str = "SparseEncoder"
 
     @deprecated_kwargs(tokenizer_kwargs="processor_kwargs")
     def __init__(
