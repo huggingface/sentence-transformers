@@ -5,6 +5,8 @@ from collections.abc import Iterable
 from typing import Any, Literal
 
 import torch
+from safetensors.torch import load_file as load_safetensors_file
+from safetensors.torch import save_model as save_safetensors_model
 from torch import Tensor, nn
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
@@ -16,7 +18,6 @@ class EmbedDistillLoss(nn.Module):
         model: SentenceTransformer,
         distance_metric: Literal["mse", "l2", "cosine"] = "cosine",
         projection_dim: int | None = None,
-        pretrained_projection_path: str | os.PathLike | None = None,
     ) -> None:
         """
         Computes an embedding-distillation loss between the student model's embeddings
@@ -40,16 +41,8 @@ class EmbedDistillLoss(nn.Module):
                 distance is computed. Use this when the student and teacher have different
                 embedding dimensions. The projection layer lives on the loss and gets trained
                 alongside the student. By default it is not persisted with the saved model;
-                use `save_projection` / `load_projection` (or the
-                `pretrained_projection_path` argument) to reuse it across runs, e.g. for
+                use `save_projection` / `load_projection` to reuse it across runs, e.g. for
                 multi-stage training. Defaults to None (no projection).
-            pretrained_projection_path: Optional path to a projection file previously written
-                by `save_projection`. When provided, the projection layer is initialized
-                from those weights instead of from a random init. If `projection_dim`
-                is also given, it must match the saved projection's output dimension. If only
-                `pretrained_projection_path` is given, `projection_dim` is inferred from
-                the file. Useful for two-stage training where the
-                projection learned in stage 1 is reused in stage 2. Defaults to None.
 
         References:
             - EmbedDistill: A Geometric Knowledge Distillation for Information Retrieval: https://huggingface.co/papers/2301.12005
@@ -140,21 +133,22 @@ class EmbedDistillLoss(nn.Module):
 
             Two-stage training (reuse the stage-1 projection in stage 2)::
 
-                # ── Stage 1 ─────────────────────────────────────────────
+                # Stage 1
                 loss_stage1 = losses.EmbedDistillLoss(
                     student_model,
                     distance_metric="cosine",
                     projection_dim=1024,
                 )
                 # ... train ...
-                loss_stage1.save_projection("output/projection.pt")
+                loss_stage1.save_projection("output/projection.safetensors")
 
-                # ── Stage 2 ─────────────────────────────────────────────
+                # Stage 2
                 loss_stage2 = losses.EmbedDistillLoss(
                     student_model,
                     distance_metric="cosine",
-                    pretrained_projection_path="output/projection.pt",
+                    projection_dim=1024,
                 )
+                loss_stage2.load_projection("output/projection.safetensors")
         """
         super().__init__()
         if distance_metric not in ("mse", "l2", "cosine"):
@@ -167,9 +161,6 @@ class EmbedDistillLoss(nn.Module):
         if projection_dim is not None:
             student_dim = model.get_embedding_dimension()
             self.projection = nn.Linear(student_dim, projection_dim)
-
-        if pretrained_projection_path is not None:
-            self.load_projection(pretrained_projection_path)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         if labels is None:
@@ -237,14 +228,11 @@ class EmbedDistillLoss(nn.Module):
 
         The standard Trainer save path only writes the student model, not the loss
         module's parameters; without this, a learned projection is lost between runs.
-        Saving it lets you reuse the projection in a later run via the
-        `pretrained_projection_path` argument or `load_projection`. Typical use
-        case is multi-stage training.
+        Saving it lets you reuse the projection in a later run via `load_projection`.
+        Typical use case is multi-stage training.
 
         Args:
-            path: Destination file (created if missing). The saved payload contains the
-                projection `state_dict` plus its input/output dimensions for shape
-                validation on load.
+            path: Destination file (created if missing). Written in safetensors format.
 
         Raises:
             ValueError: If no projection layer was configured (`projection_dim` was
@@ -255,33 +243,25 @@ class EmbedDistillLoss(nn.Module):
                 "No projection layer to save. Construct EmbedDistillLoss with "
                 "projection_dim=<int> if you want a learnable projection."
             )
-        torch.save(
-            {
-                "state_dict": self.projection.state_dict(),
-                "in_features": self.projection.in_features,
-                "out_features": self.projection.out_features,
-            },
-            path,
-        )
+        save_safetensors_model(self.projection, str(path))
 
     def load_projection(self, path: str | os.PathLike) -> None:
         """Load projection weights previously written with `save_projection`.
 
         If the loss was constructed without a `projection_dim`, the projection layer
-        is created on the fly from the saved metadata. Otherwise, the saved shape must
-        match the current projection's shape and the student's embedding dimension.
+        is created on the fly from the saved tensor's shape. Otherwise, the saved
+        shape must match the current projection's shape and the student's embedding
+        dimension.
 
         Args:
-            path: Path to a file written by `save_projection`.
+            path: Path to a safetensors file written by `save_projection`.
 
         Raises:
             ValueError: If the saved projection's shape is incompatible with either the
                 student's embedding dimension or an already-configured projection layer.
         """
-        payload = torch.load(path, map_location="cpu", weights_only=True)
-        state_dict = payload["state_dict"]
-        in_features = payload["in_features"]
-        out_features = payload["out_features"]
+        state_dict = load_safetensors_file(str(path))
+        out_features, in_features = state_dict["weight"].shape
 
         if self.projection is None:
             student_dim = self.model.get_embedding_dimension()

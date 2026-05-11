@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
@@ -13,7 +12,6 @@ class MSELoss(EmbedDistillLoss):
         self,
         model: SentenceTransformer,
         projection_dim: int | None = None,
-        pretrained_projection_path: str | os.PathLike | None = None,
     ) -> None:
         """
         Computes the MSE loss between the student's sentence embedding and a pre-computed
@@ -35,12 +33,8 @@ class MSELoss(EmbedDistillLoss):
                 that maps student embeddings into the teacher's embedding space before MSE
                 is computed. Use this when the student and teacher have different embedding
                 dimensions. The projection layer lives on the loss and gets trained alongside
-                the student. Use `save_projection` / `load_projection` (or
-                `pretrained_projection_path`) to reuse it across runs. Defaults to None
-                (no projection).
-            pretrained_projection_path: Optional path to a projection file previously written
-                by `save_projection`. See :class:`EmbedDistillLoss` for details.
-                Defaults to None.
+                the student. Use `save_projection` / `load_projection` to reuse it across runs.
+                Defaults to None (no projection).
 
         References:
             - Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation: https://huggingface.co/papers/2004.09813
@@ -99,12 +93,7 @@ class MSELoss(EmbedDistillLoss):
                 )
                 trainer.train()
         """
-        super().__init__(
-            model,
-            distance_metric="mse",
-            projection_dim=projection_dim,
-            pretrained_projection_path=pretrained_projection_path,
-        )
+        super().__init__(model, distance_metric="mse", projection_dim=projection_dim)
 
     def get_config_dict(self) -> dict[str, Any]:
         return {"projection_dim": self.projection_dim}

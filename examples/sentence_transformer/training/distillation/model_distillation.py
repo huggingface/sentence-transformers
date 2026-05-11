@@ -213,8 +213,8 @@ final_output_dir = f"{output_dir}/final"
 student_model.save(final_output_dir)
 
 # (Optional) persist the projection layer for multi-stage training.
-# Reuse via `pretrained_projection_path=...` in the next-stage loss.
-# train_loss.save_projection(f"{output_dir}/projection.pt")
+# Reuse via `loss.load_projection(...)` on the next-stage loss.
+# train_loss.save_projection(f"{output_dir}/projection.safetensors")
 
 # (Optional) save the model to the Hugging Face Hub!
 # It is recommended to run `huggingface-cli login` to log into your Hugging Face account first

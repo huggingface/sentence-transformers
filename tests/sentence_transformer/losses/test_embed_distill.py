@@ -167,7 +167,7 @@ def test_mseloss_get_config_dict_exposes_projection_dim(stsb_bert_tiny_model: Se
 def test_save_projection_without_projection_raises(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
     loss = EmbedDistillLoss(stsb_bert_tiny_model)
     with pytest.raises(ValueError, match="No projection layer to save"):
-        loss.save_projection(tmp_path / "proj.pt")
+        loss.save_projection(tmp_path / "proj.safetensors")
 
 
 def test_save_load_projection_round_trip(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
@@ -181,7 +181,7 @@ def test_save_load_projection_round_trip(stsb_bert_tiny_model: SentenceTransform
         src.projection.weight.add_(0.1)
         src.projection.bias.add_(0.2)
 
-    path = tmp_path / "proj.pt"
+    path = tmp_path / "proj.safetensors"
     src.save_projection(path)
 
     dst = EmbedDistillLoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
@@ -191,18 +191,20 @@ def test_save_load_projection_round_trip(stsb_bert_tiny_model: SentenceTransform
     assert torch.equal(src.projection.bias, dst.projection.bias)
 
 
-def test_pretrained_projection_path_loads_on_init(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
-    """`pretrained_projection_path` should populate the projection at __init__ time."""
+def test_load_projection_without_projection_dim(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
+    """`load_projection` should construct the layer from the saved shape when none was configured."""
     teacher_dim = stsb_bert_tiny_model.get_embedding_dimension() + 8
     src = EmbedDistillLoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
     with torch.no_grad():
         src.projection.weight.fill_(0.5)
         src.projection.bias.fill_(0.25)
 
-    path = tmp_path / "proj.pt"
+    path = tmp_path / "proj.safetensors"
     src.save_projection(path)
 
-    dst = EmbedDistillLoss(stsb_bert_tiny_model, pretrained_projection_path=path)
+    dst = EmbedDistillLoss(stsb_bert_tiny_model)
+    assert dst.projection is None
+    dst.load_projection(path)
 
     assert dst.projection is not None
     assert dst.projection_dim == teacher_dim
@@ -214,24 +216,24 @@ def test_load_projection_dim_mismatch_raises(stsb_bert_tiny_model: SentenceTrans
     """Loading into a loss whose projection has a different shape should raise."""
     teacher_dim = stsb_bert_tiny_model.get_embedding_dimension() + 16
     src = EmbedDistillLoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
-    path = tmp_path / "proj.pt"
+    path = tmp_path / "proj.safetensors"
     src.save_projection(path)
 
     dst = EmbedDistillLoss(stsb_bert_tiny_model, projection_dim=teacher_dim + 1)
-    with pytest.raises(ValueError, match="does not"):
+    with pytest.raises(ValueError, match="does not match the configured"):
         dst.load_projection(path)
 
 
-def test_mseloss_pretrained_projection_path(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
-    """MSELoss should pass `pretrained_projection_path` through to the parent class."""
+def test_mseloss_save_load_projection(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
+    """MSELoss should inherit `save_projection` / `load_projection` from the parent."""
     teacher_dim = stsb_bert_tiny_model.get_embedding_dimension() + 8
     src = MSELoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
     with torch.no_grad():
         src.projection.weight.fill_(0.3)
 
-    path = tmp_path / "proj.pt"
+    path = tmp_path / "proj.safetensors"
     src.save_projection(path)
 
-    dst = MSELoss(stsb_bert_tiny_model, pretrained_projection_path=path)
-    assert dst.projection is not None
+    dst = MSELoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
+    dst.load_projection(path)
     assert torch.equal(src.projection.weight, dst.projection.weight)
