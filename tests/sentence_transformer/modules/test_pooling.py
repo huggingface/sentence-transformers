@@ -193,6 +193,34 @@ def test_pooling_flattened_cls_uses_cls_token_embeddings() -> None:
     assert torch.allclose(sentence_embedding, cls_token_embeddings)
 
 
+def test_pooling_cls_right_padded_uses_position_zero() -> None:
+    """For right-padded inputs, the first real token is at position 0."""
+    dim = 1
+    pooling = Pooling(embedding_dimension=dim, pooling_mode="cls")
+
+    token_embeddings = torch.tensor([[[1.0], [2.0], [3.0], [4.0]], [[5.0], [6.0], [7.0], [8.0]]])
+    attention_mask = torch.tensor([[1, 1, 1, 0], [1, 1, 0, 0]], dtype=torch.int64)
+
+    outputs = pooling({"token_embeddings": token_embeddings, "attention_mask": attention_mask})
+    assert torch.allclose(outputs["sentence_embedding"], torch.tensor([[1.0], [5.0]]))
+
+
+def test_pooling_cls_left_padded_finds_first_real_token() -> None:
+    """For left-padded inputs (decoder-style models), the first real token is the first 1 in the
+    attention mask, not position 0. Reproduces #3208.
+    """
+    dim = 1
+    pooling = Pooling(embedding_dimension=dim, pooling_mode="cls")
+
+    # Row 0: 2 pads then 2 real tokens -> first real token is at idx 2 (value 3.0)
+    # Row 1: 1 pad then 3 real tokens -> first real token is at idx 1 (value 6.0)
+    token_embeddings = torch.tensor([[[1.0], [2.0], [3.0], [4.0]], [[5.0], [6.0], [7.0], [8.0]]])
+    attention_mask = torch.tensor([[0, 0, 1, 1], [0, 1, 1, 1]], dtype=torch.int64)
+
+    outputs = pooling({"token_embeddings": token_embeddings, "attention_mask": attention_mask})
+    assert torch.allclose(outputs["sentence_embedding"], torch.tensor([[3.0], [6.0]]))
+
+
 def test_pooling_max_respects_attention_mask() -> None:
     dim = 1
     pooling = Pooling(embedding_dimension=dim, pooling_mode="max")
