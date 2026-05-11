@@ -180,13 +180,10 @@ class Pooling(Module):
                 else:
                     # argmax on a 0/1 mask returns the first real token per row: index 0
                     # for right-padding, first non-pad index for left-padding.
+                    hidden_dim = token_embeddings.shape[-1]
                     first_indices = attention_mask.to(torch.int).argmax(dim=1)
-                    if torch.all(first_indices == 0):
-                        output_vectors.append(token_embeddings[:, 0])
-                    else:
-                        bs, _, hidden_dim = token_embeddings.shape
-                        gather_indices = first_indices.unsqueeze(-1).unsqueeze(1).expand(bs, 1, hidden_dim)
-                        output_vectors.append(torch.gather(token_embeddings, 1, gather_indices).squeeze(1))
+                    gather_indices = first_indices.unsqueeze(-1).unsqueeze(1).expand(-1, 1, hidden_dim)
+                    output_vectors.append(torch.gather(token_embeddings, 1, gather_indices).squeeze(1))
 
             elif mode == "max":
                 mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
