@@ -160,9 +160,9 @@ class EmbedDistillLoss(nn.Module):
         self.projection: nn.Linear | None = None
         if projection_dim is not None:
             student_dim = model.get_embedding_dimension()
-            self.projection = nn.Linear(student_dim, projection_dim)
+            self.projection = nn.Linear(student_dim, projection_dim, device=model.device)
 
-    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
+    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None) -> Tensor:
         if labels is None:
             raise ValueError(
                 "EmbedDistillLoss requires pre-computed teacher embeddings as labels. "
@@ -270,7 +270,7 @@ class EmbedDistillLoss(nn.Module):
                     f"Saved projection expects student embeddings of dim {in_features}, "
                     f"but the current student model outputs {student_dim}-dim embeddings."
                 )
-            self.projection = nn.Linear(in_features, out_features)
+            self.projection = nn.Linear(in_features, out_features, device=self.model.device)
             self.projection_dim = out_features
         elif self.projection.in_features != in_features or self.projection.out_features != out_features:
             raise ValueError(

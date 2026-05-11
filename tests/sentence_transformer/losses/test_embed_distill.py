@@ -212,6 +212,20 @@ def test_load_projection_without_projection_dim(stsb_bert_tiny_model: SentenceTr
     assert torch.equal(src.projection.bias, dst.projection.bias)
 
 
+def test_load_projection_matches_model_device(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
+    """Lazy-constructed projection should land on the model's device so that
+    `load_projection` works when called after the loss has been moved."""
+    teacher_dim = stsb_bert_tiny_model.get_embedding_dimension() + 8
+    src = EmbedDistillLoss(stsb_bert_tiny_model, projection_dim=teacher_dim)
+    path = tmp_path / "proj.safetensors"
+    src.save_projection(path)
+
+    dst = EmbedDistillLoss(stsb_bert_tiny_model)
+    dst.load_projection(path)
+
+    assert dst.projection.weight.device == stsb_bert_tiny_model.device
+
+
 def test_load_projection_dim_mismatch_raises(stsb_bert_tiny_model: SentenceTransformer, tmp_path) -> None:
     """Loading into a loss whose projection has a different shape should raise."""
     teacher_dim = stsb_bert_tiny_model.get_embedding_dimension() + 16
