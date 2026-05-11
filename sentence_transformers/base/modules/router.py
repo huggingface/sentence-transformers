@@ -652,6 +652,9 @@ class Router(InputModule):
                 model_name_or_path=model_name_or_path,
                 trust_remote_code=trust_remote_code,
                 revision=revision,
+                token=token,
+                cache_folder=cache_folder,
+                local_files_only=local_files_only,
             )
             try:
                 module = module_class.load(

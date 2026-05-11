@@ -1097,7 +1097,14 @@ This pull request has been automatically generated to add {self.__class__.__name
         for module_config in modules_config:
             class_ref = module_config["type"]
             module_class: Module = self._load_module_class_from_ref(
-                class_ref, model_name_or_path, trust_remote_code, revision, model_kwargs
+                class_ref,
+                model_name_or_path,
+                trust_remote_code,
+                revision,
+                model_kwargs,
+                token=token,
+                cache_folder=cache_folder,
+                local_files_only=local_files_only,
             )
 
             # Backwards compatibility: if the module is older and its `load` method only supports one parameter,
@@ -1288,6 +1295,9 @@ This pull request has been automatically generated to add {self.__class__.__name
         trust_remote_code: bool,
         revision: str | None,
         model_kwargs: dict[str, Any] | None,
+        token: bool | str | None = None,
+        cache_folder: str | None = None,
+        local_files_only: bool = False,
     ) -> nn.Module:
         """
         Load a module class from a class reference string.
@@ -1298,6 +1308,9 @@ This pull request has been automatically generated to add {self.__class__.__name
             trust_remote_code: Whether to trust remote code
             revision: The model revision
             model_kwargs: Additional model kwargs
+            token: Hub auth token, required for private repos when fetching custom modeling files.
+            cache_folder: Optional override for the Hub cache directory.
+            local_files_only: Restrict to local cache (no Hub network calls).
 
         Returns:
             The module class
@@ -1309,6 +1322,9 @@ This pull request has been automatically generated to add {self.__class__.__name
             trust_remote_code=trust_remote_code,
             revision=revision,
             code_revision=code_revision,
+            token=token,
+            cache_folder=cache_folder,
+            local_files_only=local_files_only,
         )
 
     def evaluate(self, evaluator: BaseEvaluator, output_path: str | None = None) -> dict[str, float] | float:

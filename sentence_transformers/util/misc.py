@@ -83,6 +83,9 @@ def import_module_class(
     trust_remote_code: bool = False,
     revision: str | None = None,
     code_revision: str | None = None,
+    token: bool | str | None = None,
+    cache_folder: str | None = None,
+    local_files_only: bool = False,
 ) -> type:
     """
     Resolve a module class reference to a class object.
@@ -107,6 +110,10 @@ def import_module_class(
         revision: Hub revision to fetch the modeling file from.
         code_revision: Optional separate revision pinning for the modeling code (overrides
             ``revision`` when set).
+        token: Hugging Face Hub authentication token. Required for fetching modeling files
+            from private repositories.
+        cache_folder: Optional override for the Hugging Face Hub cache directory.
+        local_files_only: If True, only use cached files and never reach out to the Hub.
 
     Returns:
         The resolved class.
@@ -123,6 +130,9 @@ def import_module_class(
                 model_name_or_path,
                 revision=revision,
                 code_revision=code_revision,
+                token=token,
+                cache_dir=cache_folder,
+                local_files_only=local_files_only,
             )
         except (OSError, ValueError):
             # 1) the file does not exist, or 2) the class_ref is not correctly formatted/found
