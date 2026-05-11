@@ -10,6 +10,7 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.losses.cached_gist_embed import CachedGISTEmbedLoss
 from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
@@ -184,15 +185,29 @@ class AdaptiveLayerLoss(nn.Module):
             warnings.warn(f"MatryoshkaLoss is not compatible with {loss.__class__.__name__}.", stacklevel=2)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
+        # Unwrap DDP (`.module`) / torch.compile (`_orig_mod`) wrappers so `self.model[0]`
+        # decoration still works under multi-GPU or compiled training.
+        unwrapped_model = self.model
+        while not isinstance(unwrapped_model, BaseModel):
+            if hasattr(unwrapped_model, "_orig_mod"):
+                unwrapped_model = unwrapped_model._orig_mod
+            elif hasattr(unwrapped_model, "module"):
+                unwrapped_model = unwrapped_model.module
+            else:
+                raise TypeError(
+                    f"AdaptiveLayerLoss could not unwrap {type(self.model).__name__} to a BaseModel; "
+                    "expected DistributedDataParallel, torch.compile's OptimizedModule, or a BaseModel."
+                )
+
         # Decorate the forward function of the transformer to cache the embeddings of all layers
-        original_transformer_forward = self.model[0].forward
-        transformer_decorator = TransformerDecorator(self.model[0], original_transformer_forward)
-        self.model[0].forward = transformer_decorator
+        original_transformer_forward = unwrapped_model[0].forward
+        transformer_decorator = TransformerDecorator(unwrapped_model[0], original_transformer_forward)
+        unwrapped_model[0].forward = transformer_decorator
 
         # Decorate the forward function of the model to get the embeddings after all modules (e.g. pooling)
-        original_forward = self.model.forward
+        original_forward = unwrapped_model.forward
         forward_decorator = ForwardDecorator(original_forward)
-        self.model.forward = forward_decorator
+        unwrapped_model.forward = forward_decorator
 
         try:
             # Run the loss normally: i.e. the final layer, but 1) use the transformers decorator to cache
@@ -229,8 +244,8 @@ class AdaptiveLayerLoss(nn.Module):
                     )
                     loss = loss + kl_div_loss * self.kl_temperature * self.kl_div_weight
         finally:
-            self.model[0].forward = original_transformer_forward
-            self.model.forward = original_forward
+            unwrapped_model[0].forward = original_transformer_forward
+            unwrapped_model.forward = original_forward
 
         return loss
 
