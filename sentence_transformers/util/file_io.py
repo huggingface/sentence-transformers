@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download, snapshot_download
 from huggingface_hub.utils import EntryNotFoundError, HFValidationError, LocalEntryNotFoundError
 from tqdm.autonotebook import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 class disabled_tqdm(tqdm):
@@ -120,9 +123,10 @@ def load_file_path(
             cache_dir=cache_folder,
             local_files_only=local_files_only,
         )
-    except (EntryNotFoundError, HFValidationError, LocalEntryNotFoundError):
+    except (EntryNotFoundError, HFValidationError, LocalEntryNotFoundError) as exc:
         # Unambiguous "not found" cases. Other errors (auth, rate limit, network)
         # propagate so callers don't silently fall back to a different model.
+        logger.debug(f"Could not load {filename!r} from {model_name_or_path!r}: {exc}")
         return None
 
 
@@ -181,8 +185,9 @@ def load_dir_path(
     # Try to download from the remote
     try:
         repo_path = snapshot_download(**download_kwargs)
-    except (HFValidationError, LocalEntryNotFoundError):
+    except (HFValidationError, LocalEntryNotFoundError) as exc:
         # Unambiguous "not found" / "not cached" cases.
+        logger.debug(f"Could not load subfolder {subfolder!r} from {model_name_or_path!r}: {exc}")
         return None
     except Exception as first_error:
         # Transient (auth, rate limit, network), try cache as fallback.

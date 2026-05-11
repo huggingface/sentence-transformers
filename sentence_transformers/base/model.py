@@ -904,14 +904,19 @@ This pull request has been automatically generated to add {self.__class__.__name
                     create_model_card_for_path = True
                 else:
                     # If replace_model_card=False, skip model card creation only if there's already a README.md.
-                    # README is optional metadata; a transient Hub error here shouldn't block the push.
+                    # On a transient Hub error during the probe, default to skipping card creation so we
+                    # don't accidentally overwrite an existing README we couldn't verify.
                     try:
                         existing_readme = load_file_path(
                             repo_id, "README.md", token=token, revision=revision, local_files_only=False
                         )
-                    except Exception:
-                        existing_readme = None
-                    create_model_card_for_path = existing_readme is None
+                        create_model_card_for_path = existing_readme is None
+                    except Exception as exc:
+                        logger.warning(
+                            f"Could not check for an existing README.md on {repo_id!r} ({type(exc).__name__}: {exc}). "
+                            "Skipping model card creation to avoid overwriting any existing card."
+                        )
+                        create_model_card_for_path = False
                 self.save(
                     tmp_dir,
                     model_name=repo_id,
@@ -1079,7 +1084,11 @@ This pull request has been automatically generated to add {self.__class__.__name
                 revision=revision,
                 local_files_only=local_files_only,
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                f"Could not fetch README.md from {model_name_or_path!r} ({type(exc).__name__}: {exc}). "
+                "Model will load without a model card."
+            )
             model_card_path = None
         if model_card_path is not None:
             try:
