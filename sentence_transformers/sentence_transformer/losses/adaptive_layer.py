@@ -195,8 +195,9 @@ class AdaptiveLayerLoss(nn.Module):
                 unwrapped_model = unwrapped_model.module
             else:
                 raise TypeError(
-                    f"AdaptiveLayerLoss could not unwrap {type(self.model).__name__} to a BaseModel; "
-                    "expected DistributedDataParallel, torch.compile's OptimizedModule, or a BaseModel."
+                    f"AdaptiveLayerLoss could not unwrap {type(self.model).__name__} to a BaseModel "
+                    f"(stopped at {type(unwrapped_model).__name__}). "
+                    "Expected DistributedDataParallel, torch.compile's OptimizedModule, or a BaseModel."
                 )
 
         # Decorate the forward function of the transformer to cache the embeddings of all layers

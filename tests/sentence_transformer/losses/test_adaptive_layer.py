@@ -129,3 +129,14 @@ def test_adaptive_layer_loss_raises_on_unrecognised_wrapper(stsb_bert_tiny_model
     features, labels = _features_and_labels(stsb_bert_tiny_model)
     with pytest.raises(TypeError, match="could not unwrap"):
         adaptive(features, labels)
+
+
+def test_adaptive_layer_loss_error_names_inner_stuck_point(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """For nested wrappers the error should name both the outer wrapper (what the user
+    passed in) and the inner object the unwrap got stuck on."""
+    adaptive = _make_loss(stsb_bert_tiny_model)
+    adaptive.model = _FakeDDP(nn.Linear(2, 2))  # DDP wraps an unrecognised inner
+
+    features, labels = _features_and_labels(stsb_bert_tiny_model)
+    with pytest.raises(TypeError, match=r"could not unwrap _FakeDDP .*stopped at Linear"):
+        adaptive(features, labels)
