@@ -422,13 +422,6 @@ class CrossEncoder(BaseModel, FitMixin):
         return nn.Identity()
 
     @property
-    def config(self) -> PretrainedConfig | None:
-        transformers_model = self.transformers_model
-        if transformers_model is None:
-            return None
-        return transformers_model.config
-
-    @property
     def model(self) -> PreTrainedModel | None:
         return self.transformers_model
 

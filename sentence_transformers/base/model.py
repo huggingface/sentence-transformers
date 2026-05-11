@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from multiprocessing import Queue
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import torch
@@ -40,6 +40,9 @@ from sentence_transformers.util import (
     save_to_hub_args_decorator,
 )
 from sentence_transformers.util.misc import ORIGINAL_TRANSFORMER_MODELS
+
+if TYPE_CHECKING:
+    from transformers import PretrainedConfig
 
 logger = transformers_logging.get_logger(__name__)
 
@@ -1520,6 +1523,21 @@ This pull request has been automatically generated to add {self.__class__.__name
             if isinstance(module, PreTrainedModel):
                 return module
         return None
+
+    @property
+    def config(self) -> PretrainedConfig | None:
+        """The transformers ``PretrainedConfig`` of the underlying model.
+
+        Several integrations (most notably Deepspeed and ``transformers.Trainer``) read
+        ``model.config.hidden_size`` directly. Without this delegation those integrations
+        crash with ``AttributeError: 'SentenceTransformer' object has no attribute 'config'``
+        because :class:`BaseModel` is an ``nn.Sequential`` rather than a ``PreTrainedModel``.
+
+        Returns the config of :attr:`transformers_model`, or ``None`` when no underlying
+        transformers model can be located (e.g. a pure StaticEmbedding-only setup).
+        """
+        underlying = self.transformers_model
+        return getattr(underlying, "config", None)
 
     @property
     def _target_device(self) -> torch.device:
