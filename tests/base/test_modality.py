@@ -67,7 +67,7 @@ class TestIsVideoUrlOrPath:
         assert is_video_url_or_path("https://example.com/video.mp4") is True
 
     def test_https_with_query_params(self):
-        assert is_video_url_or_path("https://cdn.example.com/clip.mp4?token=***") is True
+        assert is_video_url_or_path("https://cdn.example.com/clip.mp4?token=abc") is True
 
     def test_youtube_www(self):
         assert is_video_url_or_path("https://www.youtube.com/watch?v=dQw4w9WgXcQ") is True
@@ -118,6 +118,11 @@ class TestIsAudioUrlOrPath:
 
     def test_audio_url_with_spaces_not_audio(self):
         assert is_audio_url_or_path("https://example.com/clip.mp3 some description") is False
+
+    def test_malformed_url_crash(self):
+        """Malformed URLs (e.g. containing unclosed brackets) should not crash."""
+        assert is_audio_url_or_path("https://[[ooga-booga<<<<") is False
+        assert is_audio_url_or_path("https://www.google.com)[google.com]") is False
 
 
 class TestInferModality:
