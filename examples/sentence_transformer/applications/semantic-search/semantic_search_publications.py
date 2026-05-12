@@ -4,7 +4,7 @@ This example demonstrates how we can perform semantic search for scientific publ
 As model, we use SPECTER (https://github.com/allenai/specter), which encodes paper titles and abstracts
 into a vector space.
 
-When can then use util.semantic_search() to find the most similar papers.
+We can then use semantic_search() to find the most similar papers.
 
 Colab example: https://colab.research.google.com/drive/12hfBveGHRsxhPIUMmJYrll2lFU4fOX06
 """

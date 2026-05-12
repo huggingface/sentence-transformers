@@ -1,9 +1,9 @@
 # Translated Sentence Mining
 
-Bitext mining describes the process of finding parallel (translated) sentence pairs in monolingual corpora. For example, you have an set of English sentences:
+Bitext mining describes the process of finding parallel (translated) sentence pairs in monolingual corpora. For example, you have a set of English sentences:
 
 ```
-This is an example sentences.
+This is an example sentence.
 Hello World!
 My final third sentence in this list.
 ```
@@ -22,7 +22,7 @@ The correct (two) translations are:
 
 ```
 Hello World!    Hallo Welt!
-This is an example sentences.   Dies ist ein Beispielsatz.
+This is an example sentence.   Dies ist ein Beispielsatz.
 ```
 
 Usually you apply this method to large corpora, for example, you want to find all translated sentences in the English Wikipedia and the Chinese Wikipedia.

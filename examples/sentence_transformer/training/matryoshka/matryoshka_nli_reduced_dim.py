@@ -34,6 +34,7 @@ from sentence_transformers.sentence_transformer.modules import Dense
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 model_name = sys.argv[1] if len(sys.argv) > 1 else "distilbert/distilroberta-base"
 batch_size = 128  # The larger you select this, the better the results (usually). But it requires more GPU memory
@@ -50,7 +51,7 @@ output_dir = (
 # create one with "mean" pooling.
 # Loading in fp32 is preferred for training if your memory can handle it
 model = SentenceTransformer(model_name, model_kwargs={"torch_dtype": "float32"})
-# dense = models.Dense(in_features=pooling_model.get_embedding_dimension(), out_features=reduced_dim)
+# dense = Dense(in_features=pooling_model.get_embedding_dimension(), out_features=reduced_dim)
 model.add_module("reduced_dim", Dense(in_features=model.get_embedding_dimension(), out_features=reduced_dim))
 # If we want, we can limit the maximum sequence length for the model
 # model.max_seq_length = 75

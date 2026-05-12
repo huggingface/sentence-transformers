@@ -15,14 +15,11 @@ import tarfile
 
 from easynmt import EasyNMT
 
-from sentence_transformers import LoggingHandler
 from sentence_transformers.util import http_get
 
-#### Just some code to print debug information to stdout
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
-#### /print debug information to stdout
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 target_lang = sys.argv[1]
 output_folder = "multilingual-data"

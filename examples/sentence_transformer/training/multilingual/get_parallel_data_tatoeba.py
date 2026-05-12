@@ -9,7 +9,7 @@ import gzip
 import os
 import tarfile
 
-import sentence_transformers
+from sentence_transformers.util import http_get
 
 # Note: Tatoeba uses 3 letter languages codes (ISO-639-2),
 # while other datasets like OPUS use 2 letter language codes (ISO-639-1)
@@ -41,7 +41,7 @@ for filepath in [sentences_file_bz2, links_file_bz2]:
     if not os.path.exists(filepath):
         url = download_url + os.path.basename(filepath)
         print("Download", url)
-        sentence_transformers.util.http_get(url, filepath)
+        http_get(url, filepath)
 
 # Extract files if needed
 if not os.path.exists(sentences_file):

@@ -34,6 +34,7 @@ from sentence_transformers.sentence_transformer.training_args import (
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # As base model, we use DistilBERT-base that was pre-trained on NLI and STSb data
 model_name = "sentence-transformers/stsb-distilbert-base"

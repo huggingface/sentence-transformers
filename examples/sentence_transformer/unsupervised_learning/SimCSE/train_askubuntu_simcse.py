@@ -4,7 +4,6 @@ from datetime import datetime
 from datasets import load_dataset
 
 from sentence_transformers import (
-    LoggingHandler,
     SentenceTransformer,
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
@@ -13,10 +12,9 @@ from sentence_transformers.sentence_transformer.evaluation import RerankingEvalu
 from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
 
-# Just some code to print debug information to stdout
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Some training parameters. For the example, we use a batch_size of 128, a max sentence length (max_seq_length)
 # of 32 word pieces and as model FacebookAI/roberta-base

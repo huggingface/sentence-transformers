@@ -46,6 +46,7 @@ from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 # Teacher Model: Model we want to distill into a smaller model

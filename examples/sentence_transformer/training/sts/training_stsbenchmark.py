@@ -25,6 +25,7 @@ from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # You can specify any Hugging Face pre-trained model here, for example, google-bert/bert-base-uncased, FacebookAI/roberta-base, FacebookAI/xlm-roberta-base
 model_name = sys.argv[1] if len(sys.argv) > 1 else "distilbert/distilbert-base-uncased"
@@ -49,7 +50,7 @@ logging.info(train_dataset)
 # CosineSimilarityLoss (https://sbert.net/docs/package_reference/sentence_transformer/losses.html#cosinesimilarityloss) needs two text columns and one
 # similarity score column (between 0 and 1)
 train_loss = CosineSimilarityLoss(model=model)
-# train_loss = losses.CoSENTLoss(model=model)
+# train_loss = CoSENTLoss(model=model)
 
 # 4. Define an evaluator for use during training. This is useful to keep track of alongside the evaluation loss.
 dev_evaluator = EmbeddingSimilarityEvaluator(

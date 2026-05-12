@@ -6,11 +6,11 @@ when encoding large text collections.
 
 import logging
 
-from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Important, you need to shield your code with if __name__. Otherwise, CUDA runs into issues when spawning new processes.
 if __name__ == "__main__":

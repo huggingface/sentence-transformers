@@ -34,18 +34,16 @@ from pathlib import Path
 import pandas as pd
 from datasets import Dataset, DatasetDict, concatenate_datasets, load_dataset, load_from_disk
 
-from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.sentence_transformer.losses import EmbedDistillLoss
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util.similarity import SimilarityFunction
 
-#### Just some code to print debug information to stdout
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
-#### /print debug information to stdout
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 # Teacher Model: Model we want to distill into a smaller model

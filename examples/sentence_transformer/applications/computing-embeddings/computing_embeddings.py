@@ -7,15 +7,13 @@ import logging
 
 import numpy as np
 
-from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 
-#### Just some code to print debug information to stdout
 np.set_printoptions(threshold=100)
 
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
-#### /print debug information to stdout
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 # Load pre-trained Sentence Transformer Model. It will be downloaded automatically

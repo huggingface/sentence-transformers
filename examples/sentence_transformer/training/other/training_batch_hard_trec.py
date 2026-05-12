@@ -24,16 +24,16 @@ from datetime import datetime
 
 from datasets import Dataset, load_dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.base.sampler import BatchSamplers
 from sentence_transformers.sentence_transformer.evaluation import TripletEvaluator
 from sentence_transformers.sentence_transformer.losses import BatchAllTripletLoss
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def trec_dataset(validation_dataset_nb=500):
@@ -108,9 +108,9 @@ model = SentenceTransformer(model_name, model_kwargs={"torch_dtype": "float32"})
 # - BatchAllTripletLoss
 
 train_loss = BatchAllTripletLoss(model=model)
-# train_loss = losses.BatchHardTripletLoss(model=model)
-# train_loss = losses.BatchHardSoftMarginTripletLoss(model=model)
-# train_loss = losses.BatchSemiHardTripletLoss(model=model)
+# train_loss = BatchHardTripletLoss(model=model)
+# train_loss = BatchHardSoftMarginTripletLoss(model=model)
+# train_loss = BatchSemiHardTripletLoss(model=model)
 
 
 logging.info("Read TREC val dataset")

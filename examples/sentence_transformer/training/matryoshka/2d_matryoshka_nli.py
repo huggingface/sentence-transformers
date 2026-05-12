@@ -25,6 +25,7 @@ from sentence_transformers.sentence_transformer.losses import Matryoshka2dLoss, 
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 model_name = sys.argv[1] if len(sys.argv) > 1 else "distilbert/distilroberta-base"
 batch_size = 128  # The larger you select this, the better the results (usually). But it requires more GPU memory

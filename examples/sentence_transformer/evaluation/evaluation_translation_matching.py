@@ -24,10 +24,12 @@ import sys
 
 from datasets import load_dataset
 
-from sentence_transformers import SentenceTransformer, evaluation
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.sentence_transformer.evaluation import TranslationEvaluator
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 model_name = sys.argv[1]
 dataset_name = sys.argv[2]
@@ -49,7 +51,7 @@ for subset in subsets:
 
     for split, sub_dataset in datasets.items():
         logging.info(f"{dataset_name}, subset={subset}, split={split}, num_samples={len(sub_dataset)}")
-        translation_evaluator = evaluation.TranslationEvaluator(
+        translation_evaluator = TranslationEvaluator(
             sub_dataset["english"],
             sub_dataset["non_english"],
             name=f"{dataset_name}-{subset}-{split}",

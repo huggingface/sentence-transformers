@@ -52,7 +52,7 @@ class SparseMSEEvaluator(MSEEvaluator):
             from sentence_transformers import SparseEncoder
             from sentence_transformers.sparse_encoder.evaluation import SparseMSEEvaluator
 
-            logging.basicConfig(format="%(message)s", level=logging.INFO)
+            logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
 
             # Load a model
             student_model = SparseEncoder("prithivida/Splade_PP_en_v1")

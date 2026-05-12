@@ -22,10 +22,15 @@ from sentence_transformers import (
 )
 from sentence_transformers.base.evaluation import SequentialEvaluator
 from sentence_transformers.base.sampler import BatchSamplers
-from sentence_transformers.sparse_encoder import evaluation, losses
+from sentence_transformers.sparse_encoder.evaluation import (
+    SparseBinaryClassificationEvaluator,
+    SparseNanoBEIREvaluator,
+)
+from sentence_transformers.sparse_encoder.losses import SparseMultipleNegativesRankingLoss, SpladeLoss
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def main():
@@ -63,9 +68,9 @@ def main():
     query_regularizer_weight = 5e-5
     document_regularizer_weight = 3e-5
 
-    loss = losses.SpladeLoss(
+    loss = SpladeLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        loss=SparseMultipleNegativesRankingLoss(model=model),
         query_regularizer_weight=query_regularizer_weight,  # Weight for query loss
         document_regularizer_weight=document_regularizer_weight,  # Weight for document loss
     )
@@ -77,7 +82,7 @@ def main():
     duplicate_classes_dataset = load_dataset(
         "sentence-transformers/quora-duplicates", "pair-class", split="train[-1000:]"
     )
-    binary_acc_evaluator = evaluation.SparseBinaryClassificationEvaluator(
+    binary_acc_evaluator = SparseBinaryClassificationEvaluator(
         sentences1=duplicate_classes_dataset["sentence1"],
         sentences2=duplicate_classes_dataset["sentence2"],
         labels=duplicate_classes_dataset["label"],
@@ -87,7 +92,7 @@ def main():
     )
     evaluators.append(binary_acc_evaluator)
 
-    nano_beir_evaluator = evaluation.SparseNanoBEIREvaluator(
+    nano_beir_evaluator = SparseNanoBEIREvaluator(
         dataset_names=["msmarco", "nq", "nfcorpus", "quoraretrieval"],
         show_progress_bar=True,
         batch_size=train_batch_size,
@@ -137,7 +142,7 @@ def main():
     trainer.train()
 
     # 7. Evaluate the final model, using the complete NanoBEIR dataset
-    test_evaluator = evaluation.SparseNanoBEIREvaluator(show_progress_bar=True, batch_size=train_batch_size)
+    test_evaluator = SparseNanoBEIREvaluator(show_progress_bar=True, batch_size=train_batch_size)
     test_evaluator(model)
 
     # 8. Save the final model

@@ -22,11 +22,13 @@ from sentence_transformers import (
 )
 from sentence_transformers.base.evaluation import SequentialEvaluator
 from sentence_transformers.base.sampler import BatchSamplers
-from sentence_transformers.sparse_encoder import evaluation, losses
+from sentence_transformers.sparse_encoder.evaluation import SparseInformationRetrievalEvaluator
+from sentence_transformers.sparse_encoder.losses import CSRLoss, SparseMultipleNegativesRankingLoss
 from sentence_transformers.util import cos_sim
 
 # Set up logging
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def main():
@@ -70,9 +72,9 @@ def main():
     # The scale of 20 is common for MultipleNegativesRankingLoss with cosine similarity.
     # The lower gamma gives higher weight to the high-sparsity performance, whereas a higher gamma would give more weight
     # to the low-sparsity performance.
-    loss = losses.CSRLoss(
+    loss = CSRLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model, scale=20.0, similarity_fct=cos_sim),
+        loss=SparseMultipleNegativesRankingLoss(model=model, scale=20.0, similarity_fct=cos_sim),
         gamma=0.1,
     )
 
@@ -82,7 +84,7 @@ def main():
         queries = dict(enumerate(eval_dataset["query"]))
         corpus = dict(enumerate(eval_dataset["answer"]))
         relevant_docs = {index: [index] for index in range(len(eval_dataset["query"]))}
-        evaluator = evaluation.SparseInformationRetrievalEvaluator(
+        evaluator = SparseInformationRetrievalEvaluator(
             queries=queries,
             corpus=corpus,
             relevant_docs=relevant_docs,

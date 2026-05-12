@@ -29,7 +29,7 @@ import torch
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 
-from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
 from sentence_transformers.sentence_transformer.evaluation import BinaryClassificationEvaluator
@@ -38,11 +38,9 @@ from sentence_transformers.sentence_transformer.modules import Pooling, Transfor
 from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import http_get
 
-# Just some code to print debug information to stdout
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
-# /print debug information to stdout
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # You can specify any huggingface/transformers pre-trained model here, for example, google-bert/bert-base-uncased, FacebookAI/roberta-base, FacebookAI/xlm-roberta-base
 model_name = sys.argv[1] if len(sys.argv) > 1 else "google-bert/bert-base-uncased"

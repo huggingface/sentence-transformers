@@ -3,18 +3,16 @@ from datetime import datetime
 
 from datasets import load_dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import RerankingEvaluator
 from sentence_transformers.sentence_transformer.losses import ContrastiveTensionLossInBatchNegatives
 from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
-# Just some code to print debug information to stdout
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
-# print debug information to stdout
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Some training parameters. We use a batch size of 16, for every positive example we include 8-1=7 negative examples
 # Sentences are truncated to 75 word pieces

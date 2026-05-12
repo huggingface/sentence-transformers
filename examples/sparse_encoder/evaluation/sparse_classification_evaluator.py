@@ -5,7 +5,8 @@ from datasets import load_dataset
 from sentence_transformers import SparseEncoder
 from sentence_transformers.sparse_encoder.evaluation import SparseBinaryClassificationEvaluator
 
-logging.basicConfig(format="%(message)s", level=logging.INFO)
+logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Initialize the SPLADE model
 model = SparseEncoder("naver/splade-cocondenser-ensembledistil")

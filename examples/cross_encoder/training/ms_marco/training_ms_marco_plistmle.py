@@ -15,11 +15,8 @@ def main():
     model_name = "microsoft/MiniLM-L12-H384-uncased"
 
     # Set the log level to INFO to get more information
-    logging.basicConfig(
-        format="%(asctime)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.INFO,
-    )
+    logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     # train_batch_size and eval_batch_size inform the size of the batches, while mini_batch_size is used by the loss
     # to subdivide the batch into smaller parts. This mini_batch_size largely informs the training speed and memory usage.
     # Keep in mind that the loss does not process `train_batch_size` pairs, but `train_batch_size * num_docs` pairs.
