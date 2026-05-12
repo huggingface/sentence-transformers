@@ -1,7 +1,7 @@
 
 .. tip::
 
-   Sentence Transformers v5.4 recently released, introducing first-class multimodal support for :class:`~sentence_transformers.sentence_transformer.SentenceTransformer` and :class:`~sentence_transformers.cross_encoder.CrossEncoder` (text, images, audio, video, and combinations of these), a fully modular :class:`~sentence_transformers.cross_encoder.CrossEncoder` architecture with generative reranker support via :class:`~sentence_transformers.cross_encoder.modules.LogitScore`, and automatic Flash Attention 2 input flattening for faster inference. Read the `Multimodal Embedding & Reranker Models <https://huggingface.co/blog/multimodal-sentence-transformers>`_ blogpost for inference, the `Training and Finetuning Multimodal Embedding & Reranker Models <https://huggingface.co/blog/train-multimodal-sentence-transformers>`_ blogpost for training, the `v5.4 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.4.0>`_, or the `migration guide <docs/migration_guide.html>`_ for more details.
+   Sentence Transformers v5.5 recently released, introducing the `train-sentence-transformers <https://github.com/huggingface/sentence-transformers/tree/main/skills>`_ Agent Skill. Using an AI coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...)? Install it via ``hf skills add train-sentence-transformers [--global] [--claude]`` and ask your agent to train or finetune an embedding, reranker, or sparse encoder model on your data. See the `v5.5.0 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.5.0>`_ for more details.
 
 SentenceTransformers Documentation
 ==================================
