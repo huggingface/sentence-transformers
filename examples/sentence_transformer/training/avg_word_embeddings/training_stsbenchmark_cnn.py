@@ -35,8 +35,8 @@ test_dataset = load_dataset("sentence-transformers/stsb", split="test")
 logging.info(train_dataset)
 
 # 2. Define the model
-# Map tokens to vectors using BERT
-word_embedding_model = Transformer(model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+word_embedding_model = Transformer(model_name, model_kwargs={"torch_dtype": "float32"})
 
 cnn = CNN(
     in_embedding_dimension=word_embedding_model.get_embedding_dimension(),

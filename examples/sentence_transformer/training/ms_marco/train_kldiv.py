@@ -26,6 +26,7 @@ numpy.random.seed(12)
 
 def main():
     # 1. Load a model to finetune with 2. (Optional) model card data
+    # Loading in fp32 is preferred for training if your memory can handle it
     model = SentenceTransformer(
         "microsoft/mpnet-base",
         model_card_data=SentenceTransformerModelCardData(
@@ -33,6 +34,7 @@ def main():
             license="apache-2.0",
             model_name="mpnet-base finetuned on MSMARCO via distillation",
         ),
+        model_kwargs={"torch_dtype": "float32"},
     )
 
     # 3. Load the MS MARCO dataset: https://huggingface.co/datasets/tomaarsen/msmarco-Qwen3-Reranker-0.6B

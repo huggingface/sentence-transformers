@@ -23,6 +23,7 @@ model_name = sys.argv[1] if len(sys.argv) > 1 else "google-bert/bert-base-uncase
 model_name_only = model_name.split("/")[-1]
 
 # 1. Load a model to finetune with 2. (Optional) model card data
+# Loading in fp32 is preferred for training if your memory can handle it
 model = SentenceTransformer(
     model_name,
     model_card_data=SentenceTransformerModelCardData(
@@ -30,6 +31,7 @@ model = SentenceTransformer(
         license="apache-2.0",
         model_name=f"{model_name_only} adapter finetuned on GooAQ pairs",
     ),
+    model_kwargs={"torch_dtype": "float32"},
 )
 
 # Create a LoRA adapter for the model

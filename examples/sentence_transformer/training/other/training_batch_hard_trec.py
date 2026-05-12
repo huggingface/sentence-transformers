@@ -96,7 +96,8 @@ train_set, dev_set, test_set = trec_dataset()
 
 # Load pretrained model
 logging.info("Load model")
-model = SentenceTransformer(model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+model = SentenceTransformer(model_name, model_kwargs={"torch_dtype": "float32"})
 
 
 # Triplet losses

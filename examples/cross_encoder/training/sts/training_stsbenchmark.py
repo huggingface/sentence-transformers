@@ -30,7 +30,8 @@ output_dir = "output/training_ce_stsbenchmark-" + datetime.now().strftime("%Y-%m
 # 1. Define our CrossEncoder model. We use distilbert/distilroberta-base as the base model and set it up to predict 1 label
 # You can also use other base models, like google-bert/bert-base-uncased, microsoft/mpnet-base, or rerankers like Alibaba-NLP/gte-reranker-modernbert-base
 model_name = "distilbert/distilroberta-base"
-model = CrossEncoder(model_name, num_labels=1)
+# Loading in fp32 is preferred for training if your memory can handle it
+model = CrossEncoder(model_name, num_labels=1, model_kwargs={"torch_dtype": "float32"})
 
 # 2. Load the STSB dataset: https://huggingface.co/datasets/sentence-transformers/stsb
 train_dataset = load_dataset("sentence-transformers/stsb", split="train")

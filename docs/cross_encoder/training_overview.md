@@ -83,12 +83,18 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         from sentence_transformers import CrossEncoder
 
         # Single-label regression / reranking model
-        reranker = CrossEncoder("google-bert/bert-base-uncased", num_labels=1)
+        reranker = CrossEncoder(
+            "google-bert/bert-base-uncased", num_labels=1, model_kwargs={"torch_dtype": "float32"}
+        )
 
         # Multi-class pair classification model (e.g. NLI)
-        classifier = CrossEncoder("FacebookAI/xlm-roberta-base", num_labels=3)
+        classifier = CrossEncoder(
+            "FacebookAI/xlm-roberta-base", num_labels=3, model_kwargs={"torch_dtype": "float32"}
+        )
 
     For reranking or other regression-style tasks, use ``num_labels=1`` so that the model outputs a single score per pair, which works well with losses like :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`. For multi-class or multi-label pair classification, choose ``num_labels`` to match the number of classes and use a suitable classification loss.
+
+    If your memory supports it, it's often preferable to load the model in fp32 precision for training, even if you plan to use mixed precision or fp16 later on. Otherwise, small updates (as are common near the end of training) get rounded to zero. This can be done with the ``model_kwargs={"torch_dtype": "float32"}`` argument as shown above.
 
     .. tip::
 
@@ -395,8 +401,8 @@ Most loss functions can be initialized with just the :class:`~sentence_transform
     from sentence_transformers import CrossEncoder
     from sentence_transformers.cross_encoder.losses import MultipleNegativesRankingLoss
 
-    # Load a model to train/finetune
-    model = CrossEncoder("FacebookAI/xlm-roberta-base", num_labels=1) # num_labels=1 is for rerankers
+    # Load a model to train/finetune (num_labels=1 is for rerankers)
+    model = CrossEncoder("FacebookAI/xlm-roberta-base", num_labels=1, model_kwargs={"torch_dtype": "float32"})
 
     # Initialize the MultipleNegativesRankingLoss
     # This loss requires pairs of related texts or triplets
@@ -780,6 +786,7 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
                 license="apache-2.0",
                 model_name="MiniLM-L12-H384 trained on GooAQ",
             ),
+            model_kwargs={"torch_dtype": "float32"},
         )
         print("Model max length:", model.max_length)
         print("Model num labels:", model.num_labels)
@@ -930,6 +937,7 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
                     license="apache-2.0",
                     model_name="ModernBERT-base trained on GooAQ",
                 ),
+                model_kwargs={"torch_dtype": "float32"},
             )
             print("Model max length:", model.max_length)
             print("Model num labels:", model.num_labels)

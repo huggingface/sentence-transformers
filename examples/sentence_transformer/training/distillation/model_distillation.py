@@ -57,7 +57,8 @@ output_dir = "output/model-distillation-" + datetime.now().strftime("%Y-%m-%d_%H
 # We will train a small TinyBERT model to imitate the teacher.
 # You can find some small BERT models here: https://huggingface.co/nreimers
 student_model_name = "nreimers/TinyBERT_L-4_H-312_v2"
-student_model = SentenceTransformer(student_model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+student_model = SentenceTransformer(student_model_name, model_kwargs={"torch_dtype": "float32"})
 
 inference_batch_size = 64
 train_batch_size = 64

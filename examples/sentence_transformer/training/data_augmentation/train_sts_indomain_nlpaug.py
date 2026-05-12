@@ -63,7 +63,8 @@ output_dir = (
 )
 
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for mapping tokens to embeddings
-model = SentenceTransformer(model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+model = SentenceTransformer(model_name, model_kwargs={"torch_dtype": "float32"})
 
 # Load the STSB dataset: https://huggingface.co/datasets/sentence-transformers/stsb
 train_dataset = load_dataset("sentence-transformers/stsb", split="train")

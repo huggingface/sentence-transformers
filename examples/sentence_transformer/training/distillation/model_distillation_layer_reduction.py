@@ -55,7 +55,8 @@ teacher_model = SentenceTransformer(teacher_model_name)
 output_dir = "output/model-distillation-" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 # Create a smaller student model by using only some of the teacher layers
-student_model = SentenceTransformer(teacher_model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+student_model = SentenceTransformer(teacher_model_name, model_kwargs={"torch_dtype": "float32"})
 
 # Get the underlying transformers model so we can surgically remove layers
 auto_model = student_model.transformers_model

@@ -30,7 +30,8 @@ output_dir = "output/training_ce_allnli-" + datetime.now().strftime("%Y-%m-%d_%H
 # 1. Define our CrossEncoder model. We use distilbert/distilroberta-base as the base model and set it up to predict 3 labels
 # You can also use other base models, like google-bert/bert-base-uncased, microsoft/mpnet-base, etc.
 model_name = "distilbert/distilroberta-base"
-model = CrossEncoder(model_name, num_labels=3)
+# Loading in fp32 is preferred for training if your memory can handle it
+model = CrossEncoder(model_name, num_labels=3, model_kwargs={"torch_dtype": "float32"})
 
 # 2. Load the AllNLI dataset: https://huggingface.co/datasets/sentence-transformers/all-nli
 # We'll start with 100k training samples, but you can increase this to get a stronger model

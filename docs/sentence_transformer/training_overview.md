@@ -91,7 +91,8 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         from sentence_transformers import SentenceTransformer
         from sentence_transformers.sentence_transformer.modules import Transformer, Pooling
 
-        transformer = Transformer("google-bert/bert-base-uncased")
+        # Loading in fp32 is preferred for training if your memory can handle it
+        transformer = Transformer("google-bert/bert-base-uncased", model_kwargs={"torch_dtype": "float32"})
         pooling = Pooling(transformer.get_embedding_dimension(), pooling_mode="mean")
 
         model = SentenceTransformer(modules=[transformer, pooling])
@@ -102,7 +103,7 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
         from sentence_transformers import SentenceTransformer
 
-        model = SentenceTransformer("google-bert/bert-base-uncased")
+        model = SentenceTransformer("google-bert/bert-base-uncased", model_kwargs={"torch_dtype": "float32"})
 
     .. tip::
 
@@ -415,7 +416,7 @@ Most loss functions can be initialized with just the :class:`~sentence_transform
     from sentence_transformers.sentence_transformer.losses import CoSENTLoss
 
     # Load a model to train/finetune
-    model = SentenceTransformer("FacebookAI/xlm-roberta-base")
+    model = SentenceTransformer("FacebookAI/xlm-roberta-base", model_kwargs={"torch_dtype": "float32"})
 
     # Initialize the CoSENTLoss
     # This loss requires pairs of text and a float similarity score as a label
@@ -673,7 +674,8 @@ The :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransfor
             language="en",
             license="apache-2.0",
             model_name="MPNet base trained on AllNLI triplets",
-        )
+        ),
+        model_kwargs={"torch_dtype": "float32"},
     )
 
     # 3. Load a dataset to finetune on
@@ -802,7 +804,7 @@ Training on multiple datasets looks like this:
     from sentence_transformers.sentence_transformer.losses import CoSENTLoss, MultipleNegativesRankingLoss, SoftmaxLoss
 
     # 1. Load a model to finetune
-    model = SentenceTransformer("google-bert/bert-base-uncased")
+    model = SentenceTransformer("google-bert/bert-base-uncased", model_kwargs={"torch_dtype": "float32"})
 
     # 2. Load several Datasets to train with
     # (anchor, positive)

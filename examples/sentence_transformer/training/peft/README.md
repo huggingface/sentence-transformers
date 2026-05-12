@@ -53,6 +53,7 @@ Adding a new adapter to a model is as simple as calling :meth:`~sentence_transfo
 from sentence_transformers import SentenceTransformer
 
 # 1. Load a model to finetune with 2. (Optional) model card data
+# Loading in fp32 is preferred for training if your memory can handle it
 model = SentenceTransformer(
     "sentence-transformers/all-MiniLM-L6-v2",
     model_card_data=SentenceTransformerModelCardData(
@@ -60,6 +61,7 @@ model = SentenceTransformer(
         license="apache-2.0",
         model_name="all-MiniLM-L6-v2 adapter finetuned on GooAQ pairs",
     ),
+    model_kwargs={"torch_dtype": "float32"},
 )
 
 # 3. Create a LoRA adapter for the model & add it

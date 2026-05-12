@@ -83,14 +83,15 @@ bi_encoder_path = (
 
 logging.info(f"Loading cross-encoder model: {model_name}")
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for cross-encoder model
-cross_encoder = CrossEncoder(model_name, num_labels=1)
+# Loading in fp32 is preferred for training if your memory can handle it
+cross_encoder = CrossEncoder(model_name, num_labels=1, model_kwargs={"torch_dtype": "float32"})
 
 # Bi-encoder (sentence-transformers) ######
 
 logging.info(f"Loading bi-encoder model: {model_name}")
 
 # Use Hugging Face/transformers model (like BERT, RoBERTa, XLNet, XLM-R) for mapping tokens to embeddings
-word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length)
+word_embedding_model = Transformer(model_name, max_seq_length=max_seq_length, model_kwargs={"torch_dtype": "float32"})
 
 # Apply mean pooling to get one fixed sized sentence vector
 pooling_model = Pooling(

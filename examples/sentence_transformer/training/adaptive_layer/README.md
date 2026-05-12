@@ -36,7 +36,8 @@ For example, with the 12-layer [microsoft/mpnet-base](https://huggingface.co/mic
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.losses import CoSENTLoss, AdaptiveLayerLoss
 
-model = SentenceTransformer("microsoft/mpnet-base")
+# Loading in fp32 is preferred for training if your memory can handle it
+model = SentenceTransformer("microsoft/mpnet-base", model_kwargs={"torch_dtype": "float32"})
 
 base_loss = CoSENTLoss(model=model)
 loss = AdaptiveLayerLoss(model=model, loss=base_loss)
@@ -52,7 +53,7 @@ Additionally, this can be combined with the `MatryoshkaLoss` such that the resul
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.losses import CoSENTLoss, Matryoshka2dLoss
 
-model = SentenceTransformer("microsoft/mpnet-base")
+model = SentenceTransformer("microsoft/mpnet-base", model_kwargs={"torch_dtype": "float32"})
 
 base_loss = CoSENTLoss(model=model)
 loss = Matryoshka2dLoss(model=model, loss=base_loss, matryoshka_dims=[768, 512, 256, 128, 64])

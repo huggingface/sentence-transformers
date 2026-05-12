@@ -65,7 +65,8 @@ print(train_dataset_dict)
 
 # 1. Here we define our SentenceTransformer model. If not already a Sentence Transformer model, it will automatically
 # create one with "mean" pooling.
-model = SentenceTransformer(model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+model = SentenceTransformer(model_name, model_kwargs={"torch_dtype": "float32"})
 # If we want, we can limit the maximum sequence length for the model
 model.max_seq_length = max_seq_length
 logging.info(model)

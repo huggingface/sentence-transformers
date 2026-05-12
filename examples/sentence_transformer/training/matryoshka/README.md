@@ -36,7 +36,8 @@ Training using Matryoshka Representation Learning (MRL) is quite elementary: rat
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.losses import CoSENTLoss, MatryoshkaLoss
 
-model = SentenceTransformer("microsoft/mpnet-base")
+# Loading in fp32 is preferred for training if your memory can handle it
+model = SentenceTransformer("microsoft/mpnet-base", model_kwargs={"torch_dtype": "float32"})
 
 base_loss = CoSENTLoss(model=model)
 loss = MatryoshkaLoss(model=model, loss=base_loss, matryoshka_dims=[768, 512, 256, 128, 64])
@@ -50,7 +51,7 @@ Additionally, this can be combined with the `AdaptiveLayerLoss` such that the re
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.losses import CoSENTLoss, Matryoshka2dLoss
 
-model = SentenceTransformer("microsoft/mpnet-base")
+model = SentenceTransformer("microsoft/mpnet-base", model_kwargs={"torch_dtype": "float32"})
 
 base_loss = CoSENTLoss(model=model)
 loss = Matryoshka2dLoss(model=model, loss=base_loss, matryoshka_dims=[768, 512, 256, 128, 64])

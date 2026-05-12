@@ -21,7 +21,8 @@ def main():
     dataset_size = 2_000_000
 
     # 1. Define our CrossEncoder model
-    model = CrossEncoder(model_name)
+    # Loading in fp32 is preferred for training if your memory can handle it
+    model = CrossEncoder(model_name, model_kwargs={"torch_dtype": "float32"})
     print("Model max length:", model.max_length)
     print("Model num labels:", model.num_labels)
 

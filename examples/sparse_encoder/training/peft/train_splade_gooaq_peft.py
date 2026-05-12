@@ -36,6 +36,7 @@ def main():
     num_epochs = 1
 
     # 1a. Load a model to finetune with 1b. (Optional) model card data
+    # Loading in fp32 is preferred for training if your memory can handle it
     model = SparseEncoder(
         model_name,
         model_card_data=SparseEncoderModelCardData(
@@ -43,6 +44,7 @@ def main():
             license="apache-2.0",
             model_name="splade-distilbert-base-uncased trained on GooAQ",
         ),
+        model_kwargs={"torch_dtype": "float32"},
     )
     model.max_seq_length = 256  # Set the max sequence length to 256 for the training
     logging.info("Model max length: %s", model.max_seq_length)

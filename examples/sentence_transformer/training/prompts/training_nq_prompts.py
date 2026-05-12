@@ -27,6 +27,7 @@ use_prompts = True
 include_prompts_in_pooling = True
 
 # 1. Load a model to finetune with 2. (Optional) model card data
+# Loading in fp32 is preferred for training if your memory can handle it
 model = SentenceTransformer(
     "microsoft/mpnet-base",
     model_card_data=SentenceTransformerModelCardData(
@@ -34,6 +35,7 @@ model = SentenceTransformer(
         license="apache-2.0",
         model_name="MPNet base trained on Natural Questions pairs",
     ),
+    model_kwargs={"torch_dtype": "float32"},
 )
 model.set_pooling_include_prompt(include_prompts_in_pooling)
 

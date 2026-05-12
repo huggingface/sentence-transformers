@@ -103,7 +103,8 @@ from sentence_transformers.sentence_transformer.losses import ContrastiveLoss, M
 from sentence_transformers import SentenceTransformerTrainer, SentenceTransformer
 
 model_name = "sentence-transformers/stsb-distilbert-base"
-model = SentenceTransformer(model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+model = SentenceTransformer(model_name, model_kwargs={"torch_dtype": "float32"})
 
 # https://huggingface.co/datasets/sentence-transformers/quora-duplicates
 mnrl_dataset = load_dataset(

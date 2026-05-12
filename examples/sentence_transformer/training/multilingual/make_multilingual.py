@@ -76,7 +76,8 @@ logging.info(f"Teacher model: {teacher_model}")
 
 # 1b. Here we define our SentenceTransformer student model. If not already a Sentence Transformer model,
 # it will automatically create one with "mean" pooling.
-student_model = SentenceTransformer(student_model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+student_model = SentenceTransformer(student_model_name, model_kwargs={"torch_dtype": "float32"})
 # If we want, we can limit the maximum sequence length for the model
 student_model.max_seq_length = student_max_seq_length
 logging.info(f"Student model: {student_model}")

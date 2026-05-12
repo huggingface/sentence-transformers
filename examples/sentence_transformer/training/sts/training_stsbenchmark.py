@@ -36,7 +36,8 @@ output_dir = (
 
 # 1. Here we define our SentenceTransformer model. If not already a Sentence Transformer model, it will automatically
 # create one with "mean" pooling.
-model = SentenceTransformer(model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+model = SentenceTransformer(model_name, model_kwargs={"torch_dtype": "float32"})
 
 # 2. Load the STSB dataset: https://huggingface.co/datasets/sentence-transformers/stsb
 train_dataset = load_dataset("sentence-transformers/stsb", split="train")

@@ -32,7 +32,8 @@ def main():
     # 1. Define our CrossEncoder model
     # Set the seed so the new classifier weights are identical in subsequent runs
     torch.manual_seed(12)
-    model = CrossEncoder(model_name, num_labels=1)
+    # Loading in fp32 is preferred for training if your memory can handle it
+    model = CrossEncoder(model_name, num_labels=1, model_kwargs={"torch_dtype": "float32"})
     print("Model max length:", model.max_length)
     print("Model num labels:", model.num_labels)
 

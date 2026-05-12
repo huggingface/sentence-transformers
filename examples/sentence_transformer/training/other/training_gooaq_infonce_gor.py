@@ -76,6 +76,7 @@ num_epochs = 1
 
 # 1. Load a model to finetune with optional model card data
 logging.info(f"Loading model: {model_name}")
+# Loading in fp32 is preferred for training if your memory can handle it
 model = SentenceTransformer(
     model_name,
     model_card_data=SentenceTransformerModelCardData(
@@ -83,6 +84,7 @@ model = SentenceTransformer(
         license="apache-2.0",
         model_name="MPNet base trained on GooAQ using InfoNCE + Global Orthogonal Regularization",
     ),
+    model_kwargs={"torch_dtype": "float32"},
 )
 
 # 2. Load the GooAQ dataset: https://huggingface.co/datasets/sentence-transformers/gooaq

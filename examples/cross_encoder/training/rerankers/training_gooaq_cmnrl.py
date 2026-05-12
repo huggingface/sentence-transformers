@@ -18,6 +18,7 @@ num_epochs = 1
 num_rand_negatives = 5  # How many random negatives should be used for each question-answer pair
 
 # 1a. Load a model to finetune with 1b. (Optional) model card data
+# Loading in fp32 is preferred for training if your memory can handle it
 model = CrossEncoder(
     model_name,
     model_card_data=CrossEncoderModelCardData(
@@ -25,6 +26,7 @@ model = CrossEncoder(
         license="apache-2.0",
         model_name="MiniLM-L12-H384 trained on GooAQ",
     ),
+    model_kwargs={"torch_dtype": "float32"},
 )
 print("Model max length:", model.max_length)
 print("Model num labels:", model.num_labels)

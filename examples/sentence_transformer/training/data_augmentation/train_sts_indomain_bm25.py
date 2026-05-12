@@ -77,8 +77,9 @@ sentence_transformer_path = (
 )
 
 # Use a Hugging Face model (like BERT, RoBERTa, XLNet, XLM-R) for loading the CrossEncoder and SentenceTransformer
-cross_encoder = CrossEncoder(model_name, num_labels=1)
-sentence_transformer = SentenceTransformer(model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+cross_encoder = CrossEncoder(model_name, num_labels=1, model_kwargs={"torch_dtype": "float32"})
+sentence_transformer = SentenceTransformer(model_name, model_kwargs={"torch_dtype": "float32"})
 sentence_transformer.max_seq_length = max_seq_length
 
 

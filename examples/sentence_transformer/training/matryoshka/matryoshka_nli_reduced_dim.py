@@ -48,7 +48,8 @@ output_dir = (
 
 # 1. Here we define our SentenceTransformer model. If not already a Sentence Transformer model, it will automatically
 # create one with "mean" pooling.
-model = SentenceTransformer(model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+model = SentenceTransformer(model_name, model_kwargs={"torch_dtype": "float32"})
 # dense = models.Dense(in_features=pooling_model.get_embedding_dimension(), out_features=reduced_dim)
 model.add_module("reduced_dim", Dense(in_features=model.get_embedding_dimension(), out_features=reduced_dim))
 # If we want, we can limit the maximum sequence length for the model

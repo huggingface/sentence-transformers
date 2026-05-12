@@ -89,7 +89,10 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         from sentence_transformers.sparse_encoder.modules import Transformer, SpladePooling
 
         # Initialize Transformer (use a fill-mask model)
-        mlm_transformer = Transformer("google-bert/bert-base-uncased", transformer_task="fill-mask")
+        # Loading in fp32 is preferred for training if your memory can handle it
+        mlm_transformer = Transformer(
+            "google-bert/bert-base-uncased", transformer_task="fill-mask", model_kwargs={"torch_dtype": "float32"}
+        )
         
         # Initialize SpladePooling module
         splade_pooling = SpladePooling(pooling_strategy="max")
@@ -103,7 +106,8 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
         from sentence_transformers import SparseEncoder
 
-        model = SparseEncoder("google-bert/bert-base-uncased")
+        # Loading in fp32 is preferred for training if your memory can handle it
+        model = SparseEncoder("google-bert/bert-base-uncased", model_kwargs={"torch_dtype": "float32"})
         # SparseEncoder(
         #   (0): Transformer({'transformer_task': 'fill-mask', 'modality_config': {'text': {'method': 'forward', 'method_output_name': 'logits'}}, 'module_output_name': 'token_embeddings', 'architecture': 'BertForMaskedLM'})
         #   (1): SpladePooling({'pooling_strategy': 'max', 'activation_function': 'relu', 'embedding_dimension': None})
@@ -213,7 +217,8 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         from sentence_transformers.sentence_transformer.modules import Pooling
 
         # Initialize transformer (can be any dense encoder model)
-        transformer = Transformer("google-bert/bert-base-uncased")
+        # Loading in fp32 is preferred for training if your memory can handle it
+        transformer = Transformer("google-bert/bert-base-uncased", model_kwargs={"torch_dtype": "float32"})
         
         # Initialize pooling
         pooling = Pooling(transformer.get_embedding_dimension(), pooling_mode="mean")
@@ -234,7 +239,8 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
         from sentence_transformers import SparseEncoder
 
-        model = SparseEncoder("mixedbread-ai/mxbai-embed-large-v1")
+        # Loading in fp32 is preferred for training if your memory can handle it
+        model = SparseEncoder("mixedbread-ai/mxbai-embed-large-v1", model_kwargs={"torch_dtype": "float32"})
         # SparseEncoder(
         #   (0): Transformer({'max_seq_length': 512, 'do_lower_case': False, 'architecture': 'BertModel'})
         #   (1): Pooling({'embedding_dimension': 1024, 'pooling_mode_cls_token': True, 'pooling_mode_mean_tokens': False, 'pooling_mode_max_tokens': False, 'pooling_mode_mean_sqrt_len_tokens': False, 'pooling_mode_weightedmean_tokens': False, 'pooling_mode_lasttoken': False, 'include_prompt': True})
@@ -389,7 +395,8 @@ Most loss functions can be initialized with just the :class:`~sentence_transform
     from sentence_transformers.sparse_encoder.losses import SpladeLoss, SparseMultipleNegativesRankingLoss
 
     # Load a model to train/finetune
-    model = SparseEncoder("distilbert/distilbert-base-uncased")
+    # Loading in fp32 is preferred for training if your memory can handle it
+    model = SparseEncoder("distilbert/distilbert-base-uncased", model_kwargs={"torch_dtype": "float32"})
 
     # Initialize the SpladeLoss with a SparseMultipleNegativesRankingLoss
     # This loss requires pairs of related texts or triplets
@@ -672,7 +679,8 @@ The :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` 
                 language="en",
                 license="apache-2.0",
                 model_name="DistilBERT base trained on Natural-Questions tuples",
-            )
+            ),
+            model_kwargs={"torch_dtype": "float32"},
         )
     
         # 3. Load a dataset to finetune on
@@ -789,6 +797,7 @@ The :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` 
             "distilbert/distilbert-base-uncased",
             transformer_task="fill-mask",
             tokenizer_args={"model_max_length": 512},
+            model_kwargs={"torch_dtype": "float32"},
         )
         splade_pooling = SpladePooling(
             pooling_strategy="max", embedding_dimension=mlm_transformer.get_embedding_dimension()

@@ -35,7 +35,8 @@ logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:
 
 # As base model, we use DistilBERT-base that was pre-trained on NLI and STSb data
 model_name = "sentence-transformers/stsb-distilbert-base"
-model = SentenceTransformer(model_name)
+# Loading in fp32 is preferred for training if your memory can handle it
+model = SentenceTransformer(model_name, model_kwargs={"torch_dtype": "float32"})
 num_train_epochs = 1
 batch_size = 64
 
