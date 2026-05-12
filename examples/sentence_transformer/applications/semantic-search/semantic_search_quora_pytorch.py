@@ -18,7 +18,8 @@ import os
 import pickle
 import time
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import http_get, semantic_search
 
 model_name = "sentence-transformers/quora-distilbert-multilingual"
 model = SentenceTransformer(model_name)
@@ -37,7 +38,7 @@ if not os.path.exists(embedding_cache_path):
     # Download dataset if needed
     if not os.path.exists(dataset_path):
         print("Download dataset")
-        util.http_get(url, dataset_path)
+        http_get(url, dataset_path)
 
     # Get all unique sentences from the file
     corpus_sentences = set()
@@ -77,7 +78,7 @@ while True:
 
     start_time = time.time()
     question_embedding = model.encode(inp_question, convert_to_tensor=True)
-    hits = util.semantic_search(question_embedding, corpus_embeddings)
+    hits = semantic_search(question_embedding, corpus_embeddings)
     end_time = time.time()
     hits = hits[0]  # Get the hits for the first query
 

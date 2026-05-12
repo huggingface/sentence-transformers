@@ -62,7 +62,7 @@ Loss Initialization
 The loss initialization function is a function that takes the model initialized for the current trial and returns a loss function. Here's an example of a loss initialization function::
 
     def hpo_loss_init(model):
-        return losses.CosineSimilarityLoss(model)
+        return CosineSimilarityLoss(model)
 
 Compute Objective
 ~~~~~~~~~~~~~~~~~
@@ -97,9 +97,9 @@ You can perform HPO on any regular training loop, the only difference being that
 
 ::
 
-    from sentence_transformers import losses
     from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
     from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
+    from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
     from sentence_transformers.sentence_transformer.training_args import BatchSamplers
     from datasets import load_dataset
 
@@ -132,7 +132,7 @@ You can perform HPO on any regular training loop, the only difference being that
 
     # 5. Define the Loss Initialization
     def hpo_loss_init(model):
-        return losses.MultipleNegativesRankingLoss(model)
+        return MultipleNegativesRankingLoss(model)
 
     # 6. Define the Objective Function
     def hpo_compute_objective(metrics):

@@ -19,7 +19,7 @@ import os
 
 from tqdm.autonotebook import tqdm
 
-import sentence_transformers.util
+from sentence_transformers.util import http_get
 
 source_languages = set(["en"])  # Languages our (monolingual) teacher model understands
 target_languages = set(["de", "es", "it", "fr", "ar", "tr"])  # New languages we want to extend to
@@ -34,7 +34,7 @@ parallel_sentences_folder = "parallel-sentences/"
 os.makedirs(os.path.dirname(parallel_sentences_path), exist_ok=True)
 if not os.path.exists(parallel_sentences_path):
     print("parallel-sentences.tsv.gz does not exists. Try to download from server")
-    sentence_transformers.util.http_get(download_url, parallel_sentences_path)
+    http_get(download_url, parallel_sentences_path)
 
 
 os.makedirs(parallel_sentences_folder, exist_ok=True)

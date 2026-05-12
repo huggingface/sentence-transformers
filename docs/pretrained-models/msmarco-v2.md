@@ -5,14 +5,14 @@ The training data consists of over 500k examples, while the complete  corpus con
  
 ## Usage
 ```python
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 
 model = SentenceTransformer("sentence-transformers/msmarco-distilroberta-base-v2")
 
 query_embedding = model.encode("How big is London")
 passage_embedding = model.encode("London has 9,787,426 inhabitants at the 2011 census")
 
-print("Similarity:", util.pytorch_cos_sim(query_embedding, passage_embedding))
+print("Similarity:", model.similarity(query_embedding, passage_embedding))
 ```
 
 

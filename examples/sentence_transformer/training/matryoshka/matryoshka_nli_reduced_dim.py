@@ -50,7 +50,7 @@ output_dir = (
 # 1. Here we define our SentenceTransformer model. If not already a Sentence Transformer model, it will automatically
 # create one with "mean" pooling.
 model = SentenceTransformer(model_name)
-# dense = models.Dense(in_features=pooling_model.get_embedding_dimension(), out_features=reduced_dim)
+# dense = Dense(in_features=pooling_model.get_embedding_dimension(), out_features=reduced_dim)
 model.add_module("reduced_dim", Dense(in_features=model.get_embedding_dimension(), out_features=reduced_dim))
 # If we want, we can limit the maximum sequence length for the model
 # model.max_seq_length = 75

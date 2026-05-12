@@ -26,13 +26,14 @@ Manually performing semantic search with sparse encoders is straightforward, and
    #. :class:`SparseEncoder <sentence_transformers.sparse_encoder.model.SparseEncoder>`
    #. :meth:`SparseEncoder.encode_query <sentence_transformers.sparse_encoder.model.SparseEncoder.encode_query>`
    #. :meth:`SparseEncoder.encode_document <sentence_transformers.sparse_encoder.model.SparseEncoder.encode_document>`
-   #. :meth:`util.semantic_search <sentence_transformers.util.semantic_search>`
+   #. :func:`~sentence_transformers.util.semantic_search`
    #. :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity>`
    #. `naver/splade-cocondenser-ensembledistil <https://huggingface.co/naver/splade-cocondenser-ensembledistil>`_
 
 ::
 
-    from sentence_transformers import SparseEncoder, util
+    from sentence_transformers import SparseEncoder
+    from sentence_transformers.util import semantic_search
 
     # 1. Load a pretrained SparseEncoder model
     model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
@@ -63,7 +64,7 @@ Manually performing semantic search with sparse encoders is straightforward, and
 
     # 4. Use the similarity function to compute the similarity scores between the query and corpus embeddings
     top_k = min(5, len(corpus))  # Find at most 5 sentences of the corpus for each query sentence
-    results = util.semantic_search(query_embeddings, corpus_embeddings, top_k=top_k, score_function=model.similarity)
+    results = semantic_search(query_embeddings, corpus_embeddings, top_k=top_k, score_function=model.similarity)
 
     # 5. Sort the results and print the top 5 most similar sentences for each query
     for query_id, query in enumerate(queries):

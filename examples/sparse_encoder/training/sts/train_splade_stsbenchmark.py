@@ -20,7 +20,8 @@ from sentence_transformers import (
     SparseEncoderTrainer,
     SparseEncoderTrainingArguments,
 )
-from sentence_transformers.sparse_encoder import evaluation, losses
+from sentence_transformers.sparse_encoder.evaluation import SparseEmbeddingSimilarityEvaluator
+from sentence_transformers.sparse_encoder.losses import SparseCosineSimilarityLoss, SpladeLoss
 from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
@@ -56,15 +57,15 @@ def main():
 
     # 3. Define our training loss.
     document_regularizer_weight = 3e-3
-    loss = losses.SpladeLoss(
+    loss = SpladeLoss(
         model=model,
-        loss=losses.SparseCosineSimilarityLoss(model=model),
+        loss=SparseCosineSimilarityLoss(model=model),
         document_regularizer_weight=document_regularizer_weight,  # Weight for FLOPS (sparsity) loss, higher is sparser
         use_document_regularizer_only=True,
     )
 
     # 4. Before and during training, we use SparseEmbeddingSimilarityEvaluator to measure the performance on the dev set
-    dev_evaluator = evaluation.SparseEmbeddingSimilarityEvaluator(
+    dev_evaluator = SparseEmbeddingSimilarityEvaluator(
         sentences1=eval_dataset["sentence1"],
         sentences2=eval_dataset["sentence2"],
         scores=eval_dataset["score"],
@@ -108,7 +109,7 @@ def main():
     trainer.train()
 
     # 7. Evaluate the model performance on the STS Benchmark test dataset
-    test_evaluator = evaluation.SparseEmbeddingSimilarityEvaluator(
+    test_evaluator = SparseEmbeddingSimilarityEvaluator(
         sentences1=test_dataset["sentence1"],
         sentences2=test_dataset["sentence2"],
         scores=test_dataset["score"],

@@ -3,8 +3,9 @@ from datetime import datetime
 
 from datasets import DatasetDict, load_dataset
 
-from sentence_transformers.sentence_transformer import SentenceTransformer, losses
+from sentence_transformers.sentence_transformer import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import BinaryClassificationEvaluator
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 from sentence_transformers.sentence_transformer.modules import CLIPModel
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
@@ -52,7 +53,7 @@ logging.info(f"Evaluation samples: {len(eval_dataset)}")
 logging.info(train_dataset)
 
 # 3. Define our training loss
-train_loss = losses.MultipleNegativesRankingLoss(model=model)
+train_loss = MultipleNegativesRankingLoss(model=model)
 
 
 # 4. Define an evaluator for use during training

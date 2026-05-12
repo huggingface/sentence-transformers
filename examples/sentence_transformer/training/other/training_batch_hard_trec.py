@@ -107,9 +107,9 @@ model = SentenceTransformer(model_name)
 # - BatchAllTripletLoss
 
 train_loss = BatchAllTripletLoss(model=model)
-# train_loss = losses.BatchHardTripletLoss(model=model)
-# train_loss = losses.BatchHardSoftMarginTripletLoss(model=model)
-# train_loss = losses.BatchSemiHardTripletLoss(model=model)
+# train_loss = BatchHardTripletLoss(model=model)
+# train_loss = BatchHardSoftMarginTripletLoss(model=model)
+# train_loss = BatchSemiHardTripletLoss(model=model)
 
 
 logging.info("Read TREC val dataset")

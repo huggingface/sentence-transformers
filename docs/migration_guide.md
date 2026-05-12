@@ -426,32 +426,34 @@ The :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer
       * - v4.x
         - v5.x (recommended)
       * - .. code-block:: python
-           :emphasize-lines: 7-10
+           :emphasize-lines: 8-11
 
-           from sentence_transformers import SentenceTransformer, models
+           from sentence_transformers import SentenceTransformer
+           from sentence_transformers.models import Asym, Dense
 
            # Load a Sentence Transformer model and add an asymmetric router
            # for different query and document post-processing
            model = SentenceTransformer("microsoft/mpnet-base")
            dim = model.get_sentence_embedding_dimension()
-           asym_model = models.Asym({
-               'sts': [models.Dense(dim, dim)],
-               'classification': [models.Dense(dim, dim)]
+           asym_model = Asym({
+               'sts': [Dense(dim, dim)],
+               'classification': [Dense(dim, dim)]
            })
            model.add_module("asym", asym_model)
 
         - .. code-block:: python
-           :emphasize-lines: 7-10
+           :emphasize-lines: 8-11
 
-           from sentence_transformers import SentenceTransformer, models
+           from sentence_transformers import SentenceTransformer
+           from sentence_transformers.base.modules import Dense, Router
 
            # Load a Sentence Transformer model and add a router
            # for different query and document post-processing
            model = SentenceTransformer("microsoft/mpnet-base")
            dim = model.get_sentence_embedding_dimension()
-           router_model = models.Router({
-               'sts': [models.Dense(dim, dim)],
-               'classification': [models.Dense(dim, dim)]
+           router_model = Router({
+               'sts': [Dense(dim, dim)],
+               'classification': [Dense(dim, dim)]
            })
            model.add_module("router", router_model)
 
