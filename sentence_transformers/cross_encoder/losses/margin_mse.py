@@ -13,7 +13,7 @@ class MarginMSELoss(nn.Module):
         Computes the MSE loss between ``|sim(Query, Pos) - sim(Query, Neg)|`` and ``|gold_sim(Query, Pos) - gold_sim(Query, Neg)|``.
         This loss is often used to distill a cross-encoder model from a teacher cross-encoder model or gold labels.
 
-        In contrast to :class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss`, the two passages do not
+        In contrast to :class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss`, the two documents do not
         have to be strictly positive and negative, both can be relevant or not relevant for a given query. This can be
         an advantage of MarginMSELoss over MultipleNegativesRankingLoss.
 
@@ -37,11 +37,11 @@ class MarginMSELoss(nn.Module):
 
         Inputs:
             +------------------------------------------------+--------------------------------------------------------------------------------------------+-------------------------------+
-            | Texts                                          | Labels                                                                                     | Number of Model Output Labels |
+            | Inputs                                         | Labels                                                                                     | Number of Model Output Labels |
             +================================================+============================================================================================+===============================+
-            | (query, passage_one, passage_two) triplets     | gold_sim(query, passage_one) - gold_sim(query, passage_two)                                | 1                             |
+            | (query, document_one, document_two) triplets   | gold_sim(query, document_one) - gold_sim(query, document_two)                              | 1                             |
             +------------------------------------------------+--------------------------------------------------------------------------------------------+-------------------------------+
-            | (query, passage_one, passage_two) triplets     | [gold_sim(query, passage_one), gold_sim(query, passage_two)]                               | 1                             |
+            | (query, document_one, document_two) triplets   | [gold_sim(query, document_one), gold_sim(query, document_two)]                             | 1                             |
             +------------------------------------------------+--------------------------------------------------------------------------------------------+-------------------------------+
             | (query, positive, negative_1, ..., negative_n) | [gold_sim(query, positive) - gold_sim(query, negative_i) for i in 1..n]                    | 1                             |
             +------------------------------------------------+--------------------------------------------------------------------------------------------+-------------------------------+
@@ -151,7 +151,7 @@ class MarginMSELoss(nn.Module):
         Computes the logits for a list of pairs using the model.
 
         Args:
-            pairs (list[tuple[str, str]]): A list of pairs of strings (query, passage).
+            pairs (list[tuple[str, str]]): A list of pairs of strings (query, document).
             prompt (str | None): Optional prompt to pass to the model's preprocess method.
             task (str | None): Optional task to pass to the model's preprocess method.
 

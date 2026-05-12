@@ -66,7 +66,7 @@ class MultipleNegativesRankingLoss(nn.Module):
                 is referred to as temperature, which is the inverse of the scale. In short: ``scale = 1 / temperature``, so
                 ``scale=20.0`` is equivalent to ``temperature=0.05``. A higher scale (lower temperature) puts more emphasis
                 on the positive example, and values between 10 and 100 are common.
-            similarity_fct: similarity function between sentence embeddings. By default, cos_sim. Can also be set to
+            similarity_fct: similarity function between embeddings. By default, cos_sim. Can also be set to
                 dot product (and then set scale to 1)
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
@@ -110,7 +110,7 @@ class MultipleNegativesRankingLoss(nn.Module):
 
         Inputs:
             +-------------------------------------------------+--------+
-            | Texts                                           | Labels |
+            | Inputs                                          | Labels |
             +=================================================+========+
             | (anchor, positive) pairs                        | none   |
             +-------------------------------------------------+--------+

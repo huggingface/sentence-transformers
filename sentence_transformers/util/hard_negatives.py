@@ -61,8 +61,8 @@ def mine_hard_negatives(
     texts that may appear similar to the anchor, but are not. Using hard negatives can improve the performance of
     models trained on the dataset.
 
-    This function uses a SentenceTransformer model to embed the sentences in the dataset, and then finds the closest
-    matches to each anchor sentence in the dataset. It then samples negatives from the closest matches, optionally
+    This function uses a SentenceTransformer model to embed the inputs in the dataset, and then finds the closest
+    matches to each anchor input in the dataset. It then samples negatives from the closest matches, optionally
     using a CrossEncoder model to rescore the candidates.
 
     Supports prompt formatting for models that expect specific instruction-style input.
@@ -175,7 +175,7 @@ def mine_hard_negatives(
 
     Args:
         dataset (Dataset): A dataset containing (anchor, positive) pairs.
-        model (SentenceTransformer): A SentenceTransformer model to use for embedding the sentences.
+        model (SentenceTransformer): A SentenceTransformer model to use for embedding the inputs.
         anchor_column_name (str, optional): The column name in `dataset` that contains the anchor/query. Defaults to None, in which case the first column in `dataset` will be used.
         positive_column_name (str, optional): The column name in `dataset` that contains the positive candidates. Defaults to None, in which case the second column in `dataset` will be used.
         corpus (List[str], optional): A list containing documents as strings that will be used as candidate negatives
@@ -198,14 +198,14 @@ def mine_hard_negatives(
             or loaded from the model configuration.
 
             For example, if ``query_prompt_name="query"`` and the model prompts dictionary includes {"query": "query: "},
-            then the sentence "What is the capital of France?" is transformed into: "query: What is the capital of France?"
+            then the input "What is the capital of France?" is transformed into: "query: What is the capital of France?"
             before encoding. This is useful for models that were trained or fine-tuned with specific prompt formats.
 
             Ignored if ``query_prompt`` is provided. Defaults to None.
 
         query_prompt (Optional[str], optional): A raw prompt string to prepend directly to the first/anchor dataset column during encoding.
 
-            For instance, `query_prompt="query: "` transforms the sentence "What is the capital of France?" into:
+            For instance, `query_prompt="query: "` transforms the input "What is the capital of France?" into:
             "query: What is the capital of France?". Use this to override the prompt logic entirely and supply your own prefix.
             This takes precedence over ``query_prompt_name``. Defaults to None.
         corpus_prompt_name (Optional[str], optional): The name of a predefined prompt to use when encoding the corpus. See
@@ -221,7 +221,7 @@ def mine_hard_negatives(
 
             - "triplet": (anchor, positive, negative) triplets, i.e. 3 columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`.
             - "n-tuple": (anchor, positive, negative_1, ..., negative_n) tuples, i.e. 2 + num_negatives columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`.
-            - "labeled-pair": (anchor, passage, label) text tuples with a label of 0 for negative and 1 for positive, i.e. 3 columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`.
+            - "labeled-pair": (anchor, document, label) text tuples with a label of 0 for negative and 1 for positive, i.e. 3 columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss`.
             - "labeled-list": (anchor, [doc1, doc2, ..., docN], [label1, label2, ..., labelN]) tuples with labels of 0 for negative and 1 for positive, i.e. 3 columns. Useful for e.g. :class:`~sentence_transformers.cross_encoder.losses.LambdaLoss`.
 
             Defaults to "triplet". See ``output_scores`` for the output formats when ``output_scores=True``.
@@ -250,15 +250,15 @@ def mine_hard_negatives(
 
         - "triplet": (anchor, positive, negative)
         - "n-tuple": (anchor, positive, negative_1, ..., negative_n)
-        - "labeled-pair": (anchor, passage, label)
-        - "labeled-list": (anchor, [passages], [labels])
+        - "labeled-pair": (anchor, document, label)
+        - "labeled-list": (anchor, [documents], [labels])
 
         And if `output_scores=True`, the formats are:
 
         - "triplet": (anchor, positive, negative, [scores])
         - "n-tuple": (anchor, positive, negative_1, ..., negative_n, [scores])
-        - "labeled-pair": (anchor, passage, score)
-        - "labeled-list": (anchor, [passages], [scores])
+        - "labeled-pair": (anchor, document, score)
+        - "labeled-list": (anchor, [documents], [scores])
     """
     if not is_datasets_available():
         raise ImportError("Please install `datasets` to use this function: `pip install datasets`.")

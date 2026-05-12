@@ -38,13 +38,13 @@ class SparseAnglELoss(SparseCoSENTLoss):
 
         Requirements:
             - Need to be used in SpladeLoss or CSRLoss as a loss function.
-            - Sentence pairs with corresponding similarity scores in range of the similarity function. Default is [-1,1].
+            - Input pairs with corresponding similarity scores in range of the similarity function. Default is [-1,1].
 
         Inputs:
             +--------------------------------+------------------------+
-            | Texts                          | Labels                 |
+            | Inputs                         | Labels                 |
             +================================+========================+
-            | (sentence_A, sentence_B) pairs | float similarity score |
+            | (input_A, input_B) pairs       | float similarity score |
             +--------------------------------+------------------------+
 
         Relations:

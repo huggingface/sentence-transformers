@@ -49,7 +49,7 @@ class MegaBatchMarginLoss(nn.Module):
 
         Inputs:
             +---------------------------------------+--------+
-            | Texts                                 | Labels |
+            | Inputs                                | Labels |
             +=======================================+========+
             | (anchor, positive) pairs              | none   |
             +---------------------------------------+--------+

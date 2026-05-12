@@ -18,9 +18,9 @@ class BatchAllTripletLoss(nn.Module):
         margin: float = 5,
     ) -> None:
         """
-        BatchAllTripletLoss takes a batch with (sentence, label) pairs and computes the loss for all possible, valid
+        BatchAllTripletLoss takes a batch with (input, label) pairs and computes the loss for all possible, valid
         triplets, i.e., anchor and positive must have the same label, anchor and negative a different label. The labels
-        must be integers, with same label indicating sentences from the same class. Your train dataset
+        must be integers, with same label indicating inputs from the same class. Your train dataset
         must contain at least 2 examples per label class.
 
         Args:
@@ -37,14 +37,14 @@ class BatchAllTripletLoss(nn.Module):
             * Blog post: https://omoindrot.github.io/triplet-loss
 
         Requirements:
-            1. Each sentence must be labeled with a class.
+            1. Each input must be labeled with a class.
             2. Your dataset must contain at least 2 examples per labels class.
 
         Inputs:
             +------------------+--------+
-            | Texts            | Labels |
+            | Inputs           | Labels |
             +==================+========+
-            | single sentences | class  |
+            | single inputs    | class  |
             +------------------+--------+
 
         Recommendations:

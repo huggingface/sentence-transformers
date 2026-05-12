@@ -33,7 +33,7 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         or concentration in certain regions of the embedding space. A low second moment indicates that
         similarities are more uniformly distributed.
 
-        The loss is called independently on each input column (e.g., queries and passages) and combines the results
+        The loss is called independently on each input column (e.g., queries and documents) and combines the results
         using either mean or sum aggregation. This is why the loss can be used on any dataset configuration
         (e.g., single inputs, pairs, triplets, etc.).
 
@@ -52,11 +52,11 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
               The latter paper uses the equivalent of GOR with ``mean_weight=0.0`` and ``aggregation="sum"``.
 
         Inputs:
-            +-------+--------+
-            | Texts | Labels |
-            +=======+========+
-            | any   | none   |
-            +-------+--------+
+            +--------+--------+
+            | Inputs | Labels |
+            +========+========+
+            | any    | none   |
+            +--------+--------+
 
         Example:
             ::
@@ -143,7 +143,7 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         Compute the GOR loss from pre-computed embeddings.
 
         Args:
-            embeddings: List of embedding tensors, one for each input column (e.g., [queries, passages])
+            embeddings: List of embedding tensors, one for each input column (e.g., [queries, documents])
             labels: Not used, kept for compatibility
 
         Returns:

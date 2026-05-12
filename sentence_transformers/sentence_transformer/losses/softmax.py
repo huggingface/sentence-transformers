@@ -48,13 +48,13 @@ class SoftmaxLoss(nn.Module):
             - `Training Examples > Natural Language Inference <../../../examples/sentence_transformer/training/nli/README.html>`_
 
         Requirements:
-            1. sentence pairs with a class label
+            1. input pairs with a class label
 
         Inputs:
             +---------------------------------------+--------+
-            | Texts                                 | Labels |
+            | Inputs                                | Labels |
             +=======================================+========+
-            | (sentence_A, sentence_B) pairs        | class  |
+            | (input_A, input_B) pairs              | class  |
             +---------------------------------------+--------+
 
         Example:

@@ -54,7 +54,7 @@ class MultipleNegativesSymmetricRankingLoss(MultipleNegativesRankingLoss):
             scale: Output of similarity function is multiplied by scale value. In some literature, the scaling parameter
                 is referred to as temperature, which is the inverse of the scale. In short: scale = 1 / temperature, so
                 scale=20.0 is equivalent to temperature=0.05.
-            similarity_fct: similarity function between sentence embeddings. By default, cos_sim. Can also be set to
+            similarity_fct: similarity function between embeddings. By default, cos_sim. Can also be set to
                 dot product (and then set scale to 1)
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
@@ -65,7 +65,7 @@ class MultipleNegativesSymmetricRankingLoss(MultipleNegativesRankingLoss):
 
         Inputs:
             +---------------------------------------+--------+
-            | Texts                                 | Labels |
+            | Inputs                                | Labels |
             +=======================================+========+
             | (anchor, positive) pairs              | none   |
             +---------------------------------------+--------+

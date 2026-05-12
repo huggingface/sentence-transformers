@@ -70,7 +70,7 @@ class CSRReconstructionLoss(nn.Module):
         Compute the CSRReconstruction loss from embeddings.
 
         Args:
-            outputs: List of dictionaries containing sentence embeddings and their sparse representations
+            outputs: List of dictionaries containing embeddings and their sparse representations
 
         Returns:
             total_loss: The total reconstruction loss value
@@ -136,7 +136,7 @@ class CSRLoss(nn.Module):
         1. A reconstruction loss :class:`CSRReconstructionLoss` that ensures the sparse representation can faithfully
            reconstruct the original embedding.
         2. A main loss, which in the paper is a :class:`SparseMultipleNegativesRankingLoss` that ensures semantically
-           similar sentences have similar representations.
+           similar inputs have similar representations.
 
         The total loss is linear combination of the two losses.
 

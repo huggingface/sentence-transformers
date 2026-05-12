@@ -20,8 +20,8 @@ class DenoisingAutoEncoderLoss(nn.Module):
         self, model: SentenceTransformer, decoder_name_or_path: str | None = None, tie_encoder_decoder: bool = True
     ) -> None:
         r"""
-        This loss expects as input a pairs of damaged sentences and the corresponding original ones.
-        During training, the decoder reconstructs the original sentences from the encoded sentence embeddings.
+        This loss expects as input a pairs of damaged inputs and the corresponding original ones.
+        During training, the decoder reconstructs the original inputs from the encoded embeddings.
         Here the argument 'decoder_name_or_path' indicates the pretrained model (supported by Hugging Face) to be used as the decoder.
         Since decoding process is included, here the decoder should have a class called XXXLMHead (in the context of Hugging Face's Transformers).
         The 'tie_encoder_decoder' flag indicates whether to tie the trainable parameters of encoder and decoder,
@@ -29,7 +29,7 @@ class DenoisingAutoEncoderLoss(nn.Module):
         Only when the encoder and decoder are from the same architecture, can the flag 'tie_encoder_decoder' work.
 
         The data generation process (i.e. the 'damaging' process) has already been implemented in ``DenoisingAutoEncoderDataset``,
-        allowing you to only provide regular sentences.
+        allowing you to only provide regular inputs.
 
         Args:
             model (SentenceTransformer): The SentenceTransformer model.
@@ -46,11 +46,11 @@ class DenoisingAutoEncoderLoss(nn.Module):
 
         Inputs:
             +------------------------------------------------------+--------+
-            | Texts                                                | Labels |
+            | Inputs                                               | Labels |
             +======================================================+========+
-            | (damaged\_sentence, original\_sentence) pairs        | none   |
+            | (damaged\_input, original\_input) pairs              | none   |
             +------------------------------------------------------+--------+
-            | sentence fed through ``DenoisingAutoEncoderDataset`` | none   |
+            | input fed through ``DenoisingAutoEncoderDataset``    | none   |
             +------------------------------------------------------+--------+
 
         Example:

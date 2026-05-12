@@ -63,7 +63,7 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
                 is referred to as temperature, which is the inverse of the scale. In short: scale = 1 / temperature, so
                 scale=20.0 is equivalent to temperature=0.05. A scale of 1.0 is often used for dot product similarity,
                 and values around 20.0 to 50.0 are often used for cosine similarity.
-            similarity_fct: similarity function between sentence embeddings. By default, dot product is used. Can also be set to
+            similarity_fct: similarity function between embeddings. By default, dot product is used. Can also be set to
                 cosine similarity (and then set scale to e.g. 20.0)
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
@@ -86,7 +86,7 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
 
         Inputs:
             +-------------------------------------------------+--------+
-            | Texts                                           | Labels |
+            | Inputs                                          | Labels |
             +=================================================+========+
             | (anchor, positive) pairs                        | none   |
             +-------------------------------------------------+--------+

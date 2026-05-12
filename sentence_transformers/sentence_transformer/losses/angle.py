@@ -40,13 +40,13 @@ class AnglELoss(CoSENTLoss):
             - For further details, see: https://aclanthology.org/2024.acl-long.101/
 
         Requirements:
-            - Sentence pairs with corresponding similarity scores in range of the similarity function. Default is [-1,1].
+            - Input pairs with corresponding similarity scores in range of the similarity function. Default is [-1,1].
 
         Inputs:
             +-------------------------------------------------+------------------------+
-            | Texts                                           | Labels                 |
+            | Inputs                                          | Labels                 |
             +=================================================+========================+
-            | (sentence_A, sentence_B) pairs                  | float similarity score |
+            | (input_A, input_B) pairs                        | float similarity score |
             +-------------------------------------------------+------------------------+
             | (anchor, positive, negative) triplets           | none                   |
             +-------------------------------------------------+------------------------+

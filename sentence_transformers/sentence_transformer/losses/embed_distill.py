@@ -57,12 +57,12 @@ class EmbedDistillLoss(nn.Module):
 
         Inputs:
             +-----------------------------------------+-----------------------------------------------------+
-            | Texts                                   | Labels                                              |
+            | Inputs                                  | Labels                                              |
             +=========================================+=====================================================+
-            | sentence                                | teacher embeddings ``(batch_size, teacher_dim)``    |
+            | input                                   | teacher embeddings ``(batch_size, teacher_dim)``    |
             +-----------------------------------------+-----------------------------------------------------+
-            | sentence_1, sentence_2, ..., sentence_N | teacher embeddings ``(batch_size, N, teacher_dim)`` |
-            | sentence_1, sentence_2, ..., sentence_N | teacher embeddings ``(batch_size, teacher_dim)``    |
+            | input_1, input_2, ..., input_N          | teacher embeddings ``(batch_size, N, teacher_dim)`` |
+            | input_1, input_2, ..., input_N          | teacher embeddings ``(batch_size, teacher_dim)``    |
             +-----------------------------------------+-----------------------------------------------------+
 
         Relations:

@@ -10,7 +10,7 @@ class CrossEntropyLoss(nn.Module):
     def __init__(self, model: CrossEncoder, activation_fn: nn.Module = nn.Identity(), **kwargs) -> None:
         """
         Computes the Cross Entropy Loss for a CrossEncoder model. This loss is used to train a model to predict the
-        correct class label for a given pair of sentences. The number of classes should be equal to the number of model
+        correct class label for a given pair of inputs. The number of classes should be equal to the number of model
         output labels.
 
         Args:
@@ -28,9 +28,9 @@ class CrossEntropyLoss(nn.Module):
 
         Inputs:
             +-------------------------------------------------+--------+-------------------------------+
-            | Texts                                           | Labels | Number of Model Output Labels |
+            | Inputs                                          | Labels | Number of Model Output Labels |
             +=================================================+========+===============================+
-            | (sentence_A, sentence_B) pairs                  | class  | `num_classes`                 |
+            | (input_A, input_B) pairs                        | class  | `num_classes`                 |
             +-------------------------------------------------+--------+-------------------------------+
 
         Example:

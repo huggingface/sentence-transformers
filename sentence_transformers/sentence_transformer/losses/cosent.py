@@ -39,13 +39,13 @@ class CoSENTLoss(nn.Module):
             - For further details, see: https://penghao-bdsc.github.io/papers/CoSENT_TASLP2024.pdf
 
         Requirements:
-            - Sentence pairs with corresponding similarity scores in range of the similarity function. Default is [-1,1].
+            - Input pairs with corresponding similarity scores in range of the similarity function. Default is [-1,1].
 
         Inputs:
             +--------------------------------+------------------------+
-            | Texts                          | Labels                 |
+            | Inputs                         | Labels                 |
             +================================+========================+
-            | (sentence_A, sentence_B) pairs | float similarity score |
+            | (input_A, input_B) pairs       | float similarity score |
             +--------------------------------+------------------------+
 
         Relations:

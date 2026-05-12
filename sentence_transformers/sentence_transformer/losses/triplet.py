@@ -48,7 +48,7 @@ class TripletLoss(nn.Module):
 
         Inputs:
             +---------------------------------------+--------+
-            | Texts                                 | Labels |
+            | Inputs                                | Labels |
             +=======================================+========+
             | (anchor, positive, negative) triplets | none   |
             +---------------------------------------+--------+

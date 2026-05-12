@@ -7,8 +7,8 @@ from sentence_transformers.sparse_encoder.model import SparseEncoder
 class SparseMSELoss(MSELoss):
     def __init__(self, model: SparseEncoder) -> None:
         """
-        Computes the MSE loss between the computed sentence embedding and a target sentence embedding. This loss
-        is used when extending sentence embeddings to new languages as described in our publication
+        Computes the MSE loss between the computed embedding and a target embedding. This loss
+        is used when extending embeddings to new languages as described in our publication
         Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation.
 
         Args:
@@ -19,11 +19,11 @@ class SparseMSELoss(MSELoss):
 
         Inputs:
             +-----------------------------------------+-----------------------------+
-            | Texts                                   | Labels                      |
+            | Inputs                                  | Labels                      |
             +=========================================+=============================+
-            | sentence                                | model sentence embeddings   |
+            | input                                   | model embeddings            |
             +-----------------------------------------+-----------------------------+
-            | sentence_1, sentence_2, ..., sentence_N | model sentence embeddings   |
+            | input_1, input_2, ..., input_N          | model embeddings            |
             +-----------------------------------------+-----------------------------+
 
         Relations:

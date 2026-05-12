@@ -221,7 +221,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 is referred to as temperature, which is the inverse of the scale. In short: ``scale = 1 / temperature``, so
                 ``scale=20.0`` is equivalent to ``temperature=0.05``. A higher scale (lower temperature) puts more emphasis
                 on the positive example, and values between 10 and 100 are common.
-            similarity_fct: similarity function between sentence embeddings. By default, cos_sim. Can also be set to dot
+            similarity_fct: similarity function between embeddings. By default, cos_sim. Can also be set to dot
                 product (and then set scale to 1)
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
                 training and evaluation. The larger the mini-batch size, the more memory efficient the training is, but
@@ -274,7 +274,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
 
         Inputs:
             +-------------------------------------------------+--------+
-            | Texts                                           | Labels |
+            | Inputs                                          | Labels |
             +=================================================+========+
             | (anchor, positive) pairs                        | none   |
             +-------------------------------------------------+--------+
@@ -374,7 +374,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         copy_random_state: bool,
         random_state: RandContext | None = None,
     ) -> tuple[Tensor, RandContext | None]:
-        """Embed a mini-batch of sentences."""
+        """Embed a mini-batch of inputs."""
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
         sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)

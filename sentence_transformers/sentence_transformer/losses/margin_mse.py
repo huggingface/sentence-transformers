@@ -16,11 +16,11 @@ class MarginMSELoss(nn.Module):
         Compute the MSE loss between the ``|sim(Query, Pos) - sim(Query, Neg)|`` and ``|gold_sim(Query, Pos) - gold_sim(Query, Neg)|``.
         By default, sim() is the dot-product. The gold_sim is often the similarity score from a teacher model.
 
-        In contrast to :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, the two passages do not
+        In contrast to :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, the two documents do not
         have to be strictly positive and negative, both can be relevant or not relevant for a given query. This can be
         an advantage of MarginMSELoss over MultipleNegativesRankingLoss, but note that the MarginMSELoss is much slower
-        to train. With MultipleNegativesRankingLoss, with a batch size of 64, we compare one query against 128 passages.
-        With MarginMSELoss, we compare a query only against two passages. It's also possible to use multiple negatives
+        to train. With MultipleNegativesRankingLoss, with a batch size of 64, we compare one query against 128 documents.
+        With MarginMSELoss, we compare a query only against two documents. It's also possible to use multiple negatives
         with MarginMSELoss, but the training would be even slower to train.
 
         Args:
@@ -33,16 +33,16 @@ class MarginMSELoss(nn.Module):
             - `Unsupervised Learning > Domain Adaptation <../../../examples/sentence_transformer/domain_adaptation/README.html>`_
 
         Requirements:
-            1. (query, passage_one, passage_two) triplets or (query, positive, negative_1, ..., negative_n)
+            1. (query, document_one, document_two) triplets or (query, positive, negative_1, ..., negative_n)
             2. Usually used with a finetuned teacher M in a knowledge distillation setup
 
         Inputs:
             +------------------------------------------------+------------------------------------------------------------------------+
-            | Texts                                          | Labels                                                                 |
+            | Inputs                                         | Labels                                                                 |
             +================================================+========================================================================+
-            | (query, passage_one, passage_two) triplets     | M(query, passage_one) - M(query, passage_two)                          |
+            | (query, document_one, document_two) triplets   | M(query, document_one) - M(query, document_two)                        |
             +------------------------------------------------+------------------------------------------------------------------------+
-            | (query, passage_one, passage_two) triplets     | [M(query, passage_one), M(query, passage_two)]                         |
+            | (query, document_one, document_two) triplets   | [M(query, document_one), M(query, document_two)]                       |
             +------------------------------------------------+------------------------------------------------------------------------+
             | (query, positive, negative_1, ..., negative_n) | [M(query, positive) - M(query, negative_i) for i in 1..n]              |
             +------------------------------------------------+------------------------------------------------------------------------+
@@ -54,14 +54,14 @@ class MarginMSELoss(nn.Module):
 
         Example:
 
-            With gold labels, e.g. if you have hard scores for sentences. Imagine you want a model to embed sentences
+            With gold labels, e.g. if you have hard scores for inputs. Imagine you want a model to embed inputs
             with similar "quality" close to each other. If the "text1" has quality 5 out of 5, "text2" has quality
             1 out of 5, and "text3" has quality 3 out of 5, then the similarity of a pair can be defined as the
             difference of the quality scores. So, the similarity between "text1" and "text2" is 4, and the
             similarity between "text1" and "text3" is 2. If we use this as our "Teacher Model", the label becomes
             similraity("text1", "text2") - similarity("text1", "text3") = 4 - 2 = 2.
 
-            Positive values denote that the first passage is more similar to the query than the second passage,
+            Positive values denote that the first document is more similar to the query than the second document,
             while negative values denote the opposite.
 
             ::

@@ -140,7 +140,7 @@ class CachedSpladeLoss(SpladeLoss):
         copy_random_state: bool,
         random_state: RandContext | None = None,
     ) -> tuple[Tensor, RandContext | None]:
-        """Embed a mini-batch of sentences."""
+        """Embed a mini-batch of inputs."""
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
         sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
@@ -157,7 +157,7 @@ class CachedSpladeLoss(SpladeLoss):
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
-        """Iterate over mini-batches of sentences for embedding."""
+        """Iterate over mini-batches of inputs for embedding."""
         batch_size = _get_batch_size(sentence_feature)
         for i, begin in enumerate(
             tqdm.trange(

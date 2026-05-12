@@ -51,7 +51,7 @@ class MultipleNegativesRankingLoss(nn.Module):
 
         Inputs:
             +-------------------------------------------------+--------+-------------------------------+
-            | Texts                                           | Labels | Number of Model Output Labels |
+            | Inputs                                          | Labels | Number of Model Output Labels |
             +=================================================+========+===============================+
             | (anchor, positive) pairs                        | none   | 1                             |
             +-------------------------------------------------+--------+-------------------------------+

@@ -14,8 +14,8 @@ class MSELoss(EmbedDistillLoss):
         projection_dim: int | None = None,
     ) -> None:
         """
-        Computes the MSE loss between the student's sentence embedding and a pre-computed
-        target sentence embedding (passed as a label). Used to extend sentence embeddings
+        Computes the MSE loss between the student's embedding and a pre-computed
+        target embedding (passed as a label). Used to extend embeddings
         to new languages, as described in *Making Monolingual Sentence Embeddings Multilingual
         using Knowledge Distillation*.
 
@@ -50,12 +50,12 @@ class MSELoss(EmbedDistillLoss):
 
         Inputs:
             +-----------------------------------------+-----------------------------------------------------+
-            | Texts                                   | Labels                                              |
+            | Inputs                                  | Labels                                              |
             +=========================================+=====================================================+
-            | sentence                                | teacher embeddings ``(batch_size, teacher_dim)``    |
+            | input                                   | teacher embeddings ``(batch_size, teacher_dim)``    |
             +-----------------------------------------+-----------------------------------------------------+
-            | sentence_1, sentence_2, ..., sentence_N | teacher embeddings ``(batch_size, N, teacher_dim)`` |
-            | sentence_1, sentence_2, ..., sentence_N | teacher embeddings ``(batch_size, teacher_dim)``    |
+            | input_1, input_2, ..., input_N          | teacher embeddings ``(batch_size, N, teacher_dim)`` |
+            | input_1, input_2, ..., input_N          | teacher embeddings ``(batch_size, teacher_dim)``    |
             +-----------------------------------------+-----------------------------------------------------+
 
         Relations:

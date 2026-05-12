@@ -17,10 +17,10 @@ from sentence_transformers.util import cos_sim
 
 class ContrastiveTensionLoss(nn.Module):
     """
-    This loss expects only single sentences, without any labels. Positive and negative pairs are automatically created via random sampling,
-    such that a positive pair consists of two identical sentences and a negative pair consists of two different sentences. An independent
-    copy of the encoder model is created, which is used for encoding the first sentence of each pair. The original encoder model encodes the
-    second sentence. The embeddings are compared and scored using the generated labels (1 if positive, 0 if negative) using the binary cross
+    This loss expects only single inputs, without any labels. Positive and negative pairs are automatically created via random sampling,
+    such that a positive pair consists of two identical inputs and a negative pair consists of two different inputs. An independent
+    copy of the encoder model is created, which is used for encoding the first input of each pair. The original encoder model encodes the
+    second input. The embeddings are compared and scored using the generated labels (1 if positive, 0 if negative) using the binary cross
     entropy objective.
 
     Generally, :class:`ContrastiveTensionLossInBatchNegatives` is recommended over this loss, as it gives a stronger training signal.
@@ -34,9 +34,9 @@ class ContrastiveTensionLoss(nn.Module):
 
     Inputs:
         +================================+=========+
-        | Texts                          | Labels  |
+        | Inputs                         | Labels  |
         +================================+=========+
-        | (sentence_A, sentence_B) pairs | None    |
+        | (input_A, input_B) pairs       | None    |
         +================================+=========+
 
     Relations:
@@ -44,7 +44,7 @@ class ContrastiveTensionLoss(nn.Module):
 
     Example:
 
-        Using a dataset with sentence pairs that sometimes are identical (positive pairs) and sometimes different (negative pairs):
+        Using a dataset with input pairs that sometimes are identical (positive pairs) and sometimes different (negative pairs):
 
         ::
 
@@ -83,7 +83,7 @@ class ContrastiveTensionLoss(nn.Module):
             trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=train_dataset, loss=train_loss)
             trainer.train()
 
-        With a dataset with single sentence pairs:
+        With a dataset with single input pairs:
 
         ::
 
@@ -186,10 +186,10 @@ class ContrastiveTensionLoss(nn.Module):
 class ContrastiveTensionLossInBatchNegatives(nn.Module):
     def __init__(self, model: SentenceTransformer, scale: float = 20.0, similarity_fct=cos_sim) -> None:
         """
-        This loss expects only single sentences, without any labels. Positive and negative pairs are automatically created via random sampling,
-        such that a positive pair consists of two identical sentences and a negative pair consists of two different sentences. An independent
-        copy of the encoder model is created, which is used for encoding the first sentence of each pair. The original encoder model encodes the
-        second sentence. Unlike :class:`ContrastiveTensionLoss`, this loss uses the batch negative sampling strategy, i.e. the negative pairs
+        This loss expects only single inputs, without any labels. Positive and negative pairs are automatically created via random sampling,
+        such that a positive pair consists of two identical inputs and a negative pair consists of two different inputs. An independent
+        copy of the encoder model is created, which is used for encoding the first input of each pair. The original encoder model encodes the
+        second input. Unlike :class:`ContrastiveTensionLoss`, this loss uses the batch negative sampling strategy, i.e. the negative pairs
         are sampled from the batch. Using in-batch negative sampling gives a stronger training signal than the original :class:`ContrastiveTensionLoss`.
         The performance usually increases with increasing batch sizes.
 
@@ -198,7 +198,7 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
         Args:
             model: SentenceTransformer model
             scale: Output of similarity function is multiplied by scale value
-            similarity_fct: similarity function between sentence embeddings. By default, cos_sim. Can also be set to dot
+            similarity_fct: similarity function between embeddings. By default, cos_sim. Can also be set to dot
                 product (and then set scale to 1)
 
         References:
@@ -210,9 +210,9 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
 
         Inputs:
             +------------------+--------+
-            | Texts            | Labels |
+            | Inputs           | Labels |
             +==================+========+
-            | single sentences | none   |
+            | single inputs    | none   |
             +------------------+--------+
 
         Example:

@@ -38,7 +38,7 @@ class SparseTripletLoss(TripletLoss):
 
         Inputs:
             +---------------------------------------+--------+
-            | Texts                                 | Labels |
+            | Inputs                                | Labels |
             +=======================================+========+
             | (anchor, positive, negative) triplets | none   |
             +---------------------------------------+--------+

@@ -39,11 +39,11 @@ class BinaryCrossEntropyLoss(nn.Module):
 
         Inputs:
             +-------------------------------------------------+----------------------------------------+-------------------------------+
-            | Texts                                           | Labels                                 | Number of Model Output Labels |
+            | Inputs                                          | Labels                                 | Number of Model Output Labels |
             +=================================================+========================================+===============================+
             | (anchor, positive/negative) pairs               | 1 if positive, 0 if negative           | 1                             |
             +-------------------------------------------------+----------------------------------------+-------------------------------+
-            | (sentence_A, sentence_B) pairs                  | float similarity score between 0 and 1 | 1                             |
+            | (input_A, input_B) pairs                        | float similarity score between 0 and 1 | 1                             |
             +-------------------------------------------------+----------------------------------------+-------------------------------+
 
         Recommendations:
