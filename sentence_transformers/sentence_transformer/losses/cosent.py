@@ -14,8 +14,8 @@ class CoSENTLoss(nn.Module):
     def __init__(self, model: SentenceTransformer, scale: float = 20.0, similarity_fct=util.pairwise_cos_sim) -> None:
         """
         This class implements CoSENT (Consistent SENTence embedding) loss.
-        It expects that each of the InputExamples consists of a pair of texts and a float valued label, representing
-        the expected similarity score between the pair.
+        It expects that each of the inputs consists of a pair of inputs (e.g., texts) and a float valued label,
+        representing the expected similarity score between the pair.
 
         It computes the following loss function:
 

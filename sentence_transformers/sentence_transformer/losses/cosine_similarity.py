@@ -18,7 +18,7 @@ class CosineSimilarityLoss(nn.Module):
         cos_score_transformation: nn.Module = nn.Identity(),
     ) -> None:
         """
-        CosineSimilarityLoss expects that the InputExamples consists of two texts and a float label. It computes the
+        CosineSimilarityLoss expects that the inputs consist of two inputs (e.g. texts) and a float label. It computes the
         vectors ``u = model(input_A)`` and ``v = model(input_B)`` and measures the cosine-similarity between the two.
         By default, it minimizes the following loss: ``||input_label - cos_score_transformation(cosine_sim(u,v))||_2``.
 
@@ -30,7 +30,7 @@ class CosineSimilarityLoss(nn.Module):
                 cosine_sim(u, v)||_2``
             cos_score_transformation: The cos_score_transformation
                 function is applied on top of cosine_similarity. By
-                default, the identify function is used (i.e. no change).
+                default, the identity function is used (i.e. no change).
 
         References:
             - `Training Examples > Semantic Textual Similarity <../../../examples/sentence_transformer/training/sts/README.html>`_

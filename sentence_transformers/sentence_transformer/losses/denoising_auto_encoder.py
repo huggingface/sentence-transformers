@@ -20,7 +20,7 @@ class DenoisingAutoEncoderLoss(nn.Module):
         self, model: SentenceTransformer, decoder_name_or_path: str | None = None, tie_encoder_decoder: bool = True
     ) -> None:
         r"""
-        This loss expects as input a pairs of damaged inputs and the corresponding original ones.
+        This loss expects as input pairs of damaged inputs and the corresponding original ones.
         During training, the decoder reconstructs the original inputs from the encoded embeddings.
         Here the argument 'decoder_name_or_path' indicates the pretrained model (supported by Hugging Face) to be used as the decoder.
         Since decoding process is included, here the decoder should have a class called XXXLMHead (in the context of Hugging Face's Transformers).

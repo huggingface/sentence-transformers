@@ -57,7 +57,7 @@ class SparseMarginMSELoss(MarginMSELoss):
             1 out of 5, and "text3" has quality 3 out of 5, then the similarity of a pair can be defined as the
             difference of the quality scores. So, the similarity between "text1" and "text2" is 4, and the
             similarity between "text1" and "text3" is 2. If we use this as our "Teacher Model", the label becomes
-            similraity("text1", "text2") - similarity("text1", "text3") = 4 - 2 = 2.
+            similarity("text1", "text2") - similarity("text1", "text3") = 4 - 2 = 2.
 
             Positive values denote that the first document is more similar to the query than the second document,
             while negative values denote the opposite.
