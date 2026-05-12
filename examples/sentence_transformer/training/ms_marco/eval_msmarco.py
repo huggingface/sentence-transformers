@@ -11,7 +11,8 @@ import os
 import sys
 import tarfile
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation
+from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
 from sentence_transformers.util import http_get
 
 #### Just some code to print debug information to stdout
@@ -98,7 +99,7 @@ with open(collection_filepath, encoding="utf8") as fIn:
 logging.info(f"Queries: {len(dev_queries)}")
 logging.info(f"Corpus: {len(corpus)}")
 
-ir_evaluator = evaluation.InformationRetrievalEvaluator(
+ir_evaluator = InformationRetrievalEvaluator(
     dev_queries,
     corpus,
     dev_rel_docs,

@@ -20,7 +20,7 @@ Using the loss is easy and does not require tuning of any hyperparameters:
 
 ```python
 from datasets import load_dataset
-from sentence_transformers.sparse_encoder import losses
+from sentence_transformers.sparse_encoder.losses import SparseMultipleNegativesRankingLoss, SpladeLoss
 # Assume 'model' is your SparseEncoder model
 
 full_dataset = load_dataset("sentence-transformers/quora-duplicates", "triplet", split="train").select(
@@ -34,9 +34,9 @@ eval_dataset = dataset_dict["test"]
 #     num_rows: 99000
 # })
 
-loss = losses.SpladeLoss(
+loss = SpladeLoss(
     model=model,
-    loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+    loss=SparseMultipleNegativesRankingLoss(model=model),
     query_regularizer_weight=query_regularizer_weight,  # Weight for query loss
     document_regularizer_weight=document_regularizer_weight,  # Weight for document loss
 )

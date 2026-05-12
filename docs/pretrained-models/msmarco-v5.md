@@ -5,7 +5,7 @@ The training data consists of over 500k examples, while the complete  corpus con
  
 ## Usage
 ```python
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 
 model = SentenceTransformer("sentence-transformers/msmarco-distilbert-dot-v5")
 
@@ -15,7 +15,7 @@ passage_embedding = model.encode([
     "London is known for its financial district",
 ])
 
-print("Similarity:", util.dot_score(query_embedding, passage_embedding))
+print("Similarity:", model.similarity(query_embedding, passage_embedding))
 ```
 
 

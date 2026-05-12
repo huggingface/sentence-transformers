@@ -51,8 +51,9 @@ for query in queries:
         print(f"(Score: {score:.4f})", corpus[idx])
 
     """
-    # Alternatively, we can also use util.semantic_search to perform cosine similarty + topk
-    hits = util.semantic_search(query_embedding, corpus_embeddings, top_k=5)
+    # Alternatively, we can also use semantic_search to perform cosine similarty + topk
+    from sentence_transformers.util import semantic_search
+    hits = semantic_search(query_embedding, corpus_embeddings, top_k=5)
     hits = hits[0]      #Get the hits for the first query
     for hit in hits:
         print(corpus[hit['corpus_id']], "(Score: {:.4f})".format(hit['score']))

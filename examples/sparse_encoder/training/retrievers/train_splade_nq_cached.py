@@ -21,7 +21,8 @@ from sentence_transformers import (
     SparseEncoderTrainingArguments,
 )
 from sentence_transformers.base.sampler import BatchSamplers
-from sentence_transformers.sparse_encoder import evaluation, losses
+from sentence_transformers.sparse_encoder.evaluation import SparseNanoBEIREvaluator
+from sentence_transformers.sparse_encoder.losses import CachedSpladeLoss, SparseMultipleNegativesRankingLoss
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -58,16 +59,16 @@ def main():
     query_regularizer_weight = 5e-5
     document_regularizer_weight = 3e-5
 
-    loss = losses.CachedSpladeLoss(
+    loss = CachedSpladeLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        loss=SparseMultipleNegativesRankingLoss(model=model),
         mini_batch_size=mini_batch_size,
         query_regularizer_weight=query_regularizer_weight,  # Weight for query loss
         document_regularizer_weight=document_regularizer_weight,  # Weight for document loss
     )
 
     # 4. Define evaluator. We use the SparseNanoBEIREvaluator, which is a light-weight evaluator
-    evaluator = evaluation.SparseNanoBEIREvaluator(
+    evaluator = SparseNanoBEIREvaluator(
         dataset_names=["msmarco", "nfcorpus", "nq"], show_progress_bar=True, batch_size=mini_batch_size
     )
     evaluator(model)

@@ -4,7 +4,7 @@
 ## Usage
 
 ```python
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 
 model = SentenceTransformer("sentence-transformers/nq-distilbert-base-v1")
 
@@ -15,7 +15,7 @@ passage_embedding = model.encode(
     [["London", "London has 9,787,426 inhabitants at the 2011 census."]]
 )
 
-print("Similarity:", util.cos_sim(query_embedding, passage_embedding))
+print("Similarity:", model.similarity(query_embedding, passage_embedding))
 ```
 
 Note: For the passage, we have to encode the Wikipedia article title together with a text paragraph from that article.

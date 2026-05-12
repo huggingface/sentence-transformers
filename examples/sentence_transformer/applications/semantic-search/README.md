@@ -79,7 +79,7 @@ For a simple example, see [semantic_search.py](semantic_search.py):
 ## Optimized Implementation
 
 ```{eval-rst}
-Instead of implementing semantic search by yourself, you can use the :func:`util.semantic_search <sentence_transformers.util.semantic_search>` function.
+Instead of implementing semantic search by yourself, you can use the :func:`~sentence_transformers.util.semantic_search` function.
 ```
 
 The function accepts the following parameters:
@@ -93,16 +93,18 @@ By default, up to 100 queries are processed in parallel. Further, the corpus is 
 ## Speed Optimization
 
 ```{eval-rst}
-To get the optimal speed for the :func:`util.semantic_search <sentence_transformers.util.semantic_search>` method, it is advisable to have the ``query_embeddings`` as well as the ``corpus_embeddings`` on the same GPU-device. This significantly boost the performance. Further, we can normalize the corpus embeddings so that each corpus embeddings is of length 1. In that case, we can use dot-product for computing scores.
+To get the optimal speed for the :func:`~sentence_transformers.util.semantic_search` method, it is advisable to have the ``query_embeddings`` as well as the ``corpus_embeddings`` on the same GPU-device. This significantly boost the performance. Further, we can normalize the corpus embeddings so that each corpus embeddings is of length 1. In that case, we can use dot-product for computing scores.
 
 .. code-block:: python
 
+    from sentence_transformers.util import dot_score, normalize_embeddings, semantic_search
+
     corpus_embeddings = corpus_embeddings.to("cuda")
-    corpus_embeddings = util.normalize_embeddings(corpus_embeddings)
+    corpus_embeddings = normalize_embeddings(corpus_embeddings)
 
     query_embeddings = query_embeddings.to("cuda")
-    query_embeddings = util.normalize_embeddings(query_embeddings)
-    hits = util.semantic_search(query_embeddings, corpus_embeddings, score_function=util.dot_score)
+    query_embeddings = normalize_embeddings(query_embeddings)
+    hits = semantic_search(query_embeddings, corpus_embeddings, score_function=dot_score)
 ```
 
 ## Elasticsearch
@@ -120,7 +122,7 @@ For an example implementation, see [semantic_search_nq_opensearch.py](semantic_s
 ## Approximate Nearest Neighbor
 
 ```{eval-rst}
-Searching a large corpus with millions of embeddings can be time-consuming if exact nearest neighbor search is used (like it is used by :func:`util.semantic_search <sentence_transformers.util.semantic_search>`).
+Searching a large corpus with millions of embeddings can be time-consuming if exact nearest neighbor search is used (like it is used by :func:`~sentence_transformers.util.semantic_search`).
 ```
 
 In that case, Approximate Nearest Neighbor (ANN) can be helpful. Here, the data is partitioned into smaller fractions of similar embeddings. This index can be searched efficiently and the embeddings with the highest similarity (the nearest neighbors) can be retrieved within milliseconds, even if you have millions of vectors. However, the results are not necessarily exact. It is possible that some vectors with high similarity will be missed.
@@ -148,7 +150,7 @@ We list a handful of common use cases:
 
 ### Similar Questions Retrieval
 
-[semantic_search_quora_pytorch.py](semantic_search_quora_pytorch.py) [ [Colab version](https://colab.research.google.com/drive/12cn5Oo0v3HfQQ8Tv6-ukgxXSmT3zl35A?usp=sharing) ] shows an example based on the [Quora duplicate questions](https://www.quora.com/q/quoradata/First-Quora-Dataset-Release-Question-Pairs) dataset. The user can enter a question, and the code retrieves the most similar questions from the dataset using `util.semantic_search`. As model, we use [distilbert-multilingual-nli-stsb-quora-ranking](https://huggingface.co/sentence-transformers/distilbert-multilingual-nli-stsb-quora-ranking), which was trained to identify similar questions and supports 50+ languages. Hence, the user can input the question in any of the 50+ languages. This is a **symmetric search task**, as the search queries have the same length and content as the questions in the corpus.
+[semantic_search_quora_pytorch.py](semantic_search_quora_pytorch.py) [ [Colab version](https://colab.research.google.com/drive/12cn5Oo0v3HfQQ8Tv6-ukgxXSmT3zl35A?usp=sharing) ] shows an example based on the [Quora duplicate questions](https://www.quora.com/q/quoradata/First-Quora-Dataset-Release-Question-Pairs) dataset. The user can enter a question, and the code retrieves the most similar questions from the dataset using `semantic_search`. As model, we use [distilbert-multilingual-nli-stsb-quora-ranking](https://huggingface.co/sentence-transformers/distilbert-multilingual-nli-stsb-quora-ranking), which was trained to identify similar questions and supports 50+ languages. Hence, the user can input the question in any of the 50+ languages. This is a **symmetric search task**, as the search queries have the same length and content as the questions in the corpus.
 
 ### Similar Publication Retrieval
 

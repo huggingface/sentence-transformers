@@ -58,7 +58,8 @@ Given a new query:
 An example of how inference might look (conceptual):
 
 ```python
-from sentence_transformers import SparseEncoder, util
+from sentence_transformers import SparseEncoder
+from sentence_transformers.util import semantic_search
 
 # 1. Load my trained SparseEncoder model
 model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
@@ -89,7 +90,7 @@ query_embeddings = model.encode(queries, convert_to_tensor=True)
 
 # 4. Use the similarity function to compute the similarity scores between the query and corpus embeddings
 top_k = min(5, len(corpus))  # Find at most 5 sentences of the corpus for each query sentence
-results = util.semantic_search(query_embeddings, corpus_embeddings, top_k=top_k, score_function=model.similarity)
+results = semantic_search(query_embeddings, corpus_embeddings, top_k=top_k, score_function=model.similarity)
 
 # 5. Sort the results and print the top 5 most similar sentences for each query
 for query_id, query in enumerate(queries):

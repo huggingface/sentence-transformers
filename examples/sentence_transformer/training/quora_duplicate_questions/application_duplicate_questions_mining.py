@@ -33,7 +33,7 @@ questions = [
 
 model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
-# Given a model and a List of strings (texts), evaluation.ParaphraseMiningEvaluator.paraphrase_mining performs a
+# Given a model and a List of strings (texts), ParaphraseMiningEvaluator.paraphrase_mining performs a
 # mining task by computing cosine similarity between all possible combinations and returning the ones with the highest scores.
 # It returns a list of tuples (score, i, j) with i, j representing the index in the questions list.
 pairs = paraphrase_mining(model, questions)

@@ -12,7 +12,7 @@ https://huggingface.co/papers/2004.09813
 import gzip
 import os
 
-import sentence_transformers.util
+from sentence_transformers.util import http_get
 
 source_languages = set(["en"])  # Languages our (monolingual) teacher model understands
 target_languages = set(["de", "es", "it", "fr", "ar", "tr"])  # New languages we want to extend to
@@ -45,7 +45,7 @@ for source_lang in source_languages:
             if not os.path.exists(wikimatrix_filepath):
                 print("Download", download_url + wikimatrix_filename)
                 try:
-                    sentence_transformers.util.http_get(download_url + wikimatrix_filename, wikimatrix_filepath)
+                    http_get(download_url + wikimatrix_filename, wikimatrix_filepath)
                 except Exception:
                     print("Was not able to download", download_url + wikimatrix_filename)
                     continue

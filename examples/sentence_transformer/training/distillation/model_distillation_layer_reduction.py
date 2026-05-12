@@ -28,8 +28,13 @@ import pandas as pd
 import torch
 from datasets import Dataset, concatenate_datasets, load_dataset
 
-from sentence_transformers import SentenceTransformer, evaluation, losses
-from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.sentence_transformer.evaluation import (
+    EmbeddingSimilarityEvaluator,
+    MSEEvaluator,
+    SequentialEvaluator,
+)
+from sentence_transformers.sentence_transformer.losses import MSELoss
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -145,7 +150,7 @@ train_dataset.save_to_disk("datasets/distillation_train_dataset")
 eval_dataset = eval_dataset.map(map_embeddings, batched=True, batch_size=50000)
 
 # Prepare the training loss
-train_loss = losses.MSELoss(model=student_model)
+train_loss = MSELoss(model=student_model)
 
 # Create an STSB evaluator
 dev_evaluator_stsb = EmbeddingSimilarityEvaluator(
@@ -160,8 +165,8 @@ dev_evaluator_stsb(teacher_model)
 
 # We create an evaluator, that measure the Mean Squared Error (MSE) between the teacher and the student embeddings
 eval_sentences = eval_dataset["sentence"]
-dev_evaluator_mse = evaluation.MSEEvaluator(eval_sentences, eval_sentences, teacher_model=teacher_model)
-dev_evaluator = evaluation.SequentialEvaluator([dev_evaluator_stsb, dev_evaluator_mse])
+dev_evaluator_mse = MSEEvaluator(eval_sentences, eval_sentences, teacher_model=teacher_model)
+dev_evaluator = SequentialEvaluator([dev_evaluator_stsb, dev_evaluator_mse])
 
 # Run the evaluator before training to get a baseline performance of the student model
 dev_evaluator(student_model)

@@ -16,7 +16,8 @@ To encode paragraphs, you need to provide a title (e.g. the Wikipedia article ti
 
 Queries are encoded with **question_encoder**:
 ```python
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import dot_score
 
 passage_encoder = SentenceTransformer("sentence-transformers/facebook-dpr-ctx_encoder-single-nq-base")
 
@@ -33,8 +34,8 @@ query = "What is the capital of England?"
 query_embedding = query_encoder.encode(query)
 
 # Important: You must use dot-product, not cosine_similarity
-scores = util.dot_score(query_embedding, passage_embeddings)
+scores = dot_score(query_embedding, passage_embeddings)
 print("Scores:", scores)
 ```
 
-**Important note:** When you use these models, you have to use them with dot-product (e.g. as implemented in `util.dot_score`) and not with cosine similarity.
+**Important note:** When you use these models, you have to use them with dot-product (e.g. as implemented in `dot_score`) and not with cosine similarity.

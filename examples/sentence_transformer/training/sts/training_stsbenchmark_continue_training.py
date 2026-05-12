@@ -44,7 +44,7 @@ logging.info(train_dataset)
 # CosineSimilarityLoss (https://sbert.net/docs/package_reference/sentence_transformer/losses.html#cosinesimilarityloss) needs two text columns and one
 # similarity score column (between 0 and 1)
 train_loss = CosineSimilarityLoss(model=model)
-# train_loss = losses.CoSENTLoss(model=model)
+# train_loss = CoSENTLoss(model=model)
 
 # 4. Define an evaluator for use during training. This is useful to keep track of alongside the evaluation loss.
 dev_evaluator = EmbeddingSimilarityEvaluator(

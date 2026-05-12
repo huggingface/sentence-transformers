@@ -30,6 +30,7 @@ The loss can be used like this:
 
 ```python
 from datasets import load_dataset
+from sentence_transformers.sentence_transformer.losses import OnlineContrastiveLoss
 
 train_dataset = load_dataset("sentence-transformers/quora-duplicates", "pair-class", split="train")
 # => Dataset({
@@ -38,7 +39,7 @@ train_dataset = load_dataset("sentence-transformers/quora-duplicates", "pair-cla
 # })
 print(train_dataset[0])
 # => {'sentence1': 'What is the step by step guide to invest in share market in india?', 'sentence2': 'What is the step by step guide to invest in share market?', 'label': 0}
-train_loss = losses.OnlineContrastiveLoss(model=model, margin=0.5)
+train_loss = OnlineContrastiveLoss(model=model, margin=0.5)
 ```
 
 ## MultipleNegativesRankingLoss
@@ -53,6 +54,7 @@ Using the loss is easy and does not require tuning of any hyperparameters:
 
 ```python
 from datasets import load_dataset
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 
 train_dataset = load_dataset("sentence-transformers/quora-duplicates", "pair", split="train")
 # => Dataset({
@@ -61,7 +63,7 @@ train_dataset = load_dataset("sentence-transformers/quora-duplicates", "pair", s
 # })
 print(train_dataset[0])
 # => {'anchor': 'Astrology: I am a Capricorn Sun Cap moon and cap rising...what does that say about me?', 'positive': "I'm a triple Capricorn (Sun, Moon and ascendant in Capricorn) What does this say about me?"}
-train_loss = losses.MultipleNegativesRankingLoss(model)
+train_loss = MultipleNegativesRankingLoss(model)
 ```
 
 As 'is_duplicate' is a symmetric relation, we can use not just (anchor, positive) but also (positive, anchor) to our training sample set:

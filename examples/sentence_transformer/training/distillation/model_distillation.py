@@ -29,8 +29,12 @@ import torch
 from datasets import Dataset, concatenate_datasets, load_dataset
 from sklearn.decomposition import PCA
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation
-from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers.sentence_transformer.evaluation import (
+    EmbeddingSimilarityEvaluator,
+    MSEEvaluator,
+    SequentialEvaluator,
+)
 from sentence_transformers.sentence_transformer.losses import MSELoss
 from sentence_transformers.sentence_transformer.modules import Dense
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
@@ -167,8 +171,8 @@ train_loss = MSELoss(model=student_model)
 
 # We create an evaluator, that measure the Mean Squared Error (MSE) between the teacher and the student embeddings
 eval_sentences = eval_dataset["sentence"]
-dev_evaluator_mse = evaluation.MSEEvaluator(eval_sentences, eval_sentences, teacher_model=teacher_model)
-dev_evaluator = evaluation.SequentialEvaluator([dev_evaluator_stsb, dev_evaluator_mse])
+dev_evaluator_mse = MSEEvaluator(eval_sentences, eval_sentences, teacher_model=teacher_model)
+dev_evaluator = SequentialEvaluator([dev_evaluator_stsb, dev_evaluator_mse])
 
 # Define the training arguments
 args = SentenceTransformerTrainingArguments(

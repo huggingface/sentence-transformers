@@ -21,7 +21,8 @@ from sentence_transformers import (
     SparseEncoderTrainingArguments,
 )
 from sentence_transformers.base.sampler import BatchSamplers
-from sentence_transformers.sparse_encoder import evaluation, losses
+from sentence_transformers.sparse_encoder.evaluation import SparseEmbeddingSimilarityEvaluator
+from sentence_transformers.sparse_encoder.losses import SparseMultipleNegativesRankingLoss, SpladeLoss
 from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
@@ -59,9 +60,9 @@ def main():
     # 3. Define our training loss.
     document_regularizer_weight = 3e-3
 
-    loss = losses.SpladeLoss(
+    loss = SpladeLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(
+        loss=SparseMultipleNegativesRankingLoss(
             model=model,
             scale=1,  # need to be adapt if used cosine similarity
             similarity_fct=model.similarity,  # Use the same similarity function as the model
@@ -72,7 +73,7 @@ def main():
 
     # 4. Define an evaluator for use during training. This is useful to keep track of alongside the evaluation loss.
     stsb_eval_dataset = load_dataset("sentence-transformers/stsb", split="validation")
-    dev_evaluator = evaluation.SparseEmbeddingSimilarityEvaluator(
+    dev_evaluator = SparseEmbeddingSimilarityEvaluator(
         sentences1=stsb_eval_dataset["sentence1"],
         sentences2=stsb_eval_dataset["sentence2"],
         scores=stsb_eval_dataset["score"],
@@ -120,7 +121,7 @@ def main():
 
     # 7. Evaluate the model performance on the STS Benchmark test dataset
     test_dataset = load_dataset("sentence-transformers/stsb", split="test")
-    test_evaluator = evaluation.SparseEmbeddingSimilarityEvaluator(
+    test_evaluator = SparseEmbeddingSimilarityEvaluator(
         sentences1=test_dataset["sentence1"],
         sentences2=test_dataset["sentence2"],
         scores=test_dataset["score"],
