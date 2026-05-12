@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from multiprocessing import Queue
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import torch
@@ -40,6 +40,9 @@ from sentence_transformers.util import (
     save_to_hub_args_decorator,
 )
 from sentence_transformers.util.misc import ORIGINAL_TRANSFORMER_MODELS
+
+if TYPE_CHECKING:
+    from transformers import PretrainedConfig
 
 logger = transformers_logging.get_logger(__name__)
 
@@ -70,6 +73,10 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     _default_prompts: dict[str, str | None] = {}
     # The placeholder model ID in model card templates that gets replaced with the actual model ID.
     _model_card_model_id_placeholder: str = "sentence_transformers_model_id"
+    # The archetype identifier written to `config_sentence_transformers.json` and used to
+    # discriminate which loader path runs (see `_load_modules`). Subclasses inherit the
+    # archetype value by default; override on a subclass to opt out of that identity.
+    model_type: str
 
     def __init__(
         self,
@@ -165,7 +172,6 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self.module_kwargs = None
         self._model_card_vars = {}
         self._model_card_text = None
-        self.model_type = self.__class__.__name__
         self.backend = backend
 
         if cache_folder is None:
@@ -903,11 +909,20 @@ This pull request has been automatically generated to add {self.__class__.__name
                 if replace_model_card:
                     create_model_card_for_path = True
                 else:
-                    # If replace_model_card=False, skip model card creation only if there's already a README.md
-                    existing_readme = load_file_path(
-                        repo_id, "README.md", token=token, revision=revision, local_files_only=False
-                    )
-                    create_model_card_for_path = existing_readme is None
+                    # If replace_model_card=False, skip model card creation only if there's already a README.md.
+                    # On a transient Hub error during the probe, default to skipping card creation so we
+                    # don't accidentally overwrite an existing README we couldn't verify.
+                    try:
+                        existing_readme = load_file_path(
+                            repo_id, "README.md", token=token, revision=revision, local_files_only=False
+                        )
+                        create_model_card_for_path = existing_readme is None
+                    except Exception as exc:
+                        logger.warning(
+                            f"Could not check for an existing README.md on {repo_id!r} ({type(exc).__name__}: {exc}). "
+                            "Skipping model card creation to avoid overwriting any existing card."
+                        )
+                        create_model_card_for_path = False
                 self.save(
                     tmp_dir,
                     model_name=repo_id,
@@ -1064,15 +1079,23 @@ This pull request has been automatically generated to add {self.__class__.__name
 
             self._parse_model_config(model_config)
 
-        # Check if a readme exists
-        model_card_path = load_file_path(
-            model_name_or_path,
-            "README.md",
-            token=token,
-            cache_folder=cache_folder,
-            revision=revision,
-            local_files_only=local_files_only,
-        )
+        # Check if a readme exists. README is optional metadata; a transient Hub error
+        # here shouldn't block model loading.
+        try:
+            model_card_path = load_file_path(
+                model_name_or_path,
+                "README.md",
+                token=token,
+                cache_folder=cache_folder,
+                revision=revision,
+                local_files_only=local_files_only,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Could not fetch README.md from {model_name_or_path!r} ({type(exc).__name__}: {exc}). "
+                "Model will load without a model card."
+            )
+            model_card_path = None
         if model_card_path is not None:
             try:
                 with open(model_card_path, encoding="utf8") as fIn:
@@ -1097,7 +1120,14 @@ This pull request has been automatically generated to add {self.__class__.__name
         for module_config in modules_config:
             class_ref = module_config["type"]
             module_class: Module = self._load_module_class_from_ref(
-                class_ref, model_name_or_path, trust_remote_code, revision, model_kwargs
+                class_ref,
+                model_name_or_path,
+                trust_remote_code,
+                revision,
+                model_kwargs,
+                token=token,
+                cache_folder=cache_folder,
+                local_files_only=local_files_only,
             )
 
             # Backwards compatibility: if the module is older and its `load` method only supports one parameter,
@@ -1288,6 +1318,9 @@ This pull request has been automatically generated to add {self.__class__.__name
         trust_remote_code: bool,
         revision: str | None,
         model_kwargs: dict[str, Any] | None,
+        token: bool | str | None = None,
+        cache_folder: str | None = None,
+        local_files_only: bool = False,
     ) -> nn.Module:
         """
         Load a module class from a class reference string.
@@ -1298,6 +1331,9 @@ This pull request has been automatically generated to add {self.__class__.__name
             trust_remote_code: Whether to trust remote code
             revision: The model revision
             model_kwargs: Additional model kwargs
+            token: Hub auth token, required for private repos when fetching custom modeling files.
+            cache_folder: Optional override for the Hub cache directory.
+            local_files_only: Restrict to local cache (no Hub network calls).
 
         Returns:
             The module class
@@ -1309,6 +1345,9 @@ This pull request has been automatically generated to add {self.__class__.__name
             trust_remote_code=trust_remote_code,
             revision=revision,
             code_revision=code_revision,
+            token=token,
+            cache_folder=cache_folder,
+            local_files_only=local_files_only,
         )
 
     def evaluate(self, evaluator: BaseEvaluator, output_path: str | None = None) -> dict[str, float] | float:
@@ -1520,6 +1559,21 @@ This pull request has been automatically generated to add {self.__class__.__name
             if isinstance(module, PreTrainedModel):
                 return module
         return None
+
+    @property
+    def config(self) -> PretrainedConfig | None:
+        """The transformers ``PretrainedConfig`` of the underlying model.
+
+        Several integrations (most notably Deepspeed and ``transformers.Trainer``) read
+        ``model.config.hidden_size`` directly. Without this delegation those integrations
+        crash with ``AttributeError: 'SentenceTransformer' object has no attribute 'config'``
+        because :class:`BaseModel` is an ``nn.Sequential`` rather than a ``PreTrainedModel``.
+
+        Returns the config of :attr:`transformers_model`, or ``None`` when no underlying
+        transformers model can be located (e.g. a pure StaticEmbedding-only setup).
+        """
+        underlying = self.transformers_model
+        return getattr(underlying, "config", None)
 
     @property
     def _target_device(self) -> torch.device:

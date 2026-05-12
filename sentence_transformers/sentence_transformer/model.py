@@ -139,6 +139,7 @@ class SentenceTransformer(BaseModel, FitMixin):
     model_card_data_class = SentenceTransformerModelCardData
     default_huggingface_organization: str | None = "sentence-transformers"
     _default_prompts: dict[str, str | None] = {"query": None, "document": None}
+    model_type: str = "SentenceTransformer"
 
     @deprecated_kwargs(tokenizer_kwargs="processor_kwargs")
     def __init__(

@@ -140,6 +140,7 @@ class CrossEncoder(BaseModel, FitMixin):
     model_card_data_class = CrossEncoderModelCardData
     default_huggingface_organization: str | None = "cross-encoder"
     _model_card_model_id_placeholder = "cross_encoder_model_id"
+    model_type: str = "CrossEncoder"
 
     @cross_encoder_init_args_decorator
     def __init__(
@@ -420,13 +421,6 @@ class CrossEncoder(BaseModel, FitMixin):
         if self.num_labels == 1:
             return nn.Sigmoid()
         return nn.Identity()
-
-    @property
-    def config(self) -> PretrainedConfig | None:
-        transformers_model = self.transformers_model
-        if transformers_model is None:
-            return None
-        return transformers_model.config
 
     @property
     def model(self) -> PreTrainedModel | None:

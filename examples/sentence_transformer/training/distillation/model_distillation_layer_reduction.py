@@ -1,32 +1,37 @@
 """
-This file contains an example how to make a SentenceTransformer model faster and lighter.
+Distill a slow but high-quality teacher SentenceTransformer into a faster student
+by surgically dropping layers from the teacher and fine-tuning the remaining stack
+to recover the teacher's embeddings.
 
-This is achieved by using Knowledge Distillation: We use a well working teacher model to train
-a fast and light student model. The student model learns to imitate the produced
-sentence embeddings from the teacher. We train this on a diverse set of sentences we got
-from SNLI + Multi+NLI + Wikipedia.
+This script starts from ``mxbai-embed-large-v1`` and keeps every third transformer
+layer (8 of 24), then trains the resulting student to imitate the original teacher's
+sentence embeddings on a diverse corpus (SNLI + Multi-NLI + Wikipedia). For an
+alternative that trains a separate small model from scratch, see
+``model_distillation.py``.
 
-After the distillation is finished, the student model produce nearly the same embeddings as the
-teacher, however, it will be much faster.
+Pipeline:
 
-The script implements to options two options to initialize the student:
-Option 1: Train a light transformer model like TinyBERT to imitate the teacher
-Option 2: We take the teacher model and keep only certain layers, for example, only 4 layers.
+1. Clone the teacher into a student, then drop layers from the student's encoder.
+2. Pre-compute teacher embeddings for every training sentence and store them as the
+   dataset's ``label`` column. Cached to disk so subsequent runs skip the teacher
+   inference step.
+3. Train the student with :class:`MSELoss`. No projection is needed: the layer-reduced
+   student inherits the teacher's hidden size, so it stays a drop-in replacement at
+   the same dimensionality.
 
-Option 2) works usually better, as we keep most of the weights from the teacher. In Option 1, we have to tune all
-weights in the student from scratch.
-
-There is a performance - speed trade-off. However, we found that a student with 4 instead of 12 layers keeps about 99.4%
-of the teacher performance, while being 2.3 times faster.
+This recipe usually outperforms training a small model from scratch (Option 1 in the
+README) because it keeps most of the teacher's weights, which already encode useful
+linguistic structure.
 """
 
 import logging
 import traceback
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import torch
-from datasets import Dataset, concatenate_datasets, load_dataset
+from datasets import Dataset, DatasetDict, concatenate_datasets, load_dataset, load_from_disk
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import (
@@ -43,7 +48,7 @@ from sentence_transformers.util.similarity import SimilarityFunction
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
 
-# Teacher Model: Model we want to distill to a smaller model
+# Teacher Model: Model we want to distill into a smaller model
 teacher_model_name = "mixedbread-ai/mxbai-embed-large-v1"
 teacher_model = SentenceTransformer(teacher_model_name)
 
@@ -52,8 +57,8 @@ output_dir = "output/model-distillation-" + datetime.now().strftime("%Y-%m-%d_%H
 # Create a smaller student model by using only some of the teacher layers
 student_model = SentenceTransformer(teacher_model_name)
 
-# Get the transformer model
-auto_model = student_model._first_module().auto_model
+# Get the underlying transformers model so we can surgically remove layers
+auto_model = student_model.transformers_model
 
 # Which layers to keep from the teacher model. We equally spread the layers to keep over the original teacher
 # layers_to_keep = [5]
@@ -130,7 +135,7 @@ eval_dataset: Dataset = concatenate_datasets(
 )
 
 
-# Use the teacher model to get the gold embeddings
+# Use the teacher model to get the gold embeddings for each sentence
 def map_embeddings(batch):
     return {
         "label": teacher_model.encode(
@@ -139,17 +144,24 @@ def map_embeddings(batch):
     }
 
 
-train_dataset = train_dataset.map(map_embeddings, batched=True, batch_size=50000)
-# Optionally, save the dataset to disk to speed up future runs
-train_dataset.save_to_disk("datasets/distillation_train_dataset")
-# from datasets import DatasetDict, load_from_disk
+# Pre-compute teacher embeddings for the training set, caching to disk so reruns skip
+# the teacher inference step. Eval is small enough to recompute each run.
+# Note: distinct cache path from model_distillation.py since the teacher (and embedding
+# dim) is different.
+train_cache_dir = Path("datasets/distillation_layer_reduction_train_dataset")
+if train_cache_dir.exists():
+    logging.info("Loading pre-computed teacher embeddings from disk...")
+    train_dataset = load_from_disk(str(train_cache_dir))
+    if isinstance(train_dataset, DatasetDict):
+        train_dataset = train_dataset["train"]
+else:
+    train_dataset = train_dataset.map(map_embeddings, batched=True, batch_size=50000)
+    train_dataset.save_to_disk(str(train_cache_dir))
 
-# train_dataset = load_from_disk("datasets/distillation_train_dataset")
-# if isinstance(train_dataset, DatasetDict):
-#     train_dataset = train_dataset["train"]
 eval_dataset = eval_dataset.map(map_embeddings, batched=True, batch_size=50000)
 
-# Prepare the training loss
+# Prepare the training loss. The student inherits the teacher's hidden size after layer
+# reduction, so no projection_dim is needed.
 train_loss = MSELoss(model=student_model)
 
 # Create an STSB evaluator
@@ -163,7 +175,7 @@ dev_evaluator_stsb = EmbeddingSimilarityEvaluator(
 logging.info("Running STSB evaluation on the teacher model")
 dev_evaluator_stsb(teacher_model)
 
-# We create an evaluator, that measure the Mean Squared Error (MSE) between the teacher and the student embeddings
+# We create an evaluator that measures the Mean Squared Error (MSE) between the teacher and the student embeddings
 eval_sentences = eval_dataset["sentence"]
 dev_evaluator_mse = MSEEvaluator(eval_sentences, eval_sentences, teacher_model=teacher_model)
 dev_evaluator = SequentialEvaluator([dev_evaluator_stsb, dev_evaluator_mse])

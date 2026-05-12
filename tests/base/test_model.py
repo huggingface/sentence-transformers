@@ -148,6 +148,24 @@ def test_preprocess_skips_modality_check_for_empty_inputs(
     assert isinstance(features, dict)
 
 
+def test_config_delegates_to_underlying_transformers_model(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """`model.config` should return the underlying transformers PretrainedConfig so
+    integrations like Deepspeed and transformers.Trainer can read `hidden_size` etc.
+    """
+    assert stsb_bert_tiny_model.config is not None
+    assert hasattr(stsb_bert_tiny_model.config, "hidden_size")
+    assert stsb_bert_tiny_model.config.hidden_size == stsb_bert_tiny_model.transformers_model.config.hidden_size
+
+
+def test_config_returns_none_when_no_underlying_transformers_model(
+    static_embedding_model: SentenceTransformer,
+) -> None:
+    """If the model has no underlying transformers PreTrainedModel (e.g. StaticEmbedding-only),
+    `model.config` returns `None` instead of raising.
+    """
+    assert static_embedding_model.config is None
+
+
 def test_sentence_transformer(stsb_bert_tiny_model: SentenceTransformer) -> None:
     assert stsb_bert_tiny_model.supports("text")
     assert not stsb_bert_tiny_model.supports("image")
