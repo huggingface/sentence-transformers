@@ -36,6 +36,7 @@ from sentence_transformers.util import cos_sim
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 # Define a custom loss that combines InfoNCE and Global Orthogonal Regularization

@@ -24,7 +24,7 @@ from datetime import datetime
 import numpy as np
 from datasets import DatasetDict, load_dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import (
     EmbeddingSimilarityEvaluator,
     MSEEvaluator,
@@ -35,9 +35,9 @@ from sentence_transformers.sentence_transformer.losses import MSELoss
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

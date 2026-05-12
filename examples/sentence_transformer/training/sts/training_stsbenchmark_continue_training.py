@@ -22,6 +22,7 @@ from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # You can specify any Sentence Transformer model here, for example sentence-transformers/all-mpnet-base-v2, sentence-transformers/all-MiniLM-L6-v2, mixedbread-ai/mxbai-embed-large-v1
 model_name = sys.argv[1] if len(sys.argv) > 1 else "sentence-transformers/all-mpnet-base-v2"

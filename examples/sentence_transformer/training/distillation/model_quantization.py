@@ -20,8 +20,9 @@ from sentence_transformers import (
 )
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 
-#### Just some code to print debug information to stdout
+# Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Load some sentences from the STSbenchmark dataset
 train_dataset = load_dataset("sentence-transformers/stsb", split="train")

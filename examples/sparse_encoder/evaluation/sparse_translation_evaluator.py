@@ -5,7 +5,8 @@ from datasets import load_dataset
 from sentence_transformers import SparseEncoder
 from sentence_transformers.sparse_encoder.evaluation import SparseTranslationEvaluator
 
-logging.basicConfig(format="%(message)s", level=logging.INFO)
+logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Load a model, not mutilingual but hope to see some on the hub soon
 model = SparseEncoder("naver/splade-cocondenser-ensembledistil")

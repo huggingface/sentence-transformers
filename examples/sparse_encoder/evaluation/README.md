@@ -38,7 +38,7 @@ from datasets import load_dataset
 from sentence_transformers import SparseEncoder
 from sentence_transformers.sparse_encoder.evaluation import SparseInformationRetrievalEvaluator
 
-logging.basicConfig(format="%(message)s", level=logging.INFO)
+logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
 
 # Load a model
 model = SparseEncoder("naver/splade-cocondenser-ensembledistil")

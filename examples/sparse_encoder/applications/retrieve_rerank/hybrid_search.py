@@ -14,7 +14,8 @@ from sentence_transformers.sparse_encoder.evaluation import (
 from sentence_transformers.sparse_encoder.modules import SpladePooling, Transformer
 
 # Configure logging
-logging.basicConfig(format="%(message)s", level=logging.INFO)
+logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Create output directories

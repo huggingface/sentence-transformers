@@ -27,6 +27,7 @@ from sentence_transformers.util import cos_sim
 
 # Set up logging
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def main():

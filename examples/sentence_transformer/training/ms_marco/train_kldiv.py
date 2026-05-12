@@ -19,6 +19,7 @@ from sentence_transformers.sentence_transformer.evaluation import (
 from sentence_transformers.sentence_transformer.losses import DistillKLDivLoss
 
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 random.seed(12)
 torch.manual_seed(12)
 numpy.random.seed(12)

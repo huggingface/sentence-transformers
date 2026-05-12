@@ -51,7 +51,7 @@ class SparseTranslationEvaluator(TranslationEvaluator):
             from sentence_transformers import SparseEncoder
             from sentence_transformers.sparse_encoder.evaluation import SparseTranslationEvaluator
 
-            logging.basicConfig(format="%(message)s", level=logging.INFO)
+            logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
 
             # Load a model, not mutilingual but hope to see some on the hub soon
             model = SparseEncoder("naver/splade-cocondenser-ensembledistil")

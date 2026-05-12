@@ -17,6 +17,7 @@ def main():
 
     # Set the log level to INFO to get more information
     logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     train_batch_size = 32
     num_epochs = 1

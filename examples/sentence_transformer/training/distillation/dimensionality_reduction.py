@@ -29,6 +29,7 @@ from sentence_transformers.sentence_transformer.modules import Dense
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Model for which we apply dimensionality reduction
 model_name = "sentence-transformers/all-MiniLM-L6-v2"

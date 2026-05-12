@@ -22,6 +22,7 @@ from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 model_name = "distilbert/distilroberta-base"
 num_epochs = 1

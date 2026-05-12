@@ -3,7 +3,7 @@ from datetime import datetime
 
 from datasets import load_dataset
 
-from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.sentence_transformer.losses import ContrastiveTensionLossInBatchNegatives
 from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
@@ -11,11 +11,9 @@ from sentence_transformers.sentence_transformer.trainer import SentenceTransform
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util import dot_score
 
-# Just some code to print debug information to stdout
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
-# print debug information to stdout
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Training parameters
 model_name = "distilbert/distilbert-base-uncased"

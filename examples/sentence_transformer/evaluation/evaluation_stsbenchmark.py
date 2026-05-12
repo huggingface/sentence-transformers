@@ -25,6 +25,7 @@ torch.set_num_threads(4)
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 model_name = sys.argv[1] if len(sys.argv) > 1 else "sentence-transformers/stsb-distilroberta-base-v2"
 

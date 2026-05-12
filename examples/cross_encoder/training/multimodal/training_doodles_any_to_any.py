@@ -33,6 +33,7 @@ from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
 
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Config
 train_batch_size = 8

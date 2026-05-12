@@ -11,14 +11,12 @@ import os
 import sys
 import tarfile
 
-from sentence_transformers import LoggingHandler, SentenceTransformer, evaluation
+from sentence_transformers import SentenceTransformer, evaluation
 from sentence_transformers.util import http_get
 
-#### Just some code to print debug information to stdout
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
-#### /print debug information to stdout
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Name of the SBERT model
 model_name = sys.argv[1]

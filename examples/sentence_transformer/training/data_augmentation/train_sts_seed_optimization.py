@@ -34,7 +34,7 @@ import torch
 from datasets import load_dataset
 from transformers import TrainerCallback, TrainerControl, TrainerState
 
-from sentence_transformers import LoggingHandler, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss
 from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
@@ -42,10 +42,9 @@ from sentence_transformers.sentence_transformer.trainer import SentenceTransform
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util.similarity import SimilarityFunction
 
-#### Just some code to print debug information to stdout
-logging.basicConfig(
-    format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
-)
+# Set the log level to INFO to get more information
+logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # You can specify any huggingface/transformers pre-trained model here, for example, google-bert/bert-base-uncased, FacebookAI/roberta-base, FacebookAI/xlm-roberta-base
 model_name = sys.argv[1] if len(sys.argv) > 1 else "google-bert/bert-base-uncased"
