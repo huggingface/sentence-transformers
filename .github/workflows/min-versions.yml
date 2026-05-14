@@ -19,6 +19,9 @@ env:
   TRANSFORMERS_IS_CI: 1
   HF_HUB_DISABLE_PROGRESS_BARS: 1
 
+permissions:
+  contents: read
+
 jobs:
   test_min_versions:
     name: Test minimum dependency versions
