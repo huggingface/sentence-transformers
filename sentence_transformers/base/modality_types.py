@@ -65,3 +65,5 @@ MODALITY_TO_PROCESSOR_ARG: dict[Modality, ProcessorArgName] = {
     "video": "videos",
     "message": "message",
 }
+
+MULTIMODAL_DICT_KEYS = frozenset({"text", "image", "audio", "video"})
