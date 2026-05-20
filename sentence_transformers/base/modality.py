@@ -12,6 +12,7 @@ import numpy as np
 import torch
 
 from sentence_transformers.base.modality_types import (
+    MULTIMODAL_DICT_KEYS,
     AudioInput,
     MessageFormat,
     Modality,
@@ -273,6 +274,10 @@ class InputFormatter:
 
             modality = infer_modality(item, supported_modalities=self.supported_modalities)  # type: ignore[arg-type]  # non-text pairs filtered above
 
+            # Unwrap single-key multimodal dict: {"image": pil} -> use pil as the value
+            if isinstance(item, dict) and modality in MULTIMODAL_DICT_KEYS and item.keys() == {modality}:
+                item = item[modality]
+
             # For dict-wrapped audio/video (including inside a multimodal dict), unwrap the array
             # and collect extra kwargs. For a single message dict, wrap it in a list.
             # All other values pass through as-is.
@@ -362,6 +367,9 @@ class InputFormatter:
             # matching the behavior of to_message() for multi-modal inputs.
             if isinstance(modality, tuple) and isinstance(item, dict):
                 return [{"type": mod, mod: item[mod]} for mod in modality if mod in item]
+            # Unwrap single-key multimodal dict: {"image": pil} -> use pil as the value
+            if isinstance(item, dict) and modality in MULTIMODAL_DICT_KEYS and item.keys() == {modality}:
+                item = item[modality]
             return [{"type": modality, modality: item}]
 
         return [
@@ -551,7 +559,8 @@ def infer_modality(
             This prevents misclassification of text that happens to contain media URLs.
 
     Returns:
-        The detected modality string, or a tuple of modality strings for multimodal dict inputs.
+        The detected modality string, or a tuple of modality strings for multimodal dict inputs
+        with 2+ keys. A 1-key dict like ``{"image": pil}`` collapses to the bare modality string.
 
     Raises:
         ValueError: If the input type/structure is not recognized.
@@ -596,14 +605,17 @@ def infer_modality(
                 f"Got keys: {set(sample.keys())}"
             )
         case dict() if sample:
-            # Multimodal dict: keys are modality names (sorted for consistent route lookups)
-            valid_modalities = {"text", "image", "audio", "video"}
-            invalid_keys = set(sample.keys()) - valid_modalities
+            # Single-key dicts collapse to the bare modality string so {"image": pil} matches
+            # the same support/routing as a raw PIL input.
+            invalid_keys = set(sample.keys()) - MULTIMODAL_DICT_KEYS
             if invalid_keys:
                 raise ValueError(
                     f"Multimodal dict input contains unrecognized modality keys: {invalid_keys}. "
-                    f"Expected keys from: {valid_modalities}"
+                    f"Expected keys from: {sorted(MULTIMODAL_DICT_KEYS)}"
                 )
+            if len(sample) == 1:
+                return next(iter(sample))
+            # Multimodal dict: keys are modality names (sorted for consistent route lookups)
             return tuple(sorted(sample.keys()))
         case dict():
             raise ValueError("Empty dict input is not a valid input sample.")
