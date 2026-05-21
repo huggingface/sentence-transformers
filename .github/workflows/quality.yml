@@ -28,7 +28,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6
       - name: Install pre-commit
-        run: uv pip install pre-commit --system
+        run: uv pip install --prerelease=allow pre-commit --system
       - name: Code quality
         run: |
           make check
