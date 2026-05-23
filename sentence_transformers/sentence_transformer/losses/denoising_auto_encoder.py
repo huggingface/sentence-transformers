@@ -4,15 +4,34 @@ import logging
 from collections.abc import Iterable
 from typing import Any
 
-from packaging.version import Version, parse
 from torch import Tensor, nn
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
-from transformers import __version__ as transformers_version
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 
 logger = logging.getLogger(__name__)
+
+
+def _tie_encoder_decoder_weights(encoder: nn.Module, decoder: nn.Module) -> None:
+    """Share the encoder's parameters with the identically-named decoder parameters.
+
+    Replaces ``transformers.PreTrainedModel._tie_encoder_decoder_weights``, removed in
+    transformers 5.0.0 (which moved tying to an in-model ``_tied_weights_keys`` mapping that
+    cannot span two separate model instances). Tying requires encoder and decoder to share an
+    architecture, so the decoder's parameters map onto the encoder by name; the decoder-only
+    cross-attention parameters simply have no encoder counterpart and are skipped.
+    """
+    encoder_modules = dict(encoder.named_modules())
+    tied = 0
+    for name, param in decoder.named_parameters(remove_duplicate=False):
+        module_name, _, attr = name.rpartition(".")
+        module = encoder_modules.get(module_name)
+        if module is not None and hasattr(module, attr):
+            setattr(module, attr, param)  # encoder param now references the decoder's
+            tied += 1
+    if not tied:
+        logger.warning("No encoder weights were tied to the decoder; are they the same architecture?")
 
 
 class DenoisingAutoEncoderLoss(nn.Module):
@@ -142,12 +161,6 @@ class DenoisingAutoEncoderLoss(nn.Module):
             )
 
         if tie_encoder_decoder:
-            if parse(transformers_version) >= Version("5.0.0"):
-                raise RuntimeError(
-                    "Tying encoder and decoder weights is not currently supported for transformers version >= 5.0.0. "
-                    "Please either install transformers<5.0.0 or set tie_encoder_decoder=False."
-                )
-
             assert not self.need_retokenization, "The tokenizers should be the same when tie_encoder_decoder=True."
             if len(self.tokenizer_encoder) != len(self.tokenizer_decoder):  # The vocabulary has been changed.
                 self.tokenizer_decoder = self.tokenizer_encoder
@@ -155,22 +168,10 @@ class DenoisingAutoEncoderLoss(nn.Module):
                 logger.warning(
                     "Since the encoder vocabulary has been changed and --tie_encoder_decoder=True, now the new vocabulary has also been used for the decoder."
                 )
-            decoder_base_model_prefix = self.decoder.base_model_prefix
-            try:
-                # Compatibility with transformers <4.40.0
-                PreTrainedModel._tie_encoder_decoder_weights(
-                    model.transformers_model,
-                    self.decoder._modules[decoder_base_model_prefix],
-                    self.decoder.base_model_prefix,
-                )
-            except TypeError:
-                # Compatibility with transformers >=4.40.0
-                PreTrainedModel._tie_encoder_decoder_weights(
-                    model.transformers_model,
-                    self.decoder._modules[decoder_base_model_prefix],
-                    self.decoder.base_model_prefix,
-                    encoder_name_or_path,
-                )
+            # Tie locally so it works on transformers >= 5.0.0, which removed
+            # PreTrainedModel._tie_encoder_decoder_weights (see _tie_encoder_decoder_weights above).
+            decoder_base = self.decoder._modules[self.decoder.base_model_prefix]
+            _tie_encoder_decoder_weights(model.transformers_model, decoder_base)
 
     def retokenize(self, sentence_features: dict[str, Tensor]) -> dict[str, Tensor]:
         input_ids = sentence_features["input_ids"]
