@@ -11,11 +11,9 @@ python translate_queries [target_language]
 import logging
 import os
 import sys
-import tarfile
 
+from datasets import load_dataset
 from easynmt import EasyNMT
-
-from sentence_transformers.util import http_get
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -23,7 +21,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 target_lang = sys.argv[1]
 output_folder = "multilingual-data"
-data_folder = "../msmarco-data"
 
 output_filename = os.path.join(output_folder, f"train_queries.en-{target_lang}.tsv")
 os.makedirs(output_folder, exist_ok=True)
@@ -37,38 +34,21 @@ if os.path.exists(output_filename):
             splits = line.strip().split("\t")
             translated_qids.add(splits[0])
 
-### Now we read the MS Marco dataset
-os.makedirs(data_folder, exist_ok=True)
+### Read the MS MARCO dataset from the maintained Hugging Face datasets (replaces the raw downloads)
 
-# Read qrels file for relevant positives per query
+# Train queries that have relevance judgements (the set the original script translated), minus the
+# ones already translated.
 train_queries = {}
-qrels_train = os.path.join(data_folder, "qrels.train.tsv")
-if not os.path.exists(qrels_train):
-    http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/qrels.train.tsv", qrels_train)
+for row in load_dataset("mteb/msmarco", "default", split="train"):
+    qid = str(row["query-id"])
+    if qid not in translated_qids:
+        train_queries[qid] = None
 
-with open(qrels_train) as fIn:
-    for line in fIn:
-        qid, _, pid, _ = line.strip().split()
-        if qid not in translated_qids:
-            train_queries[qid] = None
-
-# Read all queries
-queries_filepath = os.path.join(data_folder, "queries.train.tsv")
-if not os.path.exists(queries_filepath):
-    tar_filepath = os.path.join(data_folder, "queries.tar.gz")
-    if not os.path.exists(tar_filepath):
-        logging.info("Download queries.tar.gz")
-        http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/queries.tar.gz", tar_filepath)
-
-    with tarfile.open(tar_filepath, "r:gz") as tar:
-        tar.extractall(path=data_folder)
-
-
-with open(queries_filepath, encoding="utf8") as fIn:
-    for line in fIn:
-        qid, query = line.strip().split("\t")
-        if qid in train_queries:
-            train_queries[qid] = query.strip()
+# Fill in the query texts
+for row in load_dataset("mteb/msmarco", "queries", split="queries"):
+    qid = str(row["_id"])
+    if qid in train_queries:
+        train_queries[qid] = row["text"].strip()
 
 
 qids = [qid for qid in train_queries if train_queries[qid] is not None]
