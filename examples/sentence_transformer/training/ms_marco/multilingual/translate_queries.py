@@ -26,7 +26,7 @@ output_filename = os.path.join(output_folder, f"train_queries.en-{target_lang}.t
 os.makedirs(output_folder, exist_ok=True)
 
 
-## Does the output file exists? If yes, read it so we can continue the translation
+# Does the output file exists? If yes, read it so we can continue the translation
 translated_qids = set()
 if os.path.exists(output_filename):
     with open(output_filename, encoding="utf8") as fIn:
@@ -34,10 +34,9 @@ if os.path.exists(output_filename):
             splits = line.strip().split("\t")
             translated_qids.add(splits[0])
 
-### Read the MS MARCO dataset from the maintained Hugging Face datasets (replaces the raw downloads)
+# Read the MS MARCO dataset
 
-# Train queries that have relevance judgements (the set the original script translated), minus the
-# ones already translated.
+# Train queries that have relevance judgements (the set the original script translated), minus the ones already translated.
 train_queries = {}
 for row in load_dataset("mteb/msmarco", "default", split="train"):
     qid = str(row["query-id"])

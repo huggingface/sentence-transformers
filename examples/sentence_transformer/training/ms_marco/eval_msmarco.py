@@ -25,11 +25,11 @@ model_name = sys.argv[1]
 corpus_max_size = int(sys.argv[2]) * 1000 if len(sys.argv) >= 3 else 0
 
 
-####  Load model
+#  Load model
 
 model = SentenceTransformer(model_name)
 
-### Load data from the maintained Hugging Face datasets (replaces the raw MS MARCO downloads)
+# Read the MS MARCO dataset
 
 corpus = {}  # Our corpus pid => passage
 dev_queries = {}  # Our dev queries. qid => query
@@ -37,7 +37,7 @@ dev_rel_docs = {}  # Mapping qid => set with relevant pids
 needed_pids = set()  # Passage IDs we need
 needed_qids = set()  # Query IDs we need
 
-# Load which passages are relevant for which queries (standard MS MARCO dev-small, 6980 queries)
+# Load the 6980 dev queries
 for row in load_dataset("mteb/msmarco", "default", split="dev"):
     qid, pid = str(row["query-id"]), str(row["corpus-id"])
     dev_rel_docs.setdefault(qid, set()).add(pid)
@@ -57,7 +57,7 @@ for row in load_dataset("sentence-transformers/msmarco", "corpus", split="train"
         corpus[pid] = row["passage"].strip()
 
 
-## Run evaluator
+# Run evaluator
 logging.info(f"Queries: {len(dev_queries)}")
 logging.info(f"Corpus: {len(corpus)}")
 
