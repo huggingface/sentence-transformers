@@ -21,21 +21,19 @@ that it aligned for 100 languages. I.e., you can type in a question in various l
 return the closest questions in the corpus (questions in the corpus are mainly in English).
 """
 
-import csv
 import os
 import pickle
 import time
 
 import hnswlib
+from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.util import http_get, semantic_search
+from sentence_transformers.util import semantic_search
 
 model_name = "sentence-transformers/quora-distilbert-multilingual"
 model = SentenceTransformer(model_name)
 
-url = "http://qim.fs.quoracdn.net/quora_duplicate_questions.tsv"
-dataset_path = "quora_duplicate_questions.tsv"
 max_corpus_size = 100000
 
 embedding_cache_path = "quora-embeddings-{}-size-{}.pkl".format(model_name.replace("/", "_"), max_corpus_size)
@@ -46,24 +44,17 @@ top_k_hits = 10  # Output k hits
 
 # Check if embedding cache path exists
 if not os.path.exists(embedding_cache_path):
-    # Check if the dataset exists. If not, download and extract
-    # Download dataset if needed
-    if not os.path.exists(dataset_path):
-        print("Download dataset")
-        http_get(url, dataset_path)
-
-    # Get all unique sentences from the file
+    # Get all unique sentences from the dataset
+    dataset = load_dataset("sentence-transformers/quora-duplicates", "pair-class", split="train")
     corpus_sentences = set()
-    with open(dataset_path, encoding="utf8") as fIn:
-        reader = csv.DictReader(fIn, delimiter="\t", quoting=csv.QUOTE_MINIMAL)
-        for row in reader:
-            corpus_sentences.add(row["question1"])
-            if len(corpus_sentences) >= max_corpus_size:
-                break
+    for row in dataset:
+        corpus_sentences.add(row["sentence1"])
+        if len(corpus_sentences) >= max_corpus_size:
+            break
 
-            corpus_sentences.add(row["question2"])
-            if len(corpus_sentences) >= max_corpus_size:
-                break
+        corpus_sentences.add(row["sentence2"])
+        if len(corpus_sentences) >= max_corpus_size:
+            break
 
     corpus_sentences = list(corpus_sentences)
     print("Encode the corpus. This might take a while")
