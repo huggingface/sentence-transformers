@@ -22,6 +22,7 @@ from collections import defaultdict
 import numpy as np
 import pytrec_eval
 import tqdm
+from datasets import load_dataset
 
 from sentence_transformers import CrossEncoder
 from sentence_transformers.util import http_get
@@ -29,46 +30,16 @@ from sentence_transformers.util import http_get
 data_folder = "trec2019-data"
 os.makedirs(data_folder, exist_ok=True)
 
-# Read test queries
-queries = {}
-queries_filepath = os.path.join(data_folder, "msmarco-test2019-queries.tsv.gz")
-if not os.path.exists(queries_filepath):
-    logging.info("Download " + os.path.basename(queries_filepath))
-    http_get(
-        "https://msmarco.z22.web.core.windows.net/msmarcoranking/msmarco-test2019-queries.tsv.gz", queries_filepath
-    )
-
-with gzip.open(queries_filepath, "rt", encoding="utf8") as fIn:
-    for line in fIn:
-        qid, query = line.strip().split("\t")
-        queries[qid] = query
-
+# The TREC-DL 2019 passage qrels are the `test` split of the maintained mteb/msmarco dataset.
 # Read which passages are relevant
 relevant_docs = defaultdict(lambda: defaultdict(int))
-qrels_filepath = os.path.join(data_folder, "2019qrels-pass.txt")
-
-if not os.path.exists(qrels_filepath):
-    logging.info("Download " + os.path.basename(qrels_filepath))
-    http_get("https://trec.nist.gov/data/deep/2019qrels-pass.txt", qrels_filepath)
-
-
-with open(qrels_filepath) as fIn:
-    for line in fIn:
-        qid, _, pid, score = line.strip().split()
-        score = int(score)
-        if score > 0:
-            relevant_docs[qid][pid] = score
-
-# Only use queries that have at least one relevant passage
-relevant_qid = []
-for qid in queries:
-    if len(relevant_docs[qid]) > 0:
-        relevant_qid.append(qid)
-
+for row in load_dataset("mteb/msmarco", "default", split="test"):
+    score = int(row["score"])
+    if score > 0:
+        relevant_docs[str(row["query-id"])][str(row["corpus-id"])] = score
 
 # Read the top 1000 passages that are supposed to be re-ranked
 passage_filepath = os.path.join(data_folder, "msmarco-passagetest2019-top1000.tsv.gz")
-
 if not os.path.exists(passage_filepath):
     logging.info("Download " + os.path.basename(passage_filepath))
     http_get(
@@ -76,15 +47,19 @@ if not os.path.exists(passage_filepath):
         passage_filepath,
     )
 
-
+queries = {}
 passage_cand = {}
 with gzip.open(passage_filepath, "rt", encoding="utf8") as fIn:
     for line in fIn:
         qid, pid, query, passage = line.strip().split("\t")
+        queries[qid] = query
         if qid not in passage_cand:
             passage_cand[qid] = []
 
         passage_cand[qid].append([pid, passage])
+
+# Only use queries that have at least one relevant passage
+relevant_qid = [qid for qid in queries if len(relevant_docs[qid]) > 0]
 
 logging.info(f"Queries: {len(queries)}")
 
