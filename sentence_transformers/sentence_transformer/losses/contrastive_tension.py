@@ -33,11 +33,11 @@ class ContrastiveTensionLoss(nn.Module):
         * `Unsupervised Learning > CT <../../../examples/sentence_transformer/unsupervised_learning/CT/README.html>`_
 
     Inputs:
-        +================================+=========+
+        +------------------------------------------+
         | Inputs                         | Labels  |
         +================================+=========+
         | (input_A, input_B) pairs       | None    |
-        +================================+=========+
+        +------------------------------------------+
 
     Relations:
         * :class:`ContrastiveTensionLossInBatchNegatives` uses in-batch negative sampling, which gives a stronger training signal than this loss.
