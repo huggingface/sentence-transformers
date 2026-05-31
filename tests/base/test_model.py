@@ -128,6 +128,24 @@ def test_preprocess_rejects_multimodal_without_message_support(
         stsb_bert_tiny_model.preprocess(["dummy text"])
 
 
+def test_preprocess_rejects_mixed_batch_without_message_support(
+    stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """preprocess() should explain that mixed-modality batches need message support."""
+    monkeypatch.setattr(type(stsb_bert_tiny_model), "modalities", property(lambda self: ["text", "image"]))
+    monkeypatch.setattr(
+        "sentence_transformers.base.model.infer_batch_modality",
+        lambda inputs, supported_modalities=None: "message",
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        stsb_bert_tiny_model.preprocess(["dummy text", "dummy image"])
+
+    message = str(exc_info.value)
+    assert "Mixed-modality batches require a model that supports the 'message' modality" in message
+    assert "encode each modality separately" in message
+
+
 def test_preprocess_passes_supported_modality(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """preprocess() should succeed with text inputs on a text-only model."""
     features = stsb_bert_tiny_model.preprocess(["Hello world"])

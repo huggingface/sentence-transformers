@@ -539,6 +539,12 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                     f"\nThis model supports {' and '.join(modality)} individually, "
                     "but not in the same input. Please process each modality separately."
                 )
+            elif modality == "message" and "message" not in self.modalities:
+                message += (
+                    "\nMixed-modality batches require a model that supports the 'message' modality. "
+                    "This model supports individual modalities only; split the inputs by modality and "
+                    "encode each modality separately."
+                )
             raise ValueError(message)
 
         # Backwards compatibility: fall back to preprocess/tokenize without prompt if the
