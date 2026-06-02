@@ -221,10 +221,8 @@ class SentenceTransformer(SentenceTransformerOriginal):
                 # https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/
 
         # Warm up the dynamic-compiled fallback path by intentionally exceeding
-        # the biggest bucket. Skipped when the fallback is eager (nothing to
-        # compile), and a no-op anyway for models whose max_seq_length equals
-        # the largest bucket (no valid input can exceed it).
-        if self._compile_fallback:
+        # the biggest bucket
+        if self._compile_fallback and max(self._compiled_token_buckets) < self.max_seq_length:
             logger.info("Warming up fallback path")
             text = _create_text_with_num_tokens(
                 math.ceil((max(self._compiled_token_buckets) + self.max_seq_length) / 2),
