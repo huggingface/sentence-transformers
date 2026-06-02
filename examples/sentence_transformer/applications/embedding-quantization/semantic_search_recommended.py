@@ -28,10 +28,10 @@ model = SentenceTransformer(
 )
 
 # Load a corpus with texts
-dataset = load_dataset("quora", split="train").map(
-    lambda batch: {"text": [text for sample in batch["questions"] for text in sample["text"]]},
+dataset = load_dataset("sentence-transformers/quora-duplicates", "pair-class", split="train").map(
+    lambda batch: {"text": [question for pair in zip(batch["sentence1"], batch["sentence2"]) for question in pair]},
     batched=True,
-    remove_columns=["questions", "is_duplicate"],
+    remove_columns=["sentence1", "sentence2", "label"],
 )
 max_corpus_size = 100_000
 corpus = dataset["text"][:max_corpus_size]

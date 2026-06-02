@@ -110,7 +110,7 @@ from datasets import load_dataset
 model = SentenceTransformer("mixedbread-ai/mxbai-embed-large-v1")
 
 # 2. Prepare an example calibration dataset
-corpus = load_dataset("nq_open", split="train[:1000]")["question"]
+corpus = load_dataset("google-research-datasets/nq_open", split="train[:1000]")["question"]
 calibration_embeddings = model.encode(corpus)
 
 # 3. Encode some text without quantization & apply quantization afterwards
