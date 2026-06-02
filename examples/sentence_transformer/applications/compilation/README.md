@@ -40,6 +40,7 @@ representative workload to:
 
 - verify its tokenizer is compatible
 - measure numerical drift in embeddings
+- measure warmup time
 - benchmark the speedup by tuning `compiled_token_buckets` and `compile_fallback`.
 
 > [!WARNING]
@@ -67,7 +68,7 @@ uv run examples/sentence_transformer/applications/compilation/benchmark.py
 - `base` refers to the `SentenceTransformer` built-in results
 - `st_compiled` refers to the `SentenceTransformer` built-in
   `model[0].compile(dynamic=True)` results. `speedup_st_p50` is relative to
-  `base`.
+  `base`
 - `compiled` refers to the compiled version: `compiled.SentenceTransformer`
   results. `speedup_p50` is relative to `base`.
 
