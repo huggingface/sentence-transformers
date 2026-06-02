@@ -8,8 +8,10 @@
 # ]
 # ///
 """
-Runs each model across a grid of texts w/ different token lengths, comparing the regular SentenceTransformer vs its CUDA
-graph-compiled version.
+Runs each model across a grid of texts w/ different token lengths, comparing:
+- base = regular SentenceTransformer
+- st_compiled = model[0].compile(dynamic=True)
+- compiled = compiled.SentenceTransformer / the graph-compiled version.
 
 uv run examples/sentence_transformer/applications/compilation/benchmark.py
 """
