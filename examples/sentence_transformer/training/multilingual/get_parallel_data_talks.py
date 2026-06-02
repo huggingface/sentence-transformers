@@ -34,12 +34,14 @@ for target_lang in target_languages:
         except Exception as e:
             print(f"Skipping {subset} ({split}): {e}")
             continue
+        num_written = 0
         with gzip.open(output_filename, "wt", encoding="utf8") as fOut:
             for row in dataset:
                 english = row["english"].strip()
                 non_english = row["non_english"].strip()
                 if english and non_english:
                     fOut.write(f"{english}\t{non_english}\n")
-        print(f"Wrote {output_filename}: {len(dataset)} pairs")
+                    num_written += 1
+        print(f"Wrote {output_filename}: {num_written} pairs")
 
 print("---DONE---")
