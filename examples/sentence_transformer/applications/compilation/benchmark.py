@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #   "polars",
-#   "sentence-transformers",
+#   "sentence-transformers>=5.3.0",
 #   "typed-argument-parser",
 # ]
 # ///
@@ -365,6 +365,9 @@ def main(model_names: tuple[str, ...] = MODEL_NAMES):
     """
     # Surface the warm-up progress, fallback warnings, and correctness-check messages from this module and compiled.py.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # Quiet the per-request HTTP chatter from Hugging Face downloads, which would otherwise drown out the above.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is required b/c compiled.SentenceTransformer uses CUDA graphs.")

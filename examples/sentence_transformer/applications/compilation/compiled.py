@@ -6,7 +6,9 @@ from typing import Any, Literal, TypeAlias, cast
 
 import torch
 import torch.nn.functional as F
+from packaging.version import Version
 
+import sentence_transformers
 from sentence_transformers import SentenceTransformer as SentenceTransformerOriginal
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,13 @@ _COMPILED_MATMUL_PRECISION: MatmulPrecision = "high"
 "Shared precision for compile_and_warm_up and forward."
 
 DEFAULT_COMPILED_TOKEN_BUCKETS: tuple[int, ...] = (64, 128, 256, 512, 1024)
+"""
+After 1024, empirically there are typically diminishing returns for smaller
+models, as Python overhead isn't clearly worse than attention overhead. Compiled
+needs to pad, so it gets worse as the sequence length increases.
+"""
+
+_ENCODE_USES_PREPROCESS: bool = Version(sentence_transformers.__version__) >= Version("5.3.0")
 
 
 @contextmanager
@@ -48,7 +57,7 @@ class SentenceTransformer(SentenceTransformerOriginal):
     Python is too slow for small models w/ batch size 1. Rm its overhead by
     compiling. Cost: `compile_and_warm_up` can take a while.
 
-    Assumes the tokenizer input type is a list of strings.
+    Currently assumes the tokenizer input type is a list of strings.
     """
 
     def __init__(
@@ -59,11 +68,6 @@ class SentenceTransformer(SentenceTransformerOriginal):
         # small sequences.
         #
         compiled_token_buckets: tuple[int, ...] = DEFAULT_COMPILED_TOKEN_BUCKETS,
-        # After 1024, empirically there are typically diminishing returns for
-        # smaller models, as Python overhead isn't clearly worse than attention
-        # overhead. Compiled needs to pad, so it gets worse as the sequence
-        # length increases.
-        #
         tokenize_and_forward_kwargs: dict[str, Any] | None = None,
         # SentenceTransformer.encode passes **kwargs to tokenize and forward, so
         # they need to provided up front so that compile_and_warm_up uses them.
@@ -88,19 +92,32 @@ class SentenceTransformer(SentenceTransformerOriginal):
             )
         self._compiled_forward: _ForwardFunction | None = None
 
-    def tokenize(
-        self, texts: list[str] | list[dict[Any, Any]] | list[tuple[str, str]], **kwargs
-    ) -> dict[str, torch.Tensor]:
-        """
-        Pads tokens to the nearest bucket so encode calls use a pre-compiled
-        CUDA graph.
-        """
-        encodings = super().tokenize(texts, **kwargs)
-        batch_size, num_tokens = encodings["input_ids"].shape
+    def preprocess(
+        self,
+        inputs: list[str] | list[dict[Any, Any]] | list[tuple[str, str]],
+        prompt: str | None = None,
+        **kwargs,
+    ) -> dict[str, Any]:
+        return self._pad_to_bucket(super().preprocess(inputs, prompt=prompt, **kwargs))
 
+    def tokenize(self, texts: list[str] | list[dict[Any, Any]] | list[tuple[str, str]], **kwargs) -> dict[str, Any]:
+        return self._pad_to_bucket(super().tokenize(texts, **kwargs))
+
+    def _pad_to_bucket(self, encodings: dict[str, Any]) -> dict[str, Any]:
+        """
+        Pads tokens to the nearest bucket so encode calls use a pre-compiled CUDA graph.
+        """
+        # Only standard 2D text features can be bucketed. Bail out for empty or
+        # non-text inputs, and for the flash-attn varlen "flattened" path, which
+        # drops the 2D attention_mask and is incompatible with fixed-shape CUDA
+        # graphs anyway. forward falls back to the non-compiled forward and logs
+        # an error.
+        if "input_ids" not in encodings or "attention_mask" not in encodings or encodings["input_ids"].dim() != 2:
+            return encodings
+
+        batch_size, num_tokens = encodings["input_ids"].shape
         if batch_size != self._compiled_batch_size:
-            # No point in padding. forward falls back to the non-compiled
-            # forward and logs an error.
+            # No point in padding. forward falls back to the non-compiled forward and logs an error.
             return encodings
 
         target_num_tokens = num_tokens
@@ -111,8 +128,13 @@ class SentenceTransformer(SentenceTransformerOriginal):
 
         if target_num_tokens > num_tokens:
             num_padding_tokens = target_num_tokens - num_tokens
-            if extra_keys := (set(encodings.keys()) - {"input_ids", "attention_mask", "token_type_ids"}):
-                raise ValueError(f"Unexpected encoding keys: {extra_keys}")
+            # preprocess (>= 5.3) also returns non-tensor metadata (e.g. modality, prompt_length) that must pass
+            # through untouched. Be loud about any other key: a sequence-length tensor we don't pad would crash the
+            # model on a shape mismatch.
+            padding_keys = {"input_ids", "attention_mask", "token_type_ids"}
+            passthrough_keys = {"modality", "prompt_length"}
+            if extra_keys := (set(encodings) - padding_keys - passthrough_keys):
+                raise ValueError(f"Unexpected encoding keys, unsure whether they need padding: {extra_keys}")
 
             encodings["input_ids"] = F.pad(
                 encodings["input_ids"], (0, num_padding_tokens), value=self.tokenizer.pad_token_id
@@ -122,6 +144,11 @@ class SentenceTransformer(SentenceTransformerOriginal):
                 encodings["token_type_ids"] = F.pad(encodings["token_type_ids"], (0, num_padding_tokens), value=0)
 
         return encodings
+
+    def _tokenize_unpadded(self, texts: list[str], **kwargs) -> dict[str, torch.Tensor | Any]:
+        if _ENCODE_USES_PREPROCESS:
+            return SentenceTransformerOriginal.preprocess(self, texts, **kwargs)
+        return SentenceTransformerOriginal.tokenize(self, texts, **kwargs)
 
     def encode(self, *args, **kwargs):
         # NOTE: merging self._tokenize_and_forward_kwargs and kwargs is wrong
@@ -147,7 +174,7 @@ class SentenceTransformer(SentenceTransformerOriginal):
 
         for target_num_tokens in self._compiled_token_buckets:
             text = _create_text_with_num_tokens(
-                target_num_tokens, super().tokenize, **self._tokenize_and_forward_kwargs
+                target_num_tokens, self._tokenize_unpadded, **self._tokenize_and_forward_kwargs
             )
             texts = [text] * self._compiled_batch_size
 
@@ -157,7 +184,9 @@ class SentenceTransformer(SentenceTransformerOriginal):
             # inference_mode) ourselves. This approach didn't perform well,
             # maybe b/c of subtle differences in how .encode works. I prefer
             # going through .encode and being loud about missing the target.
-            batch_size, num_tokens = super().tokenize(texts, **self._tokenize_and_forward_kwargs)["input_ids"].shape
+            batch_size, num_tokens = self._tokenize_unpadded(texts, **self._tokenize_and_forward_kwargs)[
+                "input_ids"
+            ].shape
             if batch_size != self._compiled_batch_size:
                 raise ValueError(
                     f"Batch size mismatch: {batch_size} (attempt) != {self._compiled_batch_size} (target)"
@@ -180,7 +209,7 @@ class SentenceTransformer(SentenceTransformerOriginal):
         logger.info("Warming up fallback path")
         text = _create_text_with_num_tokens(
             math.ceil((max(self._compiled_token_buckets) + self.max_seq_length) / 2),
-            super().tokenize,
+            self._tokenize_unpadded,
             **self._tokenize_and_forward_kwargs,
         )
         texts = [text] * self._compiled_batch_size
