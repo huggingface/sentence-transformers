@@ -707,7 +707,7 @@ def raise_unsupported_modality_error(
 
         if sample_modalities == {"message"}:
             raise ValueError(
-                f"This {source} does not support chat-style 'message' inputs (dicts with "
+                f"This {source} does not support chat-style 'message' inputs (dicts or lists of dicts with "
                 f"'role' and 'content'). Supported modalities: {supported_str}."
             )
         if "message" in sample_modalities:
@@ -715,7 +715,7 @@ def raise_unsupported_modality_error(
             # message format, the chat-style inputs are the blocking issue; report that rather than
             # listing "message" as if it were a content modality alongside text/image/audio.
             raise ValueError(
-                f"This {source} does not support chat-style 'message' inputs (dicts with 'role' and "
+                f"This {source} does not support chat-style 'message' inputs (dicts or lists of dicts with 'role' and "
                 f"'content'), which this batch mixes with other modalities. Supported modalities: {supported_str}."
             )
         if sample_modalities:
