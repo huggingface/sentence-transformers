@@ -50,12 +50,13 @@ for row in load_dataset("mteb/msmarco", "queries", split="queries"):
     if qid in needed_qids:
         dev_queries[qid] = row["text"].strip()
 
-# Read passages (column access decodes the 8.8M-row corpus in one pass, much faster than row-by-row)
+# Read passages in batches (fast, bounded memory)
 corpus_dataset = load_dataset("sentence-transformers/msmarco", "corpus", split="train")
-for pid, passage in zip(corpus_dataset["passage_id"], corpus_dataset["passage"]):
-    pid = str(pid)
-    if pid in needed_pids or corpus_max_size <= 0 or len(corpus) <= corpus_max_size:
-        corpus[pid] = passage.strip()
+for batch in corpus_dataset.iter(batch_size=10000):
+    for pid, passage in zip(batch["passage_id"], batch["passage"]):
+        pid = str(pid)
+        if pid in needed_pids or corpus_max_size <= 0 or len(corpus) <= corpus_max_size:
+            corpus[pid] = passage.strip()
 
 
 # Run evaluator
