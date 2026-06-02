@@ -331,7 +331,6 @@ def _summary_per_model_bucket(df: pl.DataFrame) -> pl.DataFrame:
     df = (
         df.group_by(["model_name", "bucket"], maintain_order=False)
         .agg(
-            pl.len().alias("n"),
             pl.col("num_tokens").median().alias("tok_p50"),
             (pl.col("base").median() * 1000).round(2).alias("base_ms_p50"),
             (pl.col("st_compiled").median() * 1000).round(2).alias("st_compiled_ms_p50"),
@@ -340,6 +339,7 @@ def _summary_per_model_bucket(df: pl.DataFrame) -> pl.DataFrame:
             (pl.col("base").median() / pl.col("compiled").median()).round(2).alias("speedup_p50"),
         )
         .sort(["model_name", "tok_p50"])
+        .drop("tok_p50")
     )
     return df
 
