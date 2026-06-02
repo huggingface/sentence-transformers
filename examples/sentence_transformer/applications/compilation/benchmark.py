@@ -220,9 +220,13 @@ def _benchmark_model_version(
         _, warmup_sec = _time_func(model.compile_and_warm_up)
     else:
         if version == "st_compiled":
-            # ST's built-in torch.compile path. dynamic=True compiles once for all shapes (vs default static, which
-            # would recompile per sequence length and dominate the sweep).
-            model.compile(dynamic=True)
+            # ST's built-in torch.compile path. We compile the Transformer submodule (model[0]), not the top-level
+            # model: encode() calls self.forward() directly, bypassing nn.Module.__call__ and thus model.compile()'s
+            # wrapper, so model.compile() is a silent no-op here (true on both ST 5.1 and 5.5). forward() invokes each
+            # submodule via __call__, so compiling model[0] actually engages torch.compile on the encode path.
+            # dynamic=True compiles once for all shapes (vs default static, which would recompile per sequence length
+            # and dominate the sweep).
+            model[0].compile(dynamic=True)
         _, warmup_sec = _time_func(model.encode, "warm up")
 
     records: list[Record] = []
