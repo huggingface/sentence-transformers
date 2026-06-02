@@ -92,6 +92,7 @@ class SentenceTransformer(SentenceTransformerOriginal):
         self._tokenize_and_forward_kwargs = tokenize_and_forward_kwargs or {}
         self._compiled_batch_size = compiled_batch_size
         self._compile_fallback = compile_fallback
+
         if not compiled_token_buckets:
             raise ValueError("Must provide at least one compiled token bucket")
         self._compiled_token_buckets = tuple(
