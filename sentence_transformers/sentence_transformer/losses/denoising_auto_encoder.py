@@ -14,22 +14,22 @@ logger = logging.getLogger(__name__)
 
 
 def _tie_encoder_decoder_weights(encoder: nn.Module, decoder: nn.Module) -> None:
-    """Share the encoder's parameters with the identically-named decoder parameters.
+    """Tie the encoder's parameters to the decoder's: each encoder parameter is replaced by the
+    identically-named decoder parameter, so the two share storage and the decoder's values become
+    the shared initialization.
 
-    Replaces ``transformers.PreTrainedModel._tie_encoder_decoder_weights``, removed in
-    transformers 5.0.0 (which moved tying to an in-model ``_tied_weights_keys`` mapping that
-    cannot span two separate model instances). Tying requires encoder and decoder to share an
-    architecture, so the decoder's parameters map onto the encoder by name; the decoder-only
-    cross-attention parameters simply have no encoder counterpart and are skipped.
+    The encoder and decoder must share an architecture for the parameter names to line up.
+    Decoder-only parameters, such as the cross-attention weights, have no encoder counterpart
+    and are skipped.
     """
     encoder_modules = dict(encoder.named_modules())
-    tied = 0
+    tied = False
     for name, param in decoder.named_parameters(remove_duplicate=False):
         module_name, _, attr = name.rpartition(".")
-        module = encoder_modules.get(module_name)
-        if module is not None and hasattr(module, attr):
-            setattr(module, attr, param)  # encoder param now references the decoder's
-            tied += 1
+        encoder_module = encoder_modules.get(module_name)
+        if encoder_module is not None and hasattr(encoder_module, attr):
+            setattr(encoder_module, attr, param)  # encoder param now references the decoder's
+            tied = True
     if not tied:
         logger.warning("No encoder weights were tied to the decoder; are they the same architecture?")
 
@@ -168,8 +168,7 @@ class DenoisingAutoEncoderLoss(nn.Module):
                 logger.warning(
                     "Since the encoder vocabulary has been changed and --tie_encoder_decoder=True, now the new vocabulary has also been used for the decoder."
                 )
-            # Tie locally so it works on transformers >= 5.0.0, which removed
-            # PreTrainedModel._tie_encoder_decoder_weights (see _tie_encoder_decoder_weights above).
+            # Tie the encoder and decoder so they share weights during training.
             decoder_base = self.decoder._modules[self.decoder.base_model_prefix]
             _tie_encoder_decoder_weights(model.transformers_model, decoder_base)
 
