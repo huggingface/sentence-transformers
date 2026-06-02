@@ -59,9 +59,6 @@ if not os.path.exists(embedding_cache_path):
     corpus_sentences = set()
     for row in dataset:
         corpus_sentences.add(row["sentence1"])
-        if len(corpus_sentences) >= max_corpus_size:
-            break
-
         corpus_sentences.add(row["sentence2"])
         if len(corpus_sentences) >= max_corpus_size:
             break
