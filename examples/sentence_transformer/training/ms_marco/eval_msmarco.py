@@ -37,7 +37,7 @@ dev_rel_docs = {}  # Mapping qid => set with relevant pids
 needed_pids = set()  # Passage IDs we need
 needed_qids = set()  # Query IDs we need
 
-# Load the 6980 dev queries
+# Load the dev relevance judgments (6980 queries)
 for row in load_dataset("mteb/msmarco", "default", split="dev"):
     qid, pid = str(row["query-id"]), str(row["corpus-id"])
     dev_rel_docs.setdefault(qid, set()).add(pid)
@@ -50,11 +50,12 @@ for row in load_dataset("mteb/msmarco", "queries", split="queries"):
     if qid in needed_qids:
         dev_queries[qid] = row["text"].strip()
 
-# Read passages
-for row in load_dataset("sentence-transformers/msmarco", "corpus", split="train"):
-    pid = str(row["passage_id"])
+# Read passages (column access decodes the 8.8M-row corpus in one pass, much faster than row-by-row)
+corpus_dataset = load_dataset("sentence-transformers/msmarco", "corpus", split="train")
+for pid, passage in zip(corpus_dataset["passage_id"], corpus_dataset["passage"]):
+    pid = str(pid)
     if pid in needed_pids or corpus_max_size <= 0 or len(corpus) <= corpus_max_size:
-        corpus[pid] = row["passage"].strip()
+        corpus[pid] = passage.strip()
 
 
 # Run evaluator
