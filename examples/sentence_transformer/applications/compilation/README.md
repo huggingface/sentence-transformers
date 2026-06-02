@@ -54,6 +54,16 @@ representative workload to:
 > the model.
 
 
+## Tests
+
+[`test_compiled.py`](./test_compiled.py) aren't part of the repo's default test
+run. Run them with:
+
+```bash
+uv run pytest examples/sentence_transformer/applications/compilation/test_compiled.py
+```
+
+
 ## Benchmark
 
 Takes ~7 min to run on an L4 GPU.
