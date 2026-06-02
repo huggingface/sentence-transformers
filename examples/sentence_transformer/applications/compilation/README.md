@@ -64,8 +64,11 @@ uv run examples/sentence_transformer/applications/compilation/benchmark.py
 Per-model, per-bucket latency where:
 
 - `base` refers to the `SentenceTransformer` built-in results
-- `st_compiled` refers to the `SentenceTransformer` built-in `model[0].compile(dynamic=True)` results
-- `compiled` refers to the compiled version: `compiled.SentenceTransformer` results.
+- `st_compiled` refers to the `SentenceTransformer` built-in
+  `model[0].compile(dynamic=True)` results. `speedup_st_p50` is relative to
+  `base`.
+- `compiled` refers to the compiled version: `compiled.SentenceTransformer`
+  results. `speedup_p50` is relative to `base`.
 
 | model_name                              | bucket   | base_ms_p50 | st_compiled_ms_p50 | compiled_ms_p50 | speedup_st_p50 | speedup_p50 |
 |-----------------------------------------|----------|-------------|--------------------|-----------------|----------------|-------------|
