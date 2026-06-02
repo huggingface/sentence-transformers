@@ -61,7 +61,8 @@ Takes ~7 min to run on an L4 GPU.
 uv run examples/sentence_transformer/applications/compilation/benchmark.py
 ```
 
-Per-model, per-bucket latency where:
+<details>
+<summary>Per-model, per-bucket latency</summary>
 
 - `base` refers to the `SentenceTransformer` built-in results
 - `st_compiled` refers to the `SentenceTransformer` built-in
@@ -103,7 +104,10 @@ Per-model, per-bucket latency where:
 padding that `compiled.SentenceTransformer` adds to reach the next bucket can
 hurt performance compare to plain compilation.
 
-Warmup time per model where:
+</details>
+
+<details>
+<summary>Warmup time per model</summary>
 
 - `st_warmup_sec` is the warmup time for the `SentenceTransformer`'s
   `model[0].compile(dynamic=True)` call
@@ -118,3 +122,5 @@ Warmup time per model where:
 | lightonai/modernbert-embed-large        | 31.3          | 98.2       |
 | sentence-transformers/all-MiniLM-L6-v2  | 7.4           | 7.1        |
 | sentence-transformers/all-mpnet-base-v2 | 15.8          | 14.8       |
+
+</details>
