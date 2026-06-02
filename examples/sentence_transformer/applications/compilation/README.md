@@ -1,8 +1,11 @@
 # Bucket-based compilation
 
-The class in [`compiled.py`](./compiled.py) achieves up to a 3x speedup for
-short sequences compared to no compilation by eliminating Python overhead. No
-external dependencies required besides CUDA.
+The class in [`compiled.py`](./compiled.py) achieves up to a 2.8x speedup
+compared to no compilation by eliminating Python overhead. No external
+dependencies required besides CUDA.
+
+This strategy is most useful for latency-sensitive inference workloads where a
+model runs on mostly shorter sequences. See [Caution](#caution) below.
 
 
 ## Usage
@@ -35,18 +38,23 @@ x = model.encode("Hello, world!")
 ## Caution
 
 `compiled.SentenceTransformer` is not always a drop-in replacement for
-`SentenceTransformer`. For your model, you should consider running it on a
-representative workload to:
+`SentenceTransformer`. Consider running your model on a representative workload
+to:
 
 - verify its tokenizer is compatible
 - measure numerical drift in embeddings
 - measure warmup time
 - benchmark the speedup by tuning `compiled_token_buckets` and `compile_fallback`.
+- compare against the one-liner: `model[0].compile(dynamic=True)`.
 
 > [!WARNING]
-> The CUDA-graph path (`mode="reduce-overhead"`) reuses its output buffers
-> across calls, so copy or clone any embedding you need to keep past the next
-> `encode()` call, e.g., pass `convert_to_numpy=True`.
+> This compilation strategy does not compose with flash-attention-2's varlen
+> because `compiled.SentenceTransformer` pads inputs.
+
+> [!WARNING]
+> `compiled.SentenceTransformer` reuses its output buffers across calls when an
+> input is in a bucket, so copy or clone any embedding you need to keep past the
+> next `encode()` call, e.g., pass `convert_to_numpy=True`.
 
 > [!NOTE]
 > If your model server is managed by k8s, you may need a startup probe
@@ -112,10 +120,9 @@ uv run examples/sentence_transformer/applications/compilation/benchmark.py
 | sentence-transformers/all-mpnet-base-v2 | 129-256  | 13.64       | 8.85               | 5.91            | 1.54           | 2.31        |
 | sentence-transformers/all-mpnet-base-v2 | 257-512  | 15.0        | 9.54               | 6.66            | 1.57           | 2.25        |
 
-
 `lightonai/modernbert-embed-large` bucket `513-1024` demonstrates that the
 padding that `compiled.SentenceTransformer` adds to reach the next bucket can
-hurt performance compare to plain compilation.
+hurt performance compared to plain compilation.
 
 </details>
 
