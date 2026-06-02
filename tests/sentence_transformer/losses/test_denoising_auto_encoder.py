@@ -49,6 +49,21 @@ def test_decoder_only_weights_are_not_tied(stsb_bert_tiny_model: SentenceTransfo
     assert all(n not in encoder_params for n in cross_attention)
 
 
+def test_tying_preserves_decoder_lm_head(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """The decoder's weight-tied LM head must stay bound to the shared input embeddings. Tying the
+    encoder *to* the decoder keeps all three as one tensor; reversing the direction would rebind the
+    decoder's input embeddings to the encoder's and orphan the LM head (silently untying it)."""
+    loss = DenoisingAutoEncoderLoss(stsb_bert_tiny_model, tie_encoder_decoder=True)
+
+    encoder_in = loss.encoder.transformers_model.embeddings.word_embeddings.weight
+    decoder_base = loss.decoder._modules[loss.decoder.base_model_prefix]
+    decoder_in = decoder_base.embeddings.word_embeddings.weight
+    lm_head = loss.decoder.get_output_embeddings().weight
+
+    # The test model has tie_word_embeddings=True, so input embeddings and LM head share one tensor.
+    assert encoder_in is decoder_in is lm_head
+
+
 def test_untied_weights_are_independent(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """Without tying, the encoder and decoder keep independent storage."""
     loss = DenoisingAutoEncoderLoss(stsb_bert_tiny_model, decoder_name_or_path=TINY_MODEL, tie_encoder_decoder=False)

@@ -24,7 +24,7 @@ def _tie_encoder_decoder_weights(encoder: nn.Module, decoder: nn.Module) -> None
     """
     encoder_modules = dict(encoder.named_modules())
     tied = False
-    for name, param in decoder.named_parameters(remove_duplicate=False):
+    for name, param in decoder.named_parameters():
         module_name, _, attr = name.rpartition(".")
         encoder_module = encoder_modules.get(module_name)
         if encoder_module is not None and hasattr(encoder_module, attr):
