@@ -56,12 +56,14 @@ representative workload to:
 
 ## Tests
 
-[`test_compiled.py`](./test_compiled.py) aren't part of the repo's default test
-run. Run them with:
+[`test_compiled.py`](./test_compiled.py) intentionally isn't collected as part
+of CI. So run it with:
 
 ```bash
 uv run pytest examples/sentence_transformer/applications/compilation/test_compiled.py
 ```
+
+Downloads a few small models on its first run and runs tests on CPU.
 
 
 ## Benchmark

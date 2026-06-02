@@ -1,11 +1,3 @@
-"""
-These tests aren't collected by CI. So run explicitly:
-
-uv run pytest examples/sentence_transformer/applications/compilation/test_compiled.py
-
-They download two small models (all-MiniLM-L6-v2 and bge-small-en-v1.5) on first run and run on CPU.
-"""
-
 import contextlib
 
 import compiled
@@ -14,15 +6,13 @@ import torch
 
 from sentence_transformers import SentenceTransformer as SentenceTransformerOriginal
 
-MODELS = [
-    "sentence-transformers/all-MiniLM-L6-v2",  # WordPiece, max_seq 256
-    "BAAI/bge-small-en-v1.5",  # WordPiece + token_type_ids, max_seq 512
-]
 BUCKET_EXCEEDING_MAX_SEQ_LENGTH = 999_999
 
 
 def _load(model_name: str, **kwargs) -> compiled.SentenceTransformer:
-    """Load a compiled model on CPU, without calling compile_and_warm_up."""
+    """
+    Load a compiled model on CPU, without calling compile_and_warm_up.
+    """
     kwargs.setdefault(
         "compiled_token_buckets", (*compiled.DEFAULT_COMPILED_TOKEN_BUCKETS, BUCKET_EXCEEDING_MAX_SEQ_LENGTH)
     )
@@ -30,7 +20,9 @@ def _load(model_name: str, **kwargs) -> compiled.SentenceTransformer:
 
 
 def _nearest_bucket(buckets: tuple[int, ...], num_tokens: int) -> int:
-    """The bucket _pad_to_bucket would pad to, or num_tokens itself when it exceeds every bucket."""
+    """
+    The bucket _pad_to_bucket would pad to, or num_tokens itself when it exceeds every bucket.
+    """
     return next((bucket for bucket in buckets if bucket >= num_tokens), num_tokens)
 
 
@@ -52,10 +44,24 @@ def _training_mode(model: compiled.SentenceTransformer, training: bool):
         model.train(was_training)
 
 
-@pytest.fixture(scope="module", params=MODELS)
-def model(request: pytest.FixtureRequest) -> compiled.SentenceTransformer:
-    """Shared, read-only compiled model (not warmed up). Tests that mutate it should _load a fresh one."""
-    return _load(request.param)
+@pytest.fixture(
+    scope="module",
+    params=[
+        "sentence-transformers/all-MiniLM-L6-v2",  # WordPiece (BERT), has token_type_ids, max_seq 256
+        "Alibaba-NLP/gte-modernbert-base",  # BPE (ModernBERT), no token_type_ids, max_seq 8192
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",  # SentencePiece (XLM-R), max_seq 128
+    ],
+)
+def model_name(request: pytest.FixtureRequest) -> str:
+    return request.param
+
+
+@pytest.fixture(scope="module")
+def model(model_name: str) -> compiled.SentenceTransformer:
+    """
+    Shared, read-only compiled model (not warmed up). Tests that mutate it should _load a fresh one.
+    """
+    return _load(model_name)
 
 
 @pytest.fixture
@@ -79,7 +85,6 @@ class TestInit:
         # The oversized bucket gets clamped in (not dropped), so max_seq_length itself becomes a bucket.
         assert max(model._compiled_token_buckets) == model.max_seq_length
 
-    @pytest.mark.parametrize("model_name", MODELS)
     def test_raises_when_no_buckets(self, model_name: str) -> None:
         with pytest.raises(ValueError, match="at least one"):
             _load(model_name, compiled_token_buckets=())
@@ -139,7 +144,9 @@ class TestTokenize:
 
 
 class TestCreateTextWithNumTokens:
-    @pytest.mark.parametrize("target_num_tokens", [8, 13, 47, 64, 199, 256, 400])
+    # Awkward non-round counts (to catch off-by-one / rounding bugs the round bucket sizes would miss) plus the
+    # actual buckets (the values compile_and_warm_up feeds to _create_text_with_num_tokens).
+    @pytest.mark.parametrize("target_num_tokens", [8, 13, 47, 199, *compiled.DEFAULT_COMPILED_TOKEN_BUCKETS])
     def test_lands_exactly_on_target(self, model: compiled.SentenceTransformer, target_num_tokens: int) -> None:
         if target_num_tokens > model.max_seq_length:
             pytest.skip(f"target {target_num_tokens} > max_seq {model.max_seq_length}")
@@ -154,7 +161,6 @@ class TestCreateTextWithNumTokens:
 
 
 class TestCompileAndWarmUp:
-    @pytest.mark.parametrize("model_name", MODELS)
     def test_uses_compiled_precision_and_restores_global(
         self, model_name: str, monkeypatch: pytest.MonkeyPatch, baseline_matmul_precision: str
     ) -> None:
@@ -171,7 +177,6 @@ class TestCompileAndWarmUp:
         assert all(p == compiled._COMPILED_MATMUL_PRECISION for p in observed_precision)
         assert torch.get_float32_matmul_precision() == baseline_matmul_precision
 
-    @pytest.mark.parametrize("model_name", MODELS)
     @pytest.mark.parametrize("compile_fallback", [True, False])
     def test_compiles_fallback_only_when_enabled(
         self, model_name: str, compile_fallback: bool, monkeypatch: pytest.MonkeyPatch
@@ -206,7 +211,6 @@ class TestForward:
             with pytest.raises(ValueError, match="compile_and_warm_up"):
                 model.forward(_encodings(100))
 
-    @pytest.mark.parametrize("model_name", MODELS)
     def test_fallback_runs_eager_when_disabled(self, model_name: str) -> None:
         model = _load(model_name, compile_fallback=False)
         with _training_mode(model, training=False):
@@ -214,7 +218,6 @@ class TestForward:
             out = model.forward(_encodings(100))
         assert "sentence_embedding" in out
 
-    @pytest.mark.parametrize("model_name", MODELS)
     def test_encode_uses_compiled_precision_and_restores_global(
         self, model_name: str, monkeypatch: pytest.MonkeyPatch, baseline_matmul_precision: str
     ) -> None:
