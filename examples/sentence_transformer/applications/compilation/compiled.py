@@ -84,12 +84,8 @@ class SentenceTransformer(SentenceTransformerOriginal):
         if not compiled_token_buckets:
             raise ValueError("Must provide at least one compiled token bucket")
         self._compiled_token_buckets = tuple(
-            sorted({bucket for bucket in compiled_token_buckets if bucket <= self.max_seq_length})
+            sorted({min(bucket, self.max_seq_length) for bucket in compiled_token_buckets})
         )
-        if not self._compiled_token_buckets:
-            raise ValueError(
-                f"All compiled token buckets are greater than the model's max sequence length: {self.max_seq_length}"
-            )
         self._compiled_forward: _ForwardFunction | None = None
 
     def preprocess(
