@@ -58,23 +58,26 @@ class SentenceTransformer(SentenceTransformerOriginal):
     compiling. Cost: `compile_and_warm_up` can take a while.
 
     Currently assumes the tokenizer input type is a list of strings.
+
+    Args:
+        compiled_batch_size (int, optional): The batch size to compile for.
+            Anything smaller than 1 should be benchmarked unless you know
+            you'll only get small sequences.
+        compiled_token_buckets (tuple[int, ...], optional): The token buckets
+            to compile for. Defaults to (64, 128, 256, 512, 1024).
+        compile_fallback (bool, optional): Whether to compile the fallback
+            path for sequences longer than the largest bucket. Costs warmup
+            time but can improve speed for long sequences.
+        tokenize_and_forward_kwargs (dict[str, Any], optional): Keyword
+            arguments to pass to the tokenize and encode/forward functions.
     """
 
     def __init__(
         self,
         *args,
         compiled_batch_size: int = 1,
-        # Anything higher should be benchmarked unless you know you'll only get
-        # small sequences.
-        #
         compiled_token_buckets: tuple[int, ...] = DEFAULT_COMPILED_TOKEN_BUCKETS,
         compile_fallback: bool = True,
-        # Sequences longer than the largest bucket (and unexpected batch sizes)
-        # take a fallback forward. When True, that fallback is a dynamic-shape
-        # torch.compile (faster on the long tail, but adds a separate compile to
-        # warm-up which can be ~a minute for large long-context models). When
-        # False, the fallback runs eager.
-        #
         tokenize_and_forward_kwargs: dict[str, Any] | None = None,
         # SentenceTransformer.encode passes **kwargs to tokenize and forward, so
         # they need to provided up front so that compile_and_warm_up uses them.

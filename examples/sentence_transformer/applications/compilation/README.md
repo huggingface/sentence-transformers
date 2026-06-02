@@ -1,8 +1,8 @@
 # Bucket-based compilation
 
-The class in [`compiled.py`](./compiled.py) achieves a 1.5-3x speedup over no
-compilation by pre-compiling CUDA graphs for different sequence lengths. It
-eliminates Python overhead for model calls in pure-PyTorch CUDA servers.
+The class in [`compiled.py`](./compiled.py) achieves up to a 3x speedup for
+short sequences compared to no compilation by eliminating Python overhead. No
+external dependencies required besides CUDA.
 
 
 ## Usage
@@ -12,14 +12,16 @@ import torch
 
 import compiled
 
+assert torch.cuda.is_available(), "CUDA is required"
 
-# Load the model, optionally including these kwargs
+# Load the model with optional compilation kwargs:
 model = compiled.SentenceTransformer(
-    "sentence-transformers/all-MiniLM-L6-v2",
+    "lightonai/modernbert-embed-large",
     model_kwargs={"dtype": torch.bfloat16, "attn_implementation": "sdpa"},
+    # Compilation kwargs:
     compiled_batch_size=1,  # serve one text at a time
     compiled_token_buckets=(64, 128, 256, 512, 1024),  # tune to your distribution
-    compile_fallback=True,  # trade off warm up time for speed after the largest bucket above
+    compile_fallback=True,  # trade off warm up time for speed after the largest bucket
 )
 
 # Warm up the model. Can take minutes for slightly larger models
@@ -37,10 +39,16 @@ x = model.encode("Hello, world!")
 representative workload to:
 
 - verify its tokenizer is compatible
-- measure the numerical drift in embeddings
+- measure numerical drift in embeddings
 - benchmark the speedup by tuning `compiled_token_buckets` and `compile_fallback`.
 
-> [!NOTE] If your model server is managed by k8s, you may need a startup probe
+> [!WARNING]
+> The CUDA-graph path (`mode="reduce-overhead"`) reuses its output buffers
+> across calls, so copy or clone any embedding you need to keep past the next
+> `encode()` call, e.g., pass `convert_to_numpy=True`.
+
+> [!NOTE]
+> If your model server is managed by k8s, you may need a startup probe
 > to wait for the `model.compile_and_warm_up()` call to complete when loading
 > the model.
 
@@ -86,6 +94,11 @@ Per-model, per-bucket latency where:
 | sentence-transformers/all-mpnet-base-v2 | 65-128   | 12.86       | 8.71               | 5.26            | 1.48           | 2.44        |
 | sentence-transformers/all-mpnet-base-v2 | 129-256  | 13.64       | 8.85               | 5.91            | 1.54           | 2.31        |
 | sentence-transformers/all-mpnet-base-v2 | 257-512  | 15.0        | 9.54               | 6.66            | 1.57           | 2.25        |
+
+
+`lightonai/modernbert-embed-large` bucket `513-1024` demonstrates that the
+padding that `compiled.SentenceTransformer` adds to reach the next bucket can
+hurt performance compare to plain compilation.
 
 Warmup time per model where:
 
