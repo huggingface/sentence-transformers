@@ -1,8 +1,9 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#   "packaging",
 #   "polars",
-#   "sentence-transformers>=5.3.0",
+#   "sentence-transformers>=5.0.0",
 #   "typed-argument-parser",
 # ]
 # ///
@@ -55,27 +56,29 @@ MIN_TOKENS = 8
 # Reuse the compiled model's buckets so the bucket-labeled report aligns with the CUDA-graph buckets.
 DEFAULT_COMPILE_TOKEN_BUCKETS: tuple[int, ...] = compiled.DEFAULT_COMPILED_TOKEN_BUCKETS
 
-Version: TypeAlias = Literal["base", "compiled", "st_compiled"]
+Version: TypeAlias = Literal["base", "st_compiled", "compiled"]
 
-_T = TypeVar("_T", bound=SentenceTransformer)
+_SentenceTransformer = TypeVar("_SentenceTransformer", bound=SentenceTransformer)
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 
-def _load_sdpa_with_eager_fallback(cls: type[_T], model_name: str) -> _T:
+def _load_sdpa_with_eager_fallback(
+    sentence_transformer_cls: type[_SentenceTransformer], model_name: str
+) -> _SentenceTransformer:
     model_kwargs = {"attn_implementation": "sdpa"}
     if torch.cuda.is_bf16_supported():
         # The benefit of compilation positively interacts w/ bfloat16. CUDA compute is much faster b/c of tensor cores,
         # and memory movement is also faster. So Python overhead is relatively higher.
         model_kwargs |= {"dtype": torch.bfloat16}
     try:
-        return cls(model_name, model_kwargs=model_kwargs)
+        return sentence_transformer_cls(model_name, model_kwargs=model_kwargs)
     except ValueError as exception:
         if "scaled_dot_product_attention" not in str(exception):
             raise exception
         logger.warning(f"[{model_name}] SDPA not supported. Falling back to eager.")
         model_kwargs_eager = {k: v for k, v in model_kwargs.items() if k != "attn_implementation"}
-        return cls(model_name, model_kwargs=model_kwargs_eager)
+        return sentence_transformer_cls(model_name, model_kwargs=model_kwargs_eager)
 
 
 def _input_token_lengths(max_seq_length: int, num_samples: int = NUM_SAMPLES_PER_BUCKET) -> list[int]:
@@ -214,8 +217,8 @@ def _benchmark_model_version(
     _clear_context()
 
     logger.info(f"[{model_name}] loading")
-    cls = compiled.SentenceTransformer if version == "compiled" else SentenceTransformer
-    model = _load_sdpa_with_eager_fallback(cls, model_name)
+    sentence_transformer_cls = compiled.SentenceTransformer if version == "compiled" else SentenceTransformer
+    model = _load_sdpa_with_eager_fallback(sentence_transformer_cls, model_name)
     if isinstance(model, compiled.SentenceTransformer):
         _, warmup_sec = _time_func(model.compile_and_warm_up)
     else:

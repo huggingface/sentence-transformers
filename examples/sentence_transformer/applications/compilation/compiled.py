@@ -68,6 +68,13 @@ class SentenceTransformer(SentenceTransformerOriginal):
         # small sequences.
         #
         compiled_token_buckets: tuple[int, ...] = DEFAULT_COMPILED_TOKEN_BUCKETS,
+        compile_fallback: bool = True,
+        # Sequences longer than the largest bucket (and unexpected batch sizes)
+        # take a fallback forward. When True, that fallback is a dynamic-shape
+        # torch.compile (faster on the long tail, but adds a separate compile to
+        # warm-up which can be ~a minute for large long-context models). When
+        # False, the fallback runs eager.
+        #
         tokenize_and_forward_kwargs: dict[str, Any] | None = None,
         # SentenceTransformer.encode passes **kwargs to tokenize and forward, so
         # they need to provided up front so that compile_and_warm_up uses them.
@@ -81,6 +88,7 @@ class SentenceTransformer(SentenceTransformerOriginal):
 
         self._tokenize_and_forward_kwargs = tokenize_and_forward_kwargs or {}
         self._compiled_batch_size = compiled_batch_size
+        self._compile_fallback = compile_fallback
         if not compiled_token_buckets:
             raise ValueError("Must provide at least one compiled token bucket")
         self._compiled_token_buckets = tuple(
@@ -89,7 +97,7 @@ class SentenceTransformer(SentenceTransformerOriginal):
         self._compiled_forward: _ForwardFunction | None = None
         "CUDA-graph per bucket which is hit when batch size and seq length matches"
         self._compiled_forward_dynamic: _ForwardFunction | None = None
-        "Dynamic-shape torch.compile for the fallback, no re-compiles"
+        "Dynamic-shape torch.compile for the fallback, no re-compiles. None when compile_fallback=False"
 
     def preprocess(
         self,
@@ -170,10 +178,11 @@ class SentenceTransformer(SentenceTransformerOriginal):
             _ForwardFunction,
             torch.compile(super().forward, mode="reduce-overhead", dynamic=False),
         )
-        self._compiled_forward_dynamic = cast(
-            _ForwardFunction,
-            torch.compile(super().forward, dynamic=True),
-        )
+        if self._compile_fallback:
+            self._compiled_forward_dynamic = cast(
+                _ForwardFunction,
+                torch.compile(super().forward, dynamic=True),
+            )
 
         for target_num_tokens in self._compiled_token_buckets:
             text = _create_text_with_num_tokens(
@@ -208,15 +217,18 @@ class SentenceTransformer(SentenceTransformerOriginal):
                 # https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/
 
         # Warm up the dynamic-compiled fallback path by intentionally exceeding
-        # the biggest bucket
-        logger.info("Warming up fallback path")
-        text = _create_text_with_num_tokens(
-            math.ceil((max(self._compiled_token_buckets) + self.max_seq_length) / 2),
-            self._tokenize_unpadded,
-            **self._tokenize_and_forward_kwargs,
-        )
-        texts = [text] * self._compiled_batch_size
-        _ = self.encode(texts, show_progress_bar=False, **self._tokenize_and_forward_kwargs)
+        # the biggest bucket. Skipped when the fallback is eager (nothing to
+        # compile), and a no-op anyway for models whose max_seq_length equals
+        # the largest bucket (no valid input can exceed it).
+        if self._compile_fallback:
+            logger.info("Warming up fallback path")
+            text = _create_text_with_num_tokens(
+                math.ceil((max(self._compiled_token_buckets) + self.max_seq_length) / 2),
+                self._tokenize_unpadded,
+                **self._tokenize_and_forward_kwargs,
+            )
+            texts = [text] * self._compiled_batch_size
+            _ = self.encode(texts, show_progress_bar=False, **self._tokenize_and_forward_kwargs)
 
     @_set_float32_matmul_precision(_COMPILED_MATMUL_PRECISION)
     def forward(self, input: dict[str, torch.Tensor], **kwargs) -> dict[str, torch.Tensor]:
@@ -242,6 +254,9 @@ class SentenceTransformer(SentenceTransformerOriginal):
         if not does_match_batch_size:
             logger.error(f"Batch size mismatch: {batch_size} (input) != {self._compiled_batch_size} (compiled)")
 
+        # Fallback for out-of-bucket lengths or unexpected batch sizes.
+        if not self._compile_fallback:
+            return super().forward(input, **kwargs)
         if self._compiled_forward_dynamic is None:
             raise ValueError("compile_and_warm_up() must be called before using the compiled forward.")
         return self._compiled_forward_dynamic(input, **kwargs)
