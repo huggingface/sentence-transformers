@@ -87,6 +87,9 @@ class SentenceTransformer(SentenceTransformerOriginal):
             sorted({min(bucket, self.max_seq_length) for bucket in compiled_token_buckets})
         )
         self._compiled_forward: _ForwardFunction | None = None
+        "CUDA-graph per bucket which is hit when batch size and seq length matches"
+        self._compiled_forward_dynamic: _ForwardFunction | None = None
+        "Dynamic-shape torch.compile for the fallback, no re-compiles"
 
     def preprocess(
         self,
@@ -167,6 +170,10 @@ class SentenceTransformer(SentenceTransformerOriginal):
             _ForwardFunction,
             torch.compile(super().forward, mode="reduce-overhead", dynamic=False),
         )
+        self._compiled_forward_dynamic = cast(
+            _ForwardFunction,
+            torch.compile(super().forward, dynamic=True),
+        )
 
         for target_num_tokens in self._compiled_token_buckets:
             text = _create_text_with_num_tokens(
@@ -200,8 +207,8 @@ class SentenceTransformer(SentenceTransformerOriginal):
                 # https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/torch-integration.html#stream-capture-api-torch-cuda-graph
                 # https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/
 
-        # Warm up the eager fallback path by intentionally exceeding the biggest
-        # bucket.
+        # Warm up the dynamic-compiled fallback path by intentionally exceeding
+        # the biggest bucket
         logger.info("Warming up fallback path")
         text = _create_text_with_num_tokens(
             math.ceil((max(self._compiled_token_buckets) + self.max_seq_length) / 2),
@@ -234,4 +241,7 @@ class SentenceTransformer(SentenceTransformerOriginal):
 
         if not does_match_batch_size:
             logger.error(f"Batch size mismatch: {batch_size} (input) != {self._compiled_batch_size} (compiled)")
-        return super().forward(input, **kwargs)
+
+        if self._compiled_forward_dynamic is None:
+            raise ValueError("compile_and_warm_up() must be called before using the compiled forward.")
+        return self._compiled_forward_dynamic(input, **kwargs)
