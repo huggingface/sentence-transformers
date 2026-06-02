@@ -45,7 +45,7 @@ from transformers.utils.import_utils import is_peft_available
 from transformers.utils.peft_utils import find_adapter_config_file
 
 from sentence_transformers.backend import load_onnx_model, load_openvino_model
-from sentence_transformers.base.modality import InputFormatter, format_modality
+from sentence_transformers.base.modality import InputFormatter, format_modality, raise_unsupported_modality_error
 from sentence_transformers.base.modality_types import (
     MODALITY_TO_PROCESSOR_ARG,
     MessageInput,
@@ -953,10 +953,7 @@ class Transformer(InputModule):
         if "message" in self.modality_config and modality != "message":
             modality, processor_inputs = self.input_formatter.batch_to_message(modality, processor_inputs)
         elif modality not in self.modality_config:
-            raise ValueError(
-                f"Modality '{format_modality(modality)}' is not supported by this model. "
-                f"Supported modalities: {', '.join(format_modality(m) for m in sorted(self.modality_config.keys(), key=str))}"
-            )
+            raise_unsupported_modality_error(inputs, modality, list(self.modality_config.keys()), "Transformer module")
 
         # Incorporate prompt into inputs if applicable
         prompt_length = None
