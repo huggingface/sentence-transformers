@@ -528,6 +528,12 @@ class BaseModelCardData(CardData):
                 # We can't set widget examples from an IterableDataset without losing data
                 continue
 
+            if dataset[dataset_name].format["type"] == "custom":
+                # A custom transform is set (e.g. KDProcessing resolving query/document IDs to texts lazily).
+                # dataset.features then describes the pre-transform columns, so the select_columns below would
+                # starve the transform of the columns it needs; skip widget examples for such datasets.
+                continue
+
             # Sample 1000 examples from the dataset, sort them by length, and pick the shortest examples as the core
             # examples for the widget
             columns = [

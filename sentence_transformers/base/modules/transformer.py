@@ -105,6 +105,14 @@ except ImportError:
         pass
 
 
+try:
+    from transformers import PaliGemmaProcessor
+except ImportError:
+
+    class PaliGemmaProcessor:
+        pass
+
+
 if TYPE_CHECKING and is_peft_available():
     from peft import PeftConfig
 
@@ -883,6 +891,22 @@ class Transformer(InputModule):
             return self.processor
         return getattr(self.processor, "tokenizer", None)
 
+    def _should_flatten_inputs(
+        self,
+        modality: Modality,
+        processor_inputs: dict[str, Any],
+        **kwargs: Any,
+    ) -> bool:
+        """Whether to pack variable-length text inputs into a single flat sequence (FA2 unpadding).
+
+        Only safe for text-only inputs, since :class:`DataCollatorWithFlattening` only handles
+        ``input_ids`` / ``labels``. Subclasses can override to opt out for specific tasks.
+        """
+        return self.can_flatten_inputs and (
+            modality == "text"
+            or (modality == "message" and self.input_formatter.is_text_only_messages(processor_inputs["message"]))
+        )
+
     def preprocess(
         self,
         inputs: list[SingleInput | PairInput],
@@ -939,11 +963,10 @@ class Transformer(InputModule):
             modality_kwargs[modality_key].update(extra_kwargs)
 
         # Flatten inputs to avoid padding overhead when using flash attention variable-length functions.
-        # Only safe for text-only inputs, since DataCollatorWithFlattening only handles input_ids/labels.
-        should_flatten = self.can_flatten_inputs and (
-            modality == "text"
-            or (modality == "message" and self.input_formatter.is_text_only_messages(processor_inputs["message"]))
-        )
+        # Subclasses can override `_should_flatten_inputs` to opt out of flattening for specific tasks
+        # (e.g. ColBERT-style query expansion, which repurposes padding positions as [MASK] tokens and
+        # therefore can't have them dropped by FA2 unpadding).
+        should_flatten = self._should_flatten_inputs(modality, processor_inputs, **kwargs)
         if should_flatten:
             del common_kwargs["return_tensors"]
             modality_kwargs["text"].pop("padding", None)
@@ -1321,6 +1344,28 @@ class Transformer(InputModule):
         # Ideally we'd use the same code path for both ProcessorMixin and Tokenizers, but the latter expects
         # the text kwargs to be passed at the top level instead of in a nested "text_kwargs" dict.
         chat_template_kwargs = chat_template_kwargs or {}
+
+        # PaliGemmaProcessor refuses text-only inputs. Fall back to the tokenizer's apply_chat_template
+        # (same token ids). Extend the isinstance check if other processors share the constraint.
+        if (
+            isinstance(self.processor, PaliGemmaProcessor)
+            and self.tokenizer is not None
+            and self.input_formatter.is_text_only_messages(messages)
+        ):
+            top_level_kwarg_names = {"padding", "truncation", "max_length", "return_tensors"}
+            top_level_kwargs = {key: common_kwargs.pop(key) for key in top_level_kwarg_names & common_kwargs.keys()}
+            top_level_kwargs |= {
+                key: modality_kwargs["text"].pop(key) for key in top_level_kwarg_names & modality_kwargs["text"].keys()
+            }
+            return self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                return_dict=True,
+                **top_level_kwargs,
+                **modality_kwargs["text"],
+                **chat_template_kwargs,
+            )
+
         if isinstance(self.processor, ProcessorMixin):
             # Transformers v5.4.0 prefers us to pass processor_kwargs as a single dict, but there's still some top level
             # kwargs that need to be hoisted out for backwards compatibility.
