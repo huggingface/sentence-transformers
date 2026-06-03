@@ -234,10 +234,11 @@ class SentenceTransformer(SentenceTransformerOriginal):
 
     @_set_float32_matmul_precision(_COMPILED_MATMUL_PRECISION)
     def forward(self, input: dict[str, torch.Tensor], **kwargs) -> dict[str, torch.Tensor]:
-        # Only use the compiled forward if the sequence length matches one of
-        # our buckets. If we used the compiled forward for one that doesn't hit
-        # the bucket, we create a new CUDA graph for every unique sequence
-        # length above 2048, which thrashes the cache.
+        # Only use the bucketed CUDA-graph forward when both batch size and
+        # sequence length match a bucket. Out-of-bucket lengths route through
+        # the dynamic-shape compiled fallback (when enabled), avoiding the
+        # cache-thrashing we'd get from re-tracing the static graph for every
+        # unique length.
 
         if self.training:
             raise ValueError("This won't work for training.")
