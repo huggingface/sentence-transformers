@@ -89,7 +89,6 @@ class SparseAutoEncoderTokenEncoder(Module):
             ``"both"`` behaves the same as ``"dense"`` while preserving the top-k outputs.
         replace_token_embeddings: If ``True``, replaces ``"token_embeddings"`` with dense
             sparse-token embeddings.
-        checkpoint_format_version: Version number saved in the module configuration.
         has_decoder: Whether to create a decoder for reconstruction during training.
         k_aux: Number of auxiliary features available for external sparse-autoencoder losses.
         frozen: Whether sparse autoencoder parameters should be frozen.
@@ -105,7 +104,6 @@ class SparseAutoEncoderTokenEncoder(Module):
         "variant",
         "output_format",
         "replace_token_embeddings",
-        "checkpoint_format_version",
         "has_decoder",
         "k_aux",
         "frozen",
@@ -122,7 +120,6 @@ class SparseAutoEncoderTokenEncoder(Module):
         variant: Literal["standard", "jumprelu"] = "standard",
         output_format: Literal["topk", "dense", "both"] = "topk",
         replace_token_embeddings: bool = False,
-        checkpoint_format_version: int = 1,
         has_decoder: bool = True,
         k_aux: int = 512,
         frozen: bool = False,
@@ -143,7 +140,6 @@ class SparseAutoEncoderTokenEncoder(Module):
         self.variant = variant
         self.output_format = output_format
         self.replace_token_embeddings = replace_token_embeddings
-        self.checkpoint_format_version = checkpoint_format_version
         self.has_decoder = has_decoder
         self.k_aux = k_aux
         self.frozen = frozen
