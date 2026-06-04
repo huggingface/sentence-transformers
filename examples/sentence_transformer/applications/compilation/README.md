@@ -60,11 +60,6 @@ to:
 > Concurrent calls into the compiled model can trigger a device-side assert.
 > Serialize them (e.g., hold a lock around `encode`).
 
-> [!NOTE]
-> If your model server is managed by k8s, you may need a startup probe
-> to wait for the `model.compile_and_warm_up()` call to complete when loading
-> the model.
-
 
 ## Tests
 
