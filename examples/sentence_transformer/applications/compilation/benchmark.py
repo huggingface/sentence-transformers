@@ -247,7 +247,7 @@ def _benchmark_model_version(
 def _cos_sim(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     a = a / np.linalg.norm(a, axis=-1, keepdims=True)
     b = b / np.linalg.norm(b, axis=-1, keepdims=True)
-    return a @ b.T
+    return (a * b).sum(axis=-1)
 
 
 def _benchmark_model(
@@ -278,12 +278,11 @@ def _benchmark_model(
     atol = MODEL_NAME_TO_ATOL.get(model_name, default_atol)
     for version in (version for version in versions if version != "base"):
         cos_sim = _cos_sim(version_to_embeddings["base"], version_to_embeddings[version])
-        diag = np.diag(cos_sim)
         # rtol contributes ~atol on top since target ≈ 1.0 (effective tolerance ~2e-3), following
         # torch.testing.assert_close's convention of `rtol == atol` for reduced-precision dtypes.
-        assert np.allclose(diag, 1.0, atol=atol, rtol=atol), (
+        assert np.allclose(cos_sim, 1.0, atol=atol, rtol=atol), (
             f"Cos sim isn't always numerically close to 1.0 for base vs {version}. "
-            f"Observed range: [{diag.min()}, {diag.max()}]"
+            f"Observed range: [{cos_sim.min()}, {cos_sim.max()}]"
         )
     return records
 
