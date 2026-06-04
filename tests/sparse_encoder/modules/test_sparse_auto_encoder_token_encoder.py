@@ -274,11 +274,11 @@ def test_sparse_auto_encoder_token_encoder_training_outputs_and_gradients() -> N
     ]:
         features["token_embeddings"] = hidden
         out = encoder(features)
-        assert out["token_embedding_backbone"].shape == (8, 4)
-        assert out["decoded_token_embeddings"].shape == (8, 4)
+        assert out["sae_input_normalized"].shape == (8, 4)
+        assert out["sae_output_decoded"].shape == (8, 4)
         assert "token_reconstruction_loss" not in out
 
-        loss = torch.nn.functional.mse_loss(out["decoded_token_embeddings"], out["token_embedding_backbone"])
+        loss = torch.nn.functional.mse_loss(out["sae_output_decoded"], out["sae_input_normalized"])
         loss = loss + out["token_sparse_values"].sum()
         encoder.zero_grad()
         loss.backward()
@@ -298,11 +298,9 @@ def test_sparse_auto_encoder_token_encoder_training_supports_bfloat16() -> None:
 
     out = encoder({"token_embeddings": hidden})
 
-    assert out["token_embedding_backbone"].dtype == torch.bfloat16
-    assert out["decoded_token_embeddings"].dtype == torch.bfloat16
-    loss = torch.nn.functional.mse_loss(
-        out["decoded_token_embeddings"].float(), out["token_embedding_backbone"].float()
-    )
+    assert out["sae_input_normalized"].dtype == torch.bfloat16
+    assert out["sae_output_decoded"].dtype == torch.bfloat16
+    loss = torch.nn.functional.mse_loss(out["sae_output_decoded"].float(), out["sae_input_normalized"].float())
     loss.backward()
 
     assert encoder.W_enc.grad is not None

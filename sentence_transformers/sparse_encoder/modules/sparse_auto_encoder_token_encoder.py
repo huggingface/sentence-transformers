@@ -70,7 +70,7 @@ class SparseAutoEncoderTokenEncoder(Module):
     under ``"token_sparse_values"`` and ``"token_sparse_indices"``.
 
     In training mode, if a decoder is available, the module additionally emits
-    ``"token_embedding_backbone"`` and ``"decoded_token_embeddings"``. These tensors can be
+    ``"sae_input_normalized"`` and ``"sae_output_decoded"``. These tensors can be
     used by a loss function to train the sparse autoencoder. In evaluation mode, or when no
     decoder is available, only the sparse token activations are produced.
 
@@ -282,8 +282,8 @@ class SparseAutoEncoderTokenEncoder(Module):
         k = max_active_dims if max_active_dims is not None else self.k
         if self.training and self.W_dec is not None:
             flat_values, flat_indices, flat_backbone, flat_decoded = self._encode_training_chunks(flat_tokens, k=k)
-            features["token_embedding_backbone"] = flat_backbone
-            features["decoded_token_embeddings"] = flat_decoded
+            features["sae_input_normalized"] = flat_backbone
+            features["sae_output_decoded"] = flat_decoded
         else:
             flat_values, flat_indices = self.encode_tokens(flat_tokens, k=k)
         token_values, token_indices = _restore_token_topk(flat_values, flat_indices, token_embeddings)
