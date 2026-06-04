@@ -55,8 +55,6 @@ MODEL_NAME_TO_ATOL: dict[str, float] = {
 
 NUM_SAMPLES_PER_BUCKET = 32
 MIN_TOKENS = 8
-# Reuse the compiled model's buckets so the bucket-labeled report aligns with the CUDA-graph buckets.
-DEFAULT_COMPILE_TOKEN_BUCKETS: tuple[int, ...] = compiled.DEFAULT_COMPILED_TOKEN_BUCKETS
 
 Version: TypeAlias = Literal["base", "st_compiled", "compiled"]
 
@@ -86,13 +84,14 @@ def _load_sdpa_with_eager_fallback(
 def _input_token_lengths(max_seq_length: int, num_samples: int = NUM_SAMPLES_PER_BUCKET) -> list[int]:
     """
     Return sorted token-length targets: `num_samples` uniform per bucket plus B-1, B, B+1 for each bucket B.
+    The B-1 and B+1 targets might be interesting to measure overhead caused by padding.
     """
-    buckets_active = [bucket for bucket in DEFAULT_COMPILE_TOKEN_BUCKETS if bucket < max_seq_length]
+    buckets_active = [bucket for bucket in compiled.DEFAULT_COMPILED_TOKEN_BUCKETS if bucket < max_seq_length]
     edges = [MIN_TOKENS, *buckets_active, max_seq_length]
     grid: set[int] = set()
     for lower, upper in zip(edges[:-1], edges[1:], strict=True):
         grid.update(int(value) for value in np.linspace(lower, upper, num_samples))
-    for bucket in DEFAULT_COMPILE_TOKEN_BUCKETS:
+    for bucket in compiled.DEFAULT_COMPILED_TOKEN_BUCKETS:
         for offset in (-1, 0, 1):
             value = bucket + offset
             if MIN_TOKENS <= value <= max_seq_length:
@@ -225,12 +224,6 @@ def _benchmark_model_version(
         _, warmup_sec = _time_func(model.compile_and_warm_up)
     else:
         if version == "st_compiled":
-            # ST's built-in torch.compile path. We compile the Transformer submodule (model[0]), not the top-level
-            # model: encode() calls self.forward() directly, bypassing nn.Module.__call__ and thus model.compile()'s
-            # wrapper, so model.compile() is a silent no-op here (true on both ST 5.1 and 5.5). forward() invokes each
-            # submodule via __call__, so compiling model[0] actually engages torch.compile on the encode path.
-            # dynamic=True compiles once for all shapes (vs default static, which would recompile per sequence length
-            # and dominate the sweep).
             model[0].compile(dynamic=True)
         _, warmup_sec = _time_func(model.encode, "warm up")
 
@@ -324,7 +317,7 @@ def _summary_per_model_bucket(df: pl.DataFrame) -> pl.DataFrame:
     Pivot `df`'s `phase="run"` rows wide on `version` and aggregate per `(model_name, bucket)`.
     """
     df = df.filter(pl.col("phase") == "run")
-    df = _add_bucket_label(df, buckets=DEFAULT_COMPILE_TOKEN_BUCKETS, column="num_tokens")
+    df = _add_bucket_label(df, buckets=compiled.DEFAULT_COMPILED_TOKEN_BUCKETS, column="num_tokens")
     df = df.pivot(
         on="version",
         index=["model_name", "bucket", "num_tokens"],
