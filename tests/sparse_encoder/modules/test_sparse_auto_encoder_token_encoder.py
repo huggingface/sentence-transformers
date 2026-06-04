@@ -291,6 +291,25 @@ def test_sparse_auto_encoder_token_encoder_training_outputs_and_gradients() -> N
         assert encoder.b_pre.grad is not None
 
 
+def test_sparse_auto_encoder_token_encoder_training_supports_bfloat16() -> None:
+    encoder = _make_token_encoder().to(torch.bfloat16)
+    encoder.train()
+    hidden = torch.randn(8, 4, requires_grad=True)
+
+    out = encoder({"token_embeddings": hidden})
+
+    assert out["token_embedding_backbone"].dtype == torch.bfloat16
+    assert out["decoded_token_embeddings"].dtype == torch.bfloat16
+    loss = torch.nn.functional.mse_loss(
+        out["decoded_token_embeddings"].float(), out["token_embedding_backbone"].float()
+    )
+    loss.backward()
+
+    assert encoder.W_enc.grad is not None
+    assert encoder.W_dec is not None
+    assert encoder.W_dec.grad is not None
+
+
 def test_sparse_auto_encoder_token_encoder_from_checkpoint_is_frozen_by_default(tmp_path) -> None:
     module = _make_token_encoder()
     module.save(str(tmp_path))

@@ -180,6 +180,9 @@ class SparseAutoEncoderTokenEncoder(Module):
             x = x * self.rms_scale
         return x * (self.target_norm / x.norm(dim=-1, keepdim=True).clamp(min=1e-8))
 
+    def _normalize_for_projection(self, tokens: torch.Tensor) -> torch.Tensor:
+        return self.normalize(tokens).to(dtype=self.W_enc.dtype)
+
     def encode_pre_act(self, tokens: torch.Tensor) -> torch.Tensor:
         return _SparseAutoEncoderProjection.encode_pre_act(tokens, self.W_enc, self.b_enc, self.b_pre)
 
@@ -189,14 +192,14 @@ class SparseAutoEncoderTokenEncoder(Module):
 
         token_batch_size = self.token_batch_size
         if token_batch_size is None or token_batch_size <= 0 or tokens.shape[0] <= token_batch_size:
-            logits = self.encode_pre_act(self.normalize(tokens))
+            logits = self.encode_pre_act(self._normalize_for_projection(tokens))
             return _SparseAutoEncoderProjection.top_k_sparse(logits, k, self.variant, self.theta)
 
         values = []
         indices = []
         for start in range(0, tokens.shape[0], token_batch_size):
             chunk = tokens[start : start + token_batch_size]
-            logits = self.encode_pre_act(self.normalize(chunk))
+            logits = self.encode_pre_act(self._normalize_for_projection(chunk))
             top_values, top_indices = _SparseAutoEncoderProjection.top_k_sparse(logits, k, self.variant, self.theta)
             values.append(top_values)
             indices.append(top_indices)
@@ -213,7 +216,7 @@ class SparseAutoEncoderTokenEncoder(Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         token_batch_size = self.token_batch_size
         if token_batch_size is None or token_batch_size <= 0 or tokens.shape[0] <= token_batch_size:
-            normalized = self.normalize(tokens)
+            normalized = self._normalize_for_projection(tokens)
             logits = self.encode_pre_act(normalized)
             values, indices = _SparseAutoEncoderProjection.top_k_sparse(logits, k, self.variant, self.theta)
             latents = _SparseAutoEncoderProjection.sparse_to_dense(values, indices, self.hidden_dim)
@@ -226,7 +229,7 @@ class SparseAutoEncoderTokenEncoder(Module):
         decoded_tokens = []
         for start in range(0, tokens.shape[0], token_batch_size):
             chunk = tokens[start : start + token_batch_size]
-            normalized = self.normalize(chunk)
+            normalized = self._normalize_for_projection(chunk)
             logits = self.encode_pre_act(normalized)
             top_values, top_indices = _SparseAutoEncoderProjection.top_k_sparse(logits, k, self.variant, self.theta)
             latents = _SparseAutoEncoderProjection.sparse_to_dense(top_values, top_indices, self.hidden_dim)
