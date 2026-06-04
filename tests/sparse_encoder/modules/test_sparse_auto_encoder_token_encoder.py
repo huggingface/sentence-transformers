@@ -259,27 +259,36 @@ def test_sparse_auto_encoder_token_encoder_respects_max_active_dims() -> None:
 def test_sparse_auto_encoder_token_encoder_training_outputs_and_gradients() -> None:
     encoder = _make_token_encoder()
     encoder.train()
-    hidden = torch.randn(2, 4, 4, requires_grad=True)
-    features = {
-        "token_embeddings": hidden,
-        "attention_mask": torch.ones(2, 4, dtype=torch.long),
-    }
+    for hidden, features in [
+        (
+            torch.randn(2, 4, 4, requires_grad=True),
+            {
+                "token_embeddings": torch.randn(2, 4, 4, requires_grad=True),
+                "attention_mask": torch.ones(2, 4, dtype=torch.long),
+            },
+        ),
+        (
+            torch.randn(8, 4, requires_grad=True),
+            {"token_embeddings": torch.randn(8, 4, requires_grad=True)},
+        ),
+    ]:
+        features["token_embeddings"] = hidden
+        out = encoder(features)
+        assert out["token_embedding_backbone"].shape == (8, 4)
+        assert out["decoded_token_embeddings"].shape == (8, 4)
+        assert "token_reconstruction_loss" not in out
 
-    out = encoder(features)
-    assert out["token_embedding_backbone"].shape == (8, 4)
-    assert out["decoded_token_embeddings"].shape == (8, 4)
-    assert "token_reconstruction_loss" not in out
+        loss = torch.nn.functional.mse_loss(out["decoded_token_embeddings"], out["token_embedding_backbone"])
+        loss = loss + out["token_sparse_values"].sum()
+        encoder.zero_grad()
+        loss.backward()
 
-    loss = torch.nn.functional.mse_loss(out["decoded_token_embeddings"], out["token_embedding_backbone"])
-    loss = loss + out["token_sparse_values"].sum()
-    loss.backward()
-
-    assert hidden.grad is not None
-    assert encoder.W_enc.grad is not None
-    assert encoder.W_dec is not None
-    assert encoder.W_dec.grad is not None
-    assert encoder.b_enc.grad is not None
-    assert encoder.b_pre.grad is not None
+        assert hidden.grad is not None
+        assert encoder.W_enc.grad is not None
+        assert encoder.W_dec is not None
+        assert encoder.W_dec.grad is not None
+        assert encoder.b_enc.grad is not None
+        assert encoder.b_pre.grad is not None
 
 
 def test_sparse_auto_encoder_token_encoder_from_checkpoint_is_frozen_by_default(tmp_path) -> None:

@@ -37,6 +37,8 @@ def _flatten_token_embeddings(
             raise ValueError(f"Expected flattened token_embeddings to be rank 2; got {tuple(token_embeddings.shape)}")
         return flat, None, bounds
 
+    if token_embeddings.ndim == 2:
+        return token_embeddings, None, None
     if token_embeddings.ndim != 3:
         raise ValueError(f"Expected padded token_embeddings to be [B, T, D]; got {tuple(token_embeddings.shape)}")
     mask = features.get("attention_mask")
