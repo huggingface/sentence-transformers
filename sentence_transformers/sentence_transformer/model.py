@@ -214,6 +214,27 @@ class SentenceTransformer(BaseModel, FitMixin):
                     "Either update the model configuration or call `model.set_pooling_include_prompt(False)` after loading the model."
                 )
 
+    def compile(self, *args, **kwargs):
+        """
+        Compile this Module's forward using :func:`torch.compile`.
+
+        This Module's ``__call__`` method is compiled and all arguments are passed as-is
+        to :func:`torch.compile`.
+
+        See :func:`torch.compile` for details on the arguments for this function.
+
+        .. tip::
+
+            You likely want to use ``model[0].compile(dynamic=True)`` instead of ``model.compile()`` for inference.
+            ``model.compile()`` compiles the ``__call__`` method. But :meth:`encode` directly calls ``self.forward``.
+            ``model[0].compile()`` compiles the first, core :class:`~sentence_transformers.base.modules.Transformer`
+            module that ``self.forward`` calls. Set ``dynamic=True`` because ``dynamic=False`` recompiles on every new
+            sequence length, introducing significant overhead on workloads with variable sequence lengths. For a
+            benchmark comparing dynamic and static CUDA-graph compilation, see
+            https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/applications/compilation/benchmark.py.
+        """
+        return super().compile(*args, **kwargs)
+
     @deprecated_kwargs(sentences="inputs")
     def encode_query(
         self,
