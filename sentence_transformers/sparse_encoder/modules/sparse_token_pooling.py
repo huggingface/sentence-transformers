@@ -16,7 +16,30 @@ def _split_flattened_sequence_bounds(features: dict[str, Any]) -> list[tuple[int
 
 
 class SparseTokenPooling(Module):
-    """Pool sparse per-token activations into one sparse feature vector per input."""
+    """Pools sparse per-token activations into sparse sentence embeddings.
+
+    This module consumes sparse token activations represented by values and feature indices,
+    such as the outputs of
+    :class:`~sentence_transformers.sparse_encoder.modules.SparseAutoEncoderTokenEncoder`.
+    It pools all active token features into one vector per input and stores the result in
+    ``"sentence_embedding"``.
+
+    The input activations may be padded (``[batch_size, seq_length, k]``) or packed with
+    ``"cu_seq_lens_q"`` in the features dictionary. If an ``"attention_mask"`` is present, padded
+    tokens are excluded from pooling. If ``include_prompt`` is ``False`` and ``"prompt_length"`` is
+    present, prompt tokens are excluded in the same style as
+    :class:`sentence_transformers.sentence_transformer.modules.Pooling`.
+
+    Args:
+        embedding_dimension: Dimension of the output sparse sentence embeddings.
+        pooling_strategy: Pooling strategy over token activations. ``"sum"`` adds all active
+            token features, ``"max"`` keeps the largest activation per feature, and
+            ``"max_log1p"`` keeps the largest ``log1p`` activation per feature.
+        include_prompt: If ``False``, prompt tokens are excluded from pooling when
+            ``"prompt_length"`` is present in the features dictionary.
+        values_key: Key in the features dictionary containing sparse token values.
+        indices_key: Key in the features dictionary containing sparse token feature indices.
+    """
 
     config_keys = ["embedding_dimension", "pooling_strategy", "include_prompt", "values_key", "indices_key"]
     POOLING_STRATEGIES = ("sum", "max", "max_log1p")

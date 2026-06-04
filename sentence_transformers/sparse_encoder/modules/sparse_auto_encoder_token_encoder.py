@@ -61,11 +61,41 @@ def _restore_token_topk(
 
 
 class SparseAutoEncoderTokenEncoder(Module):
-    """Apply a trained sparse autoencoder projection to token embeddings.
+    """Applies a sparse autoencoder projection to token embeddings.
 
-    The module stores the sparse autoencoder encoder weights, normalization state,
-    activation variant, and per-token top-k projection used at inference time. It
-    emits sparse per-token values and indices for :class:`SparseTokenPooling`.
+    This module consumes token embeddings and produces sparse per-token activations
+    represented by values and feature indices. It can be followed by
+    :class:`~sentence_transformers.sparse_encoder.modules.SparseTokenPooling` to produce a
+    sparse sentence embedding. The sparse activations are stored in the features dictionary
+    under ``"token_sparse_values"`` and ``"token_sparse_indices"``.
+
+    In training mode, if a decoder is available, the module additionally emits
+    ``"token_embedding_backbone"`` and ``"decoded_token_embeddings"``. These tensors can be
+    used by a loss function to train the sparse autoencoder. In evaluation mode, or when no
+    decoder is available, only the sparse token activations are produced.
+
+    The module accepts token embeddings in padded form (``[batch_size, seq_length, input_dim]``),
+    flattened form (``[num_tokens, input_dim]``), or packed form with ``"cu_seq_lens_q"`` in the
+    features dictionary.
+
+    Args:
+        input_dim: Dimension of the input token embeddings.
+        hidden_dim: Number of sparse autoencoder features.
+        k: Number of active features to keep per token.
+        variant: Sparse activation variant. ``"standard"`` applies top-k followed by ReLU,
+            while ``"jumprelu"`` applies learned thresholds before top-k.
+        output_format: Controls optional dense sparse-token output. ``"topk"`` emits only
+            values and indices, ``"dense"`` also emits ``"token_sparse_embeddings"``, and
+            ``"both"`` behaves the same as ``"dense"`` while preserving the top-k outputs.
+        replace_token_embeddings: If ``True``, replaces ``"token_embeddings"`` with dense
+            sparse-token embeddings.
+        checkpoint_format_version: Version number saved in the module configuration.
+        has_decoder: Whether to create a decoder for reconstruction during training.
+        k_aux: Number of auxiliary features available for external sparse-autoencoder losses.
+        frozen: Whether sparse autoencoder parameters should be frozen.
+        rms_scale: Optional scalar applied before L2 normalization when no ``data_mean`` is set.
+        token_batch_size: Optional number of tokens to project at once. Smaller values reduce
+            peak memory use for the sparse projection.
     """
 
     config_keys = [
