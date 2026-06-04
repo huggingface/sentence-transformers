@@ -80,7 +80,7 @@ def _run_modules(
     pooler = SparseTokenPooling(
         embedding_dimension=encoder.hidden_dim, pooling_strategy=pooling_strategy, include_prompt=include_prompt
     )
-    out = encoder(_clone_features(features))
+    out = encoder(features)
     out = pooler(out)
     return out["sentence_embedding"]
 
@@ -141,6 +141,36 @@ def test_sparse_auto_encoder_token_pooling_matches_dense_contract_padded_without
             _pool_expected(encoder, hidden[1], pooling_strategy="sum", token_mask=mask[1], prompt_length=1),
         ]
     ).to(actual.dtype)
+    torch.testing.assert_close(actual, expected)
+
+
+def test_sparse_token_pooling_excludes_prompt_after_left_padding() -> None:
+    token_values = torch.tensor(
+        [
+            [[1.0], [2.0], [3.0], [4.0], [5.0]],
+            [[6.0], [7.0], [8.0], [9.0], [10.0]],
+        ]
+    )
+    token_indices = torch.tensor(
+        [
+            [[0], [1], [2], [3], [4]],
+            [[0], [1], [2], [3], [4]],
+        ]
+    )
+    features = {
+        "token_sparse_values": token_values,
+        "token_sparse_indices": token_indices,
+        "attention_mask": torch.tensor([[0, 0, 1, 1, 1], [0, 1, 1, 1, 1]]),
+        "prompt_length": 1,
+    }
+
+    actual = SparseTokenPooling(embedding_dimension=5, include_prompt=False)(features)["sentence_embedding"]
+    expected = torch.tensor(
+        [
+            [0.0, 0.0, 0.0, 4.0, 5.0],
+            [0.0, 0.0, 8.0, 9.0, 10.0],
+        ]
+    )
     torch.testing.assert_close(actual, expected)
 
 
@@ -211,6 +241,78 @@ def test_sparse_auto_encoder_token_pooling_matches_dense_contract_flattened_with
         ]
     ).to(actual.dtype)
     torch.testing.assert_close(actual, expected)
+
+
+def test_sparse_auto_encoder_token_encoder_respects_max_active_dims() -> None:
+    encoder = _make_token_encoder()
+    hidden = torch.randn(2, 4, 4)
+    features = {
+        "token_embeddings": hidden.clone(),
+        "attention_mask": torch.ones(2, 4, dtype=torch.long),
+    }
+
+    out = encoder(_clone_features(features), max_active_dims=1)
+    assert out["token_sparse_values"].shape == (2, 4, 1)
+    assert out["token_sparse_indices"].shape == (2, 4, 1)
+
+
+def test_sparse_auto_encoder_token_encoder_training_outputs_and_gradients() -> None:
+    encoder = _make_token_encoder()
+    encoder.train()
+    hidden = torch.randn(2, 4, 4, requires_grad=True)
+    features = {
+        "token_embeddings": hidden,
+        "attention_mask": torch.ones(2, 4, dtype=torch.long),
+    }
+
+    out = encoder(features)
+    assert out["token_embedding_backbone"].shape == (8, 4)
+    assert out["decoded_token_embeddings"].shape == (8, 4)
+    assert "token_reconstruction_loss" not in out
+
+    loss = torch.nn.functional.mse_loss(out["decoded_token_embeddings"], out["token_embedding_backbone"])
+    loss = loss + out["token_sparse_values"].sum()
+    loss.backward()
+
+    assert hidden.grad is not None
+    assert encoder.W_enc.grad is not None
+    assert encoder.W_dec is not None
+    assert encoder.W_dec.grad is not None
+    assert encoder.b_enc.grad is not None
+    assert encoder.b_pre.grad is not None
+
+
+def test_sparse_auto_encoder_token_encoder_from_checkpoint_is_frozen_by_default(tmp_path) -> None:
+    module = _make_token_encoder()
+    module.save(str(tmp_path))
+    checkpoint_path = tmp_path / "sae.pt"
+    torch.save(
+        {
+            "W_enc": module.W_enc.detach(),
+            "b_enc": module.b_enc.detach(),
+            "b_pre": module.b_pre.detach(),
+            "W_dec": module.W_dec.detach(),
+            "config": {
+                "input_dim": module.input_dim,
+                "hidden_dim": module.hidden_dim,
+                "k": module.k,
+                "has_decoder": True,
+            },
+        },
+        checkpoint_path,
+    )
+
+    frozen = SparseAutoEncoderTokenEncoder.from_checkpoint(checkpoint_path)
+    assert not frozen.W_enc.requires_grad
+    assert not frozen.b_enc.requires_grad
+    assert not frozen.b_pre.requires_grad
+    assert frozen.W_dec is not None
+    assert not frozen.W_dec.requires_grad
+
+    trainable = SparseAutoEncoderTokenEncoder.from_checkpoint(checkpoint_path, frozen=False)
+    assert trainable.W_enc.requires_grad
+    assert trainable.W_dec is not None
+    assert trainable.W_dec.requires_grad
 
 
 def test_sparse_auto_encoder_token_batching_matches_unchunked_padded_and_flattened() -> None:

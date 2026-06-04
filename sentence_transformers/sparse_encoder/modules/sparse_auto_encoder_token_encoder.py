@@ -10,9 +10,9 @@ except ImportError:
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from sentence_transformers.base.modules.module import Module
+from sentence_transformers.sparse_encoder.modules.sparse_auto_encoder_projection import _SparseAutoEncoderProjection
 
 
 def _split_flattened_sequence_bounds(features: dict[str, Any]) -> list[tuple[int, int]] | None:
@@ -75,10 +75,12 @@ class SparseAutoEncoderTokenEncoder(Module):
         "replace_token_embeddings",
         "checkpoint_format_version",
         "has_decoder",
+        "k_aux",
+        "frozen",
         "rms_scale",
         "token_batch_size",
     ]
-    config_key_renames = {"sae_width": "hidden_dim", "topk": "k"}
+    forward_kwargs = {"max_active_dims"}
 
     def __init__(
         self,
@@ -89,19 +91,17 @@ class SparseAutoEncoderTokenEncoder(Module):
         output_format: Literal["topk", "dense", "both"] = "topk",
         replace_token_embeddings: bool = False,
         checkpoint_format_version: int = 1,
-        has_decoder: bool = False,
+        has_decoder: bool = True,
+        k_aux: int = 512,
+        frozen: bool = False,
         rms_scale: float | None = None,
         token_batch_size: int | None = None,
     ) -> None:
         super().__init__()
-        if hidden_dim <= 0:
-            raise ValueError(f"hidden_dim must be a positive integer, got {hidden_dim}.")
-        if k <= 0:
-            raise ValueError(f"k must be a positive integer, got {k}.")
-        if k > hidden_dim:
-            raise ValueError(f"k must be <= hidden_dim, got k={k}, hidden_dim={hidden_dim}.")
-        if variant not in {"standard", "jumprelu"}:
-            raise ValueError("variant must be either 'standard' or 'jumprelu'.")
+        _SparseAutoEncoderProjection.validate_dimensions(input_dim, hidden_dim, k)
+        _SparseAutoEncoderProjection.validate_variant(variant)
+        if k_aux < 0:
+            raise ValueError(f"k_aux must be a non-negative integer, got {k_aux}.")
         if output_format not in {"topk", "dense", "both"}:
             raise ValueError("output_format must be one of: 'topk', 'dense', 'both'.")
 
@@ -113,15 +113,22 @@ class SparseAutoEncoderTokenEncoder(Module):
         self.replace_token_embeddings = replace_token_embeddings
         self.checkpoint_format_version = checkpoint_format_version
         self.has_decoder = has_decoder
+        self.k_aux = k_aux
+        self.frozen = frozen
         self.target_norm = input_dim**0.5
         self.rms_scale = rms_scale
         self.token_batch_size = token_batch_size
 
-        self.W_enc = nn.Parameter(torch.empty(input_dim, hidden_dim), requires_grad=False)
-        self.b_enc = nn.Parameter(torch.zeros(hidden_dim), requires_grad=False)
-        self.b_pre = nn.Parameter(torch.zeros(input_dim), requires_grad=False)
+        requires_grad = not frozen
+        self.W_enc = nn.Parameter(torch.empty(input_dim, hidden_dim), requires_grad=requires_grad)
+        self.b_enc = nn.Parameter(torch.zeros(hidden_dim), requires_grad=requires_grad)
+        self.b_pre = nn.Parameter(torch.zeros(input_dim), requires_grad=requires_grad)
+        if has_decoder:
+            self.W_dec = nn.Parameter(torch.empty(hidden_dim, input_dim), requires_grad=requires_grad)
+        else:
+            self.register_parameter("W_dec", None)
         if variant == "jumprelu":
-            self.theta = nn.Parameter(torch.empty(hidden_dim), requires_grad=False)
+            self.theta = nn.Parameter(torch.empty(hidden_dim), requires_grad=requires_grad)
         else:
             self.register_parameter("theta", None)
         self.register_buffer("data_mean", None)
@@ -131,6 +138,8 @@ class SparseAutoEncoderTokenEncoder(Module):
         nn.init.kaiming_uniform_(self.W_enc, a=5**0.5)
         self.b_enc.data.zero_()
         self.b_pre.data.zero_()
+        if self.W_dec is not None:
+            nn.init.kaiming_uniform_(self.W_dec, a=5**0.5)
         if self.theta is not None:
             self.theta.data.zero_()
 
@@ -140,15 +149,19 @@ class SparseAutoEncoderTokenEncoder(Module):
         config = checkpoint.get("config", {})
         module = cls(
             input_dim=int(config.get("input_dim", checkpoint["W_enc"].shape[0])),
-            hidden_dim=int(config.get("hidden_dim", config.get("sae_width", checkpoint["W_enc"].shape[1]))),
-            k=kwargs.pop("k", kwargs.pop("topk", int(config.get("k", config.get("topk", 16))))),
+            hidden_dim=int(config.get("hidden_dim", checkpoint["W_enc"].shape[1])),
+            k=kwargs.pop("k", int(config.get("k", 16))),
             variant=config.get("variant", "standard"),
+            has_decoder=kwargs.pop("has_decoder", bool(config.get("has_decoder", "W_dec" in checkpoint))),
+            frozen=kwargs.pop("frozen", True),
             **kwargs,
         )
         with torch.no_grad():
             module.W_enc.copy_(checkpoint["W_enc"])
             module.b_enc.copy_(checkpoint["b_enc"])
             module.b_pre.copy_(checkpoint["b_pre"])
+            if module.W_dec is not None and "W_dec" in checkpoint:
+                module.W_dec.copy_(checkpoint["W_dec"])
             if module.theta is not None and "theta" in checkpoint:
                 module.theta.copy_(checkpoint["theta"])
         if "data_mean" in checkpoint:
@@ -166,41 +179,78 @@ class SparseAutoEncoderTokenEncoder(Module):
         return x * (self.target_norm / x.norm(dim=-1, keepdim=True).clamp(min=1e-8))
 
     def encode_pre_act(self, tokens: torch.Tensor) -> torch.Tensor:
-        return (tokens - self.b_pre) @ self.W_enc + self.b_enc
+        return _SparseAutoEncoderProjection.encode_pre_act(tokens, self.W_enc, self.b_enc, self.b_pre)
 
-    @torch.no_grad()
     def encode_tokens(self, tokens: torch.Tensor, k: int | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         k = k if k is not None else self.k
-        if k <= 0:
-            raise ValueError(f"k must be a positive integer, got {k}.")
-        if k > self.hidden_dim:
-            raise ValueError(f"k must be <= hidden_dim, got k={k}, hidden_dim={self.hidden_dim}.")
+        _SparseAutoEncoderProjection.validate_k(k, self.hidden_dim)
 
         token_batch_size = self.token_batch_size
         if token_batch_size is None or token_batch_size <= 0 or tokens.shape[0] <= token_batch_size:
             logits = self.encode_pre_act(self.normalize(tokens))
-            if self.variant == "jumprelu" and self.theta is not None:
-                logits = logits * (logits > self.theta).to(logits.dtype)
-            top_values, top_indices = logits.topk(k, dim=-1)
-            return F.relu(top_values), top_indices
+            return _SparseAutoEncoderProjection.top_k_sparse(logits, k, self.variant, self.theta)
 
         values = []
         indices = []
         for start in range(0, tokens.shape[0], token_batch_size):
             chunk = tokens[start : start + token_batch_size]
             logits = self.encode_pre_act(self.normalize(chunk))
-            if self.variant == "jumprelu" and self.theta is not None:
-                logits = logits * (logits > self.theta).to(logits.dtype)
-            top_values, top_indices = logits.topk(k, dim=-1)
-            values.append(F.relu(top_values))
+            top_values, top_indices = _SparseAutoEncoderProjection.top_k_sparse(logits, k, self.variant, self.theta)
+            values.append(top_values)
             indices.append(top_indices)
             del logits, top_values, top_indices
         return torch.cat(values, dim=0), torch.cat(indices, dim=0)
 
-    def forward(self, features: dict[str, torch.Tensor | Any], **kwargs) -> dict[str, torch.Tensor | Any]:
+    def decode(self, latents: torch.Tensor) -> torch.Tensor:
+        if self.W_dec is None:
+            raise ValueError("SparseAutoEncoderTokenEncoder was initialized without a decoder.")
+        return latents @ self.W_dec + self.b_pre
+
+    def _encode_training_chunks(
+        self, tokens: torch.Tensor, k: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        token_batch_size = self.token_batch_size
+        if token_batch_size is None or token_batch_size <= 0 or tokens.shape[0] <= token_batch_size:
+            normalized = self.normalize(tokens)
+            logits = self.encode_pre_act(normalized)
+            values, indices = _SparseAutoEncoderProjection.top_k_sparse(logits, k, self.variant, self.theta)
+            latents = _SparseAutoEncoderProjection.sparse_to_dense(values, indices, self.hidden_dim)
+            decoded = self.decode(latents)
+            return values, indices, normalized, decoded
+
+        values = []
+        indices = []
+        normalized_tokens = []
+        decoded_tokens = []
+        for start in range(0, tokens.shape[0], token_batch_size):
+            chunk = tokens[start : start + token_batch_size]
+            normalized = self.normalize(chunk)
+            logits = self.encode_pre_act(normalized)
+            top_values, top_indices = _SparseAutoEncoderProjection.top_k_sparse(logits, k, self.variant, self.theta)
+            latents = _SparseAutoEncoderProjection.sparse_to_dense(top_values, top_indices, self.hidden_dim)
+            values.append(top_values)
+            indices.append(top_indices)
+            normalized_tokens.append(normalized)
+            decoded_tokens.append(self.decode(latents))
+        return (
+            torch.cat(values, dim=0),
+            torch.cat(indices, dim=0),
+            torch.cat(normalized_tokens, dim=0),
+            torch.cat(decoded_tokens, dim=0),
+        )
+
+    def forward(
+        self, features: dict[str, torch.Tensor | Any], max_active_dims: int | None = None, **kwargs
+    ) -> dict[str, torch.Tensor | Any]:
         token_embeddings = features["token_embeddings"]
         flat_tokens, _, _ = _flatten_token_embeddings(features)
-        flat_values, flat_indices = self.encode_tokens(flat_tokens, k=self.k)
+        k = max_active_dims if max_active_dims is not None else self.k
+        if self.training and self.W_dec is not None:
+            flat_values, flat_indices, flat_backbone, flat_decoded = self._encode_training_chunks(flat_tokens, k=k)
+            features["token_embedding_backbone"] = flat_backbone
+            features["decoded_token_embeddings"] = flat_decoded
+        else:
+            flat_values, flat_indices = self.encode_tokens(flat_tokens, k=k)
         token_values, token_indices = _restore_token_topk(flat_values, flat_indices, token_embeddings)
 
         features["backbone_token_embeddings"] = token_embeddings
@@ -208,13 +258,7 @@ class SparseAutoEncoderTokenEncoder(Module):
         features["token_sparse_indices"] = token_indices
 
         if self.output_format in {"dense", "both"} or self.replace_token_embeddings:
-            dense = torch.zeros(
-                flat_values.shape[0],
-                self.hidden_dim,
-                dtype=flat_values.dtype,
-                device=flat_values.device,
-            )
-            dense.scatter_(1, flat_indices, flat_values)
+            dense = _SparseAutoEncoderProjection.sparse_to_dense(flat_values, flat_indices, self.hidden_dim)
             dense_tokens = dense.reshape(*token_embeddings.shape[:-1], self.hidden_dim)
             features["token_sparse_embeddings"] = dense_tokens
             if self.replace_token_embeddings:
@@ -255,12 +299,6 @@ class SparseAutoEncoderTokenEncoder(Module):
             revision=revision,
             local_files_only=local_files_only,
         )
-        legacy_prefix = "sae."
-        if any(key.startswith(legacy_prefix) for key in state_dict):
-            state_dict = {
-                key.removeprefix(legacy_prefix) if key.startswith(legacy_prefix) else key: value
-                for key, value in state_dict.items()
-            }
         if "data_mean" in state_dict:
             model.data_mean = state_dict["data_mean"].detach().clone()
         model.load_state_dict(state_dict)

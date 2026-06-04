@@ -23,7 +23,12 @@ from sentence_transformers.base.modality_types import TextInput
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCardData
-from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SpladePooling
+from sentence_transformers.sparse_encoder.modules import (
+    SparseAutoEncoder,
+    SparseAutoEncoderTokenEncoder,
+    SparseTokenPooling,
+    SpladePooling,
+)
 from sentence_transformers.util import batch_to_device, select_max_active_dims
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -187,7 +192,7 @@ class SparseEncoder(BaseModel):
         self.max_active_dims = max_active_dims
         if max_active_dims is None:
             for module in self._modules.values():
-                if isinstance(module, SparseAutoEncoder):
+                if isinstance(module, (SparseAutoEncoder, SparseAutoEncoderTokenEncoder)):
                     self.max_active_dims = module.k
                     break
 
@@ -602,7 +607,7 @@ class SparseEncoder(BaseModel):
         e.g. CSR models with a :class:`~sentence_transformers.sentence_transformer.modules.Pooling` layer.
         """
         for module in self:
-            if isinstance(module, Pooling):
+            if isinstance(module, (Pooling, SparseTokenPooling)):
                 module.include_prompt = include_prompt
                 break
 

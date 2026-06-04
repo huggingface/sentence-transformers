@@ -19,7 +19,6 @@ class SparseTokenPooling(Module):
     """Pool sparse per-token activations into one sparse feature vector per input."""
 
     config_keys = ["embedding_dimension", "pooling_strategy", "include_prompt", "values_key", "indices_key"]
-    config_key_renames = {"sae_width": "embedding_dimension", "pooling": "pooling_strategy"}
     POOLING_STRATEGIES = ("sum", "max", "max_log1p")
 
     def __init__(
@@ -47,6 +46,17 @@ class SparseTokenPooling(Module):
         if isinstance(prompt_length, torch.Tensor):
             return int(prompt_length.flatten()[0].item())
         return int(prompt_length)
+
+    @staticmethod
+    def _exclude_prompt_from_mask(attention_mask: torch.Tensor, prompt_length: int) -> torch.Tensor:
+        attention_mask = attention_mask.clone()
+        pad_lengths = attention_mask.to(torch.int32).argmax(dim=1)
+        if pad_lengths.sum() == 0:
+            attention_mask[:, :prompt_length] = 0
+        else:
+            positions = torch.arange(attention_mask.size(1), device=attention_mask.device).unsqueeze(0)
+            attention_mask[positions < (pad_lengths + prompt_length).unsqueeze(1)] = 0
+        return attention_mask
 
     def _pool_one(
         self,
@@ -104,14 +114,18 @@ class SparseTokenPooling(Module):
                     f"Expected padded sparse token values to be [B, T, K]; got {tuple(token_values.shape)}"
                 )
             mask = features.get("attention_mask")
+            if mask is not None and mask.shape != token_values.shape[:2]:
+                mask = None
+            if mask is None:
+                mask = torch.ones(token_values.shape[:2], dtype=torch.bool, device=token_values.device)
+            if prompt_length is not None and prompt_length > 0:
+                mask = self._exclude_prompt_from_mask(mask, prompt_length)
             for row in range(token_values.shape[0]):
-                active = mask[row] if mask is not None and mask.shape == token_values.shape[:2] else None
                 pooled_rows.append(
                     self._pool_one(
                         token_values[row],
                         token_indices[row],
-                        active=active,
-                        prompt_length=prompt_length,
+                        active=mask[row],
                     )
                 )
 
