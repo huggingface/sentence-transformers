@@ -31,7 +31,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout sentence-transformers
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Determine PR title
         id: pr_title
@@ -51,7 +51,7 @@ jobs:
           repositories: skills
 
       - name: Checkout huggingface/skills
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
         with:
           repository: huggingface/skills
           token: ${{ steps.app_token.outputs.token }}
