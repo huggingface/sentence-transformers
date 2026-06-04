@@ -78,7 +78,7 @@ class SparseAutoEncoderTokenEncoder(Module):
     flattened form (``[num_tokens, input_dim]``), or packed form with ``"cu_seq_lens_q"`` in the
     features dictionary.
 
-    Args:
+    General Args:
         input_dim: Dimension of the input token embeddings.
         hidden_dim: Number of sparse autoencoder features.
         k: Number of active features to keep per token.
@@ -89,12 +89,14 @@ class SparseAutoEncoderTokenEncoder(Module):
             ``"both"`` behaves the same as ``"dense"`` while preserving the top-k outputs.
         replace_token_embeddings: If ``True``, replaces ``"token_embeddings"`` with dense
             sparse-token embeddings.
-        has_decoder: Whether to create a decoder for reconstruction during training.
-        k_aux: Number of auxiliary features available for external sparse-autoencoder losses.
         frozen: Whether sparse autoencoder parameters should be frozen.
         rms_scale: Optional scalar applied before L2 normalization when no ``data_mean`` is set.
         token_batch_size: Optional number of tokens to project at once. Smaller values reduce
             peak memory use for the sparse projection.
+
+    Training Args:
+        has_decoder: Whether to create a decoder for reconstruction during training.
+        k_aux: Number of auxiliary features available for external sparse-autoencoder losses.
     """
 
     config_keys = [
