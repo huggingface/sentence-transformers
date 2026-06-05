@@ -50,7 +50,11 @@ def get_device_name() -> str:
     if torch.cuda.is_available():
         if "LOCAL_RANK" in os.environ:
             local_rank = int(os.environ["LOCAL_RANK"])
-        elif torch.distributed.is_initialized() and torch.cuda.device_count() > torch.distributed.get_rank():
+        elif (
+            torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+            and torch.cuda.device_count() > torch.distributed.get_rank()
+        ):
             local_rank = torch.distributed.get_rank()
         else:
             local_rank = 0
