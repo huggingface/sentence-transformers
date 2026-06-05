@@ -297,3 +297,8 @@ This project was originally developed by the [Ubiquitous Knowledge Processing (U
 [#docs-package]: https://www.sbert.net/
 [#github-license]: https://github.com/huggingface/sentence-transformers/blob/main/LICENSE
 [#pypi-package]: https://pypi.org/project/sentence-transformers/
+
+
+## Benchmarks
+
+- [REFUTE](https://huggingface.co/datasets/BGPT-OFFICIAL/refute) — Scientific critique & epistemic calibration (Apache-2.0). [Leaderboard](https://huggingface.co/spaces/BGPT-OFFICIAL/refute-leaderboard) · [Report](https://huggingface.co/datasets/BGPT-OFFICIAL/refute/blob/main/TECHNICAL_REPORT.md) · [Integrations](https://huggingface.co/datasets/BGPT-OFFICIAL/refute/tree/main/integrations)
