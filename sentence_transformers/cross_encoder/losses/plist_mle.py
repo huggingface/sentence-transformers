@@ -211,7 +211,7 @@ class PListMLELoss(nn.Module):
             logits_list.append(logits)
 
         logits = torch.cat(logits_list, dim=0)
-        logits = self.activation_fn(logits)
+        logits = self.activation_fn(logits).float()
 
         # Create output tensor filled with a very small value for padded logits
         logits_matrix = torch.full((batch_size, max_docs), 1e-16, device=self.model.device)

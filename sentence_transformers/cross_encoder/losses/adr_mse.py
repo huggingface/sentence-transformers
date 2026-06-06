@@ -178,7 +178,7 @@ class ADRMSELoss(nn.Module):
             logits_list.append(logits)
 
         logits = torch.cat(logits_list, dim=0)
-        logits = self.activation_fn(logits)
+        logits = self.activation_fn(logits).float()
 
         # Place logits into a padded matrix
         logits_matrix = torch.full((batch_size, max_docs), -1e16, device=self.model.device)
