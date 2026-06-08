@@ -27,10 +27,13 @@ LISTWISE_LOSSES = [
 ]
 
 
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16], ids=["bf16", "fp16"])
 @pytest.mark.parametrize("loss_cls", LISTWISE_LOSSES)
-def test_listwise_loss_supports_bfloat16(reranker_bert_tiny_model_v6: CrossEncoder, loss_cls) -> None:
+def test_listwise_loss_supports_low_precision(
+    reranker_bert_tiny_model_v6: CrossEncoder, loss_cls, dtype: torch.dtype
+) -> None:
     model = reranker_bert_tiny_model_v6
-    model.model.to(torch.bfloat16)
+    model.model.to(dtype)
     loss_fn = loss_cls(model)
 
     queries = ["What is Python?", "What is PyTorch?"]
@@ -45,3 +48,9 @@ def test_listwise_loss_supports_bfloat16(reranker_bert_tiny_model_v6: CrossEncod
     loss_value = loss_fn((queries, docs_list), labels)
     assert loss_value.dtype == torch.float32
     assert torch.isfinite(loss_value)
+
+    # Gradients must flow back into the low-precision model without dtype errors.
+    loss_value.backward()
+    grads = [p.grad for p in model.parameters() if p.grad is not None]
+    assert grads, "Expected at least one parameter to receive a gradient."
+    assert all(torch.isfinite(grad).all() for grad in grads)
