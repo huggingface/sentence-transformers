@@ -13,10 +13,8 @@ from sentence_transformers.cross_encoder.losses import (
     RankNetLoss,
 )
 
-# Learning-to-rank losses that build an internal logits matrix from the model's
-# logits. Regression test for #3793: training in low precision (bf16/fp16) used to
-# crash with "Index put requires the source and destination dtypes match" because
-# the matrix defaulted to float32 while the model emitted bf16/fp16 logits.
+# Learning-to-rank losses that scatter the model's logits into an internal matrix.
+# Regression test for #3793: bf16/fp16 training crashed on a float32 dtype mismatch.
 LISTWISE_LOSSES = [
     PListMLELoss,
     LambdaLoss,
