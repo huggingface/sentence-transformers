@@ -31,6 +31,9 @@ def test_listwise_loss_supports_low_precision(
     reranker_bert_tiny_model_v6: CrossEncoder, loss_cls, dtype: torch.dtype
 ) -> None:
     model = reranker_bert_tiny_model_v6
+    if dtype == torch.float16 and not torch.cuda.is_available():
+        pytest.skip("float16 CrossEncoder forward is only supported when CUDA is available.")
+
     model.model.to(dtype)
     loss_fn = loss_cls(model)
 
