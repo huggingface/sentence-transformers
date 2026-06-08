@@ -9,7 +9,7 @@ from transformers import PreTrainedTokenizerBase
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import all_gather_with_grad
+from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
 
 
 class GISTEmbedLoss(nn.Module):
@@ -182,7 +182,7 @@ class GISTEmbedLoss(nn.Module):
                 negative_guide = all_gather_with_grad(negative_guide)
             # All have this shape: (batch_size * world_size * (1 + num_negatives), embedding_dim)
 
-            if torch.distributed.is_initialized():
+            if is_dist_initialized():
                 rank = torch.distributed.get_rank()
                 offset = rank * batch_size
 

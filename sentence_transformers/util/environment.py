@@ -37,6 +37,17 @@ def suggest_extra_on_exception() -> Generator[None, None, None]:
         raise
 
 
+def is_dist_initialized() -> bool:
+    """
+    Returns whether ``torch.distributed`` is available and has been initialized.
+
+    The availability check must come first: some PyTorch builds (e.g. ROCm or CPU-only) report
+    ``torch.distributed.is_available() == False`` and do not expose APIs like ``is_initialized``, so calling
+    them directly raises ``AttributeError``.
+    """
+    return torch.distributed.is_available() and torch.distributed.is_initialized()
+
+
 def get_device_name() -> str:
     """
     Returns the name of the device where this module is running on.
@@ -50,11 +61,7 @@ def get_device_name() -> str:
     if torch.cuda.is_available():
         if "LOCAL_RANK" in os.environ:
             local_rank = int(os.environ["LOCAL_RANK"])
-        elif (
-            torch.distributed.is_available()
-            and torch.distributed.is_initialized()
-            and torch.cuda.device_count() > torch.distributed.get_rank()
-        ):
+        elif is_dist_initialized() and torch.cuda.device_count() > torch.distributed.get_rank():
             local_rank = torch.distributed.get_rank()
         else:
             local_rank = 0
