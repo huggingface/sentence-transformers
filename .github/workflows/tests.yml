@@ -57,6 +57,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+        with:
+          cache-suffix: "transformers-5-${{ (matrix.transformers-version == '<5.0.0') && 'minus' || 'plus' }}"
 
       # kenlm doesn't compile on Python 3.13, and pyctcdecode pins numpy<2.0.0
       # which conflicts with the rest of the stack. Exclude both on Python 3.13.
