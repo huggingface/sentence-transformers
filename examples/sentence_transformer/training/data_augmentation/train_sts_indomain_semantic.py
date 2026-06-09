@@ -123,16 +123,16 @@ ce_args = CrossEncoderTrainingArguments(
     num_train_epochs=num_epochs,
     per_device_train_batch_size=batch_size,
     warmup_ratio=0.1,
-    eval_strategy="steps",
-    eval_steps=1000,
+    eval_strategy="epoch",
 )
-CrossEncoderTrainer(
+ce_trainer = CrossEncoderTrainer(
     model=cross_encoder,
     args=ce_args,
     train_dataset=gold_dataset,
     loss=ce_loss,
     evaluator=evaluator,
-).train()
+)
+ce_trainer.train()
 cross_encoder.save_pretrained(f"{cross_encoder_path}/final")
 
 ############################################################################
@@ -231,23 +231,24 @@ args = SentenceTransformerTrainingArguments(
     per_device_eval_batch_size=batch_size,
     warmup_ratio=0.1,
     eval_strategy="steps",
-    eval_steps=1000,
+    eval_steps=0.1,
     save_strategy="steps",
-    save_steps=1000,
+    save_steps=0.1,
     save_total_limit=2,
-    logging_steps=100,
+    logging_steps=0.05,
     run_name="augmentation-indomain-semantic-sts",
 )
 
 # Train the bi-encoder model
-SentenceTransformerTrainer(
+trainer = SentenceTransformerTrainer(
     model=bi_encoder,
     args=args,
     train_dataset=bi_encoder_train_dataset,
     eval_dataset=eval_dataset,
     loss=train_loss,
     evaluator=evaluator,
-).train()
+)
+trainer.train()
 bi_encoder.save_pretrained(f"{bi_encoder_path}/final")
 
 #################################################################################

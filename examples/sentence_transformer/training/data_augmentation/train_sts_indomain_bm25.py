@@ -116,16 +116,18 @@ ce_args = CrossEncoderTrainingArguments(
     num_train_epochs=num_epochs,
     per_device_train_batch_size=batch_size,
     warmup_ratio=0.1,
+    eval_strategy="epoch",
 )
 
 # Train the cross-encoder model
-CrossEncoderTrainer(
+ce_trainer = CrossEncoderTrainer(
     model=cross_encoder,
     args=ce_args,
     train_dataset=gold_dataset,
     loss=ce_loss,
     evaluator=evaluator,
-).train()
+)
+ce_trainer.train()
 cross_encoder.save_pretrained(f"{cross_encoder_path}/final")
 
 ############################################################################
@@ -208,7 +210,7 @@ evaluator = EmbeddingSimilarityEvaluator(
     sentences2=eval_dataset["sentence2"],
     scores=eval_dataset["score"],
     main_similarity=SimilarityFunction.COSINE,
-    name="sts-test",
+    name="sts-dev",
 )
 
 # Define the training arguments
@@ -219,16 +221,16 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=num_epochs,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
-    warmup_steps=0.1,
+    warmup_ratio=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:
     eval_strategy="steps",
-    eval_steps=100,
+    eval_steps=0.1,
     save_strategy="steps",
-    save_steps=100,
+    save_steps=0.1,
     save_total_limit=2,
-    logging_steps=100,
+    logging_steps=0.05,
     run_name="augmentation-indomain-bm25-sts",  # Will be used in W&B if `wandb` is installed
 )
 
