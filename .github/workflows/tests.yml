@@ -14,6 +14,7 @@ on:
 env:
   TRANSFORMERS_IS_CI: 1
   HF_HUB_DISABLE_PROGRESS_BARS: 1  # The Transformers v5 weight loading progress bars heavily expand the logs
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}  # Read token to avoid rate limits / gated-repo failures when downloading from the Hub
 
 jobs:
   test_sampling:
