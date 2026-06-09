@@ -133,6 +133,7 @@ CrossEncoderTrainer(
     loss=ce_loss,
     evaluator=evaluator,
 ).train()
+cross_encoder.save_pretrained(f"{cross_encoder_path}/final")
 
 ############################################################################
 #
@@ -188,7 +189,6 @@ progress.close()
 
 logging.info(f"Length of silver_dataset generated: {len(silver_data)}")
 logging.info(f"Step 2.2: Label STSbenchmark (silver dataset) with cross-encoder: {model_name}")
-cross_encoder = CrossEncoder(cross_encoder_path)
 silver_scores = cross_encoder.predict(silver_data)
 
 # All model predictions should be between [0,1]
@@ -248,6 +248,7 @@ SentenceTransformerTrainer(
     loss=train_loss,
     evaluator=evaluator,
 ).train()
+bi_encoder.save_pretrained(f"{bi_encoder_path}/final")
 
 #################################################################################
 #
@@ -255,8 +256,6 @@ SentenceTransformerTrainer(
 #
 #################################################################################
 
-# load the stored augmented-sbert model
-bi_encoder = SentenceTransformer(bi_encoder_path)
 test_evaluator = EmbeddingSimilarityEvaluator(
     sentences1=test_dataset["sentence1"],
     sentences2=test_dataset["sentence2"],

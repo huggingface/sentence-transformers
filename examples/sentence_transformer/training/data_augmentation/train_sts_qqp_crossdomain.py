@@ -142,6 +142,7 @@ CrossEncoderTrainer(
     loss=ce_loss,
     evaluator=evaluator,
 ).train()
+cross_encoder.save_pretrained(f"{cross_encoder_path}/final")
 
 ##################################################################
 #
@@ -150,8 +151,6 @@ CrossEncoderTrainer(
 ##################################################################
 
 logging.info(f"Step 2: Label QQP (target dataset) with cross-encoder: {model_name}")
-
-cross_encoder = CrossEncoder(cross_encoder_path)
 
 silver_data = []
 
@@ -230,15 +229,13 @@ SentenceTransformerTrainer(
     loss=train_loss,
     evaluator=evaluator,
 ).train()
+bi_encoder.save_pretrained(f"{bi_encoder_path}/final")
 
 ###############################################################
 #
 # Evaluate Augmented SBERT performance on QQP benchmark dataset
 #
 ###############################################################
-
-# Loading the augmented sbert model
-bi_encoder = SentenceTransformer(bi_encoder_path)
 
 logging.info("Read QQP test dataset")
 test_sentences1 = []

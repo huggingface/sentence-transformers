@@ -126,6 +126,7 @@ CrossEncoderTrainer(
     loss=ce_loss,
     evaluator=evaluator,
 ).train()
+cross_encoder.save_pretrained(f"{cross_encoder_path}/final")
 
 ############################################################################
 #
@@ -175,7 +176,6 @@ progress.close()
 logging.info(f"Number of silver pairs generated for STSbenchmark: {len(silver_data)}")
 logging.info(f"Step 2.2: Label STSbenchmark (silver dataset) with cross-encoder: {model_name}")
 
-cross_encoder = CrossEncoder(cross_encoder_path)
 silver_scores = cross_encoder.predict(silver_data)
 
 # All model predictions should be between [0,1]
