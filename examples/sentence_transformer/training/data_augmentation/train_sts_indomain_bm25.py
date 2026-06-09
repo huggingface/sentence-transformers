@@ -195,7 +195,7 @@ silver_samples = Dataset.from_dict(
     {
         "sentence1": [data[0] for data in silver_data],
         "sentence2": [data[1] for data in silver_data],
-        "score": silver_scores,
+        "score": [float(score) for score in silver_scores],
     }
 )
 train_dataset = concatenate_datasets([train_dataset, silver_samples])
