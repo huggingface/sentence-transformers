@@ -17,7 +17,7 @@ from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import all_gather_with_grad
+from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
 
 
 class RandContext:
@@ -308,7 +308,7 @@ class CachedGISTEmbedLoss(nn.Module):
             candidates_guide = [all_gather_with_grad(candidate) for candidate in candidates_guide]
             # All have this shape: 1 + nneg items of (batch_size * world_size, embedding_dim)
 
-            if torch.distributed.is_initialized():
+            if is_dist_initialized():
                 rank = torch.distributed.get_rank()
                 offset = rank * batch_size
 
