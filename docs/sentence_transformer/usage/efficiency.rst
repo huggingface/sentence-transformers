@@ -48,7 +48,6 @@ The PyTorch backend is the default backend for Sentence Transformers. If you don
    sentences = ["This is an example sentence", "Each sentence is converted"]
    embeddings = model.encode(sentences)
 
-
 If you're using a GPU, then you can use the following options to speed up your inference:
 
 .. tab:: float16 (fp16)
@@ -134,9 +133,6 @@ If you're using a GPU, then you can use the following options to speed up your i
 .. note::
 
    When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU (``device="cpu"``) can help.
-
-ONNX
-----
 
 ONNX
 ----
