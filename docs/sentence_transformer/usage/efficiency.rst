@@ -48,13 +48,6 @@ The PyTorch backend is the default backend for Sentence Transformers. If you don
    sentences = ["This is an example sentence", "Each sentence is converted"]
    embeddings = model.encode(sentences)
 
-.. warning::
-
-**Hardware Constraint Warning: VRAM Fragmentation on Consumer GPUs with low VRAM**
-
-   When deploying ``sentence-transformers`` in a local pipeline alongside a decently sized autoregressive LLM (even quantized 4-bit NF4 models), running the embedding model on ``cuda`` along with the LLM on GPUs with limited VRAM (6GB or less) can induce severe compute thrashing and Inter-Token Latency (ITL) degradation. 
-
-   To prevent the embedding model from fighting the LLM's expanding KV-cache for memory bandwidth, it is highly recommended to isolate the embedding model to the CPU (``device='cpu'``). Empirical benchmarks show this preserves generation latency and prevents Out-Of-Memory (OOM) crashes with negligible impact on retrieval speed.
 
 If you're using a GPU, then you can use the following options to speed up your inference:
 
@@ -137,6 +130,13 @@ If you're using a GPU, then you can use the following options to speed up your i
       The `Transformers Attention Interface <https://huggingface.co/docs/transformers/en/attention_interface>`_ documentation
       for a full overview of available ``attn_implementation`` options, including ``"flash_attention_2"``,
       ``"flash_attention_3"``, ``"sdpa"``, and more.
+
+.. note::
+
+   When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU (``device="cpu"``) can help.
+
+ONNX
+----
 
 ONNX
 ----
