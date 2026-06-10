@@ -705,16 +705,21 @@ class TestProcessChatMessages:
         )
         assert captured_kwargs["add_generation_prompt"] is True
 
-    def test_text_generation_chat_truncation_preserves_tail(self, bert_tiny_transformer, monkeypatch):
+    def test_chat_truncation_restores_chat_template_suffix(self, bert_tiny_transformer, monkeypatch):
         model = bert_tiny_transformer
-        model.transformer_task = "text-generation"
+        # Suffix preservation is task-independent: use the default feature-extraction task to confirm it
+        # benefits embedders (e.g. last-token pooling), not just causal-LM rerankers.
+        model.transformer_task = "feature-extraction"
         model.modality_config["message"] = {"method": "forward", "method_output_name": "logits"}
 
-        full_ids = list(range(20))
+        # A chat template appends a fixed scoring suffix (e.g. the assistant prefill) that right-truncation
+        # cuts off first. The mock mimics this: one token per content character, then ``suffix``.
+        suffix = [101, 102, 103]
 
         def mock_apply_chat_template(messages, **kwargs):
-            ids = full_ids
-            if kwargs.get("truncation"):
+            text = "".join(str(message["content"]) for message in messages[0])
+            ids = [ord(char) for char in text] + suffix
+            if kwargs.get("truncation") and kwargs.get("max_length"):
                 ids = ids[: kwargs["max_length"]]
             if kwargs.get("return_tensors") == "pt":
                 return {
@@ -724,32 +729,103 @@ class TestProcessChatMessages:
             return {"input_ids": [ids]}
 
         monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
-        output = model._process_chat_messages(
-            messages=[[{"role": "user", "content": "test"}]],
-            modality_kwargs={
-                "text": {"padding": True, "truncation": True, "max_length": 8},
-                "audio": {},
-                "image": {},
-                "video": {},
-            },
-            common_kwargs={"return_tensors": "pt"},
+
+        def run(content, max_length, truncation=True):
+            return model._process_chat_messages(
+                messages=[[{"role": "user", "content": content}]],
+                modality_kwargs={
+                    "text": {"padding": True, "truncation": truncation, "max_length": max_length},
+                    "audio": {},
+                    "image": {},
+                    "video": {},
+                },
+                common_kwargs={"return_tensors": "pt"},
+            )
+
+        # Long content (13 tokens) crosses max_length=8: the suffix is restored onto the tail while the
+        # head is kept, and the auto-derived suffix length (3) means nothing is hard-coded.
+        long_content = "abcdefghij"
+        ids = run(long_content, max_length=8)["input_ids"].tolist()[0]
+        assert len(ids) == 8  # max_length is respected
+        assert ids[-3:] == suffix  # the scoring suffix is back at the tail
+        assert ids[:5] == [ord(char) for char in long_content[:5]]  # the head is preserved
+
+        # Short content fits, so no truncation happened and the row is returned untouched (no-op restore).
+        assert run("ab", max_length=8)["input_ids"].tolist()[0] == [ord("a"), ord("b")] + suffix
+
+        # Escape hatch: with truncation disabled the full sequence (suffix intact) is returned as-is.
+        assert (
+            run(long_content, max_length=8, truncation=False)["input_ids"].tolist()[0]
+            == [ord(char) for char in long_content] + suffix
         )
 
-        assert output["input_ids"].tolist() == [full_ids[-8:]]
+        # Flattening path (feature-extraction + can_flatten_inputs): return_tensors is dropped, so the
+        # processor returns ragged unpadded lists. The list branch restores the suffix the same way.
+        list_ids = model._process_chat_messages(
+            messages=[[{"role": "user", "content": long_content}]],
+            modality_kwargs={"text": {"truncation": True, "max_length": 8}, "audio": {}, "image": {}, "video": {}},
+            common_kwargs={},
+        )["input_ids"][0]
+        assert len(list_ids) == 8 and list_ids[-3:] == suffix and list_ids[:5] == [ord(c) for c in long_content[:5]]
 
-        output = model._process_chat_messages(
-            messages=[[{"role": "user", "content": "test"}]],
-            modality_kwargs={
-                "text": {"padding": True, "truncation": True, "max_length": 8},
-                "audio": {},
-                "image": {},
-                "video": {},
-            },
-            common_kwargs={"return_tensors": "pt"},
-            chat_template_kwargs={"preserve_final_tokens": 4},
+    def test_restore_chat_template_suffix_handles_both_padding_sides(self, bert_tiny_transformer, monkeypatch):
+        # The restore must locate the real tail via the attention mask (not a fixed [-keep:] slice), so it is
+        # correct whether the batch is left- or right-padded. In each batch row 0 was truncated (full width,
+        # suffix cut) and row 1 fits (real tokens end with the suffix, the remainder is padding).
+        model = bert_tiny_transformer
+        suffix = [101, 102, 103]
+        monkeypatch.setattr(model, "_chat_template_suffix_ids", lambda *args, **kwargs: suffix)
+        messages = [[{"role": "user", "content": "a"}], [{"role": "user", "content": "b"}]]
+
+        # Right padding: real tokens left-aligned, pad on the right. The fit row's pad must stay untouched.
+        features = {
+            "input_ids": torch.tensor([[10, 11, 12, 13, 14, 15], [20, 21, 101, 102, 103, 0]]),
+            "attention_mask": torch.tensor([[1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 0]]),
+        }
+        model._restore_chat_template_suffix(features, messages, {}, {})
+        assert features["input_ids"].tolist() == [[10, 11, 12, 101, 102, 103], [20, 21, 101, 102, 103, 0]]
+
+        # Left padding: pad on the left, real tokens right-aligned.
+        features = {
+            "input_ids": torch.tensor([[10, 11, 12, 13, 14, 15], [0, 20, 21, 101, 102, 103]]),
+            "attention_mask": torch.tensor([[1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1]]),
+        }
+        model._restore_chat_template_suffix(features, messages, {}, {})
+        assert features["input_ids"].tolist() == [[10, 11, 12, 101, 102, 103], [0, 20, 21, 101, 102, 103]]
+
+    def test_chat_template_suffix_ids_tolerates_unhashable_kwargs(self, bert_tiny_transformer, monkeypatch):
+        # chat_template_kwargs may carry unhashable values (e.g. a ``tools`` list). The cache lookup must not
+        # raise TypeError, so derivation falls back to running uncached.
+        model = bert_tiny_transformer
+        monkeypatch.setattr(
+            model.processor, "apply_chat_template", lambda messages, **kwargs: {"input_ids": [[1, 2, 3]]}
         )
+        suffix = model._chat_template_suffix_ids([{"role": "user", "content": "x"}], {"tools": [{"name": "f"}]}, {})
+        assert suffix == [1, 2, 3]  # no crash: identical renders make the entire output the suffix
 
-        assert output["input_ids"].tolist() == [full_ids[:4] + full_ids[-4:]]
+    def test_restore_chat_template_suffix_is_per_row_and_skips_multimodal(self, bert_tiny_transformer, monkeypatch):
+        # A heterogeneous batch: the text-only row is restored per-row, while the multimodal row is left
+        # untouched (its trailing suffix can't be isolated from a text skeleton, so it returns []).
+        model = bert_tiny_transformer
+        suffix = [101, 102, 103]
+
+        def mock_apply_chat_template(messages, **kwargs):
+            # Skeleton content is the filler string, so emit one content token plus the fixed suffix.
+            text = "".join(str(message["content"]) for message in messages[0])
+            return {"input_ids": [[ord(text[0])] + suffix]}
+
+        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        messages = [
+            [{"role": "user", "content": "text"}],
+            [{"role": "user", "content": [{"type": "text", "text": "t"}, {"type": "image", "image": "img"}]}],
+        ]
+        features = {
+            "input_ids": torch.tensor([[10, 11, 12, 13, 14, 15], [20, 21, 22, 23, 24, 25]]),
+            "attention_mask": torch.ones(2, 6, dtype=torch.long),
+        }
+        model._restore_chat_template_suffix(features, messages, {}, {})
+        assert features["input_ids"][0].tolist() == [10, 11, 12, 101, 102, 103]  # text row restored
+        assert features["input_ids"][1].tolist() == [20, 21, 22, 23, 24, 25]  # multimodal row untouched
 
 
 class TestModelLoading:

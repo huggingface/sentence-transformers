@@ -116,7 +116,9 @@ _TRANSFORMERS_APPLY_CHAT_TEMPLATE_RECOMMENDS_PROCESSOR_KWARGS = parse_version(tr
 )
 _TRANSFORMERS_SUPPORTS_USE_BIDIRECTIONAL_ATTENTION = parse_version(transformers_version) >= parse_version("4.56.2")
 _TRANSFORMERS_SUPPORTS_IS_CAUSAL_FALSE = parse_version(transformers_version) >= parse_version("5.2.0")
-DEFAULT_CHAT_TEMPLATE_PRESERVE_FINAL_TOKENS = 16
+
+# apply_chat_template wants these as top-level kwargs, not nested in tokenizer_kwargs/common_kwargs.
+_APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS = frozenset({"padding", "truncation", "max_length", "return_tensors"})
 
 TransformerTask = Literal[
     "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask"
@@ -627,6 +629,7 @@ class Transformer(InputModule):
         self.track_media_counts = False
         self._prompt_length_mapping = {}
         self._method_signature_cache: dict[str, set[str]] = {}
+        self._chat_template_suffix_cache: dict[Any, list[int]] = {}
 
         config, is_peft_model = self._load_config(model_name_or_path, backend, config_kwargs)
         self._warn_on_unsupported_attention_config(config)
@@ -1322,11 +1325,18 @@ class Transformer(InputModule):
         # Ideally we'd use the same code path for both ProcessorMixin and Tokenizers, but the latter expects
         # the text kwargs to be passed at the top level instead of in a nested "text_kwargs" dict.
         chat_template_kwargs = dict(chat_template_kwargs or {})
+
+        # Read truncation before the hoist below pops it (text kwargs take priority over common). The
+        # restore in _restore_chat_template_suffix is gated on it.
+        text_kwargs = modality_kwargs.get("text", {})
+        truncation = text_kwargs.get("truncation", common_kwargs.get("truncation"))
+        restore_chat_template_suffix = bool(truncation) and truncation != "do_not_truncate"
+
         if isinstance(self.processor, ProcessorMixin):
             # Transformers v5.4.0 prefers us to pass processor_kwargs as a single dict, but there's still some top level
             # kwargs that need to be hoisted out for backwards compatibility.
             if _TRANSFORMERS_APPLY_CHAT_TEMPLATE_RECOMMENDS_PROCESSOR_KWARGS:
-                return self.processor.apply_chat_template(
+                features = self.processor.apply_chat_template(
                     messages,
                     tokenize=True,
                     return_dict=True,
@@ -1342,7 +1352,7 @@ class Transformer(InputModule):
                     **chat_template_kwargs,
                 )
             else:
-                return self.processor.apply_chat_template(
+                features = self.processor.apply_chat_template(
                     messages,
                     tokenize=True,
                     return_dict=True,
@@ -1353,96 +1363,210 @@ class Transformer(InputModule):
                     common_kwargs=common_kwargs,
                     **chat_template_kwargs,
                 )
-
-        # apply_chat_template expects padding/truncation/max_length/return_tensors as top-level kwargs,
-        # not nested inside tokenizer_kwargs or common_kwargs, so we hoist them out.
-        top_level_kwarg_names = {"padding", "truncation", "max_length", "return_tensors"}
-        top_level_kwargs = {key: common_kwargs.pop(key) for key in top_level_kwarg_names & common_kwargs.keys()}
-        top_level_kwargs |= {
-            key: modality_kwargs["text"].pop(key) for key in top_level_kwarg_names & modality_kwargs["text"].keys()
-        }
-        preserve_final_tokens = chat_template_kwargs.pop(
-            "preserve_final_tokens", DEFAULT_CHAT_TEMPLATE_PRESERVE_FINAL_TOKENS
-        )
-        truncation = top_level_kwargs.get("truncation", False)
-        max_length = top_level_kwargs.get("max_length")
-        if max_length is None and truncation and self.tokenizer is not None:
-            max_length = self.tokenizer.model_max_length
-
-        if (
-            preserve_final_tokens
-            and self.transformer_task in ("text-generation", "any-to-any")
-            and self.input_formatter.is_text_only_messages(messages)
-            and truncation
-            and max_length is not None
-        ):
-            return self._apply_chat_template_preserving_tail(
-                messages=messages,
-                modality_kwargs=modality_kwargs,
+        else:
+            # apply_chat_template expects padding/truncation/max_length/return_tensors as top-level kwargs,
+            # not nested inside tokenizer_kwargs or common_kwargs, so we hoist them out.
+            top_level_kwargs = {
+                key: common_kwargs.pop(key) for key in _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS & common_kwargs.keys()
+            }
+            top_level_kwargs |= {
+                key: modality_kwargs["text"].pop(key)
+                for key in _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS & modality_kwargs["text"].keys()
+            }
+            features = self.processor.apply_chat_template(
+                messages,
+                tokenize=True,
+                return_dict=True,
+                tokenizer_kwargs=modality_kwargs["text"],
                 common_kwargs=common_kwargs,
-                chat_template_kwargs=chat_template_kwargs,
-                top_level_kwargs=top_level_kwargs,
-                max_length=max_length,
-                preserve_final_tokens=preserve_final_tokens,
+                **top_level_kwargs,
+                **chat_template_kwargs,
             )
 
-        return self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            return_dict=True,
-            tokenizer_kwargs=modality_kwargs["text"],
-            common_kwargs=common_kwargs,
-            **top_level_kwargs,
-            **chat_template_kwargs,
-        )
+        if restore_chat_template_suffix:
+            # Forward the text kwargs (minus the size/truncation ones) so the derived suffix is tokenized
+            # like the real call.
+            suffix_tokenizer_kwargs = {
+                key: value for key, value in text_kwargs.items() if key not in _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS
+            }
+            self._restore_chat_template_suffix(features, messages, chat_template_kwargs, suffix_tokenizer_kwargs)
+        return features
 
-    def _apply_chat_template_preserving_tail(
+    def _restore_chat_template_suffix(
         self,
+        features: dict[str, Any],
         messages: list[list[MessageInput]],
-        modality_kwargs: dict[str, dict[str, Any]],
-        common_kwargs: dict[str, Any],
         chat_template_kwargs: dict[str, Any],
-        top_level_kwargs: dict[str, Any],
-        max_length: int,
-        preserve_final_tokens: int,
-    ) -> dict[str, Any]:
-        tokenizer_kwargs = {**modality_kwargs["text"], "verbose": False}
-        full = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            return_dict=True,
-            tokenizer_kwargs=tokenizer_kwargs,
-            common_kwargs=common_kwargs,
-            padding=False,
-            truncation=False,
-            return_tensors=None,
-            **chat_template_kwargs,
-        )
-        input_ids = full["input_ids"]
-        if isinstance(input_ids, torch.Tensor):
-            input_ids = input_ids.tolist()
-        if input_ids and isinstance(input_ids[0], int):
-            input_ids = [input_ids]
+        tokenizer_kwargs: dict[str, Any],
+    ) -> None:
+        """Restore the trailing chat-template suffix that truncation may have removed (in place).
 
-        preserve_final_tokens = min(preserve_final_tokens, max_length)
-        head_length = max_length - preserve_final_tokens
-        input_ids = [
-            ids[:head_length] + ids[-preserve_final_tokens:] if len(ids) > max_length else ids
-            for ids in input_ids
+        Chat templates append a fixed suffix after the user content (e.g. the ``<|im_end|> ... assistant``
+        prefill or a trailing EOS). Right-truncation cuts that suffix off first, which is harmless for
+        mean/CLS pooling but breaks any model that reads from the final position: causal-LM rerankers
+        (last-token logits) and last-token-pooling embedders. ``apply_chat_template`` is allowed to truncate
+        as usual, then this overwrites the final tokens of any row whose tail was cut with the suffix.
+
+        This runs post-hoc (after truncation) because ``apply_chat_template`` renders to a flat string and
+        the tokenizer truncates it blind to template structure: there is no upstream option to trim only the
+        content while keeping the suffix.
+
+        The suffix is derived per row (cached per structure), so a batch mixing different role layouts is
+        handled correctly. Rows that fit already end with the suffix, so the tail comparison leaves them
+        untouched, as does ``truncation=False``.
+        """
+        input_ids = features.get("input_ids")
+        if input_ids is None:
+            return
+
+        is_tensor = isinstance(input_ids, torch.Tensor)
+        if is_tensor:
+            if input_ids.numel() == 0:
+                return
+            # unsqueeze returns a view, so the in-place writes below propagate to features["input_ids"]
+            ids = input_ids if input_ids.dim() == 2 else input_ids.unsqueeze(0)
+            n_rows = ids.shape[0]
+        else:
+            # Flattening path (feature-extraction + can_flatten_inputs, see preprocess): return_tensors is
+            # dropped, so apply_chat_template returns ragged, unpadded token lists. Each row's tail is real.
+            rows = input_ids if input_ids and isinstance(input_ids[0], list) else [input_ids]
+            n_rows = len(rows)
+
+        # Derive the per-row suffixes first (cached). Multimodal rows yield [], so an all-media batch returns
+        # here, before the attention-mask reduction below and its two device-to-host syncs.
+        suffixes = [
+            self._chat_template_suffix_ids(messages[index], chat_template_kwargs, tokenizer_kwargs)
+            for index in range(min(n_rows, len(messages)))
         ]
-        return self.processor.pad(
-            {"input_ids": input_ids},
-            padding=top_level_kwargs.get("padding", False),
-            max_length=max_length if top_level_kwargs.get("padding") == "max_length" else None,
-            return_tensors=top_level_kwargs.get("return_tensors"),
-            verbose=False,
+        if not any(suffixes):
+            return
+
+        if is_tensor:
+            width = ids.shape[-1]
+            # Final real-token index per row from the attention mask, so this is correct for either padding
+            # side (left padding is only enforced for the causal-LM tasks, not e.g. embedders).
+            attention_mask = features.get("attention_mask")
+            if isinstance(attention_mask, torch.Tensor) and attention_mask.numel():
+                am = attention_mask if attention_mask.dim() == 2 else attention_mask.unsqueeze(0)
+                last_idx = (am * torch.arange(width, device=ids.device)).argmax(dim=1).tolist()
+                real_lengths = am.sum(dim=1).tolist()
+            else:
+                last_idx = [width - 1] * n_rows
+                real_lengths = [width] * n_rows
+
+        for index, suffix in enumerate(suffixes):
+            if not suffix:
+                continue
+            if is_tensor:
+                keep = min(len(suffix), real_lengths[index])
+                if keep == 0:
+                    continue
+                end = last_idx[index] + 1
+                suffix_tensor = torch.as_tensor(suffix[-keep:], dtype=ids.dtype, device=ids.device)
+                if (ids[index, end - keep : end] != suffix_tensor).any():
+                    ids[index, end - keep : end] = suffix_tensor
+            else:
+                row = rows[index]
+                keep = min(len(suffix), len(row))
+                if keep and row[-keep:] != suffix[-keep:]:
+                    row[-keep:] = suffix[-keep:]
+
+    def _chat_template_suffix_ids(
+        self,
+        conversation: list[MessageInput],
+        chat_template_kwargs: dict[str, Any],
+        tokenizer_kwargs: dict[str, Any],
+    ) -> list[int]:
+        """Pre-tokenize one conversation's trailing chat-template suffix, cached per structure.
+
+        The suffix is the run of tokens the template appends after the user content (e.g. the assistant
+        prefill). It is found by rendering the conversation's role layout with two different fillers and
+        taking the longest common token suffix, so no per-model count is hard-coded.
+        """
+        # Skip rows with actual media: image/audio/video placeholder tokens can't be cut without desyncing
+        # them from their media features (the model would then error), so there's nothing safe to restore.
+        # Text-only inputs to a multimodal model still qualify.
+        if not conversation or not self.input_formatter.is_text_only_messages([conversation]):
+            return []
+        # Cache per template-kwargs + tokenizer-kwargs + role layout. Any of these may carry unhashable
+        # values (e.g. a ``tools`` list), so guard the lookup and fall back to re-deriving without caching.
+        roles = tuple(m.get("role") if isinstance(m, dict) else None for m in conversation)
+        try:
+            cache_key = (tuple(sorted(chat_template_kwargs.items())), tuple(sorted(tokenizer_kwargs.items())), roles)
+            if cache_key in self._chat_template_suffix_cache:
+                return self._chat_template_suffix_cache[cache_key]
+        except TypeError:
+            cache_key = None
+
+        suffix: list[int] = []
+        try:
+            # The two fillers must tokenize differently, so the longest common token suffix of the renders is
+            # purely the template tail (the run after the content), never shared content tokens.
+            first = self._render_message_skeleton(conversation, "0", chat_template_kwargs, tokenizer_kwargs)
+            second = self._render_message_skeleton(conversation, "1 2 3 4", chat_template_kwargs, tokenizer_kwargs)
+            count = 0
+            for left, right in zip(reversed(first), reversed(second)):
+                if left != right:
+                    break
+                count += 1
+            suffix = first[len(first) - count :]  # count == 0 slices at len(first), i.e. []
+        except Exception as exc:  # never let suffix derivation break tokenization
+            logger.debug(f"Could not derive the chat-template suffix: {exc}")
+
+        # Cache the result, including an empty/failed derivation, so it isn't recomputed on every call.
+        if cache_key is not None:
+            self._chat_template_suffix_cache[cache_key] = suffix
+        return suffix
+
+    def _render_message_skeleton(
+        self,
+        conversation: list[MessageInput],
+        filler: str,
+        chat_template_kwargs: dict[str, Any],
+        tokenizer_kwargs: dict[str, Any],
+    ) -> list[int]:
+        """Tokenize one conversation with each text content replaced by ``filler`` (untruncated).
+
+        The short filler keeps the rendered prompt tiny, so this stays cheap regardless of the real input
+        length. ``tokenizer_kwargs`` mirrors the real call's text kwargs so the suffix is tokenized
+        identically (e.g. the same ``add_special_tokens``); ``return_tensors=None`` asks for plain lists.
+        """
+        skeleton = []
+        for message in conversation:
+            if not isinstance(message, dict):
+                skeleton.append(message)
+                continue
+            new_content = [{"type": "text", "text": filler}] if isinstance(message.get("content"), list) else filler
+            skeleton.append({**message, "content": new_content})
+
+        # Mirror the real call's kwarg routing (see _process_chat_messages): a ProcessorMixin wants the text
+        # kwargs nested, a bare tokenizer wants them flat alongside top-level padding/truncation.
+        if isinstance(self.processor, ProcessorMixin):
+            text_kwargs = {**tokenizer_kwargs, "padding": False, "truncation": False}
+            if _TRANSFORMERS_APPLY_CHAT_TEMPLATE_RECOMMENDS_PROCESSOR_KWARGS:
+                call_kwargs = {"processor_kwargs": {"text_kwargs": text_kwargs}}
+            else:
+                call_kwargs = {"text_kwargs": text_kwargs}
+        else:
+            call_kwargs = {"tokenizer_kwargs": tokenizer_kwargs, "padding": False, "truncation": False}
+        output = self.processor.apply_chat_template(
+            [skeleton], tokenize=True, return_dict=True, return_tensors=None, **call_kwargs, **chat_template_kwargs
         )
+        # return_tensors=None should give lists, but some processors return a tensor anyway. The suffix logic
+        # needs a plain list and we render a single conversation, so coerce to a list and unwrap the batch.
+        ids = output["input_ids"]
+        if isinstance(ids, torch.Tensor):
+            ids = ids.tolist()
+        if ids and isinstance(ids[0], list):
+            ids = ids[0]
+        return ids
 
     def _get_prompt_length(self, prompt: str, **kwargs) -> int | None:
         """Return the length of the prompt in tokens, excluding any trailing special token.
 
         Returns None if the processor does not produce ``input_ids``.
         """
+        # TODO: Perhaps mirror the _chat_template_suffix_ids implementation with 2 forwards and then checking the common prefix
         cache_key = (prompt, *sorted(kwargs.items()))
         if cache_key in self._prompt_length_mapping:
             return self._prompt_length_mapping[cache_key]
