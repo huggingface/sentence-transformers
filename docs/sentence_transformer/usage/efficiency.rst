@@ -132,7 +132,7 @@ If you're using a GPU, then you can use the following options to speed up your i
 
 .. note::
 
-   When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU (``device="cpu"``) can help.
+   When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU can help (e.g. ``SentenceTransformer(..., device=\"cpu\")`` or ``model.encode(..., device=\"cpu\")``).
 
 ONNX
 ----
