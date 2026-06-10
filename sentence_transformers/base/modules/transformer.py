@@ -1443,16 +1443,17 @@ class Transformer(InputModule):
 
         if is_tensor:
             width = ids.shape[-1]
-            # Final real-token index per row from the attention mask, so this is correct for either padding
-            # side (left padding is only enforced for the causal-LM tasks, not e.g. embedders).
+            # Find each row's real tail from the mask so the suffix lands on real tokens even when padding
+            # extends a truncated row (pad_to_multiple_of): the real tokens end at `width` for left padding
+            # (first token is pad), else at their count.
             attention_mask = features.get("attention_mask")
             if isinstance(attention_mask, torch.Tensor) and attention_mask.numel():
                 am = attention_mask if attention_mask.dim() == 2 else attention_mask.unsqueeze(0)
-                last_idx = (am * torch.arange(width, device=ids.device)).argmax(dim=1).tolist()
                 real_lengths = am.sum(dim=1).tolist()
+                left_padded = (am[:, 0] == 0).tolist()
             else:
-                last_idx = [width - 1] * n_rows
                 real_lengths = [width] * n_rows
+                left_padded = [False] * n_rows
 
         for index, suffix in enumerate(suffixes):
             if not suffix:
@@ -1461,7 +1462,7 @@ class Transformer(InputModule):
                 keep = min(len(suffix), real_lengths[index])
                 if keep == 0:
                     continue
-                end = last_idx[index] + 1
+                end = width if left_padded[index] else real_lengths[index]
                 suffix_tensor = torch.as_tensor(suffix[-keep:], dtype=ids.dtype, device=ids.device)
                 if (ids[index, end - keep : end] != suffix_tensor).any():
                     ids[index, end - keep : end] = suffix_tensor

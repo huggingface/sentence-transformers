@@ -27,6 +27,7 @@ from sentence_transformers.util import batch_to_device
 transformer_module = sys.modules[Transformer.__module__]
 
 TINY_BERT = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+TINY_LLAMA = "hf-internal-testing/tiny-random-LlamaForCausalLM"
 
 
 @pytest.fixture()
@@ -793,6 +794,30 @@ class TestProcessChatMessages:
         model._restore_chat_template_suffix(features, messages, {}, {})
         assert features["input_ids"].tolist() == [[10, 11, 12, 101, 102, 103], [0, 20, 21, 101, 102, 103]]
 
+    def test_restore_chat_template_suffix_when_truncated_row_is_padded(self, bert_tiny_transformer, monkeypatch):
+        # pad_to_multiple_of can pad a truncated row past max_length, so a truncated row may itself carry
+        # padding. The real tail is read from the mask, so the suffix still lands on real tokens (pad intact).
+        model = bert_tiny_transformer
+        suffix = [101, 102, 103]
+        monkeypatch.setattr(model, "_chat_template_suffix_ids", lambda *args, **kwargs: suffix)
+        messages = [[{"role": "user", "content": "x"}]]
+
+        # Right padding: 5 real tokens (suffix cut by truncation) then 3 trailing pads.
+        features = {
+            "input_ids": torch.tensor([[10, 11, 12, 13, 14, 0, 0, 0]]),
+            "attention_mask": torch.tensor([[1, 1, 1, 1, 1, 0, 0, 0]]),
+        }
+        model._restore_chat_template_suffix(features, messages, {}, {})
+        assert features["input_ids"].tolist() == [[10, 11, 101, 102, 103, 0, 0, 0]]
+
+        # Left padding: 3 leading pads then the 5 real tokens.
+        features = {
+            "input_ids": torch.tensor([[0, 0, 0, 10, 11, 12, 13, 14]]),
+            "attention_mask": torch.tensor([[0, 0, 0, 1, 1, 1, 1, 1]]),
+        }
+        model._restore_chat_template_suffix(features, messages, {}, {})
+        assert features["input_ids"].tolist() == [[0, 0, 0, 10, 11, 101, 102, 103]]
+
     def test_chat_template_suffix_ids_tolerates_unhashable_kwargs(self, bert_tiny_transformer, monkeypatch):
         # chat_template_kwargs may carry unhashable values (e.g. a ``tools`` list). The cache lookup must not
         # raise TypeError, so derivation falls back to running uncached.
@@ -826,6 +851,37 @@ class TestProcessChatMessages:
         model._restore_chat_template_suffix(features, messages, {}, {})
         assert features["input_ids"][0].tolist() == [10, 11, 12, 101, 102, 103]  # text row restored
         assert features["input_ids"][1].tolist() == [20, 21, 22, 23, 24, 25]  # multimodal row untouched
+
+    def test_chat_truncation_restores_suffix_with_real_chat_template(self, monkeypatch):
+        # Integration check against a real chat-template model (the other suffix tests mock the tokenizer), so
+        # it exercises the real apply_chat_template dispatch and two-filler derivation. The Llama-2 template
+        # ends the user turn with `[/INST]`, which truncation drops and the restore must put back.
+        model = Transformer(TINY_LLAMA, transformer_task="feature-extraction")
+        tokenizer = model.tokenizer
+
+        def process(max_length):
+            return model._process_chat_messages(
+                messages=[[{"role": "user", "content": "word " * 50}]],
+                modality_kwargs={
+                    "text": {"padding": True, "truncation": "longest_first", "max_length": max_length},
+                    "audio": {},
+                    "image": {},
+                    "video": {},
+                },
+                common_kwargs={"return_tensors": "pt"},
+                chat_template_kwargs={"add_generation_prompt": True},
+            )["input_ids"][0].tolist()
+
+        # The conversation overflows max_length=16, so `[/INST]` is truncated off and then restored.
+        restored = process(16)
+        decoded = tokenizer.decode(restored)
+        assert len(restored) == 16  # truncation is still respected
+        assert decoded.rstrip().endswith("[/INST]")  # the template suffix is back at the tail
+        assert "word" in decoded  # real content is kept at the head, not overwritten wholesale
+
+        # With the restore disabled the same input ends on a content token: the bug this feature fixes.
+        monkeypatch.setattr(model, "_restore_chat_template_suffix", lambda *args, **kwargs: None)
+        assert not tokenizer.decode(process(16)).rstrip().endswith("[/INST]")
 
 
 class TestModelLoading:
