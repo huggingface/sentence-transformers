@@ -1216,8 +1216,9 @@ class SparseEncoder(BaseModel):
                 If ``None``, all non-zero tokens are returned. Must be positive. Defaults to ``None``.
 
         Returns:
-            list[tuple[str, float]]: If the input is 1D, a list of ``(token, weight)`` tuples.
-            list[list[tuple[str, float]]]: If the input is 2D, a list (one per sample)
+            list[tuple[str, float]] | list[list[tuple[str, float]]]:
+                If the input is 1D, a list of ``(token, weight)`` tuples.
+                If the input is 2D, a list (one per sample)
                 of lists of ``(token, weight)`` tuples.
         """
         if top_k is not None and top_k <= 0:
