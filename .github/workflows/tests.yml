@@ -74,11 +74,11 @@ jobs:
 
       - name: Install dependencies (transformers < 5.0.0)
         if: ${{ matrix.transformers-version == '<5.0.0' }}
-        run: uv pip install --prerelease=allow '.[train, onnx, openvino]' --group test 'transformers<5.0.0' 'accelerate>=1.13.0' 'datasets>=3.3.0' --excludes excludes.txt --system
+        run: uv pip install '.[train, onnx, openvino]' --group test 'transformers<5.0.0' 'accelerate>=1.13.0' 'datasets>=3.3.0' --excludes excludes.txt --system
 
       - name: Install dependencies (transformers >= 5.0.0)
         if: ${{ matrix.transformers-version == '>=5.0.0' }}
-        run: uv pip install --prerelease=allow '.[train]' --group test 'transformers>=5.0.0' 'accelerate>=1.13.0' --excludes excludes.txt --system
+        run: uv pip install '.[train]' --group test 'transformers>=5.0.0' 'accelerate>=1.13.0' --excludes excludes.txt --system
 
       # model2vec[distill] pins transformers<5.4.0, so use the distill extra only on
       # the <5.0.0 leg (distillation tests skip on v5+ anyway) and base model2vec elsewhere.
