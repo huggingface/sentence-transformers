@@ -80,9 +80,15 @@ jobs:
         if: ${{ matrix.transformers-version == '>=5.0.0' }}
         run: uv pip install '.[train]' --group test 'transformers>=5.0.0' 'accelerate>=1.13.0' --excludes excludes.txt --system
 
-      - name: Install model2vec
+      # model2vec[distill] pins transformers<5.4.0, so use the distill extra only on
+      # the <5.0.0 leg (distillation tests skip on v5+ anyway) and base model2vec elsewhere.
+      - name: Install model2vec (with distillation extra)
         run: uv pip install model2vec[distill] --system
-        if: ${{ contains(fromJSON('["3.10", "3.11", "3.12", "3.13"]'), matrix.python-version) }}
+        if: ${{ matrix.transformers-version == '<5.0.0' }}
+
+      - name: Install model2vec
+        run: uv pip install model2vec --system
+        if: ${{ matrix.transformers-version == '>=5.0.0' }}
 
       - name: Run unit tests
         run: |
