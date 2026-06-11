@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import fields
@@ -119,6 +120,8 @@ _TRANSFORMERS_SUPPORTS_IS_CAUSAL_FALSE = parse_version(transformers_version) >= 
 
 # apply_chat_template wants these as top-level kwargs, not nested in tokenizer_kwargs/common_kwargs.
 _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS = frozenset({"padding", "truncation", "max_length", "return_tensors"})
+# LRU bound for the per-structure chat-template suffix cache, since its key includes the prompt.
+_CHAT_TEMPLATE_SUFFIX_CACHE_SIZE = 256
 
 TransformerTask = Literal[
     "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask"
@@ -629,7 +632,7 @@ class Transformer(InputModule):
         self.track_media_counts = False
         self._prompt_length_mapping = {}
         self._method_signature_cache: dict[str, set[str]] = {}
-        self._chat_template_suffix_cache: dict[Any, list[int]] = {}
+        self._chat_template_suffix_cache: OrderedDict[Any, list[int]] = OrderedDict()
 
         config, is_peft_model = self._load_config(model_name_or_path, backend, config_kwargs)
         self._warn_on_unsupported_attention_config(config)
@@ -1433,7 +1436,7 @@ class Transformer(InputModule):
             n_rows = len(rows)
 
         # Derive the per-row suffixes first (cached). Multimodal rows yield [], so an all-media batch returns
-        # here, before the attention-mask reduction below and its two device-to-host syncs.
+        # here, before the attention-mask reductions below (cheap, but pointless if nothing will be restored).
         suffixes = [
             self._chat_template_suffix_ids(messages[index], chat_template_kwargs, tokenizer_kwargs)
             for index in range(min(n_rows, len(messages)))
@@ -1482,20 +1485,33 @@ class Transformer(InputModule):
 
         The suffix is the run of tokens the template appends after the user content (e.g. the assistant
         prefill). It is found by rendering the conversation's role layout with two different fillers and
-        taking the longest common token suffix, so no per-model count is hard-coded.
+        taking the longest common token suffix, so no per-model count is hard-coded. ``system`` messages (the
+        prompt/instruction) are kept fixed rather than fillered, so a prompt the template renders in the tail
+        is captured too. The cache keys on their content so different prompts get their own suffix.
         """
         # Skip rows with actual media: image/audio/video placeholder tokens can't be cut without desyncing
         # them from their media features (the model would then error), so there's nothing safe to restore.
         # Text-only inputs to a multimodal model still qualify.
         if not conversation or not self.input_formatter.is_text_only_messages([conversation]):
             return []
-        # Cache per template-kwargs + tokenizer-kwargs + role layout. Any of these may carry unhashable
-        # values (e.g. a ``tools`` list), so guard the lookup and fall back to re-deriving without caching.
+        # Cache per template-kwargs + tokenizer-kwargs + role layout + prompt. Kept (system) prompts can land
+        # in the suffix, so their content is part of the key (repr keeps structured content hashable). Any of
+        # these may be unhashable (e.g. a ``tools`` list), so guard the lookup and re-derive uncached if so.
         roles = tuple(m.get("role") if isinstance(m, dict) else None for m in conversation)
+        prompts = tuple(
+            repr(m.get("content")) for m in conversation if isinstance(m, dict) and m.get("role") == "system"
+        )
+        cache = self._chat_template_suffix_cache
         try:
-            cache_key = (tuple(sorted(chat_template_kwargs.items())), tuple(sorted(tokenizer_kwargs.items())), roles)
-            if cache_key in self._chat_template_suffix_cache:
-                return self._chat_template_suffix_cache[cache_key]
+            cache_key = (
+                tuple(sorted(chat_template_kwargs.items())),
+                tuple(sorted(tokenizer_kwargs.items())),
+                roles,
+                prompts,
+            )
+            if cache_key in cache:
+                cache.move_to_end(cache_key)  # mark most-recently-used
+                return cache[cache_key]
         except TypeError:
             cache_key = None
 
@@ -1510,13 +1526,19 @@ class Transformer(InputModule):
                 if left != right:
                     break
                 count += 1
-            suffix = first[len(first) - count :]  # count == 0 slices at len(first), i.e. []
+            # count == min(len) means the renders never diverged (e.g. a conversation with no variable
+            # content), so the common run would include filler/content. Only trust a strictly bounded tail.
+            if 0 < count < min(len(first), len(second)):
+                suffix = first[len(first) - count :]
         except Exception as exc:  # never let suffix derivation break tokenization
             logger.debug(f"Could not derive the chat-template suffix: {exc}")
 
-        # Cache the result, including an empty/failed derivation, so it isn't recomputed on every call.
+        # Cache the result (including an empty/failed derivation), evicting the least-recently-used entry past
+        # the cap so a workload with many distinct prompts can't grow it without bound.
         if cache_key is not None:
-            self._chat_template_suffix_cache[cache_key] = suffix
+            cache[cache_key] = suffix
+            if len(cache) > _CHAT_TEMPLATE_SUFFIX_CACHE_SIZE:
+                cache.popitem(last=False)
         return suffix
 
     def _render_message_skeleton(
@@ -1526,15 +1548,18 @@ class Transformer(InputModule):
         chat_template_kwargs: dict[str, Any],
         tokenizer_kwargs: dict[str, Any],
     ) -> list[int]:
-        """Tokenize one conversation with each text content replaced by ``filler`` (untruncated).
+        """Tokenize one conversation with each non-system content replaced by ``filler`` (untruncated).
 
-        The short filler keeps the rendered prompt tiny, so this stays cheap regardless of the real input
-        length. ``tokenizer_kwargs`` mirrors the real call's text kwargs so the suffix is tokenized
-        identically (e.g. the same ``add_special_tokens``); ``return_tensors=None`` asks for plain lists.
+        ``system`` messages (the prompt/instruction) are kept verbatim so the diff can capture a prompt the
+        template renders in the tail. Everything else is per-row content and gets fillered, which keeps the
+        rendered prompt tiny and cheap regardless of input length (a long kept system prompt is the one
+        exception). ``tokenizer_kwargs`` mirrors the real call's text kwargs so the suffix is tokenized
+        identically (e.g. the same ``add_special_tokens``). ``return_tensors=None`` asks for plain lists.
         """
         skeleton = []
         for message in conversation:
-            if not isinstance(message, dict):
+            # Keep system messages (the prompt) fixed so the diff captures them if rendered in the tail.
+            if not isinstance(message, dict) or message.get("role") == "system":
                 skeleton.append(message)
                 continue
             new_content = [{"type": "text", "text": filler}] if isinstance(message.get("content"), list) else filler

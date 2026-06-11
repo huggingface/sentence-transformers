@@ -822,11 +822,58 @@ class TestProcessChatMessages:
         # chat_template_kwargs may carry unhashable values (e.g. a ``tools`` list). The cache lookup must not
         # raise TypeError, so derivation falls back to running uncached.
         model = bert_tiny_transformer
+
+        def mock_apply_chat_template(messages, **kwargs):
+            body = "".join(str(m["content"]) for m in messages[0])
+            return {"input_ids": [[ord(c) for c in body] + [99]]}  # 99 = fixed content-independent tail
+
+        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        suffix = model._chat_template_suffix_ids([{"role": "user", "content": "x"}], {"tools": [{"name": "f"}]}, {})
+        assert suffix == [99]  # no crash from the unhashable kwarg; the fixed marker is the derived suffix
+
+    def test_chat_template_suffix_ids_returns_empty_without_variable_content(self, bert_tiny_transformer, monkeypatch):
+        # With only kept (system) content there's nothing to vary, so the two renders are identical and there
+        # is no reliable suffix boundary -> return [] rather than treating the whole render as the suffix.
+        model = bert_tiny_transformer
+
+        def mock_apply_chat_template(messages, **kwargs):
+            return {"input_ids": [[ord(c) for c in "".join(str(m["content"]) for m in messages[0])]]}
+
+        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        assert model._chat_template_suffix_ids([{"role": "system", "content": "only a prompt"}], {}, {}) == []
+
+    def test_chat_template_suffix_cache_is_lru_bounded(self, bert_tiny_transformer, monkeypatch):
+        # The cache key includes the prompt, so a workload with many distinct prompts must stay bounded.
+        model = bert_tiny_transformer
+        monkeypatch.setattr("sentence_transformers.base.modules.transformer._CHAT_TEMPLATE_SUFFIX_CACHE_SIZE", 3)
         monkeypatch.setattr(
             model.processor, "apply_chat_template", lambda messages, **kwargs: {"input_ids": [[1, 2, 3]]}
         )
-        suffix = model._chat_template_suffix_ids([{"role": "user", "content": "x"}], {"tools": [{"name": "f"}]}, {})
-        assert suffix == [1, 2, 3]  # no crash: identical renders make the entire output the suffix
+        for index in range(10):
+            model._chat_template_suffix_ids([{"role": "system", "content": f"prompt {index}"}], {}, {})
+        assert len(model._chat_template_suffix_cache) == 3
+
+    def test_chat_template_suffix_ids_captures_prompt_rendered_in_tail(self, bert_tiny_transformer, monkeypatch):
+        # When the template renders the system prompt in the tail, keeping it fixed (not fillered) lets the
+        # diff capture it, so a truncated trailing prompt can be restored. Different prompts -> different keys.
+        model = bert_tiny_transformer
+
+        def mock_apply_chat_template(messages, **kwargs):
+            # Render the (fillered) non-system content, then the kept system prompt, then a fixed marker (99).
+            body = "".join(str(m["content"]) for m in messages[0] if m.get("role") != "system")
+            prompt = "".join(str(m["content"]) for m in messages[0] if m.get("role") == "system")
+            return {"input_ids": [[ord(c) for c in body] + [ord(c) for c in prompt] + [99]]}
+
+        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        # "PQ" (80, 81) is kept fixed and lands in the tail, so it plus the marker (99) form the suffix.
+        assert model._chat_template_suffix_ids(
+            [{"role": "system", "content": "PQ"}, {"role": "user", "content": "x"}], {}, {}
+        ) == [80, 81, 99]
+        # A different prompt gets its own cache entry and its own suffix.
+        assert model._chat_template_suffix_ids(
+            [{"role": "system", "content": "RS"}, {"role": "user", "content": "x"}], {}, {}
+        ) == [82, 83, 99]
+        assert len(model._chat_template_suffix_cache) == 2
 
     def test_restore_chat_template_suffix_is_per_row_and_skips_multimodal(self, bert_tiny_transformer, monkeypatch):
         # A heterogeneous batch: the text-only row is restored per-row, while the multimodal row is left
