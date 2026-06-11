@@ -743,9 +743,9 @@ class TestProcessChatMessages:
                 common_kwargs={"return_tensors": "pt"},
             )
 
-        # Long content (13 tokens) crosses max_length=8: the suffix is restored onto the tail while the
-        # head is kept, and the auto-derived suffix length (3) means nothing is hard-coded.
-        long_content = "abcdefghij"
+        # The mock tokenizes one token per character, so this 13-token content is truncated at max_length=8,
+        # dropping the suffix. The restore puts it back on the tail (head kept), with an auto-derived length.
+        long_content = "abcdefghijklm"
         ids = run(long_content, max_length=8)["input_ids"].tolist()[0]
         assert len(ids) == 8  # max_length is respected
         assert ids[-3:] == suffix  # the scoring suffix is back at the tail
