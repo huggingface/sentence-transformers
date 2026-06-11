@@ -210,7 +210,7 @@ class PListMLELoss(nn.Module):
             logits = self.model(tokens)["scores"].view(-1)
             logits_list.append(logits)
 
-        logits = torch.cat(logits_list, dim=0)
+        logits = torch.cat(logits_list, dim=0).float()
         logits = self.activation_fn(logits)
 
         # Create output tensor filled with a very small value for padded logits

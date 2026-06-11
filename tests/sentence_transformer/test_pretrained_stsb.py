@@ -7,17 +7,20 @@ from __future__ import annotations
 from functools import partial
 
 import pytest
-from datasets import load_dataset
+from datasets import Dataset, DatasetDict
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 
 
 def pretrained_model_score(
-    model_name, expected_score: float, max_test_samples: int = 100, cache_dir: str | None = None
+    model_name,
+    expected_score: float,
+    sts_dataset: Dataset,
+    max_test_samples: int = 100,
+    cache_dir: str | None = None,
 ) -> None:
     model = SentenceTransformer(model_name, cache_folder=cache_dir)
-    sts_dataset = load_dataset("sentence-transformers/stsb", split="test")
 
     if max_test_samples != -1:
         sts_dataset = sts_dataset.select(range(max_test_samples))
@@ -41,62 +44,72 @@ pretrained_model_score_slow = partial(pretrained_model_score, max_test_samples=-
 
 
 @pytest.mark.slow
-def test_bert_base_slow() -> None:
-    pretrained_model_score_slow("sentence-transformers/bert-base-nli-mean-tokens", 77.12)
-    pretrained_model_score_slow("sentence-transformers/bert-base-nli-max-tokens", 77.21)
-    pretrained_model_score_slow("sentence-transformers/bert-base-nli-cls-token", 76.30)
-    pretrained_model_score_slow("sentence-transformers/bert-base-nli-stsb-mean-tokens", 85.14)
+def test_bert_base_slow(stsb_dataset_dict: DatasetDict) -> None:
+    score = partial(pretrained_model_score_slow, sts_dataset=stsb_dataset_dict["test"])
+    score("sentence-transformers/bert-base-nli-mean-tokens", 77.12)
+    score("sentence-transformers/bert-base-nli-max-tokens", 77.21)
+    score("sentence-transformers/bert-base-nli-cls-token", 76.30)
+    score("sentence-transformers/bert-base-nli-stsb-mean-tokens", 85.14)
 
 
 @pytest.mark.slow
-def test_bert_large_slow() -> None:
-    pretrained_model_score_slow("sentence-transformers/bert-large-nli-mean-tokens", 79.19)
-    pretrained_model_score_slow("sentence-transformers/bert-large-nli-max-tokens", 78.41)
-    pretrained_model_score_slow("sentence-transformers/bert-large-nli-cls-token", 78.29)
-    pretrained_model_score_slow("sentence-transformers/bert-large-nli-stsb-mean-tokens", 85.29)
+def test_bert_large_slow(stsb_dataset_dict: DatasetDict) -> None:
+    score = partial(pretrained_model_score_slow, sts_dataset=stsb_dataset_dict["test"])
+    score("sentence-transformers/bert-large-nli-mean-tokens", 79.19)
+    score("sentence-transformers/bert-large-nli-max-tokens", 78.41)
+    score("sentence-transformers/bert-large-nli-cls-token", 78.29)
+    score("sentence-transformers/bert-large-nli-stsb-mean-tokens", 85.29)
 
 
 @pytest.mark.slow
-def test_roberta_slow() -> None:
-    pretrained_model_score_slow("sentence-transformers/roberta-base-nli-mean-tokens", 77.49)
-    pretrained_model_score_slow("sentence-transformers/roberta-large-nli-mean-tokens", 78.69)
-    pretrained_model_score_slow("sentence-transformers/roberta-base-nli-stsb-mean-tokens", 85.30)
-    pretrained_model_score_slow("sentence-transformers/roberta-large-nli-stsb-mean-tokens", 86.39)
+def test_roberta_slow(stsb_dataset_dict: DatasetDict) -> None:
+    score = partial(pretrained_model_score_slow, sts_dataset=stsb_dataset_dict["test"])
+    score("sentence-transformers/roberta-base-nli-mean-tokens", 77.49)
+    score("sentence-transformers/roberta-large-nli-mean-tokens", 78.69)
+    score("sentence-transformers/roberta-base-nli-stsb-mean-tokens", 85.30)
+    score("sentence-transformers/roberta-large-nli-stsb-mean-tokens", 86.39)
 
 
 @pytest.mark.slow
-def test_distilbert_slow() -> None:
-    pretrained_model_score_slow("sentence-transformers/distilbert-base-nli-mean-tokens", 78.69)
-    pretrained_model_score_slow("sentence-transformers/distilbert-base-nli-stsb-mean-tokens", 85.16)
-    pretrained_model_score_slow("sentence-transformers/paraphrase-distilroberta-base-v1", 81.81)
+def test_distilbert_slow(stsb_dataset_dict: DatasetDict) -> None:
+    score = partial(pretrained_model_score_slow, sts_dataset=stsb_dataset_dict["test"])
+    score("sentence-transformers/distilbert-base-nli-mean-tokens", 78.69)
+    score("sentence-transformers/distilbert-base-nli-stsb-mean-tokens", 85.16)
+    score("sentence-transformers/paraphrase-distilroberta-base-v1", 81.81)
 
 
 @pytest.mark.slow
-def test_multiling_slow() -> None:
-    pretrained_model_score_slow("sentence-transformers/distiluse-base-multilingual-cased", 80.75)
-    pretrained_model_score_slow("sentence-transformers/paraphrase-xlm-r-multilingual-v1", 83.50)
-    pretrained_model_score_slow("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", 84.42)
+def test_multiling_slow(stsb_dataset_dict: DatasetDict) -> None:
+    score = partial(pretrained_model_score_slow, sts_dataset=stsb_dataset_dict["test"])
+    score("sentence-transformers/distiluse-base-multilingual-cased", 80.75)
+    score("sentence-transformers/paraphrase-xlm-r-multilingual-v1", 83.50)
+    score("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", 84.42)
 
 
 @pytest.mark.slow
-def test_mpnet_slow() -> None:
-    pretrained_model_score_slow("sentence-transformers/paraphrase-mpnet-base-v2", 86.99)
+def test_mpnet_slow(stsb_dataset_dict: DatasetDict) -> None:
+    pretrained_model_score_slow(
+        "sentence-transformers/paraphrase-mpnet-base-v2", 86.99, sts_dataset=stsb_dataset_dict["test"]
+    )
 
 
 @pytest.mark.slow
-def test_other_models_slow() -> None:
-    pretrained_model_score_slow("sentence-transformers/average_word_embeddings_komninos", 60.98)
+def test_other_models_slow(stsb_dataset_dict: DatasetDict) -> None:
+    pretrained_model_score_slow(
+        "sentence-transformers/average_word_embeddings_komninos", 60.98, sts_dataset=stsb_dataset_dict["test"]
+    )
 
 
 @pytest.mark.slow
-def test_msmarco_slow() -> None:
-    pretrained_model_score_slow("sentence-transformers/msmarco-roberta-base-ance-firstp", 77.0)
-    pretrained_model_score_slow("sentence-transformers/msmarco-distilbert-base-v3", 78.85)
+def test_msmarco_slow(stsb_dataset_dict: DatasetDict) -> None:
+    score = partial(pretrained_model_score_slow, sts_dataset=stsb_dataset_dict["test"])
+    score("sentence-transformers/msmarco-roberta-base-ance-firstp", 77.0)
+    score("sentence-transformers/msmarco-distilbert-base-v3", 78.85)
 
 
 @pytest.mark.slow
-def test_sentence_t5_slow() -> None:
-    pretrained_model_score_slow("sentence-transformers/sentence-t5-base", 85.52)
+def test_sentence_t5_slow(stsb_dataset_dict: DatasetDict) -> None:
+    pretrained_model_score_slow("sentence-transformers/sentence-t5-base", 85.52, sts_dataset=stsb_dataset_dict["test"])
 
 
 @pytest.mark.slow  # Also marked as slow to avoid running it with CI: results in too many requests to the Hugging Face Hub
@@ -128,5 +141,7 @@ def test_sentence_t5_slow() -> None:
         ("sentence-transformers/sentence-t5-base", 92.75),
     ],
 )
-def test_pretrained(model_name: str, expected_score: float, cache_dir: str | None = None) -> None:
-    pretrained_model_score(model_name, expected_score, cache_dir=cache_dir)
+def test_pretrained(
+    model_name: str, expected_score: float, stsb_dataset_dict: DatasetDict, cache_dir: str | None = None
+) -> None:
+    pretrained_model_score(model_name, expected_score, sts_dataset=stsb_dataset_dict["test"], cache_dir=cache_dir)

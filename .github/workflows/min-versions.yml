@@ -18,6 +18,7 @@ on:
 env:
   TRANSFORMERS_IS_CI: 1
   HF_HUB_DISABLE_PROGRESS_BARS: 1
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}  # Read token to avoid rate limits / gated-repo failures when downloading from the Hub
 
 jobs:
   test_min_versions:
@@ -45,12 +46,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Setup Python environment
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.10"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff  # v6
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
 
       - name: Install FFmpeg libraries (needed to build av)
         run: sudo apt-get update && sudo apt-get install -y libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev

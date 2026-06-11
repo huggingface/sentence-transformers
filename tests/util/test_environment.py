@@ -1,9 +1,36 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from transformers import AutoProcessor
 
-from sentence_transformers.util.environment import suggest_extra_on_exception
+from sentence_transformers.util.environment import (
+    get_device_name,
+    is_dist_initialized,
+    suggest_extra_on_exception,
+)
+
+
+def test_get_device_name_cuda_without_distributed_is_initialized(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_cuda = SimpleNamespace(is_available=lambda: True, device_count=lambda: 1)
+    fake_distributed = SimpleNamespace(is_available=lambda: False)
+
+    monkeypatch.delenv("LOCAL_RANK", raising=False)
+    monkeypatch.setattr("sentence_transformers.util.environment.torch.cuda", fake_cuda)
+    monkeypatch.setattr("sentence_transformers.util.environment.torch.distributed", fake_distributed)
+
+    assert get_device_name() == "cuda:0"
+
+
+def test_is_dist_initialized_returns_false_when_distributed_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ROCm / CPU-only builds expose is_available() but do not define is_initialized; the helper must short-circuit.
+    monkeypatch.setattr(
+        "sentence_transformers.util.environment.torch.distributed",
+        SimpleNamespace(is_available=lambda: False),
+    )
+
+    assert is_dist_initialized() is False
 
 
 @pytest.mark.parametrize(

@@ -31,7 +31,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout sentence-transformers
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Determine PR title
         id: pr_title
@@ -44,21 +44,21 @@ jobs:
 
       - name: Create GitHub App token
         id: app_token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.APP_ID_HUB_SKILLS_REPO }}
           private-key: ${{ secrets.APP_SECRET_PREM_HUB_SKILLS_REPO }}
           repositories: skills
 
       - name: Checkout huggingface/skills
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: huggingface/skills
           token: ${{ steps.app_token.outputs.token }}
           path: skills-repo
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
 
       - name: Copy skill
         run: |
@@ -84,7 +84,7 @@ jobs:
 
       - name: Create Pull Request
         if: steps.check_changes.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ steps.app_token.outputs.token }}
           path: skills-repo

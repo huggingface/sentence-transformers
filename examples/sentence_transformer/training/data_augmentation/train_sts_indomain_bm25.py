@@ -27,7 +27,6 @@ python train_sts_indomain_bm25.py google-bert/bert-base-uncased 3
 """
 
 import logging
-import math
 import sys
 import traceback
 from datetime import datetime
@@ -35,14 +34,15 @@ from datetime import datetime
 import tqdm
 from datasets import Dataset, concatenate_datasets, load_dataset
 from elasticsearch import Elasticsearch
-from torch.utils.data import DataLoader
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
+from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss
+from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
+from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss
-from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -98,14 +98,10 @@ eval_dataset = load_dataset("sentence-transformers/stsb", split="validation")
 test_dataset = load_dataset("sentence-transformers/stsb", split="test")
 logging.info(train_dataset)
 
-gold_samples = [
-    InputExample(texts=[sentence1, sentence2], label=data["score"])
-    for data in train_dataset
-    for sentence1, sentence2 in [(data["sentence1"], data["sentence2"]), (data["sentence2"], data["sentence1"])]
-]
-
-# We wrap gold_samples (which is a List[InputExample]) into a pytorch DataLoader
-train_dataloader = DataLoader(gold_samples, shuffle=True, batch_size=batch_size)
+# Build a symmetric training set so CrossEncoder(A, B) == CrossEncoder(B, A)
+gold_dataset = concatenate_datasets(
+    [train_dataset, train_dataset.rename_columns({"sentence1": "sentence2", "sentence2": "sentence1"})]
+)
 
 # We add an evaluator, which evaluates the performance during training
 evaluator = CrossEncoderCorrelationEvaluator(
@@ -113,19 +109,26 @@ evaluator = CrossEncoderCorrelationEvaluator(
     scores=[data["score"] for data in eval_dataset],
     name="sts-dev",
 )
-
 # Configure the training
-warmup_steps = math.ceil(len(train_dataloader) * num_epochs * 0.1)  # 10% of train data for warm-up
-logging.info(f"Warmup-steps: {warmup_steps}")
+ce_loss = BinaryCrossEntropyLoss(cross_encoder)
+ce_args = CrossEncoderTrainingArguments(
+    output_dir=cross_encoder_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=batch_size,
+    warmup_ratio=0.1,
+    eval_strategy="epoch",
+)
 
 # Train the cross-encoder model
-cross_encoder.fit(
-    train_dataloader=train_dataloader,
+ce_trainer = CrossEncoderTrainer(
+    model=cross_encoder,
+    args=ce_args,
+    train_dataset=gold_dataset,
+    loss=ce_loss,
     evaluator=evaluator,
-    epochs=num_epochs,
-    warmup_steps=warmup_steps,
-    output_path=cross_encoder_path,
 )
+ce_trainer.train()
+cross_encoder.save_pretrained(f"{cross_encoder_path}/final")
 
 ############################################################################
 #
@@ -139,16 +142,12 @@ cross_encoder.fit(
 index_name = "stsb"  # index-name should be in lowercase
 logging.info(f"Step 2.1: Generate STSbenchmark (silver dataset) using top-{top_k} bm25 combinations")
 
-unique_sentences = set()
-
-for sample in gold_samples:
-    unique_sentences.update(sample.texts)
-
-unique_sentences = list(unique_sentences)  # unique sentences
+unique_sentences = list(set(train_dataset["sentence1"]) | set(train_dataset["sentence2"]))
 sent2idx = {sentence: idx for idx, sentence in enumerate(unique_sentences)}  # storing id and sentence in dictionary
-duplicates = set(
-    (sent2idx[data.texts[0]], sent2idx[data.texts[1]]) for data in gold_samples
-)  # not to include gold pairs of sentences again
+duplicates = set()  # not to include gold pairs of sentences again
+for sentence1, sentence2 in zip(train_dataset["sentence1"], train_dataset["sentence2"]):
+    duplicates.add((sent2idx[sentence1], sent2idx[sentence2]))
+    duplicates.add((sent2idx[sentence2], sent2idx[sentence1]))
 
 # Ignore 400 cause by IndexAlreadyExistsException when creating an index
 logging.info(f"Creating elastic-search index - {index_name}")
@@ -179,7 +178,6 @@ progress.close()
 logging.info(f"Number of silver pairs generated for STSbenchmark: {len(silver_data)}")
 logging.info(f"Step 2.2: Label STSbenchmark (silver dataset) with cross-encoder: {model_name}")
 
-cross_encoder = CrossEncoder(cross_encoder_path)
 silver_scores = cross_encoder.predict(silver_data)
 
 # All model predictions should be between [0,1]
@@ -193,13 +191,13 @@ assert all(0.0 <= score <= 1.0 for score in silver_scores)
 
 logging.info(f"Step 3: Train bi-encoder: {model_name} with STSbenchmark (gold + silver dataset)")
 
-# Convert the dataset to a DataLoader ready for training
+# Combine the gold and silver pairs for bi-encoder training
 logging.info("Read STSbenchmark gold and silver train dataset")
 silver_samples = Dataset.from_dict(
     {
         "sentence1": [data[0] for data in silver_data],
         "sentence2": [data[1] for data in silver_data],
-        "score": silver_scores,
+        "score": [float(score) for score in silver_scores],
     }
 )
 train_dataset = concatenate_datasets([train_dataset, silver_samples])
@@ -212,7 +210,7 @@ evaluator = EmbeddingSimilarityEvaluator(
     sentences2=eval_dataset["sentence2"],
     scores=eval_dataset["score"],
     main_similarity=SimilarityFunction.COSINE,
-    name="sts-test",
+    name="sts-dev",
 )
 
 # Define the training arguments
@@ -223,16 +221,16 @@ args = SentenceTransformerTrainingArguments(
     num_train_epochs=num_epochs,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
-    warmup_steps=0.1,
+    warmup_ratio=0.1,
     fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
     bf16=False,  # Set to True if you have a GPU that supports BF16
     # Optional tracking/debugging parameters:
     eval_strategy="steps",
-    eval_steps=100,
+    eval_steps=0.1,
     save_strategy="steps",
-    save_steps=100,
+    save_steps=0.1,
     save_total_limit=2,
-    logging_steps=100,
+    logging_steps=0.05,
     run_name="augmentation-indomain-bm25-sts",  # Will be used in W&B if `wandb` is installed
 )
 

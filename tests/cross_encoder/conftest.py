@@ -20,3 +20,13 @@ def _reranker_bert_tiny_model_v6() -> CrossEncoder:
 @pytest.fixture()
 def reranker_bert_tiny_model_v6(_reranker_bert_tiny_model_v6) -> CrossEncoder:
     return deepcopy(_reranker_bert_tiny_model_v6)
+
+
+@pytest.fixture(scope="session")
+def _nli_minilm_model() -> CrossEncoder:
+    return CrossEncoder("cross-encoder/nli-MiniLM2-L6-H768")
+
+
+@pytest.fixture()
+def nli_minilm_model(_nli_minilm_model) -> CrossEncoder:
+    return deepcopy(_nli_minilm_model)
