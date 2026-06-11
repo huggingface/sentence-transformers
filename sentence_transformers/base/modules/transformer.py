@@ -546,7 +546,11 @@ class Transformer(InputModule):
             (``"text"``, ``"audio"``, ``"image"``, ``"video"``), ``"common"`` for kwargs shared across all
             modalities, or ``"chat_template"`` for kwargs forwarded to ``apply_chat_template`` (e.g.
             ``{"add_generation_prompt": True}``). Modality and common kwargs override the built-in defaults.
-            Saved to and loaded from the model configuration file. Defaults to None.
+            The ``"chat_template"`` dict also accepts ``"restore_suffix"`` (default ``True``), a Sentence
+            Transformers flag: when truncation would drop the fixed tokens a chat template appends after the
+            content (e.g. an assistant prefill or a trailing EOS), they are restored onto the truncated tail
+            so models that read the final token position keep working. Set ``False`` to disable. Saved to and
+            loaded from the model configuration file. Defaults to None.
         backend (str, optional): Backend used for model inference. Can be ``"torch"`` (default), ``"onnx"``,
             or ``"openvino"``. Defaults to ``"torch"``.
         modality_config (dict, optional): Custom modality configuration mapping modality names to method and
@@ -1329,11 +1333,15 @@ class Transformer(InputModule):
         # the text kwargs to be passed at the top level instead of in a nested "text_kwargs" dict.
         chat_template_kwargs = dict(chat_template_kwargs or {})
 
+        # `restore_suffix` toggles the truncation suffix restore below. It's a Sentence Transformers concept,
+        # not an apply_chat_template argument, so pop it (default on) before forwarding the rest.
+        restore_suffix = chat_template_kwargs.pop("restore_suffix", True)
+
         # Read truncation before the hoist below pops it (text kwargs take priority over common). The
-        # restore in _restore_chat_template_suffix is gated on it.
+        # restore in _restore_chat_template_suffix is gated on it (and on `restore_suffix`).
         text_kwargs = modality_kwargs.get("text", {})
         truncation = text_kwargs.get("truncation", common_kwargs.get("truncation"))
-        restore_chat_template_suffix = bool(truncation) and truncation != "do_not_truncate"
+        restore_chat_template_suffix = restore_suffix and bool(truncation) and truncation != "do_not_truncate"
 
         if isinstance(self.processor, ProcessorMixin):
             # Transformers v5.4.0 prefers us to pass processor_kwargs as a single dict, but there's still some top level

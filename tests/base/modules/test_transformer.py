@@ -769,6 +769,47 @@ class TestProcessChatMessages:
         )["input_ids"][0]
         assert len(list_ids) == 8 and list_ids[-3:] == suffix and list_ids[:5] == [ord(c) for c in long_content[:5]]
 
+    def test_chat_truncation_restore_can_be_disabled(self, bert_tiny_transformer, monkeypatch):
+        # The restore is on by default, but ``chat_template_kwargs["restore_suffix"]=False`` (set via
+        # ``processing_kwargs["chat_template"]``) turns it off. The flag is a Sentence Transformers concept,
+        # so it must be popped and never forwarded to apply_chat_template.
+        model = bert_tiny_transformer
+        model.modality_config["message"] = {"method": "forward", "method_output_name": "logits"}
+        suffix = [201, 202, 203]
+        forwarded_kwargs = []
+
+        def mock_apply_chat_template(messages, **kwargs):
+            forwarded_kwargs.append(kwargs)
+            text = "".join(str(message["content"]) for message in messages[0])
+            ids = [ord(char) for char in text] + suffix
+            if kwargs.get("truncation") and kwargs.get("max_length"):
+                ids = ids[: kwargs["max_length"]]
+            if kwargs.get("return_tensors") == "pt":
+                return {"input_ids": torch.tensor([ids]), "attention_mask": torch.ones(1, len(ids), dtype=torch.long)}
+            return {"input_ids": [ids]}
+
+        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+
+        def run(restore_suffix):
+            return model._process_chat_messages(
+                messages=[[{"role": "user", "content": "abcdefghij"}]],
+                modality_kwargs={
+                    "text": {"padding": True, "truncation": True, "max_length": 8},
+                    "audio": {},
+                    "image": {},
+                    "video": {},
+                },
+                common_kwargs={"return_tensors": "pt"},
+                chat_template_kwargs={"restore_suffix": restore_suffix},
+            )["input_ids"].tolist()[0]
+
+        # Default behaviour (restore on): the template suffix is put back at the tail.
+        assert run(True)[-3:] == suffix
+        # Disabled: the raw truncated tail (content tokens, no suffix) is left untouched.
+        assert run(False) == [ord(char) for char in "abcdefghij"][:8]
+        # restore_suffix is a ST-only flag, so it is never leaked into the apply_chat_template call(s).
+        assert forwarded_kwargs and all("restore_suffix" not in kwargs for kwargs in forwarded_kwargs)
+
     def test_restore_chat_template_suffix_handles_both_padding_sides(self, bert_tiny_transformer, monkeypatch):
         # The restore must locate the real tail via the attention mask (not a fixed [-keep:] slice), so it is
         # correct whether the batch is left- or right-padded. In each batch row 0 was truncated (full width,
