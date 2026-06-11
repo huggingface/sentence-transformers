@@ -113,17 +113,17 @@ def test_openvino_provider() -> None:
     model = SparseEncoder(
         "sparse-encoder-testing/splade-bert-tiny-nq-openvino",
         backend="openvino",
-        model_kwargs={"ov_config": {"INFERENCE_PRECISION_HINT": "precision_1"}},
+        model_kwargs={"ov_config": {"INFERENCE_PRECISION_HINT": "f32"}},
     )
     assert model[0].auto_model.ov_config == {
-        "INFERENCE_PRECISION_HINT": "precision_1",
+        "INFERENCE_PRECISION_HINT": "f32",
         "PERFORMANCE_HINT": "LATENCY",
     }
 
     with tempfile.TemporaryDirectory() as temp_dir:
         ov_config_path = os.path.join(temp_dir, "ov_config.json")
         with open(ov_config_path, "w") as ov_config_file:
-            json.dump({"INFERENCE_PRECISION_HINT": "precision_2"}, ov_config_file)
+            json.dump({"INFERENCE_PRECISION_HINT": "f16"}, ov_config_file)
 
         model = SparseEncoder(
             "sparse-encoder-testing/splade-bert-tiny-nq-openvino",
@@ -131,7 +131,7 @@ def test_openvino_provider() -> None:
             model_kwargs={"ov_config": ov_config_path},
         )
         assert model[0].auto_model.ov_config == {
-            "INFERENCE_PRECISION_HINT": "precision_2",
+            "INFERENCE_PRECISION_HINT": "f16",
             "PERFORMANCE_HINT": "LATENCY",
         }
 
