@@ -860,8 +860,8 @@ class TestProcessChatMessages:
         assert features["input_ids"].tolist() == [[0, 0, 0, 10, 11, 101, 102, 103]]
 
     def test_chat_template_suffix_ids_tolerates_unhashable_kwargs(self, bert_tiny_transformer, monkeypatch):
-        # chat_template_kwargs may carry unhashable values (e.g. a ``tools`` list). The cache lookup must not
-        # raise TypeError, so derivation falls back to running uncached.
+        # chat_template_kwargs may carry unhashable values (e.g. a ``tools`` list). repr() in the cache key
+        # keeps the lookup from raising TypeError, so derivation still runs (and caches).
         model = bert_tiny_transformer
 
         def mock_apply_chat_template(messages, **kwargs):
@@ -883,7 +883,7 @@ class TestProcessChatMessages:
         monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
         assert model._chat_template_suffix_ids([{"role": "system", "content": "only a prompt"}], {}, {}) == []
 
-    def test_chat_template_suffix_cache_is_lru_bounded(self, bert_tiny_transformer, monkeypatch):
+    def test_chat_template_suffix_cache_is_bounded(self, bert_tiny_transformer, monkeypatch):
         # The cache key includes the prompt, so a workload with many distinct prompts must stay bounded.
         model = bert_tiny_transformer
         monkeypatch.setattr("sentence_transformers.base.modules.transformer._CHAT_TEMPLATE_SUFFIX_CACHE_SIZE", 3)

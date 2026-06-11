@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import inspect
-from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import fields
@@ -120,7 +119,7 @@ _TRANSFORMERS_SUPPORTS_IS_CAUSAL_FALSE = parse_version(transformers_version) >= 
 
 # apply_chat_template wants these as top-level kwargs, not nested in tokenizer_kwargs/common_kwargs.
 _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS = frozenset({"padding", "truncation", "max_length", "return_tensors"})
-# LRU bound for the per-structure chat-template suffix cache, since its key includes the prompt.
+# Size bound for the per-structure chat-template suffix cache, since its key includes the prompt.
 _CHAT_TEMPLATE_SUFFIX_CACHE_SIZE = 256
 
 TransformerTask = Literal[
@@ -636,7 +635,7 @@ class Transformer(InputModule):
         self.track_media_counts = False
         self._prompt_length_mapping = {}
         self._method_signature_cache: dict[str, set[str]] = {}
-        self._chat_template_suffix_cache: OrderedDict[Any, list[int]] = OrderedDict()
+        self._chat_template_suffix_cache: dict[Any, list[int]] = {}
 
         config, is_peft_model = self._load_config(model_name_or_path, backend, config_kwargs)
         self._warn_on_unsupported_attention_config(config)
@@ -1503,25 +1502,21 @@ class Transformer(InputModule):
         if not conversation or not self.input_formatter.is_text_only_messages([conversation]):
             return []
         # Cache per template-kwargs + tokenizer-kwargs + role layout + prompt. Kept (system) prompts can land
-        # in the suffix, so their content is part of the key (repr keeps structured content hashable). Any of
-        # these may be unhashable (e.g. a ``tools`` list), so guard the lookup and re-derive uncached if so.
+        # in the suffix, so their content is part of the key. repr() keeps the key hashable even when a value
+        # is a list (e.g. a ``tools`` arg), and is how the prompt content is keyed anyway.
         roles = tuple(m.get("role") if isinstance(m, dict) else None for m in conversation)
         prompts = tuple(
             repr(m.get("content")) for m in conversation if isinstance(m, dict) and m.get("role") == "system"
         )
         cache = self._chat_template_suffix_cache
-        try:
-            cache_key = (
-                tuple(sorted(chat_template_kwargs.items())),
-                tuple(sorted(tokenizer_kwargs.items())),
-                roles,
-                prompts,
-            )
-            if cache_key in cache:
-                cache.move_to_end(cache_key)  # mark most-recently-used
-                return cache[cache_key]
-        except TypeError:
-            cache_key = None
+        cache_key = (
+            repr(sorted(chat_template_kwargs.items())),
+            repr(sorted(tokenizer_kwargs.items())),
+            roles,
+            prompts,
+        )
+        if cache_key in cache:
+            return cache[cache_key]
 
         suffix: list[int] = []
         try:
@@ -1541,12 +1536,11 @@ class Transformer(InputModule):
         except Exception as exc:  # never let suffix derivation break tokenization
             logger.debug(f"Could not derive the chat-template suffix: {exc}")
 
-        # Cache the result (including an empty/failed derivation), evicting the least-recently-used entry past
-        # the cap so a workload with many distinct prompts can't grow it without bound.
-        if cache_key is not None:
-            cache[cache_key] = suffix
-            if len(cache) > _CHAT_TEMPLATE_SUFFIX_CACHE_SIZE:
-                cache.popitem(last=False)
+        # Cache the result (including an empty/failed derivation), evicting the oldest entry past the cap so a
+        # workload with many distinct prompts can't grow it without bound.
+        cache[cache_key] = suffix
+        if len(cache) > _CHAT_TEMPLATE_SUFFIX_CACHE_SIZE:
+            cache.pop(next(iter(cache)))
         return suffix
 
     def _render_message_skeleton(
