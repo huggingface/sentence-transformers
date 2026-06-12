@@ -659,6 +659,32 @@ class TestCallProcessor:
         assert "input_ids" in result
 
 
+def make_char_chat_template_mock(suffix, captured_kwargs=None):
+    """Chat-template mock: one token per content character plus ``suffix``, honoring truncation/max_length
+    and return_tensors ("pt", "np", or ragged lists)."""
+
+    def mock_apply_chat_template(messages, **kwargs):
+        if captured_kwargs is not None:
+            captured_kwargs.append(kwargs)
+        text = "".join(str(message["content"]) for message in messages[0])
+        ids = [ord(char) for char in text] + suffix
+        # Like real tokenizers, max_length truncates unless truncation is explicitly disabled.
+        if kwargs.get("max_length") and kwargs.get("truncation") is not False:
+            ids = ids[: kwargs["max_length"]]
+        if kwargs.get("return_tensors") == "pt":
+            return {"input_ids": torch.tensor([ids]), "attention_mask": torch.ones(1, len(ids), dtype=torch.long)}
+        if kwargs.get("return_tensors") == "np":
+            return {"input_ids": np.array([ids]), "attention_mask": np.ones((1, len(ids)), dtype=np.int64)}
+        return {"input_ids": [ids]}
+
+    return mock_apply_chat_template
+
+
+def make_modality_kwargs(**text_kwargs):
+    """Modality kwargs for _process_chat_messages with only the text bucket populated."""
+    return {"text": text_kwargs, "audio": {}, "image": {}, "video": {}}
+
+
 class TestProcessChatMessages:
     def test_unsupported_message_modality(self, bert_tiny_transformer):
         """Should raise ValueError when 'message' modality is not in modality_config."""
@@ -708,38 +734,19 @@ class TestProcessChatMessages:
 
     def test_chat_truncation_restores_chat_template_suffix(self, bert_tiny_transformer, monkeypatch):
         model = bert_tiny_transformer
-        # Suffix preservation is task-independent: use the default feature-extraction task to confirm it
-        # benefits embedders (e.g. last-token pooling), not just causal-LM rerankers.
-        model.transformer_task = "feature-extraction"
+        # Suffix preservation is task-independent: the default feature-extraction task confirms it benefits
+        # embedders (e.g. last-token pooling), not just causal-LM rerankers.
         model.modality_config["message"] = {"method": "forward", "method_output_name": "logits"}
 
         # A chat template appends a fixed scoring suffix (e.g. the assistant prefill) that right-truncation
         # cuts off first. The mock mimics this: one token per content character, then ``suffix``.
         suffix = [101, 102, 103]
-
-        def mock_apply_chat_template(messages, **kwargs):
-            text = "".join(str(message["content"]) for message in messages[0])
-            ids = [ord(char) for char in text] + suffix
-            if kwargs.get("truncation") and kwargs.get("max_length"):
-                ids = ids[: kwargs["max_length"]]
-            if kwargs.get("return_tensors") == "pt":
-                return {
-                    "input_ids": torch.tensor([ids]),
-                    "attention_mask": torch.ones(1, len(ids), dtype=torch.long),
-                }
-            return {"input_ids": [ids]}
-
-        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        monkeypatch.setattr(model.processor, "apply_chat_template", make_char_chat_template_mock(suffix))
 
         def run(content, max_length, truncation=True):
             return model._process_chat_messages(
                 messages=[[{"role": "user", "content": content}]],
-                modality_kwargs={
-                    "text": {"padding": True, "truncation": truncation, "max_length": max_length},
-                    "audio": {},
-                    "image": {},
-                    "video": {},
-                },
+                modality_kwargs=make_modality_kwargs(padding=True, truncation=truncation, max_length=max_length),
                 common_kwargs={"return_tensors": "pt"},
             )
 
@@ -764,7 +771,7 @@ class TestProcessChatMessages:
         # processor returns ragged unpadded lists. The list branch restores the suffix the same way.
         list_ids = model._process_chat_messages(
             messages=[[{"role": "user", "content": long_content}]],
-            modality_kwargs={"text": {"truncation": True, "max_length": 8}, "audio": {}, "image": {}, "video": {}},
+            modality_kwargs=make_modality_kwargs(truncation=True, max_length=8),
             common_kwargs={},
         )["input_ids"][0]
         assert len(list_ids) == 8 and list_ids[-3:] == suffix and list_ids[:5] == [ord(c) for c in long_content[:5]]
@@ -777,28 +784,14 @@ class TestProcessChatMessages:
         model.modality_config["message"] = {"method": "forward", "method_output_name": "logits"}
         suffix = [201, 202, 203]
         forwarded_kwargs = []
-
-        def mock_apply_chat_template(messages, **kwargs):
-            forwarded_kwargs.append(kwargs)
-            text = "".join(str(message["content"]) for message in messages[0])
-            ids = [ord(char) for char in text] + suffix
-            if kwargs.get("truncation") and kwargs.get("max_length"):
-                ids = ids[: kwargs["max_length"]]
-            if kwargs.get("return_tensors") == "pt":
-                return {"input_ids": torch.tensor([ids]), "attention_mask": torch.ones(1, len(ids), dtype=torch.long)}
-            return {"input_ids": [ids]}
-
-        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        monkeypatch.setattr(
+            model.processor, "apply_chat_template", make_char_chat_template_mock(suffix, forwarded_kwargs)
+        )
 
         def run(restore_suffix):
             return model._process_chat_messages(
                 messages=[[{"role": "user", "content": "abcdefghij"}]],
-                modality_kwargs={
-                    "text": {"padding": True, "truncation": True, "max_length": 8},
-                    "audio": {},
-                    "image": {},
-                    "video": {},
-                },
+                modality_kwargs=make_modality_kwargs(padding=True, truncation=True, max_length=8),
                 common_kwargs={"return_tensors": "pt"},
                 chat_template_kwargs={"restore_suffix": restore_suffix},
             )["input_ids"].tolist()[0]
@@ -809,6 +802,50 @@ class TestProcessChatMessages:
         assert run(False) == [ord(char) for char in "abcdefghij"][:8]
         # restore_suffix is a ST-only flag, so it is never leaked into the apply_chat_template call(s).
         assert forwarded_kwargs and all("restore_suffix" not in kwargs for kwargs in forwarded_kwargs)
+
+    def test_chat_truncation_restore_leaves_non_torch_tensors_untouched(self, bert_tiny_transformer, monkeypatch):
+        # The restore only supports torch tensors and token lists. Other containers (e.g. numpy arrays from
+        # ``return_tensors="np"``) must be returned untouched, not crash on ndarray truthiness.
+        model = bert_tiny_transformer
+        model.modality_config["message"] = {"method": "forward", "method_output_name": "logits"}
+
+        monkeypatch.setattr(model.processor, "apply_chat_template", make_char_chat_template_mock([101, 102, 103]))
+        features = model._process_chat_messages(
+            messages=[[{"role": "user", "content": "abcdefghijklm"}]],
+            modality_kwargs=make_modality_kwargs(padding=True, truncation=True, max_length=8),
+            common_kwargs={"return_tensors": "np"},
+        )
+        # The truncated numpy row keeps its raw tail (content tokens, no suffix): numpy is not restored.
+        assert features["input_ids"].tolist() == [[ord(char) for char in "abcdefghijklm"][:8]]
+
+    def test_chat_truncation_restore_reads_chat_template_bucket_kwargs(self, bert_tiny_transformer, monkeypatch):
+        # truncation/max_length can also ride in the chat_template bucket (apply_chat_template accepts them
+        # top level). The restore gate must see them there, and the skeleton renders must not inherit them.
+        model = bert_tiny_transformer
+        model.modality_config["message"] = {"method": "forward", "method_output_name": "logits"}
+        suffix = [101, 102, 103]
+        monkeypatch.setattr(model.processor, "apply_chat_template", make_char_chat_template_mock(suffix))
+        ids = model._process_chat_messages(
+            messages=[[{"role": "user", "content": "abcdefghijklm"}]],
+            modality_kwargs=make_modality_kwargs(padding=True),
+            common_kwargs={"return_tensors": "pt"},
+            chat_template_kwargs={"truncation": True, "max_length": 8},
+        )["input_ids"].tolist()[0]
+        assert len(ids) == 8 and ids[-3:] == suffix
+
+    def test_chat_truncation_restore_handles_implicit_truncation(self, bert_tiny_transformer, monkeypatch):
+        # Tokenizers truncate when max_length is set even if truncation was merely left unset (None), so the
+        # restore gate must treat that as truncation-on.
+        model = bert_tiny_transformer
+        model.modality_config["message"] = {"method": "forward", "method_output_name": "logits"}
+        suffix = [101, 102, 103]
+        monkeypatch.setattr(model.processor, "apply_chat_template", make_char_chat_template_mock(suffix))
+        ids = model._process_chat_messages(
+            messages=[[{"role": "user", "content": "abcdefghijklm"}]],
+            modality_kwargs=make_modality_kwargs(padding=False, truncation=None, max_length=8),
+            common_kwargs={"return_tensors": "pt"},
+        )["input_ids"].tolist()[0]
+        assert len(ids) == 8 and ids[-3:] == suffix
 
     def test_restore_chat_template_suffix_handles_both_padding_sides(self, bert_tiny_transformer, monkeypatch):
         # The restore must locate the real tail via the attention mask (not a fixed [-keep:] slice), so it is
@@ -860,8 +897,7 @@ class TestProcessChatMessages:
         assert features["input_ids"].tolist() == [[0, 0, 0, 10, 11, 101, 102, 103]]
 
     def test_restore_skipped_when_nothing_reached_max_length(self, bert_tiny_transformer, monkeypatch):
-        # If the longest row is shorter than max_length, nothing was truncated, so the restore returns
-        # immediately without deriving any suffix.
+        # Rows shorter than max_length were not truncated, so they are skipped without deriving any suffix.
         model = bert_tiny_transformer
         derived = []
         monkeypatch.setattr(model, "_chat_template_suffix_ids", lambda *a, **k: derived.append(True) or [1, 2, 3])
@@ -870,35 +906,72 @@ class TestProcessChatMessages:
             "input_ids": torch.tensor([[10, 11, 12, 0, 0, 0]]),
             "attention_mask": torch.tensor([[1, 1, 1, 0, 0, 0]]),  # real length 3
         }
-        # longest real length (3) < max_length (8): nothing truncated -> skipped, no derivation, untouched.
+        # real length (3) < max_length (8): not truncated -> skipped, no derivation, untouched.
         model._restore_chat_template_suffix(features, messages, {}, {}, max_length=8)
         assert derived == [] and features["input_ids"].tolist() == [[10, 11, 12, 0, 0, 0]]
-        # longest (3) == max_length (3): a row reached the limit, so derivation runs.
-        model._restore_chat_template_suffix(features, messages, {}, {}, max_length=3)
-        assert derived == [True]
+
+    def test_restore_only_touches_rows_that_reached_max_length(self, bert_tiny_transformer, monkeypatch):
+        # The truncation check is per row: in a batch where one row was truncated (real length equals
+        # max_length), shorter rows kept their tail and must be skipped entirely (no derivation, no write).
+        model = bert_tiny_transformer
+        derived = []
+        monkeypatch.setattr(
+            model, "_chat_template_suffix_ids", lambda *a, **k: derived.append(True) or [101, 102, 103]
+        )
+        messages = [[{"role": "user", "content": "a"}], [{"role": "user", "content": "b"}]]
+        features = {
+            "input_ids": torch.tensor([[10, 11, 12, 13, 14, 15], [20, 21, 22, 0, 0, 0]]),
+            "attention_mask": torch.tensor([[1, 1, 1, 1, 1, 1], [1, 1, 1, 0, 0, 0]]),
+        }
+        model._restore_chat_template_suffix(features, messages, {}, {}, max_length=6)
+        # Row 0 (length 6 == max_length) is restored, row 1 (length 3) is left untouched and underived.
+        assert features["input_ids"].tolist() == [[10, 11, 12, 101, 102, 103], [20, 21, 22, 0, 0, 0]]
+        assert len(derived) == 1
+
+    def test_restore_skips_tensor_batches_without_attention_mask(self, bert_tiny_transformer, monkeypatch):
+        # Without a mask, real tokens can't be told apart from padding, so the restore must leave the batch
+        # untouched rather than stamp the suffix over what may be padding.
+        model = bert_tiny_transformer
+        derived = []
+        monkeypatch.setattr(model, "_chat_template_suffix_ids", lambda *a, **k: derived.append(True) or [101, 102])
+        features = {"input_ids": torch.tensor([[10, 11, 12, 13]])}
+        model._restore_chat_template_suffix(features, [[{"role": "user", "content": "x"}]], {}, {})
+        assert derived == [] and features["input_ids"].tolist() == [[10, 11, 12, 13]]
+
+    def test_restore_handles_float_attention_mask(self, bert_tiny_transformer, monkeypatch):
+        # Some processors emit float masks: the real lengths must still be ints for the tensor slicing.
+        model = bert_tiny_transformer
+        monkeypatch.setattr(model, "_chat_template_suffix_ids", lambda *a, **k: [101, 102, 103])
+        features = {
+            "input_ids": torch.tensor([[10, 11, 12, 13, 14, 15]]),
+            "attention_mask": torch.ones(1, 6),  # float32
+        }
+        model._restore_chat_template_suffix(features, [[{"role": "user", "content": "a"}]], {}, {})
+        assert features["input_ids"].tolist() == [[10, 11, 12, 101, 102, 103]]
 
     def test_chat_template_suffix_ids_tolerates_unhashable_kwargs(self, bert_tiny_transformer, monkeypatch):
         # chat_template_kwargs may carry unhashable values (e.g. a ``tools`` list). repr() in the cache key
         # keeps the lookup from raising TypeError, so derivation still runs (and caches).
         model = bert_tiny_transformer
-
-        def mock_apply_chat_template(messages, **kwargs):
-            body = "".join(str(m["content"]) for m in messages[0])
-            return {"input_ids": [[ord(c) for c in body] + [99]]}  # 99 = fixed content-independent tail
-
-        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        monkeypatch.setattr(model.processor, "apply_chat_template", make_char_chat_template_mock([99]))
         suffix = model._chat_template_suffix_ids([{"role": "user", "content": "x"}], {"tools": [{"name": "f"}]}, {})
         assert suffix == [99]  # no crash from the unhashable kwarg; the fixed marker is the derived suffix
+
+    def test_chat_template_suffix_ids_skips_uninspectable_messages(self, bert_tiny_transformer, monkeypatch):
+        # Some templates accept shapes the text-only check can't inspect (a non-dict message, or a content
+        # list of plain strings). The restore must skip them (no suffix), not raise AttributeError.
+        model = bert_tiny_transformer
+        monkeypatch.setattr(
+            model.processor, "apply_chat_template", lambda messages, **kwargs: {"input_ids": [[1, 2, 3]]}
+        )
+        assert model._chat_template_suffix_ids([{"role": "user", "content": "x"}, "not a message"], {}, {}) == []
+        assert model._chat_template_suffix_ids([{"role": "user", "content": ["chunk a", "chunk b"]}], {}, {}) == []
 
     def test_chat_template_suffix_ids_returns_empty_without_variable_content(self, bert_tiny_transformer, monkeypatch):
         # With only kept (system) content there's nothing to vary, so the two renders are identical and there
         # is no reliable suffix boundary -> return [] rather than treating the whole render as the suffix.
         model = bert_tiny_transformer
-
-        def mock_apply_chat_template(messages, **kwargs):
-            return {"input_ids": [[ord(c) for c in "".join(str(m["content"]) for m in messages[0])]]}
-
-        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        monkeypatch.setattr(model.processor, "apply_chat_template", make_char_chat_template_mock([]))
         assert model._chat_template_suffix_ids([{"role": "system", "content": "only a prompt"}], {}, {}) == []
 
     def test_chat_template_suffix_cache_is_bounded(self, bert_tiny_transformer, monkeypatch):
@@ -932,7 +1005,40 @@ class TestProcessChatMessages:
         assert model._chat_template_suffix_ids(
             [{"role": "system", "content": "RS"}, {"role": "user", "content": "x"}], {}, {}
         ) == [82, 83, 99]
-        assert len(model._chat_template_suffix_cache) == 2
+
+    def test_chat_template_suffix_ids_keys_on_non_content_fields(self, bert_tiny_transformer, monkeypatch):
+        # The skeleton keeps non-content message fields (e.g. ``name``, ``tool_calls``) verbatim and a
+        # template may render them, so they are part of the cache key: the same role layout with different
+        # fields must not share a cached suffix.
+        model = bert_tiny_transformer
+
+        def mock_apply_chat_template(messages, **kwargs):
+            # Render the (fillered) content, then the kept ``name`` field, then a fixed marker (99).
+            body = "".join(str(m["content"]) for m in messages[0])
+            name = "".join(str(m.get("name", "")) for m in messages[0])
+            return {"input_ids": [[ord(c) for c in body] + [ord(c) for c in name] + [99]]}
+
+        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        conv_a = [{"role": "user", "content": "x", "name": "AB"}]
+        conv_b = [{"role": "user", "content": "x", "name": "CD"}]
+        assert model._chat_template_suffix_ids(conv_a, {}, {}) == [65, 66, 99]  # "AB" + marker
+        assert model._chat_template_suffix_ids(conv_b, {}, {}) == [67, 68, 99]  # "CD", not A's cached suffix
+
+    def test_chat_template_suffix_ids_mirrors_common_kwargs(self, bert_tiny_transformer, monkeypatch):
+        # Common kwargs can change tokenization (a ProcessorMixin spreads them into the text kwargs), so the
+        # skeleton renders must receive them and the cache must key on them.
+        model = bert_tiny_transformer
+
+        def mock_apply_chat_template(messages, **kwargs):
+            # Emit a different fixed tail depending on a tokenization-affecting common kwarg.
+            marker = 98 if kwargs.get("common_kwargs", {}).get("add_special_tokens") is False else 99
+            body = "".join(str(m["content"]) for m in messages[0])
+            return {"input_ids": [[ord(c) for c in body] + [marker]]}
+
+        monkeypatch.setattr(model.processor, "apply_chat_template", mock_apply_chat_template)
+        conversation = [{"role": "user", "content": "x"}]
+        assert model._chat_template_suffix_ids(conversation, {}, {}, {"add_special_tokens": False}) == [98]
+        assert model._chat_template_suffix_ids(conversation, {}, {}, {}) == [99]
 
     def test_restore_chat_template_suffix_is_per_row_and_skips_multimodal(self, bert_tiny_transformer, monkeypatch):
         # A heterogeneous batch: the text-only row is restored per-row, while the multimodal row is left
@@ -958,24 +1064,19 @@ class TestProcessChatMessages:
         assert features["input_ids"][0].tolist() == [10, 11, 12, 101, 102, 103]  # text row restored
         assert features["input_ids"][1].tolist() == [20, 21, 22, 23, 24, 25]  # multimodal row untouched
 
-    def test_chat_truncation_restores_suffix_with_real_chat_template(self, monkeypatch):
+    def test_chat_truncation_restores_suffix_with_real_chat_template(self):
         # Integration check against a real chat-template model (the other suffix tests mock the tokenizer), so
         # it exercises the real apply_chat_template dispatch and two-filler derivation. The Llama-2 template
         # ends the user turn with `[/INST]`, which truncation drops and the restore must put back.
         model = Transformer(TINY_LLAMA, transformer_task="feature-extraction")
         tokenizer = model.tokenizer
 
-        def process(max_length):
+        def process(max_length, restore_suffix=True):
             return model._process_chat_messages(
                 messages=[[{"role": "user", "content": "word " * 50}]],
-                modality_kwargs={
-                    "text": {"padding": True, "truncation": "longest_first", "max_length": max_length},
-                    "audio": {},
-                    "image": {},
-                    "video": {},
-                },
+                modality_kwargs=make_modality_kwargs(padding=True, truncation="longest_first", max_length=max_length),
                 common_kwargs={"return_tensors": "pt"},
-                chat_template_kwargs={"add_generation_prompt": True},
+                chat_template_kwargs={"add_generation_prompt": True, "restore_suffix": restore_suffix},
             )["input_ids"][0].tolist()
 
         # The conversation overflows max_length=16, so `[/INST]` is truncated off and then restored.
@@ -986,8 +1087,7 @@ class TestProcessChatMessages:
         assert "word" in decoded  # real content is kept at the head, not overwritten wholesale
 
         # With the restore disabled the same input ends on a content token: the bug this feature fixes.
-        monkeypatch.setattr(model, "_restore_chat_template_suffix", lambda *args, **kwargs: None)
-        assert not tokenizer.decode(process(16)).rstrip().endswith("[/INST]")
+        assert not tokenizer.decode(process(16, restore_suffix=False)).rstrip().endswith("[/INST]")
 
 
 class TestModelLoading:
