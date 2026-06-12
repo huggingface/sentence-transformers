@@ -44,7 +44,8 @@ def simulate_rank1_world2(monkeypatch):
 
     monkeypatch.setattr(cge, "all_gather_with_grad", fake_gather)
     monkeypatch.setattr(cge, "is_dist_initialized", lambda: True)
-    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 1)
+    # get_rank may be absent on CPU-only/ROCm builds (torch.distributed.is_available() is False).
+    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 1, raising=False)
     return per
 
 
@@ -89,34 +90,34 @@ def test_gather_rank1_margin_zero_baseline(simulate_rank1_world2):
 
 @pytest.mark.parametrize("mini_batch_size", [32, 2])
 def test_positive_mask_protects_ce_target_column(simulate_rank1_world2, mini_batch_size):
-    """Structural invariant: across every minibatch chunk, the column protected by
-    ``positive_mask`` for local row r equals the CE target column
-    ``range_labels[begin + r] = offset + begin + r``.
+    """Drive the real loss and assert it protects exactly the CE-target column in every minibatch.
 
-    We reconstruct the mask exactly as the loss does, for each ``begin`` chunk, and compare
-    against the targets. ``mini_batch_size=2`` exercises a ``begin > 0`` chunk.
+    We capture each minibatch's (masked) score matrix and labels as passed to cross-entropy and
+    check that every anchor's CE-target logit survived suppression (is finite). With the old
+    offset-unaware ``roll(begin)`` mask, on rank 1 that column is set to -inf, so this fails on the
+    pre-fix code. ``mini_batch_size=2`` exercises a ``begin > 0`` chunk.
     """
     per = simulate_rank1_world2
-    dim = 16
-    reps, reps_guided = _local_reps(per, dim=dim)
+    reps, reps_guided = _local_reps(per)
     loss_fn = _make_loss(margin=0.1, mini_batch_size=mini_batch_size)
 
-    anchors = torch.cat(reps[0])
-    candidates = [cge.all_gather_with_grad(torch.cat(r)) for r in reps[1:]]
-    batch_size = anchors.size(0)
-    offset = torch.distributed.get_rank() * batch_size  # = per (rank 1)
+    captured = []
+    real_ce = loss_fn.cross_entropy_loss
 
-    range_labels = torch.arange(offset, offset + batch_size)
+    def capturing_ce(scores, labels):
+        captured.append((scores, labels))
+        return real_ce(scores, labels)
 
-    for begin in range(0, batch_size, mini_batch_size):
-        end = begin + mini_batch_size
-        guided_ap_sim = loss_fn.sim_matrix(anchors[begin:end], candidates[0])
-        positive_mask = torch.zeros_like(guided_ap_sim, dtype=torch.bool)
-        rows = torch.arange(guided_ap_sim.size(0))
-        positive_mask[rows, offset + begin + rows] = True
+    # cross_entropy_loss is registered as an nn.Module child, so drop it before assigning a plain callable.
+    del loss_fn.cross_entropy_loss
+    loss_fn.cross_entropy_loss = capturing_ce
 
-        protected_cols = positive_mask.float().argmax(dim=1)
-        assert torch.equal(protected_cols, range_labels[begin : begin + rows.size(0)]), (
-            f"begin={begin}: protected columns {protected_cols.tolist()} must equal CE targets "
-            f"{range_labels[begin : begin + rows.size(0)].tolist()}"
+    loss = loss_fn.calculate_loss(reps, reps_guided)
+
+    assert captured, "cross-entropy was never called"
+    for scores, labels in captured:
+        target_logits = scores[torch.arange(scores.size(0)), labels]
+        assert torch.isfinite(target_logits).all(), (
+            f"each anchor's CE-target logit must survive masking, got {target_logits.tolist()}"
         )
+    assert torch.isfinite(loss)
