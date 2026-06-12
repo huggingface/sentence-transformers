@@ -669,7 +669,7 @@ def make_char_chat_template_mock(suffix, captured_kwargs=None):
         text = "".join(str(message["content"]) for message in messages[0])
         ids = [ord(char) for char in text] + suffix
         # Like real tokenizers, max_length truncates unless truncation is explicitly disabled.
-        if kwargs.get("max_length") and kwargs.get("truncation") is not False:
+        if kwargs.get("max_length") and kwargs.get("truncation") not in (False, "do_not_truncate"):
             ids = ids[: kwargs["max_length"]]
         if kwargs.get("return_tensors") == "pt":
             return {"input_ids": torch.tensor([ids]), "attention_mask": torch.ones(1, len(ids), dtype=torch.long)}
@@ -762,10 +762,11 @@ class TestProcessChatMessages:
         assert run("ab", max_length=8)["input_ids"].tolist()[0] == [ord("a"), ord("b")] + suffix
 
         # Escape hatch: with truncation disabled the full sequence (suffix intact) is returned as-is.
-        assert (
-            run(long_content, max_length=8, truncation=False)["input_ids"].tolist()[0]
-            == [ord(char) for char in long_content] + suffix
-        )
+        for truncation in (False, "do_not_truncate"):
+            assert (
+                run(long_content, max_length=8, truncation=truncation)["input_ids"].tolist()[0]
+                == [ord(char) for char in long_content] + suffix
+            )
 
         # Flattening path (feature-extraction + can_flatten_inputs): return_tensors is dropped, so the
         # processor returns ragged unpadded lists. The list branch restores the suffix the same way.

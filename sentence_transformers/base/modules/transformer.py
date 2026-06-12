@@ -117,9 +117,8 @@ _TRANSFORMERS_APPLY_CHAT_TEMPLATE_RECOMMENDS_PROCESSOR_KWARGS = parse_version(tr
 _TRANSFORMERS_SUPPORTS_USE_BIDIRECTIONAL_ATTENTION = parse_version(transformers_version) >= parse_version("4.56.2")
 _TRANSFORMERS_SUPPORTS_IS_CAUSAL_FALSE = parse_version(transformers_version) >= parse_version("5.2.0")
 
-# apply_chat_template wants these as top-level kwargs, not nested in tokenizer_kwargs/common_kwargs.
+# The size/output kwargs of apply_chat_template, which a bare tokenizer wants as top-level kwargs.
 _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS = frozenset({"padding", "truncation", "max_length", "return_tensors"})
-# Size bound for the per-structure chat-template suffix cache, since its key includes the prompt.
 _CHAT_TEMPLATE_SUFFIX_CACHE_SIZE = 256
 
 TransformerTask = Literal[
@@ -1405,8 +1404,8 @@ class Transformer(InputModule):
                 **chat_template_kwargs,
             )
 
-        # apply_chat_template expects padding/truncation/max_length/return_tensors as top-level kwargs, not
-        # nested inside tokenizer_kwargs or common_kwargs, so we hoist them out of copies.
+        # A bare tokenizer's apply_chat_template wants padding/truncation/max_length/return_tensors as
+        # top-level kwargs, not nested in tokenizer_kwargs or common_kwargs, so we hoist them out of copies.
         text_kwargs = dict(modality_kwargs["text"])
         common_kwargs = dict(common_kwargs)
         top_level_kwargs = {
