@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 import os
 from collections import defaultdict
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 from urllib.parse import urlparse
 
 import numpy as np
 import torch
 
 from sentence_transformers.base.modality_types import (
+    MULTIMODAL_DICT_KEYS,
     AudioInput,
     MessageFormat,
     Modality,
@@ -273,6 +274,10 @@ class InputFormatter:
 
             modality = infer_modality(item, supported_modalities=self.supported_modalities)  # type: ignore[arg-type]  # non-text pairs filtered above
 
+            # Unwrap single-key multimodal dict: {"image": pil} -> use pil as the value
+            if isinstance(item, dict) and modality in MULTIMODAL_DICT_KEYS and item.keys() == {modality}:
+                item = item[modality]
+
             # For dict-wrapped audio/video (including inside a multimodal dict), unwrap the array
             # and collect extra kwargs. For a single message dict, wrap it in a list.
             # All other values pass through as-is.
@@ -362,6 +367,9 @@ class InputFormatter:
             # matching the behavior of to_message() for multi-modal inputs.
             if isinstance(modality, tuple) and isinstance(item, dict):
                 return [{"type": mod, mod: item[mod]} for mod in modality if mod in item]
+            # Unwrap single-key multimodal dict: {"image": pil} -> use pil as the value
+            if isinstance(item, dict) and modality in MULTIMODAL_DICT_KEYS and item.keys() == {modality}:
+                item = item[modality]
             return [{"type": modality, modality: item}]
 
         return [
@@ -551,7 +559,8 @@ def infer_modality(
             This prevents misclassification of text that happens to contain media URLs.
 
     Returns:
-        The detected modality string, or a tuple of modality strings for multimodal dict inputs.
+        The detected modality string, or a tuple of modality strings for multimodal dict inputs
+        with 2+ keys. A 1-key dict like ``{"image": pil}`` collapses to the bare modality string.
 
     Raises:
         ValueError: If the input type/structure is not recognized.
@@ -596,14 +605,17 @@ def infer_modality(
                 f"Got keys: {set(sample.keys())}"
             )
         case dict() if sample:
-            # Multimodal dict: keys are modality names (sorted for consistent route lookups)
-            valid_modalities = {"text", "image", "audio", "video"}
-            invalid_keys = set(sample.keys()) - valid_modalities
+            # Single-key dicts collapse to the bare modality string so {"image": pil} matches
+            # the same support/routing as a raw PIL input.
+            invalid_keys = set(sample.keys()) - MULTIMODAL_DICT_KEYS
             if invalid_keys:
                 raise ValueError(
                     f"Multimodal dict input contains unrecognized modality keys: {invalid_keys}. "
-                    f"Expected keys from: {valid_modalities}"
+                    f"Expected keys from: {sorted(MULTIMODAL_DICT_KEYS)}"
                 )
+            if len(sample) == 1:
+                return next(iter(sample))
+            # Multimodal dict: keys are modality names (sorted for consistent route lookups)
             return tuple(sorted(sample.keys()))
         case dict():
             raise ValueError("Empty dict input is not a valid input sample.")
@@ -655,3 +667,82 @@ def format_modality(modality: Modality) -> str:
     if isinstance(modality, tuple):
         return "+".join(modality)
     return modality
+
+
+def raise_unsupported_modality_error(
+    inputs: list[SingleInput | PairInput],
+    modality: Modality,
+    supported_modalities: list[Modality],
+    source: str,
+) -> NoReturn:
+    """Raise a clear ``ValueError`` explaining why ``modality`` is not supported.
+
+    Shared by :meth:`BaseModel.preprocess` and :meth:`Transformer.preprocess` so both raise the
+    same, accurate guidance. ``source`` is a human-readable description of what rejected the input,
+    e.g. ``"SentenceTransformer model"`` or ``"Transformer module"``.
+
+    Args:
+        inputs: The original batch of inputs, re-inspected per sample to distinguish explicit
+            chat-style ``"message"`` inputs from inferred mixed-modality batches (both collapse to
+            the ``"message"`` modality at the batch level).
+        modality: The inferred (and unsupported) batch modality.
+        supported_modalities: The modalities the source actually supports.
+        source: Human-readable name of the rejecting component, used verbatim in the message.
+
+    Raises:
+        ValueError: Always, with a message tailored to the specific unsupported-modality scenario.
+    """
+    supported_str = ", ".join(format_modality(m) for m in supported_modalities)
+
+    if modality == "message":
+        # "message" is returned both for explicit chat-style inputs and for inferred mixed-modality
+        # batches. Re-inspect each sample to tell them apart. If a sample cannot be classified on its
+        # own (e.g. a non-text pair), fall back to the generic message below.
+        try:
+            sample_modalities: set[Modality] = {
+                infer_modality(sample, supported_modalities=supported_modalities) for sample in inputs
+            }
+        except (ValueError, TypeError):
+            sample_modalities = set()
+
+        if sample_modalities == {"message"}:
+            raise ValueError(
+                f"This {source} does not support chat-style 'message' inputs (dicts or lists of dicts with "
+                f"'role' and 'content'). Supported modalities: {supported_str}."
+            )
+        if "message" in sample_modalities:
+            # Chat-style inputs are mixed with other inputs. Since this source does not support the
+            # message format, the chat-style inputs are the blocking issue; report that rather than
+            # listing "message" as if it were a content modality alongside text/image/audio.
+            raise ValueError(
+                f"This {source} does not support chat-style 'message' inputs (dicts or lists of dicts with 'role' and "
+                f"'content'), which this batch mixes with other modalities. Supported modalities: {supported_str}."
+            )
+        if sample_modalities:
+            present_str = ", ".join(format_modality(m) for m in sorted(sample_modalities, key=format_modality))
+            # Decompose into base parts: a part the source cannot handle at all is a genuine error.
+            # If every part is supported, the modalities just cannot be combined (handled below).
+            base_modalities = {part for m in sample_modalities for part in (m if isinstance(m, tuple) else (m,))}
+            unsupported = sorted(part for part in base_modalities if part not in supported_modalities)
+            if unsupported:
+                raise ValueError(
+                    f"This batch mixes multiple modalities ({present_str}), but this {source} does "
+                    f"not support {', '.join(unsupported)}. Supported modalities: {supported_str}."
+                )
+            raise ValueError(
+                f"This batch mixes multiple modalities ({present_str}), which this {source} cannot "
+                f"encode in a single batch. Encode each modality separately (one call per modality)."
+            )
+
+    # A single combined input (e.g. a {"text": ..., "image": ...} dict) with parts the source
+    # supports individually but cannot fuse without "message" support: encode each separately.
+    if isinstance(modality, tuple) and all(part in supported_modalities for part in modality):
+        raise ValueError(
+            f"This {source} supports {' and '.join(modality)} individually, but cannot "
+            f"combine them in a single input. Encode each modality separately (one call per modality)."
+        )
+
+    raise ValueError(
+        f"Modality '{format_modality(modality)}' is not supported by this {source}. "
+        f"Supported modalities: {supported_str}."
+    )

@@ -35,6 +35,24 @@ def bert_tiny_transformer(stsb_bert_tiny_model) -> Transformer:
     return stsb_bert_tiny_model[0]
 
 
+def test_preprocess_unsupported_modality_uses_shared_error(bert_tiny_transformer):
+    """A text-only Transformer module rejects unsupported modalities with the same module-scoped
+    guidance that BaseModel.preprocess produces (both via ``raise_unsupported_modality_error``)."""
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+    with pytest.raises(
+        ValueError,
+        match=r"Modality 'image' is not supported by this Transformer module\. Supported modalities: text",
+    ):
+        bert_tiny_transformer.preprocess([image])
+
+    with pytest.raises(
+        ValueError,
+        match=r"mixes multiple modalities \(image, text\), but this Transformer module does not support image",
+    ):
+        bert_tiny_transformer.preprocess(["a sentence", image])
+
+
 class TestSetTemporaryClassAttrs:
     def test_sets_and_restores(self):
         class Dummy:

@@ -9,7 +9,7 @@ from transformers import PreTrainedTokenizerBase
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import all_gather_with_grad
+from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
 
 
 class GISTEmbedLoss(nn.Module):
@@ -182,7 +182,7 @@ class GISTEmbedLoss(nn.Module):
                 negative_guide = all_gather_with_grad(negative_guide)
             # All have this shape: (batch_size * world_size * (1 + num_negatives), embedding_dim)
 
-            if torch.distributed.is_initialized():
+            if is_dist_initialized():
                 rank = torch.distributed.get_rank()
                 offset = rank * batch_size
 
@@ -208,8 +208,11 @@ class GISTEmbedLoss(nn.Module):
             sim_mat[mask] = -torch.inf
             return sim_mat
 
-        # Create a mask to protect true positive pairs in the anchor-positive matrix (i.e., diagonal elements)
-        positive_mask = torch.eye(*guided_ap_sim.shape, dtype=torch.bool, device=guided_ap_sim.device)
+        # Protect each anchor's true positive from false-negative suppression using the same
+        # gathered column index as the CE target.
+        positive_mask = torch.zeros_like(guided_ap_sim, dtype=torch.bool)
+        rows = torch.arange(guided_ap_sim.size(0), device=guided_ap_sim.device)
+        positive_mask[rows, offset + rows] = True
 
         # Apply false negative suppression to each similarity matrix using guided similarity as anchor
         ap_sim = mask_false_negatives(guided_ap_sim, ap_sim, positive_mask=positive_mask)  # anchor-positive

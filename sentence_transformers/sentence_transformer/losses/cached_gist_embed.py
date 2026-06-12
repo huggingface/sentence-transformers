@@ -17,7 +17,7 @@ from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import all_gather_with_grad
+from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
 
 
 class RandContext:
@@ -30,15 +30,33 @@ class RandContext:
 
     def __init__(self, *tensors) -> None:
         self.fwd_cpu_state = torch.get_rng_state()
-        self.fwd_gpu_devices, self.fwd_gpu_states = get_device_states(*tensors)
+        # torch.utils.checkpoint.get_device_states() fails when it sees MPS tensors (it
+        # calls the non-existent torch.mps.device()), so capture the MPS RNG state for
+        # top-level MPS tensor arguments and filter them out before calling it. The MPS
+        # state is restored in __enter__ so the cached second forward replays the same
+        # randomness (e.g. dropout).
+        self.fwd_mps_state = (
+            torch.mps.get_rng_state()
+            if any(isinstance(t, torch.Tensor) and t.device.type == "mps" for t in tensors)
+            else None
+        )
+        non_mps_tensors = tuple(t for t in tensors if not (isinstance(t, torch.Tensor) and t.device.type == "mps"))
+        self.fwd_gpu_devices, self.fwd_gpu_states = get_device_states(*non_mps_tensors)
 
     def __enter__(self) -> None:
         self._fork = torch.random.fork_rng(devices=self.fwd_gpu_devices, enabled=True)
         self._fork.__enter__()
         torch.set_rng_state(self.fwd_cpu_state)
+        if self.fwd_mps_state is not None:
+            # This fork_rng call uses the default device_type="cuda", so save the outer
+            # MPS state here and restore it in __exit__ (mirroring fork_rng for CPU/CUDA).
+            self._mps_state_outside = torch.mps.get_rng_state()
+            torch.mps.set_rng_state(self.fwd_mps_state)
         set_device_states(self.fwd_gpu_devices, self.fwd_gpu_states)
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        if self.fwd_mps_state is not None:
+            torch.mps.set_rng_state(self._mps_state_outside)
         self._fork.__exit__(exc_type, exc_val, exc_tb)
         self._fork = None
 
@@ -308,7 +326,7 @@ class CachedGISTEmbedLoss(nn.Module):
             candidates_guide = [all_gather_with_grad(candidate) for candidate in candidates_guide]
             # All have this shape: 1 + nneg items of (batch_size * world_size, embedding_dim)
 
-            if torch.distributed.is_initialized():
+            if is_dist_initialized():
                 rank = torch.distributed.get_rank()
                 offset = rank * batch_size
 
@@ -348,9 +366,11 @@ class CachedGISTEmbedLoss(nn.Module):
                 sim_mat[mask] = -torch.inf
                 return sim_mat
 
-            # Create a mask to protect true positive pairs in the anchor-positive matrix (i.e., diagonal elements)
-            positive_mask = torch.eye(*guided_ap_sim.shape, dtype=torch.bool, device=guided_ap_sim.device)
-            positive_mask = positive_mask.roll(begin)
+            # Protect each anchor's true positive from false-negative suppression using the same
+            # gathered column index as the CE target.
+            positive_mask = torch.zeros_like(guided_ap_sim, dtype=torch.bool)
+            rows = torch.arange(guided_ap_sim.size(0), device=guided_ap_sim.device)
+            positive_mask[rows, offset + begin + rows] = True
 
             # Apply false negative suppression to each similarity matrix using guided similarity as anchor
             ap_sim = mask_false_negatives(guided_ap_sim, ap_sim, positive_mask=positive_mask)  # anchor-positive

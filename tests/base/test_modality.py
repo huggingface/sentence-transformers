@@ -213,6 +213,15 @@ class TestInferModality:
         sample_b = {"image": "cat.jpg", "text": "a photo"}
         assert infer_modality(sample_a) == infer_modality(sample_b)
 
+    def test_single_key_multimodal_dict_collapses_to_bare_modality(self):
+        # A 1-key multimodal dict should be equivalent to a raw value of that modality.
+        PIL = pytest.importorskip("PIL.Image")
+        img = PIL.new("RGB", (10, 10))
+        assert infer_modality({"image": img}) == "image"
+        assert infer_modality({"text": "hello"}) == "text"
+        assert infer_modality({"audio": np.zeros(16000)}) == "audio"
+        assert infer_modality({"video": np.zeros((8, 3, 224, 224))}) == "video"
+
     def test_unsupported_type_raises(self):
         with pytest.raises(ValueError, match="Unsupported input type"):
             infer_modality(12345)
@@ -586,16 +595,33 @@ class TestParseInputs:
         """A ``{"audio": array}`` wrapper with a raw array should behave like bare audio inputs."""
         arr = np.zeros(16000)
         modality, inputs, extra = self.fmt.parse_inputs([{"audio": arr}])
-        assert modality == ("audio",)
+        assert modality == "audio"
         assert len(inputs["audio"]) == 1
         assert inputs["audio"][0] is arr
+        assert dict(extra) == {}
+
+    def test_single_key_image_dict_unwraps(self):
+        """A ``{"image": pil}`` wrapper should behave like a bare PIL image input."""
+        PIL = pytest.importorskip("PIL.Image")
+        img = PIL.new("RGB", (10, 10))
+        modality, inputs, extra = self.fmt.parse_inputs([{"image": img}])
+        assert modality == "image"
+        assert len(inputs["image"]) == 1
+        assert inputs["image"][0] is img
+        assert dict(extra) == {}
+
+    def test_single_key_text_dict_unwraps(self):
+        """A ``{"text": "hello"}`` wrapper should behave like a bare text input."""
+        modality, inputs, extra = self.fmt.parse_inputs([{"text": "hello"}])
+        assert modality == "text"
+        assert inputs == {"text": ["hello"]}
         assert dict(extra) == {}
 
     def test_multimodal_dict_unwraps_nested_audio_dict(self):
         """A ``{"audio": {"array": ..., "sampling_rate": ...}}`` wrapper should unwrap the nested dict."""
         arr = np.zeros(16000)
         modality, inputs, extra = self.fmt.parse_inputs([{"audio": {"array": arr, "sampling_rate": 16000}}])
-        assert modality == ("audio",)
+        assert modality == "audio"
         assert len(inputs["audio"]) == 1
         assert inputs["audio"][0] is arr
         assert extra["audio"]["sampling_rate"] == 16000
@@ -604,7 +630,7 @@ class TestParseInputs:
         """A ``{"video": {"array": ..., "video_metadata": ...}}`` wrapper should unwrap the nested dict."""
         arr = np.zeros((8, 3, 224, 224))
         modality, inputs, extra = self.fmt.parse_inputs([{"video": {"array": arr, "video_metadata": {"fps": 30}}}])
-        assert modality == ("video",)
+        assert modality == "video"
         assert len(inputs["video"]) == 1
         assert inputs["video"][0] is arr
         assert extra["video"]["video_metadata"] == [{"fps": 30}]
@@ -639,7 +665,7 @@ class TestParseInputs:
         decoder = AudioDecoder(torch.frombuffer(buf.getvalue(), dtype=torch.uint8))
 
         modality, inputs, extra = self.fmt.parse_inputs([{"audio": decoder}])
-        assert modality == ("audio",)
+        assert modality == "audio"
         assert isinstance(inputs["audio"][0], np.ndarray)
         assert extra["audio"]["sampling_rate"] == sample_rate
 
@@ -670,7 +696,7 @@ class TestParseInputs:
         decoder = VideoDecoder(torch.frombuffer(buf.getvalue(), dtype=torch.uint8))
 
         modality, inputs, extra = self.fmt.parse_inputs([{"video": decoder}])
-        assert modality == ("video",)
+        assert modality == "video"
         assert inputs["video"][0].shape[0] == num_frames
         assert extra["video"]["video_metadata"][0]["total_num_frames"] == num_frames
 
@@ -971,6 +997,16 @@ class TestPairToMessages:
         # Each item should have its modality as the key (not a tuple key)
         for item in doc_content:
             assert isinstance(item["type"], str)
+
+    def test_single_key_dict_in_pair_unwraps(self):
+        """A ``{"image": pil}`` wrapper inside a pair should unwrap to the bare PIL value."""
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        img = Image.new("RGB", (32, 32))
+        result = fmt.pair_to_messages(("a query", {"image": img}))
+        assert len(result) == 2
+        assert result[1]["role"] == "document"
+        # The content should reference the unwrapped image, not the wrapping dict
+        assert result[1]["content"] == [{"type": "image", "image": img}]
 
 
 class TestParseInputsPairs:

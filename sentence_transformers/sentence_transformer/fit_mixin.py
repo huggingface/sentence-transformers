@@ -17,7 +17,7 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 from tqdm.autonotebook import trange
-from transformers import TrainerCallback, TrainerControl, TrainerState
+from transformers import TrainerCallback, TrainerControl, TrainerState, is_torch_npu_available
 
 from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.base.training_args import BatchSamplers, MultiDatasetBatchSamplers
@@ -563,9 +563,13 @@ class FitMixin:
         ).replace("{FIT_PARAMETERS}", info_fit_parameters)
 
         if use_amp:
-            from torch.cuda.amp import autocast
-
-            scaler = torch.cuda.amp.GradScaler()
+            device_type = self.device.type
+            if is_torch_npu_available():
+                scaler = torch.npu.amp.GradScaler()
+            elif device_type == "cuda":
+                scaler = torch.cuda.amp.GradScaler()
+            else:
+                scaler = torch.amp.GradScaler(device_type)
 
         self.to(self.device)
 
@@ -641,7 +645,7 @@ class FitMixin:
                     features = list(map(lambda batch: batch_to_device(batch, self.device), features))
 
                     if use_amp:
-                        with autocast():
+                        with torch.autocast(device_type=self.device.type):
                             loss_value = loss_model(features, labels)
 
                         scale_before_step = scaler.get_scale()

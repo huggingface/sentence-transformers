@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Generator
 
 import pytest
-from datasets import Dataset, load_dataset
+from datasets import Dataset, DatasetDict
 
 from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments
 from sentence_transformers.sparse_encoder import losses
@@ -16,17 +15,6 @@ if not is_training_available():
         reason='Sentence Transformers was not installed with the `["train"]` extra.',
         allow_module_level=True,
     )
-
-
-@pytest.fixture()
-def sts_resource() -> Generator[tuple[Dataset, Dataset], None, None]:
-    sts_dataset = load_dataset("sentence-transformers/stsb")
-    yield sts_dataset["train"], sts_dataset["test"]
-
-
-@pytest.fixture()
-def dummy_sparse_encoder_model() -> SparseEncoder:
-    return SparseEncoder("sparse-encoder-testing/splade-bert-tiny-nq")
 
 
 def evaluate_stsb_test(
@@ -54,11 +42,10 @@ def evaluate_stsb_test(
 
 
 @pytest.mark.slow
-def test_train_stsb_slow(
-    dummy_sparse_encoder_model: SparseEncoder, sts_resource: tuple[Dataset, Dataset], tmp_path
-) -> None:
-    model = dummy_sparse_encoder_model
-    train_dataset, test_dataset = sts_resource
+def test_train_stsb_slow(splade_bert_tiny_model: SparseEncoder, stsb_dataset_dict: DatasetDict, tmp_path) -> None:
+    model = splade_bert_tiny_model
+    train_dataset = stsb_dataset_dict["train"]
+    test_dataset = stsb_dataset_dict["test"]
 
     loss = losses.SpladeLoss(
         model=model,
@@ -90,12 +77,10 @@ def test_train_stsb_slow(
 
 
 @pytest.mark.skipif("CI" in os.environ, reason="This test triggers rate limits too often in the CI")
-def test_train_stsb(
-    dummy_sparse_encoder_model: SparseEncoder, sts_resource: tuple[Dataset, Dataset], tmp_path
-) -> None:
-    model = dummy_sparse_encoder_model
-    train_dataset, test_dataset = sts_resource
-    train_dataset = train_dataset.select(range(100))
+def test_train_stsb(splade_bert_tiny_model: SparseEncoder, stsb_dataset_dict: DatasetDict, tmp_path) -> None:
+    model = splade_bert_tiny_model
+    train_dataset = stsb_dataset_dict["train"].select(range(100))
+    test_dataset = stsb_dataset_dict["test"]
 
     loss = losses.SpladeLoss(
         model=model,

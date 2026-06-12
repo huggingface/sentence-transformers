@@ -94,38 +94,137 @@ class TestSparseEncoderPreprocess(BaseModelPreprocessTest):
         return ["This is a test.", "Another test sentence."]
 
 
-def test_preprocess_rejects_unsupported_modality(
-    stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
+# A 3D array is inferred as the "image" modality, a 1D array as "audio"; values are never read
+# because preprocess() raises before processing, so reusing these constants across cases is safe.
+_IMAGE = np.zeros((8, 8, 3), dtype=np.uint8)
+_AUDIO = np.zeros((16000,), dtype=np.float32)
+
+
+@pytest.mark.parametrize(
+    ("modalities", "inputs", "expected", "forbidden"),
+    [
+        # Genuinely unsupported modality -> "Modality 'X' is not supported".
+        pytest.param(
+            ["text"],
+            [_IMAGE],
+            ["Modality 'image' is not supported", "Supported modalities: text"],
+            ["mixes", "individually", "chat-style"],
+            id="unsupported-image-on-text-only",
+        ),
+        pytest.param(
+            ["text"],
+            [{"text": "a cat", "image": _IMAGE}],
+            ["Modality 'image+text' is not supported", "Supported modalities: text"],
+            ["individually", "mixes", "chat-style"],
+            id="unsupported-combined-dict-on-text-only",
+        ),
+        # Combinable but not combined: every part is supported, the model just cannot fuse them
+        # without 'message' support, so the guidance is to encode each modality separately.
+        pytest.param(
+            ["text", "image"],
+            [{"text": "a cat", "image": _IMAGE}],
+            [
+                "supports image and text individually",
+                "cannot combine them in a single input",
+                "Encode each modality separately",
+            ],
+            ["is not supported", "mixes", "does not support"],
+            id="combinable-single-dict-on-text-image",
+        ),
+        pytest.param(
+            ["text", "image"],
+            ["a sentence", _IMAGE],
+            ["mixes multiple modalities (image, text)", "Encode each modality separately"],
+            ["does not support", "is not supported", "chat-style"],
+            id="combinable-mixed-batch-on-text-image",
+        ),
+        pytest.param(
+            ["text", "image"],
+            ["a sentence", {"text": "a cat", "image": _IMAGE}],
+            ["mixes multiple modalities (image+text, text)", "Encode each modality separately"],
+            ["does not support", "is not supported"],
+            id="combinable-mixed-batch-with-dict-on-text-image",
+        ),
+        # Mixed batch where a base modality is genuinely unsupported -> name the unsupported part(s).
+        pytest.param(
+            ["text"],
+            ["a sentence", _IMAGE],
+            ["mixes multiple modalities (image, text)", "does not support image", "Supported modalities: text"],
+            ["Encode each modality separately", "chat-style"],
+            id="mixed-batch-unsupported-image-on-text-only",
+        ),
+        pytest.param(
+            ["text"],
+            [{"text": "a cat", "image": _IMAGE}, {"text": "a dog"}],
+            ["mixes multiple modalities (image+text, text)", "does not support image"],
+            ["Encode each modality separately"],
+            id="mixed-batch-dict-and-text-on-text-only",
+        ),
+        pytest.param(
+            ["text"],
+            ["a sentence", _AUDIO, _IMAGE],
+            ["mixes multiple modalities (audio, image, text)", "does not support audio, image"],
+            ["Encode each modality separately"],
+            id="mixed-batch-multiple-unsupported-on-text-only",
+        ),
+        # Explicit chat-style message inputs on a model without 'message' support.
+        pytest.param(
+            ["text"],
+            [{"role": "user", "content": "hi"}],
+            ["does not support chat-style 'message' inputs", "Supported modalities: text"],
+            ["mixes", "Modality '"],
+            id="explicit-messages-on-text-only",
+        ),
+        pytest.param(
+            ["text", "image"],
+            [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}],
+            ["does not support chat-style 'message' inputs", "Supported modalities: text, image"],
+            ["mixes", "does not support image"],
+            id="explicit-messages-on-text-image",
+        ),
+        # Chat-style messages mixed with other inputs: the model lacks 'message' support, so the
+        # chat-style inputs are the blocking issue. "message" must not be listed as a content modality.
+        pytest.param(
+            ["text"],
+            [{"role": "user", "content": "hi"}, _IMAGE],
+            ["does not support chat-style 'message' inputs", "mixes with other modalities"],
+            ["multiple modalities", ", message", "does not support image"],
+            id="messages-mixed-with-image-on-text-only",
+        ),
+        pytest.param(
+            ["text"],
+            [{"role": "user", "content": "hi"}, "a plain sentence"],
+            ["does not support chat-style 'message' inputs", "mixes with other modalities"],
+            ["multiple modalities", ", message", "does not support text"],
+            id="messages-mixed-with-text-on-text-only",
+        ),
+    ],
+)
+def test_preprocess_modality_error_messages(
+    stsb_bert_tiny_model: SentenceTransformer,
+    monkeypatch: pytest.MonkeyPatch,
+    modalities: list[str],
+    inputs: list,
+    expected: list[str],
+    forbidden: list[str],
 ) -> None:
-    """preprocess() should raise ValueError when the inferred modality is not supported."""
-    monkeypatch.setattr(
-        "sentence_transformers.base.model.infer_batch_modality",
-        lambda inputs, supported_modalities=None: "image",
-    )
-    with pytest.raises(ValueError, match="Modality 'image' is not supported"):
-        stsb_bert_tiny_model.preprocess(["dummy text"])
+    """preprocess() should raise a clear, accurate ValueError for each unsupported-modality scenario.
 
-
-def test_preprocess_rejects_multimodal_without_message_support(
-    stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """preprocess() should raise ValueError for combined modalities when the model supports
-    individual modalities (e.g. text and image) but not 'message' format.
-
-    This mirrors the behavior of architectures like blip-2, sam3, and flava that handle
-    text and image separately but cannot combine them in a single forward pass.
+    The model's supported modalities are simulated via ``modalities``; inputs use real inference
+    (numpy arrays for image/audio, dicts for combined/chat inputs) so the full path is exercised.
+    ``forbidden`` guards against misleading wording, e.g. claiming a modality is unsupported when
+    every part is actually supported.
     """
-    # Pretend the model supports text and image individually, but not message format
-    monkeypatch.setattr(type(stsb_bert_tiny_model), "modalities", property(lambda self: ["text", "image"]))
-    # Pretend the inferred modality is a combined tuple
-    monkeypatch.setattr(
-        "sentence_transformers.base.model.infer_batch_modality",
-        lambda inputs, supported_modalities=None: ("text", "image"),
-    )
-    with pytest.raises(
-        ValueError, match=r"This model supports text and image individually, but not in the same input"
-    ):
-        stsb_bert_tiny_model.preprocess(["dummy text"])
+    monkeypatch.setattr(type(stsb_bert_tiny_model), "modalities", property(lambda self: modalities))
+
+    with pytest.raises(ValueError) as exc_info:
+        stsb_bert_tiny_model.preprocess(inputs)
+
+    message = str(exc_info.value)
+    for substring in expected:
+        assert substring in message, f"expected {substring!r} in error message, got: {message!r}"
+    for substring in forbidden:
+        assert substring not in message, f"did not expect {substring!r} in error message, got: {message!r}"
 
 
 def test_preprocess_passes_supported_modality(stsb_bert_tiny_model: SentenceTransformer) -> None:

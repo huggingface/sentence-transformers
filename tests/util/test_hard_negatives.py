@@ -856,6 +856,48 @@ def test_faiss(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTrans
     assert "negative" in result.column_names
 
 
+def test_non_faiss_batched_search_matches_single_batch(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that batching the non-FAISS similarity search splits the queries and does not change the mined negatives."""
+    model = static_retrieval_mrl_en_v1_model
+    original_similarity = model.similarity
+    chunk_sizes = []
+
+    def similarity_spy(embeddings1, embeddings2):
+        chunk_sizes.append(len(embeddings1))
+        return original_similarity(embeddings1, embeddings2)
+
+    monkeypatch.setattr(model, "_similarity", similarity_spy)
+
+    # faiss_batch_size=3 splits the 8 queries into uneven batches (3, 3, 2), 100 is a single batch
+    results = []
+    for faiss_batch_size, expected_chunk_sizes in ((3, [3, 3, 2]), (100, [8])):
+        chunk_sizes.clear()
+        results.append(
+            mine_hard_negatives(
+                dataset=dataset,
+                model=model,
+                num_negatives=2,
+                range_max=3,
+                output_format="n-tuple",
+                output_scores=True,
+                faiss_batch_size=faiss_batch_size,
+                verbose=False,
+            )
+        )
+        assert chunk_sizes == expected_chunk_sizes
+    batched, single = results
+
+    assert batched.column_names == single.column_names
+    for column in batched.column_names:
+        if column == "scores":
+            for batched_scores, single_scores in zip(batched[column], single[column]):
+                assert batched_scores == pytest.approx(single_scores)
+        else:
+            assert batched[column] == single[column]
+
+
 def test_cache(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, tmp_path: Path) -> None:
     """Test cache_folder parameter."""
     model = static_retrieval_mrl_en_v1_model

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os
 import tempfile
-from collections.abc import Generator
 
 import pytest
-from datasets import Dataset, load_dataset
+from datasets import Dataset, DatasetDict
 
 from sentence_transformers import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
@@ -19,12 +18,6 @@ if not is_training_available():
         reason='Sentence Transformers was not installed with the `["train"]` extra.',
         allow_module_level=True,
     )
-
-
-@pytest.fixture()
-def sts_resource() -> Generator[tuple[Dataset, Dataset], None, None]:
-    sts_dataset = load_dataset("sentence-transformers/stsb")
-    yield sts_dataset["train"], sts_dataset["test"]
 
 
 def evaluate_stsb_test(
@@ -45,16 +38,17 @@ def evaluate_stsb_test(
 
 
 @pytest.mark.skipif("CI" in os.environ, reason="This test triggers rate limits too often in the CI")
-def test_pretrained_stsb(sts_resource: tuple[Dataset, Dataset]) -> None:
-    _, test_dataset = sts_resource
+def test_pretrained_stsb(stsb_dataset_dict: DatasetDict) -> None:
+    test_dataset = stsb_dataset_dict["test"]
     model = CrossEncoder("cross-encoder/stsb-distilroberta-base")
     evaluate_stsb_test(model, 87.92, test_dataset)
 
 
 @pytest.mark.slow
-def test_train_stsb_slow(distilroberta_base_ce_model: CrossEncoder, sts_resource: tuple[Dataset, Dataset]) -> None:
+def test_train_stsb_slow(distilroberta_base_ce_model: CrossEncoder, stsb_dataset_dict: DatasetDict) -> None:
     model = distilroberta_base_ce_model
-    train_dataset, test_dataset = sts_resource
+    train_dataset = stsb_dataset_dict["train"]
+    test_dataset = stsb_dataset_dict["test"]
     loss = BinaryCrossEntropyLoss(model=model)
     with tempfile.TemporaryDirectory() as tmp_dir:
         args = CrossEncoderTrainingArguments(
@@ -74,10 +68,10 @@ def test_train_stsb_slow(distilroberta_base_ce_model: CrossEncoder, sts_resource
 
 
 @pytest.mark.skipif("CI" in os.environ, reason="This test triggers rate limits too often in the CI")
-def test_train_stsb(distilroberta_base_ce_model: CrossEncoder, sts_resource: tuple[Dataset, Dataset]) -> None:
+def test_train_stsb(distilroberta_base_ce_model: CrossEncoder, stsb_dataset_dict: DatasetDict) -> None:
     model = distilroberta_base_ce_model
-    train_dataset, test_dataset = sts_resource
-    train_dataset = train_dataset.select(range(500))
+    train_dataset = stsb_dataset_dict["train"].select(range(500))
+    test_dataset = stsb_dataset_dict["test"]
     loss = BinaryCrossEntropyLoss(model=model)
     with tempfile.TemporaryDirectory() as tmp_dir:
         args = CrossEncoderTrainingArguments(

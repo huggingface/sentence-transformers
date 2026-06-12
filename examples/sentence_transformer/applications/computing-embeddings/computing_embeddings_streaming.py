@@ -28,7 +28,7 @@ if __name__ == "__main__":
     encode_batch_size = 128  # Batch size of the model
 
     # Load a large dataset in streaming mode. more info: https://huggingface.co/docs/datasets/stream
-    dataset = load_dataset("yahoo_answers_topics", split="train", streaming=True)
+    dataset = load_dataset("community-datasets/yahoo_answers_topics", split="train", streaming=True)
     dataloader = DataLoader(dataset.with_format("torch"), batch_size=data_stream_size)
 
     # Define the model
