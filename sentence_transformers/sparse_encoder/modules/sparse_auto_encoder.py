@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from sentence_transformers.base.modules.module import Module
+from sentence_transformers.sparse_encoder.modules.sparse_auto_encoder_projection import _SparseAutoEncoderProjection
 
 
 class TiedTranspose(nn.Module):
@@ -65,6 +66,7 @@ class SparseAutoEncoder(Module):
         dead_threshold: int = 30,
     ) -> None:
         super().__init__()
+        _SparseAutoEncoderProjection.validate_dimensions(input_dim, hidden_dim, k)
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.dead_threshold = dead_threshold
@@ -93,9 +95,12 @@ class SparseAutoEncoder(Module):
             Example: latent_slice = slice(0, 10) to compute only the first 10 latents.
         :return: autoencoder latents before activation (shape: [batch, hidden_dim])
         """
-        x = x - self.pre_bias
-        latents_pre_act = F.linear(x, self.encoder.weight, self.latent_bias)
-        return latents_pre_act
+        return _SparseAutoEncoderProjection.encode_pre_act(
+            x,
+            self.encoder.weight.t(),
+            self.latent_bias,
+            self.pre_bias,
+        )
 
     def LN(self, x: torch.Tensor, eps: float = 1e-5):
         mu = x.mean(dim=-1, keepdim=True)
@@ -119,31 +124,16 @@ class SparseAutoEncoder(Module):
         """
         if k is None:
             k = self.k
-        topk = torch.topk(x, k=k, dim=-1)
-        z_topk = torch.zeros_like(x)
-        z_topk.scatter_(-1, topk.indices, topk.values)
-        latents_k = F.relu(z_topk)
-        ## set num nonzero stat ##
-        tmp = torch.zeros_like(self.stats_last_nonzero)
-        tmp.scatter_add_(
-            0,
-            topk.indices.reshape(-1),
-            (topk.values > 1e-5).to(tmp.dtype).reshape(-1),
+        _SparseAutoEncoderProjection.validate_k(k, self.hidden_dim)
+        return _SparseAutoEncoderProjection.top_k_dense(
+            x,
+            k=k,
+            hidden_dim=self.hidden_dim,
+            stats_last_nonzero=self.stats_last_nonzero,
+            compute_aux=compute_aux,
+            k_aux=self.k_aux,
+            auxk_mask_fn=self.auxk_mask_fn,
         )
-        self.stats_last_nonzero *= 1 - tmp.clamp(max=1)
-        self.stats_last_nonzero += 1
-        ## end stats ##
-
-        latents_auxk = None
-        if self.k_aux and compute_aux:
-            aux_topk = torch.topk(
-                input=self.auxk_mask_fn(x),
-                k=self.k_aux,
-            )
-            z_auxk = torch.zeros_like(x)
-            z_auxk.scatter_(-1, aux_topk.indices, aux_topk.values)
-            latents_auxk = F.relu(z_auxk)
-        return latents_k, latents_auxk
 
     def decode(self, latents: torch.Tensor, info=None) -> torch.Tensor:
         """
