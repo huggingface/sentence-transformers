@@ -481,12 +481,11 @@ def mine_hard_negatives(
         corpus_embeddings = torch.as_tensor(corpus_embeddings)
         # Compute the similarity scores between the queries and the corpus in batches, to avoid
         # materializing the full (n_queries, n_corpus) similarity matrix
-        for i in trange(
-            0, len(query_embeddings), faiss_batch_size, desc="Computing similarity scores"
-        ):
+        for i in trange(0, len(query_embeddings), faiss_batch_size, desc="Computing similarity scores"):
             chunk_scores = model.similarity(query_embeddings[i : i + faiss_batch_size], corpus_embeddings).to(device)
 
             # Keep only the range_max + max_positives highest scores. We offset by max_positives to leave room for the positive pair(s).
+            chunk_scores, chunk_indices = torch.topk(chunk_scores, k=range_max + max_positives, dim=1)
             scores_list.append(chunk_scores)
             indices_list.append(chunk_indices)
         scores = torch.cat(scores_list, dim=0)
