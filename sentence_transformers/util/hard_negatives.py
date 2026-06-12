@@ -467,7 +467,7 @@ def mine_hard_negatives(
         scores_list = []
         indices_list = []
         # Iterate over query embeddings in batches so we can track the progress
-        for i in trange(0, len(query_embeddings), faiss_batch_size, desc="Querying FAISS index", disable=not verbose):
+        for i in trange(0, len(query_embeddings), faiss_batch_size, desc="Querying FAISS index"):
             query_chunk = query_embeddings[i : i + faiss_batch_size]
             scores, indices = index.search(query_chunk, k=range_max + 1)
             scores_list.append(scores)
@@ -482,7 +482,7 @@ def mine_hard_negatives(
         # Compute the similarity scores between the queries and the corpus in batches, to avoid
         # materializing the full (n_queries, n_corpus) similarity matrix
         for i in trange(
-            0, len(query_embeddings), faiss_batch_size, desc="Computing similarity scores", disable=not verbose
+            0, len(query_embeddings), faiss_batch_size, desc="Computing similarity scores"
         ):
             chunk_scores = model.similarity(query_embeddings[i : i + faiss_batch_size], corpus_embeddings).to(device)
 
