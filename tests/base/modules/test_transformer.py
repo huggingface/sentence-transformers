@@ -859,6 +859,24 @@ class TestProcessChatMessages:
         model._restore_chat_template_suffix(features, messages, {}, {})
         assert features["input_ids"].tolist() == [[0, 0, 0, 10, 11, 101, 102, 103]]
 
+    def test_restore_skipped_when_nothing_reached_max_length(self, bert_tiny_transformer, monkeypatch):
+        # If the longest row is shorter than max_length, nothing was truncated, so the restore returns
+        # immediately without deriving any suffix.
+        model = bert_tiny_transformer
+        derived = []
+        monkeypatch.setattr(model, "_chat_template_suffix_ids", lambda *a, **k: derived.append(True) or [1, 2, 3])
+        messages = [[{"role": "user", "content": "x"}]]
+        features = {
+            "input_ids": torch.tensor([[10, 11, 12, 0, 0, 0]]),
+            "attention_mask": torch.tensor([[1, 1, 1, 0, 0, 0]]),  # real length 3
+        }
+        # longest real length (3) < max_length (8): nothing truncated -> skipped, no derivation, untouched.
+        model._restore_chat_template_suffix(features, messages, {}, {}, max_length=8)
+        assert derived == [] and features["input_ids"].tolist() == [[10, 11, 12, 0, 0, 0]]
+        # longest (3) == max_length (3): a row reached the limit, so derivation runs.
+        model._restore_chat_template_suffix(features, messages, {}, {}, max_length=3)
+        assert derived == [True]
+
     def test_chat_template_suffix_ids_tolerates_unhashable_kwargs(self, bert_tiny_transformer, monkeypatch):
         # chat_template_kwargs may carry unhashable values (e.g. a ``tools`` list). repr() in the cache key
         # keeps the lookup from raising TypeError, so derivation still runs (and caches).

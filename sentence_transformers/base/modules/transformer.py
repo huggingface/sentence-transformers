@@ -1336,11 +1336,17 @@ class Transformer(InputModule):
         # not an apply_chat_template argument, so pop it (default on) before forwarding the rest.
         restore_suffix = chat_template_kwargs.pop("restore_suffix", True)
 
-        # Read truncation before the hoist below pops it (text kwargs take priority over common). The
-        # restore in _restore_chat_template_suffix is gated on it (and on `restore_suffix`).
+        # Read truncation/max_length before the hoist below pops them (text kwargs take priority over common).
+        # The restore is gated on truncation (and `restore_suffix`); max_length lets it skip work entirely
+        # when the batch never reached the limit (nothing was truncated).
         text_kwargs = modality_kwargs.get("text", {})
         truncation = text_kwargs.get("truncation", common_kwargs.get("truncation"))
         restore_chat_template_suffix = restore_suffix and bool(truncation) and truncation != "do_not_truncate"
+        max_length = None
+        if restore_chat_template_suffix:
+            max_length = text_kwargs.get("max_length", common_kwargs.get("max_length"))
+            if max_length is None and self.tokenizer is not None:
+                max_length = self.tokenizer.model_max_length
 
         if isinstance(self.processor, ProcessorMixin):
             # Transformers v5.4.0 prefers us to pass processor_kwargs as a single dict, but there's still some top level
@@ -1399,7 +1405,9 @@ class Transformer(InputModule):
             suffix_tokenizer_kwargs = {
                 key: value for key, value in text_kwargs.items() if key not in _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS
             }
-            self._restore_chat_template_suffix(features, messages, chat_template_kwargs, suffix_tokenizer_kwargs)
+            self._restore_chat_template_suffix(
+                features, messages, chat_template_kwargs, suffix_tokenizer_kwargs, max_length
+            )
         return features
 
     def _restore_chat_template_suffix(
@@ -1408,6 +1416,7 @@ class Transformer(InputModule):
         messages: list[list[MessageInput]],
         chat_template_kwargs: dict[str, Any],
         tokenizer_kwargs: dict[str, Any],
+        max_length: int | None = None,
     ) -> None:
         """Restore the trailing chat-template suffix that truncation may have removed (in place).
 
@@ -1422,8 +1431,9 @@ class Transformer(InputModule):
         content while keeping the suffix.
 
         The suffix is derived per row (cached per structure), so a batch mixing different role layouts is
-        handled correctly. Rows that fit already end with the suffix, so the tail comparison leaves them
-        untouched, as does ``truncation=False``.
+        handled correctly. If the longest real row is shorter than ``max_length`` nothing was truncated, so
+        the whole pass is skipped. Otherwise every row is checked and a row that already ends with the suffix
+        is left untouched, as is ``truncation=False``.
         """
         input_ids = features.get("input_ids")
         if input_ids is None:
@@ -1435,37 +1445,32 @@ class Transformer(InputModule):
                 return
             # unsqueeze returns a view, so the in-place writes below propagate to features["input_ids"]
             ids = input_ids if input_ids.dim() == 2 else input_ids.unsqueeze(0)
-            n_rows = ids.shape[0]
-        else:
-            # Flattening path (feature-extraction + can_flatten_inputs, see preprocess): return_tensors is
-            # dropped, so apply_chat_template returns ragged, unpadded token lists. Each row's tail is real.
-            rows = input_ids if input_ids and isinstance(input_ids[0], list) else [input_ids]
-            n_rows = len(rows)
-
-        # Derive the per-row suffixes first (cached). Multimodal rows yield [], so an all-media batch returns
-        # here, before the attention-mask reductions below (cheap, but pointless if nothing will be restored).
-        suffixes = [
-            self._chat_template_suffix_ids(messages[index], chat_template_kwargs, tokenizer_kwargs)
-            for index in range(min(n_rows, len(messages)))
-        ]
-        if not any(suffixes):
-            return
-
-        if is_tensor:
             width = ids.shape[-1]
-            # Find each row's real tail from the mask so the suffix lands on real tokens even when padding
-            # extends a truncated row (pad_to_multiple_of): the real tokens end at `width` for left padding
-            # (first token is pad), else at their count.
+            # Each row's real-token count and padding side, from the mask, so the suffix lands on real tokens
+            # even under padding: the tail ends at `width` for left padding, else at the real length.
             attention_mask = features.get("attention_mask")
             if isinstance(attention_mask, torch.Tensor) and attention_mask.numel():
                 am = attention_mask if attention_mask.dim() == 2 else attention_mask.unsqueeze(0)
                 real_lengths = am.sum(dim=1).tolist()
                 left_padded = (am[:, 0] == 0).tolist()
             else:
-                real_lengths = [width] * n_rows
-                left_padded = [False] * n_rows
+                real_lengths = [width] * ids.shape[0]
+                left_padded = [False] * ids.shape[0]
+            n_rows = ids.shape[0]
+        else:
+            # Flattening path (feature-extraction + can_flatten_inputs, see preprocess): return_tensors is
+            # dropped, so apply_chat_template returns ragged, unpadded token lists. Each row's tail is real.
+            rows = input_ids if input_ids and isinstance(input_ids[0], list) else [input_ids]
+            real_lengths = [len(row) for row in rows]
+            n_rows = len(rows)
 
-        for index, suffix in enumerate(suffixes):
+        # If the longest real row is below max_length, nothing was truncated. Real lengths (not padded
+        # width) stay correct when pad_to_multiple_of pads a truncated row past max_length.
+        if max_length is not None and max(real_lengths, default=0) < max_length:
+            return
+
+        for index in range(min(n_rows, len(messages))):
+            suffix = self._chat_template_suffix_ids(messages[index], chat_template_kwargs, tokenizer_kwargs)
             if not suffix:
                 continue
             if is_tensor:
@@ -1478,7 +1483,7 @@ class Transformer(InputModule):
                     ids[index, end - keep : end] = suffix_tensor
             else:
                 row = rows[index]
-                keep = min(len(suffix), len(row))
+                keep = min(len(suffix), real_lengths[index])
                 if keep and row[-keep:] != suffix[-keep:]:
                     row[-keep:] = suffix[-keep:]
 
