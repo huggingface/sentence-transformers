@@ -1035,9 +1035,7 @@ class SparseEncoder(BaseModel):
                 "sparsity_ratio": 1.0,
             }
 
-        # CSR gives O(1) per-row non-zero counts via crow_indices.
-        # SparseMPS (and some other accelerator backends) lack the to_sparse_csr kernel,
-        # so fall back to CPU when the conversion is not implemented.
+        # CSR gives O(1) per-row non-zero counts via crow_indices, and fall back to CPU for MPS.
         try:
             embeddings = embeddings.to_sparse_csr()
         except NotImplementedError:
