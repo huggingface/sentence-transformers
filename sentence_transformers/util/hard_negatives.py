@@ -232,7 +232,9 @@ def mine_hard_negatives(
             - For "labeled-list" format: replaces the `labels` column with a `scores` column. Labels are binary (1 for positive, 0 for negative), but scores contain the actual similarity scores computed by the model or cross_encoder. The output has 3 columns.
             Defaults to False.
         batch_size (int): Batch size for encoding the dataset. Defaults to 32.
-        faiss_batch_size (int): Batch size for FAISS top-k search. Defaults to 16384.
+        faiss_batch_size (int): Batch size of queries for the top-k similarity search, both with FAISS and without
+            (``use_faiss=False``), where it bounds the size of the intermediate similarity matrix to
+            ``faiss_batch_size * len(corpus)``. Defaults to 16384.
         use_faiss (bool): Whether to use FAISS for similarity search. May be recommended for large datasets. Defaults to False.
         use_multi_process (bool | List[str], optional): Whether to use multi-GPU/CPU processing. If True, uses all GPUs if CUDA
             is available, and 4 CPU processes if it's not available. You can also pass a list of PyTorch devices like
@@ -265,6 +267,9 @@ def mine_hard_negatives(
 
     if len(dataset) == 0:
         raise ValueError("The dataset is empty. Please provide a non-empty dataset.")
+
+    if faiss_batch_size <= 0:
+        raise ValueError(f"faiss_batch_size must be a positive integer, got {faiss_batch_size}.")
 
     from datasets import Dataset
 
@@ -471,11 +476,20 @@ def mine_hard_negatives(
         indices = torch.from_numpy(np.concatenate(indices_list, axis=0)).to(device)
 
     else:
-        # Compute the similarity scores between the queries and the corpus
-        scores = model.similarity(query_embeddings, corpus_embeddings).to(device)
+        scores_list = []
+        indices_list = []
+        corpus_embeddings = torch.as_tensor(corpus_embeddings)
+        # Compute the similarity scores between the queries and the corpus in batches, to avoid
+        # materializing the full (n_queries, n_corpus) similarity matrix
+        for i in trange(0, len(query_embeddings), faiss_batch_size, desc="Computing similarity scores"):
+            chunk_scores = model.similarity(query_embeddings[i : i + faiss_batch_size], corpus_embeddings).to(device)
 
-        # Keep only the range_max + max_positives highest scores. We offset by 1 to potentially include the positive pair
-        scores, indices = torch.topk(scores, k=range_max + max_positives, dim=1)
+            # Keep only the range_max + max_positives highest scores. We offset by max_positives to leave room for the positive pair(s).
+            chunk_scores, chunk_indices = torch.topk(chunk_scores, k=range_max + max_positives, dim=1)
+            scores_list.append(chunk_scores)
+            indices_list.append(chunk_indices)
+        scores = torch.cat(scores_list, dim=0)
+        indices = torch.cat(indices_list, dim=0)
 
     # As we may have duplicated queries (i.e., a single query with multiple positives),
     # We keep track, for each unique query, of where their positives are in the list of positives (positive_indices).

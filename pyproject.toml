@@ -2,7 +2,7 @@
 name = "sentence-transformers"
 version = "5.6.0.dev0"
 description = "Embeddings, Retrieval, and Reranking"
-license = { text = "Apache 2.0" }
+license = "Apache-2.0"
 readme = "README.md"
 authors = [
     { name = "Nils Reimers", email = "info@nils-reimers.de" },
@@ -24,7 +24,6 @@ keywords = [
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -94,12 +93,13 @@ docs = [
     "sphinx_markdown_tables==0.0.17",
     "sphinx-copybutton==0.5.2",
     "sphinx_inline_tabs==2023.4.21",
+    "sphinx_rtd_theme==3.0.2",
     "sphinxcontrib-mermaid==1.0.0",
     "sphinx-toolbox==3.9.0",
 ]
 
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

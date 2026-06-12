@@ -7,7 +7,7 @@ Common Modules
 --------------
 
 .. autoclass:: sentence_transformers.base.modules.Transformer
-    :members: modalities, preprocess, modality_config, transformer_task, max_seq_length, get_embedding_dimension
+    :members: modalities, preprocess, max_seq_length, get_embedding_dimension
 
 .. autoclass:: sentence_transformers.base.modules.Dense
 

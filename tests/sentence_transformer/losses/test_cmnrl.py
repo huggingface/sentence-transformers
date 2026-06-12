@@ -157,6 +157,49 @@ def test_rand_context_working(use_rand_context: bool):
             assert not torch.allclose(torch.rand(1000), expected, precision, precision)
 
 
+@pytest.mark.parametrize(
+    "rand_context_path",
+    [
+        pytest.param(
+            "sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking.RandContext",
+            id="cmnrl",
+        ),
+        pytest.param(
+            "sentence_transformers.sentence_transformer.losses.cached_gist_embed.RandContext",
+            id="gist",
+        ),
+    ],
+)
+@pytest.mark.skipif(
+    not torch.backends.mps.is_available(), reason="MPS must be available to test the MPS RandContext path."
+)
+def test_rand_context_mps(rand_context_path: str):
+    # Regression test for #3564: RandContext raised
+    # "AttributeError: module 'torch.mps' has no attribute 'device'" for MPS tensors,
+    # because torch.utils.checkpoint.get_device_states() does not support MPS.
+    import importlib
+
+    module_name, class_name = rand_context_path.rsplit(".", 1)
+    RandContext = getattr(importlib.import_module(module_name), class_name)
+
+    # Given:
+    a = torch.randn(4, device="mps")
+    b = torch.randn(4, device="mps")
+    random_state = RandContext(a, b)  # must not raise on MPS
+    expected = torch.rand(1000, device="mps")
+
+    # When / Then: re-entering must replay the same MPS randomness (the cached second forward).
+    with random_state:
+        assert torch.equal(torch.rand(1000, device="mps"), expected)
+
+    # __exit__ must restore the outer MPS RNG state, so the context does not leak the
+    # replayed state to surrounding code.
+    outer_before = torch.mps.get_rng_state()
+    with random_state:
+        torch.rand(500, device="mps")
+    assert torch.equal(torch.mps.get_rng_state(), outer_before)
+
+
 class TestCreateMinibatchMixedModality:
     """Test _create_minibatch with mixed-modality batches (some samples have images, some don't).
 

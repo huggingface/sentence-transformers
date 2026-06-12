@@ -91,10 +91,14 @@ def test_unsupported_modality(static_embedding: StaticEmbedding) -> None:
     ):
         model.encode([{"text": "a cat", "image": dummy_image}])
 
-    # Mixed text+image input via multimodal dict
+    # Mixed-modality batch (a multimodal dict alongside a text-only dict) is inferred as 'message'.
+    # The model genuinely cannot handle image, so it is named as the unsupported modality.
     with pytest.raises(
         ValueError,
-        match="Modality 'message' is not supported by this SentenceTransformer model. Supported modalities: text",
+        match=(
+            r"This batch mixes multiple modalities \(image\+text, text\), but this SentenceTransformer "
+            r"model does not support image\. Supported modalities: text"
+        ),
     ):
         model.encode([{"text": "a cat", "image": dummy_image}, {"text": "a dog"}])
 

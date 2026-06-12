@@ -14,6 +14,7 @@ on:
 env:
   TRANSFORMERS_IS_CI: 1
   HF_HUB_DISABLE_PROGRESS_BARS: 1  # The Transformers v5 weight loading progress bars heavily expand the logs
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}  # Read token to avoid rate limits / gated-repo failures when downloading from the Hub
 
 jobs:
   test_sampling:
@@ -48,15 +49,17 @@ jobs:
         if: runner.os == 'Linux'
 
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - name: Setup Python environment
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff  # v6
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          cache-suffix: "transformers-5-${{ (matrix.transformers-version == '<5.0.0') && 'minus' || 'plus' }}"
 
       # kenlm doesn't compile on Python 3.13, and pyctcdecode pins numpy<2.0.0
       # which conflicts with the rest of the stack. Exclude both on Python 3.13.
@@ -77,9 +80,15 @@ jobs:
         if: ${{ matrix.transformers-version == '>=5.0.0' }}
         run: uv pip install '.[train]' --group test 'transformers>=5.0.0' 'accelerate>=1.13.0' --excludes excludes.txt --system
 
+      # model2vec[distill] pins transformers<5.4.0, so use the distill extra only on
+      # the <5.0.0 leg (distillation tests skip on v5+ anyway) and base model2vec elsewhere.
+      - name: Install model2vec (with distillation extra)
+        run: uv pip install 'model2vec[distill]' --system
+        if: ${{ matrix.transformers-version == '<5.0.0' }}
+
       - name: Install model2vec
-        run: uv pip install model2vec[distill] --system
-        if: ${{ contains(fromJSON('["3.10", "3.11", "3.12", "3.13"]'), matrix.python-version) }}
+        run: uv pip install model2vec --system
+        if: ${{ matrix.transformers-version == '>=5.0.0' }}
 
       - name: Run unit tests
         run: |
