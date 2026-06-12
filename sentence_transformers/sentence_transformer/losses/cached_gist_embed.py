@@ -348,9 +348,11 @@ class CachedGISTEmbedLoss(nn.Module):
                 sim_mat[mask] = -torch.inf
                 return sim_mat
 
-            # Create a mask to protect true positive pairs in the anchor-positive matrix (i.e., diagonal elements)
-            positive_mask = torch.eye(*guided_ap_sim.shape, dtype=torch.bool, device=guided_ap_sim.device)
-            positive_mask = positive_mask.roll(begin)
+            # Protect each anchor's true positive from false-negative suppression using the same
+            # gathered column index as the CE target.
+            positive_mask = torch.zeros_like(guided_ap_sim, dtype=torch.bool)
+            rows = torch.arange(guided_ap_sim.size(0), device=guided_ap_sim.device)
+            positive_mask[rows, offset + begin + rows] = True
 
             # Apply false negative suppression to each similarity matrix using guided similarity as anchor
             ap_sim = mask_false_negatives(guided_ap_sim, ap_sim, positive_mask=positive_mask)  # anchor-positive
