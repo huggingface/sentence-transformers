@@ -239,9 +239,11 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
 
                 The default ("query_to_doc",) matches the standard MultipleNegativesRankingLoss / InfoNCE behavior.
             partition_mode: How to normalize the scores (the softmax denominator):
+
                 - "joint": One joint softmax over all selected directions.
                 - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
                   Not compatible with ``"query_to_query"`` or ``"doc_to_doc"`` directions.
+
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
             hardness_mode: Strategy for applying hardness weighting. ``None`` (default) disables hardness
                 weighting entirely. Options:
