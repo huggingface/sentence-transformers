@@ -1328,17 +1328,14 @@ class Transformer(InputModule):
                 f"Supported modalities: {list(self.modality_config.keys())}"
             )
 
-        # Ideally we'd use the same code path for both ProcessorMixin and Tokenizers, but the latter expects
-        # the text kwargs to be passed at the top level instead of in a nested "text_kwargs" dict.
+        # ProcessorMixin and bare tokenizers need different kwarg routing (nested vs top-level text kwargs).
         chat_template_kwargs = dict(chat_template_kwargs or {})
 
-        # `restore_suffix` toggles the truncation suffix restore below. It's a Sentence Transformers concept,
-        # not an apply_chat_template argument, so pop it (default on) before forwarding the rest.
+        # `restore_suffix` is a Sentence Transformers flag, not an apply_chat_template arg, so pop it (default on).
         restore_suffix = chat_template_kwargs.pop("restore_suffix", True)
 
         # Read truncation/max_length before the hoist below pops them (text kwargs take priority over common).
-        # The restore is gated on truncation (and `restore_suffix`); max_length lets it skip work entirely
-        # when the batch never reached the limit (nothing was truncated).
+        # max_length lets the restore skip work entirely when nothing reached the limit (no truncation).
         text_kwargs = modality_kwargs.get("text", {})
         truncation = text_kwargs.get("truncation", common_kwargs.get("truncation"))
         restore_chat_template_suffix = restore_suffix and bool(truncation) and truncation != "do_not_truncate"
