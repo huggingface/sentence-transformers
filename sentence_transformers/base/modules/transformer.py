@@ -1333,14 +1333,15 @@ class Transformer(InputModule):
         # `restore_suffix` is a Sentence Transformers flag, not an apply_chat_template arg, so pop it (default on).
         restore_suffix = chat_template_kwargs.pop("restore_suffix", True)
 
-        # Truncation/max_length may ride in any of the three kwarg buckets. Tokenizers also truncate when
-        # max_length is set while truncation was left unset, so only an explicit opt-out disables the restore.
+        # Truncation/max_length may ride in any kwarg bucket (chat-template wins). Tokenizers also truncate
+        # when max_length is set while truncation was left unset, so only an explicit opt-out disables the
+        # restore.
         text_kwargs = modality_kwargs["text"]
-        truncation = text_kwargs.get(
-            "truncation", common_kwargs.get("truncation", chat_template_kwargs.get("truncation"))
+        truncation = chat_template_kwargs.get(
+            "truncation", text_kwargs.get("truncation", common_kwargs.get("truncation"))
         )
-        max_length = text_kwargs.get(
-            "max_length", common_kwargs.get("max_length", chat_template_kwargs.get("max_length"))
+        max_length = chat_template_kwargs.get(
+            "max_length", text_kwargs.get("max_length", common_kwargs.get("max_length"))
         )
         truncation_active = bool(truncation) or (truncation is None and max_length is not None)
         restore_chat_template_suffix = restore_suffix and truncation_active and truncation != "do_not_truncate"
@@ -1366,6 +1367,13 @@ class Transformer(InputModule):
         a ProcessorMixin, flat with the size kwargs hoisted to the top level for a bare tokenizer. Both the
         real batch and the suffix skeleton renders go through this (the given dicts are never mutated).
         """
+        # Fold size kwargs from the chat-template bucket into the text kwargs (chat wins), else
+        # apply_chat_template gets them twice (bare tokenizer) or misroutes them (ProcessorMixin).
+        if size_keys := _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS & chat_template_kwargs.keys():
+            chat_template_kwargs = dict(chat_template_kwargs)
+            folded = {key: chat_template_kwargs.pop(key) for key in size_keys}
+            modality_kwargs = {**modality_kwargs, "text": {**modality_kwargs["text"], **folded}}
+
         if isinstance(self.processor, ProcessorMixin):
             # Transformers v5.4.0 prefers us to pass processor_kwargs as a single dict, but there's still some top level
             # kwargs that need to be hoisted out for backwards compatibility.
@@ -1442,7 +1450,7 @@ class Transformer(InputModule):
         if not isinstance(input_ids, (torch.Tensor, list)):
             return
 
-        # An unknown max_length (None) disables the truncation gates below.
+        # An unknown max_length (None) becomes 0, so the gates below never skip a row.
         max_length = max_length or 0
 
         is_tensor = isinstance(input_ids, torch.Tensor)

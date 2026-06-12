@@ -833,6 +833,16 @@ class TestProcessChatMessages:
         )["input_ids"].tolist()[0]
         assert len(ids) == 8 and ids[-3:] == suffix
 
+        # The chat bucket also wins over an existing text value (preprocess always sets a default text
+        # truncation, which previously collided with an explicit chat-bucket one as a duplicate kwarg).
+        ids = model._process_chat_messages(
+            messages=[[{"role": "user", "content": "abcdefghijklm"}]],
+            modality_kwargs=make_modality_kwargs(padding=True, truncation="longest_first"),
+            common_kwargs={"return_tensors": "pt"},
+            chat_template_kwargs={"truncation": True, "max_length": 8},
+        )["input_ids"].tolist()[0]
+        assert len(ids) == 8 and ids[-3:] == suffix
+
     def test_chat_truncation_restore_handles_implicit_truncation(self, bert_tiny_transformer, monkeypatch):
         # Tokenizers truncate when max_length is set even if truncation was merely left unset (None), so the
         # restore gate must treat that as truncation-on.
@@ -1064,6 +1074,7 @@ class TestProcessChatMessages:
         assert features["input_ids"][0].tolist() == [10, 11, 12, 101, 102, 103]  # text row restored
         assert features["input_ids"][1].tolist() == [20, 21, 22, 23, 24, 25]  # multimodal row untouched
 
+    @pytest.mark.slow
     def test_chat_truncation_restores_suffix_with_real_chat_template(self):
         # Integration check against a real chat-template model (the other suffix tests mock the tokenizer), so
         # it exercises the real apply_chat_template dispatch and two-filler derivation. The Llama-2 template
