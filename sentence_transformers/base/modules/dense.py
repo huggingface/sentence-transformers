@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Callable
 
@@ -34,6 +35,9 @@ class Dense(Module):
             Defaults to ``"sentence_embedding"``.
         module_output_name: The key in the features dictionary to store the output in.
             If ``None``, uses the same key as ``module_input_name``.
+        use_residual: If True, add a residual connection from the input to the projected output.
+            When ``in_features != out_features``, the residual is projected through a separate
+            ``nn.Linear(in_features, out_features, bias=False)``. Defaults to False.
     """
 
     config_keys: list[str] = [
@@ -43,6 +47,7 @@ class Dense(Module):
         "activation_function",
         "module_input_name",
         "module_output_name",
+        "use_residual",
     ]
 
     def __init__(
@@ -55,6 +60,7 @@ class Dense(Module):
         init_bias: Tensor | None = None,
         module_input_name: str = "sentence_embedding",
         module_output_name: str | None = None,
+        use_residual: bool = False,
     ):
         super().__init__()
         self.in_features = in_features
@@ -64,6 +70,9 @@ class Dense(Module):
         self.linear = nn.Linear(in_features, out_features, bias=bias)
         self.module_input_name = module_input_name
         self.module_output_name = module_output_name if module_output_name is not None else module_input_name
+        self.use_residual = use_residual
+        if use_residual and in_features != out_features:
+            self.residual = nn.Linear(in_features, out_features, bias=False)
 
         if init_weight is not None:
             self.linear.weight = nn.Parameter(init_weight)
@@ -72,9 +81,12 @@ class Dense(Module):
             self.linear.bias = nn.Parameter(init_bias)
 
     def forward(self, features: dict[str, Tensor]):
-        features.update(
-            {self.module_output_name: self.activation_function(self.linear(features[self.module_input_name]))}
-        )
+        x = features[self.module_input_name]
+        out = self.activation_function(self.linear(x))
+        if self.use_residual:
+            residual = x if self.in_features == self.out_features else self.residual(x)
+            out = out + residual
+        features[self.module_output_name] = out
         return features
 
     def get_embedding_dimension(self) -> int:
@@ -120,6 +132,16 @@ class Dense(Module):
                     "functions via the configuration."
                 )
                 del config["activation_function"]
+        # Drop config keys this constructor doesn't accept, so a newer/foreign save (e.g. a PyLate `Dense`)
+        # with an extra parameter loads instead of crashing in `cls(**config)`. No-op for well-formed ST saves.
+        accepted_params = set(inspect.signature(cls).parameters)
+        unexpected_keys = set(config) - accepted_params
+        if unexpected_keys:
+            logger.warning(
+                f"Ignoring unrecognized {cls.__name__} config key(s) {sorted(unexpected_keys)} from "
+                f"{model_name_or_path!r}: not constructor parameters of {cls.__name__}."
+            )
+            config = {key: value for key, value in config.items() if key in accepted_params}
         model = cls(**config)
         model = cls.load_torch_weights(model_name_or_path=model_name_or_path, model=model, **hub_kwargs)
         return model

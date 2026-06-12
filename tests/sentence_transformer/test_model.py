@@ -7,8 +7,8 @@ from __future__ import annotations
 import copy
 import json
 import logging
-import os
 import re
+import shutil
 import tempfile
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -311,7 +311,7 @@ def test_load_local_without_normalize_directory(stsb_bert_tiny_model: SentenceTr
         model.save(str(model_path))
 
         assert (model_path / "2_Normalize").exists()
-        os.rmdir(model_path / "2_Normalize")
+        shutil.rmtree(model_path / "2_Normalize")
         assert not (model_path / "2_Normalize").exists()
 
         # This fails in v2.3.0
@@ -693,7 +693,11 @@ def test_encode_truncate(
     test(model, expected_dim=original_output_dim)
 
 
-@pytest.mark.parametrize("similarity_fn_name", SimilarityFunction.possible_values())
+# MaxSim is for multi-vector (3D) embeddings; SentenceTransformer is single-vector so it's not applicable.
+@pytest.mark.parametrize(
+    "similarity_fn_name",
+    [v for v in SimilarityFunction.possible_values() if v != SimilarityFunction.MAXSIM.value],
+)
 def test_similarity_score(stsb_bert_tiny_model: SentenceTransformer, similarity_fn_name: str) -> None:
     model = stsb_bert_tiny_model
     model.similarity_fn_name = similarity_fn_name

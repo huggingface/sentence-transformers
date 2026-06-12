@@ -198,6 +198,126 @@ def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray |
     return -torch.sqrt(torch.sum((a - b) ** 2, dim=-1)).to_dense()
 
 
+def maxsim(
+    a: list | np.ndarray | Tensor,
+    b: list | np.ndarray | Tensor,
+    a_mask: Tensor | None = None,
+    b_mask: Tensor | None = None,
+) -> Tensor:
+    """
+    Computes the MaxSim (late-interaction) score between two collections of multi-vector embeddings.
+
+    For each query in ``a`` and document in ``b``, the score is the sum over query tokens of the maximum
+    similarity to any document token: ``sum_i max_j (a_i . b_j)``. This is the scoring function used by
+    ColBERT-style models.
+
+    Args:
+        a (Union[list, np.ndarray, Tensor]): Query embeddings. Either a 3D tensor of shape
+            ``(batch_a, num_query_tokens, embedding_dim)`` (pre-padded) or a list of 2D tensors of shape
+            ``(num_query_tokens_i, embedding_dim)`` (variable-length, padded internally).
+        b (Union[list, np.ndarray, Tensor]): Document embeddings. Either a 3D tensor of shape
+            ``(batch_b, num_doc_tokens, embedding_dim)`` or a list of 2D tensors of shape
+            ``(num_doc_tokens_i, embedding_dim)``.
+        a_mask (Tensor, optional): Boolean or float mask for query tokens, shape ``(batch_a, num_query_tokens)``.
+            Tokens with a 0 / False entry are excluded from the sum. Defaults to None (use all tokens).
+        b_mask (Tensor, optional): Boolean or float mask for document tokens, shape ``(batch_b, num_doc_tokens)``.
+            Tokens with a 0 / False entry are excluded from the max. Defaults to None (use all tokens).
+
+    Returns:
+        Tensor: Matrix with ``res[i][j]`` = MaxSim(a[i], b[j]), shape ``(batch_a, batch_b)``.
+    """
+    a, a_mask_padded = _pad_multi_vector_inputs(a, a_mask)
+    b, b_mask_padded = _pad_multi_vector_inputs(b, b_mask)
+
+    scores = torch.einsum("ash,bth->abst", a, b)
+    # Document tokens are reduced with max, so masked (padding) tokens are sent to the dtype minimum:
+    # multiplying by 0 would let a padding token win the max over a genuinely negative similarity.
+    # TODO: revisit this divergence from PyLate, whose colbert_scores masks documents by multiplying by 0
+    # (letting a 0-valued padding token beat a negative real score). We exclude masked tokens from the max
+    # instead (matching xtr_scores); the parity tests still pass, but confirm this is the intended behavior.
+    if b_mask_padded is not None:
+        scores = scores.masked_fill(~b_mask_padded.bool().unsqueeze(0).unsqueeze(2), torch.finfo(scores.dtype).min)
+    scores = scores.max(dim=-1).values
+    # Query tokens are reduced with sum, so masked tokens simply contribute 0.
+    if a_mask_padded is not None:
+        scores = scores * a_mask_padded.unsqueeze(1)
+    return scores.sum(dim=-1)
+
+
+def maxsim_pairwise(
+    a: list | np.ndarray | Tensor,
+    b: list | np.ndarray | Tensor,
+    a_mask: Tensor | None = None,
+    b_mask: Tensor | None = None,
+) -> Tensor:
+    """
+    Computes the pairwise MaxSim (late-interaction) score between each query-document pair.
+
+    For each ``i``, computes the MaxSim score between ``a[i]`` and ``b[i]``: the sum over query tokens of the
+    maximum similarity to any document token. This is the pairwise analogue of :func:`maxsim`.
+
+    Args:
+        a (Union[list, np.ndarray, Tensor]): Query embeddings. Either a 3D tensor of shape
+            ``(batch, num_query_tokens, embedding_dim)`` (pre-padded) or a list of 2D tensors with
+            shape ``(num_query_tokens_i, embedding_dim)``.
+        b (Union[list, np.ndarray, Tensor]): Document embeddings. Either a 3D tensor of shape
+            ``(batch, num_doc_tokens, embedding_dim)`` or a list of 2D tensors with shape
+            ``(num_doc_tokens_i, embedding_dim)``.
+        a_mask (Tensor, optional): Boolean or float mask for query tokens, shape ``(batch, num_query_tokens)``.
+            Tokens with a 0 / False entry are excluded from the sum. Defaults to None (use all tokens).
+        b_mask (Tensor, optional): Boolean or float mask for document tokens, shape ``(batch, num_doc_tokens)``.
+            Tokens with a 0 / False entry are excluded from the max. Defaults to None (use all tokens).
+
+    Returns:
+        Tensor: Vector with ``res[i]`` = MaxSim(a[i], b[i]), shape ``(batch,)``.
+    """
+    if isinstance(a, list) or isinstance(b, list):
+        scores = []
+        for i in range(len(a)):
+            qi = _convert_to_tensor(a[i])
+            di = _convert_to_tensor(b[i])
+            score = torch.einsum("sh,th->st", qi, di)
+            if b_mask is not None:
+                score = score.masked_fill(
+                    ~_convert_to_tensor(b_mask[i]).bool().unsqueeze(0), torch.finfo(score.dtype).min
+                )
+            maxed = score.max(dim=-1).values
+            if a_mask is not None:
+                maxed = maxed * _convert_to_tensor(a_mask[i])
+            scores.append(maxed.sum())
+        return torch.stack(scores, dim=0)
+
+    a = _convert_to_tensor(a)
+    b = _convert_to_tensor(b)
+    scores = torch.einsum("bsh,bth->bst", a, b)
+    # Documents reduced with max (mask to dtype min so padding never wins); queries reduced with sum (mask to 0).
+    if b_mask is not None:
+        scores = scores.masked_fill(~b_mask.bool().unsqueeze(1), torch.finfo(scores.dtype).min)
+    scores = scores.max(dim=-1).values
+    if a_mask is not None:
+        scores = scores * a_mask
+    return scores.sum(dim=-1)
+
+
+def _pad_multi_vector_inputs(
+    inputs: list | np.ndarray | Tensor,
+    mask: Tensor | None,
+) -> tuple[Tensor, Tensor | None]:
+    """Pad a list of variable-length multi-vector tensors into a single 3D tensor with a mask.
+
+    Returns the padded tensor and either the user-provided mask or one derived from the input lengths.
+    """
+    if isinstance(inputs, list):
+        tensors = [_convert_to_tensor(t) for t in inputs]
+        lengths = torch.tensor([t.shape[0] for t in tensors])
+        padded = torch.nn.utils.rnn.pad_sequence(tensors, batch_first=True, padding_value=0)
+        if mask is None:
+            max_len = padded.shape[1]
+            mask = (torch.arange(max_len).unsqueeze(0) < lengths.unsqueeze(1)).to(padded.device, dtype=padded.dtype)
+        return padded, mask
+    return _convert_to_tensor(inputs), mask
+
+
 def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:
     """
     Computes the absolute normalized angle distance. See :class:`~sentence_transformers.sentence_transformer.losses.AnglELoss`
@@ -249,6 +369,8 @@ class SimilarityFunction(Enum):
     - ``SimilarityFunction.DOT_PRODUCT`` (``"dot"``, ``dot_product``): Dot product similarity
     - ``SimilarityFunction.EUCLIDEAN`` (``"euclidean"``): Euclidean distance
     - ``SimilarityFunction.MANHATTAN`` (``"manhattan"``): Manhattan distance
+    - ``SimilarityFunction.MAXSIM`` (``"MaxSim"``): Late-interaction MaxSim, used by
+      :class:`~sentence_transformers.MultiVectorEncoder` (ColBERT-style) models.
     """
 
     COSINE = "cosine"
@@ -256,6 +378,7 @@ class SimilarityFunction(Enum):
     DOT = "dot"  # Alias for DOT_PRODUCT
     EUCLIDEAN = "euclidean"
     MANHATTAN = "manhattan"
+    MAXSIM = "MaxSim"
 
     @staticmethod
     def to_similarity_fn(
@@ -290,6 +413,8 @@ class SimilarityFunction(Enum):
             return manhattan_sim
         if similarity_function == SimilarityFunction.EUCLIDEAN:
             return euclidean_sim
+        if similarity_function == SimilarityFunction.MAXSIM:
+            return maxsim
 
         raise ValueError(
             f"The provided function {similarity_function} is not supported. Use one of the supported values: {SimilarityFunction.possible_values()}."
@@ -331,6 +456,8 @@ class SimilarityFunction(Enum):
             return pairwise_manhattan_sim
         if similarity_function == SimilarityFunction.EUCLIDEAN:
             return pairwise_euclidean_sim
+        if similarity_function == SimilarityFunction.MAXSIM:
+            return maxsim_pairwise
 
         raise ValueError(
             f"The provided function {similarity_function} is not supported. Use one of the supported values: {SimilarityFunction.possible_values()}."

@@ -19,6 +19,12 @@ from sentence_transformers.cross_encoder import (
     CrossEncoderTrainer,
     CrossEncoderTrainingArguments,
 )
+from sentence_transformers.multi_vector_encoder import (
+    MultiVectorEncoder,
+    MultiVectorEncoderModelCardData,
+    MultiVectorEncoderTrainer,
+    MultiVectorEncoderTrainingArguments,
+)
 from sentence_transformers.sentence_transformer.datasets import ParallelSentencesDataset, SentencesDataset
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.model_card import SentenceTransformerModelCardData
@@ -66,6 +72,10 @@ __all__ = [
     "SparseEncoderTrainer",
     "SparseEncoderTrainingArguments",
     "SparseEncoderModelCardData",
+    "MultiVectorEncoder",
+    "MultiVectorEncoderTrainer",
+    "MultiVectorEncoderTrainingArguments",
+    "MultiVectorEncoderModelCardData",
     "quantize_embeddings",
     "export_optimized_onnx_model",
     "export_dynamic_quantized_onnx_model",
