@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import os
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import torch
 from torch import Tensor
 
 from sentence_transformers import CrossEncoder
@@ -1376,3 +1379,55 @@ def test_missing_negatives(
     assert len(result) < expected_max_count
     captured = capsys.readouterr()
     assert "Could not find enough negatives" in captured.out
+
+
+class ControlledNegativeScoreModel:
+    """Deterministic model whose anchor-positive score is negative, with a candidate negative
+    that is *more* similar to the anchor than the positive (see #3819)."""
+
+    device = torch.device("cpu")
+    model_card_data = SimpleNamespace(base_model="controlled-negative-score-model")
+
+    def __init__(self) -> None:
+        self.embeddings = {
+            "q": torch.tensor([1.0, 0.0]),
+            "p": torch.tensor([-0.50, math.sqrt(1 - 0.50**2)]),
+            "n_more_similar": torch.tensor([-0.49, math.sqrt(1 - 0.49**2)]),
+            "n_far": torch.tensor([-0.80, math.sqrt(1 - 0.80**2)]),
+        }
+
+    def encode_query(self, texts, **kwargs):
+        return torch.stack([self.embeddings[text] for text in texts]).numpy()
+
+    def encode_document(self, texts, **kwargs):
+        return torch.stack([self.embeddings[text] for text in texts]).numpy()
+
+    def similarity(self, queries, corpus):
+        return torch.as_tensor(queries, dtype=torch.float32) @ torch.as_tensor(corpus, dtype=torch.float32).T
+
+    def similarity_pairwise(self, queries, positives):
+        return (torch.as_tensor(queries, dtype=torch.float32) * torch.as_tensor(positives, dtype=torch.float32)).sum(
+            dim=1
+        )
+
+
+def test_relative_margin_with_negative_positive_score() -> None:
+    """`relative_margin` must not keep a negative that is more similar to the anchor than the
+    positive pair when the positive-pair score is negative (#3819)."""
+    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"]})
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=ControlledNegativeScoreModel(),
+        anchor_column_name="query",
+        positive_column_name="positive",
+        corpus=["p", "n_more_similar", "n_far"],
+        range_max=2,
+        relative_margin=0.05,
+        num_negatives=1,
+        output_scores=True,
+        verbose=False,
+    )
+    row = result[0]
+    positive_score, negative_score = row["scores"]
+    assert row["negative"] == "n_far"
+    assert negative_score < positive_score

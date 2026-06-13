@@ -80,8 +80,8 @@ def mine_hard_negatives(
       to the anchor is within a certain margin of the positive pair. A value of 0 can be used to enforce that the negative
       is always further away from the anchor than the positive.
     - **relative_margin**: Relative margin for hard negative mining: useful to skip candidate negatives whose similarity
-      to the anchor is within a certain margin of the positive pair. A value of 0.05 means that the negative is at most 95%
-      as similar to the anchor as the positive.
+      to the anchor is within a certain margin of the positive pair. A value of 0.05 requires the negative to be below
+      the positive by 5% of the positive score magnitude.
     - **sampling_strategy**: Sampling strategy for negatives: "top" or "random". "top" will always sample the top n
       candidates as negatives, while "random" will sample n negatives randomly from the candidates that satisfy the
       margin or max_score conditions.
@@ -95,7 +95,7 @@ def mine_hard_negatives(
             dataset = mine_hard_negatives(
                 dataset=dataset,
                 model=model,
-                relative_margin=0.05,         # 0.05 means that the negative is at most 95% as similar to the anchor as the positive
+                relative_margin=0.05,         # require the negative to be below the positive by 5% of the positive score magnitude
                 num_negatives=num_negatives,  # 10 or less is recommended
                 sampling_strategy="top",      # "top" means that we sample the top candidates as negatives
                 batch_size=batch_size,        # Adjust as needed
@@ -189,8 +189,8 @@ def mine_hard_negatives(
         absolute_margin (float, optional): Absolute margin for hard negative mining, i.e. the minimum distance between
             the positive similarity and the negative similarity. Defaults to None.
         relative_margin (float, optional): Relative margin for hard negative mining, i.e. the maximum ratio between
-            the positive similarity and the negative similarity. A value of 0.05 means that the negative is at most
-            95% as similar to the anchor as the positive. Defaults to None.
+            the positive similarity and the negative similarity. A value of 0.05 requires the negative to be below
+            the positive by 5% of the positive score magnitude. Defaults to None.
         num_negatives (int): Number of negatives to sample. Defaults to 3.
         sampling_strategy (Literal["random", "top"]): Sampling strategy for negatives: "top" or "random". Defaults to "top".
         query_prompt_name (Optional[str], optional): The name of a predefined prompt to use when encoding the first/anchor dataset column.
@@ -586,7 +586,10 @@ def mine_hard_negatives(
                 num_candidates -= num_skipped
 
         if relative_margin is not None:
-            removed_indices = scores > max_positive_scores.repeat(scores.size(1), 1).T * (1 - relative_margin)
+            # Subtract |positive| * margin rather than multiplying by (1 - margin): the latter is
+            # sign-dependent and raises the threshold for negative positive scores (#3819).
+            relative_threshold = max_positive_scores - max_positive_scores.abs() * relative_margin
+            removed_indices = scores > relative_threshold.repeat(scores.size(1), 1).T
             scores[removed_indices] = -float("inf")
 
             num_skipped = removed_indices.sum().item()
