@@ -586,7 +586,13 @@ def mine_hard_negatives(
                 num_candidates -= num_skipped
 
         if relative_margin is not None:
-            removed_indices = scores > max_positive_scores.repeat(scores.size(1), 1).T * (1 - relative_margin)
+            # Use a score-order threshold (positive - |positive| * relative_margin) rather than
+            # positive * (1 - relative_margin). The latter is sign-dependent: for a negative positive-pair
+            # score it raises the threshold (e.g. -0.50 -> -0.475), so negatives that are *more* similar than
+            # the positive can survive. Subtracting the absolute value always keeps the threshold below the
+            # positive while matching the previous behavior for positive scores.
+            relative_thresholds = max_positive_scores - max_positive_scores.abs() * relative_margin
+            removed_indices = scores > relative_thresholds.repeat(scores.size(1), 1).T
             scores[removed_indices] = -float("inf")
 
             num_skipped = removed_indices.sum().item()
