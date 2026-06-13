@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import os
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import torch
 from torch import Tensor
 
 from sentence_transformers import CrossEncoder
@@ -1376,3 +1379,66 @@ def test_missing_negatives(
     assert len(result) < expected_max_count
     captured = capsys.readouterr()
     assert "Could not find enough negatives" in captured.out
+
+
+class _ControlledModel:
+    """Minimal deterministic stand-in for a SentenceTransformer, used to exercise the
+    `relative_margin` threshold logic without downloading a model (see #3819)."""
+
+    device = torch.device("cpu")
+    model_card_data = SimpleNamespace(base_model="controlled-relative-margin")
+
+    def __init__(self, vecs: dict[str, Tensor]) -> None:
+        self.vecs = vecs
+
+    def encode_query(self, texts, **kwargs):
+        return torch.stack([self.vecs[t] for t in texts]).numpy()
+
+    def encode_document(self, texts, **kwargs):
+        return torch.stack([self.vecs[t] for t in texts]).numpy()
+
+    def similarity(self, queries, corpus):
+        return torch.as_tensor(queries, dtype=torch.float32) @ torch.as_tensor(corpus, dtype=torch.float32).T
+
+    def similarity_pairwise(self, queries, positives):
+        return (torch.as_tensor(queries, dtype=torch.float32) * torch.as_tensor(positives, dtype=torch.float32)).sum(
+            dim=1
+        )
+
+
+def test_relative_margin_negative_positive_score() -> None:
+    """Regression test for #3819: `relative_margin` must not keep negatives that are more similar to the
+    anchor than the positive pair when the positive-pair score is negative.
+
+    The positive-pair score here is -0.50. `n_more_similar` (score -0.49) is closer to the anchor than the
+    positive, so any non-zero `relative_margin` must drop it (just like `relative_margin=0.0`), leaving the
+    genuinely farther `n_far` (score -0.80). The previous `positive * (1 - relative_margin)` threshold raised
+    the cutoff to -0.475 for negative scores and wrongly kept `n_more_similar`.
+    """
+    vecs = {
+        "q": torch.tensor([1.0, 0.0]),
+        "p": torch.tensor([-0.50, math.sqrt(1 - 0.50**2)]),
+        "n_more_similar": torch.tensor([-0.49, math.sqrt(1 - 0.49**2)]),
+        "n_far": torch.tensor([-0.80, math.sqrt(1 - 0.80**2)]),
+    }
+    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"]})
+    corpus = ["p", "n_more_similar", "n_far"]
+
+    for relative_margin in [0.0, 0.05]:
+        mined = mine_hard_negatives(
+            dataset=dataset,
+            model=_ControlledModel(vecs),
+            anchor_column_name="query",
+            positive_column_name="positive",
+            corpus=corpus,
+            range_max=2,
+            num_negatives=1,
+            relative_margin=relative_margin,
+            output_scores=True,
+            verbose=False,
+        )
+        negatives = [row["negative"] for row in mined.to_list()]
+        assert negatives == ["n_far"], (
+            f"relative_margin={relative_margin} should drop the too-similar 'n_more_similar' "
+            f"and keep 'n_far', got {negatives}"
+        )
