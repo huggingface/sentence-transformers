@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 import torch
 
@@ -121,3 +123,58 @@ def test_positive_mask_protects_ce_target_column(simulate_rank1_world2, mini_bat
             f"each anchor's CE-target logit must survive masking, got {target_logits.tolist()}"
         )
     assert torch.isfinite(loss)
+
+
+def _make_relative_loss(margin: float) -> CachedGISTEmbedLoss:
+    """relative-margin CachedGISTEmbedLoss fed precomputed embeddings (#3819)."""
+    obj = CachedGISTEmbedLoss.__new__(CachedGISTEmbedLoss)
+    torch.nn.Module.__init__(obj)
+    obj.temperature = 0.01
+    obj.similarity_fct = torch.nn.CosineSimilarity(dim=-1)
+    obj.mini_batch_size = 32
+    obj.show_progress_bar = False
+    obj.margin_strategy = "relative"
+    obj.margin = margin
+    obj.contrast_anchors = False
+    obj.contrast_positives = False
+    obj.gather_across_devices = False
+    obj.cross_entropy_loss = torch.nn.CrossEntropyLoss()
+    return obj
+
+
+def _negative_score_reps():
+    """anchor0's positive has a negative cosine (-0.50); a non-paired candidate (column 1) is
+    *more* similar (-0.49). anchor1 is paired with that candidate (diagonal cosine 1.0)."""
+    a0 = [1.0, 0.0, 0.0]
+    p0 = [-0.50, math.sqrt(1 - 0.50**2), 0.0]  # cos(a0, p0) = -0.50
+    p1 = [-0.49, 0.0, math.sqrt(1 - 0.49**2)]  # cos(a0, p1) = -0.49 (more similar than the positive)
+    a1 = p1  # cos(a1, p1) = 1.0
+    anchors = torch.tensor([a0, a1])
+    positives = torch.tensor([p0, p1])
+    reps = [[anchors], [positives]]
+    reps_guided = [[anchors], [positives]]
+    return reps, reps_guided
+
+
+def test_relative_margin_negative_positive_score_suppresses_closer_negative():
+    """Regression for #3819 in CachedGISTEmbedLoss: with ``margin_strategy="relative"`` and a
+    negative positive-pair score, a candidate more similar to the anchor than the positive must
+    still be suppressed."""
+    loss_fn = _make_relative_loss(margin=0.05)
+
+    captured = []
+    real_ce = loss_fn.cross_entropy_loss
+
+    def capturing_ce(scores, labels):
+        captured.append(scores)
+        return real_ce(scores, labels)
+
+    del loss_fn.cross_entropy_loss
+    loss_fn.cross_entropy_loss = capturing_ce
+
+    loss = loss_fn.calculate_loss(*_negative_score_reps())
+
+    assert captured, "cross-entropy was never called"
+    scores = captured[0]
+    assert scores[0, 1].item() == float("-inf"), f"closer negative must be masked, got {scores[0, 1].item()}"
+    assert torch.isfinite(scores[0, 0]) and torch.isfinite(loss)

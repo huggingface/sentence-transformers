@@ -118,7 +118,7 @@ class CachedGISTEmbedLoss(nn.Module):
         the positive. Two strategies are supported:
 
             - "absolute": Discards negatives whose similarity score is greater than or equal to ``positive_score - margin``.
-            - "relative": Discards negatives whose similarity score is greater than or equal to ``positive_score * (1 - margin)``.
+            - "relative": Discards negatives whose similarity score is greater than or equal to ``positive_score - abs(positive_score) * margin``.
 
         Args:
             model: SentenceTransformer model
@@ -357,8 +357,8 @@ class CachedGISTEmbedLoss(nn.Module):
                     # Remove samples whose guided similarity is higher than (positive_sim - margin)
                     mask = guided_sim_mat > (guided_sim - self.margin)
                 elif self.margin_strategy == "relative":
-                    # Remove samples whose guided similarity is higher than (positive_sim * margin)
-                    mask = guided_sim_mat > (guided_sim * (1 - self.margin))
+                    # Remove samples whose guided similarity is higher than (positive_sim - |positive_sim| * margin)
+                    mask = guided_sim_mat > (guided_sim - guided_sim.abs() * self.margin)
 
                 if positive_mask is not None:
                     # Ensure true positive pairs are not masked out
