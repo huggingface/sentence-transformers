@@ -33,8 +33,8 @@ class GISTEmbedLoss(nn.Module):
         You can apply different false-negative filtering strategies to discard hard negatives that are too similar to
         the positive. Two strategies are supported:
 
-            - "absolute": Discards negatives whose similarity score is greater than or equal to ``positive_score - margin``.
-            - "relative": Discards negatives whose similarity score is greater than or equal to ``positive_score - abs(positive_score) * margin``.
+            - "absolute": Discards negatives whose similarity score is greater than ``positive_score - margin``.
+            - "relative": Discards negatives whose similarity score is greater than ``positive_score - abs(positive_score) * margin``.
 
         Args:
             model: SentenceTransformer model based on a `transformers` model.
