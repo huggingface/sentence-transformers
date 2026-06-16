@@ -830,7 +830,7 @@ def test_device_map_controls_placement(model_class: type, model_id: str) -> None
 def test_device_argument_warns_when_device_map_present(caplog: pytest.LogCaptureFixture) -> None:
     """Passing both ``device`` and a ``device_map`` should warn that ``device_map`` wins. See #3822."""
     model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-    with caplog.at_level(logging.WARNING, logger="sentence_transformers"):
+    with caplog.at_level(logging.WARNING, logger="sentence_transformers.base.model"):
         # device="cuda" is inert here (device_map controls placement), so this is safe without a GPU.
         model = SentenceTransformer(model_id, device="cuda", model_kwargs={"device_map": {"": "cpu"}})
     assert model.device.type == "cpu"
