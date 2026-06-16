@@ -330,7 +330,7 @@ The strongest CrossEncoder models are generally trained to recognize hard negati
         range_max=100,  # Consider only the x most similar samples
         max_score=0.8,  # Only consider samples with a similarity score of at most x
         absolute_margin=0.1,  # Anchor-negative similarity is at least x lower than anchor-positive similarity
-        relative_margin=0.1,  # Anchor-negative similarity is at most 1-x times the anchor-positive similarity, e.g. 90%
+        relative_margin=0.1,  # Anchor-negative similarity is below anchor-positive similarity by at least x of its magnitude, e.g. 10%
         sampling_strategy="top",  # Sample the top negatives from the range
         batch_size=4096,  # Use a batch size of 4096 for the embedding model
         output_format="labeled-pair",  # The output format is (query, passage, label), as required by BinaryCrossEntropyLoss
