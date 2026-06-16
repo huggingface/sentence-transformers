@@ -435,9 +435,9 @@ def quantize_embeddings(
             return ((embeddings - starts) / steps - 128).astype(np.int8)
 
     if precision == "binary":
-        return (np.packbits(embeddings > 0).reshape(embeddings.shape[0], -1) - 128).astype(np.int8)
+        return (np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1) - 128).astype(np.int8)
 
     if precision == "ubinary":
-        return np.packbits(embeddings > 0).reshape(embeddings.shape[0], -1)
+        return np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1)
 
     raise ValueError(f"Precision {precision!r} is not supported")
