@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 import warnings
 from collections import UserDict
 from pathlib import Path
@@ -804,6 +805,71 @@ def test_device_property(stsb_bert_tiny_model: SentenceTransformer) -> None:
     dev = stsb_bert_tiny_model.device
     assert isinstance(dev, torch.device)
     assert dev.type in ("cpu", "cuda")
+
+
+@pytest.mark.parametrize(
+    "model_class, model_id",
+    [
+        (SentenceTransformer, "sentence-transformers-testing/stsb-bert-tiny-safetensors"),
+        (CrossEncoder, "cross-encoder-testing/reranker-bert-tiny-gooaq-bce"),
+        (SparseEncoder, "sparse-encoder-testing/inference-free-splade-bert-tiny-nq"),
+    ],
+)
+def test_device_map_controls_placement(model_class: type, model_id: str) -> None:
+    """A ``device_map`` in ``model_kwargs`` must control placement and not be overridden by the
+    auto-detected ``device``. Previously the unconditional ``self.to(device)`` would e.g. pull a
+    ``device_map="cuda:1"`` model back onto ``cuda:0``. The fix lives in the shared base, so this is
+    checked for every model family. See #3822."""
+    # device_map pins the backbone to CPU. Even when a GPU is present (so the auto-detected device
+    # would be cuda), the device_map must win and nothing should be moved to cuda.
+    model = model_class(model_id, model_kwargs={"device_map": {"": "cpu"}})
+    assert model.transformers_model.device.type == "cpu"
+    assert all(param.device.type == "cpu" for param in model.parameters())
+
+
+def test_device_argument_warns_when_device_map_present(caplog: pytest.LogCaptureFixture) -> None:
+    """Passing both ``device`` and a ``device_map`` should warn that ``device_map`` wins. See #3822."""
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    with caplog.at_level(logging.WARNING, logger="sentence_transformers"):
+        # device="cuda" is inert here (device_map controls placement), so this is safe without a GPU.
+        model = SentenceTransformer(model_id, device="cuda", model_kwargs={"device_map": {"": "cpu"}})
+    assert model.device.type == "cpu"
+    assert "device_map" in caplog.text and "ignored" in caplog.text
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+def test_device_map_aligns_auxiliary_modules_to_backbone() -> None:
+    """With a ``device_map`` placing the backbone on a GPU, separately-loaded modules (e.g. Dense,
+    which load on CPU) must be moved onto the backbone's device, else the forward pass mismatches."""
+    from sentence_transformers.sentence_transformer.modules import Dense, Pooling, Transformer
+
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    transformer = Transformer(model_id)
+    dim = transformer.get_embedding_dimension()
+    model = SentenceTransformer(modules=[transformer, Pooling(dim), Dense(dim, 64)], device="cpu")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        model.save(tmp_dir)
+        reloaded = SentenceTransformer(tmp_dir, model_kwargs={"device_map": {"": 0}})
+
+    for param in reloaded.parameters():
+        assert param.device.type == "cuda"
+    # A cross-device mismatch would raise here.
+    assert reloaded.encode("hello world").shape == (64,)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+def test_device_map_ignored_for_prebuilt_modules() -> None:
+    """``device_map`` only applies when loading from a name (via ``from_pretrained``). With pre-built
+    ``modules`` it is inert, so it must not suppress the usual ``self.to(device)`` and strand the model."""
+    from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    transformer = Transformer(model_id)  # loads on CPU
+    pooling = Pooling(transformer.get_embedding_dimension())
+    # device defaults to the auto-detected GPU. The stray device_map must not prevent the move there.
+    model = SentenceTransformer(modules=[transformer, pooling], model_kwargs={"device_map": {"": "cpu"}})
+    assert model.device.type == "cuda"
 
 
 def test_get_max_seq_length(stsb_bert_tiny_model: SentenceTransformer) -> None:

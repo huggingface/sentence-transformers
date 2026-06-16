@@ -107,7 +107,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used
                 to create custom models from scratch. Defaults to None.
             device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used
-                for computation. If None, checks if a GPU can be used. Defaults to None.
+                for computation. If None, checks if a GPU can be used. If a ``device_map`` is provided via
+                ``model_kwargs``, that controls device placement and this argument is ignored. Defaults to None.
             prompts (dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt
                 name, the value is the prompt text. The prompt text will be prepended before any text during inference.
                 For example: ``{"query": "query: ", "passage": "passage: "}``. If a model has saved prompts, you
@@ -136,7 +137,10 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                   ``"sdpa"``, or ``"flash_attention_2"``. If you ``pip install kernels``, then
                   ``"flash_attention_2"`` should work without having to install ``flash_attn``. It is
                   frequently the fastest option. Defaults to ``"sdpa"`` when available (torch>=2.1.1).
-                - ``device_map``: Device map for model parallelism, e.g. ``"auto"``.
+                - ``device_map``: Controls how the model is placed across devices, e.g. ``"auto"`` for
+                  model parallelism, or a single device like ``"cuda:1"`` to load the backbone directly
+                  onto one GPU (useful when serving multiple models in one process). When set, it takes
+                  precedence over the ``device`` argument.
                 - ``provider``: For ``backend="onnx"``, the ONNX execution provider
                   (e.g. ``"CUDAExecutionProvider"``).
                 - ``file_name``: For ``backend="onnx"`` or ``"openvino"``, the filename to load
@@ -177,10 +181,18 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         if cache_folder is None:
             cache_folder = os.getenv("SENTENCE_TRANSFORMERS_HOME")
 
-        # Determine device
-        if device is None:
+        # A `device_map` in `model_kwargs` makes accelerate control placement (not `device`), so we detect it
+        # here to skip the `self.to(device)` below that would otherwise pull a `device_map="cuda:1"` model to cuda:0.
+        device_map = (model_kwargs or {}).get("device_map") if (backend == "torch" and model_name_or_path) else None
+        device_provided = device is not None
+        if device is None and device_map is None:
             device = get_device_name()
             logger.info(f"No device provided, using {device}")
+        elif device_provided and device_map is not None:
+            logger.warning(
+                "Both `device` and `model_kwargs['device_map']` were provided. `device_map` controls "
+                "device placement, so the `device` argument is ignored."
+            )
 
         if device == "hpu" and importlib.util.find_spec("optimum") is not None:
             from optimum.habana.transformers.modeling_utils import adapt_transformers_to_gaudi
@@ -233,7 +245,14 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             for module in list(self.children())[1:]:
                 module.to(first_dtype)
 
-        self.to(device)
+        if device_map is not None:
+            # accelerate already placed the backbone, so leave it untouched and only move the remaining
+            # modules (Pooling, Dense, etc.) onto its device to keep the forward pass on one device.
+            backbone_device = self.device
+            for module in list(self.children())[1:]:
+                module.to(backbone_device)
+        else:
+            self.to(device)
         self.is_hpu_graph_enabled = False
 
         # Validate prompts after model loading (which may have merged config prompts)

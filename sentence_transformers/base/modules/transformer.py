@@ -515,7 +515,8 @@ class Transformer(InputModule):
               ``"sdpa"``, or ``"flash_attention_2"``. If you ``pip install kernels``, then
               ``"flash_attention_2"`` should work without having to install ``flash_attn``. It is
               frequently the fastest option. Defaults to ``"sdpa"`` when available (torch>=2.1.1).
-            - ``device_map``: Device map for model parallelism, e.g. ``"auto"``.
+            - ``device_map``: Controls how the model is placed across devices, e.g. ``"auto"`` for
+              model parallelism, or a single device like ``"cuda:1"`` to load the backbone directly onto one GPU.
             - ``provider``: For ``backend="onnx"``, the ONNX execution provider
               (e.g. ``"CUDAExecutionProvider"``).
             - ``file_name``: For ``backend="onnx"`` or ``"openvino"``, the filename to load
