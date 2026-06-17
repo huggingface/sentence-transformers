@@ -7,6 +7,7 @@ from .environment import (
     get_device_name,
     is_accelerate_available,
     is_datasets_available,
+    is_dist_initialized,
     is_training_available,
 )
 from .file_io import disabled_tqdm, http_get, is_sentence_transformer_model, load_dir_path, load_file_path
@@ -67,6 +68,7 @@ __all__ = [
     "check_package_availability",
     "is_accelerate_available",
     "is_datasets_available",
+    "is_dist_initialized",
     "is_training_available",
     # From file_io.py
     "is_sentence_transformer_model",

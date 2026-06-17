@@ -29,8 +29,8 @@ def test_classifier_dropout_is_set() -> None:
     assert model.model.config.classifier_dropout == 0.1234
 
 
-def test_classifier_dropout_default_value() -> None:
-    model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
+def test_classifier_dropout_default_value(reranker_bert_tiny_model: CrossEncoder) -> None:
+    model = reranker_bert_tiny_model
     assert model.config.classifier_dropout is None
     assert model.model.config.classifier_dropout is None
 
@@ -99,8 +99,8 @@ def test_rank(return_documents: bool, request: FixtureRequest) -> None:
     assert pred_ranking == expected_ranking
 
 
-def test_rank_multiple_labels():
-    model = CrossEncoder("cross-encoder/nli-MiniLM2-L6-H768")
+def test_rank_multiple_labels(nli_minilm_model: CrossEncoder):
+    model = nli_minilm_model
     with pytest.raises(
         ValueError,
         match=re.escape(
@@ -118,8 +118,8 @@ def test_rank_multiple_labels():
         )
 
 
-def test_predict_softmax():
-    model = CrossEncoder("cross-encoder/nli-MiniLM2-L6-H768")
+def test_predict_softmax(nli_minilm_model: CrossEncoder):
+    model = nli_minilm_model
     query = "A man is eating pasta."
 
     # With all sentences in the corpus
@@ -135,11 +135,9 @@ def test_predict_softmax():
     assert not torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
 
 
-@pytest.mark.parametrize(
-    "model_name", ["cross-encoder-testing/reranker-bert-tiny-gooaq-bce", "cross-encoder/nli-MiniLM2-L6-H768"]
-)
-def test_predict_single_input(model_name: str):
-    model = CrossEncoder(model_name)
+@pytest.mark.parametrize("model_fixture", ["reranker_bert_tiny_model", "nli_minilm_model"])
+def test_predict_single_input(model_fixture: str, request: FixtureRequest):
+    model = request.getfixturevalue(model_fixture)
     nested_pair_score = model.predict([["A man is eating pasta.", "A man is eating food."]])
     assert isinstance(nested_pair_score, np.ndarray)
     if model.num_labels == 1:
@@ -245,8 +243,10 @@ def test_empty_predict(reranker_bert_tiny_model: CrossEncoder, convert_to_numpy:
 
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
 @pytest.mark.parametrize("convert_to_numpy", [True, False])
-def test_predict_output_types(convert_to_tensor: bool, convert_to_numpy: bool) -> None:
-    model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
+def test_predict_output_types(
+    reranker_bert_tiny_model: CrossEncoder, convert_to_tensor: bool, convert_to_numpy: bool
+) -> None:
+    model = reranker_bert_tiny_model
     embeddings = model.predict(
         [["One sentence", "Another sentence"]],
         convert_to_tensor=convert_to_tensor,
@@ -264,9 +264,9 @@ def test_predict_output_types(convert_to_tensor: bool, convert_to_numpy: bool) -
 
 
 @pytest.mark.parametrize("safe_serialization", [True, False, None])
-def test_safe_serialization(safe_serialization: bool) -> None:
+def test_safe_serialization(reranker_bert_tiny_model: CrossEncoder, safe_serialization: bool) -> None:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache_folder:
-        model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce")
+        model = reranker_bert_tiny_model
         if safe_serialization:
             model.save_pretrained(cache_folder, safe_serialization=safe_serialization)
             model_files = list(Path(cache_folder).glob("**/model.safetensors"))

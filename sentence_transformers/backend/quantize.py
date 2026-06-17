@@ -190,7 +190,7 @@ def export_static_quantized_openvino_model(
     def preprocess_function(examples):
         return model.tokenizer(examples, padding="max_length", max_length=384, truncation=True)
 
-    dataset_name = dataset_name if dataset_name is not None else "glue"
+    dataset_name = dataset_name if dataset_name is not None else "nyu-mll/glue"
     dataset_config_name = dataset_config_name if dataset_config_name is not None else "sst2"
     dataset_split = dataset_split if dataset_split is not None else "train"
     column_name = column_name if column_name is not None else "sentence"

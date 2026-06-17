@@ -65,6 +65,7 @@ def dummy_dataset():
                 " | <code>anchor 1</code> | <code>positive 1</code> | <code>negative 1</code> |",
                 "* Loss: [<code>GISTEmbedLoss</code>](https://sbert.net/docs/package_reference/sentence_transformer/losses.html#gistembedloss) with these parameters:",
                 '  ```json\n  {\n      "guide": "SentenceTransformer(\'sentence-transformers-testing/stsb-bert-tiny-safetensors\', trust_remote_code=True)",\n      "temperature": 0.05,\n      "margin_strategy": "relative",\n      "margin": 0.05,\n      "contrast_anchors": true,\n      "contrast_positives": true,\n      "gather_across_devices": false\n  }\n  ```',
+                "- [Training and Finetuning Embedding Models with Sentence Transformers](https://huggingface.co/blog/train-sentence-transformers): the end-to-end guide for training or finetuning Sentence Transformer models.",
             ],
         ),
         (

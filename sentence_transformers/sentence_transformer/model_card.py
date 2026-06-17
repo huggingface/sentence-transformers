@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import field
-from typing import Any
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import torch
 from typing_extensions import deprecated
@@ -9,11 +10,15 @@ from typing_extensions import deprecated
 from sentence_transformers.base.model_card import BaseModelCardCallback, BaseModelCardData
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 
+if TYPE_CHECKING:
+    from sentence_transformers.sentence_transformer.model import SentenceTransformer
+
 
 class SentenceTransformerModelCardCallback(BaseModelCardCallback):
     pass
 
 
+@dataclass
 class SentenceTransformerModelCardData(BaseModelCardData):
     """A dataclass storing data used in the model card.
 
@@ -69,6 +74,12 @@ class SentenceTransformerModelCardData(BaseModelCardData):
             "dense",
         ]
     )
+
+    # Computed once, always unchanged
+    template_path: Path = field(default=Path(__file__).parent / "model_card_template.md", init=False, repr=False)
+
+    # Passed via `register_model` only
+    model: SentenceTransformer | None = field(default=None, init=False, repr=False)
 
     def try_to_set_base_model(self):
         super().try_to_set_base_model()

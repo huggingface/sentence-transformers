@@ -101,6 +101,13 @@ def import_module_class(
     ``model_name_or_path`` resolves to a local directory (i.e. the user already has the
     file on disk and is implicitly trusted).
 
+    .. deprecated:: 5.6
+        The implicit trust of local directories is deprecated and will be removed in v6.0.
+        From v6.0, loading repository-local custom code will require ``trust_remote_code=True``,
+        matching the behavior for models loaded from the Hugging Face Hub. A ``FutureWarning`` is
+        emitted whenever a local model is loaded via this short-circuit without
+        ``trust_remote_code=True``.
+
     Args:
         class_ref: Dotted class path. Either a fully-qualified ``sentence_transformers.*``
             path or a repository-local reference like ``modeling_<name>.<ClassName>``.
@@ -125,7 +132,7 @@ def import_module_class(
         from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
         try:
-            return get_class_from_dynamic_module(
+            module_class = get_class_from_dynamic_module(
                 class_ref,
                 model_name_or_path,
                 revision=revision,
@@ -137,6 +144,18 @@ def import_module_class(
         except (OSError, ValueError):
             # 1) the file does not exist, or 2) the class_ref is not correctly formatted/found
             pass
+        else:
+            # TODO(v6.0): remove the `or os.path.exists(model_name_or_path)` short-circuit above
+            # and this warning, requiring trust_remote_code for local custom code (#3801).
+            if not trust_remote_code:
+                warnings.warn(
+                    f"Loading custom module {class_ref!r} from local path {model_name_or_path!r} without "
+                    f"`trust_remote_code=True` is deprecated. It will require `trust_remote_code=True` from "
+                    f"Sentence Transformers v6.0.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
+            return module_class
 
     return import_from_string(class_ref)
 

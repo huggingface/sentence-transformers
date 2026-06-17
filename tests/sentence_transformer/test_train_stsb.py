@@ -9,7 +9,7 @@ import tempfile
 from collections.abc import Generator
 
 import pytest
-from datasets import Dataset, load_dataset
+from datasets import Dataset, DatasetDict, load_dataset
 
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
@@ -22,12 +22,6 @@ if not is_training_available():
         reason='Sentence Transformers was not installed with the `["train"]` extra.',
         allow_module_level=True,
     )
-
-
-@pytest.fixture()
-def sts_resource() -> Generator[tuple[Dataset, Dataset], None, None]:
-    sts_dataset = load_dataset("sentence-transformers/stsb")
-    yield sts_dataset["train"], sts_dataset["test"]
 
 
 @pytest.fixture()
@@ -56,11 +50,10 @@ def evaluate_stsb_test(model: SentenceTransformer, expected_score: float, test_d
 @pytest.mark.skipif(
     not is_training_available(), reason='Sentence Transformers was not installed with the `["train"]` extra.'
 )
-def test_train_stsb_slow(
-    distilbert_base_uncased_model: SentenceTransformer, sts_resource: tuple[Dataset, Dataset]
-) -> None:
+def test_train_stsb_slow(distilbert_base_uncased_model: SentenceTransformer, stsb_dataset_dict: DatasetDict) -> None:
     model = distilbert_base_uncased_model
-    train_dataset, test_dataset = sts_resource
+    train_dataset = stsb_dataset_dict["train"]
+    test_dataset = stsb_dataset_dict["test"]
     train_loss = CosineSimilarityLoss(model=model)
     with tempfile.TemporaryDirectory() as tmp_dir:
         args = SentenceTransformerTrainingArguments(
@@ -83,10 +76,10 @@ def test_train_stsb_slow(
 @pytest.mark.skipif(
     not is_training_available(), reason='Sentence Transformers was not installed with the `["train"]` extra.'
 )
-def test_train_stsb(distilbert_base_uncased_model: SentenceTransformer, sts_resource: tuple[Dataset, Dataset]) -> None:
+def test_train_stsb(distilbert_base_uncased_model: SentenceTransformer, stsb_dataset_dict: DatasetDict) -> None:
     model = distilbert_base_uncased_model
-    train_dataset, test_dataset = sts_resource
-    train_dataset = train_dataset.select(range(100))
+    train_dataset = stsb_dataset_dict["train"].select(range(100))
+    test_dataset = stsb_dataset_dict["test"]
     train_loss = CosineSimilarityLoss(model=model)
     with tempfile.TemporaryDirectory() as tmp_dir:
         args = SentenceTransformerTrainingArguments(
@@ -110,10 +103,10 @@ def test_train_stsb(distilbert_base_uncased_model: SentenceTransformer, sts_reso
     not is_training_available(), reason='Sentence Transformers was not installed with the `["train"]` extra.'
 )
 def test_train_nli_slow(
-    distilbert_base_uncased_model: SentenceTransformer, nli_resource: Dataset, sts_resource: tuple[Dataset, Dataset]
+    distilbert_base_uncased_model: SentenceTransformer, nli_resource: Dataset, stsb_dataset_dict: DatasetDict
 ) -> None:
     model = distilbert_base_uncased_model
-    _, test_dataset = sts_resource
+    test_dataset = stsb_dataset_dict["test"]
     train_loss = SoftmaxLoss(
         model=model,
         embedding_dimension=model.get_embedding_dimension(),
@@ -141,10 +134,10 @@ def test_train_nli_slow(
     not is_training_available(), reason='Sentence Transformers was not installed with the `["train"]` extra.'
 )
 def test_train_nli(
-    distilbert_base_uncased_model: SentenceTransformer, nli_resource: Dataset, sts_resource: tuple[Dataset, Dataset]
+    distilbert_base_uncased_model: SentenceTransformer, nli_resource: Dataset, stsb_dataset_dict: DatasetDict
 ) -> None:
     model = distilbert_base_uncased_model
-    _, test_dataset = sts_resource
+    test_dataset = stsb_dataset_dict["test"]
     train_dataset = nli_resource.select(range(100))
     train_loss = SoftmaxLoss(
         model=model,

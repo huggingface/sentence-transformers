@@ -43,7 +43,8 @@ class SparseEncoder(BaseModel):
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
             create custom SparseEncoder models from scratch. Defaults to None.
         device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used for
-            computation. If None, checks if a GPU can be used. Defaults to None.
+            computation. If None, checks if a GPU can be used. If a ``device_map`` is provided via
+            ``model_kwargs``, that controls device placement and this argument is ignored. Defaults to None.
         prompts (dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt name,
             the value is the prompt text. The prompt text will be prepended before any text to encode. For example:
             ``{"query": "query: ", "passage": "passage: "}``. If a model has saved prompts, you can override
@@ -72,7 +73,10 @@ class SparseEncoder(BaseModel):
               ``"sdpa"``, or ``"flash_attention_2"``. If you ``pip install kernels``, then
               ``"flash_attention_2"`` should work without having to install ``flash_attn``. It is
               frequently the fastest option. Defaults to ``"sdpa"`` when available (torch>=2.1.1).
-            - ``device_map``: Device map for model parallelism, e.g. ``"auto"``.
+            - ``device_map``: Controls how the model is placed across devices, e.g. ``"auto"`` for
+              model parallelism, or a single device like ``"cuda:1"`` to load the backbone directly
+              onto one GPU (useful when serving multiple models in one process). When set, it takes
+              precedence over the ``device`` argument.
             - ``provider``: For ``backend="onnx"``, the ONNX execution provider
               (e.g. ``"CUDAExecutionProvider"``).
             - ``file_name``: For ``backend="onnx"`` or ``"openvino"``, the filename to load
@@ -1035,8 +1039,11 @@ class SparseEncoder(BaseModel):
                 "sparsity_ratio": 1.0,
             }
 
-        # CSR gives O(1) per-row non-zero counts via crow_indices
-        embeddings = embeddings.to_sparse_csr()
+        # CSR gives O(1) per-row non-zero counts via crow_indices, and fall back to CPU for MPS.
+        try:
+            embeddings = embeddings.to_sparse_csr()
+        except NotImplementedError:
+            embeddings = embeddings.cpu().to_sparse_csr()
         crow_indices = embeddings.crow_indices()
         non_zero_per_row = crow_indices[1:] - crow_indices[:-1]
 
@@ -1216,8 +1223,9 @@ class SparseEncoder(BaseModel):
                 If ``None``, all non-zero tokens are returned. Must be positive. Defaults to ``None``.
 
         Returns:
-            list[tuple[str, float]]: If the input is 1D, a list of ``(token, weight)`` tuples.
-            list[list[tuple[str, float]]]: If the input is 2D, a list (one per sample)
+            list[tuple[str, float]] | list[list[tuple[str, float]]]:
+                If the input is 1D, a list of ``(token, weight)`` tuples.
+                If the input is 2D, a list (one per sample)
                 of lists of ``(token, weight)`` tuples.
         """
         if top_k is not None and top_k <= 0:

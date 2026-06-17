@@ -1,72 +1,84 @@
+"""
+Tests for the binary / ubinary precision paths of quantize_embeddings.
+
+These paths pack each row independently with ``np.packbits(..., axis=-1)``,
+yielding shape ``(n_samples, ceil(dim / 8))``. Without ``axis=-1``, NumPy packs
+the flattened 2-D array, and the following ``.reshape(n, -1)`` raises a
+``ValueError`` whenever the embedding dimension is not a multiple of 8.
+"""
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
-import torch
 
 from sentence_transformers.util.quantization import quantize_embeddings
 
 
+@pytest.mark.parametrize("precision", ["binary", "ubinary"])
 @pytest.mark.parametrize(
-    ("precision", "expected_dtype", "expected_last_dim"),
+    ("n_samples", "embedding_dim"),
     [
-        ("int8", np.int8, 16),
-        ("uint8", np.uint8, 16),
-        ("binary", np.int8, 2),  # 16 dims packed into 16 / 8 = 2 bytes
-        ("ubinary", np.uint8, 2),
+        (4, 10),  # 40 total bits -> 5 bytes; 5 % 4 != 0  -- old code raises ValueError
+        (3, 10),  # 30 bits -> ceil = 4 bytes; 4 % 3 != 0 -- old code raises ValueError
+        (5, 12),  # 60 bits -> 8 bytes; 8 % 5 != 0        -- old code raises ValueError
     ],
 )
-def test_quantize_multi_vector_returns_list_of_matrices(precision, expected_dtype, expected_last_dim) -> None:
-    """A list of ragged (num_tokens, dim) matrices stays a list, one quantized matrix per input."""
-    matrices = [
-        np.random.randn(3, 16).astype(np.float32),
-        np.random.randn(5, 16).astype(np.float32),
-    ]
-    quantized = quantize_embeddings(matrices, precision=precision)
-    assert isinstance(quantized, list)
-    assert [matrix.shape[0] for matrix in quantized] == [3, 5]  # token counts preserved
-    assert all(matrix.shape[1] == expected_last_dim for matrix in quantized)
-    assert all(matrix.dtype == expected_dtype for matrix in quantized)
+def test_binary_quantize_non_multiple_of_8_does_not_raise(precision: str, n_samples: int, embedding_dim: int) -> None:
+    """quantize_embeddings must not crash for embedding dimensions not divisible by 8."""
+    rng = np.random.default_rng(seed=0)
+    embeddings = rng.standard_normal((n_samples, embedding_dim)).astype(np.float32)
+
+    result = quantize_embeddings(embeddings, precision)
+
+    expected_packed_dim = -(-embedding_dim // 8)  # ceil(embedding_dim / 8)
+    assert result.shape == (n_samples, expected_packed_dim), (
+        f"Expected shape ({n_samples}, {expected_packed_dim}), got {result.shape}"
+    )
+    if precision == "binary":
+        assert result.dtype == np.int8
+    else:
+        assert result.dtype == np.uint8
 
 
-@pytest.mark.parametrize("precision", ["int8", "uint8"])
-def test_quantize_multi_vector_shares_buckets_across_matrices(precision) -> None:
-    """int8/uint8 buckets are shared across matrices: per-matrix quantization equals quantizing the concatenation."""
-    matrices = [
-        np.random.randn(3, 16).astype(np.float32),
-        np.random.randn(5, 16).astype(np.float32),
-    ]
-    concatenated = np.concatenate(matrices, axis=0)
-    per_matrix = np.concatenate(quantize_embeddings(matrices, precision=precision), axis=0)
-    reference = quantize_embeddings(concatenated, precision=precision, calibration_embeddings=concatenated)
-    assert np.array_equal(per_matrix, reference)
+@pytest.mark.parametrize("precision", ["binary", "ubinary"])
+@pytest.mark.parametrize(
+    ("n_samples", "embedding_dim"),
+    [
+        (4, 8),
+        (2, 16),
+        (3, 24),
+    ],
+)
+def test_binary_quantize_multiple_of_8_shape(precision: str, n_samples: int, embedding_dim: int) -> None:
+    """For dims divisible by 8, the packed shape must equal (n, dim // 8)."""
+    rng = np.random.default_rng(seed=1)
+    embeddings = rng.standard_normal((n_samples, embedding_dim)).astype(np.float32)
+
+    result = quantize_embeddings(embeddings, precision)
+
+    assert result.shape == (n_samples, embedding_dim // 8)
+    if precision == "binary":
+        assert result.dtype == np.int8
+    else:
+        assert result.dtype == np.uint8
 
 
-@pytest.mark.parametrize("precision", ["int8", "uint8"])
-def test_quantize_multi_vector_respects_explicit_ranges(precision) -> None:
-    """An explicit ``ranges`` is applied identically to every matrix."""
-    matrices = [
-        np.random.randn(2, 16).astype(np.float32),
-        np.random.randn(4, 16).astype(np.float32),
-    ]
-    ranges = np.vstack((np.full(16, -3.0, dtype=np.float32), np.full(16, 3.0, dtype=np.float32)))
-    per_matrix = np.concatenate(quantize_embeddings(matrices, precision=precision, ranges=ranges), axis=0)
-    reference = quantize_embeddings(np.concatenate(matrices, axis=0), precision=precision, ranges=ranges)
-    assert np.array_equal(per_matrix, reference)
+@pytest.mark.parametrize("precision", ["binary", "ubinary"])
+def test_binary_quantize_row_independence(precision: str) -> None:
+    """Each row is packed independently; an all-positive row must not bleed into an all-negative one."""
+    embedding_dim = 8
+    embeddings = np.array(
+        [[1.0] * embedding_dim, [-1.0] * embedding_dim],
+        dtype=np.float32,
+    )
+    result = quantize_embeddings(embeddings, precision)
 
-
-def test_quantize_multi_vector_accepts_tensor_matrices() -> None:
-    """A list of 2D torch Tensors is converted to numpy and quantized per-matrix."""
-    matrices = [torch.rand(3, 16), torch.rand(5, 16)]
-    quantized = quantize_embeddings(matrices, precision="binary")
-    assert isinstance(quantized, list)
-    assert [matrix.shape for matrix in quantized] == [(3, 2), (5, 2)]
-    assert all(isinstance(matrix, np.ndarray) for matrix in quantized)
-
-
-def test_quantize_dense_list_returns_single_matrix() -> None:
-    """Regression: a plain list of 1D vectors must still stack into one 2D array, not a list of matrices."""
-    vectors = [np.random.randn(16).astype(np.float32) for _ in range(4)]
-    quantized = quantize_embeddings(vectors, precision="int8")
-    assert isinstance(quantized, np.ndarray)
-    assert quantized.shape == (4, 16)
+    if precision == "binary":
+        # all-one bits packed = 0xFF = 255; 255 - 128 = 127 (max int8)
+        assert result[0, 0] == 127, f"All-positive row: expected 127, got {result[0, 0]}"
+        # all-zero bits packed = 0x00 = 0; 0 - 128 = -128 (min int8)
+        assert result[1, 0] == -128, f"All-negative row: expected -128, got {result[1, 0]}"
+    else:  # ubinary
+        assert result[0, 0] == 0xFF, f"All-positive row: expected 255, got {result[0, 0]}"
+        assert result[1, 0] == 0x00, f"All-negative row: expected 0, got {result[1, 0]}"

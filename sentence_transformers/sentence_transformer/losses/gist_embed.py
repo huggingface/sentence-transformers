@@ -9,7 +9,7 @@ from transformers import PreTrainedTokenizerBase
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import all_gather_with_grad
+from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
 
 
 class GISTEmbedLoss(nn.Module):
@@ -33,8 +33,8 @@ class GISTEmbedLoss(nn.Module):
         You can apply different false-negative filtering strategies to discard hard negatives that are too similar to
         the positive. Two strategies are supported:
 
-            - "absolute": Discards negatives whose similarity score is greater than or equal to ``positive_score - margin``.
-            - "relative": Discards negatives whose similarity score is greater than or equal to ``positive_score * (1 - margin)``.
+            - "absolute": Discards negatives whose similarity score is greater than ``positive_score - margin``.
+            - "relative": Discards negatives whose similarity score is greater than ``positive_score - abs(positive_score) * margin``.
 
         Args:
             model: SentenceTransformer model based on a `transformers` model.
@@ -182,7 +182,7 @@ class GISTEmbedLoss(nn.Module):
                 negative_guide = all_gather_with_grad(negative_guide)
             # All have this shape: (batch_size * world_size * (1 + num_negatives), embedding_dim)
 
-            if torch.distributed.is_initialized():
+            if is_dist_initialized():
                 rank = torch.distributed.get_rank()
                 offset = rank * batch_size
 
@@ -199,8 +199,8 @@ class GISTEmbedLoss(nn.Module):
                 # Remove samples whose guided similarity is higher than (positive_sim - margin)
                 mask = guided_sim_mat > (guided_sim - self.margin)
             elif self.margin_strategy == "relative":
-                # Remove samples whose guided similarity is higher than (positive_sim * margin)
-                mask = guided_sim_mat > (guided_sim * (1 - self.margin))
+                # Remove samples whose guided similarity is higher than (positive_sim - |positive_sim| * margin)
+                mask = guided_sim_mat > (guided_sim - guided_sim.abs() * self.margin)
 
             if positive_mask is not None:
                 # Ensure true positive pairs are not masked out
@@ -208,8 +208,11 @@ class GISTEmbedLoss(nn.Module):
             sim_mat[mask] = -torch.inf
             return sim_mat
 
-        # Create a mask to protect true positive pairs in the anchor-positive matrix (i.e., diagonal elements)
-        positive_mask = torch.eye(*guided_ap_sim.shape, dtype=torch.bool, device=guided_ap_sim.device)
+        # Protect each anchor's true positive from false-negative suppression using the same
+        # gathered column index as the CE target.
+        positive_mask = torch.zeros_like(guided_ap_sim, dtype=torch.bool)
+        rows = torch.arange(guided_ap_sim.size(0), device=guided_ap_sim.device)
+        positive_mask[rows, offset + rows] = True
 
         # Apply false negative suppression to each similarity matrix using guided similarity as anchor
         ap_sim = mask_false_negatives(guided_ap_sim, ap_sim, positive_mask=positive_mask)  # anchor-positive
