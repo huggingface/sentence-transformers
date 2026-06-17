@@ -242,10 +242,7 @@ class PListMLELoss(nn.Module):
             sorted_logits = logits_matrix
             sorted_mask = mask
 
-        # Compute log-likelihood using Plackett-Luce model. Padded entries hold a logit of
-        # 1e-16, so exp(1e-16) ~= 1; they must be excluded from the reverse-cumsum normalizer,
-        # otherwise they add ~unit mass to every real document's denominator and the loss and
-        # gradients depend on the batch's padding width.
+        # Compute log-likelihood using Plackett-Luce model.
         scores = sorted_logits.exp().masked_fill(~sorted_mask, 0.0)
         cumsum_scores = torch.flip(torch.cumsum(torch.flip(scores, [1]), 1), [1])
         log_probs = sorted_logits - torch.log(cumsum_scores + self.eps)
