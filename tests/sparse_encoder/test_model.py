@@ -605,7 +605,11 @@ def test_get_model_kwargs(splade_bert_tiny_model: SparseEncoder) -> None:
         model.encode("Test sentence", task="document", foo=True, document_arg_1=12)
 
 
-@pytest.mark.parametrize("similarity_fn_name", SimilarityFunction.possible_values())
+# MaxSim is for multi-vector (3D) embeddings; SparseEncoder is single-vector so it's not applicable.
+@pytest.mark.parametrize(
+    "similarity_fn_name",
+    [v for v in SimilarityFunction.possible_values() if v != SimilarityFunction.MAXSIM.value],
+)
 def test_similarity_score(splade_bert_tiny_model: SparseEncoder, similarity_fn_name: str) -> None:
     model = splade_bert_tiny_model
     model.similarity_fn_name = similarity_fn_name
