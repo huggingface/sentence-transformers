@@ -13,6 +13,7 @@ from sentence_transformers.base.modality import (
     is_audio_url_or_path,
     is_image_url_or_path,
     is_video_url_or_path,
+    raise_unsupported_modality_error,
 )
 from sentence_transformers.base.modality_types import MODALITY_TO_PROCESSOR_ARG
 
@@ -1146,3 +1147,28 @@ class TestIsTextOnlyMessages:
             ]
         ]
         assert InputFormatter.is_text_only_messages(batch) is True
+
+
+class TestRaiseUnsupportedModalityError:
+    def test_mixed_modality_batch_clear_error(self):
+        """Mixed-modality batches should produce a clear error message when 'message' is not supported."""
+        # Simulate a batch with images and texts, like in issue #3722
+        img = Image.new("RGB", (100, 100))
+        text = "hello world"
+        inputs = [img, img, text, text]
+
+        # The batch modality is inferred as 'message' because of mixed modalities
+        modality = infer_batch_modality(inputs, supported_modalities=["text", "image"])
+        assert modality == "message"
+
+        # When the model doesn't support 'message', it should provide a helpful error
+        with pytest.raises(ValueError) as exc_info:
+            raise_unsupported_modality_error(inputs, modality, ["text", "image"], "SentenceTransformer model")
+
+        error_message = str(exc_info.value)
+        # The error should mention mixing modalities or encoding separately
+        assert any(phrase in error_message.lower() for phrase in [
+            "mixes multiple modalities",
+            "mixing different modalities",
+            "encode each modality separately"
+        ]), f"Error message should explain the mixed modality issue. Got: {error_message}"

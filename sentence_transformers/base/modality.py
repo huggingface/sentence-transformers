@@ -733,6 +733,15 @@ def raise_unsupported_modality_error(
                 f"This batch mixes multiple modalities ({present_str}), which this {source} cannot "
                 f"encode in a single batch. Encode each modality separately (one call per modality)."
             )
+        # If we couldn't re-infer individual sample modalities but the batch modality is "message",
+        # it's likely because the batch contains mixed modalities. Provide a helpful error message.
+        raise ValueError(
+            f"This batch contains inputs that cannot be encoded together by this {source}. "
+            f"When a model does not support the 'message' modality, all inputs in a batch must be "
+            f"of the same type. This error typically occurs when mixing different modalities "
+            f"(e.g., images and text) in a single batch. Encode each modality separately "
+            f"(one call per modality). Supported modalities: {supported_str}."
+        )
 
     # A single combined input (e.g. a {"text": ..., "image": ...} dict) with parts the source
     # supports individually but cannot fuse without "message" support: encode each separately.
