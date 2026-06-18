@@ -69,6 +69,7 @@ XFAIL_ARCHITECTURES = [
     # Other issues
     "bark",  # Processor doesn't accept 'padding' in text_kwargs as it hardcodes its padding strategy
     "bros",  # Has a hard requirement for bbox, low prio
+    "lilt",  # Lilt requires bounding boxes
     "seggpt",  # Has a requirement for prompt_pixel_values and prompt_masks via prompt_images
     "speecht5",  # SpeechT5 is an encoder-decoder that either loads a SpeechT5EncoderWithTextPrenet or SpeechT5EncoderWithSpeechPrenet. There's also no subconfigs to determine which should be used, low prio
     "timesformer",  # Timesformer doesn't nicely preserve the batch dimension when processing videos, low prio
@@ -94,7 +95,6 @@ TRANSFORMERS_V4_XFAIL_ARCHITECTURES = [
     "chinese_clip",  # get_text_features fails in v4 if there's no pooler
     "flava",  # FlavaModel.forward was incorrectly typed in v4
     "imagegpt",  # ImageGPTProcessor in Transformers v4 doesn't support image URLs or paths. v5 works fine
-    "lilt",  # Lilt requires bounding boxes for text only in v4
     "visual_bert",  # Loads a tokenizer, even for text+image
     # Unrecognized processing class
     "splinter",
@@ -192,6 +192,33 @@ def cleanup_temp_media_files():
                 Path(file_path).unlink()
         except Exception as e:
             print(f"Failed to cleanup {file_path}: {e}")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def patch_torchcodec_int64_indices():
+    """Coerce numpy frame indices to int64 for torchcodec on Windows.
+
+    transformers' video samplers return numpy int arrays, which are int32 on Windows
+    (where np.dtype(int) is int32). torchcodec's get_frames_at_indices only up-casts
+    torch.Tensor/list inputs to int64, not numpy, so its op raises "expected scalar type
+    Long but found Int". This is a no-op on platforms where numpy ints are already int64.
+    """
+    if VideoDecoder is None:
+        yield
+        return
+
+    original_get_frames_at = VideoDecoder.get_frames_at
+
+    def get_frames_at(self, indices):
+        if isinstance(indices, np.ndarray):
+            indices = torch.as_tensor(indices).to(torch.int64)
+        return original_get_frames_at(self, indices)
+
+    VideoDecoder.get_frames_at = get_frames_at
+    try:
+        yield
+    finally:
+        VideoDecoder.get_frames_at = original_get_frames_at
 
 
 # Sample data generation functions for each modality type
@@ -349,6 +376,7 @@ def get_sample_video(n: int = 2) -> dict[str, list[Any]]:
             metadata = {
                 "fps": decoder.metadata.average_fps_from_header,
                 "total_num_frames": decoder.metadata.num_frames,
+                "duration": decoder.metadata.duration_seconds,
                 "frames_indices": list(range(frame_batch.data.shape[0])),
             }
             tensors.append({"array": frame_batch.data, "video_metadata": metadata})
@@ -700,10 +728,15 @@ def load_transformer(arch: str, transformer_task: str = "feature-extraction", **
             model.tokenizer.pad_token_id = 0
         if model.tokenizer.eos_token_id is None:
             model.tokenizer.eos_token_id = 0
-        if getattr(model.config, "pad_token_id", False) is None:
-            model.config.pad_token_id = 0
-        if getattr(model.config, "eos_token_id", False) is None:
-            model.config.eos_token_id = 0
+        configs = [model.config]
+        text_config = model.config.get_text_config()
+        if text_config is not model.config:
+            configs.append(text_config)
+        for config in configs:
+            if getattr(config, "pad_token_id", False) is None:
+                config.pad_token_id = 0
+            if getattr(config, "eos_token_id", False) is None:
+                config.eos_token_id = 0
 
     # Required for saving llama models to disk
     if transformer_task in ("text-generation", "any-to-any") and model.model.generation_config.pad_token_id == -1:

@@ -48,20 +48,8 @@ except ImportError:
     MODEL_KEYS = list(CONFIG_MAPPING_NAMES.keys())
 
 
-EXPECT_FORWARD_FAIL = EXPECT_FORWARD_FAIL.copy() | {
-    "qwen2_5_vl": (  # Doesn't nicely work with image+video, gives StopIteration on processing
-        "image+video (url, url)",
-        "text+image+video (text, url, url)",
-        "image+video as message (structured, url, url)",
-    ),
-}
-
 EXPECT_FORWARD_FAIL_PAIRS = {
     "kosmos-2": None,  # Preprocessor can't handle pairs
-    "qwen2_5_vl": (  # Doesn't nicely work with image+video, gives StopIteration on processing
-        "image+video pair (url, url)",
-        "video+image pair (url, url)",
-    ),
 }
 
 XFAIL_ARCHITECTURES = XFAIL_ARCHITECTURES.copy() + [

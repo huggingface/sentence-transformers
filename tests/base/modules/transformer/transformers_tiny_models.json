@@ -268,7 +268,7 @@
   "mvp": "hf-internal-testing/tiny-random-MvpModel",
   "nanochat": null,
   "nemotron": "onnx-internal-testing/tiny-random-NemotronForCausalLM",
-  "nemotron_h": "trl-internal-testing/tiny-NemotronHForCausalLM",
+  "nemotron_h": "trl-internal-testing/tiny-NemotronHForCausalLM-nano",
   "nllb-moe": null,
   "nystromformer": "hf-internal-testing/tiny-random-NystromformerModel",
   "olmo": "hf-internal-testing/tiny-random-OlmoForCausalLM",

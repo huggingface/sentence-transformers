@@ -144,6 +144,7 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
             {
                 "fps": video_value.metadata.average_fps,
                 "total_num_frames": video_value.metadata.num_frames,
+                "duration": video_value.metadata.duration_seconds,
                 "frames_indices": list(range(frame_batch.data.shape[0])),
             }
         )

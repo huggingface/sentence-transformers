@@ -45,14 +45,6 @@ from .conftest import (
     load_transformer,
 )
 
-EXPECT_FORWARD_FAIL = EXPECT_FORWARD_FAIL.copy() | {
-    "qwen2_5_vl": (  # Doesn't nicely work with image+video, gives StopIteration on processing
-        "image+video (url, url)",
-        "text+image+video (text, url, url)",
-        "image+video as message (structured, url, url)",
-    )
-}
-
 XFAIL_FEATURE_EXTRACTION = [
     "reformer",  # Outputs last_hidden_state with 2 * hidden_size dimensionality as it concats the same tensor for reversible ResNet, low prio
 ]
