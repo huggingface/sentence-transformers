@@ -10,6 +10,20 @@ from .environment import is_dist_initialized
 logger = logging.get_logger(__name__)
 
 
+def get_rank() -> int:
+    """The rank of the current process in the distributed group, or ``0`` when not distributed."""
+    if is_dist_initialized():
+        return dist.get_rank()
+    return 0
+
+
+def get_world_size() -> int:
+    """The number of processes in the distributed group, or ``1`` when not distributed."""
+    if is_dist_initialized():
+        return dist.get_world_size()
+    return 1
+
+
 def all_gather(tensor: torch.Tensor, with_grad: bool = False) -> torch.Tensor:
     """
     Gathers a tensor from each distributed rank into a list. Always retains gradients for the local rank's tensor,

@@ -4,25 +4,12 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 import torch
-import torch.distributed as dist
 import torch.nn.functional as F
 from torch import Tensor, nn
 
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.scoring import colbert_scores
-from sentence_transformers.util import all_gather, all_gather_with_grad
-
-
-def _get_rank() -> int:
-    if dist.is_available() and dist.is_initialized():
-        return dist.get_rank()
-    return 0
-
-
-def _get_world_size() -> int:
-    if dist.is_available() and dist.is_initialized():
-        return dist.get_world_size()
-    return 1
+from sentence_transformers.util import all_gather, all_gather_with_grad, get_rank, get_world_size
 
 
 class MultiVectorMultipleNegativesRankingLoss(nn.Module):
@@ -145,7 +132,7 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
         # Query-major layout: positive for query i is at column i*N (cf. colbert_scores).
         labels = torch.arange(batch_size, device=embeddings[0].device) * N
         if self.gather_across_devices:
-            labels = labels + _get_rank() * batch_size * N
+            labels = labels + get_rank() * batch_size * N
 
         loss = F.cross_entropy(
             scores * self.scale,
@@ -153,7 +140,7 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
             reduction="mean" if self.size_average else "sum",
         )
         if self.gather_across_devices:
-            loss = loss * _get_world_size()
+            loss = loss * get_world_size()
         return loss
 
     @property

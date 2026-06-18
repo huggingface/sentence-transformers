@@ -23,7 +23,8 @@ class MultiVectorMask(Module):
       Transformer's attention didn't see them.
     - ``task="query"`` otherwise: use the tokenizer's ``attention_mask`` (only real tokens).
     - Anything else (documents): drop tokens whose IDs are in the skiplist, AND-ed with the
-      ``attention_mask``.
+      ``attention_mask``. When the batch has no ``input_ids`` (e.g. ColPali-style image documents),
+      there is nothing to match against the skiplist, so the ``attention_mask`` is used unchanged.
 
     Reusing the ``attention_mask`` key means downstream consumers (encode(), losses, and any future
     module that respects ``attention_mask``, e.g. :class:`~sentence_transformers.sentence_transformer.modules.Pooling`
@@ -69,6 +70,10 @@ class MultiVectorMask(Module):
         # is re-padded back to ``(B, T, D)`` here.
         if "cu_seq_lens_q" in features:
             features = repad_flattened_features(features)
+
+        # If there's no token IDs, then we don't have to match against the skiplist
+        if "input_ids" not in features:
+            return features
 
         input_ids = features["input_ids"]
         attention_mask = features["attention_mask"].bool()

@@ -78,10 +78,50 @@ def test_encode_document_skiplist_removes_punctuation(model: MultiVectorEncoder)
     assert no_punc[0].shape[0] <= with_punc[0].shape[0]
 
 
-def test_encode_returns_tensor_when_requested(model: MultiVectorEncoder) -> None:
-    embs = model.encode_document(["a doc"], convert_to_tensor=True)
-    assert isinstance(embs, list)
-    assert isinstance(embs[0], torch.Tensor)
+@pytest.mark.parametrize(
+    ("convert_to_tensor", "convert_to_numpy", "convert_to_padded", "element_type"),
+    [
+        (False, True, False, np.ndarray),  # default: variable-length list of arrays
+        (True, False, False, torch.Tensor),  # variable-length list of tensors
+        (False, False, False, torch.Tensor),  # variable-length list of raw (unconverted) tensors
+        (False, True, True, np.ndarray),  # single padded 3D array
+        (True, False, True, torch.Tensor),  # single padded 3D tensor
+        (False, False, True, torch.Tensor),  # single padded 3D tensor (no numpy conversion)
+    ],
+)
+def test_encode_output_formats(
+    model: MultiVectorEncoder,
+    convert_to_tensor: bool,
+    convert_to_numpy: bool,
+    convert_to_padded: bool,
+    element_type: type,
+) -> None:
+    # Two documents of clearly different length, so variable-length output is distinguishable from padded.
+    docs = ["short doc", "a considerably longer document with many more distinct tokens than the first one"]
+    dim = model.get_embedding_dimension()
+    out = model.encode_document(
+        docs,
+        convert_to_tensor=convert_to_tensor,
+        convert_to_numpy=convert_to_numpy,
+        convert_to_padded=convert_to_padded,
+    )
+
+    if convert_to_padded:
+        # A single stacked container of shape (num_docs, max_tokens, dim), zero-padded.
+        assert isinstance(out, element_type)
+        assert out.ndim == 3
+        assert out.shape[0] == len(docs)
+        assert out.shape[2] == dim
+        # The padding mask is recoverable, and the shorter doc keeps fewer real tokens than the longer one.
+        real_tokens = (out != 0).any(axis=-1) if isinstance(out, np.ndarray) else (out != 0).any(dim=-1)
+        counts = real_tokens.sum(-1)
+        assert int(counts[0]) < int(counts[1])
+    else:
+        # A variable-length list with one 2D entry per document.
+        assert isinstance(out, list)
+        assert len(out) == len(docs)
+        assert all(isinstance(emb, element_type) and emb.ndim == 2 and emb.shape[1] == dim for emb in out)
+        assert out[0].shape[0] < out[1].shape[0]
 
 
 def test_singular_input_unwraps(model: MultiVectorEncoder) -> None:

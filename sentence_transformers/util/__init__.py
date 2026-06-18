@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .decorators import save_to_hub_args_decorator
-from .distributed import all_gather, all_gather_with_grad
+from .distributed import all_gather, all_gather_with_grad, get_rank, get_world_size
 from .environment import (
     check_package_availability,
     get_device_name,
@@ -64,6 +64,8 @@ __all__ = [
     # From distributed.py
     "all_gather",
     "all_gather_with_grad",
+    "get_rank",
+    "get_world_size",
     # From environment.py
     "get_device_name",
     "check_package_availability",

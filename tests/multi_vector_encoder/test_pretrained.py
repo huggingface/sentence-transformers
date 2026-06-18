@@ -41,3 +41,56 @@ def test_pretrained_multi_vector_maxsim(model_name: str, expected_score: list[fl
     del model
     gc.collect()
     torch.cuda.empty_cache()
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="ColPali is a 3B model; requires CUDA to run in reasonable time"
+)
+@pytest.mark.slow
+def test_pretrained_colpali_multimodal() -> None:
+    """Regression guard for the image-document path (ColPali / PaliGemma backbone -> token-level Dense
+    projection -> Normalize -> MultiVectorMask). Unlike the text checkpoints above, documents here are
+    images, exercising the multimodal modality routing end to end.
+
+    Assertions are dtype-robust (shapes, projection dim, unit-norm tokens, retrieval ranking) rather than
+    exact MaxSim values: the checkpoint loads in bfloat16, so absolute scores drift across GPU architectures.
+    """
+    model = MultiVectorEncoder("tomaarsen/colpali-v1.3-merged-st")
+
+    # doc{i} is the relevant page for query {i}, so the correct retrieval is the diagonal (query i -> doc i).
+    queries = [
+        "What is the variable represented on the y-axis of the graph?",
+        "Total outlay is maximum in which year?",
+    ]
+    # Image URLs as strings: ST's loader fetches and RGB-converts them (doc1.jpg is grayscale).
+    images = [
+        "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc1.jpg",
+        "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc2.jpg",
+        "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc3.jpg",
+        "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc4.jpg",
+    ]
+
+    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
+    document_embeddings = model.encode_document(images, convert_to_tensor=True)
+
+    # Structural: text queries -> per-token 128-dim vectors; image docs -> >=1024 image-patch tokens, 128-dim.
+    dim = model.get_embedding_dimension()
+    assert dim == 128
+    assert len(query_embeddings) == len(queries)
+    assert all(q.ndim == 2 and q.shape[0] > 0 and q.shape[1] == dim for q in query_embeddings)
+    assert len(document_embeddings) == len(images)
+    assert all(d.ndim == 2 and d.shape[0] >= 1024 and d.shape[1] == dim for d in document_embeddings)
+
+    # The Normalize module ran: every retained token vector is unit-norm (loose atol for bfloat16).
+    for d in document_embeddings:
+        norms = d.float().norm(dim=-1)
+        assert torch.allclose(norms, torch.ones_like(norms), atol=0.05)
+
+    # Semantic: each query retrieves its matching page (query i -> doc i).
+    scores = model.similarity(query_embeddings, document_embeddings)
+    assert tuple(scores.shape) == (len(queries), len(images))
+    assert scores.argmax(dim=1).tolist() == list(range(len(queries)))
+
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()

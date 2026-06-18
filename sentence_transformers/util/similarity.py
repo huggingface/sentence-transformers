@@ -229,6 +229,10 @@ def maxsim(
     a, a_mask_padded = _pad_multi_vector_inputs(a, a_mask)
     b, b_mask_padded = _pad_multi_vector_inputs(b, b_mask)
 
+    # TODO: the (a, b, s, t) intermediate this einsum materializes is the MaxSim memory bottleneck and
+    # caps the corpus chunk size at eval time. Options: chunk the max-reduction over documents so the full
+    # 4D tensor is never live at once (cf. xtr_scores' `document_chunk_size`), and/or dispatch to a fused
+    # MaxSim kernel (e.g. a Triton/FlashAttention-style einsum+max) when one is available.
     scores = torch.einsum("ash,bth->abst", a, b)
     # Document tokens are reduced with max, so masked (padding) tokens are sent to the dtype minimum:
     # multiplying by 0 would let a padding token win the max over a genuinely negative similarity.

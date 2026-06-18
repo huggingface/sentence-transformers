@@ -4,7 +4,7 @@ import json
 import logging
 import math
 import queue
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from multiprocessing import Queue
 from typing import Any, ClassVar, Literal, overload
@@ -16,7 +16,7 @@ from tqdm import trange
 from transformers.utils import logging as transformers_logging
 
 from sentence_transformers.base import BaseModel
-from sentence_transformers.base.modality_types import TextInput
+from sentence_transformers.base.modality_types import SingleInput
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEncoderModelCardData
@@ -198,7 +198,7 @@ class MultiVectorEncoder(BaseModel):
 
     def encode_query(
         self,
-        inputs: list[TextInput] | TextInput,
+        inputs: list[SingleInput] | SingleInput,
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
@@ -247,7 +247,7 @@ class MultiVectorEncoder(BaseModel):
 
     def encode_document(
         self,
-        inputs: list[TextInput] | TextInput,
+        inputs: list[SingleInput] | SingleInput,
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
@@ -300,7 +300,7 @@ class MultiVectorEncoder(BaseModel):
 
     def encode(
         self,
-        inputs: list[TextInput] | TextInput,
+        inputs: list[SingleInput] | SingleInput,
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
@@ -326,7 +326,8 @@ class MultiVectorEncoder(BaseModel):
             directly only when you want to override the ``task`` explicitly.
 
         Args:
-            inputs (Union[str, List[str]]): The texts to embed.
+            inputs: The inputs to embed. Can be a string, a list of strings, or multimodal inputs
+                (dicts, images, arrays).
             prompt_name (str, optional): The name of the prompt to use for encoding.
             prompt (str, optional): A prompt string to prepend to each input. Overrides ``prompt_name``.
             batch_size (int, optional): Batch size for the forward pass. Defaults to 32.
@@ -396,13 +397,16 @@ class MultiVectorEncoder(BaseModel):
                 batch_size=batch_size,
                 convert_to_tensor=convert_to_tensor,
                 convert_to_numpy=convert_to_numpy,
-                convert_to_padded=convert_to_padded,
+                # Pad once after merging chunks, not per-worker: per-chunk max lengths would mismatch.
+                convert_to_padded=False,
                 precision=precision,
                 normalize_embeddings=normalize_embeddings,
                 pool_factor=pool_factor,
                 task=task,
                 **kwargs,
             )
+            if convert_to_padded:
+                embeddings = self._stack_padded(embeddings, convert_to_numpy=convert_to_numpy)
             if is_singular_input:
                 embeddings = embeddings[0]
             return embeddings
@@ -442,13 +446,10 @@ class MultiVectorEncoder(BaseModel):
 
             all_embeddings.extend(batch_embeddings)
 
-        if convert_to_padded:
-            stacked = torch.nn.utils.rnn.pad_sequence(all_embeddings, batch_first=True, padding_value=0)
-            all_embeddings = list(torch.unbind(stacked, dim=0))
-
-        # Restore original order.
+        # Restore original order
         all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
 
+        # Quantize on the unpadded matrices
         if precision and precision != "float32":
             all_embeddings = quantize_embeddings(embeddings=all_embeddings, precision=precision)
 
@@ -460,13 +461,10 @@ class MultiVectorEncoder(BaseModel):
                 for emb in all_embeddings
             ]
 
+        # TODO: convert_to_padded=True while convert_to_tensor=False and convert_to_numpy=False still keeps a Tensor
+        # This might not be the clearest/expected output contract. Reconsider the output type
         if convert_to_padded:
-            if convert_to_tensor:
-                result = torch.stack(all_embeddings) if all_embeddings else torch.tensor([])
-            elif convert_to_numpy:
-                result = np.stack(all_embeddings) if all_embeddings else np.array([])
-            else:
-                result = all_embeddings
+            result = self._stack_padded(all_embeddings, convert_to_numpy=convert_to_numpy)
         else:
             result = all_embeddings
 
@@ -474,6 +472,20 @@ class MultiVectorEncoder(BaseModel):
             result = result[0]
 
         return result
+
+    @staticmethod
+    def _stack_padded(
+        embeddings: Sequence[Tensor | np.ndarray],
+        convert_to_numpy: bool,
+    ) -> Tensor | np.ndarray:
+        """Pad a variable-length list of per-input 2D embeddings into one ``(num_inputs, max_tokens, dim)``
+        tensor / array, padding with 0. The padding mask is recoverable via ``(emb != 0).any(-1)``.
+        """
+        if not embeddings:
+            return np.array([]) if convert_to_numpy else torch.empty(0)
+        tensors = [torch.from_numpy(emb) if isinstance(emb, np.ndarray) else emb for emb in embeddings]
+        stacked = torch.nn.utils.rnn.pad_sequence(tensors, batch_first=True, padding_value=0)
+        return stacked.numpy() if convert_to_numpy else stacked
 
     def pool_embeddings_hierarchical(
         self,
@@ -996,7 +1008,7 @@ class MultiVectorEncoder(BaseModel):
 
     def _multi_process(
         self,
-        inputs: list[TextInput],
+        inputs: list[SingleInput],
         show_progress_bar: bool | None = True,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         device: str | torch.device | list[str | torch.device] | None = None,

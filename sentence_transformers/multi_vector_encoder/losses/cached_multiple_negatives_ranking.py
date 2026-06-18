@@ -6,7 +6,6 @@ from functools import partial
 from typing import Any
 
 import torch
-import torch.distributed as dist
 import torch.nn.functional as F
 import tqdm
 from torch import Tensor, nn
@@ -14,19 +13,27 @@ from torch.utils.checkpoint import get_device_states, set_device_states
 
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.scoring import colbert_scores
-from sentence_transformers.util import all_gather, all_gather_with_grad
+from sentence_transformers.util import all_gather, all_gather_with_grad, get_rank, get_world_size
 
 
-def _get_rank() -> int:
-    if dist.is_available() and dist.is_initialized():
-        return dist.get_rank()
-    return 0
+def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
+    """Get the number of samples in sentence features, handling both padded and flattened inputs.
 
-
-def _get_world_size() -> int:
-    if dist.is_available() and dist.is_initialized():
-        return dist.get_world_size()
-    return 1
+    With padded inputs, the batch size is the first dimension of any tensor.
+    With flattened inputs (from ``DataCollatorWithFlattening``), the batch size is derived
+    from ``cu_seq_lens_q`` which has shape ``(num_seqs + 1,)``.
+    """
+    if "cu_seq_lens_q" in sentence_feature:
+        return len(sentence_feature["cu_seq_lens_q"]) - 1
+    # Prefer known batch-indexed keys to avoid accidentally using flattened tensors
+    # like pixel_values whose first dimension may differ from the batch size in
+    # vision-language models (e.g. Qwen2-VL).
+    for key in ("input_ids", "attention_mask"):
+        if key in sentence_feature and isinstance(sentence_feature[key], torch.Tensor):
+            return sentence_feature[key].shape[0]
+    return next(
+        value.shape[0] for value in sentence_feature.values() if isinstance(value, torch.Tensor) and value.ndim > 0
+    )
 
 
 class RandContext:
@@ -183,8 +190,7 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
     ) -> Iterator[tuple[Tensor, Tensor, RandContext | None]]:
-        input_ids = sentence_feature["input_ids"]
-        bsz = input_ids.size(0)
+        bsz = _get_batch_size(sentence_feature)
         for i, b in enumerate(
             tqdm.trange(0, bsz, self.mini_batch_size, desc="Embed mini-batches", disable=not self.show_progress_bar)
         ):
@@ -222,7 +228,7 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
 
         labels = torch.arange(batch_size, device=reps[0][0].device) * N
         if self.gather_across_devices:
-            labels = labels + _get_rank() * batch_size * N
+            labels = labels + get_rank() * batch_size * N
 
         losses: list[Tensor] = []
         for begin in tqdm.trange(
@@ -237,7 +243,7 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
             )
             loss_mb = F.cross_entropy(scores * self.scale, labels[begin:end], reduction="sum")
             if self.gather_across_devices:
-                loss_mb = loss_mb * _get_world_size()
+                loss_mb = loss_mb * get_world_size()
             if with_backward:
                 loss_mb.backward()
                 loss_mb = loss_mb.detach()

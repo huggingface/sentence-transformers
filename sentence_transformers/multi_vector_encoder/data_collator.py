@@ -50,7 +50,6 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
             batch["dataset_name"] = features[0]["dataset_name"]
 
         if tuple(column_names) not in self._warned_columns:
-            print("Dataset names:", column_names)
             self.maybe_warn_about_column_order(column_names)
 
         for label_column in self.valid_label_columns:
