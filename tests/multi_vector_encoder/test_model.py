@@ -12,7 +12,6 @@ from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.modules import (
     HierarchicalPooling,
     MultiVectorMask,
-    MultiVectorTransformer,
 )
 from sentence_transformers.multi_vector_encoder.modules.hierarchical_pooling import pool_document_embeddings
 from sentence_transformers.multi_vector_encoder.scoring import XTRScores, colbert_scores
@@ -26,9 +25,13 @@ def model() -> MultiVectorEncoder:
 
 
 def test_loads_with_default_modules(model: MultiVectorEncoder) -> None:
-    # Four modules: MultiVectorTransformer + Dense projection (token-level) + MultiVectorMask + Normalize.
+    # Four modules: Transformer + Dense projection (token-level) + MultiVectorMask + Normalize.
+    # A fresh MultiVectorEncoder from a bare HF model leaves the Transformer at the dense defaults
+    # (no query expansion, no per-task max-length); users opt in explicitly via ``modules=...`` or by
+    # mutating ``model[0]`` after construction.
     assert len(model) == 4
-    assert isinstance(model[0], MultiVectorTransformer)
+    assert isinstance(model[0], Transformer)
+    assert model[0].do_query_expansion is False
     assert isinstance(model[1], Dense)
     assert model[1].module_input_name == "token_embeddings"
     assert isinstance(model[2], MultiVectorMask)
@@ -39,9 +42,9 @@ def test_loads_with_default_modules(model: MultiVectorEncoder) -> None:
 
 def test_default_colbert_attributes(model: MultiVectorEncoder) -> None:
     transformer = model[0]
-    assert transformer.query_length == 32
-    assert transformer.document_length == 180
-    assert transformer.do_query_expansion is True
+    assert transformer.query_length is None
+    assert transformer.document_length is None
+    assert transformer.do_query_expansion is False
     assert transformer.attend_to_expansion_tokens is False
     assert model.similarity_fn_name == "MaxSim"
     mask_module = model[2]
@@ -50,9 +53,13 @@ def test_default_colbert_attributes(model: MultiVectorEncoder) -> None:
     assert mask_module._skiplist_ids is not None and len(mask_module._skiplist_ids) > 0
 
 
-def test_encode_query_pads_to_query_length(model: MultiVectorEncoder) -> None:
+def test_encode_query_pads_to_query_length() -> None:
+    # Opt into query expansion at construction time; queries should pad to query_length.
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = MultiVectorEncoder(base)
+    model[0].query_length = 16
+    model[0].do_query_expansion = True
     emb = model.encode_query(["short query"])
-    # With do_query_expansion=True, queries are padded with mask tokens to query_length.
     assert len(emb) == 1
     assert emb[0].shape[0] == model[0].query_length
     assert emb[0].shape[1] == model.get_embedding_dimension()
@@ -115,7 +122,12 @@ def test_save_and_load_round_trip(model: MultiVectorEncoder) -> None:
 def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
     # A model built from explicit modules + text prefix prompts must save/reload byte-identically.
     base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-    transformer = MultiVectorTransformer(base, query_length=16, document_length=32)
+    transformer = Transformer(
+        base,
+        query_length=16,
+        document_length=32,
+        do_query_expansion=True,
+    )
     hidden = transformer.get_embedding_dimension()
     model = MultiVectorEncoder(
         modules=[
@@ -150,7 +162,7 @@ def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
 
 def test_native_save_keeps_plain_transformer_unchanged() -> None:
     # A native MultiVectorEncoder may deliberately use a plain Transformer (no query expansion).
-    # Reloading must NOT silently upgrade it to MultiVectorTransformer (only legacy/converted checkpoints
+    # Reloading must NOT silently flip the expansion knobs on (only legacy/converted checkpoints
     # get that remap), so a custom pipeline round-trips exactly as built.
     base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
     transformer = Transformer(base)
@@ -169,14 +181,14 @@ def test_native_save_keeps_plain_transformer_unchanged() -> None:
             Normalize(module_input_name="token_embeddings"),
         ],
     )
-    assert not isinstance(model[0], MultiVectorTransformer)
+    assert model[0].do_query_expansion is False
 
     with tempfile.TemporaryDirectory() as tmpdir:
         model.save_pretrained(tmpdir)
         reloaded = MultiVectorEncoder(tmpdir)
 
     assert isinstance(reloaded[0], Transformer)
-    assert not isinstance(reloaded[0], MultiVectorTransformer)
+    assert reloaded[0].do_query_expansion is False
 
 
 def test_hierarchical_pooling_helper_reduces_token_count() -> None:

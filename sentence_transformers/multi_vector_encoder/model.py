@@ -5,8 +5,9 @@ import logging
 import math
 import queue
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from multiprocessing import Queue
-from typing import Any, Literal, overload
+from typing import Any, ClassVar, Literal, overload
 
 import numpy as np
 import torch
@@ -19,13 +20,11 @@ from sentence_transformers.base.modality_types import TextInput
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEncoderModelCardData
-from sentence_transformers.multi_vector_encoder.modules import (
-    MultiVectorMask,
-    MultiVectorTransformer,
-)
+from sentence_transformers.multi_vector_encoder.modules import MultiVectorMask
 from sentence_transformers.multi_vector_encoder.modules.hierarchical_pooling import pool_document_embeddings
 from sentence_transformers.sentence_transformer.modules import Normalize
 from sentence_transformers.util import batch_to_device, load_file_path
+from sentence_transformers.util.misc import import_from_string
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
 
@@ -33,11 +32,35 @@ logger = transformers_logging.get_logger(__name__)
 
 
 # Rewrite PyLate's `pylate.*` refs to ST equivalents so we never import `pylate` at load (a no-op for native
-# ST saves). The backbone Transformer is intentionally not remapped (its ref is ambiguous with plain ST); the
-# multi-vector loaders promote it to `MultiVectorTransformer` instead.
+# ST saves). The backbone Transformer holds the multi-vector knobs (query_length, do_query_expansion, ...)
+# directly, so no class remapping is needed.
 _CLASS_REF_ALIASES: dict[str, str] = {
     "pylate.models.Dense.Dense": "sentence_transformers.base.modules.dense.Dense",
 }
+
+
+@dataclass
+class _LegacyStash:
+    """Per-checkpoint values recovered from legacy save formats (PyLate v3 top-level config,
+    Stanford-NLP ColBERT ``artifact.metadata``) that downstream load steps consume: prefix tokens
+    to register on the tokenizer, multi-vector knobs to forward into ``Transformer.__init__`` via
+    :meth:`MultiVectorEncoder._get_module_init_defaults`, and a skiplist word list to seed the
+    default :class:`MultiVectorMask`. Empty for native MVE saves.
+    """
+
+    transformer_config: dict[str, Any] = field(default_factory=dict)
+    prefixes: dict[str, str] = field(default_factory=dict)
+    skiplist_words: list[str] | None = None
+    is_pylate_v3: bool = False
+
+    # Top-level keys from PyLate <=3 configs that filter into ``transformer_config`` and from there
+    # into ``Transformer.__init__`` via :meth:`MultiVectorEncoder._get_module_init_defaults`.
+    _PYLATE_TRANSFORMER_KEYS: ClassVar[tuple[str, ...]] = (
+        "query_length",
+        "document_length",
+        "do_query_expansion",
+        "attend_to_expansion_tokens",
+    )
 
 
 class MultiVectorEncoder(BaseModel):
@@ -84,7 +107,7 @@ class MultiVectorEncoder(BaseModel):
     Note:
         Length / expansion / masking knobs (``query_length``, ``document_length``, ``do_query_expansion``,
         ``attend_to_expansion_tokens``, ``skiplist_words``, …) live on the underlying modules
-        (:class:`~sentence_transformers.multi_vector_encoder.modules.MultiVectorTransformer` and
+        (:class:`~sentence_transformers.base.modules.Transformer` and
         :class:`~sentence_transformers.multi_vector_encoder.modules.MultiVectorMask`); set them after
         construction with e.g. ``model[0].query_length = 64``.
 
@@ -143,6 +166,9 @@ class MultiVectorEncoder(BaseModel):
 
         # Stash before super().__init__ so _parse_model_config only falls back to saved config when unset.
         self.similarity_fn_name = similarity_fn_name
+        # Legacy-checkpoint state populated by ``_parse_model_config`` (PyLate v3) and
+        # ``_maybe_load_stanford_metadata`` (Stanford-NLP); empty for native MVE saves.
+        self._legacy = _LegacyStash()
 
         super().__init__(
             model_name_or_path=model_name_or_path,
@@ -538,31 +564,10 @@ class MultiVectorEncoder(BaseModel):
         (PyLate v3, Stanford-NLP ColBERT, pre-v5.4 ST ``Dense``). Each step is a no-op for modern
         saves and for user-supplied ``modules=...``.
         """
-        # A PyLate v3 checkpoint (model_type == "ColBERT") saved a plain Transformer backbone; promote it in
-        # place so the knob/prefix fixups below apply. Gated so a native save's plain Transformer is kept.
-        if getattr(self, "_is_pylate_v3_config", False):
-            plain_transformer = next(
-                (
-                    module
-                    for module in self._modules.values()
-                    if isinstance(module, Transformer) and not isinstance(module, MultiVectorTransformer)
-                ),
-                None,
-            )
-            if plain_transformer is not None:
-                MultiVectorTransformer.from_transformer(plain_transformer)
-
-        # Promote top-level multi-vector knobs (PyLate v3 / Stanford-NLP) onto the Transformer; empty stash = no-op.
-        transformer = next((m for m in self._modules.values() if isinstance(m, MultiVectorTransformer)), None)
-        if transformer is not None:
-            for attr, value in (getattr(self, "_legacy_transformer_config", None) or {}).items():
-                if value is not None and hasattr(transformer, attr):
-                    setattr(transformer, attr, value)
-            # Backwards-compat only: register a legacy in-vocab marker (e.g. [unused0]) as a special token so
-            # text-prepending reproduces the trained tokenization. `_legacy_prefixes` is set only for those.
-            legacy_prefixes = getattr(self, "_legacy_prefixes", None)
-            if legacy_prefixes:
-                transformer._register_prefix_tokens(legacy_prefixes)
+        # Backwards-compat only: register a legacy in-vocab marker (e.g. [unused0]) as a special token so
+        # text-prepending reproduces the trained tokenization. ``_legacy.prefixes`` is set only for those.
+        if self._legacy.prefixes:
+            self._register_prefix_tokens(self._legacy.prefixes)
 
         # PyLate v3 / pre-v5.4 ST Dense saved no IO names; redirect them to token level (no-op on modern saves).
         for module in self._modules.values():
@@ -572,18 +577,44 @@ class MultiVectorEncoder(BaseModel):
 
         # PyLate v3 listed only [Transformer, Dense] (masking/normalize were inline); append the missing
         # modules. Other load paths build the full sequence themselves.
-        if getattr(self, "_is_pylate_v3_config", False):
-            self.append(MultiVectorMask(skiplist_words=getattr(self, "_legacy_skiplist_words", None)))
+        if self._legacy.is_pylate_v3:
+            self.append(MultiVectorMask(skiplist_words=self._legacy.skiplist_words))
             self.append(Normalize(module_input_name="token_embeddings"))
 
-    # Top-level keys from PyLate <=3 configs, promoted onto MultiVectorTransformer after super().__init__
-    # (skiplist words are stashed separately as `_legacy_skiplist_words`).
-    _LEGACY_TRANSFORMER_KEYS: tuple[str, ...] = (
-        "query_length",
-        "document_length",
-        "do_query_expansion",
-        "attend_to_expansion_tokens",
-    )
+    def _register_prefix_tokens(self, prompts: dict[str, str]) -> None:
+        """Mark a prompt-prefix token as special so the tokenizer emits it as a single piece.
+
+        Call only with the prefixes of an existing token-prepended checkpoint (the caller guards on
+        ``self._legacy.prefixes``). Needed for checkpoints (Stanford ColBERTv2, answerai-colbert, ...) whose
+        prefix is an in-vocab marker like ``[unused0]`` applied via token insertion at training time, so
+        their saved tokenizer never marked it special. Prepending it as text would shatter it
+        (``[unused0]`` -> ``['[','unused','##0',']']``) and diverge from training; registering it
+        restores single-piece tokenization, making text-prepending byte-identical to token insertion.
+
+        Three gates keep this a no-op when no fix is required:
+
+        1. Skip tokens already special / added (e.g. modern ``[Q] `` checkpoints). Nothing to do.
+        2. Skip tokens not in the vocab: a non-vocab prefix (``[Q]`` on a plain BERT, or a text prompt
+           like ``query: ``) is left as ordinary text rather than growing the embedding table.
+        3. Skip tokens the tokenizer already emits as a single piece, no fix needed.
+        """
+        tokenizer = self.tokenizer
+        if tokenizer is None:
+            return
+        added = set(getattr(tokenizer, "added_tokens_encoder", None) or {}) | set(tokenizer.all_special_tokens)
+        vocab = tokenizer.get_vocab()
+        to_register: list[str] = []
+        for value in prompts.values():
+            if not value or not value.split():
+                continue
+            prefix = value.split(None, 1)[0]
+            if prefix in added or prefix not in vocab:
+                continue
+            if tokenizer.tokenize(prefix) == [prefix]:
+                continue
+            to_register.append(prefix)
+        if to_register:
+            tokenizer.add_special_tokens({"additional_special_tokens": to_register})
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
         super()._parse_model_config(model_config)
@@ -592,27 +623,39 @@ class MultiVectorEncoder(BaseModel):
             # a converted dense checkpoint's "cosine"/"dot" (which can't score ragged per-token embeddings).
             self.similarity_fn_name = model_config.get("similarity_fn_name")
         # PyLate v3 (model_type == "ColBERT") saved a plain Transformer and only [Transformer, Dense]; flag it
-        # so _apply_legacy_fixups promotes the backbone and appends MultiVectorMask + token-level Normalize.
-        self._is_pylate_v3_config = model_config.get("model_type") == "ColBERT"
+        # so _apply_legacy_fixups appends the missing MultiVectorMask + token-level Normalize.
+        self._legacy.is_pylate_v3 = model_config.get("model_type") == "ColBERT"
         # PyLate <=3 saved [Q]/[D] as top-level query_prefix/document_prefix (inserted as tokens). We route
-        # them through `prompts` as text instead, recording them in `_legacy_prefixes` for special-token registration.
-        self._legacy_prefixes: dict[str, str] = {}
+        # them through `prompts` as text instead, recording them on the stash for special-token registration.
         for prefix_key, prompt_key in (("query_prefix", "query"), ("document_prefix", "document")):
             if prefix_key in model_config:
-                self._legacy_prefixes[prompt_key] = model_config[prefix_key]
+                self._legacy.prefixes[prompt_key] = model_config[prefix_key]
                 if not self.prompts.get(prompt_key):
                     self.prompts[prompt_key] = model_config[prefix_key]
         # Stash PyLate v3's top-level knobs for promotion onto the modules after super().__init__.
-        self._legacy_transformer_config = {
-            key: model_config[key] for key in self._LEGACY_TRANSFORMER_KEYS if key in model_config
-        }
-        self._legacy_skiplist_words = model_config.get("skiplist_words")
+        self._legacy.transformer_config.update(
+            {key: model_config[key] for key in _LegacyStash._PYLATE_TRANSFORMER_KEYS if key in model_config}
+        )
+        self._legacy.skiplist_words = model_config.get("skiplist_words")
 
     def _load_module_class_from_ref(self, class_ref: str, *args: Any, **kwargs: Any) -> nn.Module:
         # Rewrite PyLate refs to ST equivalents (avoid importing pylate), then defer to the base resolver.
         # The backbone Transformer is promoted to MV by the loaders, not remapped here.
         class_ref = _CLASS_REF_ALIASES.get(class_ref, class_ref)
         return super()._load_module_class_from_ref(class_ref, *args, **kwargs)
+
+    def _get_module_init_defaults(self, class_ref: str) -> dict[str, Any]:
+        """Forward legacy top-level multi-vector knobs into the backbone Transformer's ``__init__``."""
+        if not self._legacy.transformer_config:
+            return {}
+        class_ref = _CLASS_REF_ALIASES.get(class_ref, class_ref)
+        try:
+            cls = import_from_string(class_ref)
+        except ImportError:
+            return {}
+        if not (isinstance(cls, type) and issubclass(cls, Transformer)):
+            return {}
+        return dict(self._legacy.transformer_config)
 
     def _load_default_modules(
         self,
@@ -659,14 +702,25 @@ class MultiVectorEncoder(BaseModel):
             with open(config_json_path, encoding="utf-8") as fIn:
                 architectures = json.load(fIn).get("architectures") or []
         is_stanford_colbert = "HF_ColBERT" in architectures
+        if is_stanford_colbert:
+            self._maybe_load_stanford_metadata(
+                model_name_or_path,
+                cache_folder=cache_folder,
+                revision=revision,
+                local_files_only=local_files_only,
+                token=token,
+            )
 
-        transformer_model = MultiVectorTransformer(
+        transformer_model = Transformer(
             model_name_or_path,
             cache_dir=cache_folder,
             model_kwargs=model_kwargs,
             processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             backend=self.backend,
+            # Stanford-NLP artifact.metadata values (query_maxlen / doc_maxlen / attend_to_mask_tokens)
+            # flow in here; empty stash leaves the Transformer at its base defaults.
+            **self._legacy.transformer_config,
         )
         modules: list[nn.Module] = [transformer_model]
 
@@ -679,13 +733,6 @@ class MultiVectorEncoder(BaseModel):
                     local_files_only=local_files_only,
                     token=token,
                 )
-            )
-            self._maybe_apply_stanford_metadata(
-                model_name_or_path,
-                cache_folder=cache_folder,
-                revision=revision,
-                local_files_only=local_files_only,
-                token=token,
             )
             logger.info(
                 "Detected a Stanford-NLP ColBERT checkpoint; loaded the inline projection weights and metadata."
@@ -747,7 +794,7 @@ class MultiVectorEncoder(BaseModel):
             module_input_name="token_embeddings",
         )
 
-    def _maybe_apply_stanford_metadata(
+    def _maybe_load_stanford_metadata(
         self,
         model_name_or_path: str,
         cache_folder: str | None,
@@ -755,11 +802,10 @@ class MultiVectorEncoder(BaseModel):
         local_files_only: bool,
         token: bool | str | None,
     ) -> None:
-        """Recover Stanford-NLP ColBERT settings from ``artifact.metadata`` (marker tokens, query/doc
-        lengths) and stash them for the post-load promotion step. Falls back to the standard
-        ``[unused0]`` / ``[unused1]`` markers when the file is absent.
+        """Read Stanford-NLP ColBERT settings from ``artifact.metadata`` and stash them on ``self._legacy``
+        for the Transformer constructor + prefix-token registration to consume. Falls back to the
+        standard ``[unused0]`` / ``[unused1]`` markers when the file is absent.
         """
-        transformer_stash = self._legacy_transformer_config = getattr(self, "_legacy_transformer_config", {}) or {}
         metadata_path = Dense.load_file_path(
             model_name_or_path,
             filename="artifact.metadata",
@@ -779,11 +825,11 @@ class MultiVectorEncoder(BaseModel):
             logger.info("Loaded configuration from the Stanford-NLP ColBERT artifact.metadata file.")
 
         # Stanford-NLP ColBERT inserts these markers as token ids; record them for special-token registration.
-        self._legacy_prefixes = {
+        self._legacy.prefixes = {
             "query": (metadata.get("query_token_id") or "[unused0]") + " ",
             "document": (metadata.get("doc_token_id") or "[unused1]") + " ",
         }
-        for role, marker in self._legacy_prefixes.items():
+        for role, marker in self._legacy.prefixes.items():
             if not self.prompts.get(role):
                 self.prompts[role] = marker
         for meta_key, attr in (
@@ -792,7 +838,7 @@ class MultiVectorEncoder(BaseModel):
             ("attend_to_mask_tokens", "attend_to_expansion_tokens"),
         ):
             if metadata.get(meta_key) is not None:
-                transformer_stash.setdefault(attr, metadata[meta_key])
+                self._legacy.transformer_config.setdefault(attr, metadata[meta_key])
 
     def _load_converted_modules(
         self,
@@ -855,11 +901,6 @@ class MultiVectorEncoder(BaseModel):
             raise ValueError(
                 "Cannot convert this SentenceTransformer checkpoint into a MultiVectorEncoder: "
                 "no Transformer module was found among the loaded modules."
-            )
-        # Promote the plain backbone in place, forwarding any saved knobs so `_post_init` sees the final state.
-        if not isinstance(transformer, MultiVectorTransformer):
-            MultiVectorTransformer.from_transformer(
-                transformer, **(getattr(self, "_legacy_transformer_config", None) or {})
             )
 
         if not any(isinstance(m, Dense) for m in filtered):

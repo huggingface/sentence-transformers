@@ -589,7 +589,20 @@ class Transformer(InputModule):
         "module_output_name",
         "processing_kwargs",
         "unpad_inputs",
+        "query_length",
+        "document_length",
+        "do_query_expansion",
+        "attend_to_expansion_tokens",
     ]
+    # Config keys held at their default for dense / sparse / cross-encoder use are omitted from the
+    # saved ``sentence_bert_config.json`` (see :meth:`get_config_dict`); the multi-vector machinery is
+    # paid-for only when a model actually opts into it.
+    _DEFAULT_CONFIG_VALUES: dict[str, Any] = {
+        "query_length": None,
+        "document_length": None,
+        "do_query_expansion": False,
+        "attend_to_expansion_tokens": False,
+    }
     save_in_root: bool = True
     _VALID_PROCESSING_KWARGS_KEYS: set[str] = {"common", "text", "audio", "image", "video", "chat_template"}
 
@@ -607,6 +620,10 @@ class Transformer(InputModule):
         modality_config: ModalityConfig | None = None,
         module_output_name: str | None = None,
         unpad_inputs: bool | None = None,
+        query_length: int | None = None,
+        document_length: int | None = None,
+        do_query_expansion: bool = False,
+        attend_to_expansion_tokens: bool = False,
         max_seq_length: int | None = None,
         do_lower_case: bool = False,
         tokenizer_name_or_path: str | None = None,
@@ -643,6 +660,11 @@ class Transformer(InputModule):
         self._prompt_length_mapping = {}
         self._method_signature_cache: dict[str, set[str]] = {}
         self._chat_template_suffix_cache: dict[Any, list[int]] = {}
+        # Per-task max-length overrides applied to the text modality. When ``task`` reaches
+        # :meth:`preprocess` as ``"query"`` / ``"document"`` we pick the matching attribute; ``None``
+        # leaves the tokenizer's default behaviour intact.
+        self.query_length = query_length
+        self.document_length = document_length
 
         config, is_peft_model = self._load_config(model_name_or_path, backend, config_kwargs)
         self._warn_on_unsupported_attention_config(config)
@@ -758,6 +780,18 @@ class Transformer(InputModule):
         # Evaluate whether we can skip padding
         self.unpad_inputs = unpad_inputs
 
+        # ColBERT-style query expansion knobs
+        self.do_query_expansion = do_query_expansion
+        self.attend_to_expansion_tokens = attend_to_expansion_tokens if do_query_expansion else False
+        # FA2 skips ``attention_mask=0`` positions, so [MASK] expansion tokens would not be updated.
+        if self.do_query_expansion and not self.attend_to_expansion_tokens and self._is_flash_attention_requested():
+            raise ValueError(
+                "FlashAttention-2 is incompatible with do_query_expansion=True + "
+                "attend_to_expansion_tokens=False: FA2 skips `attention_mask=0` positions, so the [MASK] "
+                'expansion tokens used by MaxSim never receive an attention update. Pass attn_implementation="sdpa" '
+                "(preserves semantics) or set attend_to_expansion_tokens=True (changes semantics)."
+            )
+
     @property
     def unpad_inputs(self) -> bool | None:
         """Whether text-only inputs are concatenated without padding for faster inference.
@@ -819,7 +853,6 @@ class Transformer(InputModule):
         try:
             from transformers import DataCollatorWithFlattening
             from transformers.modeling_flash_attention_utils import lazy_import_flash_attention
-            from transformers.utils.generic import is_flash_attention_requested
         except ImportError:
             logger.debug(
                 "Consider upgrading to transformers >= 5.0.0 to skip padding for text-only inputs, "
@@ -827,11 +860,10 @@ class Transformer(InputModule):
             )
             return False
 
-        attn_implementation = self.config._attn_implementation
-        if not is_flash_attention_requested(requested_attention_implementation=attn_implementation):
+        if not self._is_flash_attention_requested():
             return False
 
-        (_, flash_varlen_fn, *_), _ = lazy_import_flash_attention(attn_implementation)
+        (_, flash_varlen_fn, *_), _ = lazy_import_flash_attention(self.config._attn_implementation)
         if flash_varlen_fn is None:
             return False
 
@@ -911,10 +943,23 @@ class Transformer(InputModule):
         Only safe for text-only inputs, since :class:`DataCollatorWithFlattening` only handles
         ``input_ids`` / ``labels``. Subclasses can override to opt out for specific tasks.
         """
+        # FA2 unpadding would drop the pad positions before `preprocess` can swap them for `mask_token_id`,
+        # so fall back to padded for queries when expansion is on.
+        if kwargs.get("task") == "query" and self.do_query_expansion:
+            return False
         return self.can_flatten_inputs and (
             modality == "text"
             or (modality == "message" and self.input_formatter.is_text_only_messages(processor_inputs["message"]))
         )
+
+    def _is_flash_attention_requested(self) -> bool:
+        """Whether the loaded model was configured for FlashAttention-2 (via ``attn_implementation``)."""
+        try:
+            from transformers.utils.generic import is_flash_attention_requested
+        except ImportError:
+            return False
+        attn_impl = getattr(self.config, "_attn_implementation", None)
+        return is_flash_attention_requested(requested_attention_implementation=attn_impl)
 
     def preprocess(
         self,
@@ -957,6 +1002,20 @@ class Transformer(InputModule):
             # to that length by default, but ST's general "audio" modality kwargs above set
             # padding=True ("longest") which would override that default. Restore "max_length".
             modality_kwargs["audio"]["padding"] = "max_length"
+
+        # Apply the per-task max-length override for text inputs (e.g. ColBERT-style
+        # query_length/document_length). Caller-supplied processing_kwargs still wins below.
+        task = kwargs.get("task")
+        task_max_length = (
+            self.query_length if task == "query" else self.document_length if task == "document" else None
+        )
+        if task_max_length is not None:
+            modality_kwargs["text"]["max_length"] = task_max_length
+
+        # Force padding to ``max_length`` for expansion queries so the post-tokenization swap below has
+        # explicit pad positions to replace with ``mask_token_id``.
+        if task == "query" and self.do_query_expansion:
+            modality_kwargs["text"]["padding"] = "max_length"
 
         effective_processing_kwargs = self._merge_processing_kwargs(processing_kwargs)
         if "common" in effective_processing_kwargs:
@@ -1040,6 +1099,29 @@ class Transformer(InputModule):
                     'Please set ``processing_kwargs={"padding_side": "left"}``.'
                 )
             processor_output["logits_to_keep"] = 1
+
+        # ColBERT-style query expansion: swap pad positions for `mask_token_id` so the encoder produces
+        # expansion-token embeddings there. The `query_expansion_active` signal below tells downstream
+        # modules to score those positions.
+        is_query = task == "query"
+        if (
+            is_query
+            and self.do_query_expansion
+            and self.tokenizer is not None
+            and self.tokenizer.mask_token_id is not None
+        ):
+            pad_id = self.tokenizer.pad_token_id
+            if pad_id is not None and pad_id != self.tokenizer.mask_token_id and "input_ids" in processor_output:
+                input_ids = processor_output["input_ids"]
+                processor_output["input_ids"] = torch.where(
+                    input_ids == pad_id,
+                    torch.tensor(self.tokenizer.mask_token_id, dtype=input_ids.dtype, device=input_ids.device),
+                    input_ids,
+                )
+        if is_query and self.attend_to_expansion_tokens and "attention_mask" in processor_output:
+            processor_output["attention_mask"] = torch.ones_like(processor_output["attention_mask"])
+        if is_query and self.do_query_expansion:
+            processor_output["query_expansion_active"] = True
 
         return processor_output
 
@@ -2055,6 +2137,7 @@ class Transformer(InputModule):
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         backend: str = "torch",
+        init_defaults: dict[str, Any] | None = None,
         **kwargs,
     ) -> Self:
         """Load a Transformer module from a pretrained model directory or Hugging Face model name."""
@@ -2071,6 +2154,9 @@ class Transformer(InputModule):
             config_kwargs=config_kwargs,
             backend=backend,
         )
+        # init_kwargs has priority over init_defaults
+        for key, value in (init_defaults or {}).items():
+            init_kwargs.setdefault(key, value)
         return cls(model_name_or_path=model_name_or_path, **init_kwargs)
 
     @classmethod
@@ -2248,6 +2334,11 @@ class Transformer(InputModule):
             config_dict.pop("processing_kwargs", None)
         if self.unpad_inputs is None:
             config_dict.pop("unpad_inputs", None)
+        # Drop multi-vector knobs held at their dense/sparse/cross-encoder defaults so
+        # ``sentence_bert_config.json`` for non-multi-vector models stays uncluttered.
+        for key, default in self._DEFAULT_CONFIG_VALUES.items():
+            if config_dict.get(key) == default:
+                config_dict.pop(key, None)
         return config_dict
 
     def __repr__(self) -> str:

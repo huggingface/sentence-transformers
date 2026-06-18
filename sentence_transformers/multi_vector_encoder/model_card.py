@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import torch
 
 from sentence_transformers.base.model_card import BaseModelCardCallback, BaseModelCardData
-from sentence_transformers.multi_vector_encoder.modules import MultiVectorTransformer
+from sentence_transformers.base.modules import Transformer
 
 if TYPE_CHECKING:
     from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
@@ -81,8 +81,8 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
 
     def get_model_specific_metadata(self) -> dict[str, Any]:
         metadata = super().get_model_specific_metadata()
-        # query_length / document_length live on the MultiVectorTransformer module, not on the model.
-        transformer = next((module for module in self.model if isinstance(module, MultiVectorTransformer)), None)
+        # query_length / document_length live on the backbone Transformer, not on the model.
+        transformer = next((module for module in self.model if isinstance(module, Transformer)), None)
         metadata.update(
             {
                 "output_dimensionality": self.model.get_embedding_dimension(),

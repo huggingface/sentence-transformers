@@ -6,6 +6,7 @@ import torch
 from torch import Tensor
 
 from sentence_transformers.base.modules.module import Module
+from sentence_transformers.util.tensor import repad_flattened_features
 
 
 class MultiVectorMask(Module):
@@ -13,8 +14,9 @@ class MultiVectorMask(Module):
     late-interaction (ColBERT-style) models.
 
     Place this at the end of the module sequence in a :class:`~sentence_transformers.MultiVectorEncoder`.
-    Reads ``task`` from forward kwargs and ``features["query_expansion_active"]`` (set by
-    :class:`MultiVectorTransformer` during preprocess) to decide:
+    Reads ``task`` from forward kwargs and ``features["query_expansion_active"]`` (set by the
+    :class:`~sentence_transformers.base.modules.Transformer` during preprocess when query expansion
+    is on) to decide:
 
     - ``task="query"`` and query expansion was active during preprocess: every position counts (mask =
       all ones). This is the ColBERT trick: expansion positions contribute to MaxSim even if the
@@ -63,6 +65,11 @@ class MultiVectorMask(Module):
         self._skiplist_ids = torch.tensor(ids, dtype=torch.long)
 
     def forward(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
+        # The MVE encode loop slices per-row by ``attention_mask``, so any FA2-flat encoder output
+        # is re-padded back to ``(B, T, D)`` here.
+        if "cu_seq_lens_q" in features:
+            features = repad_flattened_features(features)
+
         input_ids = features["input_ids"]
         attention_mask = features["attention_mask"].bool()
         if task == "query":
