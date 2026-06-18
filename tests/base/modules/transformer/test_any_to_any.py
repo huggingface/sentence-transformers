@@ -18,6 +18,7 @@ from sentence_transformers.base.modules import Transformer
 from sentence_transformers.util.tensor import batch_to_device
 
 from .conftest import (
+    EXPECT_AUDIO_FAILURE,
     EXPECT_FORWARD_FAIL,
     EXPECT_IMAGE_VIDEO_FAILURE,
     EXPECT_MULTIMODAL_FAILURE,
@@ -143,6 +144,8 @@ class TestAnyToAnyArchitectures:
                     context = pytest.raises(Exception)
                 elif arch in EXPECT_IMAGE_VIDEO_FAILURE and "image" in modality_desc and "video" in modality_desc:
                     context = pytest.raises((ValueError, TypeError, AttributeError))
+                elif arch in EXPECT_AUDIO_FAILURE and "audio" in modality_desc:
+                    context = pytest.raises((ValueError, TypeError, AttributeError))
                 elif (
                     model.module_output_name == "sentence_embedding"
                     and "+" in modality_desc
@@ -205,6 +208,8 @@ class TestAnyToAnyArchitectures:
                 if expected_fail is None or (expected_fail and pair_desc in expected_fail):
                     context = pytest.raises(Exception)
                 elif arch in EXPECT_IMAGE_VIDEO_FAILURE and "image" in pair_desc and "video" in pair_desc:
+                    context = pytest.raises((ValueError, TypeError, AttributeError))
+                elif arch in EXPECT_AUDIO_FAILURE and "audio" in pair_desc:
                     context = pytest.raises((ValueError, TypeError, AttributeError))
 
                 with context:

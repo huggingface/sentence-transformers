@@ -83,6 +83,7 @@ XFAIL_ARCHITECTURES = [
     "musicgen",  # not compatible with AutoModel
     "musicgen_melody",  # not compatible with AutoModel
     "voxtral",  # VoxtralProcessor doesn't accept audio, only text, while the VoxtralEncoder only processes audio
+    "deepseek_v4",  # FP8 checkpoint: save_pretrained re-quantizes to float8_e8m0fnu, which safetensors 0.5.3 cannot serialize. Forward also mixes float32 norms with bf16 Linears
     # Skipped due to extra dependencies
     "layoutlmv2",  # Requires detectron2
     "layoutlmv3",  # Requires pytesseract
@@ -175,6 +176,9 @@ EXPECT_IMAGE_VIDEO_FAILURE = [
 ]
 EXPECT_IMAGE_ONLY_FAILURE = [
     "llama4",  # Text is required at all times  # TODO: Or should I update Transformer? But this supports 'message' with only image I think?
+]
+EXPECT_AUDIO_FAILURE = [
+    "gemma4",  # tiny checkpoint ships no audio tower weights, despite architecture supporting audio
 ]
 
 
@@ -683,6 +687,10 @@ def get_arch_kwargs(arch: str, transformer_task: str) -> tuple[dict, dict, dict,
         processing_kwargs["text"] = {"padding": "max_length"}
     if arch == "qwen3_5" and transformer_task == "sequence-classification":
         config_kwargs["text_config"] = {"num_labels": 1, "id2label": {0: "LABEL_0"}}
+    if arch in ("gemma4", "diffusion_gemma"):
+        processing_kwargs["video"] = {"num_frames": 8}
+    if arch == "gemma4":
+        processing_kwargs["audio"] = {"truncation": False}
 
     return model_kwargs, config_kwargs, processor_kwargs, processing_kwargs
 
