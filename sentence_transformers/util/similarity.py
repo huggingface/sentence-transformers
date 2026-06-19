@@ -293,6 +293,11 @@ def maxsim_pairwise(
 
     a = _convert_to_tensor(a)
     b = _convert_to_tensor(b)
+    # Mirror maxsim: derive a mask from all-zero (pad) rows so pad cannot win the max.
+    if a_mask is None and a.dim() == 3:
+        a_mask = _zero_row_mask(a)
+    if b_mask is None and b.dim() == 3:
+        b_mask = _zero_row_mask(b)
     scores = torch.einsum("bsh,bth->bst", a, b)
     # Documents reduced with max (mask to dtype min so padding never wins); queries reduced with sum (mask to 0).
     if b_mask is not None:
@@ -303,13 +308,26 @@ def maxsim_pairwise(
     return scores.sum(dim=-1)
 
 
+def _zero_row_mask(padded: Tensor) -> Tensor:
+    """Derive a ``(B, T)`` mask from a pre-padded ``(B, T, D)`` token-embedding tensor by treating
+    all-zero rows as padding.
+
+    Real token embeddings normally carry information in at least one dim, so a fully-zero row is the
+    all-but-impossible-except-by-pad signal. This matches the padding pattern emitted by
+    ``encode(convert_to_padded=True)``. Returned in the input dtype (1.0 for real tokens, 0.0 for pad).
+    """
+    return padded.any(dim=-1).to(padded.dtype)
+
+
 def _pad_multi_vector_inputs(
     inputs: list | np.ndarray | Tensor,
     mask: Tensor | None,
 ) -> tuple[Tensor, Tensor | None]:
     """Pad a list of variable-length multi-vector tensors into a single 3D tensor with a mask.
 
-    Returns the padded tensor and either the user-provided mask or one derived from the input lengths.
+    Returns the padded tensor and either the user-provided mask or one derived from the input. For a
+    list input the mask comes from the per-row lengths. For a 3D tensor input without a mask the
+    mask comes from all-zero rows (see :func:`_zero_row_mask`).
     """
     if isinstance(inputs, list):
         tensors = [_convert_to_tensor(t) for t in inputs]
@@ -319,7 +337,10 @@ def _pad_multi_vector_inputs(
             max_len = padded.shape[1]
             mask = (torch.arange(max_len).unsqueeze(0) < lengths.unsqueeze(1)).to(padded.device, dtype=padded.dtype)
         return padded, mask
-    return _convert_to_tensor(inputs), mask
+    padded = _convert_to_tensor(inputs)
+    if mask is None and padded.dim() == 3:
+        mask = _zero_row_mask(padded)
+    return padded, mask
 
 
 def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -15,10 +15,10 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
 
     Differences from :class:`~sentence_transformers.base.data_collator.BaseDataCollator`:
 
-    1. **Default task inference from column names.** When ``router_mapping`` does not specify a task for a
-       column, we default to ``"query"`` for columns named ``"query"`` / ``"anchor"`` / ``"question"`` (or
-       starting with one of these), and ``"document"`` for everything else. The model's ``preprocess`` reads
-       ``task`` to choose the query vs. document prefix, length, and masking strategy.
+    1. **Default task assignment by column position.** When ``router_mapping`` does not specify a task for a
+       column, we default to ``"query"`` for the first tokenized column and ``"document"`` for the rest.
+       This matches the losses, which assign positionally (column 0 = query). Column names are not consulted;
+       use ``router_mapping`` to override per-column.
     2. **List-valued column flattening.** For knowledge-distillation datasets where ``"documents"`` (or any
        other column) is a list of N strings per row, the collator flattens to a flat ``batch_size * N`` list
        so the loss can reshape back to ``(batch_size, N, ...)``.
@@ -26,17 +26,6 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
        ``"document_ids"``) are passed through unchanged rather than tokenized, matching PyLate's behaviour.
        Useful when the raw IDs are kept alongside the texts for downstream debugging.
     """
-
-    _query_column_prefixes: tuple[str, ...] = field(
-        default=("query", "anchor", "question"),
-        repr=False,
-    )
-
-    def _default_task_for_column(self, column_name: str) -> str:
-        for prefix in self._query_column_prefixes:
-            if column_name == prefix or column_name.startswith(prefix + "_"):
-                return "query"
-        return "document"
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
         if not features:
@@ -61,6 +50,7 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
         router_mapping = self._resolve_router_mapping(batch)
         prompts = self._resolve_prompts(batch)
 
+        tokenized_position = 0
         for column_name in column_names:
             if "_id" in column_name:
                 # Pass _id columns through without tokenization (KD datasets often include them).
@@ -69,11 +59,9 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
 
             task = router_mapping.get(column_name)
             if task is None:
-                # TODO: revisit to make this more robust. This column-name heuristic can disagree with the
-                # losses, which assign task positionally (task="query" for the first column, "document" for
-                # the rest): a dataset whose first column is not named query/anchor/question is encoded as a
-                # document while the loss treats it as the query. router_mapping is the current workaround.
-                task = self._default_task_for_column(column_name)
+                # Match the losses' positional assignment: column 0 is the query, the rest are documents.
+                task = "query" if tokenized_position == 0 else "document"
+            tokenized_position += 1
 
             prompt = self._get_prompt_for_column(prompts, column_name)
             inputs = [row[column_name] for row in features]

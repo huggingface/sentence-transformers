@@ -173,3 +173,45 @@ def test_collator_within_column_rectangular_across_ragged_columns(model: MultiVe
         "If they're forced equal, the collator is still hardcoding padding semantics."
     )
     assert positive_T > negative_T
+
+
+def test_collator_assigns_task_by_position_regardless_of_name(model: MultiVectorEncoder) -> None:
+    """The collator assigns ``task`` by column POSITION (column 0 = query, the rest = document) to
+    match the losses, which score positionally. Column names are not consulted, so a dataset whose
+    first column is named "answer" still gets ``task="query"`` — matching the loss. ``router_mapping``
+    is the explicit override path.
+    """
+    seen_tasks: list[str | None] = []
+    original_preprocess = model.preprocess
+
+    def spy(inputs, prompt=None, task=None, **kwargs):
+        seen_tasks.append(task)
+        return original_preprocess(inputs, prompt=prompt, task=task, **kwargs)
+
+    collator = MultiVectorEncoderDataCollator(preprocess_fn=spy)
+    features = [
+        {"answer": "Paris is the capital of France.", "question": "Capital of France?", "negative": "Berlin"},
+        {"answer": "AI is the field of intelligent machines.", "question": "What is AI?", "negative": "Toaster"},
+    ]
+    collator(features)
+
+    assert seen_tasks == ["query", "document", "document"], f"positional task assignment broken: {seen_tasks}"
+
+
+def test_collator_router_mapping_overrides_positional_default(model: MultiVectorEncoder) -> None:
+    """``router_mapping`` overrides the positional default per column."""
+    seen_tasks: list[str | None] = []
+    original_preprocess = model.preprocess
+
+    def spy(inputs, prompt=None, task=None, **kwargs):
+        seen_tasks.append(task)
+        return original_preprocess(inputs, prompt=prompt, task=task, **kwargs)
+
+    collator = MultiVectorEncoderDataCollator(
+        preprocess_fn=spy,
+        router_mapping={"answer": "document", "question": "query"},
+    )
+    features = [{"answer": "Paris is the capital.", "question": "Capital?"}]
+    collator(features)
+
+    assert seen_tasks == ["document", "query"], f"router_mapping override broken: {seen_tasks}"

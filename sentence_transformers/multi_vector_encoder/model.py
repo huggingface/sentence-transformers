@@ -20,7 +20,7 @@ from sentence_transformers.base.modality_types import SingleInput
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEncoderModelCardData
-from sentence_transformers.multi_vector_encoder.modules import MultiVectorMask
+from sentence_transformers.multi_vector_encoder.modules import HierarchicalPooling, MultiVectorMask
 from sentence_transformers.multi_vector_encoder.modules.hierarchical_pooling import pool_document_embeddings
 from sentence_transformers.sentence_transformer.modules import Normalize
 from sentence_transformers.util import batch_to_device, load_file_path
@@ -313,6 +313,8 @@ class MultiVectorEncoder(BaseModel):
         normalize_embeddings: bool = False,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
+        # TODO: Should we remove pool_factor in favor of e.g. pool_kwargs for more flexibility in the future?
+        # We can always update that in the future with a small decorator though
         pool_factor: int = 1,  # TODO: Should we reintroduce protected_tokens?
         task: str | None = None,
         **kwargs: Any,
@@ -439,7 +441,14 @@ class MultiVectorEncoder(BaseModel):
                     batch_embeddings = [nn.functional.normalize(emb, p=2, dim=-1) for emb in batch_embeddings]
 
             if pool_factor > 1 and not is_query:
-                batch_embeddings = self.pool_embeddings_hierarchical(batch_embeddings, pool_factor=pool_factor)
+                if any(isinstance(module, HierarchicalPooling) for module in self):
+                    logger.warning_once(
+                        f"Ignoring encode(pool_factor={pool_factor}): this model already includes a "
+                        "`HierarchicalPooling` module, so per-call pooling would pool tokens twice. "
+                        "Drop `pool_factor` from the encode call to silence this warning."
+                    )
+                else:
+                    batch_embeddings = self.pool_embeddings_hierarchical(batch_embeddings, pool_factor=pool_factor)
 
             if convert_to_numpy:
                 batch_embeddings = [emb.cpu() for emb in batch_embeddings]

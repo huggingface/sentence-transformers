@@ -268,6 +268,23 @@ def test_hierarchical_pooling_module_in_pipeline() -> None:
     assert with_pool[0].shape[0] < without_pool[0].shape[0]
 
 
+def test_encode_pool_factor_ignored_when_pooling_module_present(caplog) -> None:
+    """When a ``HierarchicalPooling`` module is already in the pipeline, ``encode(pool_factor=...)`` is
+    suppressed (pool(pool(x)) != pool(x), so a second pass would silently over-pool). A warning is logged."""
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    text = "a fairly long document with plenty of distinct tokens to cluster together here"
+
+    pooled_model = MultiVectorEncoder(base)
+    pooled_model.append(HierarchicalPooling(pool_factor=2))
+    module_only = pooled_model.encode_document([text])
+
+    with caplog.at_level("WARNING"):
+        module_plus_kwarg = pooled_model.encode_document([text], pool_factor=2)
+
+    assert module_plus_kwarg[0].shape == module_only[0].shape
+    assert any("Ignoring encode(pool_factor=" in record.message for record in caplog.records)
+
+
 def test_similarity_function_enum_has_maxsim() -> None:
     assert SimilarityFunction.MAXSIM.value == "MaxSim"
     assert SimilarityFunction.to_similarity_fn("MaxSim") is maxsim
@@ -281,6 +298,46 @@ def test_maxsim_basic_shapes() -> None:
     assert scores.shape == (1, 1)
     # MaxSim: max(1*1, 1*0) + max(0*1, 0.5) = 1 + 0.5 = 1.5
     assert torch.allclose(scores[0, 0], torch.tensor(1.5))
+
+
+def test_maxsim_padded_tensor_without_mask_excludes_zero_rows() -> None:
+    """Without a mask, a pre-padded 3D tensor (the output of ``encode(convert_to_padded=True)``) had
+    its zero-pad rows counted as real tokens whose dot product 0 could win the max over negative
+    similarities. ``_pad_multi_vector_inputs`` now derives a mask from all-zero rows so the padded
+    tensor matches the list-input result."""
+    q_list = [torch.tensor([[1.0, 0.0]])]
+    d_list = [torch.tensor([[-0.5, -0.5]])]
+
+    d_padded = torch.zeros(1, 3, 2)
+    d_padded[0, 0] = d_list[0][0]
+
+    scores_list = maxsim(q_list, d_list)
+    scores_padded = maxsim(q_list, d_padded)
+    assert torch.allclose(scores_padded, scores_list), (
+        f"padded-tensor scores {scores_padded.tolist()} should match list-input scores "
+        f"{scores_list.tolist()}; without the mask derivation, the zero-pad rows win the max."
+    )
+
+
+def test_maxsim_pairwise_padded_tensor_without_mask_excludes_zero_rows() -> None:
+    """maxsim_pairwise mirrors maxsim: a pre-padded 3D tensor without a mask (the output of
+    ``encode(convert_to_padded=True)`` consumed by ``model.similarity_pairwise``) derives a mask from
+    its all-zero rows so zero-pad doc tokens cannot win the max over a negative real similarity."""
+    q_list = [torch.tensor([[1.0, 0.0]])]
+    d_list = [torch.tensor([[-0.5, -0.5]])]
+
+    # Both columns as pre-padded 3D tensors (so the tensor branch, not the list branch, runs).
+    q_padded = torch.zeros(1, 2, 2)
+    q_padded[0, 0] = q_list[0][0]
+    d_padded = torch.zeros(1, 3, 2)
+    d_padded[0, 0] = d_list[0][0]
+
+    scores_list = maxsim_pairwise(q_list, d_list)
+    scores_padded = maxsim_pairwise(q_padded, d_padded)
+    assert torch.allclose(scores_padded, scores_list), (
+        f"padded-tensor pairwise scores {scores_padded.tolist()} should match list-input scores "
+        f"{scores_list.tolist()}; without the mask derivation, the zero-pad rows win the max."
+    )
 
 
 def test_colbert_scoring_callable_query_major() -> None:
