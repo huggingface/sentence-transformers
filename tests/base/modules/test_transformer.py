@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import sys
@@ -581,6 +582,87 @@ class TestForward:
         embedding = result[model.module_output_name]
         assert embedding.ndim == 3
         assert embedding.shape[-1] == model.config.hidden_size
+
+    def test_model_forward_params_matches_kwargs_support(self, bert_tiny_transformer):
+        """``model_forward_params`` is ``None`` exactly when forward accepts ``**kwargs`` (the denylist
+        path); otherwise it is an allowlist set seeded with the common safety-net names."""
+        model = bert_tiny_transformer
+        accepts_kwargs = any(
+            param.kind is inspect.Parameter.VAR_KEYWORD
+            for param in inspect.signature(model.model.forward).parameters.values()
+        )
+        if accepts_kwargs:
+            assert model.model_forward_params is None
+        else:
+            assert isinstance(model.model_forward_params, set)
+            assert {"input_ids", "attention_mask"} <= model.model_forward_params
+
+    def test_kwargs_forward_excludes_bookkeeping_keys(self, bert_tiny_transformer, monkeypatch):
+        """When forward accepts ``**kwargs`` (``model_forward_params is None``), forward() passes the real
+        model inputs but drops ST bookkeeping and tokenizer-only extras, even though ``**kwargs`` would
+        otherwise swallow them silently."""
+        model = bert_tiny_transformer
+        if model.model_forward_params is not None:
+            pytest.skip("bert-tiny forward does not accept **kwargs in this transformers version")
+
+        features = batch_to_device(model.preprocess(["hello world"]), model.model.device)
+        # Inject every key that must never reach the model, regardless of whether preprocess added it.
+        seq_len = features["input_ids"].shape[1]
+        features.update(
+            {
+                "modality": "text",
+                "prompt_length": 1,
+                "query_expansion_active": True,
+                "offset_mapping": torch.zeros(1, seq_len, 2, dtype=torch.long),
+                "overflow_to_sample_mapping": torch.zeros(1, dtype=torch.long),
+                "special_tokens_mask": torch.zeros_like(features["input_ids"]),
+            }
+        )
+
+        captured = {}
+        original_forward = model.model.forward
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return original_forward(**kwargs)
+
+        monkeypatch.setattr(model.model, "forward", spy)
+        with torch.no_grad():
+            model.forward(features)
+
+        assert {"input_ids", "attention_mask"} <= captured.keys()
+        for banned in (
+            "modality",
+            "prompt_length",
+            "query_expansion_active",
+            "offset_mapping",
+            "overflow_to_sample_mapping",
+            "special_tokens_mask",
+        ):
+            assert banned not in captured, f"{banned} must not be forwarded to the model"
+
+    def test_allowlist_forward_filters_unknown_kwargs(self, bert_tiny_transformer, monkeypatch):
+        """When forward does not accept ``**kwargs`` (``model_forward_params`` is a set), forward() drops
+        any feature key outside the allowlist."""
+        model = bert_tiny_transformer
+        model.model_forward_params = {"input_ids", "attention_mask", "token_type_ids", "return_dict"}
+
+        features = batch_to_device(model.preprocess(["hello world"]), model.model.device)
+        features["pixel_values"] = torch.zeros(1, 3, 4, 4)  # not in the allowlist, must be dropped
+
+        captured = {}
+        original_forward = model.model.forward
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return original_forward(**kwargs)
+
+        monkeypatch.setattr(model.model, "forward", spy)
+        with torch.no_grad():
+            model.forward(features)
+
+        assert "input_ids" in captured
+        assert "pixel_values" not in captured
 
 
 class TestGetEmbeddingDimension:

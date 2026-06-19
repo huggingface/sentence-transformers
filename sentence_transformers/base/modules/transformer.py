@@ -490,6 +490,22 @@ def _count_media_per_sample(messages: list[list[dict[str, Any]]]) -> tuple[list[
     return num_images, num_videos
 
 
+# Forward-kwarg filter constants: ST/tokenizer bookkeeping to never forward, plus common kwargs to always allow.
+_NON_MODEL_FEATURE_KEYS = frozenset(
+    {
+        # Sentence Transformers' own bookkeeping.
+        "modality",
+        "prompt_length",
+        "query_expansion_active",
+        # Tokenizer extras from return_* flags (return_offsets_mapping, etc.), never forward inputs.
+        "offset_mapping",
+        "overflow_to_sample_mapping",
+        "special_tokens_mask",
+    }
+)
+_FORWARD_SAFETY_NET_KEYS = frozenset({"input_ids", "attention_mask", "token_type_ids", "inputs_embeds", "return_dict"})
+
+
 class Transformer(InputModule):
     """Hugging Face AutoModel wrapper that handles loading, preprocessing, and inference.
 
@@ -701,15 +717,18 @@ class Transformer(InputModule):
             model_name_or_path, transformer_task, config, backend, is_peft_model, **model_kwargs
         )
 
-        # Start from the forward signature and add common parameter names as a safety net
-        # for models that use **kwargs or a wrapper that hides them from the signature.
-        self.model_forward_params = set(inspect.signature(self.model.forward).parameters) | {
-            "input_ids",
-            "attention_mask",
-            "token_type_ids",
-            "inputs_embeds",
-            "return_dict",
-        }
+        # Unwrap PEFT first: ``PeftModel.forward`` hides the base model's multimodal params (e.g. ``pixel_values``).
+        forward_model = self.model
+        if is_peft_available():
+            from peft import PeftModel
+
+            if isinstance(forward_model, PeftModel):
+                forward_model = forward_model.get_base_model()
+        # ``None`` = forward accepts ``**kwargs`` (pass all but ST bookkeeping). Set = declared params plus safety net.
+        forward_signature = inspect.signature(forward_model.forward)
+        self.model_forward_params: set[str] | None = None
+        if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in forward_signature.parameters.values()):
+            self.model_forward_params = set(forward_signature.parameters) | _FORWARD_SAFETY_NET_KEYS
 
         if max_seq_length is not None and "model_max_length" not in processor_kwargs:
             processor_kwargs["model_max_length"] = max_seq_length
@@ -891,16 +910,6 @@ class Transformer(InputModule):
             return_flash_attn_kwargs=True,
             return_position_ids=True,  # Crucial for performance
         )
-        # Ensure the flash attention keys reach the model through **kwargs. They
-        # are not named parameters in the model's forward signature, but the model
-        # passes them through to its attention layers via **kwargs.
-        self.model_forward_params |= {
-            "cu_seq_lens_q",
-            "cu_seq_lens_k",
-            "max_length_q",
-            "max_length_k",
-            "seq_idx",
-        }
         return True
 
     @property
@@ -1202,7 +1211,13 @@ class Transformer(InputModule):
             raise ValueError(f"Model does not have the requested '{method_name}' method")
 
         if method_name == "forward":
-            filtered_kwargs = {key: value for key, value in all_kwargs.items() if key in self.model_forward_params}
+            if self.model_forward_params is None:
+                # forward accepts **kwargs: pass everything except ST's own bookkeeping keys.
+                filtered_kwargs = {
+                    key: value for key, value in all_kwargs.items() if key not in _NON_MODEL_FEATURE_KEYS
+                }
+            else:
+                filtered_kwargs = {key: value for key, value in all_kwargs.items() if key in self.model_forward_params}
         else:
             method_params = self._method_signature_cache.get(method_name)
             if method_params is None:
