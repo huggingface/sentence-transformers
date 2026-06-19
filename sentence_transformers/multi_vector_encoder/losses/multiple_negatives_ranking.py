@@ -9,7 +9,12 @@ from torch import Tensor, nn
 
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.scoring import colbert_scores
-from sentence_transformers.util import all_gather, all_gather_with_grad, get_rank, get_world_size
+from sentence_transformers.util import (
+    all_gather_padded,
+    get_rank,
+    get_world_size,
+    stack_padded_token_embeddings,
+)
 
 
 class MultiVectorMultipleNegativesRankingLoss(nn.Module):
@@ -101,19 +106,18 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
         ]
 
         batch_size = embeddings[0].size(0)
-        if self.gather_across_devices:
-            embeddings = [
-                embeddings[0],
-                *[all_gather_with_grad(e) for e in embeddings[1:]],
-            ]
-
         N = len(embeddings) - 1
-        docs_stacked = torch.stack(embeddings[1:], dim=1)
         q_mask = sentence_features[0]["attention_mask"].bool()
         doc_masks = [sf["attention_mask"].bool() for sf in sentence_features[1:]]
         if self.gather_across_devices:
-            doc_masks = [all_gather(m) for m in doc_masks]
-        docs_mask_stacked = torch.stack(doc_masks, dim=1)
+            # Gather doc embeddings + masks across ranks so every rank's queries see the global doc
+            # batch. Pad the token axis to the cross-rank max first: each rank pads its columns to its
+            # own batch-longest, so T differs per rank and all_gather needs a uniform shape per rank.
+            gathered = [all_gather_padded(e, m, with_grad=True) for e, m in zip(embeddings[1:], doc_masks)]
+            embeddings = [embeddings[0], *[e for e, _ in gathered]]
+            doc_masks = [m for _, m in gathered]
+
+        docs_stacked, docs_mask_stacked = stack_padded_token_embeddings(embeddings[1:], doc_masks)
 
         step = self.score_mini_batch_size or batch_size
         score_chunks = []

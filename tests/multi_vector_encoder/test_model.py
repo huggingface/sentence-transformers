@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import gc
 import tempfile
 
 import numpy as np
 import pytest
 import torch
+from PIL import Image
 
 from sentence_transformers import MultiVectorEncoder
 from sentence_transformers.base.modules import Transformer
@@ -307,3 +309,64 @@ def test_xtr_scoring_callable_shape() -> None:
     )
     scores = XTRScores(k=2)(q, d)
     assert scores.shape == (2, 4)
+
+
+def _make_random_image(seed: int, size: int = 32) -> Image.Image:
+    rng = np.random.default_rng(seed)
+    arr = rng.integers(0, 255, size=(size, size, 3), dtype=np.uint8)
+    return Image.fromarray(arr)
+
+
+@pytest.mark.slow
+def test_multimodal_smoke_image_document_through_mve() -> None:
+    """Image-document path through the default MVE module sequence with a tiny PaliGemma backbone.
+
+    The real ColPali checkpoint (``tomaarsen/colpali-v1.3-merged-st``) is exercised by the slow
+    ``test_pretrained_colpali_multimodal`` test in ``test_pretrained.py`` but it downloads a 3B
+    model and needs CUDA. This smoke test fills the gap: a tiny random PaliGemma reaches every
+    module in the chain (Transformer multimodal preprocess + token-Dense projection + MultiVectorMask
+    + Normalize) for image-with-text-prompt inputs, producing a finite Q-by-D MaxSim matrix.
+
+    Assertions are structural (shape, dim, unit-norm, finite scores). The backbone weights are random.
+    """
+    model = MultiVectorEncoder("hf-internal-testing/tiny-random-PaliGemmaForConditionalGeneration")
+
+    assert isinstance(model[0], Transformer)
+    assert isinstance(model[1], Dense)
+    assert isinstance(model[2], MultiVectorMask)
+    assert isinstance(model[3], Normalize)
+
+    queries = [
+        {"text": "describe this page", "image": _make_random_image(seed=0)},
+        {"text": "what is shown?", "image": _make_random_image(seed=10)},
+    ]
+    documents = [
+        {"text": "", "image": _make_random_image(seed=1)},
+        {"text": "", "image": _make_random_image(seed=2)},
+        {"text": "", "image": _make_random_image(seed=3)},
+    ]
+
+    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
+    document_embeddings = model.encode_document(documents, convert_to_tensor=True)
+
+    dim = model.get_embedding_dimension()
+    assert dim == 128
+
+    assert len(query_embeddings) == len(queries)
+    for q in query_embeddings:
+        assert q.ndim == 2 and q.shape[0] > 0 and q.shape[1] == dim
+
+    assert len(document_embeddings) == len(documents)
+    for d in document_embeddings:
+        assert d.ndim == 2 and d.shape[0] > 0 and d.shape[1] == dim
+        norms = d.float().norm(dim=-1)
+        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-4)
+
+    scores = model.similarity(query_embeddings, document_embeddings)
+    assert tuple(scores.shape) == (len(queries), len(documents))
+    assert torch.isfinite(scores).all()
+
+    del model
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()

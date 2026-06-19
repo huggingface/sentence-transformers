@@ -201,6 +201,45 @@ def repad_flattened_features(features: dict[str, Any]) -> dict[str, Any]:
     return features
 
 
+def stack_padded_token_embeddings(embeddings: list[Tensor], masks: list[Tensor]) -> tuple[Tensor, Tensor]:
+    """Stack a list of ``(B, T_i, D)`` token embeddings and their ``(B, T_i)`` masks along
+    ``dim=1``, padding each column up to the batch-wide max token count.
+
+    Used by multi-vector / late-interaction losses to assemble a ``(B, N, T_max, D)`` document
+    tensor plus matching ``(B, N, T_max)`` mask. ``F.pad``'s tail-axis padding handles the token
+    dimension (the embedding and batch dims are left alone). Padded positions must be excluded
+    downstream via the returned mask (MaxSim already honours it).
+
+    Skips the pad and does a plain stack when every column already shares ``T`` (e.g. a single
+    document column). Pads when columns differ, as with independently-padded text columns
+    (different per-column batch-longest) or ragged-token-count VLMs (Qwen2-VL family).
+    """
+    T_max = max(e.size(1) for e in embeddings)
+    if any(e.size(1) != T_max for e in embeddings):
+        embeddings = [torch.nn.functional.pad(e, (0, 0, 0, T_max - e.size(1))) for e in embeddings]
+        masks = [torch.nn.functional.pad(m, (0, T_max - m.size(1))) for m in masks]
+    return torch.stack(embeddings, dim=1), torch.stack(masks, dim=1)
+
+
+def cat_padded_token_embeddings(embeddings: list[Tensor], masks: list[Tensor]) -> tuple[Tensor, Tensor]:
+    """Concatenate ``(B_i, T_i, D)`` token-embedding chunks and ``(B_i, T_i)`` mask chunks along
+    ``dim=0``, padding each chunk up to the chunk-wide max token count.
+
+    Used by GradCache-style multi-vector losses where each mini-batch is encoded independently
+    and the resulting per-mini-batch chunks must be assembled into a single
+    ``(sum(B_i), T_max, D)`` tensor + ``(sum(B_i), T_max)`` mask. Native-resolution VLMs
+    (Qwen2-VL family) may emit a different ``T`` per mini-batch within the same column.
+
+    Skips the pad entirely when all chunks already share the same ``T`` (text and fixed-resolution
+    VLMs), paying a pad only for ragged-token-count VLMs.
+    """
+    T_max = max(e.size(1) for e in embeddings)
+    if any(e.size(1) != T_max for e in embeddings):
+        embeddings = [torch.nn.functional.pad(e, (0, 0, 0, T_max - e.size(1))) for e in embeddings]
+        masks = [torch.nn.functional.pad(m, (0, T_max - m.size(1))) for m in masks]
+    return torch.cat(embeddings, dim=0), torch.cat(masks, dim=0)
+
+
 def batch_to_device(batch: dict[str, Any], target_device: device) -> dict[str, Any]:
     """
     Send a PyTorch batch (i.e., a dictionary of string keys to Tensors) to a device (e.g. "cpu", "cuda", "mps").

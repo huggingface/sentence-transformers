@@ -84,11 +84,7 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
                 n_ways = len(inputs[0])
                 inputs = list(itertools.chain.from_iterable(inputs))
 
-            # Force fixed-length batches (pad to the per-task max length) so the per-column tensors
-            # stack cleanly across the batch.
-            preprocessed = self.preprocess_fn(
-                inputs, prompt=prompt, task=task, processing_kwargs={"text": {"padding": "max_length"}}
-            )
+            preprocessed = self.preprocess_fn(inputs, prompt=prompt, task=task)
             for key, value in preprocessed.items():
                 batch[f"{column_name}_{key}"] = value
             if n_ways is not None:

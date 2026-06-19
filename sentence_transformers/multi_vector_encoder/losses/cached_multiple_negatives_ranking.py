@@ -13,7 +13,13 @@ from torch.utils.checkpoint import get_device_states, set_device_states
 
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.scoring import colbert_scores
-from sentence_transformers.util import all_gather, all_gather_with_grad, get_rank, get_world_size
+from sentence_transformers.util import (
+    all_gather_padded,
+    cat_padded_token_embeddings,
+    get_rank,
+    get_world_size,
+    stack_padded_token_embeddings,
+)
 
 
 def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
@@ -212,18 +218,24 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         masks_chunks: list[list[Tensor]],
         with_backward: bool,
     ) -> Tensor:
-        embeddings_anchor = torch.cat(reps[0])
-        embeddings_other = [torch.cat(r) for r in reps[1:]]
-        masks = [torch.cat(m) for m in masks_chunks]
+        # Each per-column ``reps[i]`` is a list of mini-batch ``(B_mini, T_mini, D)`` chunks. For
+        # native-resolution VLMs (Qwen2-VL family) each mini-batch can emit a different ``T``, so
+        # pad each chunk to the column's max ``T`` before concatenating along the batch axis.
+        catted = [cat_padded_token_embeddings(r, m) for r, m in zip(reps, masks_chunks)]
+        embeddings_anchor = catted[0][0]
+        embeddings_other = [emb for emb, _ in catted[1:]]
+        masks = [mask for _, mask in catted]
         batch_size = len(embeddings_anchor)
 
         if self.gather_across_devices:
-            embeddings_other = [all_gather_with_grad(e) for e in embeddings_other]
-            masks = [masks[0], *[all_gather(m) for m in masks[1:]]]
+            # Pad the token axis to the cross-rank max before gathering: each rank pads its columns to
+            # its own batch-longest, so T differs per rank and all_gather needs a uniform shape per rank.
+            gathered = [all_gather_padded(e, m, with_grad=True) for e, m in zip(embeddings_other, masks[1:])]
+            embeddings_other = [e for e, _ in gathered]
+            masks = [masks[0], *[m for _, m in gathered]]
 
         N = len(embeddings_other)
-        docs_stacked = torch.stack(embeddings_other, dim=1)
-        docs_mask_stacked = torch.stack(masks[1:], dim=1)
+        docs_stacked, docs_mask_stacked = stack_padded_token_embeddings(embeddings_other, masks[1:])
         q_mask = masks[0]
 
         labels = torch.arange(batch_size, device=reps[0][0].device) * N

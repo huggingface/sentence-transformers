@@ -12,6 +12,7 @@ from sentence_transformers import (
     MultiVectorEncoderTrainingArguments,
 )
 from sentence_transformers.multi_vector_encoder import losses as mve_losses
+from sentence_transformers.multi_vector_encoder.data_collator import MultiVectorEncoderDataCollator
 from sentence_transformers.util import is_training_available
 
 if not is_training_available():
@@ -118,3 +119,57 @@ def test_train_with_margin_mse(model: MultiVectorEncoder) -> None:
     )
     loss = mve_losses.MultiVectorMarginMSELoss(model)
     _train(model, dataset, loss)
+
+
+def test_collator_pads_to_batch_longest_not_model_max_length(model: MultiVectorEncoder) -> None:
+    """A fresh MVE has ``document_length=None``. Before the fix the collator forced
+    ``padding="max_length"`` which silently padded every batch to ``tokenizer.model_max_length``
+    (e.g. 512). The collator now defers to the tokenizer default (``longest``) so a batch of short
+    sequences stays short, and ``stack_padded_token_embeddings`` handles cross-column ragged T
+    inside the losses.
+    """
+    collator = MultiVectorEncoderDataCollator(preprocess_fn=model.preprocess)
+    features = [
+        {"query": "short q", "positive": "short positive", "negative": "n"},
+        {"query": "another", "positive": "still positive", "negative": "neg"},
+    ]
+    batch = collator(features)
+
+    tokenizer_max = model[0].tokenizer.model_max_length
+    assert tokenizer_max >= 128, f"sanity: tokenizer model_max_length unexpectedly small ({tokenizer_max})"
+
+    for col in ("query", "positive", "negative"):
+        ids = batch[f"{col}_input_ids"]
+        assert ids.ndim == 2
+        assert ids.shape[0] == len(features)
+        assert ids.shape[1] < tokenizer_max, (
+            f"column {col} padded to {ids.shape[1]} but tokenizer.model_max_length is {tokenizer_max}. "
+            "The collator should pad to batch-longest, not the model max."
+        )
+
+
+def test_collator_within_column_rectangular_across_ragged_columns(model: MultiVectorEncoder) -> None:
+    """Within each column every row shares ``T`` (the loss reshapes per-column on ``dim=0``), but
+    columns are independently padded to their own batch-longest. Cross-column ragged ``T`` is
+    expected and handled downstream by ``stack_padded_token_embeddings``.
+    """
+    collator = MultiVectorEncoderDataCollator(preprocess_fn=model.preprocess)
+    features = [
+        {"query": "q", "positive": "this positive is appreciably longer than the query", "negative": "n"},
+        {"query": "q2", "positive": "another positive of similar length to the first one", "negative": "neg"},
+    ]
+    batch = collator(features)
+
+    query_T = batch["query_input_ids"].shape[1]
+    positive_T = batch["positive_input_ids"].shape[1]
+    negative_T = batch["negative_input_ids"].shape[1]
+
+    assert batch["query_attention_mask"].shape == batch["query_input_ids"].shape
+    assert batch["positive_attention_mask"].shape == batch["positive_input_ids"].shape
+    assert batch["negative_attention_mask"].shape == batch["negative_input_ids"].shape
+
+    assert positive_T > query_T, (
+        f"columns should pad independently to their own longest (query_T={query_T}, positive_T={positive_T}). "
+        "If they're forced equal, the collator is still hardcoding padding semantics."
+    )
+    assert positive_T > negative_T
