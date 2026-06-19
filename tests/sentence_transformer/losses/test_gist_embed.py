@@ -46,9 +46,7 @@ def simulate_rank1_world2(monkeypatch):
         return torch.cat([rank0_block, tensor], dim=0)
 
     monkeypatch.setattr(ge, "all_gather_with_grad", fake_gather)
-    monkeypatch.setattr(ge, "is_dist_initialized", lambda: True)
-    # get_rank may be absent on CPU-only/ROCm builds (torch.distributed.is_available() is False).
-    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 1, raising=False)
+    monkeypatch.setattr(ge, "get_rank", lambda: 1)
     return per
 
 

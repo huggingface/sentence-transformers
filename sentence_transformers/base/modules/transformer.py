@@ -574,6 +574,22 @@ class Transformer(InputModule):
             padding, which is needed for architectures that don't support unpadded inputs (e.g.
             ``qwen2_vl``). Set to ``True`` to request unpadding explicitly; a warning is logged if the
             prerequisites are not met. Defaults to None.
+        query_length (int, optional): Per-task text max-length applied when ``task="query"`` reaches
+            :meth:`preprocess` (e.g. via :meth:`encode_query`). ``None`` (default) falls back to the
+            tokenizer's ``model_max_length``. Used by ColBERT-style retrieval to cap queries shorter
+            than documents and as the pad target when ``do_query_expansion=True``.
+        document_length (int, optional): Per-task text max-length applied when ``task="document"``
+            reaches :meth:`preprocess`. ``None`` (default) falls back to the tokenizer's
+            ``model_max_length``.
+        do_query_expansion (bool, optional): ColBERT-style query expansion. When True, queries
+            are padded to ``query_length`` and the pad positions are swapped for ``mask_token_id``
+            so MaxSim scoring can include those expansion positions. Off by default (only relevant
+            inside a multi-vector pipeline that has a :class:`MultiVectorMask` downstream).
+        attend_to_expansion_tokens (bool, optional): When True (and ``do_query_expansion=True``),
+            the ``attention_mask`` is forced to all-ones for queries so the encoder *attends to*
+            the [MASK] expansion positions during the forward pass. Off by default — the classic
+            ColBERT trick has the encoder skip expansion positions and only the MaxSim scoring
+            mask treats them as scoreable. Forced to False when ``do_query_expansion=False``.
         max_seq_length (int, optional): Truncate any inputs longer than this value. Prefer setting
             ``model_max_length`` via ``processor_kwargs`` instead. Defaults to None.
         do_lower_case (bool, optional): If true, lowercases the input (independent of whether the model
