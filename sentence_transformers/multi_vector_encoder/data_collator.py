@@ -52,6 +52,9 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
 
         tokenized_position = 0
         for column_name in column_names:
+            # TODO: I'm not sure if we should do this. I suppose this is just a safety feature to avoid processing ids
+            # as if they're text, but it could be unexpected as well. E.g. a warning might be better than silently skipping.
+            # Or just require the user to check their dataset before training
             if "_id" in column_name:
                 # Pass _id columns through without tokenization (KD datasets often include them).
                 batch[column_name] = [row[column_name] for row in features]
