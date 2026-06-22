@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING
 
 from torch import Tensor
@@ -20,19 +21,82 @@ logger = logging.getLogger(__name__)
 
 
 class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
-    """Information-retrieval evaluator for :class:`~sentence_transformers.MultiVectorEncoder` models.
+    """Evaluates a :class:`~sentence_transformers.MultiVectorEncoder` model on an information-retrieval
+    (IR) task. For each query, the model retrieves the top-k closest documents from the corpus using
+    ColBERT-style MaxSim scoring, then reports the standard IR metrics (MRR@k, NDCG@k, Recall@k,
+    Precision@k, Accuracy@k, MAP@k) against the supplied relevance judgements.
 
-    Extends the dense :class:`~sentence_transformers.evaluation.InformationRetrievalEvaluator` with:
+    Args:
+        queries (Dict[str, str]): Mapping of query IDs to query text.
+        corpus (Dict[str, str]): Mapping of document IDs to document text.
+        relevant_docs (Dict[str, Set[str]]): Mapping of query ID to the set of relevant document IDs.
+        corpus_chunk_size (int): How many documents to encode and score per round-trip. Larger values
+            mean more encoded doc embeddings live in memory at once but fewer encode-pass round-trips.
+            Defaults to 50000.
+        document_chunk_size (int, optional): Per-call chunk size for the MaxSim matmul. Bounds the 4D
+            ``(batch_q, chunk, q_tokens, d_tokens)`` scoring intermediate independently of
+            ``corpus_chunk_size``. Defaults to 32. Pass ``None`` to score the whole ``corpus_chunk_size``
+            in one shot. The value is forwarded to the score function (both ``maxsim`` and
+            ``xtr_scores`` accept it).
+        score_functions (Dict[str, Callable], optional): Override the default ``{"MaxSim": maxsim}``
+            scoring. The chosen callable receives ``(queries, documents)`` token tensors and must
+            return a ``(num_queries, num_documents)`` score matrix. Pass e.g. ``xtr_scores`` (or
+            ``functools.partial(xtr_scores, document_chunk_size=N)``) for XTR scoring.
+        mrr_at_k (List[int]): k-values for MRR. Defaults to ``[10]``.
+        ndcg_at_k (List[int]): k-values for NDCG. Defaults to ``[10]``.
+        accuracy_at_k (List[int]): k-values for accuracy. Defaults to ``[1, 3, 5, 10]``.
+        precision_recall_at_k (List[int]): k-values for precision and recall. Defaults to ``[1, 3, 5, 10]``.
+        map_at_k (List[int]): k-values for MAP. Defaults to ``[100]``.
+        show_progress_bar (bool): Show a progress bar during evaluation. Defaults to False.
+        batch_size (int): Per-input batch size used while encoding. Defaults to 32.
+        name (str): Evaluation name (used as the dataset stem in CSV / prediction filenames).
+            Defaults to ``""``.
+        write_csv (bool): Append per-call metric values to ``Information-Retrieval_evaluation_<name>_results.csv``.
+            Defaults to True.
+        truncate_dim (int, optional): Single-vector dimension truncation. The multi-vector encoder
+            ignores this. Defaults to None.
+        main_score_function (str or SimilarityFunction, optional): Which score-function key to treat
+            as the primary metric for the model card / trainer. Defaults to None (use the first /
+            only key in ``score_functions``).
+        query_prompt (str, optional): Prompt prepended to every query during encoding. Defaults to None.
+        query_prompt_name (str, optional): Name of a prompt registered on the model to prepend to
+            queries. Mutually exclusive with ``query_prompt``. Defaults to None.
+        corpus_prompt (str, optional): Prompt prepended to every corpus document. Defaults to None.
+        corpus_prompt_name (str, optional): Name of a prompt registered on the model to prepend to
+            corpus documents. Mutually exclusive with ``corpus_prompt``. Defaults to None.
+        write_predictions (bool): Write per-query top-k predictions to a JSONL file, suitable as
+            input to :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator`.
+            Defaults to False.
 
-    1. Multi-vector encoding via :meth:`encode_query` / :meth:`encode_document` (returning per-input
-       variable-length token-embedding tensors).
-    2. Default scoring with :func:`~sentence_transformers.util.maxsim`.
-    3. A lower default ``corpus_chunk_size`` of 5,000 (versus 50,000 for the dense evaluator): MaxSim
-       intermediates of shape ``(batch_q, chunk, q_tokens, d_tokens)`` are much larger than the dense
-       ``(batch_q, chunk)`` matrix, so the default is tuned for memory.
+    Example:
+        ::
 
-    All other arguments and the metric definitions (MRR@k, NDCG@k, Recall@k, MAP@k, Accuracy@k) are
-    identical to the parent.
+            from datasets import load_dataset
+
+            from sentence_transformers import MultiVectorEncoder
+            from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorInformationRetrievalEvaluator
+
+            model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+
+            # Load NanoMSMARCO subsets and convert to the evaluator's dict format.
+            corpus_ds = load_dataset("sentence-transformers/NanoBEIR-en", "corpus", split="NanoMSMARCO")
+            queries_ds = load_dataset("sentence-transformers/NanoBEIR-en", "queries", split="NanoMSMARCO")
+            qrels_ds = load_dataset("sentence-transformers/NanoBEIR-en", "qrels", split="NanoMSMARCO")
+
+            corpus = {row["_id"]: row["text"] for row in corpus_ds}
+            queries = {row["_id"]: row["text"] for row in queries_ds}
+            relevant_docs = {}
+            for row in qrels_ds:
+                relevant_docs.setdefault(row["query-id"], set()).add(row["corpus-id"])
+
+            evaluator = MultiVectorInformationRetrievalEvaluator(
+                queries=queries,
+                corpus=corpus,
+                relevant_docs=relevant_docs,
+                name="NanoMSMARCO",
+            )
+            results = evaluator(model)
+            print(results[evaluator.primary_metric])
     """
 
     def __init__(
@@ -40,12 +104,16 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         queries: dict[str, str],
         corpus: dict[str, str],
         relevant_docs: dict[str, set[str]],
-        corpus_chunk_size: int = 5000,
+        corpus_chunk_size: int = 50000,
+        document_chunk_size: int | None = 32,
         score_functions: dict[str, Callable[[Tensor, Tensor], Tensor]] | None = None,
         **kwargs,
     ) -> None:
         if score_functions is None:
-            score_functions = {SimilarityFunction.MAXSIM.value: maxsim}
+            scoring_fn = (
+                maxsim if document_chunk_size is None else partial(maxsim, document_chunk_size=document_chunk_size)
+            )
+            score_functions = {SimilarityFunction.MAXSIM.value: scoring_fn}
         super().__init__(
             queries=queries,
             corpus=corpus,

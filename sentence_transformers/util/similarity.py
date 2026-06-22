@@ -203,6 +203,7 @@ def maxsim(
     b: list | np.ndarray | Tensor,
     a_mask: Tensor | None = None,
     b_mask: Tensor | None = None,
+    document_chunk_size: int | None = None,
 ) -> Tensor:
     """
     Computes the MaxSim (late-interaction) score between two collections of multi-vector embeddings.
@@ -222,6 +223,10 @@ def maxsim(
             Tokens with a 0 / False entry are excluded from the sum. Defaults to None (use all tokens).
         b_mask (Tensor, optional): Boolean or float mask for document tokens, shape ``(batch_b, num_doc_tokens)``.
             Tokens with a 0 / False entry are excluded from the max. Defaults to None (use all tokens).
+        document_chunk_size (int, optional): If set, iterate the einsum + max-reduction over document
+            chunks of this size along the ``b`` axis. Keeps the full ``(a, b, s, t)`` 4D intermediate
+            from being materialized at once. Useful for evaluation against large corpora. Defaults to
+            None (single einsum over the full ``b`` axis).
 
     Returns:
         Tensor: Matrix with ``res[i][j]`` = MaxSim(a[i], b[j]), shape ``(batch_a, batch_b)``.
@@ -229,23 +234,35 @@ def maxsim(
     a, a_mask_padded = _pad_multi_vector_inputs(a, a_mask)
     b, b_mask_padded = _pad_multi_vector_inputs(b, b_mask)
 
-    # TODO: the (a, b, s, t) intermediate this einsum materializes is the MaxSim memory bottleneck and
-    # caps the corpus chunk size at eval time. Options: chunk the max-reduction over documents so the full
-    # 4D tensor is never live at once (cf. xtr_scores' `document_chunk_size`), and/or dispatch to a fused
-    # MaxSim kernel (e.g. a Triton/FlashAttention-style einsum+max) when one is available.
+    if document_chunk_size is None or document_chunk_size >= b.size(0):
+        reduced = _maxsim_reduce_documents(a, b, b_mask_padded)
+    else:
+        reduced_chunks = []
+        for d_start in range(0, b.size(0), document_chunk_size):
+            d_end = d_start + document_chunk_size
+            chunk_b_mask = b_mask_padded[d_start:d_end] if b_mask_padded is not None else None
+            reduced_chunks.append(_maxsim_reduce_documents(a, b[d_start:d_end], chunk_b_mask))
+        reduced = torch.cat(reduced_chunks, dim=1)
+    # Query tokens are reduced with sum, so masked tokens simply contribute 0.
+    if a_mask_padded is not None:
+        reduced = reduced * a_mask_padded.unsqueeze(1)
+    return reduced.sum(dim=-1)
+
+
+def _maxsim_reduce_documents(a: Tensor, b: Tensor, b_mask: Tensor | None) -> Tensor:
+    """Compute the ``(a_batch, b_batch, q_tokens)`` per-query-token max over document tokens for one
+    document chunk. Pulled out of :func:`maxsim` so the chunked and unchunked paths share the
+    reduction kernel verbatim.
+    """
     scores = torch.einsum("ash,bth->abst", a, b)
     # Document tokens are reduced with max, so masked (padding) tokens are sent to the dtype minimum:
     # multiplying by 0 would let a padding token win the max over a genuinely negative similarity.
     # Note: PyLate's colbert_scores masks by multiplying by 0. We exclude masked tokens from the max
     # instead (matching xtr_scores). Parity tests pass against PyLate because real tokens dominate the
     # max in practice, but the dtype-min approach is the more correct one and the one we keep.
-    if b_mask_padded is not None:
-        scores = scores.masked_fill(~b_mask_padded.bool().unsqueeze(0).unsqueeze(2), torch.finfo(scores.dtype).min)
-    scores = scores.max(dim=-1).values
-    # Query tokens are reduced with sum, so masked tokens simply contribute 0.
-    if a_mask_padded is not None:
-        scores = scores * a_mask_padded.unsqueeze(1)
-    return scores.sum(dim=-1)
+    if b_mask is not None:
+        scores = scores.masked_fill(~b_mask.bool().unsqueeze(0).unsqueeze(2), torch.finfo(scores.dtype).min)
+    return scores.max(dim=-1).values
 
 
 def maxsim_pairwise(

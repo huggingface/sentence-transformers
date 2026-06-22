@@ -478,6 +478,21 @@ def test_maxsim_pairwise_padded_tensor_without_mask_excludes_zero_rows() -> None
     )
 
 
+def test_maxsim_document_chunking_matches_unchunked() -> None:
+    """``maxsim(document_chunk_size=N)`` chunks the document-axis einsum to bound the 4D scoring
+    intermediate, but must return the same scores as the unchunked path. Covers chunk sizes that
+    divide and don't divide the document count, plus one larger than it (which takes the unchunked
+    branch via the ``document_chunk_size >= b.size(0)`` guard).
+    """
+    g = torch.Generator().manual_seed(0)
+    queries = [torch.randn(n, 8, generator=g) for n in (3, 5)]
+    documents = [torch.randn(n, 8, generator=g) for n in (2, 6, 4, 7, 3)]  # 5 documents
+    full = maxsim(queries, documents)
+    for chunk in (1, 2, 3, 4, 10):
+        chunked = maxsim(queries, documents, document_chunk_size=chunk)
+        assert torch.allclose(chunked, full, atol=1e-5), f"document_chunk_size={chunk} diverged from unchunked"
+
+
 def test_colbert_scoring_callable_query_major() -> None:
     # 2 queries × 1 doc-group of 2 docs each = (2, 2*2) = (2, 4) with query-major layout.
     q = torch.tensor([[[1.0, 0.0]], [[0.0, 1.0]]])  # (Q=2, Qt=1, H=2)
