@@ -54,8 +54,7 @@ class _LegacyStash:
     skiplist_words: list[str] | None = None
     is_pylate_v3: bool = False
 
-    # Top-level keys from PyLate <=3 configs that filter into ``transformer_config`` and from there
-    # into ``Transformer.__init__`` via :meth:`MultiVectorEncoder._get_module_init_defaults`.
+    # Top-level PyLate keys that flow into ``Transformer.__init__`` via ``_get_module_init_defaults``.
     _PYLATE_TRANSFORMER_KEYS: ClassVar[tuple[str, ...]] = (
         "query_length",
         "document_length",
@@ -659,10 +658,22 @@ class MultiVectorEncoder(BaseModel):
                 self._legacy.prefixes[prompt_key] = model_config[prefix_key]
                 if not self.prompts.get(prompt_key):
                     self.prompts[prompt_key] = model_config[prefix_key]
-        # Stash PyLate v3's top-level knobs for promotion onto the modules after super().__init__.
-        self._legacy.transformer_config.update(
-            {key: model_config[key] for key in _LegacyStash._PYLATE_TRANSFORMER_KEYS if key in model_config}
+        # Filter ``None`` values so missing/null PyLate knobs fall through to the Transformer's own defaults.
+        pylate_knobs = {
+            key: model_config[key]
+            for key in _LegacyStash._PYLATE_TRANSFORMER_KEYS
+            if key in model_config and model_config[key] is not None
+        }
+        # PyLate defaults ``do_query_expansion`` to True. Apply that for any PyLate-style save that
+        # didn't pin it, otherwise the [MASK] query expansion silently turns off.
+        pylate_marker_keys = _LegacyStash._PYLATE_TRANSFORMER_KEYS + (
+            "query_prefix",
+            "document_prefix",
+            "skiplist_words",
         )
+        if "do_query_expansion" not in pylate_knobs and any(key in model_config for key in pylate_marker_keys):
+            pylate_knobs["do_query_expansion"] = True
+        self._legacy.transformer_config.update(pylate_knobs)
         self._legacy.skiplist_words = model_config.get("skiplist_words")
 
     def _load_module_class_from_ref(self, class_ref: str, *args: Any, **kwargs: Any) -> nn.Module:
@@ -867,6 +878,8 @@ class MultiVectorEncoder(BaseModel):
         ):
             if metadata.get(meta_key) is not None:
                 self._legacy.transformer_config.setdefault(attr, metadata[meta_key])
+        # Stanford-NLP ColBERT always [MASK]-expands queries (core scoring trick, not in ``artifact.metadata``).
+        self._legacy.transformer_config.setdefault("do_query_expansion", True)
         # Stanford-NLP's ``--mask-punctuation`` CLI flag defaults to ``False`` (``store_true``). Follow that for missing keys.
         self._legacy.skiplist_words = list(string.punctuation) if metadata.get("mask_punctuation", False) else []
 

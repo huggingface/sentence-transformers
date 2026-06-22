@@ -186,6 +186,39 @@ def test_stanford_metadata_seeds_skiplist_from_mask_punctuation(monkeypatch, tmp
 
 
 @pytest.mark.parametrize(
+    ("model_config", "expected_dqe"),
+    [
+        # PyLate marker present, expansion not pinned -> default to PyLate's True.
+        ({"query_length": 32}, True),
+        # An explicit value is preserved, never overridden by the PyLate default.
+        ({"query_length": 32, "do_query_expansion": False}, False),
+        # No PyLate markers (bare ST save) -> leave it unset so the Transformer keeps its own default.
+        ({"similarity_fn_name": "MaxSim"}, "absent"),
+        # A null knob is filtered out, but its presence still marks a PyLate save -> default to True.
+        ({"query_length": None}, True),
+    ],
+)
+def test_parse_model_config_defaults_query_expansion_for_pylate(model_config, expected_dqe) -> None:
+    """``_parse_model_config`` defaults ``do_query_expansion`` to PyLate's ``True`` for a PyLate-style save
+    (detected by a marker key) that didn't pin it, preserves an explicit value, leaves bare-ST saves
+    untouched, and filters ``None`` knobs out so they fall through to the Transformer's own default.
+    """
+    from sentence_transformers.multi_vector_encoder.model import _LegacyStash
+
+    fresh = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    fresh._legacy = _LegacyStash()
+    fresh._parse_model_config(model_config)
+    knobs = fresh._legacy.transformer_config
+
+    if expected_dqe == "absent":
+        assert "do_query_expansion" not in knobs
+    else:
+        assert knobs.get("do_query_expansion") is expected_dqe
+    # Null knobs must not pass through, or they would override the Transformer default with None.
+    assert "query_length" not in knobs or knobs["query_length"] is not None
+
+
+@pytest.mark.parametrize(
     ("convert_to_tensor", "convert_to_numpy", "convert_to_padded", "element_type"),
     [
         (False, True, False, np.ndarray),  # default: variable-length list of arrays
