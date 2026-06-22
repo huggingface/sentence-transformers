@@ -71,9 +71,8 @@ def xtr_scores(
         scores = torch.cat(score_chunks, dim=2)
 
     clubbed = scores.flatten(2, 3)
-    _, indices = clubbed.topk(k, dim=-1, sorted=False)
-    mask = torch.zeros_like(clubbed, dtype=torch.bool).scatter_(-1, indices, True)
-    masked = clubbed * mask
+    top_values, indices = clubbed.topk(k, dim=-1, sorted=False)
+    masked = torch.zeros_like(clubbed).scatter_(-1, indices, top_values)
     topk_scores_max = masked.view(Qb, Qt, Db, Dt).max(dim=-1).values
 
     if queries_mask is not None:
