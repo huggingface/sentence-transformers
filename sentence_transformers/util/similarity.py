@@ -236,9 +236,9 @@ def maxsim(
     scores = torch.einsum("ash,bth->abst", a, b)
     # Document tokens are reduced with max, so masked (padding) tokens are sent to the dtype minimum:
     # multiplying by 0 would let a padding token win the max over a genuinely negative similarity.
-    # TODO: revisit this divergence from PyLate, whose colbert_scores masks documents by multiplying by 0
-    # (letting a 0-valued padding token beat a negative real score). We exclude masked tokens from the max
-    # instead (matching xtr_scores); the parity tests still pass, but confirm this is the intended behavior.
+    # Note: PyLate's colbert_scores masks by multiplying by 0. We exclude masked tokens from the max
+    # instead (matching xtr_scores). Parity tests pass against PyLate because real tokens dominate the
+    # max in practice, but the dtype-min approach is the more correct one and the one we keep.
     if b_mask_padded is not None:
         scores = scores.masked_fill(~b_mask_padded.bool().unsqueeze(0).unsqueeze(2), torch.finfo(scores.dtype).min)
     scores = scores.max(dim=-1).values

@@ -51,12 +51,14 @@ def test_default_colbert_attributes(model: MultiVectorEncoder) -> None:
     assert model.similarity_fn_name == "MaxSim"
     mask_module = model[2]
     assert isinstance(mask_module, MultiVectorMask)
-    assert mask_module.skiplist_words  # non-empty (string.punctuation)
-    assert mask_module._skiplist_ids is not None and len(mask_module._skiplist_ids) > 0
+    # Bare HF backbones get an empty skiplist by default. Users opt in to punctuation explicitly,
+    # and legacy PyLate / Stanford-NLP load paths pre-seed ``string.punctuation`` themselves.
+    assert mask_module.skiplist_words == []
+    assert mask_module._skiplist_ids is None
 
 
 def test_encode_query_pads_to_query_length() -> None:
-    # Opt into query expansion at construction time; queries should pad to query_length.
+    # Opt into query expansion at construction time. Queries should pad to query_length.
     base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
     model = MultiVectorEncoder(base)
     model[0].query_length = 16
@@ -73,11 +75,114 @@ def test_encode_document_varies_with_length(model: MultiVectorEncoder) -> None:
     assert embs[1].shape[0] > embs[0].shape[0]
 
 
-def test_encode_document_skiplist_removes_punctuation(model: MultiVectorEncoder) -> None:
+def test_encode_document_skiplist_removes_punctuation() -> None:
+    # The bare-HF default is now an empty skiplist, so opt punctuation back in to exercise the
+    # masking logic: the (token-count) embedding of a heavily-punctuated doc should match its
+    # punctuation-free twin once punctuation tokens are masked out.
+    import string
+
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = MultiVectorEncoder(base)
+    mask_module = model[2]
+    assert isinstance(mask_module, MultiVectorMask)
+    mask_module.skiplist_words = list(string.punctuation)
+    mask_module.resolve_with_tokenizer(model.tokenizer)
+
     no_punc = model.encode_document(["the cat sat on the mat"])
     with_punc = model.encode_document(["the cat, sat, on, the, mat."])
-    # Skiplist drops the comma / period tokens; without-punctuation embeddings are <= with-punctuation length.
-    assert no_punc[0].shape[0] <= with_punc[0].shape[0]
+    # With the punctuation skiplist active, the punctuated doc drops its comma/period tokens and ends up
+    # the same length as its punctuation-free twin. A no-op mask would instead leave it strictly longer
+    # (the direction test_encode_document_default_skiplist_keeps_punctuation pins).
+    assert with_punc[0].shape[0] == no_punc[0].shape[0]
+
+
+def test_mask_skiplist_drops_unk_resolving_words(model: MultiVectorEncoder, caplog) -> None:
+    """``resolve_with_tokenizer`` drops skiplist words that ``convert_tokens_to_ids`` resolves to
+    ``unk_token_id``. Otherwise every real ``[UNK]`` document token would be silently excluded from
+    MaxSim scoring. The drop emits a one-shot warning so the developer sees it once per process.
+    """
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    fresh = MultiVectorEncoder(base)
+    mask_module = fresh[2]
+    assert isinstance(mask_module, MultiVectorMask)
+    # ``!!!UNRESOLVABLE!!!`` is not a single vocab token in any reasonable tokenizer, but ``.`` is.
+    mask_module.skiplist_words = ["!!!UNRESOLVABLE!!!", "."]
+    with caplog.at_level("WARNING"):
+        mask_module.resolve_with_tokenizer(fresh.tokenizer)
+    assert mask_module._skiplist_ids is not None
+    period_id = fresh.tokenizer.convert_tokens_to_ids(".")
+    assert mask_module._skiplist_ids.tolist() == [period_id], (
+        "the unresolvable word should be filtered out. The period should remain."
+    )
+    assert any("are not single vocab tokens" in record.message for record in caplog.records), [
+        record.message for record in caplog.records
+    ]
+
+
+def test_mask_skiplist_keeps_explicit_unk_token(model: MultiVectorEncoder) -> None:
+    """A user who explicitly puts the tokenizer's UNK token in the skiplist gets what they asked for
+    (the unk_token_id stays in ``_skiplist_ids``). The drop-on-unk filter only fires when a *different*
+    word happens to resolve to unk_token_id.
+    """
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    fresh = MultiVectorEncoder(base)
+    mask_module = fresh[2]
+    assert isinstance(mask_module, MultiVectorMask)
+    unk_token = fresh.tokenizer.unk_token
+    unk_id = fresh.tokenizer.unk_token_id
+    assert unk_token is not None and unk_id is not None
+    mask_module.skiplist_words = [unk_token]
+    mask_module.resolve_with_tokenizer(fresh.tokenizer)
+    assert mask_module._skiplist_ids is not None
+    assert mask_module._skiplist_ids.tolist() == [unk_id], "explicit UNK in the skiplist must be preserved"
+
+
+def test_mask_skiplist_all_unresolvable_yields_none(model: MultiVectorEncoder) -> None:
+    """When every skiplist word resolves to ``unk_token_id`` (none are real vocab tokens), the resolved
+    tensor is ``None`` rather than empty, so ``forward`` treats the skiplist as disabled.
+    """
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    fresh = MultiVectorEncoder(base)
+    mask_module = fresh[2]
+    assert isinstance(mask_module, MultiVectorMask)
+    mask_module.skiplist_words = ["!!!UNRESOLVABLE!!!", "@@@ALSO_BAD@@@"]
+    mask_module.resolve_with_tokenizer(fresh.tokenizer)
+    assert mask_module._skiplist_ids is None
+
+
+def test_encode_document_default_skiplist_keeps_punctuation(model: MultiVectorEncoder) -> None:
+    # With the empty default the masking module is a no-op for token count: a punctuated doc
+    # should have strictly more tokens than a punctuation-free one (each "," / "." kept).
+    no_punc = model.encode_document(["the cat sat on the mat"])
+    with_punc = model.encode_document(["the cat, sat, on, the, mat."])
+    assert with_punc[0].shape[0] > no_punc[0].shape[0]
+
+
+def test_stanford_metadata_seeds_skiplist_from_mask_punctuation(monkeypatch, tmp_path) -> None:
+    """A Stanford-NLP load seeds the skiplist from the ``mask_punctuation`` flag in ``artifact.metadata``.
+    The flag is a ``store_true`` CLI option (default off), so a missing or ``False`` value yields an empty
+    skiplist and only ``True`` restores punctuation. The slow pretrained tests only exercise the ``True``
+    case, so this fast unit test pins the default-off branch.
+    """
+    import json
+    import string
+
+    from sentence_transformers.base.modules.dense import Dense
+    from sentence_transformers.multi_vector_encoder.model import _LegacyStash
+
+    fresh = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    meta_file = tmp_path / "artifact.metadata"
+    monkeypatch.setattr(Dense, "load_file_path", lambda *args, **kwargs: str(meta_file))
+
+    for metadata, expected in (
+        ({}, []),  # no key: --mask-punctuation is store_true, so absent means off
+        ({"mask_punctuation": False}, []),
+        ({"mask_punctuation": True}, list(string.punctuation)),
+    ):
+        fresh._legacy = _LegacyStash()
+        meta_file.write_text(json.dumps(metadata))
+        fresh._maybe_load_stanford_metadata("dummy", None, None, False, None)
+        assert fresh._legacy.skiplist_words == expected, f"metadata={metadata}"
 
 
 @pytest.mark.parametrize(

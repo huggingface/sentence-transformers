@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import queue
+import string
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from multiprocessing import Queue
@@ -596,10 +597,15 @@ class MultiVectorEncoder(BaseModel):
                 module.module_input_name = "token_embeddings"
                 module.module_output_name = "token_embeddings"
 
-        # PyLate v3 listed only [Transformer, Dense] (masking/normalize were inline); append the missing
+        # PyLate v3 listed only [Transformer, Dense] (masking/normalize were inline). Append the missing
         # modules. Other load paths build the full sequence themselves.
         if self._legacy.is_pylate_v3:
-            self.append(MultiVectorMask(skiplist_words=self._legacy.skiplist_words))
+            # PyLate <=3 applied a punctuation skiplist by default. Preserve that for v3 saves whose
+            # config doesn't pin an explicit ``skiplist_words``.
+            skiplist = (
+                self._legacy.skiplist_words if self._legacy.skiplist_words is not None else list(string.punctuation)
+            )
+            self.append(MultiVectorMask(skiplist_words=skiplist))
             self.append(Normalize(module_input_name="token_embeddings"))
 
     def _register_prefix_tokens(self, prompts: dict[str, str]) -> None:
@@ -774,7 +780,8 @@ class MultiVectorEncoder(BaseModel):
                 f"({hidden_size}, 128). Training is required before this model is useful. "
                 "To customise the projection (e.g. a different output dim), pass `modules=...` instead."
             )
-        modules.append(MultiVectorMask())
+        # Stanford-NLP loads pre-seed ``_legacy.skiplist_words`` via ``mask_punctuation``. Bare HF stays ``None`` (empty).
+        modules.append(MultiVectorMask(skiplist_words=self._legacy.skiplist_words))
         modules.append(Normalize(module_input_name="token_embeddings"))
 
         if not local_files_only:
@@ -860,6 +867,8 @@ class MultiVectorEncoder(BaseModel):
         ):
             if metadata.get(meta_key) is not None:
                 self._legacy.transformer_config.setdefault(attr, metadata[meta_key])
+        # Stanford-NLP's ``--mask-punctuation`` CLI flag defaults to ``False`` (``store_true``). Follow that for missing keys.
+        self._legacy.skiplist_words = list(string.punctuation) if metadata.get("mask_punctuation", False) else []
 
     def _load_converted_modules(
         self,
@@ -940,7 +949,8 @@ class MultiVectorEncoder(BaseModel):
                 "checkpoint. Training is required before this model is useful. To customise the projection "
                 "(e.g. a different output dim), pass `modules=...` instead."
             )
-        filtered.append(MultiVectorMask())
+        # PyLate saves stash an explicit ``skiplist_words`` here. Bare ST checkpoints stay ``None`` (empty default).
+        filtered.append(MultiVectorMask(skiplist_words=self._legacy.skiplist_words))
         filtered.append(Normalize(module_input_name="token_embeddings"))
 
         # Source is single-vector: its inherited "cosine"/"dot" can't score ragged per-token embeddings, so

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import string
-
 import torch
 from torch import Tensor
+from transformers.utils import logging
 
 from sentence_transformers.base.modules.module import Module
 from sentence_transformers.util.tensor import repad_flattened_features
+
+logger = logging.get_logger(__name__)
 
 
 class MultiVectorMask(Module):
@@ -31,8 +32,11 @@ class MultiVectorMask(Module):
     in a hybrid setup) just work.
 
     Args:
-        skiplist_words: Tokens to drop from document scoring. Defaults to ``string.punctuation``.
-            Pass ``[]`` to disable skiplist masking.
+        skiplist_words: Tokens to drop from document scoring. Defaults to ``[]`` (no skiplist). Pass
+            ``list(string.punctuation)`` to match the original PyLate / Stanford-NLP ColBERT behaviour
+            of skipping punctuation, or any other custom list. Legacy PyLate / Stanford-NLP loaders
+            apply ``string.punctuation`` automatically so existing saved checkpoints keep their
+            historical behaviour.
     """
 
     config_keys: list[str] = ["skiplist_words"]
@@ -43,10 +47,7 @@ class MultiVectorMask(Module):
         skiplist_words: list[str] | None = None,
     ) -> None:
         super().__init__()
-        # TODO: Maybe we should update the default to empty?
-        self.skiplist_words: list[str] = (
-            list(skiplist_words) if skiplist_words is not None else list(string.punctuation)
-        )
+        self.skiplist_words: list[str] = list(skiplist_words) if skiplist_words is not None else []
         # Resolved lazily by :meth:`resolve_with_tokenizer` once the tokenizer is finalised.
         self._skiplist_ids: Tensor | None = None
 
@@ -54,16 +55,31 @@ class MultiVectorMask(Module):
         """Convert ``skiplist_words`` to token IDs using ``tokenizer``.
 
         Called by :class:`MultiVectorEncoder` after the tokenizer is fully initialised. Re-call if
-        the tokenizer changes.
+        the tokenizer changes. Skiplist words that resolve to ``unk_token_id`` (i.e. don't exist as a
+        single vocab token) are dropped with a warning, otherwise they would silently exclude every
+        real ``[UNK]`` document token from MaxSim scoring.
         """
         if not self.skiplist_words:
             self._skiplist_ids = None
             return
-        # TODO: convert_tokens_to_ids returns unk_token_id for any skiplist word that is not a single
-        # vocab token (e.g. a backtick on a WordPiece tokenizer), which then drops real [UNK] document
-        # tokens from MaxSim scoring. This matches PyLate; revisit whether to filter out unk_token_id here.
-        ids = [tokenizer.convert_tokens_to_ids(word) for word in self.skiplist_words]
-        self._skiplist_ids = torch.tensor(ids, dtype=torch.long)
+        unk_id = getattr(tokenizer, "unk_token_id", None)
+        unk_token = getattr(tokenizer, "unk_token", None)
+        resolved: list[int] = []
+        unresolved: list[str] = []
+        for word in self.skiplist_words:
+            token_id = tokenizer.convert_tokens_to_ids(word)
+            # ``word == unk_token`` is the legitimate "user really wants [UNK] in the skiplist" case.
+            if unk_id is not None and token_id == unk_id and word != unk_token:
+                unresolved.append(word)
+            else:
+                resolved.append(token_id)
+        if unresolved:
+            logger.warning_once(
+                f"Skiplist words {unresolved} are not single vocab tokens for this tokenizer "
+                f"(``convert_tokens_to_ids`` returned ``unk_token_id={unk_id}``). Dropping them from the "
+                "skiplist to avoid excluding real [UNK] document tokens from MaxSim scoring."
+            )
+        self._skiplist_ids = torch.tensor(resolved, dtype=torch.long) if resolved else None
 
     def forward(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
         # The MVE encode loop slices per-row by ``attention_mask``, so any FA2-flat encoder output

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import gc
+import string
 
 import numpy as np
 import pytest
 import torch
 
 from sentence_transformers import MultiVectorEncoder
+from sentence_transformers.multi_vector_encoder.modules import MultiVectorMask
 
 QUERY = "Which planet is known as the Red Planet?"
 DOCUMENTS = [
@@ -38,6 +40,39 @@ def test_pretrained_multi_vector_maxsim(model_name: str, expected_score: list[fl
     assert np.allclose(similarities, expected_score, rtol=0.001, atol=0.001), (
         f"Expected MaxSim scores for {model_name} to be close to {expected_score}, but got {similarities.tolist()}"
     )
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+# (repo, expected_skiplist) for the three legacy load paths that need to pre-seed punctuation. The
+# bare-HF default is empty (covered by ``test_default_colbert_attributes``). These tests guard the
+# three legacy-format saves so changing the default never silently regresses their masking behaviour.
+LEGACY_SKIPLIST_CASES: list[tuple[str, list[str]]] = [
+    # Stanford-NLP `artifact.metadata` with ``mask_punctuation=True`` → punctuation skiplist.
+    ("colbert-ir/colbertv2.0", list(string.punctuation)),
+    # PyLate-as-ST save: ``skiplist_words`` baked into ``config_sentence_transformers.json``.
+    ("lightonai/colbertv2.0", list(string.punctuation)),
+    # PyLate v3 (``model_type == "ColBERT"``): ``_apply_legacy_fixups`` reads the same key.
+    ("lightonai/Reason-ModernColBERT", list(string.punctuation)),
+]
+
+
+@pytest.mark.parametrize("model_name, expected_skiplist", LEGACY_SKIPLIST_CASES)
+@pytest.mark.slow
+def test_pretrained_legacy_save_seeds_punctuation_skiplist(model_name: str, expected_skiplist: list[str]) -> None:
+    """Legacy PyLate / Stanford-NLP saves still get the punctuation skiplist after the default flip
+    (empty was the new bare-HF default). Each load path threads its own source: Stanford reads
+    ``mask_punctuation`` from ``artifact.metadata``, while PyLate reads ``skiplist_words`` from
+    ``config_sentence_transformers.json`` (via ``_apply_legacy_fixups`` for v3 and
+    ``_load_converted_modules`` for PyLate-as-ST)."""
+    model = MultiVectorEncoder(model_name)
+    mask_module = model[2]
+    assert isinstance(mask_module, MultiVectorMask)
+    assert mask_module.skiplist_words == expected_skiplist, (
+        f"{model_name}: expected {expected_skiplist[:5]}... got {mask_module.skiplist_words[:5]}..."
+    )
+    assert mask_module._skiplist_ids is not None and len(mask_module._skiplist_ids) > 0
     del model
     gc.collect()
     torch.cuda.empty_cache()
