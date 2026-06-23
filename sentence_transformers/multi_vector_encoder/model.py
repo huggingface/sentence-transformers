@@ -102,7 +102,7 @@ class MultiVectorEncoder(BaseModel):
         model_card_data (MultiVectorEncoderModelCardData, optional): A model card data object. Defaults to None.
         backend (str, optional): The backend to use for inference. Only ``"torch"`` is supported.
         similarity_fn_name (str or SimilarityFunction, optional): The name of the similarity function. Defaults
-            to ``"MaxSim"``.
+            to ``"maxsim"``.
 
     Note:
         Length / expansion / masking knobs (``query_length``, ``document_length``, ``do_query_expansion``,
@@ -519,9 +519,9 @@ class MultiVectorEncoder(BaseModel):
         ]
 
     @property
-    def similarity_fn_name(self) -> Literal["MaxSim"]:
+    def similarity_fn_name(self) -> Literal["maxsim"]:
         """The similarity function used by :meth:`similarity` and :meth:`similarity_pairwise`. Defaults to
-        ``"MaxSim"`` on first access if not explicitly set."""
+        ``"maxsim"`` on first access if not explicitly set."""
         if self._similarity_fn_name is None:
             self.similarity_fn_name = SimilarityFunction.MAXSIM
         return self._similarity_fn_name
@@ -529,10 +529,16 @@ class MultiVectorEncoder(BaseModel):
     @similarity_fn_name.setter
     def similarity_fn_name(
         self,
-        value: Literal["MaxSim"] | SimilarityFunction | None,
+        value: Literal["maxsim"] | SimilarityFunction | None,
     ) -> None:
         if isinstance(value, SimilarityFunction):
             value = value.value
+        if value is not None and value != SimilarityFunction.MAXSIM.value:
+            raise ValueError(
+                f"MultiVectorEncoder only supports the MaxSim similarity function, got {value!r}. "
+                "Cosine / dot / euclidean / manhattan are defined on single vectors and don't compose "
+                "with ragged per-token embeddings."
+            )
         self._similarity_fn_name = value
         if value is not None:
             self._similarity = SimilarityFunction.to_similarity_fn(value)
@@ -644,11 +650,8 @@ class MultiVectorEncoder(BaseModel):
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
         super()._parse_model_config(model_config)
-        if self._similarity_fn_name is None:
-            # Inherit the saved similarity ("MaxSim" for native/PyLate saves); _load_converted_modules resets
-            # a converted dense checkpoint's "cosine"/"dot" (which can't score ragged per-token embeddings).
-            self.similarity_fn_name = model_config.get("similarity_fn_name")
-        # PyLate v3 (model_type == "ColBERT") saved a plain Transformer and only [Transformer, Dense]; flag it
+        # ``similarity_fn_name`` is not inherited from the saved config, as we're currently only supporting "maxsim".
+        # PyLate v3 (model_type == "ColBERT") saved a plain Transformer and only [Transformer, Dense]. Flag it
         # so _apply_legacy_fixups appends the missing MultiVectorMask + token-level Normalize.
         self._legacy.is_pylate_v3 = model_config.get("model_type") == "ColBERT"
         # PyLate <=3 saved [Q]/[D] as top-level query_prefix/document_prefix (inserted as tokens). We route

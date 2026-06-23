@@ -403,6 +403,7 @@ def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:
     return torch.abs(norm_angle)
 
 
+# TODO: Should we fully separate dense and multi-vector similarity functions? They don't overlap
 class SimilarityFunction(Enum):
     """
     Enum class for supported similarity functions. The following functions are supported:
@@ -411,7 +412,7 @@ class SimilarityFunction(Enum):
     - ``SimilarityFunction.DOT_PRODUCT`` (``"dot"``, ``dot_product``): Dot product similarity
     - ``SimilarityFunction.EUCLIDEAN`` (``"euclidean"``): Euclidean distance
     - ``SimilarityFunction.MANHATTAN`` (``"manhattan"``): Manhattan distance
-    - ``SimilarityFunction.MAXSIM`` (``"MaxSim"``): Late-interaction MaxSim, used by
+    - ``SimilarityFunction.MAXSIM`` (``"maxsim"``): Late-interaction MaxSim, used by
       :class:`~sentence_transformers.MultiVectorEncoder` (ColBERT-style) models.
     """
 
@@ -420,7 +421,7 @@ class SimilarityFunction(Enum):
     DOT = "dot"  # Alias for DOT_PRODUCT
     EUCLIDEAN = "euclidean"
     MANHATTAN = "manhattan"
-    MAXSIM = "MaxSim"
+    MAXSIM = "maxsim"
 
     @staticmethod
     def to_similarity_fn(
@@ -516,6 +517,6 @@ class SimilarityFunction(Enum):
         Example:
             >>> possible_values = SimilarityFunction.possible_values()
             >>> possible_values
-            ['cosine', 'dot', 'euclidean', 'manhattan']
+            ['cosine', 'dot', 'euclidean', 'manhattan', 'maxsim']
         """
         return [m.value for m in SimilarityFunction]

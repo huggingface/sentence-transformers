@@ -34,8 +34,8 @@ def test_information_retrieval_evaluator(model: MultiVectorEncoder) -> None:
         write_csv=False,
     )
     results = evaluator(model)
-    assert "ir_smoke_MaxSim_ndcg@10" in results
-    assert evaluator.primary_metric == "ir_smoke_MaxSim_ndcg@10"
+    assert "ir_smoke_maxsim_ndcg@10" in results
+    assert evaluator.primary_metric == "ir_smoke_maxsim_ndcg@10"
     assert 0.0 <= results[evaluator.primary_metric] <= 1.0
 
 
@@ -48,8 +48,8 @@ def test_triplet_evaluator(model: MultiVectorEncoder) -> None:
         write_csv=False,
     )
     results = evaluator(model)
-    assert "triplet_smoke_MaxSim_accuracy" in results
-    assert 0.0 <= results["triplet_smoke_MaxSim_accuracy"] <= 1.0
+    assert "triplet_smoke_maxsim_accuracy" in results
+    assert 0.0 <= results["triplet_smoke_maxsim_accuracy"] <= 1.0
 
 
 def test_reranking_evaluator(model: MultiVectorEncoder) -> None:

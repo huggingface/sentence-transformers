@@ -38,7 +38,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             ``corpus_chunk_size``. Defaults to 32. Pass ``None`` to score the whole ``corpus_chunk_size``
             in one shot. The value is forwarded to the score function (both ``maxsim`` and
             ``xtr_scores`` accept it).
-        score_functions (Dict[str, Callable], optional): Override the default ``{"MaxSim": maxsim}``
+        score_functions (Dict[str, Callable], optional): Override the default ``{"maxsim": maxsim}``
             scoring. The chosen callable receives ``(queries, documents)`` token tensors and must
             return a ``(num_queries, num_documents)`` score matrix. Pass e.g. ``xtr_scores`` (or
             ``functools.partial(xtr_scores, document_chunk_size=N)``) for XTR scoring.

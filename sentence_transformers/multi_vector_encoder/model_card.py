@@ -86,7 +86,7 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
         metadata.update(
             {
                 "output_dimensionality": self.model.get_embedding_dimension(),
-                "similarity_fn_name": "MaxSim",
+                "similarity_fn_name": "maxsim",
                 "query_length": getattr(transformer, "query_length", None),
                 "document_length": getattr(transformer, "document_length", None),
             }

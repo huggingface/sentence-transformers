@@ -48,7 +48,7 @@ def test_default_colbert_attributes(model: MultiVectorEncoder) -> None:
     assert transformer.document_length is None
     assert transformer.do_query_expansion is False
     assert transformer.attend_to_expansion_tokens is False
-    assert model.similarity_fn_name == "MaxSim"
+    assert model.similarity_fn_name == "maxsim"
     mask_module = model[2]
     assert isinstance(mask_module, MultiVectorMask)
     # Bare HF backbones get an empty skiplist by default. Users opt in to punctuation explicitly,
@@ -193,7 +193,7 @@ def test_stanford_metadata_seeds_skiplist_from_mask_punctuation(monkeypatch, tmp
         # An explicit value is preserved, never overridden by the PyLate default.
         ({"query_length": 32, "do_query_expansion": False}, False),
         # No PyLate markers (bare ST save) -> leave it unset so the Transformer keeps its own default.
-        ({"similarity_fn_name": "MaxSim"}, "absent"),
+        ({"similarity_fn_name": "maxsim"}, "absent"),
         # A null knob is filtered out, but its presence still marks a PyLate save -> default to True.
         ({"query_length": None}, True),
     ],
@@ -297,6 +297,29 @@ def test_save_and_load_round_trip(model: MultiVectorEncoder) -> None:
     q_orig = model.encode_query(["test"], convert_to_tensor=True)
     q_new = reloaded.encode_query(["test"], convert_to_tensor=True)
     assert torch.allclose(q_orig[0], q_new[0], atol=1e-5)
+
+
+def test_convert_dense_sentence_transformer_resets_similarity_to_maxsim(tmp_path) -> None:
+    """A dense SentenceTransformer is converted to a MultiVectorEncoder on load. Its saved
+    ``similarity_fn_name`` ("cosine" / "dot" can't score ragged per-token embeddings) must be reset to
+    MaxSim by ``_load_converted_modules`` rather than raising in the strict setter during config parsing.
+    """
+    import json
+
+    from sentence_transformers import SentenceTransformer
+
+    SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors").save_pretrained(str(tmp_path))
+    config_path = tmp_path / "config_sentence_transformers.json"
+    config = json.loads(config_path.read_text())
+    config["similarity_fn_name"] = "cosine"  # the dense default that previously raised on conversion
+    config_path.write_text(json.dumps(config))
+
+    model = MultiVectorEncoder(str(tmp_path))
+
+    assert model.similarity_fn_name == "maxsim"
+    # Conversion produced a working MVE with the token-level MultiVectorMask + Normalize tail.
+    assert isinstance(model[-2], MultiVectorMask)
+    assert isinstance(model[-1], Normalize)
 
 
 def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
@@ -424,9 +447,9 @@ def test_encode_pool_factor_ignored_when_pooling_module_present(caplog) -> None:
 
 
 def test_similarity_function_enum_has_maxsim() -> None:
-    assert SimilarityFunction.MAXSIM.value == "MaxSim"
-    assert SimilarityFunction.to_similarity_fn("MaxSim") is maxsim
-    assert SimilarityFunction.to_similarity_pairwise_fn("MaxSim") is maxsim_pairwise
+    assert SimilarityFunction.MAXSIM.value == "maxsim"
+    assert SimilarityFunction.to_similarity_fn("maxsim") is maxsim
+    assert SimilarityFunction.to_similarity_pairwise_fn("maxsim") is maxsim_pairwise
 
 
 def test_maxsim_basic_shapes() -> None:

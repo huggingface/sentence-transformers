@@ -25,9 +25,7 @@ class MultiVectorTripletEvaluator(TripletEvaluator):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # The parent broadcasts a float/None margin equally across the dense similarity names (cosine
-        # always present); collapse to the single "MaxSim" margin __call__ reads, an explicit entry wins.
-        self.margin = {"MaxSim": self.margin.get("MaxSim", self.margin["cosine"])}
+        self.margin = {"maxsim": self.margin.get("maxsim", self.margin["cosine"])}
 
     def __call__(
         self,
@@ -47,18 +45,18 @@ class MultiVectorTripletEvaluator(TripletEvaluator):
         embeddings_negatives = self._embed(model, self.negatives, is_query=False)
 
         if not self.similarity_fn_names:
-            self.similarity_fn_names = ["MaxSim"]
+            self.similarity_fn_names = ["maxsim"]
             self._append_csv_headers(self.similarity_fn_names)
 
-        margin = self.margin.get("MaxSim", 0)
+        margin = self.margin.get("maxsim", 0)
         positive_scores = maxsim_pairwise(embeddings_anchors, embeddings_positives)
         negative_scores = maxsim_pairwise(embeddings_anchors, embeddings_negatives)
         accuracy = (positive_scores > negative_scores + margin).float().mean().item()
 
-        metrics = {"MaxSim_accuracy": accuracy}
+        metrics = {"maxsim_accuracy": accuracy}
         logger.info(f"Accuracy MaxSim:\t{accuracy:.2%}")
 
-        self.primary_metric = "MaxSim_accuracy"
+        self.primary_metric = "maxsim_accuracy"
 
         metrics = self.prefix_name_to_metrics(metrics, self.name)
         self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
