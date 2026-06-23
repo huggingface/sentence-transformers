@@ -47,6 +47,9 @@ class MultiVectorMask(Module):
         skiplist_words: list[str] | None = None,
     ) -> None:
         super().__init__()
+        # TODO: skiplist is document-only: is that a problem or are we fine to keep that restriction?
+        # Maybe fine to keep originally, but think about how we would eventually expand that + make sure
+        # we're not inhibiting that future expansion.
         self.skiplist_words: list[str] = list(skiplist_words) if skiplist_words is not None else []
         # Resolved lazily by :meth:`resolve_with_tokenizer` once the tokenizer is finalised.
         self._skiplist_ids: Tensor | None = None

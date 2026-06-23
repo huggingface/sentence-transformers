@@ -10,9 +10,11 @@ scored with MaxSim (or XTR-style global top-k) during the loss.
 
 The following column conventions are recognized by
 :class:`~sentence_transformers.multi_vector_encoder.MultiVectorEncoderDataCollator`. The collator routes
-columns whose names start with ``query``, ``anchor`` or ``question`` through the *query* side
-(prefix ``[Q]``, max length ``query_length``, optional mask-token padding). All other columns are routed
-through the *document* side (prefix ``[D]``, max length ``document_length``, skiplist masking).
+columns by position: the first tokenized column is the *query* side and the rest are the *document* side.
+Columns ending in ``_id`` or ``_ids`` are skipped. Override the routing by passing ``router_mapping`` to
+the trainer. Each side then applies whatever the model is configured with: optional prompt prefix
+(e.g. ``"[Q] "`` / ``"[D] "``), optional ``query_length`` / ``document_length`` truncation,
+mask-token query expansion (when ``query_length`` is set), and document-side skiplist masking.
 
 | Format | Columns | Loss |
 |---|---|---|

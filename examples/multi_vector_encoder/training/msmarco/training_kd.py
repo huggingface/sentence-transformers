@@ -84,7 +84,7 @@ def main():
         fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=True,  # Set to True if you have a GPU that supports BF16
         load_best_model_at_end=True,
-        metric_for_best_model="eval_NanoBEIR_mean_MaxSim_ndcg@10",
+        metric_for_best_model="eval_NanoBEIR_mean_maxsim_ndcg@10",
         # Optional tracking/debugging parameters:
         eval_strategy="steps",  # The NanoBEIR evaluator runs on its own datasets, so no eval_dataset is needed
         eval_steps=0.1,

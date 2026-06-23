@@ -32,7 +32,8 @@ Encoding queries and documents
 ------------------------------
 
 Use ``encode_query`` and ``encode_document`` for retrieval; these set the right prefix token (``[Q]`` /
-``[D]``), max length, and document-side skiplist (punctuation tokens are excluded from scoring)::
+``[D]``), max length, and apply any document-side skiplist configured on the model (empty by default;
+legacy ColBERT / PyLate checkpoints pre-seed it with punctuation tokens)::
 
     queries = ["What is the capital of France?"]
     documents = [
@@ -44,7 +45,7 @@ Use ``encode_query`` and ``encode_document`` for retrieval; these set the right 
     document_embeddings = model.encode_document(documents)
 
     # Each entry is a 2D array of shape (num_tokens_i, embedding_dim), variable-length per input.
-    print(query_embeddings[0].shape)  # (32, 128), query expansion pads to query_length
+    print(query_embeddings[0].shape)  # (variable, 128). Pads to query_length when query expansion is enabled
     print(document_embeddings[0].shape)  # (variable, 128)
 
 Scoring with MaxSim

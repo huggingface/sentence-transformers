@@ -6,6 +6,7 @@ from sentence_transformers import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.evaluation import (
     MultiVectorDistillationEvaluator,
     MultiVectorInformationRetrievalEvaluator,
+    MultiVectorNanoBEIREvaluator,
     MultiVectorRerankingEvaluator,
     MultiVectorTripletEvaluator,
 )
@@ -39,6 +40,29 @@ def test_information_retrieval_evaluator(model: MultiVectorEncoder) -> None:
     assert 0.0 <= results[evaluator.primary_metric] <= 1.0
 
 
+def test_information_retrieval_evaluator_rejects_xtr_scoring() -> None:
+    """XTR's global top-k is incompatible with the evaluator's per-chunk corpus scoring, so an XTR
+    scorer in ``score_functions`` must raise at construction rather than emit per-chunk-wrong metrics.
+    """
+    from functools import partial
+
+    from sentence_transformers.multi_vector_encoder.scoring import XTRScores, xtr_scores
+
+    queries = {"q0": "What is the capital of France?"}
+    corpus = {"d0": "Paris is the capital of France."}
+    qrels = {"q0": {"d0"}}
+    for scorer in (xtr_scores, XTRScores(k=2), partial(xtr_scores, document_chunk_size=4)):
+        with pytest.raises(ValueError, match="XTR"):
+            MultiVectorInformationRetrievalEvaluator(
+                queries=queries,
+                corpus=corpus,
+                relevant_docs=qrels,
+                name="x",
+                write_csv=False,
+                score_functions={"x": scorer},
+            )
+
+
 def test_triplet_evaluator(model: MultiVectorEncoder) -> None:
     evaluator = MultiVectorTripletEvaluator(
         anchors=["What is the capital of France?"],
@@ -67,6 +91,25 @@ def test_reranking_evaluator(model: MultiVectorEncoder) -> None:
     results = evaluator(model)
     assert "rerank_smoke_ndcg@10" in results
     assert evaluator.primary_metric == "rerank_smoke_ndcg@10"
+
+
+def test_nano_beir_evaluator_emits_lowercase_maxsim_key(model: MultiVectorEncoder) -> None:
+    # The four training examples set ``metric_for_best_model="eval_NanoBEIR_mean_maxsim_ndcg@10"``,
+    # so a regression in the lowercase ``maxsim`` segment would break ``load_best_model_at_end``.
+    queries = {"q0": "What is the capital of France?"}
+    corpus = {"d0": "Paris is the capital of France.", "d1": "Berlin is the capital of Germany."}
+    qrels = {"q0": {"d0"}}
+
+    class _StubNanoBEIR(MultiVectorNanoBEIREvaluator):
+        def _load_dataset(self, dataset_name: str, **ir_kwargs):
+            return MultiVectorInformationRetrievalEvaluator(
+                queries=queries, corpus=corpus, relevant_docs=qrels, name=f"Nano{dataset_name}", **ir_kwargs
+            )
+
+    evaluator = _StubNanoBEIR(dataset_names=["msmarco"], write_csv=False)
+    results = evaluator(model)
+    assert "NanoBEIR_mean_maxsim_ndcg@10" in results
+    assert evaluator.primary_metric == "NanoBEIR_mean_maxsim_ndcg@10"
 
 
 def test_distillation_evaluator(model: MultiVectorEncoder) -> None:

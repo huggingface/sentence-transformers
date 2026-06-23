@@ -36,12 +36,12 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         document_chunk_size (int, optional): Per-call chunk size for the MaxSim matmul. Bounds the 4D
             ``(batch_q, chunk, q_tokens, d_tokens)`` scoring intermediate independently of
             ``corpus_chunk_size``. Defaults to 32. Pass ``None`` to score the whole ``corpus_chunk_size``
-            in one shot. The value is forwarded to the score function (both ``maxsim`` and
-            ``xtr_scores`` accept it).
+            in one shot.
         score_functions (Dict[str, Callable], optional): Override the default ``{"maxsim": maxsim}``
             scoring. The chosen callable receives ``(queries, documents)`` token tensors and must
-            return a ``(num_queries, num_documents)`` score matrix. Pass e.g. ``xtr_scores`` (or
-            ``functools.partial(xtr_scores, document_chunk_size=N)``) for XTR scoring.
+            return a ``(num_queries, num_documents)`` score matrix. XTR scoring is not supported here
+            because it does a global top-k across the whole candidate set, which is incompatible with
+            this evaluator's per-chunk corpus scoring.
         mrr_at_k (List[int]): k-values for MRR. Defaults to ``[10]``.
         ndcg_at_k (List[int]): k-values for NDCG. Defaults to ``[10]``.
         accuracy_at_k (List[int]): k-values for accuracy. Defaults to ``[1, 3, 5, 10]``.
@@ -114,6 +114,17 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
                 maxsim if document_chunk_size is None else partial(maxsim, document_chunk_size=document_chunk_size)
             )
             score_functions = {SimilarityFunction.MAXSIM.value: scoring_fn}
+        else:
+            # XTR's global top-k would be taken per corpus chunk, silently wrong for any corpus > corpus_chunk_size.
+            from sentence_transformers.multi_vector_encoder.scoring import XTRScores, xtr_scores
+
+            for name, fn in score_functions.items():
+                target = fn.func if isinstance(fn, partial) else fn
+                if target is xtr_scores or isinstance(target, XTRScores):
+                    raise ValueError(
+                        f"score_functions[{name!r}] uses XTR scoring, which is incompatible with this "
+                        "evaluator's per-chunk corpus scoring (top-k would be per-chunk). Use MaxSim instead."
+                    )
         super().__init__(
             queries=queries,
             corpus=corpus,

@@ -21,7 +21,7 @@ This is a [{{ model_type or "Multi-Vector Encoder" }}](https://www.sbert.net/doc
     <!-- - **Base model:** [Unknown](https://huggingface.co/unknown) -->
 {%- endif %}
 - **Maximum Sequence Length:** {{ model_max_length }} tokens
-- **Output Dimensionality:** {{ output_dimensionality }} dimensions{% if max_active_dims %} (trained with {{ max_active_dims }} maximum active dimensions){% endif %}
+- **Output Dimensionality:** {{ output_dimensionality }} dimensions
 - **Similarity Function:** {{ similarity_fn_name }}
 {% if supported_modalities -%}
     - **Supported Modalit{{"ies" if supported_modalities | length > 1 else "y"}}:** {{ supported_modalities | join(", ") }}
@@ -57,7 +57,7 @@ This is a [{{ model_type or "Multi-Vector Encoder" }}](https://www.sbert.net/doc
 ### Model Sources
 
 - **Documentation:** [Sentence Transformers Documentation](https://sbert.net)
-- **Documentation:** [Sparse Encoder Documentation](https://www.sbert.net/docs/multi_vector_encoder/usage/usage.html)
+- **Documentation:** [Multi-Vector Encoder Documentation](https://www.sbert.net/docs/multi_vector_encoder/usage/usage.html)
 - **Repository:** [Sentence Transformers on GitHub](https://github.com/huggingface/sentence-transformers)
 - **Hugging Face:** [Multi-Vector Encoders on Hugging Face](https://huggingface.co/models?library=sentence-transformers&other=multi-vector)
 
