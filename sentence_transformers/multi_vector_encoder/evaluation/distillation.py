@@ -12,6 +12,7 @@ from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.util.similarity import maxsim_pairwise
 
 if TYPE_CHECKING:
+    from sentence_transformers.base.modality_types import SingleInput
     from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 
 logger = logging.getLogger(__name__)
@@ -39,8 +40,8 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
 
     def __init__(
         self,
-        queries: list[str],
-        documents: list[str],
+        queries: list[SingleInput],
+        documents: list[SingleInput],
         scores: list[float] | torch.Tensor,
         name: str = "",
         batch_size: int = 16,

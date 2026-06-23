@@ -76,6 +76,23 @@ def test_triplet_evaluator(model: MultiVectorEncoder) -> None:
     assert 0.0 <= results["triplet_smoke_maxsim_accuracy"] <= 1.0
 
 
+def test_triplet_evaluator_writes_csv_rows(model: MultiVectorEncoder, tmp_path) -> None:
+    # Regression: the prior bespoke ``__call__`` registered CSV headers but never wrote rows, so
+    # ``write_csv=True`` produced a header-only CSV.
+    evaluator = MultiVectorTripletEvaluator(
+        anchors=["What is the capital of France?"],
+        positives=["Paris is the capital of France."],
+        negatives=["Berlin is the capital of Germany."],
+        name="csv_smoke",
+        write_csv=True,
+    )
+    evaluator(model, output_path=str(tmp_path))
+    csv_path = tmp_path / evaluator.csv_file
+    assert csv_path.exists()
+    lines = csv_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) >= 2, f"Expected at least header + 1 row, got {len(lines)} line(s)"
+
+
 def test_reranking_evaluator(model: MultiVectorEncoder) -> None:
     evaluator = MultiVectorRerankingEvaluator(
         samples=[

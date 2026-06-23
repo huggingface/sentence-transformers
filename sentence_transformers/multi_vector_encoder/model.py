@@ -169,6 +169,8 @@ class MultiVectorEncoder(BaseModel):
         # Legacy-checkpoint state populated by ``_parse_model_config`` (PyLate v3) and
         # ``_maybe_load_stanford_metadata`` (Stanford-NLP); empty for native MVE saves.
         self._legacy = _LegacyStash()
+        # User-supplied ``modules=...`` skips legacy module rewrites so an intentional sentence-level Dense isn't clobbered.
+        self._user_supplied_modules = modules is not None
 
         super().__init__(
             model_name_or_path=model_name_or_path,
@@ -596,11 +598,13 @@ class MultiVectorEncoder(BaseModel):
         if self._legacy.prefixes:
             self._register_prefix_tokens(self._legacy.prefixes)
 
-        # PyLate v3 / pre-v5.4 ST Dense saved no IO names; redirect them to token level (no-op on modern saves).
-        for module in self._modules.values():
-            if isinstance(module, Dense) and module.module_input_name == "sentence_embedding":
-                module.module_input_name = "token_embeddings"
-                module.module_output_name = "token_embeddings"
+        # PyLate v3 / pre-v5.4 ST Dense saved no IO names; redirect them to token level. Skip when the user
+        # passed modules=... so an intentional sentence-level Dense in a hybrid pipeline isn't clobbered.
+        if not self._user_supplied_modules:
+            for module in self._modules.values():
+                if isinstance(module, Dense) and module.module_input_name == "sentence_embedding":
+                    module.module_input_name = "token_embeddings"
+                    module.module_output_name = "token_embeddings"
 
         # PyLate v3 listed only [Transformer, Dense] (masking/normalize were inline). Append the missing
         # modules. Other load paths build the full sequence themselves.

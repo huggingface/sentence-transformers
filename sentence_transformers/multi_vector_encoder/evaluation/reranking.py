@@ -8,6 +8,7 @@ from sentence_transformers.util.similarity import maxsim
 if TYPE_CHECKING:
     from torch import Tensor
 
+    from sentence_transformers.base.modality_types import SingleInput
     from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 
 
@@ -57,7 +58,7 @@ class MultiVectorRerankingEvaluator(RerankingEvaluator):
     def embed_inputs(
         self,
         model: MultiVectorEncoder,
-        sentences,
+        sentences: SingleInput | list[SingleInput],
         encode_fn_name: str | None = None,
         show_progress_bar: bool | None = None,
         **kwargs,

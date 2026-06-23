@@ -1,5 +1,10 @@
 # Migration Guide
 
+## Migrating from v5.x to v6.x
+
+Notes to self:
+- `TripletEvaluator` (and `SparseTripletEvaluator`) now embed anchors with `encode_query` and positives/negatives with `encode_document`, instead of `encode` for all three. This is a no-op for models without `query` / `document` prompts. Prompt-configured (asymmetric) models will report different triplet accuracy than before, because those prompts are now applied during evaluation.
+
 ## Migrating from v5.x to v5.4+
 
 ```{eval-rst}

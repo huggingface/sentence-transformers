@@ -16,6 +16,7 @@ from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.util.similarity import SimilarityFunction
 
 if TYPE_CHECKING:
+    from sentence_transformers.base.modality_types import SingleInput
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 logger = logging.getLogger(__name__)
@@ -130,8 +131,8 @@ class InformationRetrievalEvaluator(BaseEvaluator):
 
     def __init__(
         self,
-        queries: dict[str, str],  # qid => query
-        corpus: dict[str, str],  # cid => doc
+        queries: dict[str, SingleInput],  # qid => query
+        corpus: dict[str, SingleInput],  # cid => doc
         relevant_docs: dict[str, set[str]],  # qid => Set[cid]
         corpus_chunk_size: int = 50000,
         mrr_at_k: list[int] = [10],
@@ -421,7 +422,7 @@ class InformationRetrievalEvaluator(BaseEvaluator):
     def embed_inputs(
         self,
         model: SentenceTransformer,
-        sentences: str | list[str] | np.ndarray,
+        sentences: SingleInput | list[SingleInput] | np.ndarray,
         encode_fn_name: str | None = None,
         prompt_name: str | None = None,
         prompt: str | None = None,

@@ -15,6 +15,7 @@ from sentence_transformers.util.similarity import SimilarityFunction, maxsim
 if TYPE_CHECKING:
     import numpy as np
 
+    from sentence_transformers.base.modality_types import SingleInput
     from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 
 logger = logging.getLogger(__name__)
@@ -101,8 +102,8 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
 
     def __init__(
         self,
-        queries: dict[str, str],
-        corpus: dict[str, str],
+        queries: dict[str, SingleInput],
+        corpus: dict[str, SingleInput],
         relevant_docs: dict[str, set[str]],
         corpus_chunk_size: int = 50000,
         document_chunk_size: int | None = 32,
@@ -137,13 +138,13 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
     def embed_inputs(
         self,
         model: MultiVectorEncoder,
-        sentences: str | list[str] | np.ndarray,
+        sentences: SingleInput | list[SingleInput] | np.ndarray,
         encode_fn_name: str | None = None,
         prompt_name: str | None = None,
         prompt: str | None = None,
         **kwargs,
-    ) -> list[Tensor]:
-        # MultiVectorEncoder.encode doesn't accept truncate_dim; drop it before forwarding.
+    ) -> list[Tensor] | Tensor:
+        # MultiVectorEncoder.encode doesn't accept truncate_dim, drop it before forwarding.
         kwargs.pop("truncate_dim", None)
         if encode_fn_name == "query":
             encode_fn = model.encode_query
@@ -151,6 +152,8 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             encode_fn = model.encode_document
         else:
             encode_fn = model.encode
+        # Pre-pad queries (reused across every corpus chunk) so per-chunk maxsim does the cheap zero-row
+        # mask check instead of re-running pad_sequence each round. Documents are encoded per chunk.
         return encode_fn(
             sentences,
             prompt_name=prompt_name,
@@ -158,5 +161,6 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
             convert_to_tensor=True,
+            convert_to_padded=encode_fn_name == "query",
             **kwargs,
         )
