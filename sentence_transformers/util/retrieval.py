@@ -317,7 +317,7 @@ def community_detection(
 
             # Use the row-wise count to slice the indices
             for count, indices in zip(row_wise_count, top_k_indices):
-                extracted_communities.append(indices[:count].tolist())
+                extracted_communities.append(indices[:count].cpu().numpy().astype(np.uint32))
         else:
             # Minimum size for a community
             top_k_values, _ = cos_scores.topk(k=min_community_size, largest=True)
@@ -333,7 +333,7 @@ def community_detection(
                         sort_max_size = min(2 * sort_max_size, len(embeddings))
                         top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 
-                    extracted_communities.append(top_idx_large[top_val_large >= threshold].tolist())
+                    extracted_communities.append(top_idx_large[top_val_large >= threshold].cpu().numpy().astype(np.uint32))
 
     # Largest cluster first
     extracted_communities = sorted(extracted_communities, key=lambda x: len(x), reverse=True)
