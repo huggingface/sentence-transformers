@@ -1582,7 +1582,25 @@ This pull request has been automatically generated to add {self.__class__.__name
         transformers model can be located (e.g. a pure StaticEmbedding-only setup).
         """
         underlying = self.transformers_model
-        return getattr(underlying, "config", None)
+        if underlying is not None:
+            return getattr(underlying, "config", None)
+        return getattr(self, "_config", None)
+
+    @config.setter
+    def config(self, value: PretrainedConfig | None) -> None:
+        """Allow assigning ``model.config``.
+
+        Before the read-only :attr:`config` property was introduced, ``model.config = ...``
+        simply set an instance attribute. Tools such as ``optimum`` rely on this during
+        ONNX export, and broke with ``property 'config' has no setter`` (#3830). Forward the
+        assignment to the underlying transformers model so reads stay consistent, falling
+        back to local storage when there is no underlying model.
+        """
+        underlying = self.transformers_model
+        if underlying is not None:
+            underlying.config = value
+        else:
+            object.__setattr__(self, "_config", value)
 
     @property
     def _target_device(self) -> torch.device:
