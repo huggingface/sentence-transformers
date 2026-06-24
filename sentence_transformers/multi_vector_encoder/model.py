@@ -207,7 +207,7 @@ class MultiVectorEncoder(BaseModel):
         show_progress_bar: bool | None = None,
         convert_to_tensor: bool = False,
         convert_to_numpy: bool = True,
-        convert_to_padded: bool = False,
+        convert_to_padded_tensor: bool = False,
         precision: Literal["float32", "int8", "uint8", "binary", "ubinary"] = "float32",
         device: str | torch.device | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
@@ -236,7 +236,7 @@ class MultiVectorEncoder(BaseModel):
             show_progress_bar=show_progress_bar,
             convert_to_tensor=convert_to_tensor,
             convert_to_numpy=convert_to_numpy,
-            convert_to_padded=convert_to_padded,
+            convert_to_padded_tensor=convert_to_padded_tensor,
             precision=precision,
             device=device,
             normalize_embeddings=normalize_embeddings,
@@ -256,7 +256,7 @@ class MultiVectorEncoder(BaseModel):
         show_progress_bar: bool | None = None,
         convert_to_tensor: bool = False,
         convert_to_numpy: bool = True,
-        convert_to_padded: bool = False,
+        convert_to_padded_tensor: bool = False,
         precision: Literal["float32", "int8", "uint8", "binary", "ubinary"] = "float32",
         device: str | torch.device | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
@@ -289,7 +289,7 @@ class MultiVectorEncoder(BaseModel):
             show_progress_bar=show_progress_bar,
             convert_to_tensor=convert_to_tensor,
             convert_to_numpy=convert_to_numpy,
-            convert_to_padded=convert_to_padded,
+            convert_to_padded_tensor=convert_to_padded_tensor,
             precision=precision,
             device=device,
             normalize_embeddings=normalize_embeddings,
@@ -300,6 +300,7 @@ class MultiVectorEncoder(BaseModel):
             **kwargs,
         )
 
+    # TODO: Consider replacing convert_to_* with return_as / output_format & incorporate "features" as well
     def encode(
         self,
         inputs: list[SingleInput] | SingleInput,
@@ -309,7 +310,7 @@ class MultiVectorEncoder(BaseModel):
         show_progress_bar: bool | None = None,
         convert_to_tensor: bool = False,
         convert_to_numpy: bool = True,
-        convert_to_padded: bool = False,
+        convert_to_padded_tensor: bool = False,
         precision: Literal["float32", "int8", "uint8", "binary", "ubinary"] = "float32",
         device: str | torch.device | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
@@ -336,13 +337,14 @@ class MultiVectorEncoder(BaseModel):
             prompt (str, optional): A prompt string to prepend to each input. Overrides ``prompt_name``.
             batch_size (int, optional): Batch size for the forward pass. Defaults to 32.
             show_progress_bar (bool, optional): Whether to show a progress bar. Defaults to None (auto).
-            convert_to_tensor (bool, optional): If True, returns a list of :class:`torch.Tensor` (or a padded
-                3D tensor if ``convert_to_padded=True``). Overrides ``convert_to_numpy``. Defaults to False.
+            convert_to_tensor (bool, optional): If True, returns a list of :class:`torch.Tensor`. Overrides
+                ``convert_to_numpy``. Defaults to False.
             convert_to_numpy (bool, optional): If True (default), returns a list of :class:`numpy.ndarray`.
-            convert_to_padded (bool, optional): If True, pad each input's per-token embedding tensor to the same
-                length and return a single 3D tensor / array of shape
+            convert_to_padded_tensor (bool, optional): If True, pad each input's per-token embedding to the
+                same length and return a single 3D :class:`torch.Tensor` of shape
                 ``(num_inputs, max_tokens, embedding_dim)`` instead of a variable-length list. The
-                padding-mask is reconstructable via ``(emb != 0).any(-1)``. Defaults to False.
+                padding-mask is reconstructable via ``(emb != 0).any(-1)``. Overrides ``convert_to_numpy``
+                and ``convert_to_tensor`` (always returns a Tensor). Defaults to False.
             precision (str, optional): The output precision. One of ``"float32"``, ``"int8"``, ``"uint8"``,
                 ``"binary"``, ``"ubinary"``. Defaults to ``"float32"``.
             device (str, torch.device, list, or None): Device(s) for computation. Defaults to None.
@@ -358,10 +360,10 @@ class MultiVectorEncoder(BaseModel):
                 the prefix / length / masking strategy.
 
         Returns:
-            list[Tensor] | list[ndarray] | Tensor | ndarray: By default, a list of per-input 2D tensors of
-            shape ``(num_tokens_i, embedding_dim)`` (variable-length). If ``convert_to_padded=True``, a single
-            3D tensor of shape ``(num_inputs, max_tokens, embedding_dim)``. If a single string is passed,
-            the outer list is unwrapped.
+            list[Tensor] | list[ndarray] | Tensor | ndarray: By default, a list of per-input 2D arrays of shape
+            ``(num_tokens_i, embedding_dim)`` (variable-length). With ``convert_to_padded_tensor=True``, a
+            single 3D :class:`torch.Tensor` of shape ``(num_inputs, max_tokens, embedding_dim)``. If a single
+            string is passed, the outer list is unwrapped (e.g. a bare 2D array for the default).
         """
         is_query = task == "query"
 
@@ -371,8 +373,8 @@ class MultiVectorEncoder(BaseModel):
         if batch_size <= 0:
             raise ValueError(f"batch_size must be a positive integer, got {batch_size}.")
 
-        # convert_to_tensor takes precedence over convert_to_numpy
-        if convert_to_tensor:
+        # convert_to_tensor / convert_to_padded_tensor both produce Tensor output; suppress numpy conversion.
+        if convert_to_tensor or convert_to_padded_tensor:
             convert_to_numpy = False
 
         is_singular_input = self.is_singular_input(inputs)
@@ -402,15 +404,15 @@ class MultiVectorEncoder(BaseModel):
                 convert_to_tensor=convert_to_tensor,
                 convert_to_numpy=convert_to_numpy,
                 # Pad once after merging chunks, not per-worker: per-chunk max lengths would mismatch.
-                convert_to_padded=False,
+                convert_to_padded_tensor=False,
                 precision=precision,
                 normalize_embeddings=normalize_embeddings,
                 pool_factor=pool_factor,
                 task=task,
                 **kwargs,
             )
-            if convert_to_padded:
-                embeddings = self._stack_padded(embeddings, convert_to_numpy=convert_to_numpy)
+            if convert_to_padded_tensor:
+                embeddings = self._stack_padded(embeddings)
             if is_singular_input:
                 embeddings = embeddings[0]
             return embeddings
@@ -472,10 +474,8 @@ class MultiVectorEncoder(BaseModel):
                 for emb in all_embeddings
             ]
 
-        # TODO: convert_to_padded=True while convert_to_tensor=False and convert_to_numpy=False still keeps a Tensor
-        # This might not be the clearest/expected output contract. Reconsider the output type
-        if convert_to_padded:
-            result = self._stack_padded(all_embeddings, convert_to_numpy=convert_to_numpy)
+        if convert_to_padded_tensor:
+            result = self._stack_padded(all_embeddings)
         else:
             result = all_embeddings
 
@@ -485,18 +485,15 @@ class MultiVectorEncoder(BaseModel):
         return result
 
     @staticmethod
-    def _stack_padded(
-        embeddings: Sequence[Tensor | np.ndarray],
-        convert_to_numpy: bool,
-    ) -> Tensor | np.ndarray:
-        """Pad a variable-length list of per-input 2D embeddings into one ``(num_inputs, max_tokens, dim)``
-        tensor / array, padding with 0. The padding mask is recoverable via ``(emb != 0).any(-1)``.
+    def _stack_padded(embeddings: Sequence[Tensor | np.ndarray]) -> Tensor:
+        """Pad a variable-length list of per-input 2D embeddings into one
+        ``(num_inputs, max_tokens, embedding_dim)`` tensor, padding with 0. The padding mask is
+        recoverable via ``(emb != 0).any(-1)``.
         """
         if not embeddings:
-            return np.array([]) if convert_to_numpy else torch.empty(0)
+            return torch.empty(0)
         tensors = [torch.from_numpy(emb) if isinstance(emb, np.ndarray) else emb for emb in embeddings]
-        stacked = torch.nn.utils.rnn.pad_sequence(tensors, batch_first=True, padding_value=0)
-        return stacked.numpy() if convert_to_numpy else stacked
+        return torch.nn.utils.rnn.pad_sequence(tensors, batch_first=True, padding_value=0)
 
     def pool_embeddings_hierarchical(
         self,

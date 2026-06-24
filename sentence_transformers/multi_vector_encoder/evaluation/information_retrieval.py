@@ -161,6 +161,6 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
             convert_to_tensor=True,
-            convert_to_padded=encode_fn_name == "query",
+            convert_to_padded_tensor=encode_fn_name == "query",
             **kwargs,
         )

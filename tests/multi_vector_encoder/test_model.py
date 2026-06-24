@@ -219,21 +219,22 @@ def test_parse_model_config_defaults_query_expansion_for_pylate(model_config, ex
 
 
 @pytest.mark.parametrize(
-    ("convert_to_tensor", "convert_to_numpy", "convert_to_padded", "element_type"),
+    ("convert_to_tensor", "convert_to_numpy", "convert_to_padded_tensor", "element_type"),
     [
         (False, True, False, np.ndarray),  # default: variable-length list of arrays
         (True, False, False, torch.Tensor),  # variable-length list of tensors
         (False, False, False, torch.Tensor),  # variable-length list of raw (unconverted) tensors
-        (False, True, True, np.ndarray),  # single padded 3D array
-        (True, False, True, torch.Tensor),  # single padded 3D tensor
-        (False, False, True, torch.Tensor),  # single padded 3D tensor (no numpy conversion)
+        # convert_to_padded_tensor always returns a Tensor (parallels convert_to_sparse_tensor):
+        (False, True, True, torch.Tensor),  # padded; convert_to_numpy is overridden
+        (True, False, True, torch.Tensor),  # padded
+        (False, False, True, torch.Tensor),  # padded
     ],
 )
 def test_encode_output_formats(
     model: MultiVectorEncoder,
     convert_to_tensor: bool,
     convert_to_numpy: bool,
-    convert_to_padded: bool,
+    convert_to_padded_tensor: bool,
     element_type: type,
 ) -> None:
     # Two documents of clearly different length, so variable-length output is distinguishable from padded.
@@ -243,10 +244,10 @@ def test_encode_output_formats(
         docs,
         convert_to_tensor=convert_to_tensor,
         convert_to_numpy=convert_to_numpy,
-        convert_to_padded=convert_to_padded,
+        convert_to_padded_tensor=convert_to_padded_tensor,
     )
 
-    if convert_to_padded:
+    if convert_to_padded_tensor:
         # A single stacked container of shape (num_docs, max_tokens, dim), zero-padded.
         assert isinstance(out, element_type)
         assert out.ndim == 3
@@ -462,7 +463,7 @@ def test_maxsim_basic_shapes() -> None:
 
 
 def test_maxsim_padded_tensor_without_mask_excludes_zero_rows() -> None:
-    """Without a mask, a pre-padded 3D tensor (the output of ``encode(convert_to_padded=True)``) had
+    """Without a mask, a pre-padded 3D tensor (the output of ``encode(convert_to_padded_tensor=True)``) had
     its zero-pad rows counted as real tokens whose dot product 0 could win the max over negative
     similarities. ``_pad_multi_vector_inputs`` now derives a mask from all-zero rows so the padded
     tensor matches the list-input result."""
@@ -482,7 +483,7 @@ def test_maxsim_padded_tensor_without_mask_excludes_zero_rows() -> None:
 
 def test_maxsim_pairwise_padded_tensor_without_mask_excludes_zero_rows() -> None:
     """maxsim_pairwise mirrors maxsim: a pre-padded 3D tensor without a mask (the output of
-    ``encode(convert_to_padded=True)`` consumed by ``model.similarity_pairwise``) derives a mask from
+    ``encode(convert_to_padded_tensor=True)`` consumed by ``model.similarity_pairwise``) derives a mask from
     its all-zero rows so zero-pad doc tokens cannot win the max over a negative real similarity."""
     q_list = [torch.tensor([[1.0, 0.0]])]
     d_list = [torch.tensor([[-0.5, -0.5]])]

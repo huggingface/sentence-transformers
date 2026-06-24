@@ -331,7 +331,7 @@ def _zero_row_mask(padded: Tensor) -> Tensor:
 
     Real token embeddings normally carry information in at least one dim, so a fully-zero row is the
     all-but-impossible-except-by-pad signal. This matches the padding pattern emitted by
-    ``encode(convert_to_padded=True)``. Returned in the input dtype (1.0 for real tokens, 0.0 for pad).
+    ``encode(convert_to_padded_tensor=True)``. Returned in the input dtype (1.0 for real tokens, 0.0 for pad).
     """
     return padded.any(dim=-1).to(padded.dtype)
 
