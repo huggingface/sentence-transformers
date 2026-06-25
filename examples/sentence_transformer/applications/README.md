@@ -40,4 +40,4 @@ The [text-summarization](text-summarization/) folder shows how SentenceTransform
 
 ## Compilation
 
-The [compilation](compilation/) folder shows how to speed up batch-1 CPU-bound inference on GPU by compiling the model into CUDA graphs, padding inputs to a small set of token buckets so a fixed set of compiled graphs covers all sequence lengths.
+The [compilation](compilation/) folder shows how to speed up batch-size-1 CPU-bound inference on GPU by compiling the model. It benchmarks the default, dynamic compilation and a static compilation strategy. The latter pads each input to a size corresponding to a pre-compiled CUDA graph.

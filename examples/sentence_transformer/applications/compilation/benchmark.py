@@ -37,6 +37,8 @@ from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
+COMPILED_TOKEN_BUCKETS = compiled.DEFAULT_COMPILED_TOKEN_BUCKETS
+
 MODEL_NAMES: tuple[str, ...] = (
     # Add more models here:
     # ...
@@ -70,15 +72,15 @@ def _load_sdpa_with_eager_fallback(
     if torch.cuda.is_bf16_supported():
         # The benefit of compilation positively interacts w/ bfloat16. CUDA compute is much faster b/c of tensor cores,
         # and memory movement is also faster. So Python overhead is relatively higher.
-        model_kwargs |= {"dtype": torch.bfloat16}
+        model_kwargs["dtype"] = torch.bfloat16
     try:
         return sentence_transformer_cls(model_name, model_kwargs=model_kwargs)
     except ValueError as exception:
         if "scaled_dot_product_attention" not in str(exception):
             raise exception
         logger.warning(f"[{model_name}] SDPA not supported. Falling back to eager.")
-        model_kwargs_eager = {k: v for k, v in model_kwargs.items() if k != "attn_implementation"}
-        return sentence_transformer_cls(model_name, model_kwargs=model_kwargs_eager)
+        model_kwargs.pop("attn_implementation")
+        return sentence_transformer_cls(model_name, model_kwargs=model_kwargs)
 
 
 def _input_token_lengths(max_seq_length: int, num_samples: int = NUM_SAMPLES_PER_BUCKET) -> list[int]:
@@ -86,12 +88,12 @@ def _input_token_lengths(max_seq_length: int, num_samples: int = NUM_SAMPLES_PER
     Return sorted token-length targets: `num_samples` uniform per bucket plus B-1, B, B+1 for each bucket B.
     The B-1 and B+1 targets might be interesting to measure overhead caused by padding.
     """
-    buckets_active = [bucket for bucket in compiled.DEFAULT_COMPILED_TOKEN_BUCKETS if bucket < max_seq_length]
+    buckets_active = [bucket for bucket in COMPILED_TOKEN_BUCKETS if bucket < max_seq_length]
     edges = [MIN_TOKENS, *buckets_active, max_seq_length]
     grid: set[int] = set()
     for lower, upper in zip(edges[:-1], edges[1:], strict=True):
         grid.update(int(value) for value in np.linspace(lower, upper, num_samples))
-    for bucket in compiled.DEFAULT_COMPILED_TOKEN_BUCKETS:
+    for bucket in COMPILED_TOKEN_BUCKETS:
         for offset in (-1, 0, 1):
             value = bucket + offset
             if MIN_TOKENS <= value <= max_seq_length:
@@ -110,8 +112,8 @@ def _create_random_text_with_num_tokens(
     """
 
     # Random chars should give more diverse embeddings than repeating. Want to avoid numerical drift flying under the
-    # radar in the correctness check. Ideally we have a small corpus of single-token words to pick from, but it's not
-    # clear to me that's not a marginal improvement.
+    # radar in the correctness check. An alternative is to not specify the target number of tokens beforehand, and
+    # instead just use a corpus of real texts.
     def count_tokens(text):
         return tokenize_fn([text], **tokenize_kwargs)["input_ids"].shape[1]
 
@@ -191,7 +193,7 @@ def _run_model(
     return BenchmarkModelResult(records=records, embeddings=np.array(embeddings))
 
 
-def _clear_context():
+def _reset_torch_and_cuda():
     torch._dynamo.reset()
     gc.collect()
     torch.cuda.empty_cache()
@@ -215,7 +217,7 @@ def _benchmark_model_version(
     *,
     version: Version,
 ) -> BenchmarkModelResult:
-    _clear_context()
+    _reset_torch_and_cuda()
 
     logger.info(f"[{model_name}] loading")
     sentence_transformer_cls = compiled.SentenceTransformer if version == "compiled" else SentenceTransformer
@@ -240,7 +242,7 @@ def _benchmark_model_version(
     benchmark_model_result = _run_model(model, version, model_name, target_num_tokens_to_text)
     records.extend(benchmark_model_result.records)
 
-    _clear_context()
+    _reset_torch_and_cuda()
     return BenchmarkModelResult(records=records, embeddings=benchmark_model_result.embeddings)
 
 
@@ -316,7 +318,7 @@ def _summary_per_model_bucket(df: pl.DataFrame) -> pl.DataFrame:
     Pivot `df`'s `phase="run"` rows wide on `version` and aggregate per `(model_name, bucket)`.
     """
     df = df.filter(pl.col("phase") == "run")
-    df = _add_bucket_label(df, buckets=compiled.DEFAULT_COMPILED_TOKEN_BUCKETS, column="num_tokens")
+    df = _add_bucket_label(df, buckets=COMPILED_TOKEN_BUCKETS, column="num_tokens")
     df = df.pivot(
         on="version",
         index=["model_name", "bucket", "num_tokens"],

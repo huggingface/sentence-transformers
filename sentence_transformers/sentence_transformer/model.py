@@ -231,7 +231,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             module that ``self.forward`` calls. Set ``dynamic=True`` because ``dynamic=False`` recompiles on every new
             sequence length, introducing significant overhead on workloads with variable sequence lengths. For a
             benchmark comparing dynamic and static CUDA-graph compilation, see
-            https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/applications/compilation/benchmark.py.
+            https://github.com/huggingface/sentence-transformers/blob/main/examples/sentence_transformer/applications/compilation/.
         """
         return super().compile(*args, **kwargs)
 
