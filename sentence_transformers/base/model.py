@@ -1219,6 +1219,7 @@ This pull request has been automatically generated to add {self.__class__.__name
                     processor_kwargs=processor_kwargs,
                     config_kwargs=config_kwargs,
                     backend=self.backend,
+                    init_defaults=self._get_module_init_defaults(class_ref),
                 )
 
             modules[module_config["name"]] = module
@@ -1319,6 +1320,18 @@ This pull request has been automatically generated to add {self.__class__.__name
             config = json.load(fIn)
             # Older SentenceTransformer models won't have "model_type", so those default to "SentenceTransformer"
             return config.get("model_type", "SentenceTransformer")
+
+    def _get_module_init_defaults(self, class_ref: str) -> dict[str, Any]:
+        """Hook for subclasses to inject extra defaults into a module's ``__init__`` at load time.
+
+        Returned kwargs are forwarded to ``module_class.load(..., init_defaults=...)`` and applied
+        with ``setdefault`` priority — saved config wins, so this only fills keys the saved config
+        omitted. Used by :class:`~sentence_transformers.MultiVectorEncoder` to flip the
+        ``do_query_expansion`` / ``query_length`` / ``document_length`` knobs on for the backbone
+        Transformer when promoting a dense SentenceTransformer or PyLate v3 checkpoint, without
+        post-init ``setattr`` + re-validation. Base implementation returns ``{}``.
+        """
+        return {}
 
     def _load_module_class_from_ref(
         self,

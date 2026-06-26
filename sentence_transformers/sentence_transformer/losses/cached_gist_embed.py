@@ -17,7 +17,7 @@ from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
+from sentence_transformers.util import all_gather_with_grad, get_rank
 
 
 class RandContext:
@@ -326,9 +326,8 @@ class CachedGISTEmbedLoss(nn.Module):
             candidates_guide = [all_gather_with_grad(candidate) for candidate in candidates_guide]
             # All have this shape: 1 + nneg items of (batch_size * world_size, embedding_dim)
 
-            if is_dist_initialized():
-                rank = torch.distributed.get_rank()
-                offset = rank * batch_size
+            # get_rank() returns 0 when not running distributed, so offset stays 0 in that case.
+            offset = get_rank() * batch_size
 
         # anchor[i] should be most similar to candidates[i], as that is the paired positive,
         # so the label for anchor[i] is i. This means that we can just use arange

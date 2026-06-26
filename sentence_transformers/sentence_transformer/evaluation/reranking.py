@@ -17,6 +17,7 @@ from sentence_transformers.util import cos_sim
 if TYPE_CHECKING:
     from torch import Tensor
 
+    from sentence_transformers.base.modality_types import SingleInput
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
@@ -351,7 +352,7 @@ class RerankingEvaluator(BaseEvaluator):
     def embed_inputs(
         self,
         model: SentenceTransformer,
-        sentences: str | list[str] | np.ndarray,
+        sentences: SingleInput | list[SingleInput] | np.ndarray,
         encode_fn_name: str | None = None,
         show_progress_bar: bool | None = None,
         **kwargs,

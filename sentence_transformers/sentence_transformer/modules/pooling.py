@@ -130,6 +130,8 @@ class Pooling(Module):
             prompt_length = int(pl[0].item()) if isinstance(pl, torch.Tensor) else int(pl)
 
         if "cu_seq_lens_q" in features:
+            # FA2 unpadding kept the encoder output flat (`(1, sum_lens, D)`); reduce over the flat
+            # tensor directly via scatter ops instead of re-padding back to (B, T, D) first.
             output_vectors = self._forward_flattened(token_embeddings, features, prompt_length=prompt_length)
         else:
             if "attention_mask" in features and features["attention_mask"].size(-1) == token_embeddings.size(1):

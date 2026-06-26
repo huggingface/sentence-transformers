@@ -14,7 +14,7 @@ from torch.utils.checkpoint import get_device_states, set_device_states
 from sentence_transformers import util
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
+from sentence_transformers.util import all_gather_with_grad, get_rank
 
 logger = logging.getLogger(__name__)
 
@@ -458,10 +458,9 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             docs = [all_gather_with_grad(doc) for doc in docs]
             # (1 + num_negatives) tensors of shape (batch_size * world_size, embedding_dim)
 
-            # Adjust the offset to account for the gathered candidates, so that each device computes the correct local indices.
-            if is_dist_initialized():
-                rank = torch.distributed.get_rank()
-                offset = rank * batch_size
+            # Adjust the offset to account for the gathered candidates, so that each device computes the correct
+            # local indices. get_rank() returns 0 when not running distributed, so offset stays 0 in that case.
+            offset = get_rank() * batch_size
 
         world_batch_size = queries.size(0)
         docs_all = torch.cat(docs, dim=0)

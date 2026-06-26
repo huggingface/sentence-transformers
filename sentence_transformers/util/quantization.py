@@ -373,7 +373,7 @@ def quantize_embeddings(
     precision: Literal["float32", "int8", "uint8", "binary", "ubinary"],
     ranges: np.ndarray | None = None,
     calibration_embeddings: np.ndarray | None = None,
-) -> np.ndarray:
+) -> np.ndarray | list[np.ndarray]:
     """
     Quantizes embeddings to a lower precision. This can be used to reduce the memory footprint and increase the
     speed of similarity search. The supported precisions are "float32", "int8", "uint8", "binary", and "ubinary".
@@ -398,13 +398,27 @@ def quantize_embeddings(
             not recommended.
 
     Returns:
-        Quantized embeddings with the specified precision
+        Quantized embeddings with the specified precision. For a list of multi-vector matrices (variable-length
+        ``(num_tokens, dim)`` arrays), returns a list of quantized matrices with shared per-dimension buckets.
     """
     if isinstance(embeddings, Tensor):
         embeddings = embeddings.cpu().numpy()
     elif isinstance(embeddings, list):
         if isinstance(embeddings[0], Tensor):
             embeddings = [embedding.cpu().numpy() for embedding in embeddings]
+        # Multi-vector input: a list of (num_tokens, dim) matrices (possibly ragged, one per text). Quantize
+        # each matrix separately to preserve the variable-length structure, but share the per-dimension
+        # buckets across all matrices (from `ranges` / `calibration_embeddings`, else all tokens together) so
+        # values quantize consistently across matrices.
+        if isinstance(embeddings[0], np.ndarray) and embeddings[0].ndim == 2:
+            if precision.endswith("int8") and ranges is None and calibration_embeddings is None:
+                calibration_embeddings = np.concatenate(embeddings, axis=0)
+            return [
+                quantize_embeddings(
+                    matrix, precision=precision, ranges=ranges, calibration_embeddings=calibration_embeddings
+                )
+                for matrix in embeddings
+            ]
         embeddings = np.array(embeddings)
     if embeddings.dtype in (np.uint8, np.int8):
         raise Exception("Embeddings to quantize must be float rather than int8 or uint8.")
