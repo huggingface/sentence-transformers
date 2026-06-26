@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -264,6 +265,28 @@ def test_config_returns_none_when_no_underlying_transformers_model(
     `model.config` returns `None` instead of raising.
     """
     assert static_embedding_model.config is None
+
+
+def test_config_is_settable(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """`model.config` must be assignable, not just readable (#3830).
+
+    A read-only `config` property broke tools that assign `model.config = ...`
+    (e.g. optimum during ONNX export) with "property 'config' has no setter".
+    The setter forwards to the underlying transformers model, so the value
+    round-trips.
+    """
+    new_config = copy.deepcopy(stsb_bert_tiny_model.config)
+    stsb_bert_tiny_model.config = new_config  # must not raise
+    assert stsb_bert_tiny_model.config is new_config
+    assert stsb_bert_tiny_model.transformers_model.config is new_config
+
+
+def test_config_setter_without_underlying_model(static_embedding_model: SentenceTransformer) -> None:
+    """Assigning `config` on a model with no underlying transformers model stores
+    the value locally instead of raising (mirrors the getter's None handling)."""
+    sentinel = object()
+    static_embedding_model.config = sentinel
+    assert static_embedding_model.config is sentinel
 
 
 def test_sentence_transformer(stsb_bert_tiny_model: SentenceTransformer) -> None:
