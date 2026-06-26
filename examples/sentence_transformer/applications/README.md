@@ -37,3 +37,7 @@ The [image-search](image-search/) folder shows how to use the image&text-models,
 ## Text Summarization
 
 The [text-summarization](text-summarization/) folder shows how SentenceTransformers can be used for extractive summarization: Give a long document, find the k sentences that give a good and short summary of the content.
+
+## Compilation
+
+The [compilation](compilation/) folder shows how to speed up batch-size-1 CPU-bound inference on GPU by compiling the model. It benchmarks the default, dynamic compilation and a static compilation strategy. The latter pads each input to a size corresponding to a pre-compiled CUDA graph.
