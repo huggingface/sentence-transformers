@@ -667,9 +667,18 @@ class Transformer(InputModule):
 
         if max_seq_length is not None and "model_max_length" not in processor_kwargs:
             processor_kwargs["model_max_length"] = max_seq_length
+
+        # Ensure the token is explicitly forwarded to AutoProcessor.from_pretrained.
+        # The token may already be in processor_kwargs from the hub_kwargs merge
+        # in _load_init_kwargs or _load_default_modules, but we extract it here
+        # to pass it as an explicit keyword argument for safety, since
+        # AutoProcessor.from_pretrained may not forward all **kwargs to
+        # sub-component loads (tokenizer, feature extractor, image processor).
+        processor_token = processor_kwargs.pop("token", None) or model_kwargs.get("token")
         with suggest_extra_on_exception():
             self.processor = AutoProcessor.from_pretrained(
                 tokenizer_name_or_path if tokenizer_name_or_path is not None else model_name_or_path,
+                token=processor_token,
                 **processor_kwargs,
             )
 
