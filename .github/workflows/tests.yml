@@ -62,12 +62,15 @@ jobs:
           cache-suffix: "transformers-5-${{ (matrix.transformers-version == '<5.0.0') && 'minus' || 'plus' }}"
 
       # kenlm doesn't compile on Python 3.13, and pyctcdecode pins numpy<2.0.0
-      # which conflicts with the rest of the stack. Exclude both on Python 3.13.
+      # which conflicts with the rest of the stack. transformers[audio] also pulls
+      # librosa, which needs numba, which needs llvmlite. On Python 3.13 uv backtracks
+      # to the old numba 0.53.1, whose pinned llvmlite==0.36.0 only supports Python
+      # <3.10 and fails to build. Exclude all of them on Python 3.13.
       - name: Create excludes file for packages without Python 3.13 support
         shell: bash
         run: |
           if [ "${{ matrix.python-version }}" = "3.13" ]; then
-            echo -e "kenlm\npyctcdecode" > excludes.txt
+            echo -e "kenlm\npyctcdecode\nlibrosa\nnumba\nllvmlite" > excludes.txt
           else
             touch excludes.txt
           fi
