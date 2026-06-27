@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterable
 from enum import Enum
 from typing import Any
@@ -83,6 +84,7 @@ class ContrastiveLoss(nn.Module):
         self.margin = margin
         self.model = model
         self.size_average = size_average
+        self._warned_non_binary_labels = False
 
     def get_config_dict(self) -> dict[str, Any]:
         distance_metric_name = getattr(self.distance_metric, "__name__", str(self.distance_metric))
@@ -94,6 +96,15 @@ class ContrastiveLoss(nn.Module):
         return {"distance_metric": distance_metric_name, "margin": self.margin, "size_average": self.size_average}
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
+        if not self._warned_non_binary_labels and labels.ne(0).logical_and(labels.ne(1)).any().item():
+            warnings.warn(
+                "ContrastiveLoss expects binary labels (0 or 1). Non-binary labels are allowed, "
+                "but they change the loss behaviour; check that this is intended.",
+                UserWarning,
+                stacklevel=4,
+            )
+            self._warned_non_binary_labels = True
+
         reps = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
         assert len(reps) == 2
         rep_anchor, rep_other = reps
