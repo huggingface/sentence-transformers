@@ -352,6 +352,9 @@ def community_detection(
             unique_communities.append(non_overlapped_community)
             extracted_ids.update(non_overlapped_community)
 
-    unique_communities = sorted(unique_communities, key=lambda x: len(x), reverse=True)
+    unique_communities = [
+        [int(idx) for idx in community]
+        for community in sorted(unique_communities, key=lambda x: len(x), reverse=True)
+    ]
 
     return unique_communities
