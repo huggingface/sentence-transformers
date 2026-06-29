@@ -10,9 +10,15 @@ import tempfile
 import traceback
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from collections.abc import Sequence
 from multiprocessing import Queue
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 
 import numpy as np
 import torch
@@ -719,6 +725,93 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             create_model_card=create_model_card,
             train_datasets=train_datasets,
             safe_serialization=safe_serialization,
+        )
+
+    @classmethod
+    def merge(
+        cls,
+        models: Sequence[str],
+        weights: Sequence[float] | None = None,
+        method: str = "linear",
+        base_model: str | None = None,
+        output_path: str | None = None,
+        dtype: str = "float16",
+        device: str = "cpu",
+        densities: Sequence[float] | None = None,
+        mergekit_options: dict[str, Any] | None = None,
+        **load_kwargs: Any,
+    ) -> Self:
+        """Merge multiple models of this class into a new one via mergekit.
+
+        Requires ``pip install sentence-transformers[merge]``. The transformer
+        body is merged with the chosen mergekit method; ST-specific weight
+        modules (``Dense``, ``LayerNorm``, ``WeightedLayerPooling``) currently
+        always fall back to a linear weighted average regardless of ``method``
+        (a warning is logged). Stateless modules (``Pooling``, ``Normalize``,
+        ...) must match across inputs and are copied from the first model.
+
+        All inputs must share the same ``modules.json`` structure.
+
+        Args:
+            models: Two or more model paths or HF IDs. Two-model methods
+                (``slerp``, ``nuslerp``, ``nearswap``) require two distinct entries.
+            weights: Per-model weights. If ``None``, defaults to ``[1/n]*n`` for
+                blend methods (``linear``, ``slerp``) and ``[1.0]*n`` for
+                delta-based methods (``task_arithmetic``, ``ties``, ``dare_*``,
+                ``breadcrumbs``, ``della``). For ``slerp``, ``weights[1]`` is
+                used as the interpolation factor ``t``.
+            method: A mergekit merge method (``linear``, ``slerp``, ``ties``,
+                ``dare_ties``, ``dare_linear``, ``task_arithmetic``, ...). See
+                :data:`sentence_transformers.base.merging.SUPPORTED_METHODS`.
+            base_model: Required for delta-based methods. For ``slerp``,
+                defaults to ``models[0]``; if explicitly given, must be one of
+                ``models``.
+            output_path: Output directory for the merged model.
+            dtype: ``"float16"``, ``"bfloat16"``, or ``"float32"``. Prefer
+                ``bfloat16`` for delta methods to avoid truncating per-tensor deltas.
+            device: ``"cpu"`` or ``"cuda"`` for mergekit. ST-side state-dict
+                merging always runs on CPU.
+            densities: Per-model density for ``ties``/``dare_*``/``breadcrumbs``/
+                ``della``. Defaults to ``1.0`` each.
+            mergekit_options: Additional ``mergekit.options.MergeOptions`` overrides.
+            **load_kwargs: Forwarded to ``cls(...)`` when reloading the result.
+
+        Returns:
+            A new instance of ``cls`` loaded from ``output_path``.
+
+        Example:
+            ::
+
+                from sentence_transformers import SentenceTransformer
+
+                merged = SentenceTransformer.merge(
+                    models=[
+                        "sentence-transformers/all-MiniLM-L6-v2",
+                        "sentence-transformers/paraphrase-MiniLM-L6-v2",
+                    ],
+                    weights=[0.6, 0.4],
+                    method="linear",
+                    output_path="merged-minilm/",
+                )
+                emb = merged.encode(["Hello, world!"])
+        """
+        from sentence_transformers.base.merging import merge_models
+
+        if output_path is None:
+            raise ValueError("`output_path` is required for `merge`.")
+
+        return merge_models(
+            cls=cls,
+            models=models,
+            weights=weights,
+            method=method,
+            base_model=base_model,
+            output_path=output_path,
+            dtype=dtype,
+            device=device,
+            densities=densities,
+            mergekit_options=mergekit_options,
+            **load_kwargs,
         )
 
     def _update_default_model_id(self, model_card: str) -> str:
