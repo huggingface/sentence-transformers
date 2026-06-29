@@ -102,7 +102,9 @@ DEPRECATED_MODULE_PATHS = {
     "sentence_transformers.sparse_encoder.models": "sentence_transformers.sparse_encoder.modules",
     "sentence_transformers.sparse_encoder.models.MLMTransformer": "sentence_transformers.sparse_encoder.modules.mlm_transformer",
     "sentence_transformers.sparse_encoder.models.SparseAutoEncoder": "sentence_transformers.sparse_encoder.modules.sparse_auto_encoder",
+    "sentence_transformers.sparse_encoder.models.SparseAutoEncoderTokenEncoder": "sentence_transformers.sparse_encoder.modules.sparse_auto_encoder_token_encoder",
     "sentence_transformers.sparse_encoder.models.SparseStaticEmbedding": "sentence_transformers.sparse_encoder.modules.sparse_static_embedding",
+    "sentence_transformers.sparse_encoder.models.SparseTokenPooling": "sentence_transformers.sparse_encoder.modules.sparse_token_pooling",
     "sentence_transformers.sparse_encoder.models.SpladePooling": "sentence_transformers.sparse_encoder.modules.splade_pooling",
     # Renamed in Sentence Transformers v5.4.0 (approximately TitleCase -> snake_case)
     "sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss": "sentence_transformers.cross_encoder.losses.binary_cross_entropy",
