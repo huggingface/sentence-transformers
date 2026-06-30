@@ -266,6 +266,27 @@ def test_config_returns_none_when_no_underlying_transformers_model(
     assert static_embedding_model.config is None
 
 
+def test_config_is_settable(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Assigning ``model.config`` should not raise and should round-trip through the
+    underlying transformers model (fixes optimum ONNX export regression in v5.5.0).
+    """
+    original_config = stsb_bert_tiny_model.config
+    stsb_bert_tiny_model.config = original_config
+    assert stsb_bert_tiny_model.config is original_config
+    assert stsb_bert_tiny_model.config is stsb_bert_tiny_model.transformers_model.config
+
+
+def test_config_setter_on_model_without_underlying_transformers_model(
+    static_embedding_model: SentenceTransformer,
+) -> None:
+    """Assigning ``model.config`` on a StaticEmbedding-only model (no underlying transformers
+    model) should be silently ignored; ``model.config`` keeps returning ``None``.
+    """
+    assert static_embedding_model.config is None
+    static_embedding_model.config = object()
+    assert static_embedding_model.config is None
+
+
 def test_sentence_transformer(stsb_bert_tiny_model: SentenceTransformer) -> None:
     assert stsb_bert_tiny_model.supports("text")
     assert not stsb_bert_tiny_model.supports("image")

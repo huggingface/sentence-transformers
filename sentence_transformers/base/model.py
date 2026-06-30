@@ -1584,6 +1584,15 @@ This pull request has been automatically generated to add {self.__class__.__name
         underlying = self.transformers_model
         return getattr(underlying, "config", None)
 
+    @config.setter
+    def config(self, value: PretrainedConfig) -> None:
+        """Sets the config on the underlying transformer model.
+        Has no effect if the model has no underlying transformer model.
+        """
+        underlying = self.transformers_model
+        if underlying is not None:
+            underlying.config = value
+
     @property
     def _target_device(self) -> torch.device:
         logger.warning(
