@@ -72,20 +72,58 @@ class Dense(Module):
             self.linear.bias = nn.Parameter(init_bias)
 
     def forward(self, features: dict[str, Tensor]):
+        """Apply the linear transformation and activation to the input features.
+
+        Reads ``features[module_input_name]``, passes it through the linear layer
+        and activation function, then writes the result to
+        ``features[module_output_name]``.
+
+        Args:
+            features (`dict[str, Tensor]`): Feature dictionary produced by the
+                preceding module in the pipeline.
+
+        Returns:
+            `dict[str, Tensor]`: The same dictionary with the transformed
+            embedding stored under ``module_output_name``.
+        """
         features.update(
             {self.module_output_name: self.activation_function(self.linear(features[self.module_input_name]))}
         )
         return features
 
     def get_embedding_dimension(self) -> int:
+        """Return the output embedding dimension of this layer.
+
+        Returns:
+            `int`: Number of output features (``out_features``).
+        """
         return self.out_features
 
     def get_config_dict(self):
+        """Return the serialisable configuration dictionary for this module.
+
+        Extends the parent :meth:`~Module.get_config_dict` with the
+        fully-qualified name of the activation function so it can be
+        reconstructed from a saved checkpoint.
+
+        Returns:
+            `dict`: Configuration dictionary including the ``activation_function``
+            fully-qualified class path string.
+        """
         config = super().get_config_dict()
         config["activation_function"] = fullname(self.activation_function)
         return config
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
+        """Save the module config and weights to *output_path*.
+
+        Args:
+            output_path (`str`): Directory where the config JSON and weight
+                file will be written.
+            safe_serialization (`bool`, *optional*, defaults to ``True``):
+                Whether to use ``safetensors`` format instead of legacy
+                ``pickle``-based ``.pt`` files.
+        """
         self.save_config(output_path)
         self.save_torch_weights(output_path, safe_serialization=safe_serialization)
 

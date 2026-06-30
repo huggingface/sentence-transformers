@@ -186,6 +186,26 @@ def batch_to_device(batch: dict[str, Any], target_device: device) -> dict[str, A
 
 
 def to_scipy_coo(x: Tensor) -> coo_matrix:
+    """Convert a sparse PyTorch tensor to a SciPy COO sparse matrix.
+
+    Args:
+        x (`torch.Tensor`): A 2-D sparse PyTorch tensor (COO layout).
+
+    Returns:
+        `scipy.sparse.coo_matrix`: A SciPy COO matrix with the same shape,
+        indices, and values as *x*.
+
+    Example:
+        ```py
+        >>> import torch
+        >>> x = torch.sparse_coo_tensor([[0, 1], [1, 0]], [1.0, 2.0], (3, 3))
+        >>> mat = to_scipy_coo(x)
+        >>> mat.toarray()
+        array([[0., 1., 0.],
+               [2., 0., 0.],
+               [0., 0., 0.]], dtype=float32)
+        ```
+    """
     x = x.coalesce()
     indices = x.indices().cpu().numpy()
     values = x.values().cpu().numpy()
