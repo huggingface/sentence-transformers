@@ -32,6 +32,7 @@ classifiers = [
 ]
 dependencies = [
     "transformers>=4.41.0,<6.0.0",
+    "tokenizers>=0.19",
     "huggingface-hub>=0.23.0",
     "torch>=1.11.0",
     "numpy>=1.20.0",
