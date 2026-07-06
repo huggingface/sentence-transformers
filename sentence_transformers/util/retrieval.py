@@ -333,7 +333,9 @@ def community_detection(
                         sort_max_size = min(2 * sort_max_size, len(embeddings))
                         top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 
-                    extracted_communities.append(top_idx_large[top_val_large >= threshold].cpu().numpy().astype(np.uint32))
+                    extracted_communities.append(
+                        top_idx_large[top_val_large >= threshold].cpu().numpy().astype(np.uint32)
+                    )
 
     # Largest cluster first
     extracted_communities = sorted(extracted_communities, key=lambda x: len(x), reverse=True)
@@ -353,8 +355,7 @@ def community_detection(
             extracted_ids.update(non_overlapped_community)
 
     unique_communities = [
-        [int(idx) for idx in community]
-        for community in sorted(unique_communities, key=lambda x: len(x), reverse=True)
+        [int(idx) for idx in community] for community in sorted(unique_communities, key=lambda x: len(x), reverse=True)
     ]
 
     return unique_communities
