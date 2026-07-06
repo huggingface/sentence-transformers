@@ -109,19 +109,23 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
             self.similarities = "\n".join(f"# {line}" for line in str(similarity.cpu()).splitlines())
 
     def generate_usage_snippet(self) -> str:
-        # MultiVectorEncoder.encode returns a variable-length list of per-token vectors (no `.shape`), so the
-        # base snippet's `model.encode(...).shape` is wrong here. Show encode_query / encode_document + MaxSim.
+        # MV encode() returns variable-length per-token lists (no `.shape`), so the base snippet is wrong.
+        # ColPali-style checkpoints emit text queries + image documents, text-only checkpoints use symmetric encode_query / encode_document.
+        display = self.usage_examples_display or self.usage_examples
+        source = self.usage_examples or display
+        has_non_text = bool(source) and any(not isinstance(item, (str, list)) for item in source)
+        if has_non_text:
+            return self._generate_multimodal_snippet(display)
+        return self._generate_text_only_snippet(display)
+
+    def _generate_text_only_snippet(self, display: list | None) -> str:
         model_class = self._snippet_model_class
         model_id = self.model_id or self._snippet_default_model_id
-        examples = (
-            self.usage_examples_display
-            or self.usage_examples
-            or [
-                "The weather is lovely today.",
-                "It's so sunny outside!",
-                "He drove to the stadium.",
-            ]
-        )
+        examples = display or [
+            "The weather is lovely today.",
+            "It's so sunny outside!",
+            "He drove to the stadium.",
+        ]
         output_dim = self._get_snippet_output_dimensionality()
 
         lines = [
@@ -146,6 +150,53 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
             lines.append(self.similarities)
         else:
             lines.extend(["print(similarities.shape)", f"# [{len(examples)}, {len(examples)}]"])
+
+        return "```python\n" + "\n".join(lines) + "\n```"
+
+    def _generate_multimodal_snippet(self, display: list) -> str:
+        """Image / multimodal-document usage snippet for ColPali-style models. Text items in
+        ``display`` (if any) become example queries; non-text items become example documents. A
+        generic placeholder query is used if no text items are present.
+        """
+        model_class = self._snippet_model_class
+        model_id = self.model_id or self._snippet_default_model_id
+        output_dim = self._get_snippet_output_dimensionality()
+
+        text_items = [item for item in display if isinstance(item, (str, list))]
+        non_text_items = [item for item in display if not isinstance(item, (str, list))]
+        queries_repr = text_items or ["A query about the document."]
+
+        # TODO: Check that this renders nicely in the model card with various multimodal settings
+        lines = [
+            f"from sentence_transformers import {model_class}",
+            "",
+            "# Download from the 🤗 Hub",
+            f'model = {model_class}("{model_id}")',
+            "# Run inference",
+            "queries = [",
+            *(f"    {self._format_snippet_value(item)}," for item in queries_repr),
+            "]",
+            "documents = [",
+            *(f"    {self._format_snippet_value(item)}," for item in non_text_items),
+            "]",
+            "query_embeddings = model.encode_query(queries)",
+            "document_embeddings = model.encode_document(documents)",
+            "print(query_embeddings[0].shape)",
+            f"# (num_query_tokens, {output_dim})",
+            "",
+            "# Get the MaxSim similarity scores",
+            "similarities = model.similarity(query_embeddings, document_embeddings)",
+        ]
+        if self.similarities:
+            lines.append("print(similarities)")
+            lines.append(self.similarities)
+        else:
+            lines.extend(
+                [
+                    "print(similarities.shape)",
+                    f"# [{len(queries_repr)}, {len(non_text_items)}]",
+                ]
+            )
 
         return "```python\n" + "\n".join(lines) + "\n```"
 
