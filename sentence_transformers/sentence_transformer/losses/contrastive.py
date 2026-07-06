@@ -101,7 +101,7 @@ class ContrastiveLoss(nn.Module):
             if labels.ne(0).logical_and(labels.ne(1)).any().item():
                 warnings.warn(
                     "ContrastiveLoss expects binary labels (0 or 1). Non-binary labels are accepted but are "
-                    "treated as if binarized at a 0.5 threshold.",
+                    "used directly to weight the positive term, with 1 - label weighting the negative term.",
                     UserWarning,
                     stacklevel=4,
                 )
