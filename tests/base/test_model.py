@@ -271,16 +271,18 @@ def test_config_is_settable(stsb_bert_tiny_model: SentenceTransformer) -> None:
     underlying transformers model (fixes optimum ONNX export regression in v5.5.0).
     """
     original_config = stsb_bert_tiny_model.config
-    stsb_bert_tiny_model.config = original_config
-    assert stsb_bert_tiny_model.config is original_config
-    assert stsb_bert_tiny_model.config is stsb_bert_tiny_model.transformers_model.config
+    assert original_config is not None
+    new_config = type(original_config)(**original_config.to_dict())
+    stsb_bert_tiny_model.config = new_config
+    assert stsb_bert_tiny_model.config is new_config
+    assert stsb_bert_tiny_model.transformers_model.config is new_config
 
 
 def test_config_setter_on_model_without_underlying_transformers_model(
     static_embedding_model: SentenceTransformer,
 ) -> None:
     """Assigning ``model.config`` on a StaticEmbedding-only model (no underlying transformers
-    model) should be silently ignored; ``model.config`` keeps returning ``None``.
+    model) should be silently ignored, i.e. ``model.config`` keeps returning ``None``.
     """
     assert static_embedding_model.config is None
     static_embedding_model.config = object()
