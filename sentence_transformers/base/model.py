@@ -1327,7 +1327,7 @@ This pull request has been automatically generated to add {self.__class__.__name
         Returned kwargs are forwarded to ``module_class.load(..., init_defaults=...)`` and applied
         with ``setdefault`` priority — saved config wins, so this only fills keys the saved config
         omitted. Used by :class:`~sentence_transformers.MultiVectorEncoder` to flip the
-        ``do_query_expansion`` / ``query_length`` / ``document_length`` knobs on for the backbone
+        ``query_expansion`` / ``query_length`` / ``document_length`` knobs on for the backbone
         Transformer when promoting a dense SentenceTransformer or PyLate v3 checkpoint, without
         post-init ``setattr`` + re-validation. Base implementation returns ``{}``.
         """

@@ -24,8 +24,10 @@ class MultiVectorMask(Module):
       Transformer's attention didn't see them.
     - ``task="query"`` otherwise: use the tokenizer's ``attention_mask`` (only real tokens).
     - Anything else (documents): drop tokens whose IDs are in the skiplist, AND-ed with the
-      ``attention_mask``. When the batch has no ``input_ids`` (e.g. ColPali-style image documents),
-      there is nothing to match against the skiplist, so the ``attention_mask`` is used unchanged.
+      ``attention_mask``. When ``keep_only_token_ids`` is set, the mask additionally restricts to
+      those IDs (typically the image-patch token id for ColPali-style image documents, roughly halving
+      index storage by zeroing out text-prefix token embeddings). When the batch has no ``input_ids``
+      (e.g. raw image tensors with no text), the ``attention_mask`` is used unchanged.
 
     Reusing the ``attention_mask`` key means downstream consumers (encode(), losses, and any future
     module that respects ``attention_mask``, e.g. :class:`~sentence_transformers.sentence_transformer.modules.Pooling`
@@ -37,20 +39,32 @@ class MultiVectorMask(Module):
             of skipping punctuation, or any other custom list. Legacy PyLate / Stanford-NLP loaders
             apply ``string.punctuation`` automatically so existing saved checkpoints keep their
             historical behaviour.
+        keep_only_token_ids: Allowlist of token IDs to keep in document scoring. Defaults to ``None``
+            (no allowlist; every non-skiplisted real token is scored). Set this to the model's
+            image-patch token id (e.g. ``processor.image_token_id`` for ColPali / ColQwen2) to
+            reproduce colpali-engine's ``mask_non_image_embeddings=True`` behaviour — only image
+            patch embeddings contribute to MaxSim, roughly halving the document index size. The
+            allowlist is applied in addition to the skiplist; ``input_ids`` must be present for it
+            to take effect.
     """
 
-    config_keys: list[str] = ["skiplist_words"]
+    config_keys: list[str] = ["skiplist_words", "keep_only_token_ids"]
     forward_kwargs: set[str] = {"task"}
 
     def __init__(
         self,
         skiplist_words: list[str] | None = None,
+        keep_only_token_ids: list[int] | None = None,
     ) -> None:
         super().__init__()
         # TODO: skiplist is document-only: is that a problem or are we fine to keep that restriction?
         # Maybe fine to keep originally, but think about how we would eventually expand that + make sure
         # we're not inhibiting that future expansion.
         self.skiplist_words: list[str] = list(skiplist_words) if skiplist_words is not None else []
+        # Stored as a list (not a cached tensor) so users can tweak it after construction without a rebuild.
+        self.keep_only_token_ids: list[int] | None = (
+            list(keep_only_token_ids) if keep_only_token_ids is not None else None
+        )
         # Resolved lazily by :meth:`resolve_with_tokenizer` once the tokenizer is finalised.
         self._skiplist_ids: Tensor | None = None
 
@@ -107,6 +121,9 @@ class MultiVectorMask(Module):
             else:
                 skip = self._skiplist_ids.to(input_ids.device)
                 new_mask = ~torch.isin(input_ids, skip) & attention_mask
+            if self.keep_only_token_ids:
+                keep = torch.as_tensor(self.keep_only_token_ids, dtype=torch.long, device=input_ids.device)
+                new_mask = torch.isin(input_ids, keep) & new_mask
         features["attention_mask"] = new_mask
         return features
 

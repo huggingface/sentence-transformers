@@ -43,6 +43,7 @@ from transformers.utils import ModelOutput
 from transformers.utils import logging as transformers_logging
 from transformers.utils.import_utils import is_peft_available
 from transformers.utils.peft_utils import find_adapter_config_file
+from typing_extensions import NotRequired
 
 from sentence_transformers.backend import load_onnx_model, load_openvino_model
 from sentence_transformers.base.modality import InputFormatter, format_modality, raise_unsupported_modality_error
@@ -461,6 +462,81 @@ class ProcessingKwargs(TypedDict, total=False):
     chat_template: dict[str, Any]
 
 
+class QueryExpansionConfig(TypedDict):
+    """ColBERT-style query expansion config. Only consulted when a :class:`MultiVectorMask` is
+    downstream. Keys:
+
+    * ``strategy``:
+
+      - ``"pad_skip"`` (classic ColBERT): pad queries to ``Transformer.query_length``, swap pads
+        for ``token`` (defaults to the tokenizer's ``mask_token``), and leave them at
+        ``attention_mask=0`` so the encoder skips them in the forward pass. MaxSim still scores
+        them, the expansion positions soak up query context via the asymmetric attention mask.
+      - ``"pad_attend"``: same as ``"pad_skip"`` but force ``attention_mask=1`` at expansion
+        positions so the encoder also attends to them. Used by some ColBERT variants.
+      - ``"append_suffix"``: append ``count`` copies of ``token`` to each query *string* before
+        tokenization. Suffix tokens are real with ``attention_mask=1``. The colpali-engine
+        pattern for decoder-only VLM backbones (ColQwen2 / ColGemma3 / ColIdefics3 / SmolVLM)
+        that lack a mask token.
+
+    * ``token``:
+
+      - For ``"pad_skip"`` / ``"pad_attend"``: defaults to the tokenizer's ``mask_token``.
+      - For ``"append_suffix"``: **required** (no universal default). Per published ColPali
+        models: PaliGemma uses ``<pad>``, Qwen2/2.5/3/Omni use ``<|endoftext|>``, Gemma3 uses
+        ``<eos>``, Idefics3 / ModernVBERT use ``<end_of_utterance>``.
+
+    * ``count``: number of suffix tokens for ``"append_suffix"`` (default 10). Ignored by the
+      ``pad_*`` strategies, which pad to ``query_length``.
+    TODO: It's a bit awkward that "count" is only used for the "append_suffix" strategy, while
+        there's another, related knob, "query_length", that is only used for the "pad_*" strategies.
+        Does it make sense to remove query_length and only use "count" then? And document_length can
+        instead be just the tokenizer's max_length?
+    """
+
+    strategy: Literal["pad_skip", "pad_attend", "append_suffix"]
+    token: NotRequired[str | None]
+    count: NotRequired[int]
+
+
+_VALID_QUERY_EXPANSION_KEYS: set[str] = {"strategy", "token", "count"}
+_VALID_QUERY_EXPANSION_STRATEGIES: tuple[str, ...] = ("pad_skip", "pad_attend", "append_suffix")
+
+
+def _normalize_query_expansion(
+    query_expansion: QueryExpansionConfig | None,
+) -> QueryExpansionConfig | None:
+    """Validate the dict, fill defaults, and return a fully-populated config (or ``None`` for the
+    no-expansion case).
+    """
+    if query_expansion is None:
+        return None
+    unknown = set(query_expansion) - _VALID_QUERY_EXPANSION_KEYS
+    if unknown:
+        raise ValueError(
+            f"query_expansion has unknown keys {sorted(unknown)!r}. "
+            f"Valid keys: {sorted(_VALID_QUERY_EXPANSION_KEYS)!r}."
+        )
+    strategy = query_expansion.get("strategy")
+    if strategy not in _VALID_QUERY_EXPANSION_STRATEGIES:
+        raise ValueError(
+            f"query_expansion['strategy'] must be one of {_VALID_QUERY_EXPANSION_STRATEGIES!r}, got {strategy!r}."
+        )
+    token = query_expansion.get("token")
+    if strategy == "append_suffix" and token is None:
+        raise ValueError(
+            "query_expansion strategy='append_suffix' requires an explicit 'token'. There is no "
+            "universal default: PaliGemma uses '<pad>', Qwen2/2.5/3/Omni use '<|endoftext|>', "
+            "Gemma3 uses '<eos>', Idefics3 / ModernVBERT use '<end_of_utterance>'. Check your "
+            "model family's colpali-engine processor for the right value."
+        )
+    return {
+        "strategy": strategy,
+        "token": token,
+        "count": query_expansion.get("count", 10),
+    }
+
+
 def _count_media_per_sample(messages: list[list[dict[str, Any]]]) -> tuple[list[int], list[int]]:
     """Count images and videos per sample from the message structure.
 
@@ -593,19 +669,15 @@ class Transformer(InputModule):
         query_length (int, optional): Per-task text max-length applied when ``task="query"`` reaches
             :meth:`preprocess` (e.g. via :meth:`encode_query`). ``None`` (default) falls back to the
             tokenizer's ``model_max_length``. Used by ColBERT-style retrieval to cap queries shorter
-            than documents and as the pad target when ``do_query_expansion=True``.
+            than documents and as the pad target for the ``"pad_skip"`` / ``"pad_attend"`` expansion
+            strategies.
         document_length (int, optional): Per-task text max-length applied when ``task="document"``
             reaches :meth:`preprocess`. ``None`` (default) falls back to the tokenizer's
             ``model_max_length``.
-        do_query_expansion (bool, optional): ColBERT-style query expansion. When True, queries
-            are padded to ``query_length`` and the pad positions are swapped for ``mask_token_id``
-            so MaxSim scoring can include those expansion positions. Off by default (only relevant
-            inside a multi-vector pipeline that has a :class:`MultiVectorMask` downstream).
-        attend_to_expansion_tokens (bool, optional): When True (and ``do_query_expansion=True``),
-            the ``attention_mask`` is forced to all-ones for queries so the encoder *attends to*
-            the [MASK] expansion positions during the forward pass. Off by default — the classic
-            ColBERT trick has the encoder skip expansion positions and only the MaxSim scoring
-            mask treats them as scoreable. Forced to False when ``do_query_expansion=False``.
+        query_expansion (QueryExpansionConfig, optional): ColBERT-style query expansion config. See
+            :class:`QueryExpansionConfig`. ``None`` (default) means no expansion. Only consulted
+            when a :class:`MultiVectorMask` is downstream; ignored for dense / sparse / cross-encoder
+            pipelines.
         max_seq_length (int, optional): Truncate any inputs longer than this value. Prefer setting
             ``model_max_length`` via ``processor_kwargs`` instead. Defaults to None.
         do_lower_case (bool, optional): If true, lowercases the input (independent of whether the model
@@ -623,8 +695,7 @@ class Transformer(InputModule):
         "unpad_inputs",
         "query_length",
         "document_length",
-        "do_query_expansion",
-        "attend_to_expansion_tokens",
+        "query_expansion",
     ]
     # Config keys held at their default for dense / sparse / cross-encoder use are omitted from the
     # saved ``sentence_bert_config.json`` (see :meth:`get_config_dict`); the multi-vector machinery is
@@ -632,8 +703,7 @@ class Transformer(InputModule):
     _DEFAULT_CONFIG_VALUES: dict[str, Any] = {
         "query_length": None,
         "document_length": None,
-        "do_query_expansion": False,
-        "attend_to_expansion_tokens": False,
+        "query_expansion": None,
     }
     save_in_root: bool = True
     _VALID_PROCESSING_KWARGS_KEYS: set[str] = {"common", "text", "audio", "image", "video", "chat_template"}
@@ -654,8 +724,7 @@ class Transformer(InputModule):
         unpad_inputs: bool | None = None,
         query_length: int | None = None,
         document_length: int | None = None,
-        do_query_expansion: bool = False,
-        attend_to_expansion_tokens: bool = False,
+        query_expansion: QueryExpansionConfig | None = None,
         max_seq_length: int | None = None,
         do_lower_case: bool = False,
         tokenizer_name_or_path: str | None = None,
@@ -815,17 +884,9 @@ class Transformer(InputModule):
         # Evaluate whether we can skip padding
         self.unpad_inputs = unpad_inputs
 
-        # ColBERT-style query expansion knobs
-        self.do_query_expansion = do_query_expansion
-        self.attend_to_expansion_tokens = attend_to_expansion_tokens if do_query_expansion else False
-        # FA2 skips ``attention_mask=0`` positions, so [MASK] expansion tokens would not be updated.
-        if self.do_query_expansion and not self.attend_to_expansion_tokens and self._is_flash_attention_requested():
-            raise ValueError(
-                "FlashAttention-2 is incompatible with do_query_expansion=True + "
-                "attend_to_expansion_tokens=False: FA2 skips `attention_mask=0` positions, so the [MASK] "
-                'expansion tokens used by MaxSim never receive an attention update. Pass attn_implementation="sdpa" '
-                "(preserves semantics) or set attend_to_expansion_tokens=True (changes semantics)."
-            )
+        # ColBERT-style query expansion. The setter normalizes the dict, fills defaults, and
+        # runs the FA2 compatibility check for the pad_skip strategy.
+        self.query_expansion = query_expansion
 
     @property
     def unpad_inputs(self) -> bool | None:
@@ -852,6 +913,64 @@ class Transformer(InputModule):
                     "unpad_inputs=True was set, but the prerequisites for skipping padding are not met. "
                     "Falling back to padded inputs."
                 )
+
+    @property
+    def query_expansion(self) -> QueryExpansionConfig | None:
+        """ColBERT-style query expansion config. See :class:`QueryExpansionConfig`. Validated and
+        normalized on assignment, so re-setting after construction is safe::
+
+            model[0].query_expansion = {"strategy": "pad_attend"}
+            model[0].query_expansion = None  # turn off
+        """
+        return self._query_expansion
+
+    @query_expansion.setter
+    def query_expansion(self, value: QueryExpansionConfig | None) -> None:
+        expansion = _normalize_query_expansion(value)
+        # ``model`` may not exist yet during very early init. Skip tokenizer + FA2 checks until it does.
+        if expansion is not None and getattr(self, "model", None) is not None:
+            self._validate_query_expansion_token(expansion)
+            if expansion["strategy"] == "pad_skip" and self._is_flash_attention_requested():
+                raise ValueError(
+                    "FlashAttention-2 is incompatible with query_expansion strategy='pad_skip'. "
+                    "FA2 strips attention_mask=0 positions, so the [MASK] expansion tokens used by MaxSim "
+                    "never receive an attention update. Pass attn_implementation='sdpa' (preserves semantics), "
+                    "switch to strategy='pad_attend' (changes semantics), or strategy='append_suffix' "
+                    "(the colpali-engine default for VLM backbones)."
+                )
+        self._query_expansion = expansion
+
+    def _validate_query_expansion_token(self, expansion: QueryExpansionConfig) -> None:
+        """Tokenizer-aware checks. The structural ``_normalize_query_expansion`` runs without the
+        tokenizer; this catches the two silent-wrong-behavior cases that require it:
+
+        * ``pad_*`` strategies with ``token=None`` fall back to ``mask_token_id``. If the tokenizer
+          doesn't have one, the preprocess swap silently no-ops and the encoder sees raw pad tokens.
+        * An explicit ``token`` that isn't in the tokenizer's vocabulary resolves to
+          ``unk_token_id`` (or ``None``), silently inserting unk tokens at expansion positions.
+        """
+        if self.tokenizer is None:
+            return
+        strategy = expansion["strategy"]
+        token = expansion["token"]
+        if token is None:
+            # pad_skip / pad_attend with the mask_token fallback.
+            if self.tokenizer.mask_token_id is None:
+                raise ValueError(
+                    f"query_expansion strategy={strategy!r} with token=None falls back to the "
+                    "tokenizer's mask_token, but this tokenizer doesn't have one. Set "
+                    "``query_expansion={..., 'token': '<your_token>'}`` explicitly."
+                )
+            return
+        token_id = self.tokenizer.convert_tokens_to_ids(token)
+        unk_id = self.tokenizer.unk_token_id
+        if token_id is None or (token_id == unk_id and token != self.tokenizer.unk_token):
+            raise ValueError(
+                f"query_expansion token={token!r} isn't in this tokenizer's vocabulary (resolves "
+                f"to {'None' if token_id is None else 'unk_token_id'}). Check your model family's "
+                "expected token: PaliGemma uses '<pad>', Qwen2/2.5/3/Omni use '<|endoftext|>', "
+                "Gemma3 uses '<eos>', Idefics3 / ModernVBERT use '<end_of_utterance>'."
+            )
 
     def _can_flatten_inputs(self) -> bool:
         """Determine whether text-only inputs can be flattened (concatenated without padding) for more efficient inference.
@@ -968,9 +1087,14 @@ class Transformer(InputModule):
         Only safe for text-only inputs, since :class:`DataCollatorWithFlattening` only handles
         ``input_ids`` / ``labels``. Subclasses can override to opt out for specific tasks.
         """
-        # FA2 unpadding would drop the pad positions before `preprocess` can swap them for `mask_token_id`,
-        # so fall back to padded for queries when expansion is on.
-        if kwargs.get("task") == "query" and self.do_query_expansion:
+        # FA2 unpadding would drop the pad positions before `preprocess` can swap them for the expansion
+        # token, so fall back to padded for pad_skip / pad_attend queries. ``append_suffix`` injects
+        # real tokens, which FA2 unpadding handles fine.
+        if (
+            kwargs.get("task") == "query"
+            and self.query_expansion is not None
+            and self.query_expansion["strategy"] in ("pad_skip", "pad_attend")
+        ):
             return False
         return self.can_flatten_inputs and (
             modality == "text"
@@ -1037,9 +1161,14 @@ class Transformer(InputModule):
         if task_max_length is not None:
             modality_kwargs["text"]["max_length"] = task_max_length
 
-        # Force padding to ``max_length`` for expansion queries so the post-tokenization swap below has
-        # explicit pad positions to replace with ``mask_token_id``.
-        if task == "query" and self.do_query_expansion:
+        # Force padding to ``max_length`` for pad_skip / pad_attend queries so the post-tokenization
+        # swap below has explicit pad positions to replace with the expansion token. ``append_suffix``
+        # injects real tokens before tokenization (further down).
+        if (
+            task == "query"
+            and self.query_expansion is not None
+            and self.query_expansion["strategy"] in ("pad_skip", "pad_attend")
+        ):
             modality_kwargs["text"]["padding"] = "max_length"
 
         effective_processing_kwargs = self._merge_processing_kwargs(processing_kwargs)
@@ -1051,6 +1180,21 @@ class Transformer(InputModule):
         chat_template_kwargs = effective_processing_kwargs.get("chat_template", {})
 
         modality, processor_inputs, extra_modality_kwargs = self.input_formatter.parse_inputs(inputs)
+
+        # ColPali / colpali-engine query expansion: append the augmentation token N times to each query
+        # string before tokenization. Decoder-only VLM backbones (ColQwen2, ColGemma3, ColIdefics3, ...)
+        # have no mask token, so the legacy pad_skip / pad_attend path no-ops for them. This is the
+        # universal path.
+        if (
+            task == "query"
+            and self.query_expansion is not None
+            and self.query_expansion["strategy"] == "append_suffix"
+            and modality == "text"
+            and self.tokenizer is not None
+            and processor_inputs.get("text")
+        ):
+            suffix = self.query_expansion["token"] * self.query_expansion["count"]
+            processor_inputs["text"] = [text + suffix for text in processor_inputs["text"]]
 
         for modality_key, extra_kwargs in extra_modality_kwargs.items():
             modality_kwargs[modality_key].update(extra_kwargs)
@@ -1125,27 +1269,46 @@ class Transformer(InputModule):
                 )
             processor_output["logits_to_keep"] = 1
 
-        # ColBERT-style query expansion: swap pad positions for `mask_token_id` so the encoder produces
-        # expansion-token embeddings there. The `query_expansion_active` signal below tells downstream
-        # modules to score those positions.
+        # ColBERT-style query expansion (pad_skip / pad_attend): swap pad positions for the expansion
+        # token id so the encoder produces expansion-token embeddings there. The
+        # ``query_expansion_active`` signal below tells downstream modules to score those positions.
+        # ``append_suffix`` injected real tokens before tokenization above, so no post-tokenization
+        # rewrite is needed for that path.
         is_query = task == "query"
+        expansion = self.query_expansion if is_query else None
         if (
-            is_query
-            and self.do_query_expansion
+            expansion is not None
+            and expansion["strategy"] in ("pad_skip", "pad_attend")
             and self.tokenizer is not None
-            and self.tokenizer.mask_token_id is not None
         ):
+            expansion_id = (
+                self.tokenizer.convert_tokens_to_ids(expansion["token"])
+                if expansion["token"] is not None
+                else self.tokenizer.mask_token_id
+            )
             pad_id = self.tokenizer.pad_token_id
-            if pad_id is not None and pad_id != self.tokenizer.mask_token_id and "input_ids" in processor_output:
+            if (
+                expansion_id is not None
+                and pad_id is not None
+                and pad_id != expansion_id
+                and "input_ids" in processor_output
+            ):
                 input_ids = processor_output["input_ids"]
                 processor_output["input_ids"] = torch.where(
                     input_ids == pad_id,
-                    torch.tensor(self.tokenizer.mask_token_id, dtype=input_ids.dtype, device=input_ids.device),
+                    torch.tensor(expansion_id, dtype=input_ids.dtype, device=input_ids.device),
                     input_ids,
                 )
-        if is_query and self.attend_to_expansion_tokens and "attention_mask" in processor_output:
+        # ``pad_attend`` forces attention_mask=1 at expansion positions so the encoder attends to
+        # them. ``pad_skip`` leaves them at 0 (the classic ColBERT "skip during forward" trick).
+        if expansion is not None and expansion["strategy"] == "pad_attend" and "attention_mask" in processor_output:
             processor_output["attention_mask"] = torch.ones_like(processor_output["attention_mask"])
-        if is_query and self.do_query_expansion:
+        # Only ``pad_skip`` / ``pad_attend`` need the downstream all-ones scoring override: their
+        # expansion tokens sit at attention_mask=0 positions (before ``pad_attend`` flips them above)
+        # that the mask must force-include. ``append_suffix`` tokens are real (attention_mask=1), so
+        # leaving the signal unset lets MultiVectorMask use the natural attention_mask, which keeps
+        # the suffix tokens and correctly excludes batch padding.
+        if expansion is not None and expansion["strategy"] in ("pad_skip", "pad_attend"):
             processor_output["query_expansion_active"] = True
 
         return processor_output

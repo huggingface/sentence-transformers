@@ -33,7 +33,7 @@ def test_loads_with_default_modules(model: MultiVectorEncoder) -> None:
     # mutating ``model[0]`` after construction.
     assert len(model) == 4
     assert isinstance(model[0], Transformer)
-    assert model[0].do_query_expansion is False
+    assert model[0].query_expansion is None
     assert isinstance(model[1], Dense)
     assert model[1].module_input_name == "token_embeddings"
     assert isinstance(model[2], MultiVectorMask)
@@ -46,8 +46,7 @@ def test_default_colbert_attributes(model: MultiVectorEncoder) -> None:
     transformer = model[0]
     assert transformer.query_length is None
     assert transformer.document_length is None
-    assert transformer.do_query_expansion is False
-    assert transformer.attend_to_expansion_tokens is False
+    assert transformer.query_expansion is None
     assert model.similarity_fn_name == "maxsim"
     mask_module = model[2]
     assert isinstance(mask_module, MultiVectorMask)
@@ -62,11 +61,106 @@ def test_encode_query_pads_to_query_length() -> None:
     base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
     model = MultiVectorEncoder(base)
     model[0].query_length = 16
-    model[0].do_query_expansion = True
+    model[0].query_expansion = {"strategy": "pad_skip"}
     emb = model.encode_query(["short query"])
     assert len(emb) == 1
     assert emb[0].shape[0] == model[0].query_length
     assert emb[0].shape[1] == model.get_embedding_dimension()
+
+
+def test_query_expansion_append_suffix_strategy_appends_tokens() -> None:
+    # append_suffix: inject `count` copies of `token` into each query string before tokenization.
+    # Used by ColQwen2 / ColGemma3 / ColIdefics3 (no mask token).
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = MultiVectorEncoder(base)
+    transformer = model[0]
+    # ``.`` is a single token in BERT WordPiece.
+    transformer.query_expansion = {"strategy": "append_suffix", "token": ".", "count": 5}
+
+    baseline = model.encode_query(["short query"])[0]
+    transformer.query_expansion = None
+    no_expansion = model.encode_query(["short query"])[0]
+    # The expansion suffix adds 5 real tokens to the query.
+    assert baseline.shape[0] == no_expansion.shape[0] + 5
+
+
+def test_query_expansion_append_suffix_excludes_batch_padding() -> None:
+    # append_suffix tokens are real (attention_mask=1), so a query's token count must not depend on
+    # what else shares its batch. Regression: query_expansion_active used to force an all-ones mask for
+    # append_suffix too, pulling the longer query's batch padding into the shorter query's embedding.
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = MultiVectorEncoder(base)
+    model[0].query_expansion = {"strategy": "append_suffix", "token": ".", "count": 5}
+    alone = model.encode_query(["hi"])[0]
+    batched = model.encode_query(["hi", "a considerably longer query with many more distinct tokens here"])[0]
+    assert alone.shape[0] == batched.shape[0]
+
+
+def test_query_expansion_append_suffix_requires_explicit_token() -> None:
+    # ``append_suffix`` has no universal default token (each ColPali family uses a different one),
+    # so we require the user to set ``token`` explicitly. Error fires at construction, not encode.
+    with pytest.raises(ValueError, match="requires an explicit 'token'"):
+        Transformer(
+            "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+            query_expansion={"strategy": "append_suffix", "count": 4},
+        )
+
+
+def test_query_expansion_strategy_invalid_value_raises() -> None:
+    with pytest.raises(ValueError, match="strategy"):
+        Transformer(
+            "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+            query_expansion={"strategy": "bogus"},
+        )
+
+
+def test_query_expansion_unknown_key_raises() -> None:
+    with pytest.raises(ValueError, match="unknown keys"):
+        Transformer(
+            "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+            query_expansion={"strategy": "pad_skip", "garbage_key": True},
+        )
+
+
+def test_query_expansion_pad_strategy_requires_mask_token() -> None:
+    # ``pad_skip`` / ``pad_attend`` with token=None fall back to tokenizer.mask_token. If the
+    # tokenizer doesn't have one (common for decoder-only models), the silent-no-op swap would
+    # send pads (not masks) through the encoder. Caught at construction with a helpful error.
+    transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    original_mask = transformer.tokenizer.mask_token
+    original_mask_id = transformer.tokenizer.mask_token_id
+    transformer.tokenizer.mask_token = None
+    try:
+        with pytest.raises(ValueError, match="doesn't have"):
+            transformer.query_expansion = {"strategy": "pad_skip"}
+        with pytest.raises(ValueError, match="doesn't have"):
+            transformer.query_expansion = {"strategy": "pad_attend"}
+    finally:
+        transformer.tokenizer.mask_token = original_mask
+        transformer.tokenizer.mask_token_id = original_mask_id
+
+
+def test_query_expansion_token_not_in_vocab_raises() -> None:
+    # An explicit token that isn't in the tokenizer's vocabulary resolves to unk_token_id. The
+    # swap would silently insert unk tokens at expansion positions. Catch at construction.
+    with pytest.raises(ValueError, match="vocabulary"):
+        Transformer(
+            "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+            query_expansion={"strategy": "append_suffix", "token": "<not_a_real_token>"},
+        )
+
+
+def test_query_expansion_setter_validates_post_init() -> None:
+    # Mid-life mutation must go through the same validation as __init__, not skip it. Without the
+    # property setter, model[0].query_expansion = {...} would store an unvalidated dict and break
+    # downstream at the next encode_query.
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    with pytest.raises(ValueError, match="strategy"):
+        model[0].query_expansion = {"strategy": "bogus"}
+    with pytest.raises(ValueError, match="unknown keys"):
+        model[0].query_expansion = {"strategy": "pad_skip", "garbage_key": True}
+    # The original state is preserved across the failed assignments.
+    assert model[0].query_expansion is None
 
 
 def test_encode_document_varies_with_length(model: MultiVectorEncoder) -> None:
@@ -94,6 +188,31 @@ def test_encode_document_skiplist_removes_punctuation() -> None:
     # the same length as its punctuation-free twin. A no-op mask would instead leave it strictly longer
     # (the direction test_encode_document_default_skiplist_keeps_punctuation pins).
     assert with_punc[0].shape[0] == no_punc[0].shape[0]
+
+
+def test_mask_keep_only_token_ids_restricts_document_mask() -> None:
+    """``keep_only_token_ids`` (P1.2 / colpali-engine ``mask_non_image_embeddings``) restricts the
+    document attention_mask to the allowlisted IDs only — the rest of the doc tokens drop out of
+    MaxSim scoring. Combined with the skiplist, both filters apply.
+    """
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = MultiVectorEncoder(base)
+    mask_module = model[2]
+    assert isinstance(mask_module, MultiVectorMask)
+    # Keep only the period token id: a document with N periods + M other tokens should produce N rows.
+    period_id = model.tokenizer.convert_tokens_to_ids(".")
+    mask_module.keep_only_token_ids = [period_id]
+
+    emb = model.encode_document(["the cat. sat. on. the. mat."])[0]
+    # Five periods → five kept token positions.
+    assert emb.shape[0] == 5
+
+
+def test_mask_keep_only_token_ids_none_is_noop(model: MultiVectorEncoder) -> None:
+    """Default ``keep_only_token_ids=None`` means no allowlist; matches pre-P1.2 behavior exactly."""
+    mask_module = model[2]
+    assert isinstance(mask_module, MultiVectorMask)
+    assert mask_module.keep_only_token_ids is None
 
 
 def test_mask_skiplist_drops_unk_resolving_words(model: MultiVectorEncoder, caplog) -> None:
@@ -186,22 +305,32 @@ def test_stanford_metadata_seeds_skiplist_from_mask_punctuation(monkeypatch, tmp
 
 
 @pytest.mark.parametrize(
-    ("model_config", "expected_dqe"),
+    ("model_config", "expected_qe"),
     [
-        # PyLate marker present, expansion not pinned -> default to PyLate's True.
-        ({"query_length": 32}, True),
-        # An explicit value is preserved, never overridden by the PyLate default.
-        ({"query_length": 32, "do_query_expansion": False}, False),
+        # PyLate marker present, expansion not pinned -> default to PyLate's pad_skip strategy.
+        ({"query_length": 32}, {"strategy": "pad_skip"}),
+        # PyLate-shape ``do_query_expansion=False`` translates to "explicitly off".
+        ({"query_length": 32, "do_query_expansion": False}, None),
+        # PyLate-shape ``attend_to_mask_tokens=True`` selects the pad_attend strategy.
+        ({"query_length": 32, "attend_to_mask_tokens": True}, {"strategy": "pad_attend"}),
+        # An explicit query_expansion dict is preserved as-is.
+        (
+            {"query_length": 32, "query_expansion": {"strategy": "append_suffix", "count": 5}},
+            {"strategy": "append_suffix", "count": 5},
+        ),
+        # An explicit None for query_expansion is preserved (means "explicitly off").
+        ({"query_length": 32, "query_expansion": None}, None),
         # No PyLate markers (bare ST save) -> leave it unset so the Transformer keeps its own default.
         ({"similarity_fn_name": "maxsim"}, "absent"),
-        # A null knob is filtered out, but its presence still marks a PyLate save -> default to True.
-        ({"query_length": None}, True),
+        # A null knob is filtered out, but its presence still marks a PyLate save -> default to pad_skip.
+        ({"query_length": None}, {"strategy": "pad_skip"}),
     ],
 )
-def test_parse_model_config_defaults_query_expansion_for_pylate(model_config, expected_dqe) -> None:
-    """``_parse_model_config`` defaults ``do_query_expansion`` to PyLate's ``True`` for a PyLate-style save
-    (detected by a marker key) that didn't pin it, preserves an explicit value, leaves bare-ST saves
-    untouched, and filters ``None`` knobs out so they fall through to the Transformer's own default.
+def test_parse_model_config_translates_pylate_expansion(model_config, expected_qe) -> None:
+    """``_parse_model_config`` translates legacy PyLate-shape expansion fields
+    (``do_query_expansion`` + ``attend_to_mask_tokens``) into the ``query_expansion`` dict,
+    preserves an explicit value, leaves bare-ST saves untouched, and filters ``None`` knobs out
+    so they fall through to the Transformer's own default.
     """
     from sentence_transformers.multi_vector_encoder.model import _LegacyStash
 
@@ -210,10 +339,10 @@ def test_parse_model_config_defaults_query_expansion_for_pylate(model_config, ex
     fresh._parse_model_config(model_config)
     knobs = fresh._legacy.transformer_config
 
-    if expected_dqe == "absent":
-        assert "do_query_expansion" not in knobs
+    if expected_qe == "absent":
+        assert "query_expansion" not in knobs
     else:
-        assert knobs.get("do_query_expansion") is expected_dqe
+        assert knobs.get("query_expansion") == expected_qe
     # Null knobs must not pass through, or they would override the Transformer default with None.
     assert "query_length" not in knobs or knobs["query_length"] is not None
 
@@ -291,8 +420,7 @@ def test_save_and_load_round_trip(model: MultiVectorEncoder) -> None:
     orig_t, new_t = model[0], reloaded[0]
     assert new_t.query_length == orig_t.query_length
     assert new_t.document_length == orig_t.document_length
-    assert new_t.do_query_expansion == orig_t.do_query_expansion
-    assert new_t.attend_to_expansion_tokens == orig_t.attend_to_expansion_tokens
+    assert new_t.query_expansion == orig_t.query_expansion
     assert reloaded[2].skiplist_words == model[2].skiplist_words
     # Embeddings should match within numerical tolerance.
     q_orig = model.encode_query(["test"], convert_to_tensor=True)
@@ -330,7 +458,7 @@ def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
         base,
         query_length=16,
         document_length=32,
-        do_query_expansion=True,
+        query_expansion={"strategy": "pad_skip"},
     )
     hidden = transformer.get_embedding_dimension()
     model = MultiVectorEncoder(
@@ -385,14 +513,14 @@ def test_native_save_keeps_plain_transformer_unchanged() -> None:
             Normalize(module_input_name="token_embeddings"),
         ],
     )
-    assert model[0].do_query_expansion is False
+    assert model[0].query_expansion is None
 
     with tempfile.TemporaryDirectory() as tmpdir:
         model.save_pretrained(tmpdir)
         reloaded = MultiVectorEncoder(tmpdir)
 
     assert isinstance(reloaded[0], Transformer)
-    assert reloaded[0].do_query_expansion is False
+    assert reloaded[0].query_expansion is None
 
 
 def test_hierarchical_pooling_helper_reduces_token_count() -> None:

@@ -33,7 +33,7 @@ logger = transformers_logging.get_logger(__name__)
 
 
 # Rewrite PyLate's `pylate.*` refs to ST equivalents so we never import `pylate` at load (a no-op for native
-# ST saves). The backbone Transformer holds the multi-vector knobs (query_length, do_query_expansion, ...)
+# ST saves). The backbone Transformer holds the multi-vector knobs (query_length, query_expansion, ...)
 # directly, so no class remapping is needed.
 _CLASS_REF_ALIASES: dict[str, str] = {
     "pylate.models.Dense.Dense": "sentence_transformers.base.modules.dense.Dense",
@@ -58,8 +58,7 @@ class _LegacyStash:
     _PYLATE_TRANSFORMER_KEYS: ClassVar[tuple[str, ...]] = (
         "query_length",
         "document_length",
-        "do_query_expansion",
-        "attend_to_expansion_tokens",
+        "query_expansion",
     )
 
 
@@ -105,8 +104,8 @@ class MultiVectorEncoder(BaseModel):
             to ``"maxsim"``.
 
     Note:
-        Length / expansion / masking knobs (``query_length``, ``document_length``, ``do_query_expansion``,
-        ``attend_to_expansion_tokens``, ``skiplist_words``, …) live on the underlying modules
+        Length / expansion / masking knobs (``query_length``, ``document_length``, ``query_expansion``,
+        ``skiplist_words``, …) live on the underlying modules
         (:class:`~sentence_transformers.base.modules.Transformer` and
         :class:`~sentence_transformers.multi_vector_encoder.modules.MultiVectorMask`); set them after
         construction with e.g. ``model[0].query_length = 64``.
@@ -223,7 +222,7 @@ class MultiVectorEncoder(BaseModel):
         1. If no ``prompt_name`` or ``prompt`` is provided, it uses the predefined ``"query"`` prompt when one
            exists in the model's ``prompts`` dictionary.
         2. It sets the ``task`` to ``"query"``: the query prefix token is inserted, the max sequence length is
-           ``query_length``, and (when ``do_query_expansion=True``) the input is padded with mask tokens.
+           ``query_length``, and (when ``query_expansion`` is set) the input is extended with expansion tokens.
         """
         if prompt_name is None and prompt is None and "query" in self.prompts:
             prompt_name = "query"
@@ -662,21 +661,32 @@ class MultiVectorEncoder(BaseModel):
                 self._legacy.prefixes[prompt_key] = model_config[prefix_key]
                 if not self.prompts.get(prompt_key):
                     self.prompts[prompt_key] = model_config[prefix_key]
-        # Filter ``None`` values so missing/null PyLate knobs fall through to the Transformer's own defaults.
+        # Filter ``None`` values so missing/null PyLate knobs fall through to the Transformer's own
+        # defaults. ``query_expansion`` is the exception: ``None`` is its "explicitly off" value and
+        # must survive the filter, while a missing key still triggers the PyLate fallback below.
         pylate_knobs = {
             key: model_config[key]
             for key in _LegacyStash._PYLATE_TRANSFORMER_KEYS
-            if key in model_config and model_config[key] is not None
+            if key in model_config and (model_config[key] is not None or key == "query_expansion")
         }
-        # PyLate defaults ``do_query_expansion`` to True. Apply that for any PyLate-style save that
-        # didn't pin it, otherwise the [MASK] query expansion silently turns off.
+        # PyLate / Stanford-NLP saves predate the ``query_expansion`` dict. Translate their flat
+        # ``do_query_expansion`` + ``attend_to_mask_tokens`` fields into the new shape, defaulting
+        # expansion on with the pad-to-length strategy (PyLate's default) when the save shows other
+        # PyLate markers but didn't pin expansion explicitly.
         pylate_marker_keys = _LegacyStash._PYLATE_TRANSFORMER_KEYS + (
+            "do_query_expansion",
+            "attend_to_mask_tokens",
             "query_prefix",
             "document_prefix",
             "skiplist_words",
         )
-        if "do_query_expansion" not in pylate_knobs and any(key in model_config for key in pylate_marker_keys):
-            pylate_knobs["do_query_expansion"] = True
+        has_pylate_marker = any(key in model_config for key in pylate_marker_keys)
+        if "query_expansion" not in pylate_knobs and has_pylate_marker:
+            if model_config.get("do_query_expansion") is False:
+                pylate_knobs["query_expansion"] = None
+            else:
+                strategy = "pad_attend" if model_config.get("attend_to_mask_tokens") else "pad_skip"
+                pylate_knobs["query_expansion"] = {"strategy": strategy}
         self._legacy.transformer_config.update(pylate_knobs)
         self._legacy.skiplist_words = model_config.get("skiplist_words")
 
@@ -878,12 +888,12 @@ class MultiVectorEncoder(BaseModel):
         for meta_key, attr in (
             ("query_maxlen", "query_length"),
             ("doc_maxlen", "document_length"),
-            ("attend_to_mask_tokens", "attend_to_expansion_tokens"),
         ):
             if metadata.get(meta_key) is not None:
                 self._legacy.transformer_config.setdefault(attr, metadata[meta_key])
         # Stanford-NLP ColBERT always [MASK]-expands queries (core scoring trick, not in ``artifact.metadata``).
-        self._legacy.transformer_config.setdefault("do_query_expansion", True)
+        strategy = "pad_attend" if metadata.get("attend_to_mask_tokens") else "pad_skip"
+        self._legacy.transformer_config.setdefault("query_expansion", {"strategy": strategy})
         # Stanford-NLP's ``--mask-punctuation`` CLI flag defaults to ``False`` (``store_true``). Follow that for missing keys.
         self._legacy.skiplist_words = list(string.punctuation) if metadata.get("mask_punctuation", False) else []
 
