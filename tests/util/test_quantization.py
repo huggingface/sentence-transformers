@@ -82,3 +82,24 @@ def test_binary_quantize_row_independence(precision: str) -> None:
     else:  # ubinary
         assert result[0, 0] == 0xFF, f"All-positive row: expected 255, got {result[0, 0]}"
         assert result[1, 0] == 0x00, f"All-negative row: expected 0, got {result[1, 0]}"
+
+
+@pytest.mark.parametrize("precision", ["int8", "uint8"])
+def test_quantize_clips_out_of_range_values(precision: str) -> None:
+    """Values outside the calibration range must saturate, not wrap around, on cast.
+
+    Without clipping, a value that should quantize above 255 silently wraps
+    (e.g. 300 -> 44 in uint8) instead of saturating at the dtype's min/max.
+    See issue #3159 / PR #2865.
+    """
+    calibration_embeddings = np.array([[1, 20, -3], [4, 5, -60]], dtype=np.float32)
+    dataset = np.array([[-1, 15, 1]], dtype=np.float32)  # -1 and 1 fall outside calibration range
+
+    result = quantize_embeddings(dataset, precision, calibration_embeddings=calibration_embeddings)
+
+    if precision == "int8":
+        expected = np.array([[-128, 42, 127]], dtype=np.int8)
+    else:
+        expected = np.array([[0, 170, 255]], dtype=np.uint8)
+
+    np.testing.assert_array_equal(result, expected)

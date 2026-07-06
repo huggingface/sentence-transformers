@@ -430,9 +430,12 @@ def quantize_embeddings(
         steps = np.where(steps == 0, 1, steps)
 
         if precision == "uint8":
-            return ((embeddings - starts) / steps).astype(np.uint8)
+            q_vals = np.floor((embeddings - starts) / steps)
+            return np.clip(q_vals, 0, 255).astype(np.uint8)
         elif precision == "int8":
-            return ((embeddings - starts) / steps - 128).astype(np.int8)
+            q_vals = np.floor((embeddings - starts) / steps)
+            q_vals = np.clip(q_vals, 0, 255)
+            return (q_vals - 128).astype(np.int8)
 
     if precision == "binary":
         return (np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1) - 128).astype(np.int8)
