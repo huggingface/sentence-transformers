@@ -130,6 +130,10 @@ If you're using a GPU, then you can use the following options to speed up your i
       for a full overview of available ``attn_implementation`` options, including ``"flash_attention_2"``,
       ``"flash_attention_3"``, ``"sdpa"``, and more.
 
+.. note::
+
+   When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU can help (e.g. ``SentenceTransformer(..., device=\"cpu\")`` or ``model.encode(..., device=\"cpu\")``).
+
 ONNX
 ----
 

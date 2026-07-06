@@ -7,13 +7,12 @@ python eval_msmarco.py model_name [max_corpus_size_in_thousands]
 """
 
 import logging
-import os
 import sys
-import tarfile
+
+from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
-from sentence_transformers.util import http_get
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -26,33 +25,11 @@ model_name = sys.argv[1]
 corpus_max_size = int(sys.argv[2]) * 1000 if len(sys.argv) >= 3 else 0
 
 
-####  Load model
+#  Load model
 
 model = SentenceTransformer(model_name)
 
-### Data files
-data_folder = "msmarco-data"
-os.makedirs(data_folder, exist_ok=True)
-
-collection_filepath = os.path.join(data_folder, "collection.tsv")
-dev_queries_file = os.path.join(data_folder, "queries.dev.small.tsv")
-qrels_filepath = os.path.join(data_folder, "qrels.dev.tsv")
-
-### Download files if needed
-if not os.path.exists(collection_filepath) or not os.path.exists(dev_queries_file):
-    tar_filepath = os.path.join(data_folder, "collectionandqueries.tar.gz")
-    if not os.path.exists(tar_filepath):
-        logging.info("Download: " + tar_filepath)
-        http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/collectionandqueries.tar.gz", tar_filepath)
-
-    with tarfile.open(tar_filepath, "r:gz") as tar:
-        tar.extractall(path=data_folder)
-
-
-if not os.path.exists(qrels_filepath):
-    http_get("https://msmarco.z22.web.core.windows.net/msmarcoranking/qrels.dev.tsv", qrels_filepath)
-
-### Load data
+# Read the MS MARCO dataset
 
 corpus = {}  # Our corpus pid => passage
 dev_queries = {}  # Our dev queries. qid => query
@@ -60,40 +37,29 @@ dev_rel_docs = {}  # Mapping qid => set with relevant pids
 needed_pids = set()  # Passage IDs we need
 needed_qids = set()  # Query IDs we need
 
-# Load the 6980 dev queries
-with open(dev_queries_file, encoding="utf8") as fIn:
-    for line in fIn:
-        qid, query = line.strip().split("\t")
-        dev_queries[qid] = query.strip()
+# Load the dev relevance judgments (6980 queries)
+for row in load_dataset("mteb/msmarco", "default", split="dev"):
+    qid, pid = str(row["query-id"]), str(row["corpus-id"])
+    dev_rel_docs.setdefault(qid, set()).add(pid)
+    needed_qids.add(qid)
+    needed_pids.add(pid)
 
+# Load the dev query texts
+for row in load_dataset("mteb/msmarco", "queries", split="queries"):
+    qid = str(row["_id"])
+    if qid in needed_qids:
+        dev_queries[qid] = row["text"].strip()
 
-# Load which passages are relevant for which queries
-with open(qrels_filepath) as fIn:
-    for line in fIn:
-        qid, _, pid, _ = line.strip().split("\t")
-
-        if qid not in dev_queries:
-            continue
-
-        if qid not in dev_rel_docs:
-            dev_rel_docs[qid] = set()
-        dev_rel_docs[qid].add(pid)
-
-        needed_pids.add(pid)
-        needed_qids.add(qid)
-
-
-# Read passages
-with open(collection_filepath, encoding="utf8") as fIn:
-    for line in fIn:
-        pid, passage = line.strip().split("\t")
-        passage = passage
-
+# Read passages in batches (fast, bounded memory)
+corpus_dataset = load_dataset("sentence-transformers/msmarco", "corpus", split="train")
+for batch in corpus_dataset.iter(batch_size=10000):
+    for pid, passage in zip(batch["passage_id"], batch["passage"]):
+        pid = str(pid)
         if pid in needed_pids or corpus_max_size <= 0 or len(corpus) <= corpus_max_size:
             corpus[pid] = passage.strip()
 
 
-## Run evaluator
+# Run evaluator
 logging.info(f"Queries: {len(dev_queries)}")
 logging.info(f"Corpus: {len(corpus)}")
 

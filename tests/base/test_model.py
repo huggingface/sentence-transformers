@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 import warnings
 from collections import UserDict
 from pathlib import Path
@@ -94,38 +95,137 @@ class TestSparseEncoderPreprocess(BaseModelPreprocessTest):
         return ["This is a test.", "Another test sentence."]
 
 
-def test_preprocess_rejects_unsupported_modality(
-    stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
+# A 3D array is inferred as the "image" modality, a 1D array as "audio"; values are never read
+# because preprocess() raises before processing, so reusing these constants across cases is safe.
+_IMAGE = np.zeros((8, 8, 3), dtype=np.uint8)
+_AUDIO = np.zeros((16000,), dtype=np.float32)
+
+
+@pytest.mark.parametrize(
+    ("modalities", "inputs", "expected", "forbidden"),
+    [
+        # Genuinely unsupported modality -> "Modality 'X' is not supported".
+        pytest.param(
+            ["text"],
+            [_IMAGE],
+            ["Modality 'image' is not supported", "Supported modalities: text"],
+            ["mixes", "individually", "chat-style"],
+            id="unsupported-image-on-text-only",
+        ),
+        pytest.param(
+            ["text"],
+            [{"text": "a cat", "image": _IMAGE}],
+            ["Modality 'image+text' is not supported", "Supported modalities: text"],
+            ["individually", "mixes", "chat-style"],
+            id="unsupported-combined-dict-on-text-only",
+        ),
+        # Combinable but not combined: every part is supported, the model just cannot fuse them
+        # without 'message' support, so the guidance is to encode each modality separately.
+        pytest.param(
+            ["text", "image"],
+            [{"text": "a cat", "image": _IMAGE}],
+            [
+                "supports image and text individually",
+                "cannot combine them in a single input",
+                "Encode each modality separately",
+            ],
+            ["is not supported", "mixes", "does not support"],
+            id="combinable-single-dict-on-text-image",
+        ),
+        pytest.param(
+            ["text", "image"],
+            ["a sentence", _IMAGE],
+            ["mixes multiple modalities (image, text)", "Encode each modality separately"],
+            ["does not support", "is not supported", "chat-style"],
+            id="combinable-mixed-batch-on-text-image",
+        ),
+        pytest.param(
+            ["text", "image"],
+            ["a sentence", {"text": "a cat", "image": _IMAGE}],
+            ["mixes multiple modalities (image+text, text)", "Encode each modality separately"],
+            ["does not support", "is not supported"],
+            id="combinable-mixed-batch-with-dict-on-text-image",
+        ),
+        # Mixed batch where a base modality is genuinely unsupported -> name the unsupported part(s).
+        pytest.param(
+            ["text"],
+            ["a sentence", _IMAGE],
+            ["mixes multiple modalities (image, text)", "does not support image", "Supported modalities: text"],
+            ["Encode each modality separately", "chat-style"],
+            id="mixed-batch-unsupported-image-on-text-only",
+        ),
+        pytest.param(
+            ["text"],
+            [{"text": "a cat", "image": _IMAGE}, {"text": "a dog"}],
+            ["mixes multiple modalities (image+text, text)", "does not support image"],
+            ["Encode each modality separately"],
+            id="mixed-batch-dict-and-text-on-text-only",
+        ),
+        pytest.param(
+            ["text"],
+            ["a sentence", _AUDIO, _IMAGE],
+            ["mixes multiple modalities (audio, image, text)", "does not support audio, image"],
+            ["Encode each modality separately"],
+            id="mixed-batch-multiple-unsupported-on-text-only",
+        ),
+        # Explicit chat-style message inputs on a model without 'message' support.
+        pytest.param(
+            ["text"],
+            [{"role": "user", "content": "hi"}],
+            ["does not support chat-style 'message' inputs", "Supported modalities: text"],
+            ["mixes", "Modality '"],
+            id="explicit-messages-on-text-only",
+        ),
+        pytest.param(
+            ["text", "image"],
+            [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}],
+            ["does not support chat-style 'message' inputs", "Supported modalities: text, image"],
+            ["mixes", "does not support image"],
+            id="explicit-messages-on-text-image",
+        ),
+        # Chat-style messages mixed with other inputs: the model lacks 'message' support, so the
+        # chat-style inputs are the blocking issue. "message" must not be listed as a content modality.
+        pytest.param(
+            ["text"],
+            [{"role": "user", "content": "hi"}, _IMAGE],
+            ["does not support chat-style 'message' inputs", "mixes with other modalities"],
+            ["multiple modalities", ", message", "does not support image"],
+            id="messages-mixed-with-image-on-text-only",
+        ),
+        pytest.param(
+            ["text"],
+            [{"role": "user", "content": "hi"}, "a plain sentence"],
+            ["does not support chat-style 'message' inputs", "mixes with other modalities"],
+            ["multiple modalities", ", message", "does not support text"],
+            id="messages-mixed-with-text-on-text-only",
+        ),
+    ],
+)
+def test_preprocess_modality_error_messages(
+    stsb_bert_tiny_model: SentenceTransformer,
+    monkeypatch: pytest.MonkeyPatch,
+    modalities: list[str],
+    inputs: list,
+    expected: list[str],
+    forbidden: list[str],
 ) -> None:
-    """preprocess() should raise ValueError when the inferred modality is not supported."""
-    monkeypatch.setattr(
-        "sentence_transformers.base.model.infer_batch_modality",
-        lambda inputs, supported_modalities=None: "image",
-    )
-    with pytest.raises(ValueError, match="Modality 'image' is not supported"):
-        stsb_bert_tiny_model.preprocess(["dummy text"])
+    """preprocess() should raise a clear, accurate ValueError for each unsupported-modality scenario.
 
-
-def test_preprocess_rejects_multimodal_without_message_support(
-    stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """preprocess() should raise ValueError for combined modalities when the model supports
-    individual modalities (e.g. text and image) but not 'message' format.
-
-    This mirrors the behavior of architectures like blip-2, sam3, and flava that handle
-    text and image separately but cannot combine them in a single forward pass.
+    The model's supported modalities are simulated via ``modalities``; inputs use real inference
+    (numpy arrays for image/audio, dicts for combined/chat inputs) so the full path is exercised.
+    ``forbidden`` guards against misleading wording, e.g. claiming a modality is unsupported when
+    every part is actually supported.
     """
-    # Pretend the model supports text and image individually, but not message format
-    monkeypatch.setattr(type(stsb_bert_tiny_model), "modalities", property(lambda self: ["text", "image"]))
-    # Pretend the inferred modality is a combined tuple
-    monkeypatch.setattr(
-        "sentence_transformers.base.model.infer_batch_modality",
-        lambda inputs, supported_modalities=None: ("text", "image"),
-    )
-    with pytest.raises(
-        ValueError, match=r"This model supports text and image individually, but not in the same input"
-    ):
-        stsb_bert_tiny_model.preprocess(["dummy text"])
+    monkeypatch.setattr(type(stsb_bert_tiny_model), "modalities", property(lambda self: modalities))
+
+    with pytest.raises(ValueError) as exc_info:
+        stsb_bert_tiny_model.preprocess(inputs)
+
+    message = str(exc_info.value)
+    for substring in expected:
+        assert substring in message, f"expected {substring!r} in error message, got: {message!r}"
+    for substring in forbidden:
+        assert substring not in message, f"did not expect {substring!r} in error message, got: {message!r}"
 
 
 def test_preprocess_passes_supported_modality(stsb_bert_tiny_model: SentenceTransformer) -> None:
@@ -163,6 +263,29 @@ def test_config_returns_none_when_no_underlying_transformers_model(
     """If the model has no underlying transformers PreTrainedModel (e.g. StaticEmbedding-only),
     `model.config` returns `None` instead of raising.
     """
+    assert static_embedding_model.config is None
+
+
+def test_config_is_settable(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Assigning ``model.config`` should not raise and should round-trip through the
+    underlying transformers model (fixes optimum ONNX export regression in v5.5.0).
+    """
+    original_config = stsb_bert_tiny_model.config
+    assert original_config is not None
+    new_config = type(original_config)(**original_config.to_dict())
+    stsb_bert_tiny_model.config = new_config
+    assert stsb_bert_tiny_model.config is new_config
+    assert stsb_bert_tiny_model.transformers_model.config is new_config
+
+
+def test_config_setter_on_model_without_underlying_transformers_model(
+    static_embedding_model: SentenceTransformer,
+) -> None:
+    """Assigning ``model.config`` on a StaticEmbedding-only model (no underlying transformers
+    model) should be silently ignored, i.e. ``model.config`` keeps returning ``None``.
+    """
+    assert static_embedding_model.config is None
+    static_embedding_model.config = object()
     assert static_embedding_model.config is None
 
 
@@ -705,6 +828,71 @@ def test_device_property(stsb_bert_tiny_model: SentenceTransformer) -> None:
     dev = stsb_bert_tiny_model.device
     assert isinstance(dev, torch.device)
     assert dev.type in ("cpu", "cuda")
+
+
+@pytest.mark.parametrize(
+    "model_class, model_id",
+    [
+        (SentenceTransformer, "sentence-transformers-testing/stsb-bert-tiny-safetensors"),
+        (CrossEncoder, "cross-encoder-testing/reranker-bert-tiny-gooaq-bce"),
+        (SparseEncoder, "sparse-encoder-testing/inference-free-splade-bert-tiny-nq"),
+    ],
+)
+def test_device_map_controls_placement(model_class: type, model_id: str) -> None:
+    """A ``device_map`` in ``model_kwargs`` must control placement and not be overridden by the
+    auto-detected ``device``. Previously the unconditional ``self.to(device)`` would e.g. pull a
+    ``device_map="cuda:1"`` model back onto ``cuda:0``. The fix lives in the shared base, so this is
+    checked for every model family. See #3822."""
+    # device_map pins the backbone to CPU. Even when a GPU is present (so the auto-detected device
+    # would be cuda), the device_map must win and nothing should be moved to cuda.
+    model = model_class(model_id, model_kwargs={"device_map": {"": "cpu"}})
+    assert model.transformers_model.device.type == "cpu"
+    assert all(param.device.type == "cpu" for param in model.parameters())
+
+
+def test_device_argument_warns_when_device_map_present(caplog: pytest.LogCaptureFixture) -> None:
+    """Passing both ``device`` and a ``device_map`` should warn that ``device_map`` wins. See #3822."""
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    with caplog.at_level(logging.WARNING, logger="sentence_transformers.base.model"):
+        # device="cuda" is inert here (device_map controls placement), so this is safe without a GPU.
+        model = SentenceTransformer(model_id, device="cuda", model_kwargs={"device_map": {"": "cpu"}})
+    assert model.device.type == "cpu"
+    assert "device_map" in caplog.text and "ignored" in caplog.text
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+def test_device_map_aligns_auxiliary_modules_to_backbone() -> None:
+    """With a ``device_map`` placing the backbone on a GPU, separately-loaded modules (e.g. Dense,
+    which load on CPU) must be moved onto the backbone's device, else the forward pass mismatches."""
+    from sentence_transformers.sentence_transformer.modules import Dense, Pooling, Transformer
+
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    transformer = Transformer(model_id)
+    dim = transformer.get_embedding_dimension()
+    model = SentenceTransformer(modules=[transformer, Pooling(dim), Dense(dim, 64)], device="cpu")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        model.save(tmp_dir)
+        reloaded = SentenceTransformer(tmp_dir, model_kwargs={"device_map": {"": 0}})
+
+    for param in reloaded.parameters():
+        assert param.device.type == "cuda"
+    # A cross-device mismatch would raise here.
+    assert reloaded.encode("hello world").shape == (64,)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+def test_device_map_ignored_for_prebuilt_modules() -> None:
+    """``device_map`` only applies when loading from a name (via ``from_pretrained``). With pre-built
+    ``modules`` it is inert, so it must not suppress the usual ``self.to(device)`` and strand the model."""
+    from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    transformer = Transformer(model_id)  # loads on CPU
+    pooling = Pooling(transformer.get_embedding_dimension())
+    # device defaults to the auto-detected GPU. The stray device_map must not prevent the move there.
+    model = SentenceTransformer(modules=[transformer, pooling], model_kwargs={"device_map": {"": "cpu"}})
+    assert model.device.type == "cuda"
 
 
 def test_get_max_seq_length(stsb_bert_tiny_model: SentenceTransformer) -> None:

@@ -7,7 +7,7 @@ SentenceTransformers Documentation
 ==================================
 
 Sentence Transformers (a.k.a. SBERT) is the go-to Python module for using and training state-of-the-art embedding and reranker models.
-It can be used to compute embeddings from text, images, audio, or video using Sentence Transformer models (`quickstart <docs/quickstart.html#sentence-transformer>`_), to calculate similarity scores using Cross-Encoder (a.k.a. reranker) models (`quickstart <docs/quickstart.html#cross-encoder>`_), or to generate sparse embeddings using Sparse Encoder models (`quickstart <docs/quickstart.html#sparse-encoder>`_). This unlocks a wide range of applications, including `semantic search <examples/sentence_transformer/applications/semantic-search/README.html>`_, `semantic textual similarity <docs/sentence_transformer/usage/semantic_textual_similarity.html>`_, and `paraphrase mining <examples/sentence_transformer/applications/paraphrase-mining/README.html>`_.
+It can be used to compute embeddings from text, images, audio, or video using Sentence Transformer models (`quickstart <docs/quickstart.html#sentence-transformer>`__), to calculate similarity scores using Cross-Encoder (a.k.a. reranker) models (`quickstart <docs/quickstart.html#cross-encoder>`__), or to generate sparse embeddings using Sparse Encoder models (`quickstart <docs/quickstart.html#sparse-encoder>`__). This unlocks a wide range of applications, including `semantic search <examples/sentence_transformer/applications/semantic-search/README.html>`_, `semantic textual similarity <docs/sentence_transformer/usage/semantic_textual_similarity.html>`_, and `paraphrase mining <examples/sentence_transformer/applications/paraphrase-mining/README.html>`_.
 
 A wide selection of over `10,000 pre-trained Sentence Transformers models <https://huggingface.co/models?library=sentence-transformers>`_ are available for immediate use on 🤗 Hugging Face, including many of the state-of-the-art models from the `Massive Text Embeddings Benchmark (MTEB) leaderboard <https://huggingface.co/spaces/mteb/leaderboard>`_. Additionally, it is easy to train or finetune your own `embedding models <docs/sentence_transformer/training_overview.html>`_, `reranker models <docs/cross_encoder/training_overview.html>`_, or `sparse encoder models <docs/sparse_encoder/training_overview.html>`_ using Sentence Transformers, enabling you to create custom models for your specific use cases.
 
@@ -18,7 +18,7 @@ Usage
 
 .. seealso::
   
-   See the `Quickstart <docs/quickstart.html>`_ for more quick information on how to use Sentence Transformers.
+   See the `Quickstart <docs/quickstart.html>`__ for more quick information on how to use Sentence Transformers.
 
 Working with Sentence Transformer models is straightforward:
 

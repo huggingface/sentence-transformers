@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from huggingface_hub import HfApi
 
 from sentence_transformers import (
     SentenceTransformer,
@@ -22,6 +24,18 @@ if not is_training_available():
     )
 
 
+@contextlib.contextmanager
+def _patch_hfapi(method: str, **kwargs):
+    # Older transformers imported create_repo/upload_folder into the trainer module.
+    # Newer transformers resolves HfApi.<method> at call time via hf_api(), so patch
+    # whichever the installed version actually uses.
+    import transformers.trainer as hf_trainer
+
+    target = hf_trainer if hasattr(hf_trainer, method) else HfApi
+    with patch.object(target, method, **kwargs) as mock:
+        yield mock
+
+
 def test_push_from_checkpoint_copies_full_layout(static_embedding_model: SentenceTransformer, tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     checkpoint_folder = output_dir / "checkpoint-437"
@@ -35,7 +49,7 @@ def test_push_from_checkpoint_copies_full_layout(static_embedding_model: Sentenc
         report_to=[],
     )
 
-    with patch("transformers.trainer.create_repo", return_value=SimpleNamespace(repo_id="dummy/model")):
+    with _patch_hfapi("create_repo", return_value=SimpleNamespace(repo_id="dummy/model")):
         trainer = SentenceTransformerTrainer(model=static_embedding_model, args=args)
 
     trainer._save(output_dir=str(checkpoint_folder))
@@ -58,7 +72,7 @@ def test_push_from_checkpoint_copies_full_layout(static_embedding_model: Sentenc
         (checkpoint_folder / shard).write_text("shard")
 
     with (
-        patch("transformers.trainer.upload_folder") as mock_upload,
+        _patch_hfapi("upload_folder") as mock_upload,
         patch.object(trainer, "is_world_process_zero", return_value=True),
         patch.object(trainer, "callback_handler"),
     ):
@@ -95,13 +109,13 @@ def test_push_from_checkpoint_skips_when_end_strategy(
         report_to=[],
     )
 
-    with patch("transformers.trainer.create_repo", return_value=SimpleNamespace(repo_id="dummy/model")):
+    with _patch_hfapi("create_repo", return_value=SimpleNamespace(repo_id="dummy/model")):
         trainer = SentenceTransformerTrainer(model=static_embedding_model, args=args)
 
     trainer._save(output_dir=str(checkpoint_folder))
 
     with (
-        patch("transformers.trainer.upload_folder") as mock_upload,
+        _patch_hfapi("upload_folder") as mock_upload,
         patch.object(trainer, "is_world_process_zero", return_value=True),
         patch.object(trainer, "callback_handler"),
     ):

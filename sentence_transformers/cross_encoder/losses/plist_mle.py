@@ -210,7 +210,7 @@ class PListMLELoss(nn.Module):
             logits = self.model(tokens)["scores"].view(-1)
             logits_list.append(logits)
 
-        logits = torch.cat(logits_list, dim=0)
+        logits = torch.cat(logits_list, dim=0).float()
         logits = self.activation_fn(logits)
 
         # Create output tensor filled with a very small value for padded logits
@@ -236,12 +236,14 @@ class PListMLELoss(nn.Module):
             # Sort by labels in descending order if not respecting input order.
             sorted_labels, indices = labels_matrix.sort(descending=True, dim=1)
             sorted_logits = torch.gather(logits_matrix, 1, indices)
+            sorted_mask = torch.gather(mask, 1, indices)
         else:
             # Use the original input order, assuming it's already ordered by relevance
             sorted_logits = logits_matrix
+            sorted_mask = mask
 
-        # Compute log-likelihood using Plackett-Luce model
-        scores = sorted_logits.exp()
+        # Compute log-likelihood using Plackett-Luce model.
+        scores = sorted_logits.exp().masked_fill(~sorted_mask, 0.0)
         cumsum_scores = torch.flip(torch.cumsum(torch.flip(scores, [1]), 1), [1])
         log_probs = sorted_logits - torch.log(cumsum_scores + self.eps)
 
@@ -254,7 +256,7 @@ class PListMLELoss(nn.Module):
             log_probs = log_probs * lambda_weight
 
         # Sum the log probabilities for each list and mask padded entries
-        log_probs[~mask] = 0.0
+        log_probs[~sorted_mask] = 0.0
         per_query_losses = -torch.sum(log_probs, dim=1)
 
         if not torch.any(per_query_losses):

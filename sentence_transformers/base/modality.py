@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from collections import defaultdict
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 from urllib.parse import urlparse
 
 import numpy as np
@@ -144,6 +144,7 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
             {
                 "fps": video_value.metadata.average_fps,
                 "total_num_frames": video_value.metadata.num_frames,
+                "duration": video_value.metadata.duration_seconds,
                 "frames_indices": list(range(frame_batch.data.shape[0])),
             }
         )
@@ -429,8 +430,13 @@ class InputFormatter:
             typed_input = {mod: processor_inputs[mod][i] for mod in processor_inputs if mod in modalities}
             # Text pairs (e.g. ("query", "document")) are routed to pair_to_messages instead
             if len(typed_input) == 1:
-                value = next(iter(typed_input.values()))
-                if isinstance(value, (tuple, list)) and len(value) == 2 and all(isinstance(v, str) for v in value):
+                mod, value = next(iter(typed_input.items()))
+                if (
+                    mod == "text"
+                    and isinstance(value, (tuple, list))
+                    and len(value) == 2
+                    and all(isinstance(v, str) for v in value)
+                ):
                     messages.append(self.pair_to_messages(value))
                     continue
             messages.append(self.to_message(typed_input))  # type: ignore[arg-type]
@@ -667,3 +673,82 @@ def format_modality(modality: Modality) -> str:
     if isinstance(modality, tuple):
         return "+".join(modality)
     return modality
+
+
+def raise_unsupported_modality_error(
+    inputs: list[SingleInput | PairInput],
+    modality: Modality,
+    supported_modalities: list[Modality],
+    source: str,
+) -> NoReturn:
+    """Raise a clear ``ValueError`` explaining why ``modality`` is not supported.
+
+    Shared by :meth:`BaseModel.preprocess` and :meth:`Transformer.preprocess` so both raise the
+    same, accurate guidance. ``source`` is a human-readable description of what rejected the input,
+    e.g. ``"SentenceTransformer model"`` or ``"Transformer module"``.
+
+    Args:
+        inputs: The original batch of inputs, re-inspected per sample to distinguish explicit
+            chat-style ``"message"`` inputs from inferred mixed-modality batches (both collapse to
+            the ``"message"`` modality at the batch level).
+        modality: The inferred (and unsupported) batch modality.
+        supported_modalities: The modalities the source actually supports.
+        source: Human-readable name of the rejecting component, used verbatim in the message.
+
+    Raises:
+        ValueError: Always, with a message tailored to the specific unsupported-modality scenario.
+    """
+    supported_str = ", ".join(format_modality(m) for m in supported_modalities)
+
+    if modality == "message":
+        # "message" is returned both for explicit chat-style inputs and for inferred mixed-modality
+        # batches. Re-inspect each sample to tell them apart. If a sample cannot be classified on its
+        # own (e.g. a non-text pair), fall back to the generic message below.
+        try:
+            sample_modalities: set[Modality] = {
+                infer_modality(sample, supported_modalities=supported_modalities) for sample in inputs
+            }
+        except (ValueError, TypeError):
+            sample_modalities = set()
+
+        if sample_modalities == {"message"}:
+            raise ValueError(
+                f"This {source} does not support chat-style 'message' inputs (dicts or lists of dicts with "
+                f"'role' and 'content'). Supported modalities: {supported_str}."
+            )
+        if "message" in sample_modalities:
+            # Chat-style inputs are mixed with other inputs. Since this source does not support the
+            # message format, the chat-style inputs are the blocking issue; report that rather than
+            # listing "message" as if it were a content modality alongside text/image/audio.
+            raise ValueError(
+                f"This {source} does not support chat-style 'message' inputs (dicts or lists of dicts with 'role' and "
+                f"'content'), which this batch mixes with other modalities. Supported modalities: {supported_str}."
+            )
+        if sample_modalities:
+            present_str = ", ".join(format_modality(m) for m in sorted(sample_modalities, key=format_modality))
+            # Decompose into base parts: a part the source cannot handle at all is a genuine error.
+            # If every part is supported, the modalities just cannot be combined (handled below).
+            base_modalities = {part for m in sample_modalities for part in (m if isinstance(m, tuple) else (m,))}
+            unsupported = sorted(part for part in base_modalities if part not in supported_modalities)
+            if unsupported:
+                raise ValueError(
+                    f"This batch mixes multiple modalities ({present_str}), but this {source} does "
+                    f"not support {', '.join(unsupported)}. Supported modalities: {supported_str}."
+                )
+            raise ValueError(
+                f"This batch mixes multiple modalities ({present_str}), which this {source} cannot "
+                f"encode in a single batch. Encode each modality separately (one call per modality)."
+            )
+
+    # A single combined input (e.g. a {"text": ..., "image": ...} dict) with parts the source
+    # supports individually but cannot fuse without "message" support: encode each separately.
+    if isinstance(modality, tuple) and all(part in supported_modalities for part in modality):
+        raise ValueError(
+            f"This {source} supports {' and '.join(modality)} individually, but cannot "
+            f"combine them in a single input. Encode each modality separately (one call per modality)."
+        )
+
+    raise ValueError(
+        f"Modality '{format_modality(modality)}' is not supported by this {source}. "
+        f"Supported modalities: {supported_str}."
+    )

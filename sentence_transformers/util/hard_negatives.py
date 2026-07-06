@@ -80,8 +80,8 @@ def mine_hard_negatives(
       to the anchor is within a certain margin of the positive pair. A value of 0 can be used to enforce that the negative
       is always further away from the anchor than the positive.
     - **relative_margin**: Relative margin for hard negative mining: useful to skip candidate negatives whose similarity
-      to the anchor is within a certain margin of the positive pair. A value of 0.05 means that the negative is at most 95%
-      as similar to the anchor as the positive.
+      to the anchor is within a certain margin of the positive pair. A value of 0.05 keeps a negative only if its
+      similarity to the anchor is at least 5% of the positive score magnitude below the positive.
     - **sampling_strategy**: Sampling strategy for negatives: "top" or "random". "top" will always sample the top n
       candidates as negatives, while "random" will sample n negatives randomly from the candidates that satisfy the
       margin or max_score conditions.
@@ -95,7 +95,7 @@ def mine_hard_negatives(
             dataset = mine_hard_negatives(
                 dataset=dataset,
                 model=model,
-                relative_margin=0.05,         # 0.05 means that the negative is at most 95% as similar to the anchor as the positive
+                relative_margin=0.05,         # keep negatives at least 5% of the positive score magnitude below the positive
                 num_negatives=num_negatives,  # 10 or less is recommended
                 sampling_strategy="top",      # "top" means that we sample the top candidates as negatives
                 batch_size=batch_size,        # Adjust as needed
@@ -188,9 +188,10 @@ def mine_hard_negatives(
         min_score (float, optional): Minimum score to consider as a negative. Defaults to None.
         absolute_margin (float, optional): Absolute margin for hard negative mining, i.e. the minimum distance between
             the positive similarity and the negative similarity. Defaults to None.
-        relative_margin (float, optional): Relative margin for hard negative mining, i.e. the maximum ratio between
-            the positive similarity and the negative similarity. A value of 0.05 means that the negative is at most
-            95% as similar to the anchor as the positive. Defaults to None.
+        relative_margin (float, optional): Relative margin for hard negative mining, i.e. the minimum distance between
+            the positive similarity and the negative similarity as a fraction of the positive score magnitude. A value
+            of 0.05 discards negatives whose similarity is greater than ``positive_score - abs(positive_score) * 0.05``.
+            Defaults to None.
         num_negatives (int): Number of negatives to sample. Defaults to 3.
         sampling_strategy (Literal["random", "top"]): Sampling strategy for negatives: "top" or "random". Defaults to "top".
         query_prompt_name (Optional[str], optional): The name of a predefined prompt to use when encoding the first/anchor dataset column.
@@ -232,7 +233,9 @@ def mine_hard_negatives(
             - For "labeled-list" format: replaces the `labels` column with a `scores` column. Labels are binary (1 for positive, 0 for negative), but scores contain the actual similarity scores computed by the model or cross_encoder. The output has 3 columns.
             Defaults to False.
         batch_size (int): Batch size for encoding the dataset. Defaults to 32.
-        faiss_batch_size (int): Batch size for FAISS top-k search. Defaults to 16384.
+        faiss_batch_size (int): Batch size of queries for the top-k similarity search, both with FAISS and without
+            (``use_faiss=False``), where it bounds the size of the intermediate similarity matrix to
+            ``faiss_batch_size * len(corpus)``. Defaults to 16384.
         use_faiss (bool): Whether to use FAISS for similarity search. May be recommended for large datasets. Defaults to False.
         use_multi_process (bool | List[str], optional): Whether to use multi-GPU/CPU processing. If True, uses all GPUs if CUDA
             is available, and 4 CPU processes if it's not available. You can also pass a list of PyTorch devices like
@@ -265,6 +268,9 @@ def mine_hard_negatives(
 
     if len(dataset) == 0:
         raise ValueError("The dataset is empty. Please provide a non-empty dataset.")
+
+    if faiss_batch_size <= 0:
+        raise ValueError(f"faiss_batch_size must be a positive integer, got {faiss_batch_size}.")
 
     from datasets import Dataset
 
@@ -471,11 +477,20 @@ def mine_hard_negatives(
         indices = torch.from_numpy(np.concatenate(indices_list, axis=0)).to(device)
 
     else:
-        # Compute the similarity scores between the queries and the corpus
-        scores = model.similarity(query_embeddings, corpus_embeddings).to(device)
+        scores_list = []
+        indices_list = []
+        corpus_embeddings = torch.as_tensor(corpus_embeddings)
+        # Compute the similarity scores between the queries and the corpus in batches, to avoid
+        # materializing the full (n_queries, n_corpus) similarity matrix
+        for i in trange(0, len(query_embeddings), faiss_batch_size, desc="Computing similarity scores"):
+            chunk_scores = model.similarity(query_embeddings[i : i + faiss_batch_size], corpus_embeddings).to(device)
 
-        # Keep only the range_max + max_positives highest scores. We offset by 1 to potentially include the positive pair
-        scores, indices = torch.topk(scores, k=range_max + max_positives, dim=1)
+            # Keep only the range_max + max_positives highest scores. We offset by max_positives to leave room for the positive pair(s).
+            chunk_scores, chunk_indices = torch.topk(chunk_scores, k=range_max + max_positives, dim=1)
+            scores_list.append(chunk_scores)
+            indices_list.append(chunk_indices)
+        scores = torch.cat(scores_list, dim=0)
+        indices = torch.cat(indices_list, dim=0)
 
     # As we may have duplicated queries (i.e., a single query with multiple positives),
     # We keep track, for each unique query, of where their positives are in the list of positives (positive_indices).
@@ -572,7 +587,10 @@ def mine_hard_negatives(
                 num_candidates -= num_skipped
 
         if relative_margin is not None:
-            removed_indices = scores > max_positive_scores.repeat(scores.size(1), 1).T * (1 - relative_margin)
+            # Subtract |positive| * margin rather than multiplying by (1 - margin): the latter is
+            # sign-dependent and raises the threshold for negative positive scores (#3819).
+            relative_threshold = max_positive_scores - max_positive_scores.abs() * relative_margin
+            removed_indices = scores > relative_threshold.repeat(scores.size(1), 1).T
             scores[removed_indices] = -float("inf")
 
             num_skipped = removed_indices.sum().item()

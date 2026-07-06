@@ -4,6 +4,8 @@ import torch
 import torch.distributed as dist
 from transformers.utils import logging
 
+from .environment import is_dist_initialized
+
 # NOTE: transformers wraps the regular logging module for e.g. warning_once
 logger = logging.get_logger(__name__)
 
@@ -22,7 +24,7 @@ def all_gather(tensor: torch.Tensor, with_grad: bool = False) -> torch.Tensor:
         If torch.distributed is not available or not initialized, returns the original tensor.
     """
 
-    if dist.is_available() and dist.is_initialized():
+    if is_dist_initialized():
         if with_grad:
             gathered_tensors = torch.distributed.nn.all_gather(tensor)
         else:

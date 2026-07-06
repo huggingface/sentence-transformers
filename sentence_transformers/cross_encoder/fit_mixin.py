@@ -480,10 +480,13 @@ class FitMixin:
         train_dataloader.collate_fn = self.smart_batching_collate
 
         if use_amp:
+            device_type = self.model.device.type
             if is_torch_npu_available():
                 scaler = torch.npu.amp.GradScaler()
-            else:
+            elif device_type == "cuda":
                 scaler = torch.cuda.amp.GradScaler()
+            else:
+                scaler = torch.amp.GradScaler(device_type)
 
         if output_path is not None:
             os.makedirs(output_path, exist_ok=True)

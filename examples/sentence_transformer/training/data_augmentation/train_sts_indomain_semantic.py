@@ -20,22 +20,24 @@ python train_sts_indomain_semantic.py google-bert/bert-base-uncased 3
 """
 
 import logging
-import math
 import sys
 from datetime import datetime
 
 import torch
 import tqdm
-from datasets import load_dataset
-from torch.utils.data import DataLoader
+from datasets import Dataset, concatenate_datasets, load_dataset
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
+from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss
+from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
+from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss
 from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
-from sentence_transformers.sentence_transformer.readers import InputExample
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util import cos_sim
 
 # Set the log level to INFO to get more information
@@ -53,7 +55,9 @@ max_seq_length = 128
 
 # Read Datasets ######
 
-dataset = load_dataset("sentence-transformers/stsb")
+train_dataset = load_dataset("sentence-transformers/stsb", split="train")
+eval_dataset = load_dataset("sentence-transformers/stsb", split="validation")
+test_dataset = load_dataset("sentence-transformers/stsb", split="test")
 
 
 cross_encoder_path = (
@@ -100,41 +104,36 @@ bi_encoder = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 logging.info(f"Step 1: Train cross-encoder: {model_name} with STSbenchmark (gold dataset)")
 
-gold_samples = []
-dev_samples = []
-test_samples = []
-
-for row in dataset["validation"]:
-    dev_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
-
-for row in dataset["test"]:
-    test_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
-for row in dataset["train"]:
-    # As we want to get symmetric scores, i.e. CrossEncoder(A,B) = CrossEncoder(B,A), we pass both combinations to the train set
-    gold_samples.append(InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["score"]))
-    gold_samples.append(InputExample(texts=[row["sentence2"], row["sentence1"]], label=row["score"]))
-
-
-# We wrap gold_samples (which is a List[InputExample]) into a pytorch DataLoader
-train_dataloader = DataLoader(gold_samples, shuffle=True, batch_size=batch_size)
-
+# As we want to get symmetric scores, i.e. CrossEncoder(A,B) = CrossEncoder(B,A), we pass both combinations to the train set
+gold_dataset = concatenate_datasets(
+    [train_dataset, train_dataset.rename_columns({"sentence1": "sentence2", "sentence2": "sentence1"})]
+)
 
 # We add an evaluator, which evaluates the performance during training
-evaluator = CrossEncoderCorrelationEvaluator.from_input_examples(dev_samples, name="sts-dev")
-
-# Configure the training
-warmup_steps = math.ceil(len(train_dataloader) * num_epochs * 0.1)  # 10% of train data for warm-up
-logging.info(f"Warmup-steps: {warmup_steps}")
+evaluator = CrossEncoderCorrelationEvaluator(
+    sentence_pairs=[[row["sentence1"], row["sentence2"]] for row in eval_dataset],
+    scores=[row["score"] for row in eval_dataset],
+    name="sts-dev",
+)
 
 # Train the cross-encoder model
-cross_encoder.fit(
-    train_dataloader=train_dataloader,
-    evaluator=evaluator,
-    epochs=num_epochs,
-    evaluation_steps=1000,
-    warmup_steps=warmup_steps,
-    output_path=cross_encoder_path,
+ce_loss = BinaryCrossEntropyLoss(cross_encoder)
+ce_args = CrossEncoderTrainingArguments(
+    output_dir=cross_encoder_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=batch_size,
+    warmup_ratio=0.1,
+    eval_strategy="epoch",
 )
+ce_trainer = CrossEncoderTrainer(
+    model=cross_encoder,
+    args=ce_args,
+    train_dataset=gold_dataset,
+    loss=ce_loss,
+    evaluator=evaluator,
+)
+ce_trainer.train()
+cross_encoder.save_pretrained(f"{cross_encoder_path}/final")
 
 ############################################################################
 #
@@ -151,16 +150,12 @@ logging.info(
 )
 
 silver_data = []
-sentences = set()
-
-for sample in gold_samples:
-    sentences.update(sample.texts)
-
-sentences = list(sentences)  # unique sentences
+sentences = list(set(train_dataset["sentence1"]) | set(train_dataset["sentence2"]))
 sent2idx = {sentence: idx for idx, sentence in enumerate(sentences)}  # storing id and sentence in dictionary
-duplicates = set(
-    (sent2idx[data.texts[0]], sent2idx[data.texts[1]]) for data in gold_samples
-)  # not to include gold pairs of sentences again
+duplicates = set()  # not to include gold pairs of sentences again
+for sentence1, sentence2 in zip(train_dataset["sentence1"], train_dataset["sentence2"]):
+    duplicates.add((sent2idx[sentence1], sent2idx[sentence2]))
+    duplicates.add((sent2idx[sentence2], sent2idx[sentence1]))
 
 
 # For simplicity we use a pretrained model
@@ -194,7 +189,6 @@ progress.close()
 
 logging.info(f"Length of silver_dataset generated: {len(silver_data)}")
 logging.info(f"Step 2.2: Label STSbenchmark (silver dataset) with cross-encoder: {model_name}")
-cross_encoder = CrossEncoder(cross_encoder_path)
 silver_scores = cross_encoder.predict(silver_data)
 
 # All model predictions should be between [0,1]
@@ -208,32 +202,54 @@ assert all(0.0 <= score <= 1.0 for score in silver_scores)
 
 logging.info(f"Step 3: Train bi-encoder: {model_name} with STSbenchmark (gold + silver dataset)")
 
-# Convert the dataset to a DataLoader ready for training
+# Combine the gold and silver pairs for bi-encoder training
 logging.info("Read STSbenchmark gold and silver train dataset")
-silver_samples = list(
-    InputExample(texts=[data[0], data[1]], label=score) for data, score in zip(silver_data, silver_scores)
+silver_samples = Dataset.from_dict(
+    {
+        "sentence1": [data[0] for data in silver_data],
+        "sentence2": [data[1] for data in silver_data],
+        "score": [float(score) for score in silver_scores],
+    }
 )
+bi_encoder_train_dataset = concatenate_datasets([gold_dataset, silver_samples])
 
-
-train_dataloader = DataLoader(gold_samples + silver_samples, shuffle=True, batch_size=batch_size)
 train_loss = CosineSimilarityLoss(model=bi_encoder)
 
 logging.info("Read STSbenchmark dev dataset")
-evaluator = EmbeddingSimilarityEvaluator.from_input_examples(dev_samples, name="sts-dev")
+evaluator = EmbeddingSimilarityEvaluator(
+    sentences1=eval_dataset["sentence1"],
+    sentences2=eval_dataset["sentence2"],
+    scores=eval_dataset["score"],
+    name="sts-dev",
+)
 
-# Configure the training.
-warmup_steps = math.ceil(len(train_dataloader) * num_epochs * 0.1)  # 10% of train data for warm-up
-logging.info(f"Warmup-steps: {warmup_steps}")
+# Define the training arguments
+args = SentenceTransformerTrainingArguments(
+    output_dir=bi_encoder_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=batch_size,
+    per_device_eval_batch_size=batch_size,
+    warmup_ratio=0.1,
+    eval_strategy="steps",
+    eval_steps=0.1,
+    save_strategy="steps",
+    save_steps=0.1,
+    save_total_limit=2,
+    logging_steps=0.05,
+    run_name="augmentation-indomain-semantic-sts",
+)
 
 # Train the bi-encoder model
-bi_encoder.fit(
-    train_objectives=[(train_dataloader, train_loss)],
+trainer = SentenceTransformerTrainer(
+    model=bi_encoder,
+    args=args,
+    train_dataset=bi_encoder_train_dataset,
+    eval_dataset=eval_dataset,
+    loss=train_loss,
     evaluator=evaluator,
-    epochs=num_epochs,
-    evaluation_steps=1000,
-    warmup_steps=warmup_steps,
-    output_path=bi_encoder_path,
 )
+trainer.train()
+bi_encoder.save_pretrained(f"{bi_encoder_path}/final")
 
 #################################################################################
 #
@@ -241,7 +257,10 @@ bi_encoder.fit(
 #
 #################################################################################
 
-# load the stored augmented-sbert model
-bi_encoder = SentenceTransformer(bi_encoder_path)
-test_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(test_samples, name="sts-test")
+test_evaluator = EmbeddingSimilarityEvaluator(
+    sentences1=test_dataset["sentence1"],
+    sentences2=test_dataset["sentence2"],
+    scores=test_dataset["score"],
+    name="sts-test",
+)
 test_evaluator(bi_encoder, output_path=bi_encoder_path)

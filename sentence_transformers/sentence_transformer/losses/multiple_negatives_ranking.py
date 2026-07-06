@@ -9,7 +9,7 @@ from torch import Tensor, nn
 
 from sentence_transformers import util
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.util import all_gather_with_grad
+from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +80,11 @@ class MultipleNegativesRankingLoss(nn.Module):
 
                 The default ("query_to_doc",) matches the standard MultipleNegativesRankingLoss / InfoNCE behavior.
             partition_mode: How to normalize the scores (the softmax denominator):
+
                 - "joint": One joint softmax over all selected directions.
                 - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
                   Not compatible with ``"query_to_query"`` or ``"doc_to_doc"`` directions.
+
             hardness_mode: Strategy for applying hardness weighting. ``None`` (default) disables hardness
                 weighting entirely. Options:
 
@@ -247,7 +249,7 @@ class MultipleNegativesRankingLoss(nn.Module):
             # We do this in such a way that the backward pass on the embeddings can flow back to the original devices.
             queries = all_gather_with_grad(queries)
             docs = [all_gather_with_grad(doc) for doc in docs]
-            if torch.distributed.is_initialized():
+            if is_dist_initialized():
                 rank = torch.distributed.get_rank()
                 offset = rank * batch_size
 

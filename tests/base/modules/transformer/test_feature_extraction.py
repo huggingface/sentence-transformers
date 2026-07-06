@@ -31,6 +31,7 @@ from sentence_transformers.base.modules import Transformer
 from sentence_transformers.util.tensor import batch_to_device
 
 from .conftest import (
+    EXPECT_AUDIO_FAILURE,
     EXPECT_FORWARD_FAIL,
     EXPECT_IMAGE_ONLY_FAILURE,
     EXPECT_IMAGE_VIDEO_FAILURE,
@@ -44,14 +45,6 @@ from .conftest import (
     create_modality_samples,
     load_transformer,
 )
-
-EXPECT_FORWARD_FAIL = EXPECT_FORWARD_FAIL.copy() | {
-    "qwen2_5_vl": (  # Doesn't nicely work with image+video, gives StopIteration on processing
-        "image+video (url, url)",
-        "text+image+video (text, url, url)",
-        "image+video as message (structured, url, url)",
-    )
-}
 
 XFAIL_FEATURE_EXTRACTION = [
     "reformer",  # Outputs last_hidden_state with 2 * hidden_size dimensionality as it concats the same tensor for reversible ResNet, low prio
@@ -167,7 +160,8 @@ class TestTransformerArchitectures:
                 all_parts.update(m)
             elif m != "message":
                 all_parts.add(m)
-        truly_unlisted = [m for m in all_single if m not in all_parts]
+        # 'message' is a container modality, not a tuple part, so don't treat it as a truly-unlisted part
+        truly_unlisted = [m for m in all_single if m not in all_parts and m != "message"]
         if non_message and truly_unlisted:
             bad_tuple = (non_message[0], truly_unlisted[0])
             with subtests.test(msg=f"{bad_tuple} with unlisted part => not supported"):
@@ -198,6 +192,8 @@ class TestTransformerArchitectures:
                 elif arch in EXPECT_IMAGE_VIDEO_FAILURE and "image" in modality_desc and "video" in modality_desc:
                     context = pytest.raises((ValueError, TypeError, AttributeError))
                 elif arch in EXPECT_IMAGE_ONLY_FAILURE and "image" in modality_desc and "+" not in modality_desc:
+                    context = pytest.raises((ValueError, TypeError, AttributeError))
+                elif arch in EXPECT_AUDIO_FAILURE and "audio" in modality_desc:
                     context = pytest.raises((ValueError, TypeError, AttributeError))
                 elif (
                     model.module_output_name == "sentence_embedding"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterable
 from typing import Any
 
@@ -71,8 +72,19 @@ class OnlineContrastiveLoss(nn.Module):
         self.model = model
         self.margin = margin
         self.distance_metric = distance_metric
+        self._checked_labels = False
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor, size_average=False) -> Tensor:
+        if not self._checked_labels:
+            self._checked_labels = True
+            if labels.ne(0).logical_and(labels.ne(1)).any().item():
+                warnings.warn(
+                    "OnlineContrastiveLoss expects binary labels (0 or 1). Pairs with any other label are ignored, "
+                    "since they match neither the positive nor the negative set.",
+                    UserWarning,
+                    stacklevel=4,
+                )
+
         embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
 
         distance_matrix = self.distance_metric(embeddings[0], embeddings[1])
