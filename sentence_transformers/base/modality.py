@@ -431,7 +431,12 @@ class InputFormatter:
             # Text pairs (e.g. ("query", "document")) are routed to pair_to_messages instead
             if len(typed_input) == 1:
                 mod, value = next(iter(typed_input.items()))
-                if mod == "text" and isinstance(value, (tuple, list)) and len(value) == 2 and all(isinstance(v, str) for v in value):
+                if (
+                    mod == "text"
+                    and isinstance(value, (tuple, list))
+                    and len(value) == 2
+                    and all(isinstance(v, str) for v in value)
+                ):
                     messages.append(self.pair_to_messages(value))
                     continue
             messages.append(self.to_message(typed_input))  # type: ignore[arg-type]
