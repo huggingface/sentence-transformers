@@ -578,6 +578,44 @@ def test_native_save_keeps_plain_transformer_unchanged() -> None:
     assert reloaded[0].query_expansion is None
 
 
+def test_pylate_shape_save_round_trips_to_new_query_expansion(tmp_path) -> None:
+    """Save a natively-constructed MVE, rewrite ``config_sentence_transformers.json`` from the new
+    ``query_expansion`` dict shape into the legacy PyLate shape (``query_length`` +
+    ``do_query_expansion``), reload, and confirm ``_parse_model_config`` translates it back into
+    the new-shape dict and that encoded queries are byte-identical to the native model.
+    """
+    import json
+
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+
+    native = MultiVectorEncoder(base)
+    native[0].query_expansion = {"strategy": "pad_attend", "length": 24}
+    q_native = native.encode_query(["some query text"], convert_to_tensor=True)[0]
+
+    native.save_pretrained(str(tmp_path))
+    # Rewrite: drop the new-shape key, add the legacy PyLate keys with equivalent semantics.
+    config_path = tmp_path / "config_sentence_transformers.json"
+    config = json.loads(config_path.read_text())
+    config.pop("query_expansion", None)
+    config["query_length"] = 24
+    config["do_query_expansion"] = True
+    config["attend_to_mask_tokens"] = True  # -> pad_attend, not pad_skip
+    config_path.write_text(json.dumps(config))
+
+    # Reload triggers the PyLate translation path in ``_parse_model_config``.
+    reloaded = MultiVectorEncoder(str(tmp_path))
+
+    # Legacy ``query_length`` + ``do_query_expansion`` translated into the new-shape dict.
+    assert reloaded[0].query_expansion == {"strategy": "pad_attend", "token": None, "length": 24}
+    # ``query_length`` moved into the expansion config, no longer at top level.
+    assert reloaded[0].query_length is None
+
+    q_reloaded = reloaded.encode_query(["some query text"], convert_to_tensor=True)[0]
+    # Same saved weights + equivalent config through the translation path -> byte-identical embeddings.
+    assert q_reloaded.shape == q_native.shape == (24, native.get_embedding_dimension())
+    assert torch.allclose(q_reloaded, q_native, atol=1e-5)
+
+
 def test_hierarchical_pooling_helper_reduces_token_count() -> None:
     emb = torch.nn.functional.normalize(torch.randn(10, 8), p=2, dim=1)
     pooled = pool_document_embeddings(emb, pool_factor=2, protected_tokens=1)
