@@ -430,8 +430,13 @@ class InputFormatter:
             typed_input = {mod: processor_inputs[mod][i] for mod in processor_inputs if mod in modalities}
             # Text pairs (e.g. ("query", "document")) are routed to pair_to_messages instead
             if len(typed_input) == 1:
-                value = next(iter(typed_input.values()))
-                if isinstance(value, (tuple, list)) and len(value) == 2 and all(isinstance(v, str) for v in value):
+                mod, value = next(iter(typed_input.items()))
+                if (
+                    mod == "text"
+                    and isinstance(value, (tuple, list))
+                    and len(value) == 2
+                    and all(isinstance(v, str) for v in value)
+                ):
                     messages.append(self.pair_to_messages(value))
                     continue
             messages.append(self.to_message(typed_input))  # type: ignore[arg-type]
