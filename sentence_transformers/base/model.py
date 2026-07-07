@@ -511,6 +511,21 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             input = module(input, **module_kwargs)
         return input
 
+    def compile(self, *args, **kwargs) -> None:
+        """
+        Compile the model's forward pass with :func:`torch.compile` to speed up inference.
+
+        All arguments are forwarded to :func:`torch.compile`. Inference (e.g. ``encode()`` or ``predict()``) runs
+        the forward pass by calling the model, so compiling the model speeds up these calls.
+
+        .. tip::
+
+            Pass ``dynamic=True`` for inputs with variable sequence lengths, so one compiled kernel handles any
+            length. Explicit ``dynamic=False`` recompiles the model for every new sequence length, which adds
+            significant overhead.
+        """
+        return super().compile(*args, **kwargs)
+
     def preprocess(
         self,
         inputs: list[SingleInput | PairInput],

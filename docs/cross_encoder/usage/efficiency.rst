@@ -99,6 +99,49 @@ If you're using a GPU, then you can use the following options to speed up your i
       scores = model.predict([(query, passage) for passage in passages])
       print(scores)
 
+.. tab:: torch.compile
+
+   :meth:`model.compile() <sentence_transformers.base.model.BaseModel.compile>` wraps the model's forward pass with
+   :func:`torch.compile`. Whether it helps depends strongly on the model and hardware: the benefit grows with model
+   size, and very small models on a fast GPU can see little gain or even a slight slowdown, since their inference is
+   dominated by tokenization and Python overhead. Always measure on your own model, hardware, and inputs. It composes
+   with the fp16/bf16 options above.
+
+   .. code-block:: python
+
+      from sentence_transformers import CrossEncoder
+
+      model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2", model_kwargs={"torch_dtype": "bfloat16"})
+      model.compile(dynamic=True)
+
+      query = "Which planet is known as the Red Planet?"
+      passages = [
+         "Venus is often called Earth's twin because of its similar size and proximity.",
+         "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
+      ]
+      pairs = [(query, passage) for passage in passages]
+      scores = model.predict(pairs)
+
+   ``dynamic=True`` compiles a single kernel that handles any sequence length. For the largest speedup, use
+   ``mode="reduce-overhead"`` instead: it applies CUDA graphs to remove the per-kernel launch overhead that dominates
+   batch-size-1 inference.
+
+   .. code-block:: python
+
+      model.compile(mode="reduce-overhead")
+
+   However, CUDA graphs capture one graph per input shape, so they need stable shapes. Pad every input to a fixed
+   length near your typical length by passing ``padding="max_length"`` through ``processing_kwargs`` when predicting:
+
+   .. code-block:: python
+
+      scores = model.predict(pairs, processing_kwargs={"text": {"padding": "max_length", "max_length": 256}})
+
+   Padding up to a large ``max_seq_length`` (for example 8192) makes every call process the full length and is slower
+   than not compiling at all. CUDA graphs also reuse output buffers, so clone anything you keep across calls (the
+   default ``convert_to_numpy=True`` already copies off the GPU and is safe). Compilation is lazy, so warm the model
+   up on representative inputs before benchmarking or serving.
+
 ONNX
 ----
 

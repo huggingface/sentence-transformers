@@ -903,6 +903,18 @@ Judge whether the Document meets the requirements based on the Query and the Ins
     assert scores == pytest.approx(expected_scores, abs=1e-4)
 
 
+def test_predict_routes_through_module_call(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """predict() must run the forward pass via __call__ so that model.compile() applies to inference."""
+    model = reranker_bert_tiny_model
+    calls = []
+    handle = model.register_forward_hook(lambda module, args, output: calls.append(True))
+    try:
+        model.predict([["Hello there!", "Hello, World!"]])
+    finally:
+        handle.remove()
+    assert calls, "predict() should invoke the model via __call__, not call forward() directly"
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_qwen3_reranker_original_without_prompt():
     """Test original Qwen3 Reranker with Identity activation function."""
