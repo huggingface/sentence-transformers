@@ -468,10 +468,10 @@ class QueryExpansionConfig(TypedDict):
 
     * ``strategy``:
 
-      - ``"pad_skip"`` (classic ColBERT): pad queries to ``Transformer.query_length``, swap pads
-        for ``token`` (defaults to the tokenizer's ``mask_token``), and leave them at
-        ``attention_mask=0`` so the encoder skips them in the forward pass. MaxSim still scores
-        them, the expansion positions soak up query context via the asymmetric attention mask.
+      - ``"pad_skip"`` (classic ColBERT): pad queries to ``length``, swap pads for ``token``
+        (defaults to the tokenizer's ``mask_token``), and leave them at ``attention_mask=0`` so
+        the encoder skips them in the forward pass. MaxSim still scores them, the expansion
+        positions soak up query context via the asymmetric attention mask.
       - ``"pad_attend"``: same as ``"pad_skip"`` but force ``attention_mask=1`` at expansion
         positions so the encoder also attends to them. Used by some ColBERT variants.
       - ``"append_suffix"``: append ``count`` copies of ``token`` to each query *string* before
@@ -486,20 +486,22 @@ class QueryExpansionConfig(TypedDict):
         models: PaliGemma uses ``<pad>``, Qwen2/2.5/3/Omni use ``<|endoftext|>``, Gemma3 uses
         ``<eos>``, Idefics3 / ModernVBERT use ``<end_of_utterance>``.
 
-    * ``count``: number of suffix tokens for ``"append_suffix"`` (default 10). Ignored by the
-      ``pad_*`` strategies, which pad to ``query_length``.
-    TODO: It's a bit awkward that "count" is only used for the "append_suffix" strategy, while
-        there's another, related knob, "query_length", that is only used for the "pad_*" strategies.
-        Does it make sense to remove query_length and only use "count" then? And document_length can
-        instead be just the tokenizer's max_length?
+    * ``count``: number of suffix tokens for ``"append_suffix"``. Optional, defaults to 10 (must
+      be a positive int). Rejected for the ``pad_*`` strategies.
+
+    * ``length``: pad target for ``"pad_skip"`` / ``"pad_attend"``. **Required** for those two
+      strategies (classic ColBERT uses 32). Rejected for ``"append_suffix"``. This is separate
+      from ``Transformer.query_length`` (a content-cap for truncation), so the same knob doesn't
+      quietly serve two purposes.
     """
 
     strategy: Literal["pad_skip", "pad_attend", "append_suffix"]
     token: NotRequired[str | None]
     count: NotRequired[int]
+    length: NotRequired[int]
 
 
-_VALID_QUERY_EXPANSION_KEYS: set[str] = {"strategy", "token", "count"}
+_VALID_QUERY_EXPANSION_KEYS: set[str] = {"strategy", "token", "count", "length"}
 _VALID_QUERY_EXPANSION_STRATEGIES: tuple[str, ...] = ("pad_skip", "pad_attend", "append_suffix")
 
 
@@ -530,11 +532,32 @@ def _normalize_query_expansion(
             "Gemma3 uses '<eos>', Idefics3 / ModernVBERT use '<end_of_utterance>'. Check your "
             "model family's colpali-engine processor for the right value."
         )
-    return {
-        "strategy": strategy,
-        "token": token,
-        "count": query_expansion.get("count", 10),
-    }
+    normalized: QueryExpansionConfig = {"strategy": strategy, "token": token}
+    if strategy in ("pad_skip", "pad_attend"):
+        length = query_expansion.get("length")
+        if not isinstance(length, int) or isinstance(length, bool) or length < 1:
+            raise ValueError(
+                f"query_expansion strategy={strategy!r} requires 'length': a positive int specifying "
+                "the pad target (total tokens after expansion). Classic ColBERT uses 32."
+            )
+        if "count" in query_expansion:
+            raise ValueError(
+                f"query_expansion strategy={strategy!r} does not use 'count'. The pad target "
+                "'length' determines how many expansion tokens are added (length - content). "
+                "'count' is only valid for strategy='append_suffix'."
+            )
+        normalized["length"] = length
+    else:  # append_suffix
+        if "length" in query_expansion:
+            raise ValueError(
+                "query_expansion strategy='append_suffix' does not use 'length'. The suffix count "
+                "is set via 'count' (append_suffix queries are not length-capped)."
+            )
+        count = query_expansion.get("count", 10)
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise ValueError(f"query_expansion['count'] must be a positive int, got {count!r}.")
+        normalized["count"] = count
+    return normalized
 
 
 def _count_media_per_sample(messages: list[list[dict[str, Any]]]) -> tuple[list[int], list[int]]:
@@ -667,10 +690,13 @@ class Transformer(InputModule):
             ``qwen2_vl``). Set to ``True`` to request unpadding explicitly; a warning is logged if the
             prerequisites are not met. Defaults to None.
         query_length (int, optional): Per-task text max-length applied when ``task="query"`` reaches
-            :meth:`preprocess` (e.g. via :meth:`encode_query`). ``None`` (default) falls back to the
-            tokenizer's ``model_max_length``. Used by ColBERT-style retrieval to cap queries shorter
-            than documents and as the pad target for the ``"pad_skip"`` / ``"pad_attend"`` expansion
-            strategies.
+            :meth:`preprocess` (e.g. via :meth:`encode_query`). Content-cap only (truncation). ``None``
+            (default) falls back to the tokenizer's ``model_max_length``. Used by ColBERT-style
+            retrieval to cap queries shorter than documents. Not the pad target: the ``"pad_skip"`` /
+            ``"pad_attend"`` expansion strategies specify their pad target via
+            ``query_expansion["length"]``, which overrides this for those strategies. Ignored for
+            ``"append_suffix"`` queries, which are never length-capped (colpali-engine tokenizes them
+            with ``padding="longest"`` and no truncation, so a cap would eat the appended suffix).
         document_length (int, optional): Per-task text max-length applied when ``task="document"``
             reaches :meth:`preprocess`. ``None`` (default) falls back to the tokenizer's
             ``model_max_length``.
@@ -919,7 +945,7 @@ class Transformer(InputModule):
         """ColBERT-style query expansion config. See :class:`QueryExpansionConfig`. Validated and
         normalized on assignment, so re-setting after construction is safe::
 
-            model[0].query_expansion = {"strategy": "pad_attend"}
+            model[0].query_expansion = {"strategy": "pad_attend", "length": 32}
             model[0].query_expansion = None  # turn off
         """
         return self._query_expansion
@@ -1158,17 +1184,16 @@ class Transformer(InputModule):
         task_max_length = (
             self.query_length if task == "query" else self.document_length if task == "document" else None
         )
-        if task_max_length is not None:
+        # Expansion queries manage their own max_length below (pad_* pads to config length,
+        # append_suffix is left uncapped to match colpali-engine). Skip the generic path for them.
+        expansion = self.query_expansion if task == "query" else None
+        if task_max_length is not None and expansion is None:
             modality_kwargs["text"]["max_length"] = task_max_length
 
-        # Force padding to ``max_length`` for pad_skip / pad_attend queries so the post-tokenization
-        # swap below has explicit pad positions to replace with the expansion token. ``append_suffix``
-        # injects real tokens before tokenization (further down).
-        if (
-            task == "query"
-            and self.query_expansion is not None
-            and self.query_expansion["strategy"] in ("pad_skip", "pad_attend")
-        ):
+        # pad_skip / pad_attend: pad to the config's length so the post-tokenization swap below has
+        # explicit pad positions to replace with the expansion token.
+        if expansion is not None and expansion["strategy"] in ("pad_skip", "pad_attend"):
+            modality_kwargs["text"]["max_length"] = expansion["length"]
             modality_kwargs["text"]["padding"] = "max_length"
 
         effective_processing_kwargs = self._merge_processing_kwargs(processing_kwargs)

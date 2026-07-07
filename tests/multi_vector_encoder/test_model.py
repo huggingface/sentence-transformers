@@ -56,15 +56,14 @@ def test_default_colbert_attributes(model: MultiVectorEncoder) -> None:
     assert mask_module._skiplist_ids is None
 
 
-def test_encode_query_pads_to_query_length() -> None:
-    # Opt into query expansion at construction time. Queries should pad to query_length.
+def test_encode_query_pads_to_expansion_length() -> None:
+    # Opt into query expansion at construction time. Queries pad to expansion["length"].
     base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
     model = MultiVectorEncoder(base)
-    model[0].query_length = 16
-    model[0].query_expansion = {"strategy": "pad_skip"}
+    model[0].query_expansion = {"strategy": "pad_skip", "length": 16}
     emb = model.encode_query(["short query"])
     assert len(emb) == 1
-    assert emb[0].shape[0] == model[0].query_length
+    assert emb[0].shape[0] == 16
     assert emb[0].shape[1] == model.get_embedding_dimension()
 
 
@@ -82,6 +81,22 @@ def test_query_expansion_append_suffix_strategy_appends_tokens() -> None:
     no_expansion = model.encode_query(["short query"])[0]
     # The expansion suffix adds 5 real tokens to the query.
     assert baseline.shape[0] == no_expansion.shape[0] + 5
+
+
+def test_query_expansion_append_suffix_ignores_query_length() -> None:
+    # Audit #2 / colpali parity: colpali-engine never length-caps queries, so append_suffix must
+    # too. The encoded output should be invariant to query_length.
+    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = MultiVectorEncoder(base)
+    model[0].query_expansion = {"strategy": "append_suffix", "token": ".", "count": 10}
+    query = "this is a considerably longer query with many more distinct tokens than the cap allows"
+
+    model[0].query_length = None
+    uncapped = model.encode_query([query])[0]
+    model[0].query_length = 10  # would truncate content and drop the suffix if it applied
+    capped = model.encode_query([query])[0]
+
+    assert capped.shape[0] == uncapped.shape[0]
 
 
 def test_query_expansion_append_suffix_excludes_batch_padding() -> None:
@@ -118,8 +133,48 @@ def test_query_expansion_unknown_key_raises() -> None:
     with pytest.raises(ValueError, match="unknown keys"):
         Transformer(
             "sentence-transformers-testing/stsb-bert-tiny-safetensors",
-            query_expansion={"strategy": "pad_skip", "garbage_key": True},
+            query_expansion={"strategy": "pad_skip", "length": 32, "garbage_key": True},
         )
+
+
+def test_query_expansion_pad_strategy_requires_length() -> None:
+    # pad_skip / pad_attend need an explicit pad target. Without it, silent 16× compute blowup
+    # would follow (audit #1). Catch at construction with a helpful error.
+    for strategy in ("pad_skip", "pad_attend"):
+        with pytest.raises(ValueError, match="requires 'length'"):
+            Transformer(
+                "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+                query_expansion={"strategy": strategy},
+            )
+
+
+def test_query_expansion_append_suffix_rejects_length() -> None:
+    # append_suffix uses count, not length. Raise loudly rather than silently ignore.
+    with pytest.raises(ValueError, match="does not use 'length'"):
+        Transformer(
+            "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+            query_expansion={"strategy": "append_suffix", "token": ".", "length": 32},
+        )
+
+
+def test_query_expansion_pad_strategy_rejects_count() -> None:
+    # pad_* takes its expansion count from length - content. Raise loudly rather than silently ignore.
+    with pytest.raises(ValueError, match="does not use 'count'"):
+        Transformer(
+            "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+            query_expansion={"strategy": "pad_skip", "length": 32, "count": 5},
+        )
+
+
+def test_query_expansion_count_must_be_positive_int() -> None:
+    # Audit #3: bad counts silently no-op'd. Now they raise at construction time. ``True`` is an
+    # ``int`` subclass, so it's included to pin the explicit bool guard.
+    for bad in (0, -1, 1.5, "10", True):
+        with pytest.raises(ValueError, match="must be a positive int"):
+            Transformer(
+                "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+                query_expansion={"strategy": "append_suffix", "token": ".", "count": bad},
+            )
 
 
 def test_query_expansion_pad_strategy_requires_mask_token() -> None:
@@ -132,9 +187,9 @@ def test_query_expansion_pad_strategy_requires_mask_token() -> None:
     transformer.tokenizer.mask_token = None
     try:
         with pytest.raises(ValueError, match="doesn't have"):
-            transformer.query_expansion = {"strategy": "pad_skip"}
+            transformer.query_expansion = {"strategy": "pad_skip", "length": 32}
         with pytest.raises(ValueError, match="doesn't have"):
-            transformer.query_expansion = {"strategy": "pad_attend"}
+            transformer.query_expansion = {"strategy": "pad_attend", "length": 32}
     finally:
         transformer.tokenizer.mask_token = original_mask
         transformer.tokenizer.mask_token_id = original_mask_id
@@ -307,23 +362,23 @@ def test_stanford_metadata_seeds_skiplist_from_mask_punctuation(monkeypatch, tmp
 @pytest.mark.parametrize(
     ("model_config", "expected_qe"),
     [
-        # PyLate marker present, expansion not pinned -> default to PyLate's pad_skip strategy.
-        ({"query_length": 32}, {"strategy": "pad_skip"}),
+        # PyLate marker present, expansion not pinned -> default to pad_skip and move query_length in.
+        ({"query_length": 32}, {"strategy": "pad_skip", "length": 32}),
         # PyLate-shape ``do_query_expansion=False`` translates to "explicitly off".
         ({"query_length": 32, "do_query_expansion": False}, None),
-        # PyLate-shape ``attend_to_mask_tokens=True`` selects the pad_attend strategy.
-        ({"query_length": 32, "attend_to_mask_tokens": True}, {"strategy": "pad_attend"}),
-        # An explicit query_expansion dict is preserved as-is.
+        # PyLate-shape ``attend_to_mask_tokens=True`` selects the pad_attend strategy, still moves length in.
+        ({"query_length": 32, "attend_to_mask_tokens": True}, {"strategy": "pad_attend", "length": 32}),
+        # An explicit query_expansion dict is preserved as-is (no length move for append_suffix).
         (
-            {"query_length": 32, "query_expansion": {"strategy": "append_suffix", "count": 5}},
-            {"strategy": "append_suffix", "count": 5},
+            {"query_length": 32, "query_expansion": {"strategy": "append_suffix", "token": ".", "count": 5}},
+            {"strategy": "append_suffix", "token": ".", "count": 5},
         ),
         # An explicit None for query_expansion is preserved (means "explicitly off").
         ({"query_length": 32, "query_expansion": None}, None),
         # No PyLate markers (bare ST save) -> leave it unset so the Transformer keeps its own default.
         ({"similarity_fn_name": "maxsim"}, "absent"),
-        # A null knob is filtered out, but its presence still marks a PyLate save -> default to pad_skip.
-        ({"query_length": None}, {"strategy": "pad_skip"}),
+        # A null query_length is filtered out. Falls back to the canonical ColBERT default of 32.
+        ({"query_length": None}, {"strategy": "pad_skip", "length": 32}),
     ],
 )
 def test_parse_model_config_translates_pylate_expansion(model_config, expected_qe) -> None:
@@ -458,7 +513,7 @@ def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
         base,
         query_length=16,
         document_length=32,
-        query_expansion={"strategy": "pad_skip"},
+        query_expansion={"strategy": "pad_skip", "length": 16},
     )
     hidden = transformer.get_embedding_dimension()
     model = MultiVectorEncoder(
