@@ -97,9 +97,9 @@ If you're using a GPU, then you can use the following options to speed up your i
       sentences = ["This is an example sentence", "Each sentence is converted"]
       embeddings = model.encode(sentences)
 
-   ``dynamic=True`` compiles a single kernel that handles any sequence length. For the largest speedup, use
-   ``mode="reduce-overhead"`` instead: it applies CUDA graphs to remove the per-kernel launch overhead that dominates
-   batch-size-1 inference.
+   ``dynamic=True`` enables dynamic shapes so a compiled graph can handle variable sequence lengths, reducing
+   recompilation when your inputs vary in length. For the largest speedup, use ``mode="reduce-overhead"`` instead:
+   it applies CUDA graphs to remove the per-kernel launch overhead that dominates batch-size-1 inference.
 
    .. code-block:: python
 
