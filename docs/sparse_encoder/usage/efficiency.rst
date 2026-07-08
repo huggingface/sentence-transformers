@@ -112,7 +112,10 @@ If you're using a GPU, then you can use the following options to speed up your i
 
       embeddings = model.encode(sentences, processing_kwargs={"text": {"padding": "max_length", "max_length": 256}})
 
-   Padding up to a large ``max_seq_length`` (for example 8192) makes every call process the full length and is slower
+   ``max_length`` sets the fixed length that shorter inputs are padded up to and longer inputs are truncated down to.
+   It is optional and defaults to the tokenizer's ``model_max_length``.
+
+   Padding up to a large ``model_max_length`` (for example 8192) makes every call process the full length and is slower
    than not compiling at all. CUDA graphs also reuse output buffers, and ``encode`` returns tensors on the GPU by
    default, so clone any embedding you keep across calls. Compilation is lazy, so warm the model up on representative
    inputs before benchmarking or serving.
