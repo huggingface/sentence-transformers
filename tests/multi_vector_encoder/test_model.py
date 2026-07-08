@@ -12,10 +12,9 @@ from sentence_transformers import MultiVectorEncoder
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.modules import (
-    HierarchicalPooling,
+    HierarchicalTokenPooling,
     MultiVectorMask,
 )
-from sentence_transformers.multi_vector_encoder.modules.hierarchical_pooling import pool_document_embeddings
 from sentence_transformers.multi_vector_encoder.scoring import XTRScores, colbert_scores
 from sentence_transformers.sentence_transformer.modules import Normalize
 from sentence_transformers.util import SimilarityFunction, maxsim, maxsim_pairwise
@@ -618,7 +617,7 @@ def test_pylate_shape_save_round_trips_to_new_query_expansion(tmp_path) -> None:
 
 def test_hierarchical_pooling_helper_reduces_token_count() -> None:
     emb = torch.nn.functional.normalize(torch.randn(10, 8), p=2, dim=1)
-    pooled = pool_document_embeddings(emb, pool_factor=2, protected_tokens=1)
+    pooled = HierarchicalTokenPooling(pool_factor=2, protected_tokens=1).pool([emb])[0]
     # Fewer tokens, same dim, and the protected [CLS] row is untouched.
     assert pooled.shape[0] < emb.shape[0]
     assert pooled.shape[1] == emb.shape[1]
@@ -626,7 +625,7 @@ def test_hierarchical_pooling_helper_reduces_token_count() -> None:
 
 
 def test_hierarchical_pooling_module_pools_documents_not_queries() -> None:
-    module = HierarchicalPooling(pool_factor=2)
+    module = HierarchicalTokenPooling(pool_factor=2)
     emb = torch.nn.functional.normalize(torch.randn(2, 12, 8), p=2, dim=-1)
     mask = torch.ones(2, 12, dtype=torch.long)
 
@@ -645,27 +644,29 @@ def test_hierarchical_pooling_module_in_pipeline() -> None:
     without_pool = MultiVectorEncoder(base).encode_document([text])
 
     pooled_model = MultiVectorEncoder(base)
-    pooled_model.append(HierarchicalPooling(pool_factor=2))
+    pooled_model.append(HierarchicalTokenPooling(pool_factor=2))
     with_pool = pooled_model.encode_document([text])
 
     assert with_pool[0].shape[0] < without_pool[0].shape[0]
 
 
-def test_encode_pool_factor_ignored_when_pooling_module_present(caplog) -> None:
-    """When a ``HierarchicalPooling`` module is already in the pipeline, ``encode(pool_factor=...)`` is
-    suppressed (pool(pool(x)) != pool(x), so a second pass would silently over-pool). A warning is logged."""
+def test_encode_pooling_compounds_and_notes_when_module_present(caplog) -> None:
+    """When a pooling is already in the pipeline AND encode() is called with a per-call ``pooling=``,
+    the per-call pooling compounds on top (a supported way to pool further than the built-in default),
+    and a one-time note is logged for discoverability."""
     base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
     text = "a fairly long document with plenty of distinct tokens to cluster together here"
 
     pooled_model = MultiVectorEncoder(base)
-    pooled_model.append(HierarchicalPooling(pool_factor=2))
+    pooled_model.append(HierarchicalTokenPooling(pool_factor=2))
     module_only = pooled_model.encode_document([text])
 
     with caplog.at_level("WARNING"):
-        module_plus_kwarg = pooled_model.encode_document([text], pool_factor=2)
+        module_plus_kwarg = pooled_model.encode_document([text], pooling=HierarchicalTokenPooling(pool_factor=2))
 
-    assert module_plus_kwarg[0].shape == module_only[0].shape
-    assert any("Ignoring encode(pool_factor=" in record.message for record in caplog.records)
+    # Compounded: strictly fewer tokens than module-only (the per-call pool runs on top).
+    assert module_plus_kwarg[0].shape[0] < module_only[0].shape[0]
+    assert any("compounding" in record.message for record in caplog.records)
 
 
 def test_similarity_function_enum_has_maxsim() -> None:

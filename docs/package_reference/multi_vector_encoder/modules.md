@@ -12,7 +12,18 @@ See also [Training Overview](../../multi_vector_encoder/training_overview.md).
 .. autoclass:: sentence_transformers.multi_vector_encoder.modules.MultiVectorMask
 ```
 
-## HierarchicalPooling
+## BaseTokenPooling
 ```{eval-rst}
-.. autoclass:: sentence_transformers.multi_vector_encoder.modules.HierarchicalPooling
+.. autoclass:: sentence_transformers.multi_vector_encoder.modules.BaseTokenPooling
+    :members: pool, forward
+```
+
+## HierarchicalTokenPooling
+```{eval-rst}
+.. autoclass:: sentence_transformers.multi_vector_encoder.modules.HierarchicalTokenPooling
+```
+
+## LambdaTokenPooling
+```{eval-rst}
+.. autoclass:: sentence_transformers.multi_vector_encoder.modules.LambdaTokenPooling
 ```

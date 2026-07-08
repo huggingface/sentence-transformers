@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from .hierarchical_pooling import HierarchicalPooling
 from .multi_vector_mask import MultiVectorMask
+from .token_pooling import BaseTokenPooling, HierarchicalTokenPooling, LambdaTokenPooling
 
-__all__ = ["HierarchicalPooling", "MultiVectorMask"]
+__all__ = [
+    "BaseTokenPooling",
+    "HierarchicalTokenPooling",
+    "LambdaTokenPooling",
+    "MultiVectorMask",
+]

@@ -21,8 +21,7 @@ from sentence_transformers.base.modality_types import SingleInput
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEncoderModelCardData
-from sentence_transformers.multi_vector_encoder.modules import HierarchicalPooling, MultiVectorMask
-from sentence_transformers.multi_vector_encoder.modules.hierarchical_pooling import pool_document_embeddings
+from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling, MultiVectorMask
 from sentence_transformers.sentence_transformer.modules import Normalize
 from sentence_transformers.util import batch_to_device, load_file_path
 from sentence_transformers.util.misc import import_from_string
@@ -212,7 +211,7 @@ class MultiVectorEncoder(BaseModel):
         normalize_embeddings: bool = False,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
-        pool_factor: int = 1,
+        pooling: BaseTokenPooling | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray:
         """Compute query embeddings. Uses the "query" prompt if available and routes through the query side.
@@ -241,7 +240,7 @@ class MultiVectorEncoder(BaseModel):
             normalize_embeddings=normalize_embeddings,
             pool=pool,
             chunk_size=chunk_size,
-            pool_factor=pool_factor,
+            pooling=pooling,
             task="query",
             **kwargs,
         )
@@ -261,7 +260,7 @@ class MultiVectorEncoder(BaseModel):
         normalize_embeddings: bool = False,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
-        pool_factor: int = 1,
+        pooling: BaseTokenPooling | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray:
         """Compute document embeddings. Uses the first available of ``"document"`` / ``"passage"`` / ``"corpus"``
@@ -294,7 +293,7 @@ class MultiVectorEncoder(BaseModel):
             normalize_embeddings=normalize_embeddings,
             pool=pool,
             chunk_size=chunk_size,
-            pool_factor=pool_factor,
+            pooling=pooling,
             task="document",
             **kwargs,
         )
@@ -315,9 +314,7 @@ class MultiVectorEncoder(BaseModel):
         normalize_embeddings: bool = False,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
-        # TODO: Should we remove pool_factor in favor of e.g. pool_kwargs for more flexibility in the future?
-        # We can always update that in the future with a small decorator though
-        pool_factor: int = 1,  # TODO: Should we reintroduce protected_tokens?
+        pooling: BaseTokenPooling | None = None,
         task: str | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray:
@@ -353,8 +350,10 @@ class MultiVectorEncoder(BaseModel):
                 Defaults to False.
             pool (dict, optional): A multi-process pool created via :meth:`start_multi_process_pool`.
             chunk_size (int, optional): Chunk size for multi-process encoding.
-            pool_factor (int, optional): Hierarchical token-pooling factor for documents (1/pool_factor of
-                the tokens are retained). 1 (default) disables pooling. Only applies to documents.
+            pooling (BaseTokenPooling, optional): Per-call token pooling applied to document embeddings
+                after the pipeline. Skips queries. If the model already bakes a pooling into its
+                pipeline, this compounds on top of it (pooling further); a one-time note is logged so
+                the case is discoverable. Defaults to None.
             task (str, optional): One of ``"query"``, ``"document"``, ``"passage"``, ``"corpus"``. Sets
                 the prefix / length / masking strategy.
 
@@ -406,7 +405,7 @@ class MultiVectorEncoder(BaseModel):
                 convert_to_padded_tensor=False,
                 precision=precision,
                 normalize_embeddings=normalize_embeddings,
-                pool_factor=pool_factor,
+                pooling=pooling,
                 task=task,
                 **kwargs,
             )
@@ -443,15 +442,18 @@ class MultiVectorEncoder(BaseModel):
                 if normalize_embeddings:
                     batch_embeddings = [nn.functional.normalize(emb, p=2, dim=-1) for emb in batch_embeddings]
 
-            if pool_factor > 1 and not is_query:
-                if any(isinstance(module, HierarchicalPooling) for module in self):
+            # Per-call pooling. Queries pass through unchanged. When the model already bakes a pooling
+            # into its pipeline, the per-call pooling compounds on top (a supported way to pool further
+            # than the built-in default); we note it once for the case where the user didn't realize
+            # the loaded checkpoint already pools.
+            if pooling is not None and not is_query:
+                if any(isinstance(module, BaseTokenPooling) for module in self):
                     logger.warning_once(
-                        f"Ignoring encode(pool_factor={pool_factor}): this model already includes a "
-                        "`HierarchicalPooling` module, so per-call pooling would pool tokens twice. "
-                        "Drop `pool_factor` from the encode call to silence this warning."
+                        "This model already includes a token pooling in its pipeline; the per-call "
+                        "`pooling=` pools further on top of it (compounding). Omit it if you only want "
+                        "the model's built-in pooling."
                     )
-                else:
-                    batch_embeddings = self.pool_embeddings_hierarchical(batch_embeddings, pool_factor=pool_factor)
+                batch_embeddings = pooling.pool(batch_embeddings)
 
             if convert_to_numpy:
                 batch_embeddings = [emb.cpu() for emb in batch_embeddings]
@@ -486,35 +488,15 @@ class MultiVectorEncoder(BaseModel):
     @staticmethod
     def _stack_padded(embeddings: Sequence[Tensor | np.ndarray]) -> Tensor:
         """Pad a variable-length list of per-input 2D embeddings into one
-        ``(num_inputs, max_tokens, embedding_dim)`` tensor, padding with 0. The padding mask is
-        recoverable via ``(emb != 0).any(-1)``.
+        ``(num_inputs, max_tokens, embedding_dim)`` tensor, padding with 0. Always right-padded
+        (regardless of the tokenizer's padding side): the input tokenizer's convention is not
+        reachable here — encode() already unpacked features via the mask into a list of 2D. The
+        padding mask is recoverable via ``(emb != 0).any(-1)``.
         """
         if not embeddings:
             return torch.empty(0)
         tensors = [torch.from_numpy(emb) if isinstance(emb, np.ndarray) else emb for emb in embeddings]
         return torch.nn.utils.rnn.pad_sequence(tensors, batch_first=True, padding_value=0)
-
-    def pool_embeddings_hierarchical(
-        self,
-        documents_embeddings: list[Tensor],
-        pool_factor: int = 1,
-        protected_tokens: int = 1,
-    ) -> list[Tensor]:
-        """Reduce the token count of each document via hierarchical (Ward) clustering.
-
-        Keeps the first ``protected_tokens`` tokens unchanged (typically the [CLS] token), then clusters the
-        remaining tokens into ``num_tokens // pool_factor`` clusters and replaces each cluster with its mean.
-        Helpful for indexing long documents at lower storage cost.
-
-        This is the per-call counterpart to the
-        :class:`~sentence_transformers.multi_vector_encoder.modules.HierarchicalPooling` module: ship the
-        module to bake always-on pooling into a model, or use this method / ``encode(pool_factor=...)``
-        for ad-hoc pooling. Don't combine both, or documents get pooled twice.
-        """
-        return [
-            pool_document_embeddings(doc.cpu(), pool_factor=pool_factor, protected_tokens=protected_tokens)
-            for doc in documents_embeddings
-        ]
 
     @property
     def similarity_fn_name(self) -> Literal["maxsim"]:
