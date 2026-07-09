@@ -134,6 +134,7 @@ class MultiVectorEncoder(BaseModel):
     _default_prompts: dict[str, str | None] = {"query": None, "document": None}
     _model_card_model_id_placeholder = "multi_vector_encoder_model_id"
     model_type: str = "MultiVectorEncoder"
+    _SUPPORTED_SIMILARITY_FN_NAMES: ClassVar[tuple[str, ...]] = (SimilarityFunction.MAXSIM.value,)
 
     def __init__(
         self,
@@ -513,9 +514,9 @@ class MultiVectorEncoder(BaseModel):
     ) -> None:
         if isinstance(value, SimilarityFunction):
             value = value.value
-        if value is not None and value != SimilarityFunction.MAXSIM.value:
+        if value is not None and value not in self._SUPPORTED_SIMILARITY_FN_NAMES:
             raise ValueError(
-                f"MultiVectorEncoder only supports the MaxSim similarity function, got {value!r}. "
+                f"MultiVectorEncoder only supports {self._SUPPORTED_SIMILARITY_FN_NAMES}, got {value!r}. "
                 "Cosine / dot / euclidean / manhattan are defined on single vectors and don't compose "
                 "with ragged per-token embeddings."
             )
@@ -632,7 +633,10 @@ class MultiVectorEncoder(BaseModel):
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
         super()._parse_model_config(model_config)
-        # ``similarity_fn_name`` is not inherited from the saved config, as we're currently only supporting "maxsim".
+        # Inherit a supported saved similarity_fn_name unless the user overrode it (legacy cosine/dot fall through).
+        saved_similarity = model_config.get("similarity_fn_name")
+        if self._similarity_fn_name is None and saved_similarity in self._SUPPORTED_SIMILARITY_FN_NAMES:
+            self.similarity_fn_name = saved_similarity
         # PyLate v3 (model_type == "ColBERT") saved a plain Transformer and only [Transformer, Dense]. Flag it
         # so _apply_legacy_fixups appends the missing MultiVectorMask + token-level Normalize.
         self._legacy.is_pylate_v3 = model_config.get("model_type") == "ColBERT"
@@ -968,8 +972,9 @@ class MultiVectorEncoder(BaseModel):
         filtered.append(Normalize(module_input_name="token_embeddings"))
 
         # Source is single-vector: its inherited "cosine"/"dot" can't score ragged per-token embeddings, so
-        # this now-multi-vector model uses MaxSim.
-        self.similarity_fn_name = SimilarityFunction.MAXSIM
+        # this now-multi-vector model uses MaxSim, unless the user picked a supported name themselves.
+        if self._similarity_fn_name is None:
+            self.similarity_fn_name = SimilarityFunction.MAXSIM
 
         # The original README is for a different architecture; clear it so we don't accidentally serve it.
         self._model_card_text = None
