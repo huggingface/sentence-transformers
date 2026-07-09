@@ -423,6 +423,15 @@ def quantize_embeddings(
     if embeddings.dtype in (np.uint8, np.int8):
         raise Exception("Embeddings to quantize must be float rather than int8 or uint8.")
 
+    if embeddings.ndim == 2 and embeddings.shape[0] == 0:
+        # A (0, dim) matrix (e.g. a fully-masked multi-vector document) has nothing to calibrate or
+        # pack: return the correctly-shaped empty output for the precision.
+        dim = embeddings.shape[1]
+        if precision.endswith("int8"):
+            return np.zeros((0, dim), dtype=np.int8 if precision == "int8" else np.uint8)
+        if precision.endswith("binary"):
+            return np.zeros((0, (dim + 7) // 8), dtype=np.int8 if precision == "binary" else np.uint8)
+
     if precision == "float32":
         return embeddings.astype(np.float32)
 

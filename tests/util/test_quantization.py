@@ -82,3 +82,24 @@ def test_binary_quantize_row_independence(precision: str) -> None:
     else:  # ubinary
         assert result[0, 0] == 0xFF, f"All-positive row: expected 255, got {result[0, 0]}"
         assert result[1, 0] == 0x00, f"All-negative row: expected 0, got {result[1, 0]}"
+
+
+def test_quantize_multi_vector_handles_empty_matrices() -> None:
+    """A (0, dim) matrix (e.g. a fully-masked multi-vector document) must quantize to the
+    correctly-shaped empty output instead of crashing packbits / calibration."""
+    rng = np.random.RandomState(0)
+    matrices = [rng.randn(10, 16).astype(np.float32), np.zeros((0, 16), dtype=np.float32)]
+    for precision, dtype, out_dim in [
+        ("int8", np.int8, 16),
+        ("uint8", np.uint8, 16),
+        ("binary", np.int8, 2),
+        ("ubinary", np.uint8, 2),
+    ]:
+        quantized = quantize_embeddings(matrices, precision=precision)
+        assert quantized[0].shape[0] == 10
+        assert quantized[1].shape == (0, out_dim)
+        assert quantized[1].dtype == dtype
+
+    # A corpus of only empty matrices must not crash int8 calibration either.
+    all_empty = quantize_embeddings([np.zeros((0, 16), dtype=np.float32)], precision="int8")
+    assert all_empty[0].shape == (0, 16)
