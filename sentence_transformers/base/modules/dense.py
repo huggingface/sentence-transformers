@@ -49,6 +49,10 @@ class Dense(Module):
         "module_output_name",
         "use_residual",
     ]
+    # Keys at their default are omitted on save so pre-5.7 releases (no unknown-key dropping) can load new saves.
+    _DEFAULT_CONFIG_VALUES: dict[str, bool] = {
+        "use_residual": False,
+    }
 
     def __init__(
         self,
@@ -95,6 +99,9 @@ class Dense(Module):
     def get_config_dict(self):
         config = super().get_config_dict()
         config["activation_function"] = fullname(self.activation_function)
+        for key, default in self._DEFAULT_CONFIG_VALUES.items():
+            if config.get(key) == default:
+                config.pop(key, None)
         return config
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
