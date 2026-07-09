@@ -612,7 +612,7 @@ class TestForward:
             {
                 "modality": "text",
                 "prompt_length": 1,
-                "query_expansion_active": True,
+                "query_expansion_positions": torch.zeros_like(features["input_ids"], dtype=torch.bool),
                 "offset_mapping": torch.zeros(1, seq_len, 2, dtype=torch.long),
                 "overflow_to_sample_mapping": torch.zeros(1, dtype=torch.long),
                 "special_tokens_mask": torch.zeros_like(features["input_ids"]),
@@ -634,7 +634,7 @@ class TestForward:
         for banned in (
             "modality",
             "prompt_length",
-            "query_expansion_active",
+            "query_expansion_positions",
             "offset_mapping",
             "overflow_to_sample_mapping",
             "special_tokens_mask",

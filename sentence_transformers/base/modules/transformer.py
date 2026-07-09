@@ -564,7 +564,7 @@ _NON_MODEL_FEATURE_KEYS = frozenset(
         # Sentence Transformers' own bookkeeping.
         "modality",
         "prompt_length",
-        "query_expansion_active",
+        "query_expansion_positions",
         # Tokenizer extras from return_* flags (return_offsets_mapping, etc.), never forward inputs.
         "offset_mapping",
         "overflow_to_sample_mapping",
@@ -1241,10 +1241,11 @@ class Transformer(InputModule):
 
         # Track per-sample image/video counts before the processor flattens them into single tensors.
         # Losses that minibatch VLM inputs (e.g. CachedMNRL) use these counts to slice visual tensors.
-        # Only used if the Trainer updated track_media_counts to True.
+        # Only used if the Trainer updated track_media_counts to True. Not gated on self.training:
+        # trainer.evaluate() computes the eval loss under model.eval() and needs the counts too.
         num_images_per_sample = None
         num_videos_per_sample = None
-        if self.training and self.track_media_counts and modality == "message":
+        if self.track_media_counts and modality == "message":
             num_images_per_sample, num_videos_per_sample = _count_media_per_sample(processor_inputs["message"])
 
         with suggest_extra_on_exception():
@@ -1283,7 +1284,7 @@ class Transformer(InputModule):
 
         # ColBERT-style query expansion (pad_skip / pad_attend): swap pad positions for the expansion
         # token id so the encoder produces expansion-token embeddings there. The
-        # ``query_expansion_active`` signal below tells downstream modules to score those positions.
+        # ``query_expansion_positions`` mask below tells downstream modules to score those positions.
         is_query = task == "query"
         expansion = self.query_expansion if is_query else None
         if expansion is not None and self.tokenizer is not None:
@@ -1305,14 +1306,15 @@ class Transformer(InputModule):
                     torch.tensor(expansion_id, dtype=input_ids.dtype, device=input_ids.device),
                     input_ids,
                 )
+        # Record where the expansion tokens sit (the tokenizer's pad positions) so the downstream
+        # scoring mask can force-include exactly those positions. Recorded per position rather than
+        # as a per-batch flag so expansion strategies without fixed-width rows stay expressible.
+        if expansion is not None and "attention_mask" in processor_output:
+            processor_output["query_expansion_positions"] = processor_output["attention_mask"] == 0
         # ``pad_attend`` forces attention_mask=1 at expansion positions so the encoder attends to
         # them. ``pad_skip`` leaves them at 0 (the classic ColBERT "skip during forward" trick).
         if expansion is not None and expansion["strategy"] == "pad_attend" and "attention_mask" in processor_output:
             processor_output["attention_mask"] = torch.ones_like(processor_output["attention_mask"])
-        # The downstream all-ones scoring override: expansion tokens sit at attention_mask=0
-        # positions (before ``pad_attend`` flips them above) that the mask must force-include.
-        if expansion is not None:
-            processor_output["query_expansion_active"] = True
 
         return processor_output
 

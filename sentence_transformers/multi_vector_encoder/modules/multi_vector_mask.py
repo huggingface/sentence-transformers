@@ -15,13 +15,13 @@ class MultiVectorMask(Module):
     late-interaction (ColBERT-style) models.
 
     Place this at the end of the module sequence in a :class:`~sentence_transformers.MultiVectorEncoder`.
-    Reads ``task`` from forward kwargs and ``features["query_expansion_active"]`` (set by the
-    :class:`~sentence_transformers.base.modules.Transformer` during preprocess when query expansion
-    is on) to decide:
+    Reads ``task`` from forward kwargs and ``features["query_expansion_positions"]`` (a ``(B, T)``
+    mask set by the :class:`~sentence_transformers.base.modules.Transformer` during preprocess when
+    query expansion is on) to decide:
 
-    - ``task="query"`` and query expansion was active during preprocess: every position counts (mask =
-      all ones). This is the ColBERT trick: expansion positions contribute to MaxSim even if the
-      Transformer's attention didn't see them.
+    - ``task="query"`` and query expansion was active during preprocess: real tokens plus the
+      expansion positions count. This is the ColBERT trick: expansion positions contribute to MaxSim
+      even if the Transformer's attention didn't see them.
     - ``task="query"`` otherwise: use the tokenizer's ``attention_mask`` (only real tokens).
     - Anything else (documents): drop tokens whose IDs are in the skiplist, AND-ed with the
       ``attention_mask``. When ``keep_only_token_ids`` is set, the mask additionally restricts to
@@ -114,8 +114,10 @@ class MultiVectorMask(Module):
         input_ids = features["input_ids"]
         attention_mask = features["attention_mask"].bool()
         if task == "query":
-            if features.get("query_expansion_active"):
-                new_mask = torch.ones_like(input_ids, dtype=torch.bool)
+            expansion_positions = features.get("query_expansion_positions")
+            if expansion_positions is not None:
+                # Force-include the expansion positions in scoring, on top of the real tokens.
+                new_mask = attention_mask | expansion_positions.bool()
             else:
                 new_mask = attention_mask
         else:
