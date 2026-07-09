@@ -216,6 +216,16 @@ class TestPipelineModuleForward:
         out = pooling.forward(features, task="query")
         assert out["token_embeddings"] is embeddings  # unchanged reference
 
+    def test_forward_pools_queries_when_opted_in(self) -> None:
+        # CRISP-style strategies compress queries too: pool_queries=True lifts the query gate.
+        pooling = HierarchicalTokenPooling(pool_factor=2, pool_queries=True)
+        features = {
+            "token_embeddings": _normed((2, 12, 8)),
+            "attention_mask": torch.ones(2, 12, dtype=torch.bool),
+        }
+        out = pooling.forward(features, task="query")
+        assert out["token_embeddings"].shape[1] == 6
+
 
 class TestEncodeWithPooling:
     def test_encode_document_with_pooling_kwarg(self) -> None:
@@ -255,6 +265,17 @@ class TestEncodeWithPooling:
         assert with_pooling.shape == without.shape
         assert torch.equal(with_pooling, without)
 
+    def test_pooling_pools_queries_when_opted_in(self) -> None:
+        model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+        text = "a fairly long query text with many tokens"
+        without = model.encode_query([text], convert_to_tensor=True)[0]
+        pooled = model.encode_query(
+            [text],
+            pooling=HierarchicalTokenPooling(pool_factor=2, pool_queries=True),
+            convert_to_tensor=True,
+        )[0]
+        assert pooled.shape[0] < without.shape[0]
+
     def test_encode_document_with_pooling_and_padded_tensor(self) -> None:
         # Compose the pooling kwarg with convert_to_padded_tensor=True so the batch is re-padded
         # to 3D after pooling. Verifies the two independent code paths cooperate.
@@ -283,6 +304,12 @@ class TestConstructorValidation:
     def test_protected_tokens_must_be_non_negative(self) -> None:
         with pytest.raises(ValueError, match="protected_tokens must be >= 0"):
             HierarchicalTokenPooling(protected_tokens=-1)
+
+    def test_pool_queries_round_trips_through_config(self, tmp_path) -> None:
+        HierarchicalTokenPooling(pool_factor=2, pool_queries=True).save(str(tmp_path))
+        restored = HierarchicalTokenPooling.load(str(tmp_path))
+        assert restored.pool_queries is True
+        assert restored.pool_factor == 2
 
 
 class TestForwardEdgeCases:

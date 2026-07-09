@@ -484,6 +484,155 @@ def test_convert_dense_sentence_transformer_resets_similarity_to_maxsim(tmp_path
     assert isinstance(model[-1], Normalize)
 
 
+def test_convert_dense_st_with_dense_head_redirects_to_token_level(tmp_path) -> None:
+    """Converting a dense SentenceTransformer WITH a Dense head (LaBSE-shape) redirects the head to
+    token level: the conversion drops the Pooling, so sentence-level wiring would KeyError at encode
+    time. The learned projection weights are preserved."""
+    from sentence_transformers import SentenceTransformer
+    from sentence_transformers.sentence_transformer.modules import Pooling
+
+    transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    hidden = transformer.get_embedding_dimension()
+    dense = Dense(in_features=hidden, out_features=64, bias=False, activation_function=torch.nn.Identity())
+    SentenceTransformer(modules=[transformer, Pooling(hidden, "mean"), dense]).save_pretrained(str(tmp_path))
+
+    model = MultiVectorEncoder(str(tmp_path))
+    converted_dense = next(module for module in model if isinstance(module, Dense))
+    assert converted_dense.module_input_name == "token_embeddings"
+    assert converted_dense.module_output_name == "token_embeddings"
+    assert torch.equal(converted_dense.linear.weight.cpu(), dense.linear.weight.cpu())
+    embeddings = model.encode_query(["hello world"], convert_to_tensor=True)
+    assert embeddings[0].shape[1] == 64
+
+
+def test_io_nameless_dense_config_defaults_to_token_level(tmp_path) -> None:
+    """Dense configs that predate module IO names (PyLate / pre-v5.4 ST saves) load token-level via
+    ``_get_module_init_defaults``, keyed on the saved config actually lacking the key rather than on
+    checkpoint provenance markers."""
+    import json
+
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    model.save_pretrained(str(tmp_path))
+    dense_config_path = next(tmp_path.glob("*Dense/config.json"))
+    config = json.loads(dense_config_path.read_text())
+    del config["module_input_name"]
+    del config["module_output_name"]
+    dense_config_path.write_text(json.dumps(config))
+
+    reloaded = MultiVectorEncoder(str(tmp_path))
+    dense = next(module for module in reloaded if isinstance(module, Dense))
+    assert dense.module_input_name == "token_embeddings"
+    assert dense.module_output_name == "token_embeddings"
+
+
+def test_pinned_sentence_level_dense_survives_load(tmp_path) -> None:
+    """A Dense that explicitly pins sentence-level IO names in its saved config is left untouched:
+    the token-level default only fills configs that omitted the key, so an intentional
+    sentence-level Dense in a saved hybrid pipeline survives its own round-trip."""
+    import json
+
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    model.save_pretrained(str(tmp_path))
+    dense_config_path = next(tmp_path.glob("*Dense/config.json"))
+    config = json.loads(dense_config_path.read_text())
+    config["module_input_name"] = "sentence_embedding"
+    config["module_output_name"] = "sentence_embedding"
+    dense_config_path.write_text(json.dumps(config))
+
+    reloaded = MultiVectorEncoder(str(tmp_path))
+    dense = next(module for module in reloaded if isinstance(module, Dense))
+    assert dense.module_input_name == "sentence_embedding"
+    assert dense.module_output_name == "sentence_embedding"
+
+
+def test_similarity_fn_name_setter_rejects_unsupported(model: MultiVectorEncoder) -> None:
+    """Single-vector similarities can't score ragged token embeddings: assignment must fail loud
+    instead of deferring the failure to scoring time."""
+    with pytest.raises(ValueError, match="only supports"):
+        model.similarity_fn_name = "cosine"
+
+
+def test_parse_model_config_reads_back_supported_similarity() -> None:
+    """A saved ``similarity_fn_name`` is read back on load when supported; legacy dense names
+    (cosine / dot) are ignored so the model falls through to the MaxSim default instead of raising."""
+    from sentence_transformers.multi_vector_encoder.model import _LegacyStash
+
+    fresh = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    fresh._legacy = _LegacyStash()
+    fresh._similarity_fn_name = None
+    fresh._parse_model_config({"similarity_fn_name": "maxsim"})
+    assert fresh._similarity_fn_name == "maxsim"
+
+    fresh._similarity_fn_name = None
+    fresh._parse_model_config({"similarity_fn_name": "cosine"})
+    assert fresh._similarity_fn_name is None
+
+
+@pytest.mark.parametrize("strategy", ["pad_skip", "pad_attend"])
+def test_query_expansion_records_per_position_mask(strategy: str) -> None:
+    """Preprocess records WHICH positions hold expansion tokens as a ``(B, T)`` mask (not a
+    per-batch bool), and the scoring mask force-includes exactly those positions on top of the
+    real tokens."""
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    transformer = model[0]
+    n_real = transformer.preprocess(["short query"], task="query")["input_ids"].shape[1]
+
+    transformer.query_expansion = {"strategy": strategy, "length": 16}
+    features = transformer.preprocess(["short query"], task="query")
+    positions = features["query_expansion_positions"]
+    assert positions.dtype == torch.bool
+    assert positions.shape == features["input_ids"].shape
+    assert "query_expansion_active" not in features
+    # Exactly the padded-out positions are marked, and they hold the expansion (mask) token.
+    assert int(positions.sum()) == 16 - n_real
+    assert (features["input_ids"][positions] == transformer.tokenizer.mask_token_id).all()
+
+    # attention OR expansion covers every position for the fixed-width pad_* strategies.
+    scored = model[2].forward(dict(features), task="query")
+    assert scored["attention_mask"].all()
+    assert scored["attention_mask"].shape == (1, 16)
+
+
+def test_multi_vector_mask_respects_partial_expansion_positions() -> None:
+    """The scoring mask force-includes only the marked positions: a position that is neither a real
+    token nor marked as expansion stays excluded (the old per-batch bool blanket-included every
+    position, which only worked for fixed-width pad_* rows)."""
+    mask_module = MultiVectorMask()
+    features = {
+        "input_ids": torch.tensor([[1, 2, 3, 4]]),
+        "attention_mask": torch.tensor([[1, 1, 0, 0]]),
+        "query_expansion_positions": torch.tensor([[False, False, True, False]]),
+    }
+    out = mask_module.forward(features, task="query")
+    assert out["attention_mask"].tolist() == [[True, True, True, False]]
+
+
+def test_media_counts_run_under_eval_mode(monkeypatch) -> None:
+    """trainer.evaluate() collates under model.eval(): the media-count bookkeeping keys on
+    ``track_media_counts`` alone (not ``self.training``), or VLM eval-loss batches lose
+    ``num_images_per_sample`` and fall back to naive sample slicing."""
+    import sentence_transformers.base.modules.transformer as transformer_module
+
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    transformer = model[0]
+    transformer.processor.chat_template = (
+        "{% for message in messages %}{% for item in message['content'] %}{{ item['text'] }}{% endfor %}{% endfor %}"
+    )
+    transformer.modality_config = {**transformer.modality_config, "message": transformer.modality_config["text"]}
+    transformer.track_media_counts = True
+    transformer.eval()
+
+    calls: list[int] = []
+
+    def fake_count(messages):
+        calls.append(len(messages))
+        return [0] * len(messages), [0] * len(messages)
+
+    monkeypatch.setattr(transformer_module, "_count_media_per_sample", fake_count)
+    transformer.preprocess(["short input"], task="document")
+    assert calls, "media counting must run in eval mode when track_media_counts is set"
+
+
 def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
     # A model built from explicit modules + text prefix prompts must save/reload byte-identically.
     base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"

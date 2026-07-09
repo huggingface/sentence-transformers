@@ -63,6 +63,23 @@ def test_information_retrieval_evaluator_rejects_xtr_scoring() -> None:
             )
 
 
+def test_ir_evaluator_defers_scoring_resolution_to_call_time(model: MultiVectorEncoder) -> None:
+    """Default scoring resolves from the evaluated model's ``similarity_fn_name`` inside
+    ``__call__``, not eagerly at init: a model carrying a different multi-vector similarity is
+    scored and labeled with its own function."""
+    evaluator = MultiVectorInformationRetrievalEvaluator(
+        queries={"q0": "What is the capital of France?"},
+        corpus={"d0": "Paris is the capital of France.", "d1": "Berlin is the capital of Germany."},
+        relevant_docs={"q0": {"d0"}},
+        name="late_binding",
+        write_csv=False,
+    )
+    assert evaluator.score_functions is None
+    results = evaluator(model)
+    assert evaluator.score_function_names == [model.similarity_fn_name]
+    assert f"late_binding_{model.similarity_fn_name}_ndcg@10" in results
+
+
 def test_triplet_evaluator(model: MultiVectorEncoder) -> None:
     evaluator = MultiVectorTripletEvaluator(
         anchors=["What is the capital of France?"],

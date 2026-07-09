@@ -239,6 +239,123 @@ def test_mnr_fixed_length_regression() -> None:
     assert torch.isfinite(value)
 
 
+class _TaskRecordingModel(nn.Module):
+    """Records the ``task`` passed on each call and passes features through."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen_tasks: list[str | None] = []
+
+    def __call__(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
+        self.seen_tasks.append(task)
+        return features
+
+
+def test_losses_use_collator_stamped_task_over_positional(varlen_features) -> None:
+    """Losses read the ``task`` the collator stamped into each column's features (positional
+    query/document only as fallback), so ``router_mapping`` overrides reach the model forward."""
+    varlen_features[0]["task"] = "document"
+    varlen_features[1]["task"] = "query"
+    model = _TaskRecordingModel()
+    loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=model)
+    loss(varlen_features, labels=None)
+    # Third column carries no stamp and falls back to the positional default.
+    assert model.seen_tasks == ["document", "query", "document"]
+
+
+def test_cached_mnr_stamped_task_reaches_backward_hook(varlen_features) -> None:
+    """The GradCache second pass re-embeds from the same feature dicts: the stamped task must
+    govern both the no-grad forward and the with-grad re-run."""
+    varlen_features[0]["task"] = "document"  # override the positional "query" for column 0
+    model = _TaskRecordingModel()
+    loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+        model=model, mini_batch_size=2, show_progress_bar=False
+    )
+    value = loss(varlen_features, labels=None)
+    value.backward()
+    # 4 rows / mini_batch_size=2 -> 2 calls per column per phase, 3 columns, 2 phases = 12 calls.
+    assert len(model.seen_tasks) == 12
+    assert all(task == "document" for task in model.seen_tasks), model.seen_tasks
+
+
+class _MaskRewritingModel(nn.Module):
+    """Returns a FRESH output dict whose attention_mask excludes the last two document positions,
+    mimicking a mask module (e.g. skiplist) rewriting the scoring mask. The input dict keeps its
+    original mask, so a loss reading the input mask scores excluded positions."""
+
+    def __call__(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
+        mask = features["attention_mask"].bool().clone()
+        if task != "query":
+            mask[:, -2:] = False
+        return {"token_embeddings": features["token_embeddings"], "attention_mask": mask}
+
+
+def test_losses_read_scoring_mask_from_model_output() -> None:
+    """The scoring mask comes from the model OUTPUT dict (where the mask module rewrote it), not
+    from the input dict: garbage at positions the output mask excludes must not influence any loss."""
+    batch, dim = 3, 8
+
+    def build(corrupt: bool, n_docs: int, batch_size: int = batch) -> list[dict[str, Tensor]]:
+        features = [_make_feature(t_tokens=6, batch=batch_size, dim=dim, seed=1)]
+        for idx in range(n_docs):
+            doc = _make_feature(t_tokens=10, batch=batch_size, dim=dim, seed=2 + idx)
+            if corrupt:
+                with torch.no_grad():
+                    doc["token_embeddings"][:, -2:] = 1e3
+            features.append(doc)
+        return features
+
+    model = _MaskRewritingModel()
+
+    mnrl = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=model)
+    baseline = mnrl(build(corrupt=False, n_docs=2), labels=None).item()
+    corrupted = mnrl(build(corrupt=True, n_docs=2), labels=None).item()
+    assert abs(baseline - corrupted) < 1e-5, f"MNRL read the input mask: {baseline} vs {corrupted}"
+
+    margin_labels = torch.zeros(batch)
+    margin_mse = mve_losses.MultiVectorMarginMSELoss(model=model)
+    baseline = margin_mse(build(corrupt=False, n_docs=2), margin_labels).item()
+    corrupted = margin_mse(build(corrupt=True, n_docs=2), margin_labels).item()
+    assert abs(baseline - corrupted) < 1e-5, f"MarginMSE read the input mask: {baseline} vs {corrupted}"
+
+    # KD shape: 2 queries with a flattened 3-way document column and (2, 3) teacher scores.
+    kd_labels = torch.tensor([[5.0, 1.0, 0.1], [4.0, 0.5, 0.2]])
+    kd = mve_losses.MultiVectorDistillKLDivLoss(model=model)
+
+    def build_kd(corrupt: bool) -> list[dict[str, Tensor]]:
+        query = _make_feature(t_tokens=6, batch=2, dim=dim, seed=7)
+        docs = _make_feature(t_tokens=10, batch=6, dim=dim, seed=8)
+        if corrupt:
+            with torch.no_grad():
+                docs["token_embeddings"][:, -2:] = 1e3
+        return [query, docs]
+
+    baseline = kd(build_kd(corrupt=False), kd_labels).item()
+    corrupted = kd(build_kd(corrupt=True), kd_labels).item()
+    assert abs(baseline - corrupted) < 1e-5, f"DistillKLDiv read the input mask: {baseline} vs {corrupted}"
+
+
+def test_score_metric_config_includes_hyperparameters() -> None:
+    """Configured metric objects serialize with their hyperparameters, so ``XTRScores(k=16)`` and
+    ``XTRScores(k=256)`` are distinguishable in model cards and logs. Plain functions keep
+    serializing as their bare name."""
+    from sentence_transformers.multi_vector_encoder.scoring import XTRKDScores, XTRScores
+
+    loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel(), score_metric=XTRScores(k=16))
+    assert loss.get_config_dict()["score_metric"] == "XTRScores(k=16, document_chunk_size=None)"
+
+    cached = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+        model=_PassthroughModel(), score_metric=XTRScores(k=16, document_chunk_size=4)
+    )
+    assert cached.get_config_dict()["score_metric"] == "XTRScores(k=16, document_chunk_size=4)"
+
+    kd = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel(), score_metric=XTRKDScores(k=8))
+    assert kd.get_config_dict()["score_metric"] == "XTRKDScores(k=8, document_chunk_size=None)"
+
+    default = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
+    assert default.get_config_dict()["score_metric"] == "colbert_scores"
+
+
 def test_mnr_gather_across_devices_single_process_matches_no_gather(varlen_features) -> None:
     """On a single process ``gather_across_devices=True`` must be a no-op: ``all_gather`` falls back to
     the local tensor and ``all_gather_padded`` skips the cross-rank pad, so the loss equals the

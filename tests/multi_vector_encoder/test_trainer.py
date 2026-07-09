@@ -215,3 +215,18 @@ def test_collator_router_mapping_overrides_positional_default(model: MultiVector
     collator(features)
 
     assert seen_tasks == ["document", "query"], f"router_mapping override broken: {seen_tasks}"
+
+
+def test_collator_stamps_resolved_task_into_batch(model: MultiVectorEncoder) -> None:
+    """The collator stamps the task each column was tokenized with as ``{column}_task`` so the
+    losses re-run the model under the same task (instead of re-deriving it positionally), also when
+    ``router_mapping`` overrides the positional default."""
+    collator = MultiVectorEncoderDataCollator(
+        preprocess_fn=model.preprocess,
+        router_mapping={"answer": "document", "question": "query"},
+    )
+    features = [{"answer": "Paris is the capital.", "question": "Capital?"}]
+    batch = collator(features)
+
+    assert batch["answer_task"] == "document"
+    assert batch["question_task"] == "query"
