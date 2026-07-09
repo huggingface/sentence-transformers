@@ -340,8 +340,10 @@ class MultiVectorEncoder(BaseModel):
             convert_to_padded_tensor (bool, optional): If True, pad each input's per-token embedding to the
                 same length and return a single 3D :class:`torch.Tensor` of shape
                 ``(num_inputs, max_tokens, embedding_dim)`` instead of a variable-length list. The
-                padding-mask is reconstructable via ``(emb != 0).any(-1)``. Overrides ``convert_to_numpy``
-                and ``convert_to_tensor`` (always returns a Tensor). Defaults to False.
+                padding-mask is reconstructable via ``(emb != 0).any(-1)``. Note that a real all-zero
+                token embedding (possible after token pooling, not in L2-normalized pipelines) aliases
+                with padding under that reconstruction and is skipped during scoring. Overrides
+                ``convert_to_numpy`` and ``convert_to_tensor`` (always returns a Tensor). Defaults to False.
             precision (str, optional): The output precision. One of ``"float32"``, ``"int8"``, ``"uint8"``,
                 ``"binary"``, ``"ubinary"``. Defaults to ``"float32"``.
             device (str, torch.device, list, or None): Device(s) for computation. Defaults to None.
@@ -352,9 +354,10 @@ class MultiVectorEncoder(BaseModel):
             pool (dict, optional): A multi-process pool created via :meth:`start_multi_process_pool`.
             chunk_size (int, optional): Chunk size for multi-process encoding.
             pooling (BaseTokenPooling, optional): Per-call token pooling applied to document embeddings
-                after the pipeline. Skips queries. If the model already bakes a pooling into its
-                pipeline, this compounds on top of it (pooling further); a one-time note is logged so
-                the case is discoverable. Defaults to None.
+                after the pipeline. Skips queries unless the pooling was built with
+                ``pool_queries=True``. If the model already bakes a pooling into its pipeline, this
+                compounds on top of it (pooling further); a one-time note is logged so the case is
+                discoverable. Defaults to None.
             task (str, optional): One of ``"query"``, ``"document"``, ``"passage"``, ``"corpus"``. Sets
                 the prefix / length / masking strategy.
 
@@ -490,7 +493,8 @@ class MultiVectorEncoder(BaseModel):
         ``(num_inputs, max_tokens, embedding_dim)`` tensor, padding with 0. Always right-padded
         (regardless of the tokenizer's padding side): the input tokenizer's convention is not
         reachable here — encode() already unpacked features via the mask into a list of 2D. The
-        padding mask is recoverable via ``(emb != 0).any(-1)``.
+        padding mask is recoverable via ``(emb != 0).any(-1)``, with the caveat that a real all-zero
+        row (possible after token pooling) aliases with padding. See ``_zero_row_mask``.
         """
         if not embeddings:
             return torch.empty(0)

@@ -337,6 +337,12 @@ def _zero_row_mask(padded: Tensor) -> Tensor:
     Real token embeddings normally carry information in at least one dim, so a fully-zero row is the
     all-but-impossible-except-by-pad signal. This matches the padding pattern emitted by
     ``encode(convert_to_padded_tensor=True)``. Returned in the input dtype (1.0 for real tokens, 0.0 for pad).
+
+    Boundary: a real all-zero row is indistinguishable from padding here and is masked out of
+    scoring. L2-normalized pipelines cannot produce one, but token pooling can (a cluster mean of
+    antipodal vectors cancels to zero). Masking such a row scores it as 0 rather than dtype-min
+    garbage, the preferable failure mode. Any future module that intentionally emits zero rows
+    (e.g. learned pruning) must pass explicit masks instead of relying on this detection.
     """
     return padded.any(dim=-1).to(padded.dtype)
 
