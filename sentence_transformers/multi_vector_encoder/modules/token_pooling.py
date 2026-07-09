@@ -69,13 +69,22 @@ class BaseTokenPooling(Module, ABC):
     """Abstract base for token pooling strategies. Subclasses implement :meth:`_pool_one` (per-sample
     pooling) and set ``config_keys`` for save/load. See the module docstring for the three ways to
     apply a pooling (pipeline module, per-call ``pooling=`` kwarg, standalone :meth:`pool`).
+
+    Args:
+        pool_queries: Also pool query embeddings. Defaults to False (ColBERT-style: only compress
+            the document index). Set to True for strategies that compress queries too, e.g.
+            CRISP-style fixed-k query clustering.
     """
 
+    config_keys: list[str] = ["pool_queries"]
     forward_kwargs: set[str] = {"task"}
 
+    def __init__(self, pool_queries: bool = False) -> None:
+        super().__init__()
+        self.pool_queries = pool_queries
+
     def forward(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
-        # Queries pass through (ColBERT-style: only compress the document index).
-        if task == "query":
+        if task == "query" and not self.pool_queries:
             return features
         token_embeddings = features["token_embeddings"]
         attention_mask = features["attention_mask"].bool()
@@ -134,7 +143,7 @@ class BaseTokenPooling(Module, ABC):
         raise ValueError("embeddings must be a list of 2D tensors or a 3D padded tensor.")
 
     @abstractmethod
-    def _pool_one(self, embedding: Tensor) -> Tensor:
+    def _pool_one(self, embedding: Tensor, **kwargs) -> Tensor:
         """Pool a single ``(num_tokens, D)`` tensor into a ``(num_out, D)`` tensor."""
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
@@ -193,12 +202,13 @@ class HierarchicalTokenPooling(BaseTokenPooling):
             disables pooling (the module becomes a no-op).
         protected_tokens: Leading tokens excluded from pooling (typically ``[CLS]``). Default 1.
             colpali-engine has no protected-token concept: use ``0`` when matching its setup.
+        pool_queries: Also pool query embeddings. Defaults to False (only compress documents).
     """
 
-    config_keys: list[str] = ["pool_factor", "protected_tokens"]
+    config_keys: list[str] = ["pool_factor", "protected_tokens", "pool_queries"]
 
-    def __init__(self, pool_factor: int = 1, protected_tokens: int = 1) -> None:
-        super().__init__()
+    def __init__(self, pool_factor: int = 1, protected_tokens: int = 1, pool_queries: bool = False) -> None:
+        super().__init__(pool_queries=pool_queries)
         if pool_factor < 1:
             raise ValueError(f"pool_factor must be >= 1, got {pool_factor}.")
         if protected_tokens < 0:
@@ -212,7 +222,7 @@ class HierarchicalTokenPooling(BaseTokenPooling):
             return features
         return super().forward(features, task=task)
 
-    def _pool_one(self, embedding: Tensor) -> Tensor:
+    def _pool_one(self, embedding: Tensor, **kwargs) -> Tensor:
         return _hierarchical_pool_one(embedding, self.pool_factor, self.protected_tokens)
 
 
@@ -239,11 +249,11 @@ class LambdaTokenPooling(BaseTokenPooling):
         pooled = pooling.pool(document_embeddings)
     """
 
-    def __init__(self, pool_func: Callable[[Tensor], Tensor]) -> None:
-        super().__init__()
+    def __init__(self, pool_func: Callable[[Tensor], Tensor], pool_queries: bool = False) -> None:
+        super().__init__(pool_queries=pool_queries)
         self.pool_func = pool_func
 
-    def _pool_one(self, embedding: Tensor) -> Tensor:
+    def _pool_one(self, embedding: Tensor, **kwargs) -> Tensor:
         return self.pool_func(embedding)
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:

@@ -443,11 +443,9 @@ class MultiVectorEncoder(BaseModel):
                 if normalize_embeddings:
                     batch_embeddings = [nn.functional.normalize(emb, p=2, dim=-1) for emb in batch_embeddings]
 
-            # Per-call pooling. Queries pass through unchanged. When the model already bakes a pooling
-            # into its pipeline, the per-call pooling compounds on top (a supported way to pool further
-            # than the built-in default); we note it once for the case where the user didn't realize
-            # the loaded checkpoint already pools.
-            if pooling is not None and not is_query:
+            # Per-call pooling. Skips queries unless pool_queries opts in. Compounds on top of any
+            # pooling baked into the pipeline (supported, but noted once in case it's unexpected).
+            if pooling is not None and (not is_query or pooling.pool_queries):
                 if any(isinstance(module, BaseTokenPooling) for module in self):
                     logger.warning_once(
                         "This model already includes a token pooling in its pipeline; the per-call "
