@@ -44,8 +44,14 @@ class MultiVectorMarginMSELoss(nn.Module):
         self.loss_function = nn.MSELoss(reduction="mean" if size_average else "sum")
 
     def get_config_dict(self) -> dict[str, Any]:
+        similarity_fct = getattr(self.similarity_fct, "__name__", type(self.similarity_fct).__name__)
+        # Configured metric objects expose their own config, include it.
+        metric_config = getattr(self.similarity_fct, "get_config_dict", None)
+        if metric_config is not None:
+            args = ", ".join(f"{key}={value!r}" for key, value in metric_config().items())
+            similarity_fct = f"{similarity_fct}({args})"
         return {
-            "similarity_fct": getattr(self.similarity_fct, "__name__", type(self.similarity_fct).__name__),
+            "similarity_fct": similarity_fct,
             "size_average": self.size_average,
         }
 

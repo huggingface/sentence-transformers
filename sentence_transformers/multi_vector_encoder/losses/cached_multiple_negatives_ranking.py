@@ -157,8 +157,14 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         self.random_states: list[list[RandContext]] | None = None
 
     def get_config_dict(self) -> dict[str, Any]:
+        score_metric = getattr(self.score_metric, "__name__", type(self.score_metric).__name__)
+        # Configured metric objects (e.g. XTRScores) expose their own config, include it.
+        metric_config = getattr(self.score_metric, "get_config_dict", None)
+        if metric_config is not None:
+            args = ", ".join(f"{key}={value!r}" for key, value in metric_config().items())
+            score_metric = f"{score_metric}({args})"
         return {
-            "score_metric": getattr(self.score_metric, "__name__", type(self.score_metric).__name__),
+            "score_metric": score_metric,
             "mini_batch_size": self.mini_batch_size,
             "score_mini_batch_size": self.score_mini_batch_size,
             "scale": self.scale,

@@ -57,8 +57,14 @@ class MultiVectorDistillKLDivLoss(nn.Module):
         self.loss_function = nn.KLDivLoss(reduction="batchmean" if size_average else "sum", log_target=True)
 
     def get_config_dict(self) -> dict[str, Any]:
+        score_metric = getattr(self.score_metric, "__name__", type(self.score_metric).__name__)
+        # Configured metric objects (e.g. XTRKDScores) expose their own config, include it.
+        metric_config = getattr(self.score_metric, "get_config_dict", None)
+        if metric_config is not None:
+            args = ", ".join(f"{key}={value!r}" for key, value in metric_config().items())
+            score_metric = f"{score_metric}({args})"
         return {
-            "score_metric": getattr(self.score_metric, "__name__", type(self.score_metric).__name__),
+            "score_metric": score_metric,
             "normalize_scores": self.normalize_scores,
             "temperature": self.temperature,
             "size_average": self.size_average,

@@ -156,6 +156,9 @@ class XTRScores:
         self.k = k
         self.document_chunk_size = document_chunk_size
 
+    def get_config_dict(self) -> dict[str, int | None]:
+        return {"k": self.k, "document_chunk_size": self.document_chunk_size}
+
     def __call__(
         self,
         queries_embeddings: list | np.ndarray | torch.Tensor,
