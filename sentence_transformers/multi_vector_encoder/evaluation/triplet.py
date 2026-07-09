@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from torch import Tensor
 
 from sentence_transformers.sentence_transformer.evaluation.triplet import TripletEvaluator
-from sentence_transformers.util.similarity import maxsim_pairwise
+from sentence_transformers.util.similarity import SimilarityFunction
 
 if TYPE_CHECKING:
     import numpy as np
@@ -34,9 +34,14 @@ class MultiVectorTripletEvaluator(TripletEvaluator):
         super().__init__(*args, **kwargs)
 
     def _get_similarity_functions(self) -> dict:
-        return {
-            "maxsim": lambda a, p, n: (maxsim_pairwise(a, p), maxsim_pairwise(a, n)),
-        }
+        # All supported multi-vector similarities. The parent picks via similarity_fn_names (default: the model's).
+        from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
+
+        functions = {}
+        for name in MultiVectorEncoder._SUPPORTED_SIMILARITY_FN_NAMES:
+            pairwise = SimilarityFunction.to_similarity_pairwise_fn(name)
+            functions[name] = lambda a, p, n, pairwise=pairwise: (pairwise(a, p), pairwise(a, n))
+        return functions
 
     def embed_inputs(
         self,

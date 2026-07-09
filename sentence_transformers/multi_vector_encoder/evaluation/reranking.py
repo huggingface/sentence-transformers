@@ -3,37 +3,29 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sentence_transformers.sentence_transformer.evaluation.reranking import RerankingEvaluator
-from sentence_transformers.util.similarity import maxsim
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from torch import Tensor
 
     from sentence_transformers.base.modality_types import SingleInput
     from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 
 
-def _maxsim_one_to_many(query_embeddings: Tensor | list[Tensor], document_embeddings: list[Tensor]) -> Tensor:
-    """MaxSim score of a single query against many documents, returning shape ``(1, num_documents)``.
-
-    :class:`RerankingEvaluator` calls ``similarity_fct(query_emb, docs_emb)`` with the query as a single
-    token matrix (batched path) or a length-1 list (per-sample path); both are normalised to a one-query
-    batch for :func:`~sentence_transformers.util.maxsim`.
-    """
-    queries = query_embeddings if isinstance(query_embeddings, list) else [query_embeddings]
-    return maxsim(queries, document_embeddings)
-
-
 class MultiVectorRerankingEvaluator(RerankingEvaluator):
     """Reranking evaluator for :class:`~sentence_transformers.MultiVectorEncoder` models.
 
-    Scores each query's candidate documents with MaxSim and reports MAP, MRR@k, and NDCG@k, treating the
-    ``positive`` documents as the relevance ground truth. Useful for evaluating a multi-vector model as a
-    second-stage reranker: a first-stage retriever returns candidates per query (positives mixed with
-    distractors) and the multi-vector model rescores them.
+    Scores each query's candidate documents with the model's multi-vector similarity (MaxSim by
+    default) and reports MAP, MRR@k, and NDCG@k, treating the ``positive`` documents as the relevance
+    ground truth. Useful for evaluating a multi-vector model as a second-stage reranker: a first-stage
+    retriever returns candidates per query (positives mixed with distractors) and the multi-vector
+    model rescores them.
 
     See :class:`~sentence_transformers.sentence_transformer.evaluation.RerankingEvaluator` for the full
-    argument list and the ``samples`` format. This subclass differs only by scoring with MaxSim and encoding
-    queries / documents asymmetrically (via ``encode_query`` / ``encode_document``).
+    argument list and the ``samples`` format. This subclass differs only by resolving the scoring from
+    the model at call time and encoding queries / documents asymmetrically (via ``encode_query`` /
+    ``encode_document``).
     """
 
     def __init__(
@@ -44,16 +36,30 @@ class MultiVectorRerankingEvaluator(RerankingEvaluator):
         batch_size: int = 16,
         show_progress_bar: bool = False,
         write_csv: bool = True,
+        similarity_fct: Callable[[Tensor | list[Tensor], list[Tensor]], Tensor] | None = None,
     ) -> None:
+        self._user_similarity_fct = similarity_fct
         super().__init__(
             samples=samples,
             at_k=at_k,
             name=name,
             write_csv=write_csv,
-            similarity_fct=_maxsim_one_to_many,
+            similarity_fct=similarity_fct,
             batch_size=batch_size,
             show_progress_bar=show_progress_bar,
         )
+
+    def __call__(self, model: MultiVectorEncoder, *args, **kwargs) -> dict[str, float]:
+        if self._user_similarity_fct is None:
+            # The parent calls similarity_fct(query_emb, docs_emb) with the query as a single token
+            # matrix (batched path) or a length-1 list (per-sample path): normalise to a one-query
+            # batch for the model's all-pairs similarity.
+            def one_to_many(query_embeddings: Tensor | list[Tensor], document_embeddings: list[Tensor]) -> Tensor:
+                queries = query_embeddings if isinstance(query_embeddings, list) else [query_embeddings]
+                return model.similarity(queries, document_embeddings)
+
+            self.similarity_fct = one_to_many
+        return super().__call__(model, *args, **kwargs)
 
     def embed_inputs(
         self,

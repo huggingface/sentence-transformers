@@ -10,7 +10,7 @@ from torch import Tensor
 from sentence_transformers.sentence_transformer.evaluation.information_retrieval import (
     InformationRetrievalEvaluator,
 )
-from sentence_transformers.util.similarity import SimilarityFunction, maxsim
+from sentence_transformers.util.similarity import SimilarityFunction
 
 if TYPE_CHECKING:
     import numpy as np
@@ -38,8 +38,9 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             ``(batch_q, chunk, q_tokens, d_tokens)`` scoring intermediate independently of
             ``corpus_chunk_size``. Defaults to 32. Pass ``None`` to score the whole ``corpus_chunk_size``
             in one shot.
-        score_functions (Dict[str, Callable], optional): Override the default ``{"maxsim": maxsim}``
-            scoring. The chosen callable receives ``(queries, documents)`` token tensors and must
+        score_functions (Dict[str, Callable], optional): Override the default scoring, which resolves
+            from the model's ``similarity_fn_name`` at call time (with ``document_chunk_size``
+            applied). The chosen callable receives ``(queries, documents)`` token tensors and must
             return a ``(num_queries, num_documents)`` score matrix. XTR scoring is not supported here
             because it does a global top-k across the whole candidate set, which is incompatible with
             this evaluator's per-chunk corpus scoring.
@@ -116,12 +117,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
                 "embeddings have no Matryoshka-style truncation. Remove truncate_dim to evaluate at "
                 "the full dimension."
             )
-        if score_functions is None:
-            scoring_fn = (
-                maxsim if document_chunk_size is None else partial(maxsim, document_chunk_size=document_chunk_size)
-            )
-            score_functions = {SimilarityFunction.MAXSIM.value: scoring_fn}
-        else:
+        if score_functions is not None:
             # XTR's global top-k would be taken per corpus chunk, silently wrong for any corpus > corpus_chunk_size.
             from sentence_transformers.multi_vector_encoder.scoring import XTRScores, xtr_scores
 
@@ -132,6 +128,9 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
                         f"score_functions[{name!r}] uses XTR scoring, which is incompatible with this "
                         "evaluator's per-chunk corpus scoring (top-k would be per-chunk). Use MaxSim instead."
                     )
+        # When score_functions is None, scoring resolves from the model at call time (see __call__),
+        # so models carrying a different multi-vector similarity are scored and labeled with it.
+        self.document_chunk_size = document_chunk_size
         super().__init__(
             queries=queries,
             corpus=corpus,
@@ -140,6 +139,26 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             score_functions=score_functions,
             **kwargs,
         )
+
+    def __call__(
+        self,
+        model: MultiVectorEncoder,
+        output_path: str | None = None,
+        epoch: int = -1,
+        steps: int = -1,
+        *args,
+        **kwargs,
+    ) -> dict[str, float]:
+        # Resolve the default scoring from the model here instead of letting the parent fall back to
+        # bare model.similarity: this keeps the memory-bounding document_chunk_size wrapper.
+        if self.score_functions is None:
+            scoring_fn = SimilarityFunction.to_similarity_fn(model.similarity_fn_name)
+            if self.document_chunk_size is not None:
+                scoring_fn = partial(scoring_fn, document_chunk_size=self.document_chunk_size)
+            self.score_functions = {model.similarity_fn_name: scoring_fn}
+            self.score_function_names = [model.similarity_fn_name]
+            self._append_csv_headers(self.score_function_names)
+        return super().__call__(model, output_path, epoch, steps, *args, **kwargs)
 
     def embed_inputs(
         self,

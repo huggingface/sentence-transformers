@@ -9,7 +9,6 @@ import torch
 from scipy.stats import spearmanr
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.util.similarity import maxsim_pairwise
 
 if TYPE_CHECKING:
     from sentence_transformers.base.modality_types import SingleInput
@@ -128,10 +127,11 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
                 show_progress_bar=self.show_progress_bar,
                 convert_to_tensor=True,
             )
-            # Regroup per way and score pairwise, giving the same (num_queries, n_ways) student
-            # scores as colbert_kd_scores computes at training time (ragged lists stay mask-exact).
+            # Regroup per way and score pairwise with the model's own similarity, giving the same
+            # (num_queries, n_ways) student scores as the KD loss computes at training time.
+            pairwise = model.similarity_pairwise
             student_scores = torch.stack(
-                [maxsim_pairwise(query_embeddings, flat_doc_embeddings[way::n_ways]).cpu() for way in range(n_ways)],
+                [pairwise(query_embeddings, flat_doc_embeddings[way::n_ways]).cpu() for way in range(n_ways)],
                 dim=1,
             )
             student_logits = student_scores
@@ -149,7 +149,7 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
                 show_progress_bar=self.show_progress_bar,
                 convert_to_tensor=True,
             )
-            student_scores = maxsim_pairwise(query_embeddings, doc_embeddings).cpu()
+            student_scores = model.similarity_pairwise(query_embeddings, doc_embeddings).cpu()
             # One document per query: a per-query distribution is undefined, so this softmaxes over
             # the whole dataset (a single global distribution). Not comparable to the per-query KL.
             teacher_log_probs = torch.log_softmax(self.scores, dim=-1)
