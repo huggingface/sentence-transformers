@@ -840,3 +840,17 @@ def test_pad_expansion_with_message_backbone_raises() -> None:
     transformer.modality_config = {**transformer.modality_config, "message": {"method": "forward"}}
     with pytest.raises(ValueError, match="chat-template"):
         transformer.preprocess(["hello"], task="query")
+
+
+def test_skiplist_words_set_at_init_and_resolved_on_demand() -> None:
+    """The skiplist is set at construction. Changing it on a built model requires the documented
+    resolve_with_tokenizer call, which then takes effect."""
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    mask = next(module for module in model if isinstance(module, MultiVectorMask))
+    document = "hello ! world !"
+    tokens_before = model.encode_document([document])[0].shape[0]
+
+    mask.skiplist_words = ["!"]
+    mask.resolve_with_tokenizer(model.tokenizer)
+    tokens_after = model.encode_document([document])[0].shape[0]
+    assert tokens_after == tokens_before - 2

@@ -106,8 +106,8 @@ class MultiVectorEncoder(BaseModel):
         Length / expansion / masking knobs (``query_length``, ``document_length``, ``query_expansion``,
         ``skiplist_words``, …) live on the underlying modules
         (:class:`~sentence_transformers.base.modules.Transformer` and
-        :class:`~sentence_transformers.multi_vector_encoder.modules.MultiVectorMask`); set them after
-        construction with e.g. ``model[0].query_length = 64``.
+        :class:`~sentence_transformers.multi_vector_encoder.modules.MultiVectorMask`). Saved checkpoints
+        carry them in their config.
 
     Example:
         ::

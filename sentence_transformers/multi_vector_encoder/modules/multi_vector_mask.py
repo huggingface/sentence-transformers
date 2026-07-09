@@ -38,7 +38,8 @@ class MultiVectorMask(Module):
             ``list(string.punctuation)`` to match the original PyLate / Stanford-NLP ColBERT behaviour
             of skipping punctuation, or any other custom list. Legacy PyLate / Stanford-NLP loaders
             apply ``string.punctuation`` automatically so existing saved checkpoints keep their
-            historical behaviour.
+            historical behaviour. Set at construction: changing it on a built model additionally
+            requires calling :meth:`resolve_with_tokenizer` with the model's tokenizer.
         keep_only_token_ids: Allowlist of token IDs to keep in document scoring. Defaults to ``None``
             (no allowlist; every non-skiplisted real token is scored). Set this to the model's
             image-patch token id (e.g. ``processor.image_token_id`` for ColPali / ColQwen2) to
@@ -71,10 +72,12 @@ class MultiVectorMask(Module):
     def resolve_with_tokenizer(self, tokenizer) -> None:
         """Convert ``skiplist_words`` to token IDs using ``tokenizer``.
 
-        Called by :class:`MultiVectorEncoder` after the tokenizer is fully initialised. Re-call if
-        the tokenizer changes. Skiplist words that resolve to ``unk_token_id`` (i.e. don't exist as a
-        single vocab token) are dropped with a warning, otherwise they would silently exclude every
-        real ``[UNK]`` document token from MaxSim scoring.
+        Called by :class:`MultiVectorEncoder` after the tokenizer is fully initialised. The skiplist
+        is meant to be set at construction: if you change ``skiplist_words`` on a built model, call
+        this again with ``model.tokenizer`` for the change to take effect. Skiplist words that
+        resolve to ``unk_token_id`` (i.e. don't exist as a single vocab token) are dropped with a
+        warning, otherwise they would silently exclude every real ``[UNK]`` document token from
+        MaxSim scoring.
         """
         if not self.skiplist_words:
             self._skiplist_ids = None

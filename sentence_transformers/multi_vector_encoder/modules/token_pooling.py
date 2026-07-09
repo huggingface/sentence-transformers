@@ -178,13 +178,21 @@ class HierarchicalTokenPooling(BaseTokenPooling):
     ``protected_tokens`` untouched (typically the ``[CLS]``), clusters the rest into
     ``num_tokens // pool_factor`` groups, and replaces each cluster with its mean.
 
-    Ported from PyLate / colpali-engine. Assumes L2-normalized embeddings (place after a
+    Assumes L2-normalized embeddings (place after a
     :class:`~sentence_transformers.sentence_transformer.modules.Normalize` in the pipeline).
+
+    Reference compatibility: this implementation matches PyLate *after* its condensed-Ward fix
+    (PyLate > 1.3.4). It intentionally does NOT reproduce released PyLate <= 1.3.4 (square-matrix
+    ``linkage`` quirk, protected tokens re-appended at the end) nor colpali-engine's
+    ``HierarchicalTokenPooler`` (different linkage input, cluster means re-normalized to unit norm,
+    no protected-token concept), so indexes pooled with those tools will not be byte-reproducible.
+    For the closest colpali-engine setup, pass ``protected_tokens=0`` and re-normalize afterwards.
 
     Args:
         pool_factor: Keep roughly ``1 / pool_factor`` of each document's tokens. ``1`` (default)
             disables pooling (the module becomes a no-op).
         protected_tokens: Leading tokens excluded from pooling (typically ``[CLS]``). Default 1.
+            colpali-engine has no protected-token concept: use ``0`` when matching its setup.
     """
 
     config_keys: list[str] = ["pool_factor", "protected_tokens"]
