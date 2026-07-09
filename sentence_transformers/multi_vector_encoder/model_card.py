@@ -78,6 +78,10 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
             self.task_name = "semantic search with late interaction"
         if self.pipeline_tag is None:
             self.pipeline_tag = "feature-extraction"
+        # Late interaction is always retrieval: the base then sources widget examples positionally,
+        # query from the first dataset column and documents from the second.
+        if self.ir_model is None:
+            self.ir_model = True
 
     def get_model_specific_metadata(self) -> dict[str, Any]:
         metadata = super().get_model_specific_metadata()
@@ -99,22 +103,36 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
         if not self.generate_widget_examples:
             return
 
-        self.usage_examples = self.usage_examples[:3]
+        self.usage_examples = self.usage_examples[:4]
         prepared_examples = [self._prepare_for_inference(item) for item in self.usage_examples]
-        query_embeddings = self.model.encode_query(prepared_examples, convert_to_tensor=True, show_progress_bar=False)
-        doc_embeddings = self.model.encode_document(prepared_examples, convert_to_tensor=True, show_progress_bar=False)
+        # Mirror the positional queries / documents split of the generated snippet (first example is
+        # the query, the rest are documents) so the printed similarity matrix matches what a user
+        # running the snippet sees. Text-only examples stay symmetric.
+        if self._is_multimodal_snippet() and len(prepared_examples) >= 2:
+            queries = prepared_examples[:1]
+            documents = prepared_examples[1:]
+        else:
+            queries = documents = prepared_examples
+        query_embeddings = self.model.encode_query(queries, convert_to_tensor=True, show_progress_bar=False)
+        doc_embeddings = self.model.encode_document(documents, convert_to_tensor=True, show_progress_bar=False)
         similarity = self.model.similarity(query_embeddings, doc_embeddings)
 
         with torch._tensor_str.printoptions(precision=4, sci_mode=False):
             self.similarities = "\n".join(f"# {line}" for line in str(similarity.cpu()).splitlines())
 
+    def _is_multimodal_snippet(self) -> bool:
+        """Whether the usage examples contain non-text items. Classified on ``usage_examples`` (the
+        original values): by rendering time, ``usage_examples_display`` has already converted images
+        to asset path strings, so a type check on it would classify every image as text."""
+        source = self.usage_examples or self.usage_examples_display
+        return bool(source) and any(not isinstance(item, (str, list)) for item in source)
+
     def generate_usage_snippet(self) -> str:
         # MV encode() returns variable-length per-token lists (no `.shape`), so the base snippet is wrong.
-        # ColPali-style checkpoints emit text queries + image documents, text-only checkpoints use symmetric encode_query / encode_document.
+        # Multimodal examples split positionally (query + documents), text-only checkpoints use
+        # symmetric encode_query / encode_document.
         display = self.usage_examples_display or self.usage_examples
-        source = self.usage_examples or display
-        has_non_text = bool(source) and any(not isinstance(item, (str, list)) for item in source)
-        if has_non_text:
+        if self._is_multimodal_snippet() and display and len(display) >= 2:
             return self._generate_multimodal_snippet(display)
         return self._generate_text_only_snippet(display)
 
@@ -154,19 +172,17 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
         return "```python\n" + "\n".join(lines) + "\n```"
 
     def _generate_multimodal_snippet(self, display: list) -> str:
-        """Image / multimodal-document usage snippet for ColPali-style models. Text items in
-        ``display`` (if any) become example queries; non-text items become example documents. A
-        generic placeholder query is used if no text items are present.
+        """Image / multimodal-document usage snippet for ColPali-style models. The split is
+        positional, matching how the base sources IR usage examples: the first item is the query
+        (first dataset column), the rest are documents (second column).
         """
         model_class = self._snippet_model_class
         model_id = self.model_id or self._snippet_default_model_id
         output_dim = self._get_snippet_output_dimensionality()
 
-        text_items = [item for item in display if isinstance(item, (str, list))]
-        non_text_items = [item for item in display if not isinstance(item, (str, list))]
-        queries_repr = text_items or ["A query about the document."]
+        queries_repr = display[:1]
+        non_text_items = display[1:]
 
-        # TODO: Check that this renders nicely in the model card with various multimodal settings
         lines = [
             f"from sentence_transformers import {model_class}",
             "",

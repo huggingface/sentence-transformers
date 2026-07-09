@@ -105,14 +105,24 @@ class TestGenerateUsageSnippetTextOnly:
 
 class TestGenerateUsageSnippetMultimodal:
     def test_dispatch_on_image_item(self) -> None:
+        # The split is positional (first example is the query, the rest are documents), matching
+        # how the base sources IR usage examples from the first two dataset columns.
         data = _make_data()
         image = Image.new("RGB", (8, 8))
-        data.usage_examples = [image]
+        data.usage_examples = ["What is shown in the chart?", image]
         snippet = data.generate_usage_snippet()
 
         assert "queries = [" in snippet
         assert "documents = [" in snippet
-        assert "A query about the document." in snippet  # default query placeholder
+
+    def test_single_example_falls_back_to_text_snippet(self) -> None:
+        # One example cannot split into query + documents, so the symmetric snippet is used.
+        data = _make_data()
+        data.usage_examples = [Image.new("RGB", (8, 8))]
+        snippet = data.generate_usage_snippet()
+
+        assert "queries = [" not in snippet
+        assert "documents = [" not in snippet
 
     def test_mixed_text_and_image_splits_queries_documents(self) -> None:
         data = _make_data()
@@ -120,15 +130,13 @@ class TestGenerateUsageSnippetMultimodal:
         data.usage_examples = ["What is shown in the chart?", image]
         snippet = data.generate_usage_snippet()
 
-        # Text item becomes the example query, image item becomes the example document.
+        # The first example becomes the query, the image document follows it.
         assert "What is shown in the chart?" in snippet
         assert snippet.index("What is shown in the chart?") < snippet.index("documents = [")
-        # The default placeholder shouldn't be there since a text query was supplied.
-        assert "A query about the document." not in snippet
 
     def test_uses_multi_vector_encoder_class_name(self) -> None:
         data = _make_data()
-        data.usage_examples = [Image.new("RGB", (8, 8))]
+        data.usage_examples = ["What is shown in the chart?", Image.new("RGB", (8, 8))]
         snippet = data.generate_usage_snippet()
 
         assert "from sentence_transformers import MultiVectorEncoder" in snippet
@@ -136,11 +144,11 @@ class TestGenerateUsageSnippetMultimodal:
 
     def test_shape_comment_uses_query_and_document_counts(self) -> None:
         data = _make_data()
-        data.usage_examples = ["Q1", "Q2", Image.new("RGB", (8, 8)), Image.new("RGB", (8, 8))]
+        data.usage_examples = ["Q1", "doc text", Image.new("RGB", (8, 8)), Image.new("RGB", (8, 8))]
         snippet = data.generate_usage_snippet()
 
-        # 2 query strings, 2 image documents.
-        assert "# [2, 2]" in snippet
+        # Positional split: 1 query (first example), 3 documents (the rest, text or image).
+        assert "# [1, 3]" in snippet
 
 
 class TestModelCardDataDefaults:
