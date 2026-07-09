@@ -66,58 +66,51 @@ def test_encode_query_pads_to_expansion_length() -> None:
     assert emb[0].shape[1] == model.get_embedding_dimension()
 
 
-def test_query_expansion_append_suffix_strategy_appends_tokens() -> None:
-    # append_suffix: inject `count` copies of `token` into each query string before tokenization.
-    # Used by ColQwen2 / ColGemma3 / ColIdefics3 (no mask token).
-    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-    model = MultiVectorEncoder(base)
+def test_chat_template_receives_task_kwarg() -> None:
+    """Chat-template backbones own their query augmentation in the template (the colpali-engine
+    suffix pattern): preprocess forwards ``task`` into ``apply_chat_template`` so the template can
+    branch, appending suffix tokens only for query renders."""
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
     transformer = model[0]
-    # ``.`` is a single token in BERT WordPiece.
-    transformer.query_expansion = {"strategy": "append_suffix", "token": ".", "count": 5}
+    transformer.processor.chat_template = (
+        "{% for message in messages %}"
+        "{% for item in message['content'] %}{{ item['text'] }}{% endfor %}"
+        "{% endfor %}"
+        "{% if task is defined and task == 'query' %} . . . . .{% endif %}"
+    )
+    transformer.modality_config = {**transformer.modality_config, "message": transformer.modality_config["text"]}
 
-    baseline = model.encode_query(["short query"])[0]
-    transformer.query_expansion = None
-    no_expansion = model.encode_query(["short query"])[0]
-    # The expansion suffix adds 5 real tokens to the query.
-    assert baseline.shape[0] == no_expansion.shape[0] + 5
-
-
-def test_query_expansion_append_suffix_ignores_query_length() -> None:
-    # Audit #2 / colpali parity: colpali-engine never length-caps queries, so append_suffix must
-    # too. The encoded output should be invariant to query_length.
-    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-    model = MultiVectorEncoder(base)
-    model[0].query_expansion = {"strategy": "append_suffix", "token": ".", "count": 10}
-    query = "this is a considerably longer query with many more distinct tokens than the cap allows"
-
-    model[0].query_length = None
-    uncapped = model.encode_query([query])[0]
-    model[0].query_length = 10  # would truncate content and drop the suffix if it applied
-    capped = model.encode_query([query])[0]
-
-    assert capped.shape[0] == uncapped.shape[0]
+    query_ids = transformer.preprocess(["short input"], task="query")["input_ids"][0]
+    document_ids = transformer.preprocess(["short input"], task="document")["input_ids"][0]
+    # The template appended 5 suffix tokens to the query render only.
+    assert query_ids.shape[0] == document_ids.shape[0] + 5
 
 
-def test_query_expansion_append_suffix_excludes_batch_padding() -> None:
-    # append_suffix tokens are real (attention_mask=1), so a query's token count must not depend on
-    # what else shares its batch. Regression: query_expansion_active used to force an all-ones mask for
-    # append_suffix too, pulling the longer query's batch padding into the shorter query's embedding.
-    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-    model = MultiVectorEncoder(base)
-    model[0].query_expansion = {"strategy": "append_suffix", "token": ".", "count": 5}
-    alone = model.encode_query(["hi"])[0]
-    batched = model.encode_query(["hi", "a considerably longer query with many more distinct tokens here"])[0]
-    assert alone.shape[0] == batched.shape[0]
+def test_task_not_forwarded_to_templates_that_ignore_it() -> None:
+    """transformers >= 5.4 treats apply_chat_template kwargs that are not template variables as
+    processor kwargs and REPLACES the ones we pass (dropping padding / truncation), so ``task`` is
+    only forwarded when the template declares it. A stock template must render identically for
+    query and document tasks, and batched ragged inputs must still pad."""
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    transformer = model[0]
+    transformer.processor.chat_template = (
+        "{% for message in messages %}{% for item in message['content'] %}{{ item['text'] }}{% endfor %}{% endfor %}"
+    )
+    transformer.modality_config = {**transformer.modality_config, "message": transformer.modality_config["text"]}
+
+    query_features = transformer.preprocess(["short", "a considerably longer input here"], task="query")
+    document_features = transformer.preprocess(["short", "a considerably longer input here"], task="document")
+    assert query_features["input_ids"].shape == document_features["input_ids"].shape
+    assert torch.equal(query_features["input_ids"], document_features["input_ids"])
 
 
-def test_query_expansion_append_suffix_requires_explicit_token() -> None:
-    # ``append_suffix`` has no universal default token (each ColPali family uses a different one),
-    # so we require the user to set ``token`` explicitly. Error fires at construction, not encode.
-    with pytest.raises(ValueError, match="requires an explicit 'token'"):
-        Transformer(
-            "sentence-transformers-testing/stsb-bert-tiny-safetensors",
-            query_expansion={"strategy": "append_suffix", "count": 4},
-        )
+@pytest.mark.slow
+def test_task_kwarg_does_not_break_stock_template_processor() -> None:
+    """End-to-end guard on a real ProcessorMixin backbone with a stock (non-task-aware) chat
+    template: batched ragged text preprocessing with a task must neither crash nor lose padding."""
+    transformer = Transformer("hf-internal-testing/tiny-random-Qwen2VLForConditionalGeneration")
+    features = transformer.preprocess(["short", "a considerably longer input with more tokens"], task="document")
+    assert features["input_ids"].shape[0] == 2
 
 
 def test_query_expansion_strategy_invalid_value_raises() -> None:
@@ -147,33 +140,14 @@ def test_query_expansion_pad_strategy_requires_length() -> None:
             )
 
 
-def test_query_expansion_append_suffix_rejects_length() -> None:
-    # append_suffix uses count, not length. Raise loudly rather than silently ignore.
-    with pytest.raises(ValueError, match="does not use 'length'"):
-        Transformer(
-            "sentence-transformers-testing/stsb-bert-tiny-safetensors",
-            query_expansion={"strategy": "append_suffix", "token": ".", "length": 32},
-        )
-
-
-def test_query_expansion_pad_strategy_rejects_count() -> None:
-    # pad_* takes its expansion count from length - content. Raise loudly rather than silently ignore.
-    with pytest.raises(ValueError, match="does not use 'count'"):
+def test_query_expansion_rejects_count_key() -> None:
+    # The suffix-count knob belonged to the removed append_suffix strategy (chat templates own that
+    # pattern now): a leftover 'count' is an unknown key, raised loudly rather than silently ignored.
+    with pytest.raises(ValueError, match="unknown keys"):
         Transformer(
             "sentence-transformers-testing/stsb-bert-tiny-safetensors",
             query_expansion={"strategy": "pad_skip", "length": 32, "count": 5},
         )
-
-
-def test_query_expansion_count_must_be_positive_int() -> None:
-    # Audit #3: bad counts silently no-op'd. Now they raise at construction time. ``True`` is an
-    # ``int`` subclass, so it's included to pin the explicit bool guard.
-    for bad in (0, -1, 1.5, "10", True):
-        with pytest.raises(ValueError, match="must be a positive int"):
-            Transformer(
-                "sentence-transformers-testing/stsb-bert-tiny-safetensors",
-                query_expansion={"strategy": "append_suffix", "token": ".", "count": bad},
-            )
 
 
 def test_query_expansion_pad_strategy_requires_mask_token() -> None:
@@ -200,7 +174,7 @@ def test_query_expansion_token_not_in_vocab_raises() -> None:
     with pytest.raises(ValueError, match="vocabulary"):
         Transformer(
             "sentence-transformers-testing/stsb-bert-tiny-safetensors",
-            query_expansion={"strategy": "append_suffix", "token": "<not_a_real_token>"},
+            query_expansion={"strategy": "pad_skip", "length": 32, "token": "<not_a_real_token>"},
         )
 
 
@@ -371,10 +345,10 @@ def test_stanford_metadata_seeds_skiplist_from_mask_punctuation(monkeypatch, tmp
         ({"query_length": 32, "attend_to_expansion_tokens": False}, {"strategy": "pad_skip", "length": 32}),
         # The Stanford artifact.metadata spelling is honored as a fallback for hand-written configs.
         ({"query_length": 32, "attend_to_mask_tokens": True}, {"strategy": "pad_attend", "length": 32}),
-        # An explicit query_expansion dict is preserved as-is (no length move for append_suffix).
+        # An explicit query_expansion dict is preserved as-is (no query_length move).
         (
-            {"query_length": 32, "query_expansion": {"strategy": "append_suffix", "token": ".", "count": 5}},
-            {"strategy": "append_suffix", "token": ".", "count": 5},
+            {"query_length": 48, "query_expansion": {"strategy": "pad_attend", "token": ".", "length": 64}},
+            {"strategy": "pad_attend", "token": ".", "length": 64},
         ),
         # An explicit None for query_expansion is preserved (means "explicitly off").
         ({"query_length": 32, "query_expansion": None}, None),
@@ -831,3 +805,38 @@ def test_multimodal_smoke_image_document_through_mve() -> None:
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+def test_pad_expansion_query_length_conflict_raises() -> None:
+    """With pad_* strategies, queries tokenize directly to the expansion length, so a smaller
+    query_length content cap is inexpressible and fails loud when the expansion is assigned."""
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    transformer = model[0]
+    transformer.query_length = 8
+    with pytest.raises(ValueError, match="query_length=8"):
+        transformer.query_expansion = {"strategy": "pad_skip", "length": 16}
+
+
+def test_prompt_length_ignores_query_expansion() -> None:
+    """The prompt length feeds prompt-aware pooling and must report the prompt's own token count,
+    not the expansion-padded width."""
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    transformer = model[0]
+    prompt = "search query: "
+    transformer.query_expansion = {"strategy": "pad_skip", "length": 32}
+    with_expansion = transformer._get_prompt_length(prompt, task="query")
+    transformer.query_expansion = None
+    without_expansion = transformer._get_prompt_length(prompt, task="query")
+    assert with_expansion == without_expansion
+    assert with_expansion < 32
+
+
+def test_pad_expansion_with_message_backbone_raises() -> None:
+    """pad_* on a chat-template (message) backbone would render queries through the template and
+    truncate to the expansion length, collapsing different queries to the same preamble."""
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    transformer = model[0]
+    transformer.query_expansion = {"strategy": "pad_skip", "length": 16}
+    transformer.modality_config = {**transformer.modality_config, "message": {"method": "forward"}}
+    with pytest.raises(ValueError, match="chat-template"):
+        transformer.preprocess(["hello"], task="query")

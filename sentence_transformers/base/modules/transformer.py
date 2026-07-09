@@ -474,35 +474,28 @@ class QueryExpansionConfig(TypedDict):
         positions soak up query context via the asymmetric attention mask.
       - ``"pad_attend"``: same as ``"pad_skip"`` but force ``attention_mask=1`` at expansion
         positions so the encoder also attends to them. Used by some ColBERT variants.
-      - ``"append_suffix"``: append ``count`` copies of ``token`` to each query *string* before
-        tokenization. Suffix tokens are real with ``attention_mask=1``. The colpali-engine
-        pattern for decoder-only VLM backbones (ColQwen2 / ColGemma3 / ColIdefics3 / SmolVLM)
-        that lack a mask token.
 
-    * ``token``:
+    * ``token``: defaults to the tokenizer's ``mask_token``.
 
-      - For ``"pad_skip"`` / ``"pad_attend"``: defaults to the tokenizer's ``mask_token``.
-      - For ``"append_suffix"``: **required** (no universal default). Per published ColPali
-        models: PaliGemma uses ``<pad>``, Qwen2/2.5/3/Omni use ``<|endoftext|>``, Gemma3 uses
-        ``<eos>``, Idefics3 / ModernVBERT use ``<end_of_utterance>``.
+    * ``length``: pad target (total tokens after expansion). **Required** (classic ColBERT uses
+      32). This is separate from ``Transformer.query_length`` (a content-cap for truncation), so
+      the same knob doesn't quietly serve two purposes.
 
-    * ``count``: number of suffix tokens for ``"append_suffix"``. Optional, defaults to 10 (must
-      be a positive int). Rejected for the ``pad_*`` strategies.
-
-    * ``length``: pad target for ``"pad_skip"`` / ``"pad_attend"``. **Required** for those two
-      strategies (classic ColBERT uses 32). Rejected for ``"append_suffix"``. This is separate
-      from ``Transformer.query_length`` (a content-cap for truncation), so the same knob doesn't
-      quietly serve two purposes.
+    Both strategies exist for classic mask-token checkpoints (PyLate / Stanford-NLP ColBERT):
+    their attention-mask surgery and fixed-length pad target cannot be expressed in a chat
+    template. Modern chat-template backbones (the colpali-engine ColQwen / ColGemma / ColIdefics
+    families) should instead own their query augmentation in the checkpoint's chat template,
+    which receives the ``task`` kwarg and can e.g. append the family's suffix tokens for
+    ``task == "query"`` renders.
     """
 
-    strategy: Literal["pad_skip", "pad_attend", "append_suffix"]
+    strategy: Literal["pad_skip", "pad_attend"]
     token: NotRequired[str | None]
-    count: NotRequired[int]
     length: NotRequired[int]
 
 
-_VALID_QUERY_EXPANSION_KEYS: set[str] = {"strategy", "token", "count", "length"}
-_VALID_QUERY_EXPANSION_STRATEGIES: tuple[str, ...] = ("pad_skip", "pad_attend", "append_suffix")
+_VALID_QUERY_EXPANSION_KEYS: set[str] = {"strategy", "token", "length"}
+_VALID_QUERY_EXPANSION_STRATEGIES: tuple[str, ...] = ("pad_skip", "pad_attend")
 
 
 def _normalize_query_expansion(
@@ -525,38 +518,14 @@ def _normalize_query_expansion(
             f"query_expansion['strategy'] must be one of {_VALID_QUERY_EXPANSION_STRATEGIES!r}, got {strategy!r}."
         )
     token = query_expansion.get("token")
-    if strategy == "append_suffix" and token is None:
-        raise ValueError(
-            "query_expansion strategy='append_suffix' requires an explicit 'token'. There is no "
-            "universal default: PaliGemma uses '<pad>', Qwen2/2.5/3/Omni use '<|endoftext|>', "
-            "Gemma3 uses '<eos>', Idefics3 / ModernVBERT use '<end_of_utterance>'. Check your "
-            "model family's colpali-engine processor for the right value."
-        )
     normalized: QueryExpansionConfig = {"strategy": strategy, "token": token}
-    if strategy in ("pad_skip", "pad_attend"):
-        length = query_expansion.get("length")
-        if not isinstance(length, int) or isinstance(length, bool) or length < 1:
-            raise ValueError(
-                f"query_expansion strategy={strategy!r} requires 'length': a positive int specifying "
-                "the pad target (total tokens after expansion). Classic ColBERT uses 32."
-            )
-        if "count" in query_expansion:
-            raise ValueError(
-                f"query_expansion strategy={strategy!r} does not use 'count'. The pad target "
-                "'length' determines how many expansion tokens are added (length - content). "
-                "'count' is only valid for strategy='append_suffix'."
-            )
-        normalized["length"] = length
-    else:  # append_suffix
-        if "length" in query_expansion:
-            raise ValueError(
-                "query_expansion strategy='append_suffix' does not use 'length'. The suffix count "
-                "is set via 'count' (append_suffix queries are not length-capped)."
-            )
-        count = query_expansion.get("count", 10)
-        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
-            raise ValueError(f"query_expansion['count'] must be a positive int, got {count!r}.")
-        normalized["count"] = count
+    length = query_expansion.get("length")
+    if not isinstance(length, int) or isinstance(length, bool) or length < 1:
+        raise ValueError(
+            f"query_expansion strategy={strategy!r} requires 'length': a positive int specifying "
+            "the pad target (total tokens after expansion). Classic ColBERT uses 32."
+        )
+    normalized["length"] = length
     return normalized
 
 
@@ -692,11 +661,9 @@ class Transformer(InputModule):
         query_length (int, optional): Per-task text max-length applied when ``task="query"`` reaches
             :meth:`preprocess` (e.g. via :meth:`encode_query`). Content-cap only (truncation). ``None``
             (default) falls back to the tokenizer's ``model_max_length``. Used by ColBERT-style
-            retrieval to cap queries shorter than documents. Not the pad target: the ``"pad_skip"`` /
-            ``"pad_attend"`` expansion strategies specify their pad target via
-            ``query_expansion["length"]``, which overrides this for those strategies. Ignored for
-            ``"append_suffix"`` queries, which are never length-capped (colpali-engine tokenizes them
-            with ``padding="longest"`` and no truncation, so a cap would eat the appended suffix).
+            retrieval to cap queries shorter than documents. Not the pad target: query expansion
+            specifies its pad target via ``query_expansion["length"]``, which overrides this (a
+            smaller ``query_length`` raises when the expansion is assigned).
         document_length (int, optional): Per-task text max-length applied when ``task="document"``
             reaches :meth:`preprocess`. ``None`` (default) falls back to the tokenizer's
             ``model_max_length``.
@@ -960,10 +927,19 @@ class Transformer(InputModule):
                 raise ValueError(
                     "FlashAttention-2 is incompatible with query_expansion strategy='pad_skip'. "
                     "FA2 strips attention_mask=0 positions, so the [MASK] expansion tokens used by MaxSim "
-                    "never receive an attention update. Pass attn_implementation='sdpa' (preserves semantics), "
-                    "switch to strategy='pad_attend' (changes semantics), or strategy='append_suffix' "
-                    "(the colpali-engine default for VLM backbones)."
+                    "never receive an attention update. Pass attn_implementation='sdpa' (preserves semantics) "
+                    "or switch to strategy='pad_attend' (changes semantics)."
                 )
+        # Expansion tokenizes with max_length=length, so a smaller query_length content cap is
+        # inexpressible: raise instead of silently ignoring it.
+        query_length = getattr(self, "query_length", None)
+        if expansion is not None and query_length is not None and query_length < expansion["length"]:
+            raise ValueError(
+                f"query_length={query_length} is smaller than query_expansion['length']={expansion['length']}. "
+                "With the pad_skip / pad_attend strategies, queries are tokenized directly to the expansion "
+                "length, so a smaller query_length content cap is not applied. Drop query_length, raise it to "
+                "at least the expansion length, or lower the expansion length."
+            )
         self._query_expansion = expansion
 
     def _validate_query_expansion_token(self, expansion: QueryExpansionConfig) -> None:
@@ -1102,6 +1078,21 @@ class Transformer(InputModule):
             return self.processor
         return getattr(self.processor, "tokenizer", None)
 
+    def _chat_template_declares_task(self) -> bool:
+        """Whether the active chat template (the processor's, else the tokenizer's) uses a ``task``
+        variable, e.g. to append query augmentation tokens for ``task == "query"`` renders.
+        Reuses the template introspection transformers' own kwarg routing is based on."""
+        try:
+            from transformers.utils.chat_template_utils import _get_template_variables
+        except ImportError:
+            # Without the introspection-based kwarg routing, an extra template kwarg is harmless.
+            return True
+        template = getattr(self.processor, "chat_template", None)
+        if template is None and self.tokenizer is not None:
+            template = getattr(self.tokenizer, "chat_template", None)
+        templates = template.values() if isinstance(template, dict) else [template]
+        return any(isinstance(value, str) and "task" in _get_template_variables(value) for value in templates)
+
     def _should_flatten_inputs(
         self,
         modality: Modality,
@@ -1114,13 +1105,8 @@ class Transformer(InputModule):
         ``input_ids`` / ``labels``. Subclasses can override to opt out for specific tasks.
         """
         # FA2 unpadding would drop the pad positions before `preprocess` can swap them for the expansion
-        # token, so fall back to padded for pad_skip / pad_attend queries. ``append_suffix`` injects
-        # real tokens, which FA2 unpadding handles fine.
-        if (
-            kwargs.get("task") == "query"
-            and self.query_expansion is not None
-            and self.query_expansion["strategy"] in ("pad_skip", "pad_attend")
-        ):
+        # token, so fall back to padded for expansion queries.
+        if kwargs.get("task") == "query" and self.query_expansion is not None:
             return False
         return self.can_flatten_inputs and (
             modality == "text"
@@ -1184,15 +1170,15 @@ class Transformer(InputModule):
         task_max_length = (
             self.query_length if task == "query" else self.document_length if task == "document" else None
         )
-        # Expansion queries manage their own max_length below (pad_* pads to config length,
-        # append_suffix is left uncapped to match colpali-engine). Skip the generic path for them.
+        # Expansion queries manage their own max_length below (pad_* pads to the config length).
+        # Skip the generic path for them.
         expansion = self.query_expansion if task == "query" else None
         if task_max_length is not None and expansion is None:
             modality_kwargs["text"]["max_length"] = task_max_length
 
         # pad_skip / pad_attend: pad to the config's length so the post-tokenization swap below has
         # explicit pad positions to replace with the expansion token.
-        if expansion is not None and expansion["strategy"] in ("pad_skip", "pad_attend"):
+        if expansion is not None:
             modality_kwargs["text"]["max_length"] = expansion["length"]
             modality_kwargs["text"]["padding"] = "max_length"
 
@@ -1203,23 +1189,12 @@ class Transformer(InputModule):
             if overrides := effective_processing_kwargs.get(modality_key):  # type: ignore[arg-type]
                 modality_kwargs[modality_key].update(overrides)
         chat_template_kwargs = effective_processing_kwargs.get("chat_template", {})
+        # Task-aware templates can branch on the task, e.g. to append query augmentation tokens.
+        # Only forwarded when declared: transformers treats unknown kwargs as processor kwargs.
+        if task is not None and self._chat_template_declares_task():
+            chat_template_kwargs = {"task": task, **chat_template_kwargs}
 
         modality, processor_inputs, extra_modality_kwargs = self.input_formatter.parse_inputs(inputs)
-
-        # ColPali / colpali-engine query expansion: append the augmentation token N times to each query
-        # string before tokenization. Decoder-only VLM backbones (ColQwen2, ColGemma3, ColIdefics3, ...)
-        # have no mask token, so the legacy pad_skip / pad_attend path no-ops for them. This is the
-        # universal path.
-        if (
-            task == "query"
-            and self.query_expansion is not None
-            and self.query_expansion["strategy"] == "append_suffix"
-            and modality == "text"
-            and self.tokenizer is not None
-            and processor_inputs.get("text")
-        ):
-            suffix = self.query_expansion["token"] * self.query_expansion["count"]
-            processor_inputs["text"] = [text + suffix for text in processor_inputs["text"]]
 
         for modality_key, extra_kwargs in extra_modality_kwargs.items():
             modality_kwargs[modality_key].update(extra_kwargs)
@@ -1236,6 +1211,18 @@ class Transformer(InputModule):
 
         # Always convert to the message format if it's supported, since it's most flexible with e.g. defaults
         if "message" in self.modality_config and modality != "message":
+            if expansion is not None and modality == "text":
+                # The expansion length would be applied as max_length to the chat-rendered
+                # sequence, right-truncating it: at small lengths every query collapses to the
+                # identical template preamble.
+                raise ValueError(
+                    f"query_expansion strategy={expansion['strategy']!r} cannot be combined with a "
+                    "chat-template (message) backbone: queries are rendered through the chat template "
+                    "and then padded / truncated to the expansion length, which destroys the query "
+                    "content. Chat-template backbones should own their query augmentation in the "
+                    "template itself (it receives task='query'), or pin modality_config to the plain "
+                    "text modality."
+                )
             modality, processor_inputs = self.input_formatter.batch_to_message(modality, processor_inputs)
         elif modality not in self.modality_config:
             raise_unsupported_modality_error(inputs, modality, list(self.modality_config.keys()), "Transformer module")
@@ -1297,15 +1284,9 @@ class Transformer(InputModule):
         # ColBERT-style query expansion (pad_skip / pad_attend): swap pad positions for the expansion
         # token id so the encoder produces expansion-token embeddings there. The
         # ``query_expansion_active`` signal below tells downstream modules to score those positions.
-        # ``append_suffix`` injected real tokens before tokenization above, so no post-tokenization
-        # rewrite is needed for that path.
         is_query = task == "query"
         expansion = self.query_expansion if is_query else None
-        if (
-            expansion is not None
-            and expansion["strategy"] in ("pad_skip", "pad_attend")
-            and self.tokenizer is not None
-        ):
+        if expansion is not None and self.tokenizer is not None:
             expansion_id = (
                 self.tokenizer.convert_tokens_to_ids(expansion["token"])
                 if expansion["token"] is not None
@@ -1328,12 +1309,9 @@ class Transformer(InputModule):
         # them. ``pad_skip`` leaves them at 0 (the classic ColBERT "skip during forward" trick).
         if expansion is not None and expansion["strategy"] == "pad_attend" and "attention_mask" in processor_output:
             processor_output["attention_mask"] = torch.ones_like(processor_output["attention_mask"])
-        # Only ``pad_skip`` / ``pad_attend`` need the downstream all-ones scoring override: their
-        # expansion tokens sit at attention_mask=0 positions (before ``pad_attend`` flips them above)
-        # that the mask must force-include. ``append_suffix`` tokens are real (attention_mask=1), so
-        # leaving the signal unset lets MultiVectorMask use the natural attention_mask, which keeps
-        # the suffix tokens and correctly excludes batch padding.
-        if expansion is not None and expansion["strategy"] in ("pad_skip", "pad_attend"):
+        # The downstream all-ones scoring override: expansion tokens sit at attention_mask=0
+        # positions (before ``pad_attend`` flips them above) that the mask must force-include.
+        if expansion is not None:
             processor_output["query_expansion_active"] = True
 
         return processor_output
@@ -1958,6 +1936,9 @@ class Transformer(InputModule):
         Returns None if the processor does not produce ``input_ids``.
         """
         # TODO: Perhaps mirror the _chat_template_suffix_ids implementation with 2 forwards and then checking the common prefix
+        # The prompt is measured under plain tokenization: with the task kept, query expansion would pad
+        # the lone prompt to the expansion length and report that width instead of the prompt's own size.
+        kwargs = {key: value for key, value in kwargs.items() if key != "task"}
         cache_key = (prompt, *sorted(kwargs.items()))
         if cache_key in self._prompt_length_mapping:
             return self._prompt_length_mapping[cache_key]
