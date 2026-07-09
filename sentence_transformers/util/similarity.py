@@ -236,17 +236,22 @@ def maxsim(
 
     if document_chunk_size is None or document_chunk_size >= b.size(0):
         reduced = _maxsim_reduce_documents(a, b, b_mask_padded)
-    else:
-        reduced_chunks = []
-        for d_start in range(0, b.size(0), document_chunk_size):
-            d_end = d_start + document_chunk_size
-            chunk_b_mask = b_mask_padded[d_start:d_end] if b_mask_padded is not None else None
-            reduced_chunks.append(_maxsim_reduce_documents(a, b[d_start:d_end], chunk_b_mask))
-        reduced = torch.cat(reduced_chunks, dim=1)
-    # Query tokens are reduced with sum, so masked tokens simply contribute 0.
-    if a_mask_padded is not None:
-        reduced = reduced * a_mask_padded.unsqueeze(1)
-    return reduced.sum(dim=-1)
+        # Query tokens are reduced with sum, so masked tokens simply contribute 0.
+        if a_mask_padded is not None:
+            reduced = reduced * a_mask_padded.unsqueeze(1)
+        return reduced.sum(dim=-1)
+
+    score_chunks = []
+    for d_start in range(0, b.size(0), document_chunk_size):
+        d_end = d_start + document_chunk_size
+        chunk_b_mask = b_mask_padded[d_start:d_end] if b_mask_padded is not None else None
+        reduced = _maxsim_reduce_documents(a, b[d_start:d_end], chunk_b_mask)
+        # Mask and sum per chunk: concatenating the (batch_a, chunk, q_tokens) reductions first would
+        # rebuild a full-corpus-width intermediate and defeat the chunking.
+        if a_mask_padded is not None:
+            reduced = reduced * a_mask_padded.unsqueeze(1)
+        score_chunks.append(reduced.sum(dim=-1))
+    return torch.cat(score_chunks, dim=1)
 
 
 def _maxsim_reduce_documents(a: Tensor, b: Tensor, b_mask: Tensor | None) -> Tensor:

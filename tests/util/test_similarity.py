@@ -371,3 +371,20 @@ def test_pairwise_angle_sim_even_and_odd_sparse_embeddings(splade_bert_tiny_mode
 
     assert sim_even.shape == sim_odd.shape
     assert torch.allclose(sim_even, sim_odd, rtol=1e-5, atol=1e-5)
+
+
+def test_maxsim_document_chunking_matches_unchunked() -> None:
+    """The chunked path masks and sums per chunk (bounding peak memory), which must be numerically
+    identical to the single-einsum path, including with query and document masks."""
+    generator = torch.Generator().manual_seed(7)
+    a = torch.nn.functional.normalize(torch.randn(5, 9, 16, generator=generator), p=2, dim=-1)
+    b = torch.nn.functional.normalize(torch.randn(13, 11, 16, generator=generator), p=2, dim=-1)
+    a_mask = torch.rand(5, 9, generator=generator) > 0.2
+    b_mask = torch.rand(13, 11, generator=generator) > 0.2
+    a_mask[:, 0] = True
+    b_mask[:, 0] = True
+
+    unchunked = maxsim(a, b, a_mask=a_mask, b_mask=b_mask)
+    for chunk_size in (1, 4, 13, 50):
+        chunked = maxsim(a, b, a_mask=a_mask, b_mask=b_mask, document_chunk_size=chunk_size)
+        assert torch.allclose(unchunked, chunked, atol=1e-6), f"chunk_size={chunk_size}"
