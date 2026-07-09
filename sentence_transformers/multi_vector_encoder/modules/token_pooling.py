@@ -155,7 +155,8 @@ def _hierarchical_pool_one(embedding: Tensor, pool_factor: int, protected_tokens
     if num_clusters >= num_to_pool:
         return embedding.to(device)
 
-    cos_sim = torch.mm(to_pool, to_pool.t()).numpy()
+    to_pool_fp32 = to_pool.float()
+    cos_sim = torch.mm(to_pool_fp32, to_pool_fp32.t()).numpy()
     condensed = np.clip(1 - cos_sim, 0, 2)[np.triu_indices(num_to_pool, k=1)]
     linkage = hierarchy.linkage(condensed, method="ward")
     labels = hierarchy.fcluster(linkage, t=num_clusters, criterion="maxclust") - 1  # 0-indexed
