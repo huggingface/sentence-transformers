@@ -13,22 +13,21 @@ By default this script:
 4. Computes per-query-token similarity over the 32x32 PaliGemma image grid.
 5. Saves a max-aggregated heatmap overlay as ``heatmap.png``.
 
-Per-family ``n_patches``:
+The patch grid shape is inferred from the model's processor via
+:func:`~sentence_transformers.multi_vector_encoder.interpretability.get_n_patches`:
 
-* **PaliGemma at 448x448**: ``(32, 32)`` = ``image_seq_length=1024`` image tokens. Read it from
-  ``processor.image_seq_length`` if unsure: ``n = isqrt(processor.image_seq_length); n_patches=(n, n)``.
-* **Qwen2-VL family**: depends on ``smart_resize`` per image; call
-  ``processor.get_n_patches(image.size, spatial_merge_size=2)`` from ``colpali_engine`` for the
-  matching processor and pass the result.
-* **Idefics3 / SmolVLM**: same processor pattern.
+* **PaliGemma at 448x448**: fixed ``(32, 32)`` grid = ``image_seq_length=1024`` image tokens.
+* **Qwen2-VL family**: dynamic, depends on ``smart_resize`` of each input image's size.
+* **Idefics3 / SmolVLM**: not supported yet (the split-image token order is not a plain grid).
 """
 
 from __future__ import annotations
 
-from math import isqrt
+from transformers.image_utils import load_image
 
 from sentence_transformers import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.interpretability import (
+    get_n_patches,
     maxsim_heatmap,
     real_query_token_slice,
 )
@@ -45,12 +44,13 @@ def main() -> None:
     mask_module = next(m for m in model if isinstance(m, MultiVectorMask))
     mask_module.keep_only_token_ids = [model.processor.image_token_id]
 
-    # PaliGemma 3B at 448x448 has 1024 image patches arranged 32x32.
-    side = isqrt(model.processor.image_seq_length)
-    n_patches = (side, side)
-
-    image = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/blog/ettin-reranker/mteb_ndcg10_embeddinggemma-300m.png"
+    image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/blog/ettin-reranker/mteb_ndcg10_embeddinggemma-300m.png"
+    image = load_image(image_url)
     query = "What's the title of the Figure"
+
+    # Infer the (n_patches_x, n_patches_y) grid from the model's processor. Fixed 32x32 for
+    # PaliGemma, computed from the image size for dynamic-grid models like ColQwen2.
+    n_patches = get_n_patches(model, image.size)
 
     query_embeddings = model.encode_query([query], convert_to_tensor=True)
     document_embeddings = model.encode_document([image], convert_to_tensor=True)

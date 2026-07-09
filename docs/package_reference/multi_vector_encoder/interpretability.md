@@ -9,5 +9,9 @@ positions in an image contribute most to a given query.
 ```
 
 ```{eval-rst}
+.. autofunction:: sentence_transformers.multi_vector_encoder.interpretability.get_n_patches
+```
+
+```{eval-rst}
 .. autofunction:: sentence_transformers.multi_vector_encoder.interpretability.real_query_token_slice
 ```

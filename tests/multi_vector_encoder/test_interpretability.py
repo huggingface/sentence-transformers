@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import torch
 from PIL import Image
+from transformers import Qwen2VLImageProcessor
 
 from sentence_transformers.multi_vector_encoder.interpretability import (
+    get_n_patches,
     maxsim_heatmap,
     maxsim_similarity_map,
     render_similarity_map_on_image,
@@ -177,3 +181,136 @@ def test_render_normalization_range_changes_colour_mapping() -> None:
     assert not np.array_equal(default_out, clipped_out), (
         "normalization_range had no visible effect on the rendered output"
     )
+
+
+def _model_stub(**processor_attrs) -> SimpleNamespace:
+    """Duck-typed stand-in for ``MultiVectorEncoder``: ``get_n_patches`` only reads ``model.processor``."""
+    return SimpleNamespace(processor=SimpleNamespace(**processor_attrs))
+
+
+# (image_size, expected grid) pairs computed with colpali-engine's reference
+# ColQwen2Processor.get_n_patches(..., spatial_merge_size=2) on a default Qwen2VLImageProcessor.
+QWEN_EXPECTED_GRIDS = [
+    ((100, 100), (4, 4)),
+    ((640, 480), (23, 17)),
+    ((1024, 768), (37, 27)),
+    ((28, 28), (2, 2)),
+    ((4000, 3000), (41, 30)),
+    ((13, 2000), (1, 25)),
+]
+
+
+@pytest.mark.parametrize(("image_size", "expected"), QWEN_EXPECTED_GRIDS)
+def test_get_n_patches_qwen_dynamic_grid(image_size: tuple[int, int], expected: tuple[int, int]) -> None:
+    """Qwen-VL grids follow smart_resize. (28, 28) upscales to the min pixel budget, (4000, 3000)
+    downscales to the max budget, and (13, 2000) hits the narrow-side clamp. Non-square sizes pin
+    the ``(n_patches_x, n_patches_y)`` = ``(n_cols, n_rows)`` return order: width drives the first
+    element.
+    """
+    model = _model_stub(image_processor=Qwen2VLImageProcessor())
+    assert get_n_patches(model, image_size) == expected
+
+
+def test_get_n_patches_qwen_respects_pixel_budget() -> None:
+    """A reduced max_pixels budget (e.g. colqwen2 checkpoints ship 768 * 28 * 28) caps the grid,
+    so a mid-size and a huge image clamp to the same grid area.
+    """
+    image_processor = Qwen2VLImageProcessor(min_pixels=4 * 28 * 28, max_pixels=768 * 28 * 28)
+    model = _model_stub(image_processor=image_processor)
+    assert get_n_patches(model, (1024, 768)) == (32, 24)
+    assert get_n_patches(model, (4000, 3000)) == (32, 24)
+
+
+@pytest.mark.parametrize("image_size", [size for size, _ in QWEN_EXPECTED_GRIDS])
+def test_get_n_patches_qwen_matches_colpali_engine(image_size: tuple[int, int]) -> None:
+    """Cross-check the processor-reported grid against colpali-engine's reference
+    ColQwen2Processor.get_n_patches, invoked unbound on a processor stub so no tokenizer files
+    are needed.
+    """
+    pytest.importorskip("colpali_engine")
+    from colpali_engine.models.qwen2.colqwen2.processing_colqwen2 import ColQwen2Processor
+
+    image_processor = Qwen2VLImageProcessor()
+    reference = ColQwen2Processor.get_n_patches(
+        SimpleNamespace(image_processor=image_processor), image_size, spatial_merge_size=2
+    )
+    model = _model_stub(image_processor=image_processor)
+    assert get_n_patches(model, image_size) == reference
+
+
+def test_get_n_patches_output_plugs_into_similarity_map() -> None:
+    """The returned ``(n_cols, n_rows)`` tuple feeds ``maxsim_similarity_map``'s ``n_patches``
+    directly: an embedding with ``n_cols * n_rows`` tokens reshapes without error.
+    """
+    model = _model_stub(image_processor=Qwen2VLImageProcessor())
+    n_cols, n_rows = get_n_patches(model, (640, 480))
+    sim_map = maxsim_similarity_map(
+        query_embedding=torch.randn(2, 8),
+        image_embedding=torch.randn(n_cols * n_rows, 8),
+        n_patches=(n_cols, n_rows),
+    )
+    assert sim_map.shape == (2, n_rows, n_cols)
+
+
+@pytest.mark.parametrize(("image_seq_length", "expected"), [(1024, (32, 32)), (256, (16, 16))])
+def test_get_n_patches_paligemma_fixed_grid(image_seq_length: int, expected: tuple[int, int]) -> None:
+    """PaliGemma / Gemma3 style processors use a fixed square grid of ``image_seq_length`` image
+    tokens, independent of the input image size.
+    """
+    model = _model_stub(
+        image_seq_length=image_seq_length,
+        image_processor=SimpleNamespace(size={"height": 448, "width": 448}),
+    )
+    assert get_n_patches(model, (640, 480)) == expected
+    assert get_n_patches(model, (100, 2000)) == expected
+
+
+def test_get_n_patches_non_square_seq_length_raises() -> None:
+    model = _model_stub(image_seq_length=1000, image_processor=SimpleNamespace())
+    with pytest.raises(ValueError, match="square"):
+        get_n_patches(model, (640, 480))
+
+
+def test_get_n_patches_idefics3_raises_not_implemented() -> None:
+    """Idefics3 / SmolVLM split-image token order (sub-patch blocks plus a trailing global patch)
+    is not a plain row-major grid, so ``get_n_patches`` refuses instead of returning a wrong shape.
+    """
+    model = _model_stub(
+        image_seq_len=64,
+        image_processor=SimpleNamespace(do_image_splitting=True, max_image_size={"longest_edge": 364}),
+    )
+    with pytest.raises(NotImplementedError, match="global patch"):
+        get_n_patches(model, (640, 480))
+
+
+def test_get_n_patches_text_only_model_raises() -> None:
+    """Text-only models (tokenizer-only processor) have no image-patch grid."""
+    model = _model_stub()
+    with pytest.raises(ValueError, match="image_processor"):
+        get_n_patches(model, (640, 480))
+
+
+def test_get_n_patches_unknown_family_raises() -> None:
+    """A processor matching no known family (no merge_size, no Idefics3 markers, no
+    image_seq_length) raises a ValueError naming the attributes it looked for."""
+    model = _model_stub(image_processor=SimpleNamespace(size={"height": 448, "width": 448}))
+    with pytest.raises(ValueError, match="image_seq_length"):
+        get_n_patches(model, (640, 480))
+
+
+def test_real_query_token_slice_with_pad_expansion() -> None:
+    """pad_skip / pad_attend render the empty and real query to the same padded length, so the
+    naive length diff is always 0. The slice must still select the real content tokens."""
+    from sentence_transformers import MultiVectorEncoder
+    from sentence_transformers.multi_vector_encoder.interpretability import real_query_token_slice
+
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    query = "What is the capital of France?"
+    plain_content = len(model.tokenizer(query, add_special_tokens=False)["input_ids"])
+
+    for strategy in ("pad_skip", "pad_attend"):
+        model[0].query_expansion = {"strategy": strategy, "length": 32}
+        token_slice = real_query_token_slice(model, query)
+        assert token_slice.stop - token_slice.start == plain_content, strategy
+        query_embedding = model.encode_query([query], convert_to_tensor=True)[0][token_slice]
+        assert query_embedding.shape[0] == plain_content

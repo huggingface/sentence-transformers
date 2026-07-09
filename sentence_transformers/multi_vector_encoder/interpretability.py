@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+import math
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 import torch
@@ -11,6 +12,7 @@ from torch import Tensor
 if TYPE_CHECKING:
     from PIL.Image import Image as PILImage
 
+    from sentence_transformers.base.modules import Transformer
     from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 
 
@@ -58,14 +60,68 @@ def real_query_token_slice(model: MultiVectorEncoder, query: str) -> slice:
     Works for both right-padded (PaliGemma) and left-padded (ColQwen2 / ColGemma3 / ColIdefics3)
     backbones by comparing the encoded sequences of an empty and the actual query.
     """
-    empty_ids = model[0].preprocess([""], task="query")["input_ids"][0].tolist()
-    query_ids = model[0].preprocess([query], task="query")["input_ids"][0].tolist()
+    transformer = cast("Transformer", model[0])
+    empty_ids = transformer.preprocess([""], task="query")["input_ids"][0].tolist()
+    query_ids = transformer.preprocess([query], task="query")["input_ids"][0].tolist()
 
     prefix = 0
     while prefix < min(len(empty_ids), len(query_ids)) and empty_ids[prefix] == query_ids[prefix]:
         prefix += 1
-    n_content = len(query_ids) - len(empty_ids)
+    expansion = getattr(transformer, "query_expansion", None)
+    tokenizer = transformer.tokenizer
+    if expansion is not None and tokenizer is not None:
+        # Both renders are padded to exactly the expansion length, so the length diff is always 0.
+        # Expansion models are plain text tokenizers (the pad strategies raise on chat-template
+        # backbones), so the content length is simply the query's own token count.
+        n_content = len(tokenizer(query, add_special_tokens=False)["input_ids"])
+    else:
+        n_content = len(query_ids) - len(empty_ids)
     return slice(prefix, prefix + n_content)
+
+
+def get_n_patches(model: MultiVectorEncoder, image_size: tuple[int, int]) -> tuple[int, int]:
+    """Infer the ``(n_patches_x, n_patches_y)`` = ``(n_cols, n_rows)`` image-patch grid that
+    ``model``'s processor produces for an image of ``image_size`` (``(width, height)``, i.e. PIL's
+    ``image.size``). Plugs directly into the ``n_patches`` parameter of
+    :func:`maxsim_similarity_map` and :func:`maxsim_heatmap`.
+
+    Dynamic grids (Qwen-VL family) are read from the image processor's own ``image_grid_thw``
+    output for a blank image of that size, fixed square grids (PaliGemma / Gemma3) from
+    ``processor.image_seq_length``. Idefics3 / SmolVLM split-image processors raise
+    :class:`NotImplementedError`: their sub-patch token order is not a plain row-major grid.
+    """
+    processor = model.processor
+    image_processor = getattr(processor, "image_processor", None)
+    if (
+        getattr(image_processor, "do_image_splitting", None) is not None
+        or getattr(image_processor, "max_image_size", None) is not None
+    ):
+        raise NotImplementedError(
+            "Idefics3 / SmolVLM style processors split each image into sub-patch token blocks followed "
+            "by a trailing global patch, which is not a row-major (rows, cols) grid: a plain reshape "
+            "would scramble the heatmap. Rearrange the embedding into spatial order first, e.g. with "
+            "colpali_engine's Idefics3SplitImageInterpretabilityMixin."
+        )
+
+    merge_size = getattr(image_processor, "merge_size", None)
+    if image_processor is not None and merge_size is not None:
+        from PIL import Image
+
+        # The (t, h, w) grid is in pre-merge patch units; merge_size spatial-merges those into tokens.
+        grid = image_processor(images=[Image.new("RGB", image_size)], return_tensors="pt")["image_grid_thw"][0]
+        return int(grid[2]) // merge_size, int(grid[1]) // merge_size
+
+    image_seq_length = getattr(processor, "image_seq_length", None)
+    if isinstance(image_seq_length, int) and image_seq_length > 0:
+        side = math.isqrt(image_seq_length)
+        if side * side == image_seq_length:
+            return side, side
+
+    raise ValueError(
+        f"Could not infer a patch grid from {type(processor).__name__}: needs an image_processor with "
+        "a Qwen-VL style dynamic grid (merge_size + image_grid_thw) or a square processor.image_seq_length "
+        "(PaliGemma / Gemma3). Pass n_patches to maxsim_similarity_map / maxsim_heatmap manually."
+    )
 
 
 def maxsim_similarity_map(
@@ -81,8 +137,8 @@ def maxsim_similarity_map(
         query_embedding: ``(Qt, D)`` per-token query embeddings.
         image_embedding: ``(Dt, D)`` per-token image-document embeddings. Pass ``image_mask`` if
             ``Dt`` includes non-image tokens, otherwise ``Dt == n_patches[0] * n_patches[1]``.
-        n_patches: ``(n_cols, n_rows)`` = ``(width, height)``, matching colpali-engine's
-            ``processor.get_n_patches`` order. Patches are row-major.
+        n_patches: ``(n_cols, n_rows)`` = ``(width, height)``, as returned by
+            :func:`get_n_patches`. Patches are row-major.
         image_mask: boolean mask over the ``Dt`` axis (``True`` for image-patch tokens).
         normalize: rescale each per-query-token map to ``[0, 1]``.
 
@@ -166,7 +222,7 @@ def maxsim_heatmap(
         image: PIL image, URL, or local file path.
         query_embedding: ``(Qt, D)`` per-token query embeddings.
         image_embedding: ``(Dt, D)`` per-token image-document embeddings.
-        n_patches: ``(n_cols, n_rows)`` image grid shape.
+        n_patches: ``(n_cols, n_rows)`` image grid shape, as returned by :func:`get_n_patches`.
         image_mask: optional mask filtering ``image_embedding`` to image patches only.
         aggregate: ``"sum"`` reflects per-patch contribution to the MaxSim ranking score.
             ``"amax"`` shows the strongest single-token match per patch. ``"none"`` returns one
