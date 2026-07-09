@@ -17,7 +17,8 @@ columns by position: the first tokenized column is the *query* side and the rest
 Columns ending in ``_id`` or ``_ids`` are skipped. Override the routing by passing ``router_mapping`` to
 the trainer. Each side then applies whatever the model is configured with: optional prompt prefix
 (e.g. ``"[Q] "`` / ``"[D] "``), optional ``query_length`` / ``document_length`` truncation,
-mask-token query expansion (when ``query_length`` is set), and document-side skiplist masking.
+mask-token query expansion (when ``query_expansion`` is configured, padding queries to its
+``length``), and document-side skiplist masking.
 ```
 
 | Format | Columns | Loss |

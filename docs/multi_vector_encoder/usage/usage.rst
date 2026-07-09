@@ -45,7 +45,7 @@ legacy ColBERT / PyLate checkpoints pre-seed it with punctuation tokens)::
     document_embeddings = model.encode_document(documents)
 
     # Each entry is a 2D array of shape (num_tokens_i, embedding_dim), variable-length per input.
-    print(query_embeddings[0].shape)  # (variable, 128). Pads to query_length when query expansion is enabled
+    print(query_embeddings[0].shape)  # (variable, 128). Pads to query_expansion["length"] when expansion is enabled
     print(document_embeddings[0].shape)  # (variable, 128)
 
 Scoring with MaxSim
