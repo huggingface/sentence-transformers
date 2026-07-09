@@ -129,6 +129,7 @@ class Module(ABC, torch.nn.Module):
         cache_folder: str | None = None,
         revision: str | None = None,
         local_files_only: bool = False,
+        init_defaults: dict[str, Any] | None = None,
         **kwargs,
     ) -> Self:
         """
@@ -146,6 +147,9 @@ class Module(ABC, torch.nn.Module):
             revision (str | None, optional): The revision of the model to load.
                 If None, uses the latest revision. Defaults to None.
             local_files_only (bool, optional): Whether to only load local files. Defaults to False.
+            init_defaults (dict[str, Any] | None, optional): Extra ``__init__`` defaults injected by the loading
+                model (see ``BaseModel._get_module_init_defaults``). Only fills keys the saved config omitted:
+                the saved config always wins. Defaults to None.
             **kwargs: Additional module-specific arguments used in an overridden ``load`` method, such as ``trust_remote_code``,
                 ``model_kwargs``, ``processor_kwargs``, ``config_kwargs``, ``backend``, etc.
 
@@ -160,6 +164,9 @@ class Module(ABC, torch.nn.Module):
             revision=revision,
             local_files_only=local_files_only,
         )
+        # The saved config has priority over init_defaults.
+        for key, value in (init_defaults or {}).items():
+            config.setdefault(key, value)
         return cls(**config)
 
     @classmethod

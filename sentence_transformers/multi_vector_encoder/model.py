@@ -569,21 +569,14 @@ class MultiVectorEncoder(BaseModel):
 
     def _apply_legacy_fixups(self) -> None:
         """Patch up modules loaded from save formats that predate :class:`MultiVectorEncoder`
-        (PyLate v3, Stanford-NLP ColBERT, pre-v5.4 ST ``Dense``). Each step is a no-op for modern
-        saves and for user-supplied ``modules=...``.
+        (PyLate v3, Stanford-NLP ColBERT). Each step is a no-op for modern saves and for
+        user-supplied ``modules=...``. Dense configs that predate module IO names are handled at
+        load time instead (see :meth:`_get_module_init_defaults`).
         """
         # Backwards-compat only: register a legacy in-vocab marker (e.g. [unused0]) as a special token so
         # text-prepending reproduces the trained tokenization. ``_legacy.prefixes`` is set only for those.
         if self._legacy.prefixes:
             self._register_prefix_tokens(self._legacy.prefixes)
-
-        # PyLate v3 / pre-v5.4 ST Dense saved no IO names; redirect them to token level. Skip when the user
-        # passed modules=... so an intentional sentence-level Dense in a hybrid pipeline isn't clobbered.
-        if not self._user_supplied_modules:
-            for module in self._modules.values():
-                if isinstance(module, Dense) and module.module_input_name == "sentence_embedding":
-                    module.module_input_name = "token_embeddings"
-                    module.module_output_name = "token_embeddings"
 
         # PyLate v3 listed only [Transformer, Dense] (masking/normalize were inline). Append the missing
         # modules. Other load paths build the full sequence themselves.
@@ -690,17 +683,24 @@ class MultiVectorEncoder(BaseModel):
         return super()._load_module_class_from_ref(class_ref, *args, **kwargs)
 
     def _get_module_init_defaults(self, class_ref: str) -> dict[str, Any]:
-        """Forward legacy top-level multi-vector knobs into the backbone Transformer's ``__init__``."""
-        if not self._legacy.transformer_config:
-            return {}
+        """Inject load-time defaults for module configs, applied with setdefault priority (saved
+        config values always win): legacy top-level multi-vector knobs into the backbone
+        Transformer's ``__init__``, and token-level input for Dense configs that predate module IO
+        names (PyLate / pre-v5.4 ST saves), where the dense-ST ``sentence_embedding`` default would
+        otherwise leave a broken projection."""
         class_ref = _CLASS_REF_ALIASES.get(class_ref, class_ref)
         try:
             cls = import_from_string(class_ref)
         except ImportError:
             return {}
-        if not (isinstance(cls, type) and issubclass(cls, Transformer)):
+        if not isinstance(cls, type):
             return {}
-        return dict(self._legacy.transformer_config)
+        if issubclass(cls, Transformer):
+            return dict(self._legacy.transformer_config)
+        if issubclass(cls, Dense):
+            # Only module_input_name: an unpinned module_output_name follows the input name.
+            return {"module_input_name": "token_embeddings"}
+        return {}
 
     def _load_default_modules(
         self,
@@ -943,6 +943,14 @@ class MultiVectorEncoder(BaseModel):
             if isinstance(module, Normalize) and module.module_input_name == "sentence_embedding":
                 continue
             filtered.append(module)
+
+        # The pooling was just dropped, so nothing produces sentence embeddings anymore: redirect a
+        # sentence-level Dense head to token level, preserving the learned projection weights.
+        for module in filtered:
+            if isinstance(module, Dense) and module.module_input_name == "sentence_embedding":
+                logger.info("Redirecting the sentence-level Dense projection to token level.")
+                module.module_input_name = "token_embeddings"
+                module.module_output_name = "token_embeddings"
 
         transformer = next((m for m in filtered if isinstance(m, Transformer)), None)
         if transformer is None:

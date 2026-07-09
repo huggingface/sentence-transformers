@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import logging
 from collections.abc import Callable
+from typing import Any
 
 try:
     from typing import Self
@@ -118,6 +119,7 @@ class Dense(Module):
         revision: str | None = None,
         local_files_only: bool = False,
         trust_remote_code: bool = False,
+        init_defaults: dict[str, Any] | None = None,
         **kwargs,
     ) -> Self:
         hub_kwargs = {
@@ -149,6 +151,9 @@ class Dense(Module):
                 f"{model_name_or_path!r}: not constructor parameters of {cls.__name__}."
             )
             config = {key: value for key, value in config.items() if key in accepted_params}
+        # The saved config has priority over init_defaults.
+        for key, value in (init_defaults or {}).items():
+            config.setdefault(key, value)
         model = cls(**config)
         model = cls.load_torch_weights(model_name_or_path=model_name_or_path, model=model, **hub_kwargs)
         return model
