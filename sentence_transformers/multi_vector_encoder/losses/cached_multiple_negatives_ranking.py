@@ -13,6 +13,7 @@ from torch.utils.checkpoint import get_device_states, set_device_states
 
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.scoring import colbert_scores
+from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import _create_minibatch
 from sentence_transformers.util import (
     all_gather_padded,
     cat_padded_token_embeddings,
@@ -125,6 +126,9 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         show_progress_bar: If True, show a TQDM progress bar for the embedding / scoring steps.
     """
 
+    # Enables per-sample media counting in Transformer.preprocess for VLM minibatching
+    requires_media_counts = True
+
     def __init__(
         self,
         model: MultiVectorEncoder,
@@ -174,8 +178,8 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
     ) -> tuple[Tensor, Tensor, RandContext | None]:
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
-        # Slice tensor values; leave non-tensor metadata (e.g. a "modality" string) intact.
-        mb = {k: (v[begin:end] if isinstance(v, torch.Tensor) else v) for k, v in sentence_feature.items()}
+        # Grid-aware slicing: flattened VLM tensors (pixel_values) and FA2 metadata can't be sliced per sample.
+        mb = _create_minibatch(sentence_feature, begin, end)
         with random_state_context:
             with grad_context():
                 random_state = (
@@ -254,6 +258,9 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
                 documents_mask=docs_mask_stacked,
             )
             loss_mb = F.cross_entropy(scores * self.scale, labels[begin:end], reduction="sum")
+            # Average inside the graph: dividing the detached sum after backward would leave gradients scaled by batch_size.
+            if self.size_average:
+                loss_mb = loss_mb / batch_size
             if self.gather_across_devices:
                 loss_mb = loss_mb * get_world_size()
             if with_backward:
@@ -261,10 +268,7 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
                 loss_mb = loss_mb.detach()
             losses.append(loss_mb)
 
-        loss = sum(losses)
-        if self.size_average:
-            loss = loss / batch_size
-        return loss
+        return torch.stack(losses).sum()
 
     def _calculate_loss_and_cache_gradients(
         self,

@@ -69,6 +69,80 @@ def test_cached_mnr_handles_varlen_document_columns(varlen_features) -> None:
     value.backward()
 
 
+class _GridCheckingModel(nn.Module):
+    """Asserts that flattened VLM tensors arrive consistently sliced in every mini-batch call:
+    ``pixel_values`` holds patch rows (not sample rows), so a naive ``v[begin:end]`` slice hands the
+    vision tower patch rows from the wrong samples while the sliced grid demands a different count."""
+
+    def __call__(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
+        batch = features["input_ids"].shape[0]
+        if "pixel_values" in features:
+            expected_patches = int(features["image_grid_thw"].prod(dim=1).sum().item())
+            assert features["pixel_values"].shape[0] == expected_patches, (
+                f"pixel rows ({features['pixel_values'].shape[0]}) must match the sliced grid ({expected_patches})"
+            )
+            assert features["num_images_per_sample"].shape[0] == batch
+        g = torch.Generator().manual_seed(batch)
+        emb = torch.nn.functional.normalize(torch.randn(batch, 5, 8, generator=g), p=2, dim=-1)
+        return {"token_embeddings": emb, "attention_mask": torch.ones(batch, 5, dtype=torch.bool)}
+
+
+def test_cached_mnr_slices_flattened_vlm_inputs_grid_aware() -> None:
+    """Native-resolution VLM columns (Qwen2-VL family) flatten per-sample visual tokens into one
+    ``pixel_values`` tensor with an ``image_grid_thw`` row per image. The GradCache mini-batching
+    must slice those by grid offsets, not by sample index."""
+    batch = 4
+    query_features = {"input_ids": torch.ones(batch, 4, dtype=torch.long)}
+    # Per-image patch counts 4 / 8 / 4 / 12: sample slicing would pass 2 patch rows where 12+ are needed.
+    grid = torch.tensor([[1, 2, 2], [1, 2, 4], [1, 2, 2], [1, 4, 3]])
+    doc_features = {
+        "input_ids": torch.ones(batch, 5, dtype=torch.long),
+        "pixel_values": torch.randn(int(grid.prod(dim=1).sum()), 6),
+        "image_grid_thw": grid,
+        "num_images_per_sample": torch.ones(batch, dtype=torch.long),
+    }
+
+    loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+        model=_GridCheckingModel(), mini_batch_size=2, show_progress_bar=False
+    )
+    with torch.no_grad():
+        value = loss([query_features, doc_features], labels=None)
+    assert torch.isfinite(value)
+
+
+@pytest.mark.parametrize("size_average", [True, False])
+def test_cached_mnr_gradients_match_non_cached(size_average: bool) -> None:
+    """GradCache's contract is gradient equivalence with the non-cached loss. Regression pin for
+    the sum-vs-mean defect: with ``size_average=True`` the per-chunk backward used to run on the
+    un-averaged sum, silently scaling every gradient by ``batch_size`` while reporting the mean."""
+    batch, dim = 6, 8
+
+    def build_features() -> list[dict[str, Tensor]]:
+        return [
+            _make_feature(t_tokens=6, batch=batch, dim=dim, seed=1),
+            _make_feature(t_tokens=10, batch=batch, dim=dim, seed=2),
+            _make_feature(t_tokens=14, batch=batch, dim=dim, seed=3),
+        ]
+
+    plain_features = build_features()
+    plain_loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(
+        model=_PassthroughModel(), size_average=size_average
+    )
+    plain_value = plain_loss(plain_features, labels=None)
+    plain_value.backward()
+
+    cached_features = build_features()
+    cached_loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+        model=_PassthroughModel(), mini_batch_size=2, size_average=size_average, show_progress_bar=False
+    )
+    cached_value = cached_loss(cached_features, labels=None)
+    cached_value.backward()
+
+    assert torch.allclose(plain_value, cached_value, atol=1e-6)
+    for plain_sf, cached_sf in zip(plain_features, cached_features):
+        assert torch.allclose(plain_sf["token_embeddings"].grad, cached_sf["token_embeddings"].grad, atol=1e-6)
+
+
 class _RaggedTrimPassthroughModel(nn.Module):
     """Trims trailing pad off each mini-batch to the per-batch real max, simulating a
     native-resolution VLM whose vision encoder emits ``T`` proportional to the batch's longest
