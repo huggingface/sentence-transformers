@@ -131,7 +131,7 @@ _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS = frozenset({"padding", "truncation", "max
 _CHAT_TEMPLATE_SUFFIX_CACHE_SIZE = 256
 
 TransformerTask = Literal[
-    "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask"
+    "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask", "retrieval"
 ]
 
 
@@ -153,11 +153,39 @@ class ModalityParams(_ModalityParamsRequired, total=False):
 
 ModalityConfig = dict[Modality, ModalityParams]
 
+
+def _resolve_retrieval_model_class(config: PretrainedConfig | PeftConfig) -> type[PreTrainedModel]:
+    """Resolve the concrete ``*ForRetrieval`` class (ColPali, ColQwen2, ...) for ``transformer_task="retrieval"``.
+
+    transformers (as of v5.13) has no ``AutoModelForRetrieval``, and ``MODEL_FOR_RETRIEVAL_MAPPING`` is
+    incomplete (missing ``colqwen2``), so fall back to the checkpoint's ``architectures`` entry.
+    """
+    try:
+        from transformers.models.auto.modeling_auto import MODEL_FOR_RETRIEVAL_MAPPING
+
+        return MODEL_FOR_RETRIEVAL_MAPPING[type(config)]
+    except (ImportError, KeyError):
+        pass
+
+    import transformers
+
+    for architecture in getattr(config, "architectures", None) or []:
+        model_class = getattr(transformers, architecture, None)
+        if model_class is not None:
+            return model_class
+    raise ValueError(
+        f"Could not resolve a retrieval model class for model_type {getattr(config, 'model_type', None)!r}. "
+        'The transformer_task="retrieval" expects a `*ForRetrieval` architecture, e.g. ColPali, '
+        "ColQwen2 or ColModernVBert."
+    )
+
+
 TRANSFORMER_TASK_TO_AUTO_MODEL: dict[TransformerTask, Any] = {
     "feature-extraction": AutoModel,  # Used by SentenceTransformer, also covers "image-feature-extraction"
     "sequence-classification": AutoModelForSequenceClassification,  # Used by CrossEncoder
     "text-generation": AutoModelForCausalLM,  # Used by CrossEncoder
     "fill-mask": AutoModelForMaskedLM,  # Used by SparseEncoder
+    "retrieval": None,  # Used by MultiVectorEncoder, via _resolve_retrieval_model_class
 }
 
 try:
@@ -191,6 +219,14 @@ TRANSFORMER_TASK_DEFAULTS: dict[TransformerTask, tuple[ModalityConfig, str]] = {
     ),
     "fill-mask": (
         {"text": {"method": "forward", "method_output_name": "logits"}},
+        "token_embeddings",
+    ),
+    # `*ForRetrieval` heads return already-projected, already-normalised token embeddings.
+    "retrieval": (
+        {
+            "text": {"method": "forward", "method_output_name": "embeddings"},
+            "image": {"method": "forward", "method_output_name": "embeddings"},
+        },
         "token_embeddings",
     ),
 }
@@ -1196,6 +1232,15 @@ class Transformer(InputModule):
 
         modality, processor_inputs, extra_modality_kwargs = self.input_formatter.parse_inputs(inputs)
 
+        # `*ForRetrieval` processors have no document treatment for text (always query-rendered):
+        # warn instead of silently scoring query-formatted "documents".
+        if self.transformer_task == "retrieval" and modality == "text" and task is not None and task != "query":
+            logger.warning_once(
+                f"This retrieval model's processor always renders text as a query, but task={task!r} was "
+                "requested: these inputs get the query prefix and augmentation tokens. *ForRetrieval "
+                "models expect image documents."
+            )
+
         for modality_key, extra_kwargs in extra_modality_kwargs.items():
             modality_kwargs[modality_key].update(extra_kwargs)
 
@@ -1458,6 +1503,10 @@ class Transformer(InputModule):
         if isinstance(self.model.config, TimmWrapperConfig):
             return self.model.config.num_features
 
+        # `*ForRetrieval` heads project down to `config.embedding_dim`, not the backbone hidden size.
+        if self.transformer_task == "retrieval" and getattr(self.model.config, "embedding_dim", None) is not None:
+            return self.model.config.embedding_dim
+
         def get_hidden_size_from_config(config):
             # If we're directly outputting sentence embeddings from the transformer (e.g., using the pooler output),
             # then we should check for projection_dim first, as that's likely the dimension of the sentence embeddings
@@ -1552,6 +1601,18 @@ class Transformer(InputModule):
         common_kwargs: dict[str, Any],
     ) -> dict[str, Any]:
         """Call a :class:`ProcessorMixin` processor, handling both legacy and v5 calling conventions."""
+        # `*ForRetrieval` processors reject raw image strings, and the retrieval path skips the chat
+        # template that resolves them elsewhere: load URLs / paths / base64 here (also converts to RGB).
+        if self.transformer_task == "retrieval" and "image" in processor_inputs:
+            from transformers.image_utils import load_image
+
+            processor_inputs = {
+                **processor_inputs,
+                "image": [
+                    load_image(image) if isinstance(image, str) else image for image in processor_inputs["image"]
+                ],
+            }
+
         # Convert modality keys to processor argument names (e.g., "image" -> "images")
         processor_inputs = {MODALITY_TO_PROCESSOR_ARG.get(key, key): value for key, value in processor_inputs.items()}
 
@@ -2030,9 +2091,7 @@ class Transformer(InputModule):
     def _load_model(
         self,
         model_name_or_path: str,
-        transformer_task: Literal[
-            "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask"
-        ],
+        transformer_task: TransformerTask,
         config: PeftConfig | PretrainedConfig,
         backend: str,
         is_peft_model: bool,
@@ -2060,7 +2119,11 @@ class Transformer(InputModule):
                 if model is not None:
                     return model
 
-            model_cls = TRANSFORMER_TASK_TO_AUTO_MODEL[transformer_task]
+            if transformer_task == "retrieval":
+                # No AutoModelForRetrieval exists: resolve the concrete `*ForRetrieval` class per checkpoint.
+                model_cls = _resolve_retrieval_model_class(config)
+            else:
+                model_cls = TRANSFORMER_TASK_TO_AUTO_MODEL[transformer_task]
             return model_cls.from_pretrained(model_name_or_path, config=config, **model_kwargs)
         elif backend == "onnx":
             return load_onnx_model(

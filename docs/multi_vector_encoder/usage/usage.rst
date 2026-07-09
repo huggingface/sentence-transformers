@@ -22,6 +22,11 @@ Multi-vector models can be loaded from any of the following sources, transparent
     # the inline projection weight and special tokens are read from artifact.metadata)
     model = MultiVectorEncoder("colbert-ir/colbertv2.0")
 
+    # transformers-native late-interaction retrievers (`*ForRetrieval` architectures, e.g.
+    # ColPali / ColQwen2 / ColModernVBert): auto-detected; the projection and normalisation
+    # live inside the model, and queries / image documents are formatted by the processor
+    model = MultiVectorEncoder("vidore/colqwen2-v1.0-hf")
+
     # Any other multi-vector checkpoint with our config_sentence_transformers.json schema
     model = MultiVectorEncoder("answerdotai/answerai-colbert-small-v1")
 

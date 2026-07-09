@@ -29,6 +29,37 @@ MODELS_TO_MAXSIM: dict[str, list[float]] = {
     "lightonai/colbertv2.0": [12.79703, 27.19449, 23.8495, 24.56564],
 }
 
+# doc{i} is the relevant page for IMAGE_QUERIES[i], so the correct retrieval is the diagonal.
+IMAGE_QUERIES = [
+    "What is the variable represented on the y-axis of the graph?",
+    "Total outlay is maximum in which year?",
+]
+# Image URLs as strings: ST's loader fetches and RGB-converts them (doc1.jpg is grayscale).
+IMAGE_DOCUMENTS = [
+    f"https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc{i}.jpg" for i in range(1, 5)
+]
+
+# Per-(query, page) MaxSim matrices in float32, generated with each checkpoint's *reference* implementation
+# rather than with ST: colpali-engine's `ColPali` + `ColPaliProcessor` for the merged ColPali checkpoint, and
+# transformers' `ColQwen2ForRetrieval` + `ColQwen2Processor` for the transformers-native ColQwen2. ST
+# reproduced both exactly (max abs diff 0.0). This is the image-document counterpart of MODELS_TO_MAXSIM, and
+# it covers both multimodal load paths: an explicit Transformer -> Dense -> Normalize -> MultiVectorMask
+# pipeline (ColPali), and the auto-recognised `*ForRetrieval` pipeline where the projection and the
+# normalisation live inside the model (ColQwen2).
+IMAGE_MODELS_TO_MAXSIM: dict[str, list[list[float]]] = {
+    "tomaarsen/colpali-v1.3-merged-st": [
+        [19.49800, 17.41141, 17.37556, 16.74520],
+        [5.44993, 11.25896, 5.56274, 6.25862],
+    ],
+    "vidore/colqwen2-v1.0-hf": [
+        [14.30825, 11.39804, 11.71452, 11.11929],
+        [8.06244, 15.51341, 7.69973, 6.81685],
+    ],
+}
+
+# float32 ColPali is ~13 GiB of weights, before activations.
+_MIN_IMAGE_MAXSIM_VRAM_BYTES = 16 * 1024**3
+
 
 @pytest.mark.parametrize("model_name, expected_score", MODELS_TO_MAXSIM.items())
 @pytest.mark.slow
@@ -40,6 +71,36 @@ def test_pretrained_multi_vector_maxsim(model_name: str, expected_score: list[fl
     assert np.allclose(similarities, expected_score, rtol=0.001, atol=0.001), (
         f"Expected MaxSim scores for {model_name} to be close to {expected_score}, but got {similarities.tolist()}"
     )
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+@pytest.mark.parametrize("model_name, expected_scores", IMAGE_MODELS_TO_MAXSIM.items())
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.get_device_properties(0).total_memory < _MIN_IMAGE_MAXSIM_VRAM_BYTES,
+    reason="float32 ColPali is a 3B model needing ~13 GiB; requires a >=16 GiB CUDA device",
+)
+@pytest.mark.slow
+def test_pretrained_image_document_maxsim(model_name: str, expected_scores: list[list[float]]) -> None:
+    """Cross-library parity guard for image documents, against each checkpoint's reference implementation.
+
+    Covers both multimodal load paths: ColPali's explicit
+    ``Transformer -> Dense -> Normalize -> MultiVectorMask`` pipeline, and ColQwen2's auto-recognised
+    ``*ForRetrieval`` pipeline, whose head performs the projection and the normalisation internally.
+    """
+    model = MultiVectorEncoder(model_name, model_kwargs={"dtype": torch.float32})
+    query_embeddings = model.encode_query(IMAGE_QUERIES, convert_to_tensor=True)
+    document_embeddings = model.encode_document(IMAGE_DOCUMENTS, convert_to_tensor=True)
+    similarities = model.similarity(query_embeddings, document_embeddings).float().cpu()
+
+    assert tuple(similarities.shape) == (len(IMAGE_QUERIES), len(IMAGE_DOCUMENTS))
+    assert np.allclose(similarities, expected_scores, rtol=0.001, atol=0.001), (
+        f"Expected MaxSim scores for {model_name} to be close to {expected_scores}, but got {similarities.tolist()}"
+    )
+    # Semantic: each query retrieves its matching page (query i -> doc i).
+    assert similarities.argmax(dim=1).tolist() == list(range(len(IMAGE_QUERIES)))
+
     del model
     gc.collect()
     torch.cuda.empty_cache()
@@ -127,5 +188,88 @@ def test_pretrained_colpali_multimodal() -> None:
     assert scores.argmax(dim=1).tolist() == list(range(len(queries)))
 
     del model
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="ColQwen2 is a 2B model; requires CUDA to run in reasonable time"
+)
+@pytest.mark.slow
+def test_pretrained_colqwen2_hf_for_retrieval(tmp_path) -> None:
+    """Auto-recognition of transformers-native late-interaction retrievers (``*ForRetrieval``).
+
+    ``vidore/colqwen2-v1.0-hf`` carries no Sentence Transformers config at all, so this exercises
+    :meth:`MultiVectorEncoder._load_default_modules`: the ``ColQwen2ForRetrieval`` head already
+    projects, L2-normalises and zeroes padded positions, so the pipeline must be exactly
+    ``Transformer(retrieval) -> MultiVectorMask`` with no Dense and no Normalize.
+
+    The load-bearing assertion is token-id parity with ``ColQwen2Processor``: these models bake the
+    trained query prefix, the query-augmentation buffer and the visual prompt into the processor's
+    ``__call__``, so no chat template must be involved. Scores stay dtype-robust (bfloat16 drifts
+    across GPU architectures), hence rankings rather than absolute MaxSim values.
+    """
+    from transformers import AutoProcessor, ColQwen2ForRetrieval
+
+    model_id = "vidore/colqwen2-v1.0-hf"
+    model = MultiVectorEncoder(model_id)
+
+    # Auto-recognised pipeline: the projection + normalisation live inside the model.
+    assert [type(module).__name__ for module in model] == ["Transformer", "MultiVectorMask"]
+    assert model[0].transformer_task == "retrieval"
+    assert isinstance(model[0].auto_model, ColQwen2ForRetrieval)
+    dim = model.get_embedding_dimension()
+    assert dim == 128  # config.embedding_dim, not the 1536-dim backbone hidden size
+
+    queries = [
+        "What is the variable represented on the y-axis of the graph?",
+        "Total outlay is maximum in which year?",
+    ]
+    images = [
+        f"https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc{i}.jpg" for i in range(1, 5)
+    ]
+
+    # Token-id parity with the reference processor: no chat template, prefixes applied by the processor.
+    processor = AutoProcessor.from_pretrained(model_id)
+    st_query_ids = model[0].preprocess(queries, task="query")["input_ids"].cpu()
+    assert torch.equal(st_query_ids, processor.process_queries(queries)["input_ids"])
+
+    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
+    document_embeddings = model.encode_document(images, convert_to_tensor=True)
+
+    assert len(query_embeddings) == len(queries)
+    assert all(q.ndim == 2 and q.shape[0] > 0 and q.shape[1] == dim for q in query_embeddings)
+    assert len(document_embeddings) == len(images)
+    assert all(d.ndim == 2 and d.shape[0] > 0 and d.shape[1] == dim for d in document_embeddings)
+
+    # The model's own L2 normalisation ran, even though there is no Normalize module in the pipeline.
+    for document_embedding in document_embeddings:
+        norms = document_embedding.float().norm(dim=-1)
+        assert torch.allclose(norms, torch.ones_like(norms), atol=0.05)
+
+    # Semantic: each query retrieves its matching page (query i -> doc i).
+    scores = model.similarity(query_embeddings, document_embeddings)
+    assert tuple(scores.shape) == (len(queries), len(images))
+    assert scores.argmax(dim=1).tolist() == list(range(len(queries)))
+
+    # Save / reload round-trip: the config-modules load path must reconstruct the retrieval pipeline
+    # from the persisted transformer_task + modality_config, without re-running auto-recognition.
+    model.save_pretrained(str(tmp_path))
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    reloaded = MultiVectorEncoder(str(tmp_path))
+    assert [type(module).__name__ for module in reloaded] == ["Transformer", "MultiVectorMask"]
+    assert reloaded[0].transformer_task == "retrieval"
+    assert reloaded.get_embedding_dimension() == dim
+    reloaded_query = reloaded.encode_query([queries[0]], convert_to_tensor=True)[0]
+    assert reloaded_query.shape == query_embeddings[0].shape
+    # bf16 kernel selection varies between loads (elementwise drift ~2e-3): compare per-token
+    # direction instead of raw values. Both are unit-norm, so the dot product is the cosine.
+    token_cosines = (query_embeddings[0].float().cpu() * reloaded_query.float().cpu()).sum(dim=-1)
+    assert token_cosines.min() > 0.99
+
+    del reloaded
     gc.collect()
     torch.cuda.empty_cache()

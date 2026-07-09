@@ -597,6 +597,24 @@ class TestForward:
             assert isinstance(model.model_forward_params, set)
             assert {"input_ids", "attention_mask"} <= model.model_forward_params
 
+    def test_retrieval_task_warns_on_text_documents(self, bert_tiny_transformer, monkeypatch):
+        """`*ForRetrieval` processors always render text as a query: asking for document treatment
+        on text inputs must warn instead of silently query-formatting the documents."""
+        import sentence_transformers.base.modules.transformer as transformer_module
+
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "transformer_task", "retrieval")
+        warnings: list[str] = []
+        monkeypatch.setattr(transformer_module.logger, "warning_once", warnings.append)
+
+        transformer.preprocess(["a text document"], task="document")
+        assert warnings and "renders text as a query" in warnings[0]
+
+        warnings.clear()
+        transformer.preprocess(["a query"], task="query")
+        transformer.preprocess(["taskless text"])
+        assert not warnings
+
     def test_kwargs_forward_excludes_bookkeeping_keys(self, bert_tiny_transformer, monkeypatch):
         """When forward accepts ``**kwargs`` (``model_forward_params is None``), forward() passes the real
         model inputs but drops ST bookkeeping and tokenizer-only extras, even though ``**kwargs`` would

@@ -753,12 +753,15 @@ class MultiVectorEncoder(BaseModel):
     ) -> tuple[list[nn.Module], dict[str, Any]]:
         """Build the default module sequence for a fresh MultiVectorEncoder.
 
-        Two paths:
+        Three paths:
         1. Stanford-NLP ColBERT (``architectures == ["HF_ColBERT"]``): load the backbone, read
            ``artifact.metadata`` to recover special tokens / lengths, and append a token-level
            :class:`~sentence_transformers.base.modules.dense.Dense` loaded from the inline
            ``linear.weight`` stored at the repo root.
-        2. Bare transformer: load the backbone and append a freshly-initialised projection layer
+        2. transformers-native late-interaction retrievers (``architectures`` ends in
+           ``"ForRetrieval"``, e.g. ColPali / ColQwen2 / ColModernVBert): the head already projects,
+           L2-normalises and zeroes padded positions, so only the scoring mask is appended.
+        3. Bare transformer: load the backbone and append a freshly-initialised projection layer
            operating on ``token_embeddings`` (output dim 128). To customise, pass ``modules=...``.
         """
         shared_kwargs = {
@@ -792,6 +795,31 @@ class MultiVectorEncoder(BaseModel):
                 local_files_only=local_files_only,
                 token=token,
             )
+
+        if any(architecture.endswith("ForRetrieval") for architecture in architectures):
+            # transformers-native ColPali / ColQwen2 / ColModernVBert: `forward` already projects,
+            # L2-normalises and zeroes padding, and the processor bakes in the query prefix, the
+            # augmentation buffer and the visual prompt, so no Dense, Normalize, or chat template is
+            # needed. Text is always rendered as a query (preprocess warns if passed as documents).
+            embeddings = {"method": "forward", "method_output_name": "embeddings"}
+            transformer_model = Transformer(
+                model_name_or_path,
+                cache_dir=cache_folder,
+                model_kwargs=model_kwargs,
+                processor_kwargs=processor_kwargs,
+                config_kwargs=config_kwargs,
+                backend=self.backend,
+                transformer_task="retrieval",
+                modality_config={"text": dict(embeddings), "image": dict(embeddings)},
+                module_output_name="token_embeddings",
+            )
+            logger.info(
+                f"Detected a transformers-native late-interaction retriever ({architectures[0]}); "
+                "the projection and normalisation live inside the model, so only a MultiVectorMask is added."
+            )
+            if not local_files_only:
+                self.model_card_data.set_base_model(model_name_or_path, revision=revision)
+            return [transformer_model, MultiVectorMask(skiplist_words=self._legacy.skiplist_words)], {}
 
         transformer_model = Transformer(
             model_name_or_path,
