@@ -133,7 +133,7 @@ def test_distillation_evaluator(model: MultiVectorEncoder) -> None:
     evaluator = MultiVectorDistillationEvaluator(
         queries=["What is the capital of France?", "Who painted the Mona Lisa?"],
         documents=["Paris is the capital of France.", "Leonardo da Vinci painted the Mona Lisa."],
-        scores=[5.0, 5.0],
+        scores=[5.0, 3.0],
         name="distill_smoke",
         write_csv=False,
     )
@@ -141,3 +141,60 @@ def test_distillation_evaluator(model: MultiVectorEncoder) -> None:
     assert "distill_smoke_spearman" in results
     assert "distill_smoke_kl_divergence" in results
     assert evaluator.primary_metric == "distill_smoke_spearman"
+
+
+def test_distillation_evaluator_per_query_candidate_sets(model: MultiVectorEncoder) -> None:
+    """The KD training format: N candidate documents per query with 2-D teacher scores. The KL is
+    computed per query over its own candidate set, mirroring MultiVectorDistillKLDivLoss."""
+    evaluator = MultiVectorDistillationEvaluator(
+        queries=["What is the capital of France?", "Who painted the Mona Lisa?"],
+        documents=[
+            ["Paris is the capital of France.", "Berlin is the capital of Germany."],
+            ["Leonardo da Vinci painted the Mona Lisa.", "Van Gogh painted The Starry Night."],
+        ],
+        scores=[[5.0, 1.0], [4.5, 0.5]],
+        name="distill_kd",
+        write_csv=False,
+    )
+    results = evaluator(model)
+    assert "distill_kd_spearman" in results
+    assert "distill_kd_kl_divergence" in results
+    assert results["distill_kd_kl_divergence"] >= 0.0
+
+
+def test_distillation_evaluator_rejects_mismatched_nested_shapes() -> None:
+    # Ragged candidate lists are rejected up front instead of failing deep inside encode.
+    with pytest.raises(ValueError, match="same length"):
+        MultiVectorDistillationEvaluator(
+            queries=["q1", "q2"],
+            documents=[["d1", "d2"], ["d3"]],
+            scores=[[1.0, 2.0], [3.0, 4.0]],
+        )
+    # 1-D scores with nested documents are ambiguous: require the matching 2-D shape.
+    with pytest.raises(ValueError, match="2-D"):
+        MultiVectorDistillationEvaluator(
+            queries=["q1", "q2"],
+            documents=[["d1", "d2"], ["d3", "d4"]],
+            scores=[1.0, 2.0],
+        )
+    # 2-D scores with flat documents are equally malformed.
+    with pytest.raises(ValueError, match="1-D"):
+        MultiVectorDistillationEvaluator(
+            queries=["q1", "q2"],
+            documents=["d1", "d2"],
+            scores=[[1.0, 2.0], [3.0, 4.0]],
+        )
+
+
+def test_evaluators_reject_truncate_dim() -> None:
+    """MultiVectorEncoder has no Matryoshka-style truncation: passing truncate_dim must fail loud
+    instead of logging a truncation and computing full-dimension metrics."""
+    queries = {"q0": "What is the capital of France?"}
+    corpus = {"d0": "Paris is the capital of France."}
+    qrels = {"q0": {"d0"}}
+    with pytest.raises(ValueError, match="truncate_dim"):
+        MultiVectorInformationRetrievalEvaluator(queries=queries, corpus=corpus, relevant_docs=qrels, truncate_dim=64)
+    with pytest.raises(ValueError, match="truncate_dim"):
+        MultiVectorNanoBEIREvaluator(dataset_names=["msmarco"], truncate_dim=64)
+    with pytest.raises(ValueError, match="truncate_dim"):
+        MultiVectorTripletEvaluator(anchors=["a"], positives=["p"], negatives=["n"], truncate_dim=64)

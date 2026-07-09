@@ -20,8 +20,18 @@ class MultiVectorTripletEvaluator(TripletEvaluator):
     Given ``(anchor, positive, negative)`` triplets, checks how often
     ``MaxSim(anchor, positive) > MaxSim(anchor, negative) + margin``. The anchors are encoded via
     :meth:`encode_query` (with the query prefix and length); positives and negatives are encoded via
-    :meth:`encode_document`.
+    :meth:`encode_document`. ``truncate_dim`` is not supported (multi-vector token embeddings have no
+    Matryoshka-style truncation) and raises a ValueError.
     """
+
+    def __init__(self, *args, **kwargs) -> None:
+        if kwargs.get("truncate_dim") is not None:
+            raise ValueError(
+                "truncate_dim is not supported by MultiVectorEncoder evaluators: multi-vector token "
+                "embeddings have no Matryoshka-style truncation. Remove truncate_dim to evaluate at "
+                "the full dimension."
+            )
+        super().__init__(*args, **kwargs)
 
     def _get_similarity_functions(self) -> dict:
         return {

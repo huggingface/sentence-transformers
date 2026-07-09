@@ -44,8 +44,8 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         batch_size (int): Per-input batch size used while encoding. Defaults to 32.
         write_csv (bool): Append per-call metric values to a CSV file (one row per evaluation call).
             Defaults to True.
-        truncate_dim (int, optional): Single-vector dimension truncation. The multi-vector encoder
-            ignores this. Defaults to None.
+        truncate_dim (int, optional): Not supported: multi-vector token embeddings have no
+            Matryoshka-style truncation, so any non-None value raises a ValueError. Defaults to None.
         score_functions (Dict[str, Callable], optional): Override the default per-subset scoring.
             See :class:`MultiVectorInformationRetrievalEvaluator`. Defaults to None.
         main_score_function (str or SimilarityFunction, optional): Score-function key to treat as the
@@ -84,6 +84,12 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         document_chunk_size: int | None = 32,
         **kwargs,
     ) -> None:
+        if kwargs.get("truncate_dim") is not None:
+            raise ValueError(
+                "truncate_dim is not supported by MultiVectorEncoder evaluators: multi-vector token "
+                "embeddings have no Matryoshka-style truncation. Remove truncate_dim to evaluate at "
+                "the full dimension."
+            )
         # Set before super().__init__ because the base initializer iterates ``_load_dataset`` to
         # construct per-subset IR evaluators, and that needs the extra kwargs.
         self._ir_extra_kwargs: dict[str, Any] = {
