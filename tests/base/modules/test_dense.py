@@ -149,3 +149,24 @@ def test_dense_load_ignores_unknown_config_keys(tmp_path: Path, caplog) -> None:
     # The reloaded module still runs a forward pass.
     output = loaded.forward({"sentence_embedding": torch.randn(2, 768)})
     assert output["sentence_embedding"].shape == (2, 256)
+
+
+def test_dense_config_omits_default_use_residual(tmp_path: Path) -> None:
+    """``use_residual`` at its default (False) must not be written to config.json: released
+    5.4-5.6 ``Dense.load`` does ``cls(**config)`` without unknown-key dropping, so any new key at
+    default would make fresh saves unloadable there. A non-default value must still round-trip."""
+    import json
+
+    default_dir = tmp_path / "dense_default"
+    default_dir.mkdir()
+    Dense(16, 8, bias=False, activation_function=nn.Identity()).save(str(default_dir))
+    config = json.loads((default_dir / "config.json").read_text(encoding="utf-8"))
+    assert "use_residual" not in config
+
+    residual_dir = tmp_path / "dense_residual"
+    residual_dir.mkdir()
+    Dense(16, 8, bias=False, activation_function=nn.Identity(), use_residual=True).save(str(residual_dir))
+    config = json.loads((residual_dir / "config.json").read_text(encoding="utf-8"))
+    assert config["use_residual"] is True
+    loaded = Dense.load(str(residual_dir))
+    assert loaded.use_residual is True
