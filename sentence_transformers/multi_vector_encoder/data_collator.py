@@ -61,6 +61,7 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
                 continue
 
             task = router_mapping.get(column_name)
+            # TODO: I'm not sure if we should default column 0 to query and the rest to document
             if task is None:
                 # Match the losses' positional assignment: column 0 is the query, the rest are documents.
                 task = "query" if tokenized_position == 0 else "document"
@@ -70,6 +71,7 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
             inputs = [row[column_name] for row in features]
 
             # Flatten list-valued columns (e.g. KD's `documents: list[str]` per row).
+            # TODO: Do we need this n_ways?
             n_ways = None
             if inputs and isinstance(inputs[0], list):
                 n_ways = len(inputs[0])
@@ -78,6 +80,10 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
             preprocessed = self.preprocess_fn(inputs, prompt=prompt, task=task)
             for key, value in preprocessed.items():
                 batch[f"{column_name}_{key}"] = value
+            # Stamp the resolved task so losses re-run the model with the same task the column was
+            # tokenized with, also when router_mapping overrides the positional default.
+            # TODO: Should we pass this task along? And if yes, should we pass it for all archetypes?
+            batch[f"{column_name}_task"] = task
             if n_ways is not None:
                 batch[f"{column_name}_n_ways"] = n_ways
 

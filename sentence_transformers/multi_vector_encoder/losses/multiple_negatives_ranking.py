@@ -98,17 +98,19 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
         labels: Tensor | None = None,
     ) -> Tensor:
         sentence_features = list(sentence_features)
-        # First feature is the query, the rest are documents. The MultiVectorMask module reads `task`
-        # from forward kwargs and rewrites each `sf["attention_mask"]` into the per-row scoring mask.
-        embeddings = [
-            self.model(sf, task="query" if idx == 0 else "document")["token_embeddings"]
+        # The collator stamps each column's tokenization task (column 0 is the query unless
+        # router_mapping overrides it). The MultiVectorMask module reads `task` from forward
+        # kwargs and rewrites the output attention_mask into the per-row scoring mask.
+        outputs = [
+            self.model(sf, task=sf.get("task", "query" if idx == 0 else "document"))
             for idx, sf in enumerate(sentence_features)
         ]
+        embeddings = [output["token_embeddings"] for output in outputs]
 
         batch_size = embeddings[0].size(0)
         N = len(embeddings) - 1
-        q_mask = sentence_features[0]["attention_mask"].bool()
-        doc_masks = [sf["attention_mask"].bool() for sf in sentence_features[1:]]
+        q_mask = outputs[0]["attention_mask"].bool()
+        doc_masks = [output["attention_mask"].bool() for output in outputs[1:]]
         if self.gather_across_devices:
             # Gather doc embeddings + masks across ranks so every rank's queries see the global doc
             # batch. Pad the token axis to the cross-rank max first: each rank pads its columns to its

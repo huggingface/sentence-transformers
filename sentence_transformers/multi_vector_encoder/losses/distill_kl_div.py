@@ -76,14 +76,19 @@ class MultiVectorDistillKLDivLoss(nn.Module):
                 f"got {len(sentence_features)}."
             )
 
-        queries_embeddings = self.model(sentence_features[0], task="query")["token_embeddings"]
-        documents_embeddings = self.model(sentence_features[1], task="document")["token_embeddings"]
+        # Collator-stamped tasks (positional fallback), masks from the model output where
+        # MultiVectorMask has rewritten attention_mask into the per-row scoring mask.
+        query_features, document_features = sentence_features
+        query_outputs = self.model(query_features, task=query_features.get("task", "query"))
+        document_outputs = self.model(document_features, task=document_features.get("task", "document"))
+        queries_embeddings = query_outputs["token_embeddings"]
+        documents_embeddings = document_outputs["token_embeddings"]
 
         bs = queries_embeddings.size(0)
         n_ways = documents_embeddings.size(0) // bs
         documents_embeddings = documents_embeddings.view(bs, n_ways, *documents_embeddings.shape[1:])
-        queries_mask = sentence_features[0]["attention_mask"].bool()
-        documents_mask = sentence_features[1]["attention_mask"].bool()
+        queries_mask = query_outputs["attention_mask"].bool()
+        documents_mask = document_outputs["attention_mask"].bool()
         documents_mask = documents_mask.view(bs, n_ways, *documents_mask.shape[1:])
 
         scores = self.score_metric(

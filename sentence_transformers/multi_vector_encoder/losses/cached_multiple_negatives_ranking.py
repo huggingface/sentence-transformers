@@ -79,7 +79,7 @@ def _backward_hook(
         for idx, (sentence_feature, grad, random_states) in enumerate(
             zip(sentence_features, loss_obj.cache, loss_obj.random_states)
         ):
-            task = "query" if idx == 0 else "document"
+            task = sentence_feature.get("task", "query" if idx == 0 else "document")
             for (reps_mb, _, _), grad_mb in zip(
                 loss_obj.embed_minibatch_iter(
                     sentence_feature=sentence_feature,
@@ -291,7 +291,8 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         self.random_states = []
 
         for idx, sentence_feature in enumerate(sentence_features):
-            task = "query" if idx == 0 else "document"
+            # Collator-stamped task (column 0 is the query unless router_mapping overrides it).
+            task = sentence_feature.get("task", "query" if idx == 0 else "document")
             reps_mbs: list[Tensor] = []
             mask_mbs: list[Tensor] = []
             random_state_mbs: list[RandContext] = []

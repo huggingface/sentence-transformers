@@ -66,11 +66,14 @@ class MultiVectorMarginMSELoss(nn.Module):
                 f"got {len(sentence_features)}."
             )
 
-        embeddings = [
-            self.model(sf, task="query" if idx == 0 else "document")["token_embeddings"]
+        # Collator-stamped tasks (positional fallback), masks from the model output where
+        # MultiVectorMask has rewritten attention_mask into the per-row scoring mask.
+        outputs = [
+            self.model(sf, task=sf.get("task", "query" if idx == 0 else "document"))
             for idx, sf in enumerate(sentence_features)
         ]
-        masks = [sf["attention_mask"].bool() for sf in sentence_features]
+        embeddings = [output["token_embeddings"] for output in outputs]
+        masks = [output["attention_mask"].bool() for output in outputs]
 
         q, pos, *negs = embeddings
         q_mask, pos_mask, *neg_masks = masks
