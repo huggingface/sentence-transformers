@@ -652,11 +652,12 @@ class MultiVectorEncoder(BaseModel):
             if key in model_config and (model_config[key] is not None or key == "query_expansion")
         }
         # PyLate / Stanford-NLP saves predate the ``query_expansion`` dict. Translate their flat
-        # ``do_query_expansion`` + ``attend_to_mask_tokens`` fields into the new shape, defaulting
+        # ``do_query_expansion`` + attend-to-expansion fields into the new shape, defaulting
         # expansion on with the pad-to-length strategy (PyLate's default) when the save shows other
         # PyLate markers but didn't pin expansion explicitly.
         pylate_marker_keys = _LegacyStash._PYLATE_TRANSFORMER_KEYS + (
             "do_query_expansion",
+            "attend_to_expansion_tokens",
             "attend_to_mask_tokens",
             "query_prefix",
             "document_prefix",
@@ -667,7 +668,10 @@ class MultiVectorEncoder(BaseModel):
             if model_config.get("do_query_expansion") is False:
                 pylate_knobs["query_expansion"] = None
             else:
-                strategy = "pad_attend" if model_config.get("attend_to_mask_tokens") else "pad_skip"
+                # PyLate saves the flag as ``attend_to_expansion_tokens``. ``attend_to_mask_tokens`` is
+                # the Stanford artifact.metadata spelling, kept as a fallback for hand-written configs.
+                attend = model_config.get("attend_to_expansion_tokens", model_config.get("attend_to_mask_tokens"))
+                strategy = "pad_attend" if attend else "pad_skip"
                 # PyLate stored the pad target as ``query_length``. Move it into the expansion config
                 # where it now belongs. Fall back to the canonical ColBERT default of 32.
                 length = pylate_knobs.pop("query_length", None) or model_config.get("query_length") or 32

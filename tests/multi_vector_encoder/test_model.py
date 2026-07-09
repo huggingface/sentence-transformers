@@ -365,7 +365,11 @@ def test_stanford_metadata_seeds_skiplist_from_mask_punctuation(monkeypatch, tmp
         ({"query_length": 32}, {"strategy": "pad_skip", "length": 32}),
         # PyLate-shape ``do_query_expansion=False`` translates to "explicitly off".
         ({"query_length": 32, "do_query_expansion": False}, None),
-        # PyLate-shape ``attend_to_mask_tokens=True`` selects the pad_attend strategy, still moves length in.
+        # PyLate saves ``attend_to_expansion_tokens=True``: selects pad_attend, still moves length in.
+        ({"query_length": 32, "attend_to_expansion_tokens": True}, {"strategy": "pad_attend", "length": 32}),
+        # PyLate saves the flag off explicitly too.
+        ({"query_length": 32, "attend_to_expansion_tokens": False}, {"strategy": "pad_skip", "length": 32}),
+        # The Stanford artifact.metadata spelling is honored as a fallback for hand-written configs.
         ({"query_length": 32, "attend_to_mask_tokens": True}, {"strategy": "pad_attend", "length": 32}),
         # An explicit query_expansion dict is preserved as-is (no length move for append_suffix).
         (
@@ -382,9 +386,10 @@ def test_stanford_metadata_seeds_skiplist_from_mask_punctuation(monkeypatch, tmp
 )
 def test_parse_model_config_translates_pylate_expansion(model_config, expected_qe) -> None:
     """``_parse_model_config`` translates legacy PyLate-shape expansion fields
-    (``do_query_expansion`` + ``attend_to_mask_tokens``) into the ``query_expansion`` dict,
-    preserves an explicit value, leaves bare-ST saves untouched, and filters ``None`` knobs out
-    so they fall through to the Transformer's own default.
+    (``do_query_expansion`` + ``attend_to_expansion_tokens``, with the Stanford spelling
+    ``attend_to_mask_tokens`` as fallback) into the ``query_expansion`` dict, preserves an explicit
+    value, leaves bare-ST saves untouched, and filters ``None`` knobs out so they fall through to
+    the Transformer's own default.
     """
     from sentence_transformers.multi_vector_encoder.model import _LegacyStash
 
@@ -598,7 +603,7 @@ def test_pylate_shape_save_round_trips_to_new_query_expansion(tmp_path) -> None:
     config.pop("query_expansion", None)
     config["query_length"] = 24
     config["do_query_expansion"] = True
-    config["attend_to_mask_tokens"] = True  # -> pad_attend, not pad_skip
+    config["attend_to_expansion_tokens"] = True  # PyLate's spelling -> pad_attend, not pad_skip
     config_path.write_text(json.dumps(config))
 
     # Reload triggers the PyLate translation path in ``_parse_model_config``.
