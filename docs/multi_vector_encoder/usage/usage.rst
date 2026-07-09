@@ -66,3 +66,9 @@ You can also call the standalone scoring functions directly::
 
     scores = maxsim(query_embeddings, document_embeddings)
     pairwise = maxsim_pairwise([query_embeddings[0], query_embeddings[0]], document_embeddings)
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Tasks and Advanced Usage
+
+   custom_models

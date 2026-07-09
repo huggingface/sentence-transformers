@@ -545,6 +545,50 @@ def test_pinned_sentence_level_dense_survives_load(tmp_path) -> None:
     assert dense.module_output_name == "sentence_embedding"
 
 
+def test_encode_output_value_none_returns_feature_dicts(model: MultiVectorEncoder) -> None:
+    """``output_value=None`` returns the raw per-input module output dicts (ST parity): every
+    feature key a module wrote, with batch-first tensors split per input and other values carried
+    as-is. Extra keys from custom modules become user-reachable this way."""
+    outputs = model.encode_query(["short", "a somewhat longer query"], output_value=None)
+    assert isinstance(outputs, list) and len(outputs) == 2
+    for item in outputs:
+        assert isinstance(item, dict)
+        assert item["token_embeddings"].ndim == 2
+        assert item["attention_mask"].shape == item["token_embeddings"].shape[:1]
+    assert outputs[0]["modality"] == "text"  # non-tensor values carried as-is, not char-sliced
+
+    # A singular input unwraps to a single dict, like the default path unwraps to a single array.
+    single = model.encode_document("hello world", output_value=None)
+    assert isinstance(single, dict) and "token_embeddings" in single
+
+
+def test_encode_output_value_rejects_unknown(model: MultiVectorEncoder) -> None:
+    with pytest.raises(ValueError, match="output_value"):
+        model.encode(["x"], output_value="sentence_embedding")
+
+
+def test_encode_output_value_none_with_prompt(model: MultiVectorEncoder) -> None:
+    """Prompts compose with ``output_value=None``: the per-item dicts carry the bookkeeping keys
+    (mirrors the SentenceTransformer behaviour)."""
+    outputs = model.encode(["Text one", "Text two"], prompt="query: ", output_value=None)
+    assert len(outputs) == 2
+    for item in outputs:
+        assert isinstance(item, dict)
+        assert "prompt_length" in item
+        assert item["input_ids"].shape == item["attention_mask"].shape
+
+
+def test_encode_output_value_none_ignores_convert_flags(model: MultiVectorEncoder) -> None:
+    """The convert_to_* options do not apply to raw feature dicts."""
+    for outputs in (
+        model.encode(["x", "y"], output_value=None, convert_to_tensor=True),
+        model.encode(["x", "y"], output_value=None, convert_to_padded_tensor=True),
+        model.encode(["x", "y"], output_value=None, convert_to_numpy=True),
+    ):
+        assert isinstance(outputs, list)
+        assert all(isinstance(item, dict) for item in outputs)
+
+
 def test_similarity_fn_name_setter_rejects_unsupported(model: MultiVectorEncoder) -> None:
     """Single-vector similarities can't score ragged token embeddings: assignment must fail loud
     instead of deferring the failure to scoring time."""

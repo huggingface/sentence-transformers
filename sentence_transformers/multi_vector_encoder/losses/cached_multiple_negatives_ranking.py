@@ -308,6 +308,9 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
                 with_grad=False,
                 copy_random_state=True,
             ):
+                # Only token_embeddings are gradient-cached: extra per-token channels must ride
+                # INSIDE this tensor (trailing columns), a separate tensor would get no gradient
+                # in the second pass.
                 reps_mbs.append(reps_mb.detach().requires_grad_())
                 mask_mbs.append(mask_mb)
                 random_state_mbs.append(random_state)

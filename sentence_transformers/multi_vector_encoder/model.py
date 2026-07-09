@@ -204,6 +204,7 @@ class MultiVectorEncoder(BaseModel):
         prompt: str | None = None,
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
+        output_value: Literal["token_embeddings"] | None = "token_embeddings",
         convert_to_tensor: bool = False,
         convert_to_numpy: bool = True,
         convert_to_padded_tensor: bool = False,
@@ -214,7 +215,7 @@ class MultiVectorEncoder(BaseModel):
         chunk_size: int | None = None,
         pooling: BaseTokenPooling | None = None,
         **kwargs: Any,
-    ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray:
+    ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
         """Compute query embeddings. Uses the "query" prompt if available and routes through the query side.
 
         See :meth:`encode` for the full parameter documentation. This method differs only by:
@@ -233,6 +234,7 @@ class MultiVectorEncoder(BaseModel):
             prompt=prompt,
             batch_size=batch_size,
             show_progress_bar=show_progress_bar,
+            output_value=output_value,
             convert_to_tensor=convert_to_tensor,
             convert_to_numpy=convert_to_numpy,
             convert_to_padded_tensor=convert_to_padded_tensor,
@@ -253,6 +255,7 @@ class MultiVectorEncoder(BaseModel):
         prompt: str | None = None,
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
+        output_value: Literal["token_embeddings"] | None = "token_embeddings",
         convert_to_tensor: bool = False,
         convert_to_numpy: bool = True,
         convert_to_padded_tensor: bool = False,
@@ -263,7 +266,7 @@ class MultiVectorEncoder(BaseModel):
         chunk_size: int | None = None,
         pooling: BaseTokenPooling | None = None,
         **kwargs: Any,
-    ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray:
+    ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
         """Compute document embeddings. Uses the first available of ``"document"`` / ``"passage"`` / ``"corpus"``
         prompts and routes through the document side.
 
@@ -286,6 +289,7 @@ class MultiVectorEncoder(BaseModel):
             prompt=prompt,
             batch_size=batch_size,
             show_progress_bar=show_progress_bar,
+            output_value=output_value,
             convert_to_tensor=convert_to_tensor,
             convert_to_numpy=convert_to_numpy,
             convert_to_padded_tensor=convert_to_padded_tensor,
@@ -299,7 +303,7 @@ class MultiVectorEncoder(BaseModel):
             **kwargs,
         )
 
-    # TODO: Consider replacing convert_to_* with return_as / output_format & incorporate "features" as well
+    # TODO: Consider replacing convert_to_* with return_as / output_format
     def encode(
         self,
         inputs: list[SingleInput] | SingleInput,
@@ -307,6 +311,7 @@ class MultiVectorEncoder(BaseModel):
         prompt: str | None = None,
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
+        output_value: Literal["token_embeddings"] | None = "token_embeddings",
         convert_to_tensor: bool = False,
         convert_to_numpy: bool = True,
         convert_to_padded_tensor: bool = False,
@@ -318,7 +323,7 @@ class MultiVectorEncoder(BaseModel):
         pooling: BaseTokenPooling | None = None,
         task: str | None = None,
         **kwargs: Any,
-    ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray:
+    ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
         """Compute multi-vector token-level embeddings.
 
         .. tip::
@@ -334,6 +339,12 @@ class MultiVectorEncoder(BaseModel):
             prompt (str, optional): A prompt string to prepend to each input. Overrides ``prompt_name``.
             batch_size (int, optional): Batch size for the forward pass. Defaults to 32.
             show_progress_bar (bool, optional): Whether to show a progress bar. Defaults to None (auto).
+            output_value (str, optional): ``"token_embeddings"`` (default) returns per-input token
+                embeddings, sliced by the scoring mask. ``None`` returns the raw per-input module
+                output dicts instead: every feature key (``token_embeddings``, ``attention_mask``,
+                and any extra keys custom modules wrote), unsliced and padded to each batch's
+                longest input. With ``None``, normalization, pooling, ``precision``, and the
+                ``convert_to_*`` options do not apply.
             convert_to_tensor (bool, optional): If True, returns a list of :class:`torch.Tensor`. Overrides
                 ``convert_to_numpy``. Defaults to False.
             convert_to_numpy (bool, optional): If True (default), returns a list of :class:`numpy.ndarray`.
@@ -364,8 +375,9 @@ class MultiVectorEncoder(BaseModel):
         Returns:
             list[Tensor] | list[ndarray] | Tensor | ndarray: By default, a list of per-input 2D arrays of shape
             ``(num_tokens_i, embedding_dim)`` (variable-length). With ``convert_to_padded_tensor=True``, a
-            single 3D :class:`torch.Tensor` of shape ``(num_inputs, max_tokens, embedding_dim)``. If a single
-            string is passed, the outer list is unwrapped (e.g. a bare 2D array for the default).
+            single 3D :class:`torch.Tensor` of shape ``(num_inputs, max_tokens, embedding_dim)``. With
+            ``output_value=None``, a list of per-input feature dicts. If a single string is passed, the
+            outer list is unwrapped (e.g. a bare 2D array for the default).
         """
         is_query = task == "query"
 
@@ -374,6 +386,15 @@ class MultiVectorEncoder(BaseModel):
 
         if batch_size <= 0:
             raise ValueError(f"batch_size must be a positive integer, got {batch_size}.")
+
+        if output_value not in ("token_embeddings", None):
+            raise ValueError(
+                f'output_value must be "token_embeddings" or None (raw per-input feature dicts), got {output_value!r}.'
+            )
+        if output_value is None:
+            convert_to_tensor = False
+            convert_to_numpy = False
+            convert_to_padded_tensor = False
 
         # convert_to_tensor / convert_to_padded_tensor both produce Tensor output; suppress numpy conversion.
         if convert_to_tensor or convert_to_padded_tensor:
@@ -403,6 +424,7 @@ class MultiVectorEncoder(BaseModel):
                 prompt_name=prompt_name,
                 prompt=prompt,
                 batch_size=batch_size,
+                output_value=output_value,
                 convert_to_tensor=convert_to_tensor,
                 convert_to_numpy=convert_to_numpy,
                 # Pad once after merging chunks, not per-worker: per-chunk max lengths would mismatch.
@@ -426,7 +448,8 @@ class MultiVectorEncoder(BaseModel):
         self.to(device)
         self.eval()
 
-        all_embeddings: list[Tensor | np.ndarray] = []
+        # Element type depends on output_value / convert flags: Tensor, ndarray, or feature dict.
+        all_embeddings: list[Any] = []
         length_sorted_idx = np.argsort([-self._input_length(sen) for sen in inputs])
         inputs_sorted = [inputs[idx] for idx in length_sorted_idx]
 
@@ -438,6 +461,18 @@ class MultiVectorEncoder(BaseModel):
 
             with torch.inference_mode():
                 features = self.forward(features, task=task)
+                if output_value is None:
+                    # Raw per-input module outputs, unsliced. Batch-first tensors are split per
+                    # input, other values (ints, strings, flattened tensors) are carried as-is.
+                    for idx in range(len(inputs_batch)):
+                        item = {}
+                        for name, value in features.items():
+                            is_batch_first = (
+                                isinstance(value, Tensor) and value.ndim > 0 and value.shape[0] == len(inputs_batch)
+                            )
+                            item[name] = value[idx] if is_batch_first else value
+                        all_embeddings.append(item)
+                    continue
                 token_embeddings = features["token_embeddings"]
                 masks = features["attention_mask"].bool()
                 batch_embeddings: list[Tensor] = [
@@ -466,7 +501,7 @@ class MultiVectorEncoder(BaseModel):
         all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
 
         # Quantize on the unpadded matrices
-        if precision and precision != "float32":
+        if output_value is not None and precision and precision != "float32":
             all_embeddings = quantize_embeddings(embeddings=all_embeddings, precision=precision)
 
         if convert_to_numpy:
@@ -1110,8 +1145,11 @@ class MultiVectorEncoder(BaseModel):
                 chunk_id, inputs, kwargs = input_queue.get()
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
                 if isinstance(embeddings, list):
+                    # Move to CPU before crossing the process boundary (incl. output_value=None dicts).
                     embeddings = [
-                        emb.cpu() if isinstance(emb, Tensor) and emb.device.type != "cpu" else emb
+                        {key: value.cpu() if isinstance(value, Tensor) else value for key, value in emb.items()}
+                        if isinstance(emb, dict)
+                        else (emb.cpu() if isinstance(emb, Tensor) and emb.device.type != "cpu" else emb)
                         for emb in embeddings
                     ]
                 results_queue.put([chunk_id, embeddings])
