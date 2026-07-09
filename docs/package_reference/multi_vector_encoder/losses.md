@@ -1,7 +1,7 @@
 # Losses
 
 `sentence_transformers.multi_vector_encoder.losses` defines the loss functions for training
-:class:`~sentence_transformers.MultiVectorEncoder` models. See
+`MultiVectorEncoder` models. See
 [Training Overview](../../multi_vector_encoder/training_overview.md) for guidance on which loss to
 pick for which dataset format.
 

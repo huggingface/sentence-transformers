@@ -340,6 +340,14 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/sparse_encoder/training/examples
 
 .. toctree::
+   :maxdepth: 2
+   :caption: Multi-Vector Encoder
+   :hidden:
+
+   docs/multi_vector_encoder/usage/usage
+   docs/multi_vector_encoder/training_overview
+
+.. toctree::
    :maxdepth: 3
    :caption: Package Reference
    :glob:
@@ -348,5 +356,6 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/package_reference/sentence_transformer/index
    docs/package_reference/cross_encoder/index
    docs/package_reference/sparse_encoder/index
+   docs/package_reference/multi_vector_encoder/index
    docs/package_reference/base/index
    docs/package_reference/util/index

@@ -5,11 +5,7 @@ used by training losses. Pass one of these (or a configured callable) as the ``s
 parameter on the multi-vector losses to switch between ColBERT-style MaxSim and XTR-style global
 top-k scoring.
 
-## ColBERTScores
-```{eval-rst}
-.. autoclass:: sentence_transformers.multi_vector_encoder.scoring.ColBERTScores
-```
-
+## ColBERT scoring
 ```{eval-rst}
 .. autofunction:: sentence_transformers.multi_vector_encoder.scoring.colbert_scores
 ```
