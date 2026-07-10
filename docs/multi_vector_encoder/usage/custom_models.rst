@@ -25,8 +25,8 @@ For example, a ColBERT-style model can be built from scratch by initializing the
 
     transformer = Transformer(
         "answerdotai/ModernBERT-base",
-        query_expansion={"strategy": "pad_skip", "length": 32},
-        document_length=300,
+        query_expansion={"strategy": "pad_skip", "length": 32},  # pad queries to 32 tokens with [MASK], truncate longer ones
+        document_length=300,  # also truncate (not pad) documents to 300 tokens
     )
     dense = Dense(
         in_features=transformer.get_embedding_dimension(),

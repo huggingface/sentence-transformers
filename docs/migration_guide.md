@@ -5,6 +5,52 @@
 Notes to self:
 - `TripletEvaluator` (and `SparseTripletEvaluator`) now embed anchors with `encode_query` and positives/negatives with `encode_document`, instead of `encode` for all three. This is a no-op for models without `query` / `document` prompts. Prompt-configured (asymmetric) models will report different triplet accuracy than before, because those prompts are now applied during evaluation.
 
+### Migrating from PyLate
+
+```{eval-rst}
+:class:`~sentence_transformers.MultiVectorEncoder` absorbs PyLate's ColBERT modeling, training, and
+evaluation. Existing PyLate checkpoints load directly, e.g.
+``MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")``, with the prefix tokens, query expansion, and
+punctuation skiplist recovered from the saved config.
+```
+
+| PyLate | Sentence Transformers |
+|---|---|
+| `pylate.models.ColBERT(model_name_or_path=...)` | `MultiVectorEncoder(...)` |
+| `model.encode(..., is_query=True)` | `model.encode_query(...)` |
+| `model.encode(..., is_query=False)` | `model.encode_document(...)` |
+| `query_prefix="[Q] "` / `document_prefix="[D] "` | `prompts={"query": "[Q] ", "document": "[D] "}` |
+| `attend_to_expansion_tokens=True` | `query_expansion={"strategy": "pad_attend", "length": 32}` on the `Transformer` module |
+| `pylate.scores.colbert_scores` | `model.similarity` or `sentence_transformers.util.maxsim` |
+| `pylate.losses.Contrastive` | `MultiVectorMultipleNegativesRankingLoss` |
+| `pylate.losses.CachedContrastive` | `CachedMultiVectorMultipleNegativesRankingLoss` |
+| `pylate.losses.Distillation` | `MultiVectorDistillKLDivLoss` |
+| `pylate.evaluation.ColBERTTripletEvaluator` | `MultiVectorTripletEvaluator` |
+| `pylate.evaluation.ColBERTDistillationEvaluator` | `MultiVectorDistillationEvaluator` |
+| `pylate.utils.KDProcessing` | `sentence_transformers.multi_vector_encoder.KDProcessing` |
+| `pylate.indexes.PLAID` / `pylate.retrieve.ColBERT` | no Sentence Transformers equivalent: keep indexing with PyLate (in a separate environment for now, as PyLate pins an older sentence-transformers version) |
+
+Note that the save compatibility is one-way: PyLate checkpoints load into `MultiVectorEncoder`, but
+models saved with `MultiVectorEncoder.save_pretrained` are not loadable by PyLate.
+
+### Migrating from colpali-engine
+
+```{eval-rst}
+transformers-native ``*ForRetrieval`` checkpoints (the ``-hf`` variants of the ``vidore`` models, e.g.
+``vidore/colqwen2-v1.0-hf``) are auto-detected: the projection and normalisation run inside the model,
+and the processor formats queries and image documents.
+```
+
+| colpali-engine | Sentence Transformers |
+|---|---|
+| `ColQwen2.from_pretrained(...)` + `ColQwen2Processor` | `MultiVectorEncoder("vidore/colqwen2-v1.0-hf")` |
+| `processor.process_queries(...)` + `model(**batch)` | `model.encode_query(queries)` |
+| `processor.process_images(...)` + `model(**batch)` | `model.encode_document(images)` |
+| `processor.score_multi_vector(qs, ds)` | `model.similarity(query_embeddings, document_embeddings)` |
+| `mask_non_image_embeddings=True` | `MultiVectorMask(keep_only_token_ids=[processor.image_token_id])` |
+| `HierarchicalTokenPooler` | `HierarchicalTokenPooling` (see its docstring for exact-parity notes) |
+| `colpali_engine.interpretability` | `sentence_transformers.multi_vector_encoder.interpretability` |
+
 ## Migrating from v5.x to v5.4+
 
 ```{eval-rst}

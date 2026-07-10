@@ -12,9 +12,9 @@
 
 # Sentence Transformers: Embeddings, Retrieval, and Reranking
 
-This framework provides an easy method to compute embeddings for accessing, using, and training state-of-the-art embedding and reranker models. It can be used to compute embeddings using Sentence Transformer models ([quickstart](https://sbert.net/docs/quickstart.html#sentence-transformer)), to calculate similarity scores using Cross-Encoder (a.k.a. reranker) models ([quickstart](https://sbert.net/docs/quickstart.html#cross-encoder)) or to generate sparse embeddings using Sparse Encoder models ([quickstart](https://sbert.net/docs/quickstart.html#sparse-encoder)). This unlocks a wide range of applications, including [semantic search](https://sbert.net/examples/applications/semantic-search/README.html), [semantic textual similarity](https://sbert.net/docs/sentence_transformer/usage/semantic_textual_similarity.html), and [paraphrase mining](https://sbert.net/examples/applications/paraphrase-mining/README.html).
+This framework provides an easy method to compute embeddings for accessing, using, and training state-of-the-art embedding and reranker models. It can be used to compute embeddings using Sentence Transformer models ([quickstart](https://sbert.net/docs/quickstart.html#sentence-transformer)), to calculate similarity scores using Cross-Encoder (a.k.a. reranker) models ([quickstart](https://sbert.net/docs/quickstart.html#cross-encoder)), to generate sparse embeddings using Sparse Encoder models ([quickstart](https://sbert.net/docs/quickstart.html#sparse-encoder)) or to compute token-level embeddings for ColBERT-style late-interaction retrieval using Multi-Vector Encoder models ([usage](https://sbert.net/docs/multi_vector_encoder/usage/usage.html)). This unlocks a wide range of applications, including [semantic search](https://sbert.net/examples/applications/semantic-search/README.html), [semantic textual similarity](https://sbert.net/docs/sentence_transformer/usage/semantic_textual_similarity.html), and [paraphrase mining](https://sbert.net/examples/applications/paraphrase-mining/README.html).
 
-A wide selection of over [15,000 pre-trained Sentence Transformers models](https://huggingface.co/models?library=sentence-transformers) are available for immediate use on 🤗 Hugging Face, including many of the state-of-the-art models from the [Massive Text Embeddings Benchmark (MTEB) leaderboard](https://huggingface.co/spaces/mteb/leaderboard). Additionally, it is easy to train or finetune your own [embedding models](https://sbert.net/docs/sentence_transformer/training_overview.html), [reranker models](https://sbert.net/docs/cross_encoder/training_overview.html) or [sparse encoder models](https://sbert.net/docs/sparse_encoder/training_overview.html) using Sentence Transformers, enabling you to create custom models for your specific use cases.
+A wide selection of over [15,000 pre-trained Sentence Transformers models](https://huggingface.co/models?library=sentence-transformers) are available for immediate use on 🤗 Hugging Face, including many of the state-of-the-art models from the [Massive Text Embeddings Benchmark (MTEB) leaderboard](https://huggingface.co/spaces/mteb/leaderboard). Additionally, it is easy to train or finetune your own [embedding models](https://sbert.net/docs/sentence_transformer/training_overview.html), [reranker models](https://sbert.net/docs/cross_encoder/training_overview.html), [sparse encoder models](https://sbert.net/docs/sparse_encoder/training_overview.html) or [multi-vector encoder models](https://sbert.net/docs/multi_vector_encoder/training_overview.html) using Sentence Transformers, enabling you to create custom models for your specific use cases.
 
 For the **full documentation**, see **[www.SBERT.net](https://www.sbert.net)**.
 
@@ -146,6 +146,34 @@ print(f"Sparsity: {stats['sparsity_ratio']:.2%}")
 # Sparsity: 99.84%
 ```
 
+### Multi-Vector Encoder Models
+
+First download a pretrained multi-vector a.k.a. late-interaction (ColBERT-style) model.
+
+```python
+from sentence_transformers import MultiVectorEncoder
+
+# 1. Load a pretrained MultiVectorEncoder model
+model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+
+queries = ["What is the capital of France?"]
+documents = [
+    "Paris is the capital of France.",
+    "Berlin is the capital of Germany.",
+]
+
+# 2. Encode queries and documents into sequences of token-level embeddings
+query_embeddings = model.encode_query(queries)
+document_embeddings = model.encode_document(documents)
+print(query_embeddings[0].shape, document_embeddings[0].shape)
+# (10, 128) (9, 128)  # one 128-dimensional vector per token
+
+# 3. Score them with late interaction (MaxSim)
+scores = model.similarity(query_embeddings, document_embeddings)
+print(scores)
+# tensor([[9.6037, 9.4055]])
+```
+
 ## Pre-Trained Models
 
 We provide a large list of pretrained models for more than 100 languages. Some models are general purpose models, while others produce embeddings for specific use cases.
@@ -153,6 +181,7 @@ We provide a large list of pretrained models for more than 100 languages. Some m
 - [Pretrained Sentence Transformer (Embedding) Models](https://sbert.net/docs/sentence_transformer/pretrained_models.html)
 - [Pretrained Cross Encoder (Reranker) Models](https://sbert.net/docs/cross_encoder/pretrained_models.html)
 - [Pretrained Sparse Encoder (Sparse Embeddings) Models](https://sbert.net/docs/sparse_encoder/pretrained_models.html)
+- [Pretrained Multi-Vector Encoder (Late Interaction) Models](https://sbert.net/docs/multi_vector_encoder/pretrained_models.html)
 
 ## Training
 
@@ -169,6 +198,9 @@ This framework allows you to fine-tune your own sentence embedding methods, so t
 - Sparse Embedding Models
   - [Sparse Encoder > Training Overview](https://www.sbert.net/docs/sparse_encoder/training_overview.html)
   - [Sparse Encoder > Training Examples](https://www.sbert.net/docs/sparse_encoder/training/examples.html) or [training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/main/examples/sparse_encoder/training).
+- Multi-Vector (Late Interaction) Models
+  - [Multi-Vector Encoder > Training Overview](https://www.sbert.net/docs/multi_vector_encoder/training_overview.html)
+  - [Training examples on GitHub](https://github.com/huggingface/sentence-transformers/tree/main/examples/multi_vector_encoder/training).
 
 Some highlights across the different types of training are:
 

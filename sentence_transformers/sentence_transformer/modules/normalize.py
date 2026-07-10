@@ -11,6 +11,7 @@ from torch import Tensor
 from sentence_transformers.base.modules.module import Module
 
 
+# TODO: Perhaps move to base?
 class Normalize(Module):
     """L2-normalizes the embeddings under one of the feature keys to have unit length.
 
