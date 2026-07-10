@@ -17,7 +17,7 @@ class Normalize(Module):
 
     By default operates on the pooled ``sentence_embedding`` produced by a
     :class:`~sentence_transformers.sentence_transformer.modules.Pooling` layer. Pass
-    ``module_input_name="token_embeddings"`` to normalize token-level embeddings instead — useful for
+    ``module_input_name="token_embeddings"`` to normalize token-level embeddings instead: useful for
     multi-vector / ColBERT-style models that score with MaxSim (which expects L2-normalized rows so
     inner products give cosine similarities in ``[-1, 1]``).
 

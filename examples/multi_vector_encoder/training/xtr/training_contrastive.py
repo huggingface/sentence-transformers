@@ -60,7 +60,7 @@ def main():
     logging.info(train_dataset)
     logging.info(eval_dataset)
 
-    # 3. Define our training loss. Same loss class as the ColBERT recipe; we only swap the scoring callable for
+    # 3. Define our training loss. Same loss class as the ColBERT recipe. We only swap the scoring callable for
     # XTRScores, which keeps the top-k token matches per query token across all in-batch documents.
     loss = MultiVectorMultipleNegativesRankingLoss(model=model, score_metric=XTRScores(k=256))
 

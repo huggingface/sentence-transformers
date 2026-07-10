@@ -31,7 +31,7 @@ class MultiVectorDistillKLDivLoss(nn.Module):
             ``(Q, N, d_tokens, dim)``, returns ``(Q, N)`` scores. Defaults to
             :func:`~sentence_transformers.multi_vector_encoder.scoring.colbert_kd_scores`. Pass
             :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRKDScores` for XTR-style scoring.
-        size_average: ``True`` (default) uses ``reduction="batchmean"``; ``False`` uses ``reduction="sum"``.
+        size_average: ``True`` (default) uses ``reduction="batchmean"``. ``False`` uses ``reduction="sum"``.
         normalize_scores: If True, min-max normalise the student scores along the ``N`` dimension before
             softmaxing. Useful when student and teacher score ranges differ, but masks the absolute
             magnitude. Defaults to True (matches PyLate).

@@ -138,7 +138,7 @@ def test_dense_load_ignores_unknown_config_keys(tmp_path: Path, caplog) -> None:
     with caplog.at_level(logging.WARNING, logger="sentence_transformers.base.modules.dense"):
         loaded = Dense.load(str(model_dir))
 
-    # Loaded successfully; the unknown key was dropped and the module is otherwise intact.
+    # Loaded successfully. The unknown key was dropped and the module is otherwise intact.
     assert isinstance(loaded, Dense)
     assert not hasattr(loaded, "future_pylate_param")
     assert loaded.in_features == 768

@@ -123,7 +123,7 @@ def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict
         return audio_value["array"]
     if AudioDecoder is not None and isinstance(audio_value, AudioDecoder):
         samples = audio_value.get_all_samples()
-        # AudioDecoder returns (channels, samples); mean over channels to get 1D numpy
+        # AudioDecoder returns (channels, samples): mean over channels to get 1D numpy
         extra_modality_kwargs["audio"]["sampling_rate"] = samples.sample_rate
         return samples.data.mean(dim=0).numpy()
     return audio_value
@@ -712,7 +712,7 @@ def raise_unsupported_modality_error(
             )
         if "message" in sample_modalities:
             # Chat-style inputs are mixed with other inputs. Since this source does not support the
-            # message format, the chat-style inputs are the blocking issue; report that rather than
+            # message format, the chat-style inputs are the blocking issue. Report that rather than
             # listing "message" as if it were a content modality alongside text/image/audio.
             raise ValueError(
                 f"This {source} does not support chat-style 'message' inputs (dicts or lists of dicts with 'role' and "

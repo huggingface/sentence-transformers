@@ -237,11 +237,11 @@ def test_inference_free_splade_max_active_dims_routing(inference_free_splade_ber
     query = "What is the capital of France?"
     document = "The capital of France is Paris."
 
-    # Encode without max_active_dims — baseline
+    # Encode without max_active_dims: baseline
     query_emb = model.encode_query(query)
     doc_emb = model.encode_document(document)
 
-    # Encode with max_active_dims — should route to the same sub-modules
+    # Encode with max_active_dims: should route to the same sub-modules
     query_emb_mad = model.encode_query(query, max_active_dims=50)
     doc_emb_mad = model.encode_document(document, max_active_dims=50)
 
@@ -605,7 +605,7 @@ def test_get_model_kwargs(splade_bert_tiny_model: SparseEncoder) -> None:
         model.encode("Test sentence", task="document", foo=True, document_arg_1=12)
 
 
-# MaxSim is for multi-vector (3D) embeddings; SparseEncoder is single-vector so it's not applicable.
+# MaxSim is for multi-vector (3D) embeddings. SparseEncoder is single-vector so it's not applicable.
 @pytest.mark.parametrize(
     "similarity_fn_name",
     [v for v in SimilarityFunction.possible_values() if v != SimilarityFunction.MAXSIM.value],

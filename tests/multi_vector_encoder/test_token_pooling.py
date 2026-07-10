@@ -38,7 +38,7 @@ class TestPoolShapeInvariants:
         pooling = HierarchicalTokenPooling(pool_factor=2)
         out = pooling.pool(padded, attention_mask=attn)
         assert isinstance(out, Tensor)
-        # 20 // 2 = 10 tokens is the max; batch is (2, 10, 8).
+        # 20 // 2 = 10 tokens is the max. Batch is (2, 10, 8).
         assert out.shape == (2, 10, 8)
 
     def test_3d_input_left_padding_round_trip(self) -> None:
@@ -77,7 +77,7 @@ class TestPoolShapeInvariants:
         padded = emb.unsqueeze(0)  # (1, 4, 2)
         # Round-trip through LambdaTokenPooling with an identity func, no attention_mask.
         out = LambdaTokenPooling(pool_func=lambda x: x).pool(padded, padding_side="right")
-        # Expected: real rows [0..2] preserved (including middle zero); trailing pad row dropped.
+        # Expected: real rows [0..2] preserved (including middle zero). Trailing pad row dropped.
         assert out.shape == (1, 3, 2)
 
 
@@ -327,7 +327,7 @@ class TestForwardEdgeCases:
             assert out["attention_mask"].shape == (0, 5)
 
     def test_forward_fully_padded_row_in_batch(self) -> None:
-        # A fully-padded (all-masked) row pools to zero tokens; the other rows pool normally and the
+        # A fully-padded (all-masked) row pools to zero tokens. The other rows pool normally and the
         # batch right-pads to the max pooled length.
         pooling = LambdaTokenPooling(pool_func=lambda emb: emb[: max(emb.size(0) // 2, 1)] if emb.size(0) else emb)
         embeddings = torch.randn(3, 10, 4)
@@ -356,7 +356,7 @@ class TestBaseForwardVariableLength:
         attention_mask[0, :8] = True
         attention_mask[1, :6] = True
         out = pooling.forward({"token_embeddings": embeddings, "attention_mask": attention_mask}, task="document")
-        # Halving lengths: doc 0 -> 4 tokens, doc 1 -> 3 tokens; padded to max=4.
+        # Halving lengths: doc 0 -> 4 tokens, doc 1 -> 3 tokens. Padded to max=4.
         assert out["token_embeddings"].shape == (2, 4, 4)
         assert out["attention_mask"].tolist() == [
             [True, True, True, True],
@@ -407,7 +407,7 @@ class TestUnbindAndPadEdge:
 
     def test_left_pad_middle_zero_preserved_no_mask(self) -> None:
         # Symmetric to test_3d_unbind_preserves_middle_zero_row but for left padding: the leading
-        # zero row is padding (must drop); the middle zero row is a real all-zero embedding (must keep).
+        # zero row is padding (must drop). The middle zero row is a real all-zero embedding (must keep).
         emb = torch.stack(
             [
                 torch.tensor([0.0, 0.0]),  # padding at the left

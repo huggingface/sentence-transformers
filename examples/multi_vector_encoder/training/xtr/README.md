@@ -1,11 +1,11 @@
 # XTR
 
-[XTR (ConteXtualized Token Retriever)](https://huggingface.co/papers/2304.01982) is a late-interaction training objective that changes how token matches are scored: instead of ColBERT-style MaxSim over all document tokens, each query token retrieves its top-k matches *globally* across all in-batch document tokens, simulating retrieval from a token index. This trains the model to produce tokens that are retrievable on their own, allowing (in the original paper's setup) retrieval without the full MaxSim gathering stage.
+[XTR (ConteXtualized Token Retriever)](https://huggingface.co/papers/2304.01982) is a late-interaction training objective that changes how token matches are scored: instead of ColBERT-style MaxSim over all document tokens, each query token retrieves its top-k matches globally across all in-batch document tokens, simulating retrieval from a token index. This trains the model to produce tokens that are retrievable on their own, allowing (in the original paper's setup) retrieval without the full MaxSim gathering stage.
 
 **Training code: [training_contrastive.py](training_contrastive.py)**
 
 ```{eval-rst}
-In Sentence Transformers, XTR is a drop-in *scoring metric* rather than a separate loss: pass :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRScores` as the ``score_metric`` of :class:`~sentence_transformers.multi_vector_encoder.losses.MultiVectorMultipleNegativesRankingLoss` (or its cached variant) to switch from ColBERT-style MaxSim to XTR-style global top-k scoring without changing anything else about the training setup::
+In Sentence Transformers, XTR is a drop-in scoring metric rather than a separate loss: pass :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRScores` as the ``score_metric`` of :class:`~sentence_transformers.multi_vector_encoder.losses.MultiVectorMultipleNegativesRankingLoss` (or its cached variant) to switch from ColBERT-style MaxSim to XTR-style global top-k scoring without changing anything else about the training setup::
 
     from sentence_transformers.multi_vector_encoder.losses import MultiVectorMultipleNegativesRankingLoss
     from sentence_transformers.multi_vector_encoder.scoring import XTRScores

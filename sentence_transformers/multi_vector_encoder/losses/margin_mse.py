@@ -28,7 +28,7 @@ class MultiVectorMarginMSELoss(nn.Module):
         model: A :class:`~sentence_transformers.MultiVectorEncoder`.
         similarity_fct: A pairwise scoring function. Defaults to
             :func:`~sentence_transformers.util.maxsim_pairwise`.
-        size_average: ``True`` (default) averages the MSE across the batch; ``False`` sums.
+        size_average: ``True`` (default) averages the MSE across the batch. ``False`` sums.
     """
 
     def __init__(

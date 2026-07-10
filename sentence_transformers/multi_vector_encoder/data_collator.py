@@ -17,8 +17,8 @@ class MultiVectorEncoderDataCollator(BaseDataCollator):
 
     1. **Default task assignment by column position.** When ``router_mapping`` does not specify a task for a
        column, we default to ``"query"`` for the first tokenized column and ``"document"`` for the rest.
-       This matches the losses, which assign positionally (column 0 = query). Column names are not consulted;
-       use ``router_mapping`` to override per-column.
+       This matches the losses, which assign positionally (column 0 = query). Column names are not consulted.
+       Use ``router_mapping`` to override per-column.
     2. **List-valued column flattening.** For knowledge-distillation datasets where ``"documents"`` (or any
        other column) is a list of N strings per row, the collator flattens to a flat ``batch_size * N`` list
        so the loss can reshape back to ``(batch_size, N, ...)``.

@@ -67,7 +67,7 @@ SYSTEMS = {
 
 def main():
     model_name = "distilbert/distilbert-base-uncased"
-    train_batch_size = 256  # In-batch negatives are the dominant signal in MNRL; larger batches help quality.
+    train_batch_size = 256  # In-batch negatives are the dominant signal in MNRL. Larger batches help quality.
     train_mini_batch_size = 32  # This controls the memory usage
     max_seq_length = 300
 

@@ -657,7 +657,7 @@ def test_encode_truncate(
         # Test content
         if normalize_embeddings:
             if output_value is None:
-                # Currently, normalization is not performed; it's the raw output of the forward pass
+                # Currently, normalization is not performed: it's the raw output of the forward pass
                 pass
             else:
                 normalize = partial(torch.nn.functional.normalize, p=2, dim=-1)
@@ -693,7 +693,7 @@ def test_encode_truncate(
     test(model, expected_dim=original_output_dim)
 
 
-# MaxSim is for multi-vector (3D) embeddings; SentenceTransformer is single-vector so it's not applicable.
+# MaxSim is for multi-vector (3D) embeddings. SentenceTransformer is single-vector so it's not applicable.
 @pytest.mark.parametrize(
     "similarity_fn_name",
     [v for v in SimilarityFunction.possible_values() if v != SimilarityFunction.MAXSIM.value],

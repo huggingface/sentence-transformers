@@ -40,4 +40,4 @@ We follow the setup from [Artetxe and Schwenk, Section 4.3](https://huggingface.
 
 - **[bucc2018.py](bucc2018.py)** - This script contains an example for the [BUCC 2018 shared task](https://comparable.limsi.fr/bucc2018/bucc2018-task.html) on finding parallel sentences. This dataset can be used to evaluate different strategies, as we know which sentences are parallel in the two corpora. The script mines for parallel sentences and then prints the optimal threshold that leads to the highest F1-score.
 - **[bitext_mining.py](bitext_mining.py)** - This file reads in two text files (with a single sentence in each line) and outputs parallel sentences to \*parallel-sentences-out.tsv.gz.
-- **[In-domain Data Selection for MT](https://www.clinjournal.org/clinj/article/view/137)** - This paper also employed Sentence Transformers to generate/select in-domain parallel data for machine translation systems – using monolingual texts.
+- **[In-domain Data Selection for MT](https://www.clinjournal.org/clinj/article/view/137)** - This paper also employed Sentence Transformers to generate/select in-domain parallel data for machine translation systems, using monolingual texts.

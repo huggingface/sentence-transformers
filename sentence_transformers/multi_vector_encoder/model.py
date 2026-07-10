@@ -166,7 +166,7 @@ class MultiVectorEncoder(BaseModel):
         # Stash before super().__init__ so _parse_model_config only falls back to saved config when unset.
         self.similarity_fn_name = similarity_fn_name
         # Legacy-checkpoint state populated by ``_parse_model_config`` (PyLate v3) and
-        # ``_maybe_load_stanford_metadata`` (Stanford-NLP); empty for native MVE saves.
+        # ``_maybe_load_stanford_metadata`` (Stanford-NLP). Empty for native MVE saves.
         self._legacy = _LegacyStash()
         # User-supplied ``modules=...`` skips legacy module rewrites so an intentional sentence-level Dense isn't clobbered.
         self._user_supplied_modules = modules is not None
@@ -367,7 +367,7 @@ class MultiVectorEncoder(BaseModel):
             pooling (BaseTokenPooling, optional): Per-call token pooling applied to document embeddings
                 after the pipeline. Skips queries unless the pooling was built with
                 ``pool_queries=True``. If the model already bakes a pooling into its pipeline, this
-                compounds on top of it (pooling further); a one-time note is logged so the case is
+                compounds on top of it (pooling further). A one-time note is logged so the case is
                 discoverable. Defaults to None.
             task (str, optional): One of ``"query"``, ``"document"``, ``"passage"``, ``"corpus"``. Sets
                 the prefix / length / masking strategy.
@@ -396,7 +396,7 @@ class MultiVectorEncoder(BaseModel):
             convert_to_numpy = False
             convert_to_padded_tensor = False
 
-        # convert_to_tensor / convert_to_padded_tensor both produce Tensor output; suppress numpy conversion.
+        # convert_to_tensor / convert_to_padded_tensor both produce Tensor output. Suppress numpy conversion.
         if convert_to_tensor or convert_to_padded_tensor:
             convert_to_numpy = False
 
@@ -527,7 +527,7 @@ class MultiVectorEncoder(BaseModel):
         """Pad a variable-length list of per-input 2D embeddings into one
         ``(num_inputs, max_tokens, embedding_dim)`` tensor, padding with 0. Always right-padded
         (regardless of the tokenizer's padding side): the input tokenizer's convention is not
-        reachable here — encode() already unpacked features via the mask into a list of 2D. The
+        reachable here because encode() already unpacked features via the mask into a list of 2D. The
         padding mask is recoverable via ``(emb != 0).any(-1)``, with the caveat that a real all-zero
         row (possible after token pooling) aliases with padding. See ``_zero_row_mask``.
         """
@@ -633,7 +633,7 @@ class MultiVectorEncoder(BaseModel):
         ``self._legacy.prefixes``). Needed for checkpoints (Stanford ColBERTv2, answerai-colbert, ...) whose
         prefix is an in-vocab marker like ``[unused0]`` applied via token insertion at training time, so
         their saved tokenizer never marked it special. Prepending it as text would shatter it
-        (``[unused0]`` -> ``['[','unused','##0',']']``) and diverge from training; registering it
+        (``[unused0]`` -> ``['[','unused','##0',']']``) and diverge from training. Registering it
         restores single-piece tokenization, making text-prepending byte-identical to token insertion.
 
         Three gates keep this a no-op when no fix is required:
@@ -829,7 +829,7 @@ class MultiVectorEncoder(BaseModel):
             config_kwargs=config_kwargs,
             backend=self.backend,
             # Stanford-NLP artifact.metadata values (query_maxlen / doc_maxlen / attend_to_mask_tokens)
-            # flow in here; empty stash leaves the Transformer at its base defaults.
+            # flow in here. Empty stash leaves the Transformer at its base defaults.
             **self._legacy.transformer_config,
         )
         modules: list[nn.Module] = [transformer_model]
@@ -935,7 +935,7 @@ class MultiVectorEncoder(BaseModel):
                 metadata = json.load(f)
             logger.info("Loaded configuration from the Stanford-NLP ColBERT artifact.metadata file.")
 
-        # Stanford-NLP ColBERT inserts these markers as token ids; record them for special-token registration.
+        # Stanford-NLP ColBERT inserts these markers as token ids. Record them for special-token registration.
         self._legacy.prefixes = {
             "query": (metadata.get("query_token_id") or "[unused0]") + " ",
             "document": (metadata.get("doc_token_id") or "[unused1]") + " ",
@@ -969,8 +969,8 @@ class MultiVectorEncoder(BaseModel):
         """Convert a SentenceTransformer (and similar) checkpoint into a MultiVectorEncoder.
 
         If a final :class:`~sentence_transformers.base.modules.dense.Dense` head is present, it is
-        redirected to operate on ``token_embeddings`` (preserving the learned projection weights);
-        otherwise a fresh randomly-initialised token-level projection is appended.
+        redirected to operate on ``token_embeddings`` (preserving the learned projection weights).
+        Otherwise a fresh randomly-initialised token-level projection is appended.
         """
         if model_type != "SentenceTransformer":
             return self._load_default_modules(
@@ -998,7 +998,7 @@ class MultiVectorEncoder(BaseModel):
         )
         modules_list = list(modules.values())
 
-        # Drop pooling / sentence-level Normalize (we want token-level); a token-level Normalize is re-appended below.
+        # Drop pooling / sentence-level Normalize (we want token-level). A token-level Normalize is re-appended below.
         from sentence_transformers.sentence_transformer.modules import Pooling
 
         filtered: list[nn.Module] = []
@@ -1049,7 +1049,7 @@ class MultiVectorEncoder(BaseModel):
         if self._similarity_fn_name is None:
             self.similarity_fn_name = SimilarityFunction.MAXSIM
 
-        # The original README is for a different architecture; clear it so we don't accidentally serve it.
+        # The original README is for a different architecture. Clear it so we don't accidentally serve it.
         self._model_card_text = None
         return filtered, module_kwargs
 

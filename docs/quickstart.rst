@@ -304,7 +304,7 @@ Characteristics of Multi-Vector Encoder (a.k.a ColBERT-style or "late-interactio
 1. Calculates a **sequence of token-level vectors** per input rather than a single fixed-size embedding.
 2. Scores queries against documents with the **MaxSim** operator: for each query token, take the maximum similarity to any document token, then sum across query tokens.
 3. Preserves **token-level matching information** that single-vector models discard, typically yielding stronger retrieval at the cost of a larger index footprint.
-4. Recent VLM-backed variants (ColPali, ColQwen2, ColGemma3, ...) extend this to **image documents** — each image patch becomes a "token" — enabling end-to-end OCR-free document retrieval.
+4. Recent VLM-backed variants (ColPali, ColQwen2, ColGemma3, ...) extend this to **image documents** (each image patch becomes a "token"), enabling end-to-end OCR-free document retrieval.
 
 The usage for Multi-Vector Encoder models follows a similar pattern to Sentence Transformers:
 
@@ -333,7 +333,7 @@ The usage for Multi-Vector Encoder models follows a similar pattern to Sentence 
        "Berlin is the capital of Germany.",
    ]
 
-   # 2. Encode queries and documents — note the asymmetric encode_query / encode_document split
+   # 2. Encode queries and documents (note the asymmetric encode_query / encode_document split)
    query_embeddings = model.encode_query(queries)
    document_embeddings = model.encode_document(documents)
 

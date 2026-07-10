@@ -18,7 +18,7 @@ def main():
     # Set the log level to INFO to get more information
     logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    # mini_batch_size subdivides each batch inside the loss for memory/speed control; the loss sees
+    # mini_batch_size subdivides each batch inside the loss for memory/speed control. The loss sees
     # `train_batch_size * num_docs` pairs, not `train_batch_size`.
     train_batch_size = 16
     eval_batch_size = 16

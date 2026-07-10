@@ -52,8 +52,8 @@ def backend_should_export(
     These are the cases:
 
     1. If export is set in model_kwargs, just return export
-    2. If `<subfolder>/<file_name>` exists; set export to False
-    3. If `<backend>/<file_name>` exists; set export to False and set subfolder to the backend (e.g. "onnx")
+    2. If `<subfolder>/<file_name>` exists, set export to False
+    3. If `<backend>/<file_name>` exists, set export to False and set subfolder to the backend (e.g. "onnx")
     4. If `<file_name>` contains a folder, add those folders to the subfolder and set the file_name to the last part
 
     We will warn if:

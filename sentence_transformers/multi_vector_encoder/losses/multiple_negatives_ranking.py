@@ -22,7 +22,7 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
 
     For each query in the batch, the matched positive document is treated as the positive sample, and all
     other in-batch documents (plus any explicitly-provided hard negatives) serve as negatives. Scoring uses
-    MaxSim by default; pass a different ``score_metric`` (e.g.
+    MaxSim by default. Pass a different ``score_metric`` (e.g.
     :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRScores`) to switch scoring strategies
     without changing the loss.
 
@@ -30,18 +30,18 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
         model: A :class:`~sentence_transformers.MultiVectorEncoder` model.
         score_metric: Scoring callable. Receives queries ``(Q, q_tokens, dim)`` and stacked documents
             ``(Q, N, d_tokens, dim)`` and returns ``(Q, Q*N)`` with query-major ordering. Defaults to
-            :func:`~sentence_transformers.multi_vector_encoder.scoring.colbert_scores`; pass
+            :func:`~sentence_transformers.multi_vector_encoder.scoring.colbert_scores`. Pass
             :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRScores` for XTR-style scoring.
-        scale: ``1 / temperature``; scores are multiplied by ``scale`` before cross-entropy. Defaults to
+        scale: ``1 / temperature``. Scores are multiplied by ``scale`` before cross-entropy. Defaults to
             ``1.0`` (``temperature=1.0``), matching PyLate. Unlike cosine similarity (bounded to
             ``[-1, 1]``, where ST's dense :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss`
             uses ``scale=20.0`` to amplify the narrow range), MaxSim is an unbounded sum over query-token
-            similarities (range ``~[0, num_query_tokens]``), so it needs no amplification; the same reason
-            the dense loss recommends ``scale=1`` for dot-product similarity. ``scale=20`` here would
+            similarities (range ``~[0, num_query_tokens]``), so it needs no amplification. This is the same
+            reason the dense loss recommends ``scale=1`` for dot-product similarity. ``scale=20`` here would
             saturate the softmax and kill gradients.
         temperature: Optional alias for ``1 / scale``. If supplied, overrides ``scale``.
         score_mini_batch_size: If set, queries are processed in chunks of this size during the scoring
-            phase. Useful to bound transient scoring memory for large effective batch sizes; gradients
+            phase. Useful to bound transient scoring memory for large effective batch sizes. Gradients
             still flow through a single backward.
         size_average: Whether to average (``True``, default) or sum the cross-entropy loss across the batch.
         gather_across_devices: If True, AllGather document embeddings (and masks) across DDP ranks so that

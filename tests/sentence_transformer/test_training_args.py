@@ -10,7 +10,7 @@ from sentence_transformers.sentence_transformer.training_args import SentenceTra
 
 
 def test_hf_argument_parser():
-    # See https://github.com/huggingface/sentence-transformers/issues/3090;
+    # See https://github.com/huggingface/sentence-transformers/issues/3090
     # Ensure that the HfArgumentParser can be used to parse SentenceTransformerTrainingArguments.
     parser = HfArgumentParser((SentenceTransformerTrainingArguments,))
     dataclasses = parser.parse_args_into_dataclasses(

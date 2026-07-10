@@ -633,7 +633,7 @@ class CrossEncoder(BaseModel, FitMixin):
         # Cast an individual pair to a list with length 1
         is_singular_input = self.is_singular_input(inputs)
         if is_singular_input:
-            # A 1D numpy string array is a single pair; convert to a list so downstream sees ["q", "d"].
+            # A 1D numpy string array is a single pair. Convert to a list so downstream sees ["q", "d"].
             if isinstance(inputs, np.ndarray):
                 inputs = inputs.tolist()
             inputs = [inputs]

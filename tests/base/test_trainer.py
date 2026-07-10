@@ -122,6 +122,6 @@ def test_push_from_checkpoint_skips_when_end_strategy(
         trainer.push_in_progress = None
         trainer._push_from_checkpoint(str(checkpoint_folder))
 
-    # hub_strategy="end" pushes only at the end of training, not mid-training; no copy, no upload.
+    # hub_strategy="end" pushes only at the end of training, not mid-training. No copy, no upload.
     assert not mock_upload.called
     assert not (output_dir / "modules.json").exists()

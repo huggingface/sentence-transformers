@@ -253,8 +253,8 @@ _ENCODER_ONLY_MODELS: list[tuple[type, str, str]] = [
     (MoonshineConfig, "transformers.models.moonshine.modeling_moonshine", "MoonshineEncoder"),
     (WhisperConfig, "transformers.models.whisper.modeling_whisper", "WhisperEncoder"),
     (MarianConfig, "transformers.models.marian.modeling_marian", "MarianEncoder"),
-    # T5Gemma2TextConfig is for loading from an already encoder-only checkpoint;
-    # loading the encoder from a full T5Gemma2Config is handled separately in _load_encoder_only_model.
+    # T5Gemma2TextConfig is for loading from an already encoder-only checkpoint.
+    # Loading the encoder from a full T5Gemma2Config is handled separately in _load_encoder_only_model.
     (T5Gemma2TextConfig, "transformers.models.t5gemma2.modeling_t5gemma2", "T5Gemma2Encoder"),
 ]
 
@@ -363,7 +363,7 @@ _FEATURE_EXTRACTION_EDGE_CASES: dict[str, tuple[ModalityConfig, str, bool]] = {
         "token_embeddings",
         False,
     ),
-    # Audio encoder models; we load only the encoder, so text decoding is not available
+    # Audio encoder models: we load only the encoder, so text decoding is not available
     "hubert": _AUDIO_MODALITY_CONFIG,
     "moonshine": _AUDIO_MODALITY_CONFIG,
     "sew": _AUDIO_MODALITY_CONFIG,
@@ -692,7 +692,7 @@ class Transformer(InputModule):
             is enabled automatically when all prerequisites are met (flash attention with variable-length
             support, ``"torch"`` backend, ``"feature-extraction"`` task). Set to ``False`` to force
             padding, which is needed for architectures that don't support unpadded inputs (e.g.
-            ``qwen2_vl``). Set to ``True`` to request unpadding explicitly; a warning is logged if the
+            ``qwen2_vl``). Set to ``True`` to request unpadding explicitly. A warning is logged if the
             prerequisites are not met. Defaults to None.
         query_length (int, optional): Per-task text max-length applied when ``task="query"`` reaches
             :meth:`preprocess` (e.g. via :meth:`encode_query`). Content-cap only (truncation). ``None``
@@ -705,7 +705,7 @@ class Transformer(InputModule):
             ``model_max_length``.
         query_expansion (QueryExpansionConfig, optional): ColBERT-style query expansion config. See
             :class:`QueryExpansionConfig`. ``None`` (default) means no expansion. Only consulted
-            when a :class:`MultiVectorMask` is downstream; ignored for dense / sparse / cross-encoder
+            when a :class:`MultiVectorMask` is downstream. Ignored for dense / sparse / cross-encoder
             pipelines.
         max_seq_length (int, optional): Truncate any inputs longer than this value. Prefer setting
             ``model_max_length`` via ``processor_kwargs`` instead. Defaults to None.
@@ -727,7 +727,7 @@ class Transformer(InputModule):
         "query_expansion",
     ]
     # Config keys held at their default for dense / sparse / cross-encoder use are omitted from the
-    # saved ``sentence_bert_config.json`` (see :meth:`get_config_dict`); the multi-vector machinery is
+    # saved ``sentence_bert_config.json`` (see :meth:`get_config_dict`). The multi-vector machinery is
     # paid-for only when a model actually opts into it.
     _DEFAULT_CONFIG_VALUES: dict[str, Any] = {
         "query_length": None,
@@ -791,7 +791,7 @@ class Transformer(InputModule):
         self._method_signature_cache: dict[str, set[str]] = {}
         self._chat_template_suffix_cache: dict[Any, list[int]] = {}
         # Per-task max-length overrides applied to the text modality. When ``task`` reaches
-        # :meth:`preprocess` as ``"query"`` / ``"document"`` we pick the matching attribute; ``None``
+        # :meth:`preprocess` as ``"query"`` / ``"document"`` we pick the matching attribute. ``None``
         # leaves the tokenizer's default behaviour intact.
         self.query_length = query_length
         self.document_length = document_length
@@ -980,7 +980,7 @@ class Transformer(InputModule):
 
     def _validate_query_expansion_token(self, expansion: QueryExpansionConfig) -> None:
         """Tokenizer-aware checks. The structural ``_normalize_query_expansion`` runs without the
-        tokenizer; this catches the two silent-wrong-behavior cases that require it:
+        tokenizer, so this method catches the two silent-wrong-behavior cases that require it:
 
         * ``pad_*`` strategies with ``token=None`` fall back to ``mask_token_id``. If the tokenizer
           doesn't have one, the preprocess swap silently no-ops and the encoder sees raw pad tokens.
@@ -1022,7 +1022,7 @@ class Transformer(InputModule):
         1. The ``"feature-extraction"`` task, as model heads (e.g. ``AutoModelForSequenceClassification``)
            are incompatible with flattened inputs.
         2. The ``"text"`` modality must be supported by the model.
-        3. All modality call methods must be ``"forward"``; ``get_..._features`` methods apply heads
+        3. All modality call methods must be ``"forward"``. ``get_..._features`` methods apply heads
            that are incompatible with flattened inputs.
         4. The ``"torch"`` backend with an attention-interface-compatible model.
         5. Flash attention with variable-length function support.
@@ -1173,7 +1173,7 @@ class Transformer(InputModule):
             prompt: Optional prompt to prepend to text inputs or inject as a system message.
             processing_kwargs: Per-call overrides for the processor kwargs configured on the module
                 via the ``processing_kwargs`` constructor argument. Same nested structure (modality
-                keys plus ``"common"`` and ``"chat_template"``); per-call values are merged on top of
+                keys plus ``"common"`` and ``"chat_template"``). Per-call values are merged on top of
                 the instance-level kwargs with shallow per-modality merge, so individual settings
                 (e.g. only ``max_length``) can be overridden without replacing the entire modality
                 dict. Defaults to None.
@@ -1398,7 +1398,7 @@ class Transformer(InputModule):
         Args:
             features: Input features dictionary produced by :meth:`preprocess`. Must contain the
                 keys expected by the underlying model (e.g. ``input_ids``, ``pixel_values``, etc.).
-                A ``modality`` key selects the modality config to use; defaults to ``"text"``
+                A ``modality`` key selects the modality config to use. Defaults to ``"text"``
                 when absent.
             **kwargs: Additional keyword arguments forwarded to the model method (override features).
 

@@ -506,16 +506,16 @@ The following images show the benchmark results for the different backends on GP
          <b>Models: </b>
          <ul>
             <li>
-               <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">sentence-transformers/all-MiniLM-L6-v2</a>: 22.7M parameters; batch sizes of 16, 32, 64, 128 and 256.
+               <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">sentence-transformers/all-MiniLM-L6-v2</a>: 22.7M parameters. Batch sizes of 16, 32, 64, 128 and 256.
             </li>
             <li>
-               <a href="https://huggingface.co/BAAI/bge-base-en-v1.5">BAAI/bge-base-en-v1.5</a>: 109M parameters; batch sizes of 16, 32, 64, and 128.
+               <a href="https://huggingface.co/BAAI/bge-base-en-v1.5">BAAI/bge-base-en-v1.5</a>: 109M parameters. Batch sizes of 16, 32, 64, and 128.
             </li>
             <li>
-               <a href="https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1">mixedbread-ai/mxbai-embed-large-v1</a>: 335M parameters; batch sizes of 8, 16, 32, and 64. Also 128 and 256 for GPU tests.
+               <a href="https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1">mixedbread-ai/mxbai-embed-large-v1</a>: 335M parameters. Batch sizes of 8, 16, 32, and 64. Also 128 and 256 for GPU tests.
             </li>
             <li>
-               <a href="https://huggingface.co/BAAI/bge-m3">BAAI/bge-m3</a>: 567M parameters; batch sizes of 2, 4. Also 8, 16, and 32 for GPU tests.
+               <a href="https://huggingface.co/BAAI/bge-m3">BAAI/bge-m3</a>: 567M parameters. Batch sizes of 2, 4. Also 8, 16, and 32 for GPU tests.
             </li>
          </ul>
       </li>

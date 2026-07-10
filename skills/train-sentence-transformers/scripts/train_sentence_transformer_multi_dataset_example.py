@@ -12,9 +12,9 @@
 
 Pass `train_dataset` (and optionally `eval_dataset`) as dicts. Pass `loss` as
 either a dict keyed by the same names (one loss per dataset, this script's
-default — Variant A) or a single loss instance applied to every dataset
+default, Variant A) or a single loss instance applied to every dataset
 (Variant B). Dict keys are arbitrary but must match exactly across all three
-dicts; they show up in log output as `loss_all-nli=...`, `loss_stsb=...`.
+dicts. They show up in log output as `loss_all-nli=...`, `loss_stsb=...`.
 
 Three reasons to use multi-dataset training:
 - Multi-task: combine datasets with different signals (retrieval + STS +
@@ -24,7 +24,7 @@ Three reasons to use multi-dataset training:
 - Domain coverage: train on several domains at once rather than sequentially.
 
 Variant A (this script): different shapes per dataset, so each needs its own
-matching loss. Pass `loss` as a dict; the trainer dispatches per-dataset and
+matching loss. Pass `loss` as a dict. The trainer dispatches per-dataset and
 mixing loss arities (MNRL with 3 inputs + CoSENTLoss with 2+label) is fine.
 
 Variant B: same shape, same loss, but you want each mini-batch drawn from a
@@ -44,7 +44,7 @@ that don't share across the batch (e.g. LambdaLoss in cross-encoder training).
 Multi-dataset samplers:
 - `PROPORTIONAL` (default): sample from each dataset in proportion to its size.
   Every row is seen ~once per epoch. Bias toward the largest dataset.
-- `ROUND_ROBIN`: alternate evenly; training stops when the SMALLEST is
+- `ROUND_ROBIN`: alternate evenly. Training stops when the SMALLEST is
   exhausted. Equal screen-time per task.
 Common pattern: `PROPORTIONAL` for 1 epoch, then `ROUND_ROBIN` for a second
 if a smaller task's loss is still decreasing.
@@ -52,7 +52,7 @@ if a smaller task's loss is still decreasing.
 Per-dataset prompts (bi-encoder, sparse-encoder): pass `prompts={"all-nli": "",
 "stsb": "Represent ...: ", "msmarco": {"query": "query: ", "positive":
 "passage: ", ...}}` to TrainingArguments. The nested per-column form works for
-bi-encoder and sparse-encoder; cross-encoders support single-value or
+bi-encoder and sparse-encoder. Cross-encoders support single-value or
 per-dataset only. See `../references/prompts_and_instructions.md`.
 
 Eval metric aggregation: with a dict `eval_dataset`, each dataset's loss is
@@ -62,9 +62,9 @@ on the full model, so its metrics aren't per-dataset unless you wrap a
 `metric_for_best_model` to a single evaluator metric, NOT a per-dataset loss.
 
 Gotchas: keys must match EXACTLY across all three dicts (train/eval/loss) or
-training fails at step 0; `NO_DUPLICATES` + `PROPORTIONAL` works (deduplicates
-within each batch regardless of source dataset); `ROUND_ROBIN` with uneven
-dataset sizes means `num_train_epochs=N` is N passes over the SMALLEST — use
+training fails at step 0. `NO_DUPLICATES` + `PROPORTIONAL` works (deduplicates
+within each batch regardless of source dataset). `ROUND_ROBIN` with uneven
+dataset sizes means `num_train_epochs=N` is N passes over the SMALLEST. Use
 `PROPORTIONAL` or `max_steps` if you want N passes over the largest.
 """
 

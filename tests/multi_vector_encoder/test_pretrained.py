@@ -169,7 +169,7 @@ def test_pretrained_colpali_multimodal() -> None:
     query_embeddings = model.encode_query(queries, convert_to_tensor=True)
     document_embeddings = model.encode_document(images, convert_to_tensor=True)
 
-    # Structural: text queries -> per-token 128-dim vectors; image docs -> >=1024 image-patch tokens, 128-dim.
+    # Structural: text queries -> per-token 128-dim vectors. Image docs -> >=1024 image-patch tokens, 128-dim.
     dim = model.get_embedding_dimension()
     assert dim == 128
     assert len(query_embeddings) == len(queries)

@@ -53,7 +53,7 @@ def main():
     print(model)
 
     # 2. Load the lightonai/ms-marco-en-bge dataset: https://huggingface.co/datasets/lightonai/ms-marco-en-bge
-    # The `train` split holds query_id + document_ids + teacher scores; `queries` and `documents` hold the texts.
+    # The `train` split holds query_id + document_ids + teacher scores. `queries` and `documents` hold the texts.
     train_dataset = load_dataset("lightonai/ms-marco-en-bge", "train", split="train").select(range(20_000))
     queries = load_dataset("lightonai/ms-marco-en-bge", "queries", split="train")
     documents = load_dataset("lightonai/ms-marco-en-bge", "documents", split="train")

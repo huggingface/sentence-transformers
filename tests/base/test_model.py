@@ -96,7 +96,7 @@ class TestSparseEncoderPreprocess(BaseModelPreprocessTest):
         return ["This is a test.", "Another test sentence."]
 
 
-# A 3D array is inferred as the "image" modality, a 1D array as "audio"; values are never read
+# A 3D array is inferred as the "image" modality, a 1D array as "audio". Values are never read
 # because preprocess() raises before processing, so reusing these constants across cases is safe.
 _IMAGE = np.zeros((8, 8, 3), dtype=np.uint8)
 _AUDIO = np.zeros((16000,), dtype=np.float32)
@@ -212,7 +212,7 @@ def test_preprocess_modality_error_messages(
 ) -> None:
     """preprocess() should raise a clear, accurate ValueError for each unsupported-modality scenario.
 
-    The model's supported modalities are simulated via ``modalities``; inputs use real inference
+    The model's supported modalities are simulated via ``modalities``. Inputs use real inference
     (numpy arrays for image/audio, dicts for combined/chat inputs) so the full path is exercised.
     ``forbidden`` guards against misleading wording, e.g. claiming a modality is unsupported when
     every part is actually supported.

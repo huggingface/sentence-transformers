@@ -38,18 +38,18 @@ model = SentenceTransformer(modules=[transformer, pooling, Normalize()])
 ```
 
 **Pooling modes**:
-- `mean` (default) — average of token embeddings, masked to the attention mask. Strongest default.
-- `cls` — embedding of the `[CLS]` token. Works if the base was CLS-pretrained.
-- `max` — element-wise max across tokens. Rare.
-- `mean_sqrt_len_tokens` — mean scaled by √seq_len. Empirically helps on some tasks.
-- `weightedmean` — token-position-weighted mean. Useful for decoder bases as a non-last-token alternative.
-- `lasttoken` — embedding of the last token. Required for causal-LM bases (see decoder section below).
+- `mean` (default): average of token embeddings, masked to the attention mask. Strongest default.
+- `cls`: embedding of the `[CLS]` token. Works if the base was CLS-pretrained.
+- `max`: element-wise max across tokens. Rare.
+- `mean_sqrt_len_tokens`: mean scaled by √seq_len. Empirically helps on some tasks.
+- `weightedmean`: token-position-weighted mean. Useful for decoder bases as a non-last-token alternative.
+- `lasttoken`: embedding of the last token. Required for causal-LM bases (see decoder section below).
 
 Don't switch pooling mid-training. Pick once.
 
 ## Decoder / causal LLM models
 
-Strong at long context, instruction following, multilingual. Memory-hungry — typically LoRA-trained rather than full fine-tuned.
+Strong at long context, instruction following, multilingual. Memory-hungry, typically LoRA-trained rather than full fine-tuned.
 
 **Two setup paths depending on whether the model was already adapted for embeddings:**
 
@@ -73,25 +73,25 @@ model = SentenceTransformer(modules=[transformer, pooling, Normalize()])
 
 Skipping `transformer_task="text-generation"` or `pooling_mode="lasttoken"` on a raw decoder gives embeddings that look plausible until you benchmark.
 
-**Why last-token pooling:** causal attention means only the last token has seen the full sequence. Mean-pooling a causal model averages embeddings that only saw prefixes — the result doesn't represent the whole input.
+**Why last-token pooling:** causal attention means only the last token has seen the full sequence. Mean-pooling a causal model averages embeddings that only saw prefixes. The result doesn't represent the whole input.
 
 For training decoder bases:
 - Learning rate: typically `1e-4` or higher (not `2e-5` like encoders).
-- LoRA is almost always the right choice for >1B-param bases; see `../scripts/train_sentence_transformer_with_lora_example.py` (its docstring covers when to use, hyperparams, QLoRA for 7B+, and adapter sharing).
+- LoRA is almost always the right choice for >1B-param bases. See `../scripts/train_sentence_transformer_with_lora_example.py` (its docstring covers when to use, hyperparams, QLoRA for 7B+, and adapter sharing).
 
 ## Static embeddings
 
-`StaticEmbedding` skips the transformer entirely — each token maps to a pre-computed vector via a lookup table. No attention, no contextualization.
+`StaticEmbedding` skips the transformer entirely. Each token maps to a pre-computed vector via a lookup table. No attention, no contextualization.
 
 **When to use:**
 - CPU inference, no GPU, browser / edge / on-device deployment.
 - Need <10MB model size.
 - Latency budget <1ms per embedding.
-- Have >1M training pairs (contextualization is replaced by per-token optimization; this takes data).
+- Have >1M training pairs (contextualization is replaced by per-token optimization, which takes data).
 
 **When NOT to use:**
 - Task needs contextual understanding (polysemy, syntax, long-range dependencies).
-- You have <100k training pairs — the model won't learn enough.
+- You have <100k training pairs. The model won't learn enough.
 
 **Setup:**
 
@@ -107,7 +107,7 @@ model = SentenceTransformer(modules=[static_embedding])
 
 Train with `MultipleNegativesRankingLoss` on a large contrastive dataset (1M+ pairs).
 
-**Warm starts vs. random init** — with **>1M training samples**, random-init beats `StaticEmbedding.from_model2vec(...)` or `.from_distillation(...)` warm starts. With smaller datasets, warm starts help.
+**Warm starts vs. random init**: with **>1M training samples**, random-init beats `StaticEmbedding.from_model2vec(...)` or `.from_distillation(...)` warm starts. With smaller datasets, warm starts help.
 
 ```python
 # For smaller datasets (<100k), warm-start:
@@ -140,7 +140,7 @@ Training data can mix text, PIL images, image paths/URLs, audio, and mixed-modal
 
 Install multimodal extras: `pip install "sentence-transformers[image]"` (or `[audio]`, `[video]`).
 
-**Precision**: load in fp32 and pass `bf16=True` (or `fp16=True`) to TrainingArguments — autocast handles the inference path. Don't set `torch_dtype="bfloat16"` in `model_kwargs`: it puts Adam state in bf16 and silently degrades quality (see `training_args.md`).
+**Precision**: load in fp32 and pass `bf16=True` (or `fp16=True`) to TrainingArguments. Autocast handles the inference path. Don't set `torch_dtype="bfloat16"` in `model_kwargs`: it puts Adam state in bf16 and silently degrades quality (see `training_args.md`).
 
 ## Multimodal via Router
 
@@ -168,11 +168,11 @@ router = Router(
 model = SentenceTransformer(modules=[router])
 ```
 
-**Warning**: Router-based models have unaligned embedding spaces at init — you must train to align them. Use a `Dense` projection layer when dimensions differ. Task-based routing (different encoders for queries vs. documents) is also supported via `route_mappings`; see the `Router` docstring.
+**Warning**: Router-based models have unaligned embedding spaces at init. You must train to align them. Use a `Dense` projection layer when dimensions differ. Task-based routing (different encoders for queries vs. documents) is also supported via `route_mappings`. See the `Router` docstring.
 
 ## Gotchas
 
 - **Decoder base with mean pooling**: silently produces garbage embeddings. Always use `lasttoken`.
 - **Router multimodal without training**: the separate encoders' embedding spaces are unaligned at init. Don't expect useful cross-modal similarity until you've trained with a loss that aligns the spaces.
 - **StaticEmbedding with fewer than 100k pairs**: the model won't learn enough. Either warm-start via `from_model2vec` / `from_distillation`, or use a regular encoder.
-- **Large VLM backbones on consumer GPUs**: combine LoRA + `attn_implementation="flash_attention_2"`. With LoRA only, you can additionally pass `torch_dtype="bfloat16"` — the bf16 base weights are frozen, so the Adam-state precision concern from the precision rule above doesn't apply (the LoRA adapter stays fp32, so its optimizer state stays fp32). Without LoRA, follow the precision rule: keep weights fp32 and rely on `bf16=True` autocast.
+- **Large VLM backbones on consumer GPUs**: combine LoRA + `attn_implementation="flash_attention_2"`. With LoRA only, you can additionally pass `torch_dtype="bfloat16"`. The bf16 base weights are frozen, so the Adam-state precision concern from the precision rule above doesn't apply (the LoRA adapter stays fp32, so its optimizer state stays fp32). Without LoRA, follow the precision rule: keep weights fp32 and rely on `bf16=True` autocast.

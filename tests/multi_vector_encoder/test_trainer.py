@@ -178,7 +178,7 @@ def test_collator_within_column_rectangular_across_ragged_columns(model: MultiVe
 def test_collator_assigns_task_by_position_regardless_of_name(model: MultiVectorEncoder) -> None:
     """The collator assigns ``task`` by column POSITION (column 0 = query, the rest = document) to
     match the losses, which score positionally. Column names are not consulted, so a dataset whose
-    first column is named "answer" still gets ``task="query"`` — matching the loss. ``router_mapping``
+    first column is named "answer" still gets ``task="query"``, matching the loss. ``router_mapping``
     is the explicit override path.
     """
     seen_tasks: list[str | None] = []

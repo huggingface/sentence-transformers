@@ -152,7 +152,7 @@ eval_dataset = eval_dataset.map(map_embeddings, batched=True, batch_size=50000)
 # If the student and teacher have different embedding dimensions (the default here:
 # 312-dim student vs 768-dim teacher), we ask the loss for a learnable projection that
 # maps student embeddings into the teacher's space during training. The projection only
-# exists on the loss; the saved student keeps its native output dimension.
+# exists on the loss. The saved student keeps its native output dimension.
 student_dim = student_model.get_embedding_dimension()
 teacher_dim = teacher_model.get_embedding_dimension()
 projection_dim = teacher_dim if student_dim != teacher_dim else None

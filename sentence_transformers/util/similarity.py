@@ -321,7 +321,7 @@ def maxsim_pairwise(
     if b_mask is None and b.dim() == 3:
         b_mask = _zero_row_mask(b)
     scores = torch.einsum("bsh,bth->bst", a, b)
-    # Documents reduced with max (mask to dtype min so padding never wins); queries reduced with sum (mask to 0).
+    # Documents reduced with max (mask to dtype min so padding never wins). Queries reduced with sum (mask to 0).
     if b_mask is not None:
         scores = scores.masked_fill(~b_mask.bool().unsqueeze(1), torch.finfo(scores.dtype).min)
     scores = scores.max(dim=-1).values

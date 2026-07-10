@@ -107,7 +107,7 @@ def get_n_patches(model: MultiVectorEncoder, image_size: tuple[int, int]) -> tup
     if image_processor is not None and merge_size is not None:
         from PIL import Image
 
-        # The (t, h, w) grid is in pre-merge patch units; merge_size spatial-merges those into tokens.
+        # The (t, h, w) grid is in pre-merge patch units: merge_size spatial-merges those into tokens.
         grid = image_processor(images=[Image.new("RGB", image_size)], return_tensors="pt")["image_grid_thw"][0]
         return int(grid[2]) // merge_size, int(grid[1]) // merge_size
 

@@ -111,5 +111,5 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         *args,
         **kwargs,
     ) -> dict[str, float]:
-        # Overridden only to narrow the model type to MultiVectorEncoder; behavior is identical to the parent.
+        # Overridden only to narrow the model type to MultiVectorEncoder. Behavior is identical to the parent.
         return super().__call__(model, output_path, epoch, steps, *args, **kwargs)

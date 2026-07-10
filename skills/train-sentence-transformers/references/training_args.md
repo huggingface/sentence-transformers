@@ -56,8 +56,8 @@ args = SentenceTransformerTrainingArguments(
 
 ## Duration
 
-- `num_train_epochs` — most common. 1 for large datasets (>500k), 3–10 for small.
-- `max_steps` — use instead of epochs when you want a fixed compute budget. Overrides `num_train_epochs`.
+- `num_train_epochs`: most common. 1 for large datasets (>500k), 3-10 for small.
+- `max_steps`: use instead of epochs when you want a fixed compute budget. Overrides `num_train_epochs`.
 - For huge datasets where 1 epoch is overkill, pick `max_steps` matching your compute plan.
 
 ## Batch size
@@ -65,34 +65,34 @@ args = SentenceTransformerTrainingArguments(
 Effective batch size = `per_device_train_batch_size × num_gpus × gradient_accumulation_steps`.
 
 Rules of thumb:
-- **Contrastive losses (MNRL, GIST, SMNRL)**: push `per_device_train_batch_size` as high as VRAM allows. Larger in-batch negatives = better gradients. 64–256 typical.
-- **Regression losses (CoSENTLoss, CosineSimilarityLoss, etc.)**: batch size matters less. 16–64 works.
-- **Cross-encoders**: batch size is less critical for quality. 32–128 typical.
-- If you can't fit the desired per-device batch, use `gradient_accumulation_steps` to simulate it — but for MNRL-family losses this **does not** provide the same benefit as a real batch (in-batch negatives are still only per-device). Use `CachedMultipleNegativesRankingLoss` instead.
+- **Contrastive losses (MNRL, GIST, SMNRL)**: push `per_device_train_batch_size` as high as VRAM allows. Larger in-batch negatives = better gradients. 64-256 typical.
+- **Regression losses (CoSENTLoss, CosineSimilarityLoss, etc.)**: batch size matters less. 16-64 works.
+- **Cross-encoders**: batch size is less critical for quality. 32-128 typical.
+- If you can't fit the desired per-device batch, use `gradient_accumulation_steps` to simulate it, but for MNRL-family losses this **does not** provide the same benefit as a real batch (in-batch negatives are still only per-device). Use `CachedMultipleNegativesRankingLoss` instead.
 
 ## Learning rate and schedule
 
 - `2e-5` is the safe default for full fine-tuning of BERT-family encoders.
 - `1e-4` to `5e-4` for LoRA / PEFT adapters.
 - `2e-1` for training a `StaticEmbedding` model from scratch (much higher than transformers because each token is a free-floating vector with no upstream gradients).
-- `lr_scheduler_type="linear"` with `warmup_steps=0.1` is standard (a float `< 1` is interpreted as a fraction of total steps). `"cosine"` works equally well; `"constant_with_warmup"` is fine for very short runs. The legacy `warmup_ratio` was deprecated in transformers v5.2 in favor of `warmup_steps` accepting floats; passing `warmup_ratio=...` still works but emits a DeprecationWarning.
+- `lr_scheduler_type="linear"` with `warmup_steps=0.1` is standard (a float `< 1` is interpreted as a fraction of total steps). `"cosine"` works equally well. `"constant_with_warmup"` is fine for very short runs. The legacy `warmup_ratio` was deprecated in transformers v5.2 in favor of `warmup_steps` accepting floats. Passing `warmup_ratio=...` still works but emits a DeprecationWarning.
 - If loss goes NaN, **drop LR first** before anything else.
 
 ## Precision
 
-**The non-negotiable rule:** load the model in **fp32** (the default — don't pass `torch_dtype=torch.bfloat16` to the model constructor or `model_kwargs`). Use the `bf16=True` / `fp16=True` flags below to enable **autocast**, not a weight cast. The trainer keeps the model and optimizer state in fp32 and autocasts activations to bf16/fp16 at forward/backward time. This preserves Adam's full-precision moments while giving you most of the bf16 throughput.
+**The non-negotiable rule:** load the model in **fp32** (the default). Don't pass `torch_dtype=torch.bfloat16` to the model constructor or `model_kwargs`. Use the `bf16=True` / `fp16=True` flags below to enable **autocast**, not a weight cast. The trainer keeps the model and optimizer state in fp32 and autocasts activations to bf16/fp16 at forward/backward time. This preserves Adam's full-precision moments while giving you most of the bf16 throughput.
 
-Casting weights to bf16 *before* the optimizer is created puts the Adam state (`exp_avg`, `exp_avg_sq`) in bf16 too — bf16's 7-bit mantissa is too coarse for small gradient moments and you get silent quality regressions across runs.
+Casting weights to bf16 *before* the optimizer is created puts the Adam state (`exp_avg`, `exp_avg_sq`) in bf16 too: bf16's 7-bit mantissa is too coarse for small gradient moments and you get silent quality regressions across runs.
 
 | Flag | When to use |
 |---|---|
-| `bf16=True` | Ampere (A10G, A100, 3090) and newer (Hopper, Ada). Preferred when supported — more numerically stable than fp16. Activations only; weights stay fp32. |
-| `fp16=True` | Older GPUs (T4, V100, 2080, Titan V). Be prepared to drop LR or enable loss scaling if you see NaN. Activations only; weights stay fp32. |
-| Neither | fp32 throughout. Slow; only useful for debugging numerical issues. |
+| `bf16=True` | Ampere (A10G, A100, 3090) and newer (Hopper, Ada). Preferred when supported. More numerically stable than fp16. Activations only. Weights stay fp32. |
+| `fp16=True` | Older GPUs (T4, V100, 2080, Titan V). Be prepared to drop LR or enable loss scaling if you see NaN. Activations only. Weights stay fp32. |
+| Neither | fp32 throughout. Slow. Only useful for debugging numerical issues. |
 
 Do not set both `bf16=True` and `fp16=True`.
 
-**Evaluator calls outside the trainer** (typically the pre-training baseline + a final post-training pass) don't get the trainer's autocast. Wrap them manually for the speedup — and note that the wrap is **only strictly required when the model uses `attn_implementation="flash_attention_2"`**, since FA2 kernels need bf16/fp16 inputs to function. Without FA2 the wrap is a throughput optimization, not a correctness requirement:
+**Evaluator calls outside the trainer** (typically the pre-training baseline + a final post-training pass) don't get the trainer's autocast. Wrap them manually for the speedup, and note that the wrap is **only strictly required when the model uses `attn_implementation="flash_attention_2"`**, since FA2 kernels need bf16/fp16 inputs to function. Without FA2 the wrap is a throughput optimization, not a correctness requirement:
 
 ```python
 import torch
@@ -117,9 +117,9 @@ with autocast_ctx():
 
 `batch_sampler=BatchSamplers.NO_DUPLICATES` is critical for contrastive losses. Without it, the same (anchor, positive) can appear multiple times in one batch, turning legitimate positives into false negatives.
 
-Use `BatchSamplers.NO_DUPLICATES` for MNRL / SMNRL / CachedMNRL / GIST (the default recommendation); `BatchSamplers.GROUP_BY_LABEL` for batch-triplet losses (`BatchAllTripletLoss`, `BatchHardTripletLoss`); `BatchSamplers.NO_DUPLICATES_HASHED` only for very large datasets where per-batch string comparison gets slow.
+Use `BatchSamplers.NO_DUPLICATES` for MNRL / SMNRL / CachedMNRL / GIST (the default recommendation). Use `BatchSamplers.GROUP_BY_LABEL` for batch-triplet losses (`BatchAllTripletLoss`, `BatchHardTripletLoss`). Use `BatchSamplers.NO_DUPLICATES_HASHED` only for very large datasets where per-batch string comparison gets slow.
 
-For multi-dataset training, the analogous `MultiDatasetBatchSamplers` class controls how to draw from each dataset (`ROUND_ROBIN`, `PROPORTIONAL`). Under DDP, each dataset is sharded automatically per process — no extra config needed; set `multi_dataset_batch_sampler=...` once and it works for 1-GPU and N-GPU runs identically.
+For multi-dataset training, the analogous `MultiDatasetBatchSamplers` class controls how to draw from each dataset (`ROUND_ROBIN`, `PROPORTIONAL`). Under DDP, each dataset is sharded automatically per process, no extra config needed. Set `multi_dataset_batch_sampler=...` once and it works for 1-GPU and N-GPU runs identically.
 
 ## Evaluation and checkpointing
 
@@ -134,7 +134,7 @@ metric_for_best_model="eval_<EvaluatorName>_<metric>",
 greater_is_better=True,
 ```
 
-**Prefer fractional values over absolute step counts.** `eval_steps=0.1` / `save_steps=0.1` / `logging_steps=0.01` are interpreted as fractions of total training steps (10 evals per epoch, 100 log lines per epoch) and auto-scale when the dataset size or epoch count changes. The HF Trainer converts a `float < 1` to `int(total_steps * fraction)` at init time, so the same config works whether you're training on 10k or 10M rows — no need to recompute absolute step counts each time.
+**Prefer fractional values over absolute step counts.** `eval_steps=0.1` / `save_steps=0.1` / `logging_steps=0.01` are interpreted as fractions of total training steps (10 evals per epoch, 100 log lines per epoch) and auto-scale when the dataset size or epoch count changes. The HF Trainer converts a `float < 1` to `int(total_steps * fraction)` at init time, so the same config works whether you're training on 10k or 10M rows. No need to recompute absolute step counts each time.
 
 Use an absolute integer (e.g. `eval_steps=500`) only when you have a specific reason: comparing runs at known step counts, or when `max_steps` is set to an unusual value that makes fractions awkward.
 
@@ -164,14 +164,14 @@ This requires `load_best_model_at_end=True` and `metric_for_best_model=...` to b
 `early_stopping_patience=3` means "stop if the best metric hasn't improved in 3 consecutive eval rounds." Use `early_stopping_threshold=0.001` to require a minimum improvement.
 
 **When it actually matters:**
-- **Cross-encoders**: strongly recommended. CE rerankers typically peak mid-training and then degrade — the best checkpoint is rarely the last. Early stopping saves compute *and* guards against quality regression.
-- **Bi-encoders and sparse encoders**: usually plateau rather than regress, so early stopping fires much less often. `load_best_model_at_end=True` alone gives you the right final model; adding the callback is a belt-and-suspenders safety net.
+- **Cross-encoders**: strongly recommended. CE rerankers typically peak mid-training and then degrade. The best checkpoint is rarely the last. Early stopping saves compute *and* guards against quality regression.
+- **Bi-encoders and sparse encoders**: usually plateau rather than regress, so early stopping fires much less often. `load_best_model_at_end=True` alone gives you the right final model. Adding the callback is a belt-and-suspenders safety net.
 
 ## Resuming training
 
 `trainer.train(resume_from_checkpoint=True)` resumes from the latest checkpoint in `output_dir`. Pass a specific path to resume from a specific step: `resume_from_checkpoint="models/my-model/checkpoint-500"`.
 
-State that persists across resumption: optimizer, scheduler, random seeds, trainer step counter. State that does **not**: dataset iteration order for `IterableDataset` — if you use streaming datasets, you must handle resumption yourself.
+State that persists across resumption: optimizer, scheduler, random seeds, trainer step counter. State that does **not**: dataset iteration order for `IterableDataset`. If you use streaming datasets, you must handle resumption yourself.
 
 ## Hub push
 
@@ -188,7 +188,7 @@ run_name="meaningful-name",     # shown in the tracker UI
 ```
 
 **Tracker recommendation:**
-- **Trackio** (default) for solo / small-team work: zero friction beyond `HF_TOKEN`. Auto-creates a Space at `https://huggingface.co/spaces/<your-username>/trackio` on the first run; subsequent runs append and group by `run_name`.
+- **Trackio** (default) for solo / small-team work: zero friction beyond `HF_TOKEN`. Auto-creates a Space at `https://huggingface.co/spaces/<your-username>/trackio` on the first run. Subsequent runs append and group by `run_name`.
 - **W&B** for larger teams or sweep / report features. `pip install wandb && wandb login` (or set `WANDB_API_KEY`).
 - **TensorBoard** for air-gapped environments. No remote dashboard.
 - **MLflow** when it's already the org standard.
@@ -196,9 +196,9 @@ run_name="meaningful-name",     # shown in the tracker UI
 For trackio sweeps / ablations, use `trackio.init(project="...", name="...", group="v1", config={...})` before training to group related runs side-by-side. Without `trackio.init()`, defaults are derived from `run_name` and HF username.
 
 **Tracker gotchas:**
-- `report_to="all"` enables every installed integration (usually more than you want); `"none"` disables everything (the current `transformers` default). Always set explicitly.
+- `report_to="all"` enables every installed integration (usually more than you want). `"none"` disables everything (the current `transformers` default). Always set explicitly.
 - Trackio on HF Jobs without `secrets={"HF_TOKEN": "$HF_TOKEN"}` fails silently. W&B on HF Jobs needs `WANDB_API_KEY` in `secrets`.
-- The HF Trainer logs only on rank 0 under DDP; custom logging in your script may need explicit rank checks to avoid duplicate writes.
+- The HF Trainer logs only on rank 0 under DDP. Custom logging in your script may need explicit rank checks to avoid duplicate writes.
 
 ## Memory-saving arguments
 
@@ -210,7 +210,7 @@ dataloader_num_workers=2,       # parallel data loading; 2-4 is usually enough
 dataloader_pin_memory=True,
 ```
 
-Do **not** combine `gradient_checkpointing=True` with any `Cached*` loss — they conflict.
+Do **not** combine `gradient_checkpointing=True` with any `Cached*` loss. They conflict.
 
 ## Hyperparameter search
 
@@ -263,7 +263,7 @@ See `../scripts/train_sentence_transformer_multi_dataset_example.py` (docstring 
 
 ## Don't
 
-- Don't set `eval_strategy="epoch"` without setting `save_strategy="epoch"` — checkpoint/eval alignment matters for `load_best_model_at_end`.
-- Don't set `remove_unused_columns=False` unless you have a custom collator that consumes metadata columns the loss doesn't see. The default (True) is safer — it drops unused columns automatically.
-- Don't set `seed` to verify reproducibility and then expect bit-for-bit identical runs on different GPUs or across PyTorch versions — exact reproducibility across hardware is not guaranteed.
+- Don't set `eval_strategy="epoch"` without setting `save_strategy="epoch"`. Checkpoint/eval alignment matters for `load_best_model_at_end`.
+- Don't set `remove_unused_columns=False` unless you have a custom collator that consumes metadata columns the loss doesn't see. The default (True) is safer. It drops unused columns automatically.
+- Don't set `seed` to verify reproducibility and then expect bit-for-bit identical runs on different GPUs or across PyTorch versions. Exact reproducibility across hardware is not guaranteed.
 - Don't tune `adam_beta1` / `adam_beta2` / `adam_epsilon` unless you have a specific reason. The defaults are fine for 99% of cases.

@@ -47,9 +47,9 @@ class CachedSpladeLoss(SpladeLoss):
 
         In detail, the GradCache technique works as follows:
 
-            (1) A quick embedding step without gradients/computation graphs to get all embeddings in mini-batches;
+            (1) A quick embedding step without gradients/computation graphs to get all embeddings in mini-batches.
             (2) Calculate the combined loss (base + regularizers), backward up to the embeddings and cache the
-                gradients w.r.t. the embeddings;
+                gradients w.r.t. the embeddings.
             (3) A 2nd embedding step with gradients/computation graphs and connect the cached gradients into the
                 backward chain.
 

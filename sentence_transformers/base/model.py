@@ -69,13 +69,13 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     # The default Hugging Face organization to prepend to short model names.
     default_huggingface_organization: str | None = None
     # Default prompts to initialize for new model instances. Use None as the value for prompts
-    # that should be filled by the saved model config; empty string "" means intentionally blank.
+    # that should be filled by the saved model config. Empty string "" means intentionally blank.
     _default_prompts: dict[str, str | None] = {}
     # The placeholder model ID in model card templates that gets replaced with the actual model ID.
     _model_card_model_id_placeholder: str = "sentence_transformers_model_id"
     # The archetype identifier written to `config_sentence_transformers.json` and used to
     # discriminate which loader path runs (see `_load_modules`). Subclasses inherit the
-    # archetype value by default; override on a subclass to opt out of that identity.
+    # archetype value by default. Override on a subclass to opt out of that identity.
     model_type: str
 
     def __init__(
@@ -419,7 +419,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             return input_module.can_flatten_inputs
         if isinstance(input_module, Router):
             for route in input_module.sub_modules.values():
-                # Each route is nn.Sequential; the first child is the Transformer
+                # Each route is nn.Sequential. The first child is the Transformer
                 first_in_route = next(iter(route.children()), None)
                 if not isinstance(first_in_route, Transformer) or not first_in_route.can_flatten_inputs:
                     return False
@@ -1088,7 +1088,7 @@ This pull request has been automatically generated to add {self.__class__.__name
 
             self._parse_model_config(model_config)
 
-        # Check if a readme exists. README is optional metadata; a transient Hub error
+        # Check if a readme exists. README is optional metadata. A transient Hub error
         # here shouldn't block model loading.
         try:
             model_card_path = load_file_path(
@@ -1147,8 +1147,8 @@ This pull request has been automatically generated to add {self.__class__.__name
             if len(load_signature.parameters) == 1:
                 signature = inspect.signature(module_class.__init__)
                 # Detect Transformer-based modules by checking for model/config kwargs in __init__.
-                # Old custom modules (e.g. jinaai/jina-embeddings-v3) use model_args/config_args;
-                # new-style modules use model_kwargs/config_kwargs.
+                # Old custom modules (e.g. jinaai/jina-embeddings-v3) use model_args/config_args.
+                # New-style modules use model_kwargs/config_kwargs.
                 init_params = set(signature.parameters)
                 uses_old_names = {"model_args", "config_args", "tokenizer_args"} & init_params
                 uses_new_names = {"model_kwargs", "config_kwargs"} <= init_params
@@ -1330,7 +1330,7 @@ This pull request has been automatically generated to add {self.__class__.__name
         """Hook for subclasses to inject extra defaults into a module's ``__init__`` at load time.
 
         Returned kwargs are forwarded to ``module_class.load(..., init_defaults=...)`` and applied
-        with ``setdefault`` priority — saved config wins, so this only fills keys the saved config
+        with ``setdefault`` priority: saved config wins, so this only fills keys the saved config
         omitted. Used by :class:`~sentence_transformers.MultiVectorEncoder` to flip the
         ``query_expansion`` / ``query_length`` / ``document_length`` knobs on for the backbone
         Transformer when promoting a dense SentenceTransformer or PyLate v3 checkpoint, without

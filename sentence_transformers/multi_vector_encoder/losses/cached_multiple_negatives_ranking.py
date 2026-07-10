@@ -108,17 +108,17 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
     Args:
         model: A :class:`~sentence_transformers.MultiVectorEncoder`.
         score_metric: Scoring callable. Defaults to
-            :func:`~sentence_transformers.multi_vector_encoder.scoring.colbert_scores`; pass
+            :func:`~sentence_transformers.multi_vector_encoder.scoring.colbert_scores`. Pass
             :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRScores` for XTR-style scoring.
         mini_batch_size: Chunk size for the **embedding** forward / backward pass. Keep small enough that a
             single chunk fits in GPU memory.
         score_mini_batch_size: Chunk size for the **scoring** phase (independent of ``mini_batch_size``).
             Smaller values trim transient scoring intermediates ``(Q, Q*N, q_tokens, d_tokens)`` which are
             usually the bottleneck at large effective batch sizes. Defaults to ``mini_batch_size``.
-        scale: ``1 / temperature``; scores are multiplied by ``scale`` before cross-entropy. Defaults to
+        scale: ``1 / temperature``. Scores are multiplied by ``scale`` before cross-entropy. Defaults to
             ``1.0`` (``temperature=1.0``), matching PyLate. MaxSim is an unbounded sum over query-token
             similarities, so (unlike bounded cosine, where the dense loss uses ``scale=20.0``) it needs no
-            amplification; ``scale=20`` would saturate the softmax. See
+            amplification. ``scale=20`` would saturate the softmax. See
             :class:`MultiVectorMultipleNegativesRankingLoss` for the full rationale.
         temperature: Optional alias for ``1 / scale``.
         size_average: Whether to average (``True``, default) or sum the cross-entropy loss across the batch.

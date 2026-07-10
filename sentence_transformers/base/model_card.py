@@ -531,7 +531,7 @@ class BaseModelCardData(CardData):
             if dataset[dataset_name].format["type"] == "custom":
                 # A custom transform is set (e.g. KDProcessing resolving query/document IDs to texts lazily).
                 # dataset.features then describes the pre-transform columns, so the select_columns below would
-                # starve the transform of the columns it needs; skip widget examples for such datasets.
+                # starve the transform of the columns it needs. Skip widget examples for such datasets.
                 continue
 
             # Sample 1000 examples from the dataset, sort them by length, and pick the shortest examples as the core
@@ -993,7 +993,7 @@ class BaseModelCardData(CardData):
         n_total = min(len(dataset), 100)
         first = dataset[0][column]
 
-        # Columns like int/float/list don't map to a modality; ValueError signals that
+        # Columns like int/float/list don't map to a modality, so infer_modality raises ValueError
         try:
             raw_modality = infer_modality(first, supported_modalities=getattr(self.model, "modalities", None))
         except ValueError:

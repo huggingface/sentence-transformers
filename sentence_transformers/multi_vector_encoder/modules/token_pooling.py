@@ -241,7 +241,7 @@ class LambdaTokenPooling(BaseTokenPooling):
     Example::
 
         def halve(emb: Tensor) -> Tensor:
-            # Average consecutive pairs of tokens; drop the tail if odd.
+            # Average consecutive pairs of tokens, dropping the tail if odd.
             n = emb.size(0)
             return emb[: n - n % 2].view(n // 2, 2, -1).mean(dim=1)
 

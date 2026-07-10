@@ -19,7 +19,7 @@ class MultiVectorTripletEvaluator(TripletEvaluator):
 
     Given ``(anchor, positive, negative)`` triplets, checks how often
     ``MaxSim(anchor, positive) > MaxSim(anchor, negative) + margin``. The anchors are encoded via
-    :meth:`encode_query` (with the query prefix and length); positives and negatives are encoded via
+    :meth:`encode_query` (with the query prefix and length). Positives and negatives are encoded via
     :meth:`encode_document`. ``truncate_dim`` is not supported (multi-vector token embeddings have no
     Matryoshka-style truncation) and raises a ValueError.
     """

@@ -36,8 +36,8 @@ Multi-vector models can be loaded from any of the following sources, transparent
 Encoding queries and documents
 ------------------------------
 
-Use ``encode_query`` and ``encode_document`` for retrieval; these set the right prefix token (``[Q]`` /
-``[D]``), max length, and apply any document-side skiplist configured on the model (empty by default;
+Use ``encode_query`` and ``encode_document`` for retrieval. These set the right prefix token (``[Q]`` /
+``[D]``), max length, and apply any document-side skiplist configured on the model (empty by default, though
 legacy ColBERT / PyLate checkpoints pre-seed it with punctuation tokens)::
 
     queries = ["What is the capital of France?"]
@@ -56,7 +56,7 @@ legacy ColBERT / PyLate checkpoints pre-seed it with punctuation tokens)::
 Scoring with MaxSim
 -------------------
 
-``model.similarity`` returns the full all-pairs MaxSim score matrix; ``model.similarity_pairwise``
+``model.similarity`` returns the full all-pairs MaxSim score matrix. ``model.similarity_pairwise``
 returns matched-pair scores::
 
     scores = model.similarity(query_embeddings, document_embeddings)

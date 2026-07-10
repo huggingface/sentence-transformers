@@ -636,7 +636,7 @@ class TestSetMultimodalPredictExample:
         assert model.model_card_data.usage_examples == ["original"]
 
     def test_duplicate_images_deduplicated(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
-        """Duplicate images in the first rows are skipped; unique images are picked from later rows."""
+        """Duplicate images in the first rows are skipped. Unique images are picked from later rows."""
         model = stsb_bert_tiny_model
 
         # First 3 rows have the same image, rows 3-5 have distinct images
@@ -869,7 +869,7 @@ class TestComputeDatasetMetricsColumns:
         lines = [line.strip() for line in table.splitlines() if line.strip()]
         modality_lines = [line for line in lines if line.startswith("| modality")]
         assert len(modality_lines) == 1, f"Expected one modality row, got: {modality_lines}"
-        # anchor → "text"; score → "" (numeric has no modality)
+        # anchor → "text", score → "" (numeric has no modality)
         assert "text" in modality_lines[0]
 
 

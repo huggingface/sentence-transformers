@@ -260,7 +260,7 @@ def test_maxsim_ragged_matrix_hand_computed() -> None:
         torch.tensor([[0.0, 1.0]]),  # 1 token
     ]
     # res[i][j] = sum over query tokens of the max similarity to any document token, e.g.
-    # res[0][0] = max(1, 0) + max(0, 0.5) = 1.5; res[0][1] = max(0) + max(1) = 1.0
+    # res[0][0] = max(1, 0) + max(0, 0.5) = 1.5. res[0][1] = max(0) + max(1) = 1.0
     expected = torch.tensor([[1.5, 1.0], [1.0, 1.0]])
     scores = maxsim(queries, documents)
     assert scores.shape == (2, 2)
@@ -268,7 +268,7 @@ def test_maxsim_ragged_matrix_hand_computed() -> None:
 
 
 def test_maxsim_list_matches_masked_padded_tensor() -> None:
-    """The ragged-list path auto-derives a length mask; it must match an explicitly padded + masked 3D tensor."""
+    """The ragged-list path auto-derives a length mask. It must match an explicitly padded + masked 3D tensor."""
     queries = [torch.tensor([[1.0, 0.0], [0.0, 1.0]]), torch.tensor([[1.0, 1.0]])]
     documents = [torch.tensor([[1.0, 0.0]]), torch.tensor([[0.0, 1.0], [0.5, 0.5]])]
     from_list = maxsim(queries, documents)
@@ -303,14 +303,14 @@ def test_maxsim_negative_similarities_survive_padding() -> None:
         torch.tensor([[-0.5, 0.0]]),  # 1 token: best (only) similarity -0.5
         torch.tensor([[-0.5, 0.0], [-0.3, 0.0]]),  # 2 tokens: best similarity -0.3
     ]
-    # The first document is padded to length 2; the padding must be excluded from the max so the score
+    # The first document is padded to length 2. The padding must be excluded from the max so the score
     # stays -0.5 instead of the 0 a zero-valued padding token would otherwise produce.
     scores = maxsim(query, documents)
     assert torch.allclose(scores, torch.tensor([[-0.5, -0.3]]))
 
 
 def test_maxsim_query_mask_excludes_query_tokens() -> None:
-    """MaxSim sums over query tokens; masking a query token drops its contribution from the sum."""
+    """MaxSim sums over query tokens. Masking a query token drops its contribution from the sum."""
     query = torch.tensor([[[1.0, 0.0], [0.0, 1.0]]])  # 2 query tokens
     document = torch.tensor([[[1.0, 0.0]]])  # token0 similarity 1, token1 similarity 0
     assert torch.allclose(maxsim(query, document), torch.tensor([[1.0]]))

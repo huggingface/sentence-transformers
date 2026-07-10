@@ -1193,7 +1193,7 @@ class SparseEncoder(BaseModel):
         if embeddings_2.ndim == 1:
             intersection = embeddings_1 * embeddings_2
         elif embeddings_2.ndim == 2:
-            # Element-wise multiplication per row; Python loop is required as sparse broadcasting is limited
+            # Element-wise multiplication per row. Python loop is required as sparse broadcasting is limited
             intersection = torch.stack([embeddings_1 * embedding for embedding in embeddings_2])
         else:
             raise ValueError(f"Expected 1D or 2D tensor for embeddings_2, but got {embeddings_2.shape} shape.")

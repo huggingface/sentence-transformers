@@ -451,7 +451,7 @@ The following images show the benchmark results for the different backends on GP
          <b>Model: </b>
          <ul>
             <li>
-               <a href="https://huggingface.co/naver/splade-v3">naver/splade-v3</a>: 110M parameters; batch sizes of 8, 16, 32, and 64.
+               <a href="https://huggingface.co/naver/splade-v3">naver/splade-v3</a>: 110M parameters. Batch sizes of 8, 16, 32, and 64.
             </li>
          </ul>
       </li>

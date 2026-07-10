@@ -71,11 +71,11 @@ def test_similarity_map_normalize_per_token() -> None:
 
 def test_similarity_map_rectangular_grid_row_major() -> None:
     """Regression: with a rectangular grid, the resulting map must preserve the (row, col)
-    positions from the flat row-major embedding — not transpose them. A single high-similarity
+    positions from the flat row-major embedding, not transpose them. A single high-similarity
     patch placed at row=1, col=3 must land at sim_map[0, 1, 3], NOT sim_map[0, 3, 1].
     """
     n_cols, n_rows, d = 4, 3, 8
-    # Put a "signal" patch embedding at flat index 1*n_cols + 3 = 7 (row=1, col=3); zero elsewhere.
+    # Put a "signal" patch embedding at flat index 1*n_cols + 3 = 7 (row=1, col=3). Zero elsewhere.
     image_emb = torch.zeros(n_rows * n_cols, d)
     image_emb[1 * n_cols + 3] = 1.0  # vector of all ones
     query_emb = torch.ones(1, d)  # produces sim = D when aligned with signal
@@ -170,7 +170,7 @@ def test_heatmap_aggregate_invalid_raises() -> None:
 def test_render_normalization_range_changes_colour_mapping() -> None:
     """Passing a custom ``normalization_range`` to ``render_similarity_map_on_image`` shifts which
     similarity values land at which point in the viridis LUT. A middle-range patch (sim=0.5)
-    renders mid-spectrum (greenish) with default normalisation; with a clipped range that floors
+    renders mid-spectrum (greenish) with default normalisation. With a clipped range that floors
     at 0.5, that same patch lands at the LUT bottom (dark purple). The rendered images differ.
     """
     image = Image.new("RGB", (16, 16), color="black")

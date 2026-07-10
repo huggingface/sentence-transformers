@@ -28,7 +28,7 @@ def model() -> MultiVectorEncoder:
 def test_loads_with_default_modules(model: MultiVectorEncoder) -> None:
     # Four modules: Transformer + Dense projection (token-level) + MultiVectorMask + Normalize.
     # A fresh MultiVectorEncoder from a bare HF model leaves the Transformer at the dense defaults
-    # (no query expansion, no per-task max-length); users opt in explicitly via ``modules=...`` or by
+    # (no query expansion, no per-task max-length). Users opt in explicitly via ``modules=...`` or by
     # mutating ``model[0]`` after construction.
     assert len(model) == 4
     assert isinstance(model[0], Transformer)
@@ -220,7 +220,7 @@ def test_encode_document_skiplist_removes_punctuation() -> None:
 
 def test_mask_keep_only_token_ids_restricts_document_mask() -> None:
     """``keep_only_token_ids`` (P1.2 / colpali-engine ``mask_non_image_embeddings``) restricts the
-    document attention_mask to the allowlisted IDs only — the rest of the doc tokens drop out of
+    document attention_mask to the allowlisted IDs only. The rest of the doc tokens drop out of
     MaxSim scoring. Combined with the skiplist, both filters apply.
     """
     base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
@@ -237,7 +237,7 @@ def test_mask_keep_only_token_ids_restricts_document_mask() -> None:
 
 
 def test_mask_keep_only_token_ids_none_is_noop(model: MultiVectorEncoder) -> None:
-    """Default ``keep_only_token_ids=None`` means no allowlist; matches pre-P1.2 behavior exactly."""
+    """Default ``keep_only_token_ids=None`` means no allowlist: matches pre-P1.2 behavior exactly."""
     mask_module = model[2]
     assert isinstance(mask_module, MultiVectorMask)
     assert mask_module.keep_only_token_ids is None
@@ -387,7 +387,7 @@ def test_parse_model_config_translates_pylate_expansion(model_config, expected_q
         (True, False, False, torch.Tensor),  # variable-length list of tensors
         (False, False, False, torch.Tensor),  # variable-length list of raw (unconverted) tensors
         # convert_to_padded_tensor always returns a Tensor (parallels convert_to_sparse_tensor):
-        (False, True, True, torch.Tensor),  # padded; convert_to_numpy is overridden
+        (False, True, True, torch.Tensor),  # padded, convert_to_numpy is overridden
         (True, False, True, torch.Tensor),  # padded
         (False, False, True, torch.Tensor),  # padded
     ],
@@ -597,7 +597,7 @@ def test_similarity_fn_name_setter_rejects_unsupported(model: MultiVectorEncoder
 
 
 def test_parse_model_config_reads_back_supported_similarity() -> None:
-    """A saved ``similarity_fn_name`` is read back on load when supported; legacy dense names
+    """A saved ``similarity_fn_name`` is read back on load when supported. Legacy dense names
     (cosine / dot) are ignored so the model falls through to the MaxSim default instead of raising."""
     from sentence_transformers.multi_vector_encoder.model import _LegacyStash
 

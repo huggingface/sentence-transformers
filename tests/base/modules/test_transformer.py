@@ -472,12 +472,12 @@ class TestPreprocess:
         assert isinstance(next_result["input_ids"], torch.Tensor)
 
     def test_preprocess_per_call_merges_with_instance_processing_kwargs(self):
-        """Per-call values override matching instance values; non-overridden settings are preserved."""
+        """Per-call values override matching instance values. Non-overridden settings are preserved."""
         transformer = Transformer(
             TINY_BERT,
             processing_kwargs={"text": {"max_length": 5, "truncation": True}},
         )
-        # Per-call only changes max_length; truncation from the instance must still apply
+        # Per-call only changes max_length. Truncation from the instance must still apply
         result = transformer.preprocess(
             ["this is a longer sentence that should get truncated"],
             processing_kwargs={"text": {"max_length": 8}},
@@ -585,7 +585,7 @@ class TestForward:
 
     def test_model_forward_params_matches_kwargs_support(self, bert_tiny_transformer):
         """``model_forward_params`` is ``None`` exactly when forward accepts ``**kwargs`` (the denylist
-        path); otherwise it is an allowlist set seeded with the common safety-net names."""
+        path). Otherwise it is an allowlist set seeded with the common safety-net names."""
         model = bert_tiny_transformer
         accepts_kwargs = any(
             param.kind is inspect.Parameter.VAR_KEYWORD
@@ -1084,7 +1084,7 @@ class TestProcessChatMessages:
         model = bert_tiny_transformer
         monkeypatch.setattr(model.processor, "apply_chat_template", make_char_chat_template_mock([99]))
         suffix = model._chat_template_suffix_ids([{"role": "user", "content": "x"}], {"tools": [{"name": "f"}]}, {})
-        assert suffix == [99]  # no crash from the unhashable kwarg; the fixed marker is the derived suffix
+        assert suffix == [99]  # no crash from the unhashable kwarg. The fixed marker is the derived suffix
 
     def test_chat_template_suffix_ids_skips_uninspectable_messages(self, bert_tiny_transformer, monkeypatch):
         # Some templates accept shapes the text-only check can't inspect (a non-dict message, or a content
@@ -1226,7 +1226,7 @@ class TestModelLoading:
             Transformer(TINY_BERT, backend="invalid_backend")
 
     def test_peft_seq_classification_no_architectures(self, monkeypatch):
-        """PeftConfig has no 'architectures' attr; sequence-classification init should not crash."""
+        """PeftConfig has no 'architectures' attr. Sequence-classification init should not crash."""
 
         class FakePeftConfig:
             """Minimal stand-in for PeftConfig that intentionally lacks 'architectures'."""
