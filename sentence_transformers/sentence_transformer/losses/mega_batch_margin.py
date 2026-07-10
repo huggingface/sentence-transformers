@@ -11,6 +11,16 @@ from sentence_transformers import util
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
+def _slice_features(features: dict[str, Any], start_idx: int, end_idx: int) -> dict[str, Any]:
+    """Slice tensor values along the batch dimension, passing non-tensor values through unchanged.
+
+    ``preprocess`` adds non-tensor entries such as the ``modality`` marker to the feature dict; those
+    must be forwarded to the model as-is rather than sliced like the ``input_ids``/``attention_mask``
+    tensors (slicing the ``"text"`` string would corrupt it into e.g. ``"te"``).
+    """
+    return {key: value[start_idx:end_idx] if isinstance(value, Tensor) else value for key, value in features.items()}
+
+
 class MegaBatchMarginLoss(nn.Module):
     def __init__(
         self,
@@ -95,15 +105,16 @@ class MegaBatchMarginLoss(nn.Module):
 
     def forward_mini_batched(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         anchor, positive = sentence_features
-        feature_names = list(anchor.keys())
-        batch_size = len(positive[next(iter(positive))])
+        feature_names = [key for key, value in positive.items() if isinstance(value, Tensor)]
+        non_tensor_features = {key: value for key, value in positive.items() if not isinstance(value, Tensor)}
+        batch_size = len(positive[feature_names[0]])
 
         all_positive_emb = []
         with torch.no_grad():
             self.model.eval()
             for start_idx in range(0, batch_size, self.mini_batch_size):
                 end_idx = start_idx + self.mini_batch_size
-                input_mini_batch = {k: v[start_idx:end_idx] for k, v in positive.items()}
+                input_mini_batch = _slice_features(positive, start_idx, end_idx)
                 all_positive_emb.append(self.model(input_mini_batch)["sentence_embedding"].detach())
             self.model.train()
         all_positive_emb = torch.cat(all_positive_emb, dim=0)
@@ -113,9 +124,7 @@ class MegaBatchMarginLoss(nn.Module):
         # Iterate over the triplets (anchor, positive, hardest_negative) in smaller mini_batch sizes
         for start_idx in range(0, len(all_positive_emb), self.mini_batch_size):
             end_idx = start_idx + self.mini_batch_size
-            anchor_emb = self.model({key: anchor[key][start_idx:end_idx] for key in feature_names})[
-                "sentence_embedding"
-            ]
+            anchor_emb = self.model(_slice_features(anchor, start_idx, end_idx))["sentence_embedding"]
 
             # Find hard negatives. For each anchor, find the hardest negative
             # Store them in the triplets (anchor, positive, hardest_negative)
@@ -133,11 +142,10 @@ class MegaBatchMarginLoss(nn.Module):
 
             for key in feature_names:
                 hard_negative_features[key] = torch.stack(hard_negative_features[key])
+            hard_negative_features.update(non_tensor_features)
 
             # Compute differentiable negative and positive embeddings
-            positive_emb = self.model({key: positive[key][start_idx:end_idx] for key in feature_names})[
-                "sentence_embedding"
-            ]
+            positive_emb = self.model(_slice_features(positive, start_idx, end_idx))["sentence_embedding"]
             negative_emb = self.model(hard_negative_features)["sentence_embedding"]
 
             assert anchor_emb.shape == positive_emb.shape
@@ -150,7 +158,7 @@ class MegaBatchMarginLoss(nn.Module):
             losses = losses.mean()
 
             # Backpropagate unless it is the last mini batch. The last mini-batch will be back propagated by the outside train loop
-            if end_idx < len(cos_scores):
+            if end_idx < len(all_positive_emb):
                 losses.backward()
 
         return losses
