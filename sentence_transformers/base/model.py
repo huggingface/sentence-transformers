@@ -1203,6 +1203,11 @@ This pull request has been automatically generated to add {self.__class__.__name
                     module = module_class.load(local_path)
 
             else:
+                # Only pass a non-empty init_defaults: third-party load() overrides without **kwargs would fail
+                extra_load_kwargs = {}
+                if init_defaults := self._get_module_init_defaults(class_ref):
+                    extra_load_kwargs["init_defaults"] = init_defaults
+
                 # Newer modules that support the new loading method are loaded with the new style
                 # i.e. with many keyword arguments that can optionally be used by the modules
                 module = module_class.load(
@@ -1219,7 +1224,7 @@ This pull request has been automatically generated to add {self.__class__.__name
                     processor_kwargs=processor_kwargs,
                     config_kwargs=config_kwargs,
                     backend=self.backend,
-                    init_defaults=self._get_module_init_defaults(class_ref),
+                    **extra_load_kwargs,
                 )
 
             modules[module_config["name"]] = module
