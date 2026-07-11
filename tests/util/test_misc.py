@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from sentence_transformers.util.misc import import_module_class
+from sentence_transformers.util.misc import append_to_last_row, import_module_class
 
 
 def test_import_module_class_forwards_token_to_dynamic_module():
@@ -90,3 +90,35 @@ def test_import_module_class_local_path_with_trust_does_not_warn(tmp_path):
             )
 
     assert cls is fake_class
+
+
+def test_append_to_last_row_extends_last_data_row(tmp_path):
+    csv_path = tmp_path / "results.csv"
+    csv_path.write_text("epoch,score\n0,0.5\n1,0.7\n", encoding="utf-8")
+
+    assert append_to_last_row(csv_path, ["0.9"]) is True
+    assert csv_path.read_text(encoding="utf-8") == "epoch,score\n0,0.5\n1,0.7,0.9\n"
+
+
+def test_append_to_last_row_accepts_multiple_values(tmp_path):
+    csv_path = tmp_path / "results.csv"
+    csv_path.write_text("a,b\n1,2\n", encoding="utf-8")
+
+    assert append_to_last_row(csv_path, ["3", "4"]) is True
+    assert csv_path.read_text(encoding="utf-8") == "a,b\n1,2,3,4\n"
+
+
+def test_append_to_last_row_noop_on_header_only_file(tmp_path):
+    csv_path = tmp_path / "results.csv"
+    csv_path.write_text("epoch,score\n", encoding="utf-8")
+
+    assert append_to_last_row(csv_path, ["0.9"]) is False
+    assert csv_path.read_text(encoding="utf-8") == "epoch,score\n"
+
+
+def test_append_to_last_row_noop_on_empty_file(tmp_path):
+    csv_path = tmp_path / "results.csv"
+    csv_path.write_text("", encoding="utf-8")
+
+    assert append_to_last_row(csv_path, ["0.9"]) is False
+    assert csv_path.read_text(encoding="utf-8") == ""
