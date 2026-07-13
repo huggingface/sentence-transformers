@@ -490,7 +490,7 @@ class MultiVectorEncoder(BaseModel):
             if pooling is not None and (not is_query or pooling.pool_queries):
                 if any(isinstance(module, BaseTokenPooling) for module in self):
                     logger.warning_once(
-                        "This model already includes a token pooling in its pipeline; the per-call "
+                        "This model already includes a token pooling in its pipeline: the per-call "
                         "`pooling=` pools further on top of it (compounding). Omit it if you only want "
                         "the model's built-in pooling."
                     )
@@ -821,7 +821,7 @@ class MultiVectorEncoder(BaseModel):
                 module_output_name="token_embeddings",
             )
             logger.info(
-                f"Detected a transformers-native late-interaction retriever ({architectures[0]}); "
+                f"Detected a transformers-native late-interaction retriever ({architectures[0]}): "
                 "the projection and normalisation live inside the model, so only a MultiVectorMask is added."
             )
             if not local_files_only:
@@ -852,7 +852,7 @@ class MultiVectorEncoder(BaseModel):
                 )
             )
             logger.info(
-                "Detected a Stanford-NLP ColBERT checkpoint; loaded the inline projection weights and metadata."
+                "Detected a Stanford-NLP ColBERT checkpoint: loaded the inline projection weights and metadata."
             )
         else:
             hidden_size = transformer_model.get_embedding_dimension()
@@ -866,7 +866,7 @@ class MultiVectorEncoder(BaseModel):
                 )
             )
             logger.info(
-                f"No ColBERT checkpoint detected; added a randomly-initialised projection of "
+                f"No ColBERT checkpoint detected: added a randomly-initialised projection of "
                 f"({hidden_size}, 128). Training is required before this model is useful. "
                 "To customise the projection (e.g. a different output dim), pass `modules=...` instead."
             )
@@ -934,7 +934,7 @@ class MultiVectorEncoder(BaseModel):
         )
         if metadata_path is None:
             logger.warning(
-                "No artifact.metadata file found for the Stanford-NLP ColBERT checkpoint; using default values."
+                "No artifact.metadata file found for the Stanford-NLP ColBERT checkpoint: using default values."
             )
             metadata = {}
         else:

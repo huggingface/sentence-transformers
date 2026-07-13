@@ -78,7 +78,7 @@ class MultiVectorDistillKLDivLoss(nn.Module):
         sentence_features = list(sentence_features)
         if len(sentence_features) != 2:
             raise ValueError(
-                f"{type(self).__name__} expects exactly 2 sentence features (query, documents); "
+                f"{type(self).__name__} expects exactly 2 sentence features (query, documents), but "
                 f"got {len(sentence_features)}."
             )
 
@@ -91,7 +91,19 @@ class MultiVectorDistillKLDivLoss(nn.Module):
         documents_embeddings = document_outputs["token_embeddings"]
 
         bs = queries_embeddings.size(0)
-        n_ways = documents_embeddings.size(0) // bs
+        n_docs = documents_embeddings.size(0)
+        if bs == 0 or n_docs % bs != 0:
+            raise ValueError(
+                f"{type(self).__name__} expects the document column to hold batch_size * n_ways rows "
+                f"(each query with the same number of candidate documents), but got {n_docs} documents "
+                f"for {bs} queries."
+            )
+        n_ways = n_docs // bs
+        if labels.shape != (bs, n_ways):
+            raise ValueError(
+                f"{type(self).__name__} expects teacher scores of shape (batch_size, n_ways) = "
+                f"({bs}, {n_ways}), but got {tuple(labels.shape)}."
+            )
         documents_embeddings = documents_embeddings.view(bs, n_ways, *documents_embeddings.shape[1:])
         queries_mask = query_outputs["attention_mask"].bool()
         documents_mask = document_outputs["attention_mask"].bool()

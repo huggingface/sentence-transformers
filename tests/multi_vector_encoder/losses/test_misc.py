@@ -381,3 +381,17 @@ def test_cached_mnr_gather_across_devices_single_process(varlen_features) -> Non
     value = loss(varlen_features, labels=None)
     assert torch.isfinite(value), f"loss must be finite, got {value.item()}"
     value.backward()
+
+
+def test_distill_kl_div_validates_document_count_and_label_shape() -> None:
+    """A document column that is not batch_size * n_ways, or teacher scores with the wrong shape,
+    must fail loud instead of producing an opaque view error."""
+    loss = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel())
+    queries = _make_feature(t_tokens=4, batch=3, dim=8, seed=1)
+    documents = _make_feature(t_tokens=6, batch=7, dim=8, seed=2)  # 7 not divisible by 3
+    with pytest.raises(ValueError, match=r"batch_size \* n_ways"):
+        loss([queries, documents], torch.randn(3, 2))
+
+    documents = _make_feature(t_tokens=6, batch=6, dim=8, seed=2)  # n_ways = 2
+    with pytest.raises(ValueError, match="teacher scores"):
+        loss([queries, documents], torch.randn(3, 3))

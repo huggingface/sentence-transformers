@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 logger = transformers_logging.get_logger(__name__)
 
 
+# TODO: Do I want to advertise/support this? If so, how do I want to structure it?
 class KDProcessing:
     """Dataset processing class for knowledge-distillation training.
 
@@ -26,7 +27,9 @@ class KDProcessing:
         queries: Dataset (or DatasetDict) with ``query_id`` and ``text`` columns.
         documents: Dataset (or DatasetDict) with ``document_id`` and ``text`` columns.
         split: Split name to read when the inputs are :class:`datasets.DatasetDict`. Defaults to ``"train"``.
-        n_ways: Maximum number of (document_id, score) pairs to keep per row. Defaults to 32.
+        n_ways: Maximum number of (document_id, score) pairs to keep per row, taking the first n as
+            stored. Note that this is not a top-n by teacher score: e.g. the ``lightonai/ms-marco-en-bge``
+            rows are not score-sorted. Defaults to 32.
 
     Example:
         ::

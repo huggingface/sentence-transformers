@@ -68,7 +68,7 @@ class MultiVectorMarginMSELoss(nn.Module):
         sentence_features = list(sentence_features)
         if len(sentence_features) < 3:
             raise ValueError(
-                f"{type(self).__name__} expects at least 3 sentence features (query, positive, negative); "
+                f"{type(self).__name__} expects at least 3 sentence features (query, positive, negative), but "
                 f"got {len(sentence_features)}."
             )
 
@@ -89,7 +89,7 @@ class MultiVectorMarginMSELoss(nn.Module):
             if len(negs) != 1:
                 raise ValueError(
                     f"{type(self).__name__} got 1D labels (shape {tuple(labels.shape)}) but "
-                    f"{len(negs)} negative columns; expected 1."
+                    f"{len(negs)} negative columns (expected 1)."
                 )
             neg_scores = self._score(q, negs[0], q_mask, neg_masks[0])
             student_margin = pos_scores - neg_scores
@@ -98,7 +98,7 @@ class MultiVectorMarginMSELoss(nn.Module):
         if labels.ndim != 2 or labels.shape[1] != len(negs):
             raise ValueError(
                 f"{type(self).__name__} got labels with shape {tuple(labels.shape)} but {len(negs)} "
-                f"negative columns; expected labels of shape (batch_size, {len(negs)})."
+                f"negative columns. Expected labels of shape (batch_size, {len(negs)})."
             )
         student_margins = torch.stack(
             [pos_scores - self._score(q, n, q_mask, nm) for n, nm in zip(negs, neg_masks)], dim=1
