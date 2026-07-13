@@ -510,25 +510,25 @@ class GradCacheLoss(CachedLossMixin, nn.Module):
         # Per-component values of the last dict-valued loss computation; logging-only (see forward).
         self._loss_components: dict[str, Tensor] | None = None
 
-    @staticmethod
-    def _validate_wrappable(model: Any, loss: nn.Module) -> None:
+    def _validate_wrappable(self, model: Any, loss: nn.Module) -> None:
         from sentence_transformers.sentence_transformer.losses.gist_embed import GISTEmbedLoss
         from sentence_transformers.sparse_encoder.losses.splade import SpladeLoss
 
         if uses_gradient_cache(loss):
             raise ValueError(
-                f"{loss.__class__.__name__} already uses gradient caching, so wrapping it in GradCacheLoss "
-                "would embed every input four times per training step for no benefit. Use it directly."
+                f"{loss.__class__.__name__} already uses gradient caching, so wrapping it in "
+                f"{self.__class__.__name__} would embed every input four times per training step for no "
+                "benefit. Use it directly."
             )
         if isinstance(loss, GISTEmbedLoss):
             raise ValueError(
-                "GISTEmbedLoss embeds every batch with a second (guide) model, which GradCacheLoss cannot "
-                "mini-batch for it. Use CachedGISTEmbedLoss instead."
+                "GISTEmbedLoss embeds every batch with a second (guide) model, which "
+                f"{self.__class__.__name__} cannot mini-batch for it. Use CachedGISTEmbedLoss instead."
             )
         if isinstance(loss, SpladeLoss):
             raise ValueError(
                 "SpladeLoss is scheduled by the SparseEncoderTrainer, which would not recognize it inside "
-                "a GradCacheLoss. Use CachedSpladeLoss instead."
+                f"a {self.__class__.__name__}. Use CachedSpladeLoss instead."
             )
 
         model_parameters = {id(parameter) for parameter in model.parameters()}
@@ -540,29 +540,30 @@ class GradCacheLoss(CachedLossMixin, nn.Module):
         if own_parameters:
             raise ValueError(
                 f"{loss.__class__.__name__} has trainable parameters of its own ({own_parameters[0]}, ...), "
-                "which GradCacheLoss cannot support: the backward hook scales the model's gradient by "
-                "whatever the outer backward pass provides (e.g. the gradient accumulation division), but "
-                "the loss's own parameters receive their gradient before that scaling is known."
+                f"which {self.__class__.__name__} cannot support: the backward hook scales the model's "
+                "gradient by whatever the outer backward pass provides (e.g. the gradient accumulation "
+                "division), but the loss's own parameters receive their gradient before that scaling is known."
             )
 
         if not hasattr(loss, "compute_loss_from_embeddings"):
             raise ValueError(
                 f"{loss.__class__.__name__} does not expose compute_loss_from_embeddings(embeddings, labels), "
-                "which GradCacheLoss needs to compute the loss from the mini-batched embeddings."
+                f"which {self.__class__.__name__} needs to compute the loss from the mini-batched embeddings."
             )
         parameters = list(inspect.signature(loss.compute_loss_from_embeddings).parameters.values())
         if len(parameters) < 2 or parameters[1].name != "labels":
             second = parameters[1].name if len(parameters) >= 2 else "nothing"
             raise ValueError(
                 f"The second parameter of {loss.__class__.__name__}.compute_loss_from_embeddings is "
-                f"{second!r}, not 'labels', so GradCacheLoss cannot pass the training labels through to it."
+                f"{second!r}, not 'labels', so {self.__class__.__name__} cannot pass the training labels "
+                "through to it."
             )
 
         if has_static_embedding_input(model):
             raise ValueError(
-                "GradCacheLoss is not compatible with a SentenceTransformer model based on a StaticEmbedding, "
-                "whose inputs cannot be split into mini-batches along a batch dimension. StaticEmbedding "
-                "models are cheap to compute; use the wrapped loss directly instead."
+                f"{self.__class__.__name__} is not compatible with a SentenceTransformer model based on a "
+                "StaticEmbedding, whose inputs cannot be split into mini-batches along a batch dimension. "
+                "StaticEmbedding models are cheap to compute; use the loss without gradient caching instead."
             )
 
     def calculate_loss(

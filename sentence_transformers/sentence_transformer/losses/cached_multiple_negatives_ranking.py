@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Iterable
 from typing import Any, Literal
 
 import torch
 import tqdm
-from torch import Tensor, nn
+from torch import Tensor
 
 from sentence_transformers import util
-from sentence_transformers.sentence_transformer.losses.gradcache import CachedLossMixin
+from sentence_transformers.sentence_transformer.losses.gradcache import GradCacheLoss
+from sentence_transformers.sentence_transformer.losses.multiple_negatives_ranking import (
+    MultipleNegativesRankingLoss,
+)
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
 
-logger = logging.getLogger(__name__)
 
-
-class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
+class CachedMultipleNegativesRankingLoss(GradCacheLoss):
     def __init__(
         self,
         model: SentenceTransformer,
@@ -154,55 +153,52 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
                 )
                 trainer.train()
         """
-        super().__init__()
-        if isinstance(model[0], StaticEmbedding):
-            raise ValueError(
-                "CachedMultipleNegativesRankingLoss is not compatible with a SentenceTransformer model based on a StaticEmbedding. "
-                "Consider using MultipleNegativesRankingLoss instead."
-            )
+        # The wrapped loss owns and validates every hyperparameter; this class only adds the chunking
+        # of the loss stage on top of GradCacheLoss (see calculate_loss).
+        super().__init__(
+            model,
+            MultipleNegativesRankingLoss(
+                model,
+                scale=scale,
+                similarity_fct=similarity_fct,
+                gather_across_devices=gather_across_devices,
+                directions=directions,
+                partition_mode=partition_mode,
+                hardness_mode=hardness_mode,
+                hardness_strength=hardness_strength,
+            ),
+            mini_batch_size=mini_batch_size,
+            show_progress_bar=show_progress_bar,
+        )
 
-        self.model = model
-        self.scale = scale
-        self.similarity_fct = similarity_fct
-        self.mini_batch_size = mini_batch_size
-        self.gather_across_devices = gather_across_devices
-        valid_directions = {"query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"}
-        if not directions:
-            raise ValueError("At least one direction must be specified.")
-        if not set(directions).issubset(valid_directions):
-            raise ValueError(f"Invalid directions: {set(directions) - valid_directions}. Valid: {valid_directions}")
-        if "query_to_doc" not in directions:
-            raise ValueError("'query_to_doc' direction is required (contains the positive pair).")
-        self.directions = tuple(directions)
+    # The hyperparameters live on the wrapped loss; these keep the documented attributes readable.
+    @property
+    def scale(self) -> float:
+        return self.loss.scale
 
-        if partition_mode not in ("joint", "per_direction"):
-            raise ValueError(f"partition_mode must be 'joint' or 'per_direction', got {partition_mode}")
-        if partition_mode == "per_direction" and set(directions) & {"query_to_query", "doc_to_doc"}:
-            # per_direction on query_to_query or doc_to_doc is possible, but it results in a negative loss.
-            # This is not strictly bad (the loss is still a valid training signal), but it is rather confusing,
-            # and the optimizer will focus on likely further decreasing the already negative loss from the
-            # query_to_query or doc_to_doc terms instead of optimizing the positive score from the query_to_doc
-            # term, which most likely leads to reduced performance.
-            raise ValueError(
-                "partition_mode='per_direction' requires every direction's candidate pool to include the positive pair. "
-                "'query_to_query' and 'doc_to_doc' only contain same-type similarities and never include the positive, "
-                "making the per-direction loss ill-defined. Use partition_mode='joint' instead."
-            )
-        self.partition_mode = partition_mode
-        self.show_progress_bar = show_progress_bar
+    @property
+    def similarity_fct(self) -> Callable[[Tensor, Tensor], Tensor]:
+        return self.loss.similarity_fct
 
-        valid_hardness_modes = {None, "in_batch_negatives", "hard_negatives", "all_negatives"}
-        if hardness_mode not in valid_hardness_modes:
-            raise ValueError(f"hardness_mode must be one of {valid_hardness_modes}, got {hardness_mode!r}")
-        self.hardness_mode = hardness_mode
-        if hardness_strength < 0.0:
-            raise ValueError("hardness_strength must be non-negative.")
-        self.hardness_strength = hardness_strength
-        if hardness_mode is not None and hardness_strength == 0.0:
-            logger.warning(
-                f"hardness_mode={hardness_mode!r} is set but hardness_strength=0.0, so hardness weighting has no "
-                "effect. Set hardness_strength to a positive value to enable hardness weighting."
-            )
+    @property
+    def gather_across_devices(self) -> bool:
+        return self.loss.gather_across_devices
+
+    @property
+    def directions(self) -> tuple[str, ...]:
+        return self.loss.directions
+
+    @property
+    def partition_mode(self) -> str:
+        return self.loss.partition_mode
+
+    @property
+    def hardness_mode(self) -> str | None:
+        return self.loss.hardness_mode
+
+    @property
+    def hardness_strength(self) -> float:
+        return self.loss.hardness_strength
 
     def calculate_loss(
         self, reps: list[list[Tensor]], labels: Tensor | None = None, *, with_backward: bool = False
@@ -340,7 +336,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
     def get_config_dict(self) -> dict[str, Any]:
         return {
             "scale": self.scale,
-            "similarity_fct": self.similarity_fct.__name__,
+            "similarity_fct": getattr(self.similarity_fct, "__name__", str(self.similarity_fct)),
             "mini_batch_size": self.mini_batch_size,
             "gather_across_devices": self.gather_across_devices,
             "directions": self.directions,
@@ -352,16 +348,3 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
     @property
     def temperature(self) -> float:
         return 1.0 / self.scale
-
-    @property
-    def citation(self) -> str:
-        return """
-@misc{gao2021scaling,
-    title={Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup},
-    author={Luyu Gao and Yunyi Zhang and Jiawei Han and Jamie Callan},
-    year={2021},
-    eprint={2101.06983},
-    archivePrefix={arXiv},
-    primaryClass={cs.LG}
-}
-"""
