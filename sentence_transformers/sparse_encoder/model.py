@@ -4,9 +4,10 @@ import itertools
 import logging
 import math
 import queue
+from collections import OrderedDict
 from collections.abc import Callable
 from multiprocessing import Queue
-from typing import Any, Literal, overload
+from typing import Any, ClassVar, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -139,6 +140,13 @@ class SparseEncoder(BaseModel):
     _default_prompts: dict[str, str | None] = {"query": None, "document": None}
     _model_card_model_id_placeholder = "sparse_encoder_model_id"
     model_type: str = "SparseEncoder"
+    # Supported single-vector similarities. Multi-vector names (maxsim) would produce wrong shapes on 2D embeddings.
+    _SUPPORTED_SIMILARITY_FN_NAMES: ClassVar[tuple[str, ...]] = (
+        SimilarityFunction.COSINE.value,
+        SimilarityFunction.DOT_PRODUCT.value,
+        SimilarityFunction.EUCLIDEAN.value,
+        SimilarityFunction.MANHATTAN.value,
+    )
 
     @deprecated_kwargs(tokenizer_kwargs="processor_kwargs")
     def __init__(
@@ -565,8 +573,11 @@ class SparseEncoder(BaseModel):
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
         super()._parse_model_config(model_config)
-        if self._similarity_fn_name is None:
-            self.similarity_fn_name = model_config.get("similarity_fn_name", None)
+        # Inherit a supported saved similarity_fn_name unless the user overrode it (multi-vector
+        # names like "maxsim", e.g. from converted MultiVectorEncoder saves, fall through).
+        saved_similarity = model_config.get("similarity_fn_name")
+        if self._similarity_fn_name is None and saved_similarity in self._SUPPORTED_SIMILARITY_FN_NAMES:
+            self.similarity_fn_name = saved_similarity
 
     @property
     def similarity_fn_name(self) -> Literal["cosine", "dot", "euclidean", "manhattan"]:
@@ -592,6 +603,12 @@ class SparseEncoder(BaseModel):
     ) -> None:
         if isinstance(value, SimilarityFunction):
             value = value.value
+        if value is not None and value not in self._SUPPORTED_SIMILARITY_FN_NAMES:
+            hint = " Use MultiVectorEncoder for MaxSim late-interaction scoring." if value == "maxsim" else ""
+            raise ValueError(
+                f"{type(self).__name__} only supports similarity_fn_name in "
+                f"{self._SUPPORTED_SIMILARITY_FN_NAMES}, got {value!r}.{hint}"
+            )
         self._similarity_fn_name = value
 
         if value is not None:
@@ -930,14 +947,14 @@ class SparseEncoder(BaseModel):
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_type: str | None = None,
-    ) -> tuple[list[nn.Module], dict[str, Any]]:
+    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """Converts a non-SparseEncoder model into a SparseEncoder by appending a SparseAutoEncoder.
 
         If ``model_type`` is ``"SentenceTransformer"``, loads the SentenceTransformer modules and appends a
-        SparseAutoEncoder on top. Otherwise, falls back to :meth:`_load_default_modules`.
+        SparseAutoEncoder on top. Otherwise, falls back to :meth:`BaseModel._load_converted_modules`.
         """
         if model_type != "SentenceTransformer":
-            return self._load_default_modules(
+            return super()._load_converted_modules(
                 model_name_or_path,
                 token=token,
                 cache_folder=cache_folder,
@@ -947,6 +964,7 @@ class SparseEncoder(BaseModel):
                 model_kwargs=model_kwargs,
                 processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
+                model_type=model_type,
             )
 
         shared_kwargs = {

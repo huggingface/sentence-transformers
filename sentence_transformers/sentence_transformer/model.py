@@ -10,7 +10,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from multiprocessing import Queue
-from typing import Any, Literal, overload
+from typing import Any, ClassVar, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -144,6 +144,13 @@ class SentenceTransformer(BaseModel, FitMixin):
     default_huggingface_organization: str | None = "sentence-transformers"
     _default_prompts: dict[str, str | None] = {"query": None, "document": None}
     model_type: str = "SentenceTransformer"
+    # Supported single-vector similarities. Multi-vector names (maxsim) would produce wrong shapes on 2D embeddings.
+    _SUPPORTED_SIMILARITY_FN_NAMES: ClassVar[tuple[str, ...]] = (
+        SimilarityFunction.COSINE.value,
+        SimilarityFunction.DOT_PRODUCT.value,
+        SimilarityFunction.EUCLIDEAN.value,
+        SimilarityFunction.MANHATTAN.value,
+    )
 
     @deprecated_kwargs(tokenizer_kwargs="processor_kwargs")
     def __init__(
@@ -622,13 +629,21 @@ class SentenceTransformer(BaseModel, FitMixin):
                 prompt=prompt,
                 batch_size=batch_size,
                 output_value=output_value,
-                precision=precision,
+                # Quantize once after merging, not per-worker: int8/uint8 calibration ranges would differ per chunk.
+                precision="float32",
                 convert_to_numpy=convert_to_numpy,
                 convert_to_tensor=convert_to_tensor,
                 normalize_embeddings=normalize_embeddings,
                 truncate_dim=truncate_dim,
                 **kwargs,
             )
+            if len(embeddings) and precision and precision != "float32":
+                embeddings = quantize_embeddings(embeddings, precision=precision)
+                # quantize_embeddings returns a numpy matrix: restore the requested output format.
+                if convert_to_tensor:
+                    embeddings = torch.from_numpy(embeddings)
+                elif not convert_to_numpy and isinstance(embeddings, np.ndarray):
+                    embeddings = [torch.from_numpy(embedding) for embedding in embeddings]
             if is_singular_input:
                 embeddings = embeddings[0]
             return embeddings
@@ -760,6 +775,12 @@ class SentenceTransformer(BaseModel, FitMixin):
     ) -> None:
         if isinstance(value, SimilarityFunction):
             value = value.value
+        if value is not None and value not in self._SUPPORTED_SIMILARITY_FN_NAMES:
+            hint = " Use MultiVectorEncoder for MaxSim late-interaction scoring." if value == "maxsim" else ""
+            raise ValueError(
+                f"{type(self).__name__} only supports similarity_fn_name in "
+                f"{self._SUPPORTED_SIMILARITY_FN_NAMES}, got {value!r}.{hint}"
+            )
         if value is not None:
             self._similarity = SimilarityFunction.to_similarity_fn(value)
             self._similarity_pairwise = SimilarityFunction.to_similarity_pairwise_fn(value)
@@ -1089,8 +1110,11 @@ class SentenceTransformer(BaseModel, FitMixin):
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
         super()._parse_model_config(model_config)
-        if self._similarity_fn_name is None:
-            self.similarity_fn_name = model_config.get("similarity_fn_name", None)
+        # Inherit a supported saved similarity_fn_name unless the user overrode it (multi-vector
+        # names like "maxsim", e.g. from converted MultiVectorEncoder saves, fall through).
+        saved_similarity = model_config.get("similarity_fn_name")
+        if self._similarity_fn_name is None and saved_similarity in self._SUPPORTED_SIMILARITY_FN_NAMES:
+            self.similarity_fn_name = saved_similarity
         if self.truncate_dim is None:
             self.truncate_dim = model_config.get("truncate_dim", None)
 
@@ -1101,32 +1125,6 @@ class SentenceTransformer(BaseModel, FitMixin):
         if self.truncate_dim is not None:
             config["truncate_dim"] = self.truncate_dim
         return config
-
-    def _load_converted_modules(
-        self,
-        model_name_or_path: str,
-        token: bool | str | None,
-        cache_folder: str | None,
-        revision: str | None = None,
-        trust_remote_code: bool = False,
-        local_files_only: bool = False,
-        model_kwargs: dict[str, Any] | None = None,
-        processor_kwargs: dict[str, Any] | None = None,
-        config_kwargs: dict[str, Any] | None = None,
-        model_type: str | None = None,
-    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
-        # Create default SentenceTransformer modules for models saved as a different model type (e.g. CrossEncoder, SparseEncoder)
-        return self._load_default_modules(
-            model_name_or_path,
-            token,
-            cache_folder,
-            revision,
-            trust_remote_code,
-            local_files_only,
-            model_kwargs,
-            processor_kwargs,
-            config_kwargs,
-        )
 
     def _push_to_hub_usage_tip(self, repo_id: str) -> str:
         class_name = self.__class__.__name__

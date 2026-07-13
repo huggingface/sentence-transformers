@@ -473,7 +473,9 @@ def test_prompt_length_calculation(
     if has_bos_token:
         only_prompt_length += 1
 
-    assert model[0]._prompt_length_mapping == {("Prompt: ", ("task", "query")): only_prompt_length}
+    # The task is not part of the cache key: prompts are measured under plain tokenization
+    # (with the task kept, query expansion would pad the lone prompt to the expansion length).
+    assert model[0]._prompt_length_mapping == {("Prompt: ",): only_prompt_length}
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test float16 support.")
@@ -1367,3 +1369,40 @@ def test_default_pooling_mode_causal_lm_with_is_causal_false(monkeypatch: pytest
         pooling_module = model[1]
         assert isinstance(pooling_module, Pooling)
         assert pooling_module.pooling_mode == "mean"
+
+
+def test_similarity_fn_name_rejects_multi_vector_names(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """MaxSim scores ragged token embeddings: setting it on a dense model would produce wrong shapes
+    silently, so it must fail loud with a pointer to MultiVectorEncoder."""
+    with pytest.raises(ValueError, match="MultiVectorEncoder"):
+        stsb_bert_tiny_model.similarity_fn_name = "maxsim"
+
+
+def test_parse_model_config_ignores_multi_vector_similarity(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """A saved multi-vector similarity (e.g. converting a MultiVectorEncoder save) falls through to
+    the default instead of raising in the strict setter during config parsing."""
+    model = stsb_bert_tiny_model
+    original = model._similarity_fn_name
+    try:
+        model._similarity_fn_name = None
+        model._parse_model_config({"similarity_fn_name": "maxsim"})
+        assert model._similarity_fn_name is None
+        model._parse_model_config({"similarity_fn_name": "dot"})
+        assert model._similarity_fn_name == "dot"
+    finally:
+        model._similarity_fn_name = original
+
+
+def test_conversion_keeps_prompts_from_multi_vector_save(tmp_path) -> None:
+    """Converting a save of another model type parses its config first, so saved prompts survive.
+    The source's "maxsim" similarity is unsupported here and falls back to the default."""
+    from sentence_transformers import MultiVectorEncoder
+
+    source = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    source.prompts = {"query": "find: ", "document": "text: "}
+    source.save_pretrained(str(tmp_path))
+
+    model = SentenceTransformer(str(tmp_path))
+    assert model.prompts.get("query") == "find: "
+    assert model.prompts.get("document") == "text: "
+    assert model.similarity_fn_name == "cosine"

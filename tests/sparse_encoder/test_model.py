@@ -881,3 +881,38 @@ def test_encode_document_prompt_priority(splade_bert_tiny_model: SparseEncoder, 
     model.encode_document("test")
     _, kwargs = encode_calls[-1]
     assert kwargs["prompt_name"] is None
+
+
+def test_similarity_fn_name_rejects_multi_vector_names(splade_bert_tiny_model: SparseEncoder) -> None:
+    """MaxSim scores ragged token embeddings: setting it on a sparse model would produce wrong shapes
+    silently, so it must fail loud with a pointer to MultiVectorEncoder."""
+    with pytest.raises(ValueError, match="MultiVectorEncoder"):
+        splade_bert_tiny_model.similarity_fn_name = "maxsim"
+
+
+def test_parse_model_config_ignores_multi_vector_similarity(splade_bert_tiny_model: SparseEncoder) -> None:
+    """A saved multi-vector similarity falls through to the default instead of raising in the strict
+    setter during config parsing."""
+    model = splade_bert_tiny_model
+    original = model._similarity_fn_name
+    try:
+        model._similarity_fn_name = None
+        model._parse_model_config({"similarity_fn_name": "maxsim"})
+        assert model._similarity_fn_name is None
+    finally:
+        model._similarity_fn_name = original
+
+
+def test_conversion_keeps_prompts_from_multi_vector_save(tmp_path) -> None:
+    """Converting a save of another model type parses its config first, so saved prompts survive.
+    The source's "maxsim" similarity is unsupported here and falls back to the default."""
+    from sentence_transformers import MultiVectorEncoder
+
+    source = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    source.prompts = {"query": "find: ", "document": "text: "}
+    source.save_pretrained(str(tmp_path))
+
+    model = SparseEncoder(str(tmp_path))
+    assert model.prompts.get("query") == "find: "
+    assert model.prompts.get("document") == "text: "
+    assert model.similarity_fn_name != "maxsim"

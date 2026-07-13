@@ -1108,6 +1108,17 @@ class StrictLoadModule(Module):
         return cls(**config)
 
 
+def test_modules_and_path_combo_warns_and_loads_from_path(caplog) -> None:
+    """Passing both ``model_name_or_path`` and ``modules`` silently discarded the modules: now it
+    warns, and the checkpoint's own modules win."""
+    from sentence_transformers.sentence_transformer.modules import Normalize
+
+    with caplog.at_level(logging.WARNING):
+        model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors", modules=[Normalize()])
+    assert any("`modules` argument is ignored" in record.message for record in caplog.records)
+    assert len(model) == 2  # the checkpoint's Transformer + Pooling, not the single Normalize
+
+
 def test_third_party_module_with_strict_load_signature_round_trips(tmp_path: Path) -> None:
     """The loader passes init_defaults to module.load() only when the model provides some: a
     third-party module pinning the exact keyword list without **kwargs must keep loading."""

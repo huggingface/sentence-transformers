@@ -499,8 +499,10 @@ class ProcessingKwargs(TypedDict, total=False):
 
 
 class QueryExpansionConfig(TypedDict):
-    """ColBERT-style query expansion config. Only consulted when a :class:`MultiVectorMask` is
-    downstream. Keys:
+    """ColBERT-style query expansion config. When set, :meth:`Transformer.preprocess` expands every
+    ``task="query"`` batch, regardless of the downstream modules: only meaningful with a
+    :class:`MultiVectorMask` downstream (which scores the expansion positions), so leave it ``None``
+    for dense / sparse / cross-encoder pipelines. Keys:
 
     * ``strategy``:
 
@@ -704,9 +706,10 @@ class Transformer(InputModule):
             reaches :meth:`preprocess`. ``None`` (default) falls back to the tokenizer's
             ``model_max_length``.
         query_expansion (QueryExpansionConfig, optional): ColBERT-style query expansion config. See
-            :class:`QueryExpansionConfig`. ``None`` (default) means no expansion. Only consulted
-            when a :class:`MultiVectorMask` is downstream. Ignored for dense / sparse / cross-encoder
-            pipelines.
+            :class:`QueryExpansionConfig`. ``None`` (default) means no expansion. When set, every
+            ``task="query"`` batch is expanded during preprocessing, so only set this with a
+            :class:`MultiVectorMask` downstream (leave it ``None`` for dense / sparse /
+            cross-encoder pipelines).
         max_seq_length (int, optional): Truncate any inputs longer than this value. Prefer setting
             ``model_max_length`` via ``processor_kwargs`` instead. Defaults to None.
         do_lower_case (bool, optional): If true, lowercases the input (independent of whether the model

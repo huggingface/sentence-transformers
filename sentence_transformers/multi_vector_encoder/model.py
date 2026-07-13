@@ -5,6 +5,7 @@ import logging
 import math
 import queue
 import string
+from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from multiprocessing import Queue
@@ -168,8 +169,6 @@ class MultiVectorEncoder(BaseModel):
         # Legacy-checkpoint state populated by ``_parse_model_config`` (PyLate v3) and
         # ``_maybe_load_stanford_metadata`` (Stanford-NLP). Empty for native MVE saves.
         self._legacy = _LegacyStash()
-        # User-supplied ``modules=...`` skips legacy module rewrites so an intentional sentence-level Dense isn't clobbered.
-        self._user_supplied_modules = modules is not None
 
         super().__init__(
             model_name_or_path=model_name_or_path,
@@ -369,8 +368,8 @@ class MultiVectorEncoder(BaseModel):
                 ``pool_queries=True``. If the model already bakes a pooling into its pipeline, this
                 compounds on top of it (pooling further). A one-time note is logged so the case is
                 discoverable. Defaults to None.
-            task (str, optional): One of ``"query"``, ``"document"``, ``"passage"``, ``"corpus"``. Sets
-                the prefix / length / masking strategy.
+            task (str, optional): One of ``"query"``, ``"document"``. Sets the prefix / length /
+                masking strategy.
 
         Returns:
             list[Tensor] | list[ndarray] | Tensor | ndarray: By default, a list of per-input 2D arrays of shape
@@ -429,12 +428,17 @@ class MultiVectorEncoder(BaseModel):
                 convert_to_numpy=convert_to_numpy,
                 # Pad once after merging chunks, not per-worker: per-chunk max lengths would mismatch.
                 convert_to_padded_tensor=False,
-                precision=precision,
+                # Quantize once after merging, not per-worker: int8/uint8 calibration ranges would differ per chunk.
+                precision="float32",
                 normalize_embeddings=normalize_embeddings,
                 pooling=pooling,
                 task=task,
                 **kwargs,
             )
+            if output_value is not None and precision and precision != "float32":
+                embeddings = quantize_embeddings(embeddings=embeddings, precision=precision)
+                if convert_to_tensor:
+                    embeddings = [torch.from_numpy(emb) for emb in embeddings]
             if convert_to_padded_tensor:
                 embeddings = self._stack_padded(embeddings)
             if is_singular_input:
@@ -503,6 +507,9 @@ class MultiVectorEncoder(BaseModel):
         # Quantize on the unpadded matrices
         if output_value is not None and precision and precision != "float32":
             all_embeddings = quantize_embeddings(embeddings=all_embeddings, precision=precision)
+            if convert_to_tensor:
+                # quantize_embeddings returns numpy matrices: restore the requested tensor output.
+                all_embeddings = [torch.from_numpy(emb) for emb in all_embeddings]
 
         if convert_to_numpy:
             all_embeddings = [
@@ -931,7 +938,7 @@ class MultiVectorEncoder(BaseModel):
             )
             metadata = {}
         else:
-            with open(metadata_path) as f:
+            with open(metadata_path, encoding="utf8") as f:
                 metadata = json.load(f)
             logger.info("Loaded configuration from the Stanford-NLP ColBERT artifact.metadata file.")
 
@@ -965,7 +972,7 @@ class MultiVectorEncoder(BaseModel):
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         model_type: str | None = None,
-    ) -> tuple[list[nn.Module], dict[str, Any]]:
+    ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
         """Convert a SentenceTransformer (and similar) checkpoint into a MultiVectorEncoder.
 
         If a final :class:`~sentence_transformers.base.modules.dense.Dense` head is present, it is
@@ -973,7 +980,7 @@ class MultiVectorEncoder(BaseModel):
         Otherwise a fresh randomly-initialised token-level projection is appended.
         """
         if model_type != "SentenceTransformer":
-            return self._load_default_modules(
+            return super()._load_converted_modules(
                 model_name_or_path,
                 token=token,
                 cache_folder=cache_folder,
@@ -983,6 +990,7 @@ class MultiVectorEncoder(BaseModel):
                 model_kwargs=model_kwargs,
                 processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
+                model_type=model_type,
             )
 
         modules, module_kwargs = self._load_config_modules(
@@ -1040,8 +1048,12 @@ class MultiVectorEncoder(BaseModel):
                 "checkpoint. Training is required before this model is useful. To customise the projection "
                 "(e.g. a different output dim), pass `modules=...` instead."
             )
-        # PyLate saves stash an explicit ``skiplist_words`` here. Bare ST checkpoints stay ``None`` (empty default).
-        filtered.append(MultiVectorMask(skiplist_words=self._legacy.skiplist_words))
+        # `prefixes` marks a PyLate save, which falls back to PyLate's punctuation default when no
+        # explicit `skiplist_words` was stashed. Bare ST checkpoints stay empty.
+        skiplist_words = self._legacy.skiplist_words
+        if skiplist_words is None and self._legacy.prefixes:
+            skiplist_words = list(string.punctuation)
+        filtered.append(MultiVectorMask(skiplist_words=skiplist_words))
         filtered.append(Normalize(module_input_name="token_embeddings"))
 
         # Source is single-vector: its inherited "cosine"/"dot" can't score ragged per-token embeddings, so

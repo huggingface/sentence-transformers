@@ -34,6 +34,21 @@ def test_multi_process_convert_to_padded_tensor(model: MultiVectorEncoder) -> No
     assert torch.allclose(direct, pooled, atol=1e-5)
 
 
+def test_multi_process_int8_matches_single_process(model: MultiVectorEncoder) -> None:
+    """int8/uint8 calibration ranges are computed from the batch: quantizing per worker chunk would
+    give different buckets, so the pool path must quantize once after merging."""
+    import numpy as np
+
+    direct = model.encode_document(TEXTS, precision="int8")
+    pooled = model.encode_document(TEXTS, precision="int8", device=["cpu", "cpu"])
+    assert len(pooled) == len(direct)
+    for direct_emb, pooled_emb in zip(direct, pooled):
+        assert pooled_emb.dtype == direct_emb.dtype
+        # Batch composition differs between the runs, so values on a bucket edge can flip by 1 from
+        # float rounding. Per-chunk calibration (the bug this guards against) is off by many buckets.
+        assert np.abs(direct_emb.astype(np.int64) - pooled_emb.astype(np.int64)).max() <= 1
+
+
 def test_multi_process_output_value_none(model: MultiVectorEncoder) -> None:
     direct = model.encode_document(TEXTS, output_value=None)
     pooled = model.encode_document(TEXTS, output_value=None, device=["cpu", "cpu"])

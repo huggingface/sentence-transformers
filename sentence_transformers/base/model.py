@@ -212,6 +212,11 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             ):
                 model_name_or_path = f"{self.default_huggingface_organization}/{model_name_or_path}"
 
+        if model_name_or_path and modules is not None:
+            logger.warning(
+                "Both `model_name_or_path` and `modules` were provided. The modules are loaded from "
+                "`model_name_or_path`, so the `modules` argument is ignored."
+            )
         if model_name_or_path:
             modules, self.module_kwargs = self._load_modules(
                 model_name_or_path,
@@ -1268,6 +1273,22 @@ This pull request has been automatically generated to add {self.__class__.__name
         config_kwargs: dict[str, Any] | None = None,
         model_type: str | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
+        """Load a save of a different model type by building this class's default modules on top of it.
+
+        The source's ``config_sentence_transformers.json`` (prompts etc.) is parsed first so it
+        survives the conversion (same-type loads get this via :meth:`_load_config_modules`).
+        """
+        config_path = load_file_path(
+            model_name_or_path,
+            "config_sentence_transformers.json",
+            token=token,
+            cache_folder=cache_folder,
+            revision=revision,
+            local_files_only=local_files_only,
+        )
+        if config_path is not None:
+            with open(config_path, encoding="utf8") as fIn:
+                self._parse_model_config(json.load(fIn))
         return self._load_default_modules(
             model_name_or_path,
             token=token,

@@ -589,6 +589,74 @@ def test_encode_output_value_none_ignores_convert_flags(model: MultiVectorEncode
         assert all(isinstance(item, dict) for item in outputs)
 
 
+def test_encode_precision_with_convert_to_tensor_returns_tensors(model: MultiVectorEncoder) -> None:
+    """Quantization returns numpy matrices internally: convert_to_tensor=True must still get tensors."""
+    embeddings = model.encode_document(["one text", "another text"], convert_to_tensor=True, precision="int8")
+    assert all(isinstance(emb, torch.Tensor) and emb.dtype == torch.int8 for emb in embeddings)
+
+
+def test_conversion_keeps_prompts_from_sparse_save(tmp_path) -> None:
+    """Converting a SparseEncoder (or CrossEncoder) save parses its config first, so saved prompts
+    survive the conversion like they do for SentenceTransformer saves."""
+    from sentence_transformers import SparseEncoder
+
+    sparse = SparseEncoder("sparse-encoder-testing/splade-bert-tiny-nq")
+    sparse.prompts = {"query": "find: ", "document": "text: "}
+    sparse.save_pretrained(str(tmp_path))
+
+    model = MultiVectorEncoder(str(tmp_path))
+    assert model.prompts.get("query") == "find: "
+    assert model.prompts.get("document") == "text: "
+
+
+def test_pylate_marked_conversion_defaults_punctuation_skiplist(tmp_path) -> None:
+    """A PyLate-marked SentenceTransformer-format save without an explicit ``skiplist_words`` gets
+    PyLate's punctuation default on conversion, matching the PyLate-v3 load path. Un-marked dense
+    saves keep the empty default."""
+    import json
+    import string
+
+    from sentence_transformers import SentenceTransformer
+
+    SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors").save_pretrained(str(tmp_path))
+    config_path = tmp_path / "config_sentence_transformers.json"
+    config = json.loads(config_path.read_text())
+    config["query_prefix"] = "[Q] "
+    config["document_prefix"] = "[D] "
+    config_path.write_text(json.dumps(config))
+
+    model = MultiVectorEncoder(str(tmp_path))
+    mask = next(module for module in model if isinstance(module, MultiVectorMask))
+    assert mask.skiplist_words == list(string.punctuation)
+
+
+def test_xtr_scores_clamps_topk_to_token_pool() -> None:
+    """The default k=256 exceeds tiny in-batch token pools: top-k must clamp instead of crashing."""
+    from sentence_transformers.multi_vector_encoder.scoring import xtr_scores
+
+    queries = torch.nn.functional.normalize(torch.randn(2, 3, 8), dim=-1)
+    documents = torch.nn.functional.normalize(torch.randn(2, 1, 4, 8), dim=-1)
+    scores = xtr_scores(queries, documents, k=256)
+    assert scores.shape == (2, 2)
+    assert torch.isfinite(scores).all()
+
+
+def test_ir_evaluator_rejects_compiled_xtr_scoring() -> None:
+    """The XTR rejection must not be evaded by torch.compile, which the XTR docstring itself
+    recommends for the hot path."""
+    from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorInformationRetrievalEvaluator
+    from sentence_transformers.multi_vector_encoder.scoring import xtr_scores
+
+    with pytest.raises(ValueError, match="XTR"):
+        MultiVectorInformationRetrievalEvaluator(
+            queries={"q0": "query"},
+            corpus={"d0": "document"},
+            relevant_docs={"q0": {"d0"}},
+            write_csv=False,
+            score_functions={"x": torch.compile(xtr_scores)},
+        )
+
+
 def test_similarity_fn_name_setter_rejects_unsupported(model: MultiVectorEncoder) -> None:
     """Single-vector similarities can't score ragged token embeddings: assignment must fail loud
     instead of deferring the failure to scoring time."""
