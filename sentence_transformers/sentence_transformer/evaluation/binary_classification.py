@@ -210,7 +210,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
             metrics.update(
                 {
                     f"max_{metric}": max(scores[short_name][metric] for short_name in scores)
-                    for metric in scores["cosine"]
+                    for metric in next(iter(scores.values()))
                 }
             )
             self.primary_metric = "max_ap"

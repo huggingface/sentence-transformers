@@ -315,9 +315,10 @@ def community_detection(
             k = row_wise_count.max()
             _, top_k_indices = cos_scores.topk(k=k, largest=True)
 
-            # Use the row-wise count to slice the indices
-            for count, indices in zip(row_wise_count, top_k_indices):
-                extracted_communities.append(indices[:count].tolist())
+            # Move the batch indices to CPU once, then slice per community
+            top_k_indices = top_k_indices.cpu()
+            for count, indices in zip(row_wise_count.tolist(), top_k_indices):
+                extracted_communities.append(indices[:count].numpy().astype(np.uint32))
         else:
             # Minimum size for a community
             top_k_values, _ = cos_scores.topk(k=min_community_size, largest=True)
@@ -333,25 +334,26 @@ def community_detection(
                         sort_max_size = min(2 * sort_max_size, len(embeddings))
                         top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 
-                    extracted_communities.append(top_idx_large[top_val_large >= threshold].tolist())
+                    extracted_communities.append(
+                        top_idx_large[top_val_large >= threshold].cpu().numpy().astype(np.uint32)
+                    )
 
     # Largest cluster first
     extracted_communities = sorted(extracted_communities, key=lambda x: len(x), reverse=True)
 
-    # Step 2) Remove overlapping communities
+    # Step 2) Remove overlapping communities using a dense boolean mask of already claimed indices
     unique_communities = []
-    extracted_ids = set()
+    used = np.zeros(len(embeddings), dtype=bool)
 
-    for cluster_id, community in enumerate(extracted_communities):
-        non_overlapped_community = []
-        for idx in community:
-            if idx not in extracted_ids:
-                non_overlapped_community.append(idx)
-
+    for community in extracted_communities:
+        # community keeps its topk order, so the central point stays first
+        non_overlapped_community = community[~used[community]]
         if len(non_overlapped_community) >= min_community_size:
             unique_communities.append(non_overlapped_community)
-            extracted_ids.update(non_overlapped_community)
+            used[non_overlapped_community] = True
 
-    unique_communities = sorted(unique_communities, key=lambda x: len(x), reverse=True)
+    unique_communities = [
+        community.tolist() for community in sorted(unique_communities, key=lambda x: len(x), reverse=True)
+    ]
 
     return unique_communities
