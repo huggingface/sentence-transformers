@@ -123,6 +123,8 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
 
             for name, fn in score_functions.items():
                 target = fn.func if isinstance(fn, partial) else fn
+                # torch.compile wraps the callable (the XTR docstring itself recommends compiling): unwrap.
+                target = getattr(target, "_torchdynamo_orig_callable", target)
                 if target is xtr_scores or isinstance(target, XTRScores):
                     raise ValueError(
                         f"score_functions[{name!r}] uses XTR scoring, which is incompatible with this "
