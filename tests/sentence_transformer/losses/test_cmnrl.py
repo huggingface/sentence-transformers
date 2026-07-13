@@ -344,3 +344,88 @@ class TestCreateMinibatchMixedModality:
         mb = _create_minibatch(features, 2, 3)
         assert mb["image_grid_thw"].shape == (0, 3)
         assert mb["pixel_values"].shape[0] == 0
+
+
+def test_cmnrl_attributes_and_config_back_compat(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """CachedMultipleNegativesRankingLoss is GradCacheLoss around an inner MultipleNegativesRankingLoss;
+    the documented attributes and ``get_config_dict`` keys must keep working as before the rebase."""
+    from functools import partial
+
+    from sentence_transformers import util
+
+    model = stsb_bert_tiny_model
+    loss = CachedMultipleNegativesRankingLoss(
+        model,
+        scale=42.0,
+        mini_batch_size=4,
+        directions=("query_to_doc", "doc_to_query"),
+        partition_mode="per_direction",
+        hardness_mode="in_batch_negatives",
+        hardness_strength=9.0,
+    )
+
+    assert loss.scale == 42.0
+    assert loss.temperature == pytest.approx(1 / 42.0)
+    assert loss.directions == ("query_to_doc", "doc_to_query")
+    assert loss.partition_mode == "per_direction"
+    assert loss.hardness_mode == "in_batch_negatives"
+    assert loss.hardness_strength == 9.0
+    assert loss.gather_across_devices is False
+    assert loss.mini_batch_size == 4
+    assert loss.get_config_dict() == {
+        "scale": 42.0,
+        "similarity_fct": "cos_sim",
+        "mini_batch_size": 4,
+        "gather_across_devices": False,
+        "directions": ("query_to_doc", "doc_to_query"),
+        "partition_mode": "per_direction",
+        "hardness_mode": "in_batch_negatives",
+        "hardness_strength": 9.0,
+    }
+
+    # The inner loss validates; the cached variant used to silently accept an invalid scale.
+    with pytest.raises(ValueError, match="Scale must be a positive value."):
+        CachedMultipleNegativesRankingLoss(model, scale=-1.0)
+
+    # A similarity function without __name__ (e.g. functools.partial) used to crash get_config_dict.
+    no_name = CachedMultipleNegativesRankingLoss(model, similarity_fct=partial(util.cos_sim))
+    assert "cos_sim" in no_name.get_config_dict()["similarity_fct"]
+
+
+@pytest.mark.parametrize("mini_batch_size", [2, 3])
+def test_cmnrl_matryoshka(stsb_bert_tiny_model: SentenceTransformer, mini_batch_size: int) -> None:
+    """``MatryoshkaLoss(CachedMultipleNegativesRankingLoss(...))`` -- the combination the visual document
+    retrieval example ships with -- must match ``MatryoshkaLoss(MultipleNegativesRankingLoss(...))``.
+
+    This pins the *chunked* ``calculate_loss`` under Matryoshka's ``CachedLossDecorator``, a different
+    code path than the generic wrapper's un-chunked loss stage.
+    """
+    from sentence_transformers.sentence_transformer.losses import MatryoshkaLoss
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+
+    anchors = ["anchor a", "anchor b", "anchor c", "anchor d", "anchor e", "anchor f"]
+    positives = ["positive a", "positive b", "positive c", "positive d", "positive e", "positive f"]
+    labels = torch.zeros(6, dtype=torch.long)
+    dims = [128, 64, 32]
+
+    def loss_and_grads(inner: torch.nn.Module) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        model.zero_grad()
+        features = [model.preprocess(anchors), model.preprocess(positives)]
+        loss_value = MatryoshkaLoss(model, inner, matryoshka_dims=dims)(features, labels)
+        loss_value.backward()
+        return loss_value.detach(), gradients(model)
+
+    cached_loss, cached_grads = loss_and_grads(
+        CachedMultipleNegativesRankingLoss(model, mini_batch_size=mini_batch_size)
+    )
+    plain_loss, plain_grads = loss_and_grads(MultipleNegativesRankingLoss(model))
+
+    assert_trained(cached_grads)
+    assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
+    # The Matryoshka sum over 3 dims triples the loss magnitude and with it the float noise.
+    for name, grad in cached_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-4, msg=name)

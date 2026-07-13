@@ -157,3 +157,64 @@ def test_cached_ce_mnrl_under_no_grad(reranker_bert_tiny_model_v54: CrossEncoder
         plain = MultipleNegativesRankingLoss(model)([QUERIES, ANSWERS], None)
 
     assert cached.item() == pytest.approx(plain.item(), rel=1e-4, abs=1e-5)
+
+
+NEGATIVES = ["wrong a", "wrong b", "wrong c", "wrong d", "wrong e", "wrong f"]
+
+
+@pytest.mark.parametrize("mini_batch_size", [2, 5])
+def test_cached_ce_mnrl_with_hard_negatives(reranker_bert_tiny_model_v54: CrossEncoder, mini_batch_size: int) -> None:
+    """Explicit hard negatives (a third input column) triple the pair count; the cached loss must still
+    reproduce the non-cached loss and gradient."""
+    model = reranker_bert_tiny_model_v54
+    _disable_dropout(model)
+    model.model.train()
+
+    def loss_and_grads(loss_fn: torch.nn.Module) -> tuple[float, dict]:
+        model.model.zero_grad()
+        torch.manual_seed(12)
+        loss = loss_fn([QUERIES, ANSWERS, NEGATIVES], None)
+        loss.backward()
+        return loss.item(), _gradients(model)
+
+    cached_loss, cached_grads = loss_and_grads(
+        CachedMultipleNegativesRankingLoss(model, mini_batch_size=mini_batch_size)
+    )
+    plain_loss, plain_grads = loss_and_grads(MultipleNegativesRankingLoss(model))
+
+    assert cached_grads and sum(grad.abs().sum() for grad in cached_grads.values()) > 0
+    assert cached_loss == pytest.approx(plain_loss, rel=1e-4, abs=1e-5)
+    for name, grad in cached_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)
+
+
+def test_cached_ce_mnrl_prompt_reaches_the_backward_pass(reranker_bert_tiny_model_v54: CrossEncoder) -> None:
+    """The prompt (and task) must be carried into the backward hook's re-prediction: they change the
+    tokenization, so if the hook's bundle dropped them, the re-predicted logits would belong to
+    different inputs than the cached gradients."""
+    model = reranker_bert_tiny_model_v54
+    _disable_dropout(model)
+    model.model.train()
+
+    loss_fn = CachedMultipleNegativesRankingLoss(model, mini_batch_size=2)
+    forward_logits: list[torch.Tensor] = []
+    backward_logits: list[torch.Tensor] = []
+    sink = forward_logits
+    predict_minibatch = loss_fn.predict_minibatch
+
+    def spy(**kwargs):
+        logits, random_state = predict_minibatch(**kwargs)
+        sink.append(logits.detach().clone())
+        return logits, random_state
+
+    loss_fn.predict_minibatch = spy
+
+    torch.manual_seed(12)
+    loss = loss_fn([QUERIES, ANSWERS], None, prompt="Rerank this passage: ")
+    sink = backward_logits
+    loss.backward()
+
+    assert len(forward_logits) == len(backward_logits) > 0
+    for index, (forward, backward) in enumerate(zip(forward_logits, backward_logits)):
+        assert torch.equal(forward, backward), f"mini-batch {index} was re-predicted with different inputs"
+    assert any(param.grad is not None and param.grad.abs().sum() > 0 for param in model.model.parameters())

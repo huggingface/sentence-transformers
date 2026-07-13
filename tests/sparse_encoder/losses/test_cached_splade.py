@@ -125,3 +125,48 @@ def test_cached_splade_under_no_grad(splade_bert_tiny_model: SparseEncoder) -> N
     assert cached_output.keys() == plain_output.keys()
     for key in plain_output:
         assert cached_output[key].item() == pytest.approx(plain_output[key].item(), rel=1e-4, abs=1e-5), key
+
+
+def test_cached_splade_inference_free_frozen_query_route(inference_free_splade_bert_tiny_model: SparseEncoder) -> None:
+    """An inference-free SPLADE model routes queries through a (frozen) SparseStaticEmbedding, whose
+    embeddings then don't require grad. The backward hook must skip that route's remaining mini-batches
+    (nothing to back-propagate into) instead of crashing, while the document route still trains."""
+    model = inference_free_splade_bert_tiny_model.to("cpu")
+    _disable_dropout(model)
+    model.train()
+
+    # Freeze the query route, as inference-free training setups commonly do.
+    query_route_parameters = [
+        parameter for module in model[0].sub_modules["query"] for parameter in module.parameters()
+    ]
+    for parameter in query_route_parameters:
+        parameter.requires_grad_(False)
+    query_route_parameter_ids = {id(parameter) for parameter in query_route_parameters}
+
+    queries = ["query a", "query b", "query c", "query d", "query e"]
+    documents = ["document a", "document b", "document c", "document d", "document e"]
+    features = [model.preprocess(queries, task="query"), model.preprocess(documents, task="document")]
+
+    loss_fn = CachedSpladeLoss(
+        model=model,
+        loss=SparseMultipleNegativesRankingLoss(model),
+        document_regularizer_weight=3e-5,
+        mini_batch_size=2,
+        use_document_regularizer_only=False,
+        query_regularizer_weight=None,
+    )
+    model.zero_grad()
+    output = loss_fn(features, None)
+    torch.stack(list(output.values())).sum().backward()
+
+    document_grads = [
+        parameter.grad
+        for parameter in model.parameters()
+        if id(parameter) not in query_route_parameter_ids and parameter.grad is not None
+    ]
+    assert document_grads and sum(grad.abs().sum() for grad in document_grads) > 0, (
+        "the document route must still receive gradients"
+    )
+    assert all(parameter.grad is None for parameter in query_route_parameters), (
+        "the frozen query route must receive no gradients"
+    )

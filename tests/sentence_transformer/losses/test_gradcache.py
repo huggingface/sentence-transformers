@@ -353,3 +353,23 @@ def test_gradcache_get_config_dict(stsb_bert_tiny_model: SentenceTransformer) ->
     inner = MultipleNegativesRankingLoss(model, scale=42.0)
     config = GradCacheLoss(model, inner, mini_batch_size=8).get_config_dict()
     assert config == {"loss": inner, "mini_batch_size": 8}
+
+
+def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Smoke test under bf16 autocast: mixed-precision embeddings must flow through the cache, the
+    surrogate backward, and the loss stage without dtype errors, NaNs, or an empty gradient."""
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+    labels = torch.zeros(6, dtype=torch.long)
+
+    loss_fn = GradCacheLoss(model, MultipleNegativesRankingLoss(model), mini_batch_size=2)
+    model.zero_grad()
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        loss = loss_fn(_features(model, 2, 6), labels)
+    assert torch.isfinite(loss)
+    loss.backward()
+
+    grads = gradients(model)
+    assert_trained(grads)
+    assert all(torch.isfinite(grad).all() for grad in grads.values())
