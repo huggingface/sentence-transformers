@@ -188,7 +188,7 @@ def render_similarity_map_on_image(
 
     if similarity_map.ndim != 2:
         raise ValueError(
-            f"render_similarity_map_on_image expects a 2D (n_rows, n_cols) map; got shape {tuple(similarity_map.shape)}."
+            f"render_similarity_map_on_image expects a 2D (n_rows, n_cols) map, got shape {tuple(similarity_map.shape)}."
         )
     image = load_image(image) if not isinstance(image, PILImageModule.Image) else image
     sm = similarity_map.detach().to(torch.float32).cpu().numpy()
@@ -245,8 +245,11 @@ def maxsim_heatmap(
     )
 
     if aggregate == "none":
+        # Share one colour scale across the per-token maps so they render proportionally (each map
+        # normalized to its own range would make weak tokens look as hot as strong ones).
+        shared_range = (float(similarity_map.min()), float(similarity_map.max()))
         return [
-            render_similarity_map_on_image(image, similarity_map[i], alpha=alpha)
+            render_similarity_map_on_image(image, similarity_map[i], alpha=alpha, normalization_range=shared_range)
             for i in range(similarity_map.shape[0])
         ]
     if aggregate == "sum":
@@ -254,5 +257,5 @@ def maxsim_heatmap(
     elif aggregate == "amax":
         collapsed = similarity_map.amax(dim=0)
     else:
-        raise ValueError(f"aggregate must be one of ('sum', 'amax', 'none'); got {aggregate!r}.")
+        raise ValueError(f"aggregate must be one of ('sum', 'amax', 'none'), got {aggregate!r}.")
     return render_similarity_map_on_image(image, collapsed, alpha=alpha)
