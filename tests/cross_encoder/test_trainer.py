@@ -86,8 +86,8 @@ def test_trainer_multi_dataset_errors(reranker_bert_tiny_model: CrossEncoder, st
         )
 
 
-def test_model_card_reuse(reranker_bert_tiny_model_v6: CrossEncoder):
-    model = reranker_bert_tiny_model_v6
+def test_model_card_reuse(reranker_bert_tiny_model_v54: CrossEncoder):
+    model = reranker_bert_tiny_model_v54
     assert model._model_card_text
     # Reuse the model card if no training was done
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:

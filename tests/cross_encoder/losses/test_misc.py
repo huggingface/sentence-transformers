@@ -28,9 +28,9 @@ LISTWISE_LOSSES = [
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16], ids=["bf16", "fp16"])
 @pytest.mark.parametrize("loss_cls", LISTWISE_LOSSES)
 def test_listwise_loss_supports_low_precision(
-    reranker_bert_tiny_model_v6: CrossEncoder, loss_cls, dtype: torch.dtype
+    reranker_bert_tiny_model_v54: CrossEncoder, loss_cls, dtype: torch.dtype
 ) -> None:
-    model = reranker_bert_tiny_model_v6
+    model = reranker_bert_tiny_model_v54
     if dtype == torch.float16 and not torch.cuda.is_available():
         pytest.skip("float16 CrossEncoder forward is only supported when CUDA is available.")
 
@@ -59,12 +59,12 @@ def test_listwise_loss_supports_low_precision(
 
 @pytest.mark.parametrize("loss_cls", [PListMLELoss, ListMLELoss])  # ListMLELoss subclasses PListMLELoss
 @pytest.mark.parametrize("respect_input_order", [True, False])
-def test_listwise_loss_is_padding_invariant(reranker_bert_tiny_model_v6: CrossEncoder, loss_cls, respect_input_order):
+def test_listwise_loss_is_padding_invariant(reranker_bert_tiny_model_v54: CrossEncoder, loss_cls, respect_input_order):
     # A query's loss must not change because another query in the batch has more documents
     # (which pads this query's row). Batching must equal the mean of the per-query losses.
     # Labels are intentionally unsorted so the respect_input_order=False branch actually
     # permutes via sort/gather (exercising the sorted_mask = gather(mask, indices) path).
-    model = reranker_bert_tiny_model_v6
+    model = reranker_bert_tiny_model_v54
     loss_fn = loss_cls(model, respect_input_order=respect_input_order)
 
     queries_a = ["what is the capital of france"]
