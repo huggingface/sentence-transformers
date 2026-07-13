@@ -8,10 +8,11 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from sentence_transformers import util
+from sentence_transformers.sentence_transformer.losses.gradcache import CachedLossMixin, has_static_embedding_input
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
-class MegaBatchMarginLoss(nn.Module):
+class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
     def __init__(
         self,
         model: SentenceTransformer,
@@ -19,6 +20,7 @@ class MegaBatchMarginLoss(nn.Module):
         negative_margin: float = 0.3,
         use_mini_batched_version: bool = True,
         mini_batch_size: int = 50,
+        show_progress_bar: bool = False,
     ) -> None:
         """
         Given a large batch (like 500 or more examples) of (anchor_i, positive_i) pairs, find for each pair in the batch
@@ -34,11 +36,22 @@ class MegaBatchMarginLoss(nn.Module):
             negative_margin: Negative margin, cos(anchor, negative)
                 should be < negative_margin
             use_mini_batched_version: As large batch sizes require a lot
-                of memory, we can use a mini-batched version. We break
-                down the large batch into smaller batches with fewer
-                examples.
-            mini_batch_size: Size for the mini-batches. Should be a
-                divisor for the batch size in your data loader.
+                of memory, we can use a mini-batched version that only
+                keeps one mini-batch of activations alive at a time
+                (GradCache, https://huggingface.co/papers/2101.06983).
+                This does not change the loss or the gradient, but it
+                embeds every input twice, so it trades roughly a 2x
+                slowdown for the memory saving. It is not compatible
+                with a model based on a :class:`~sentence_transformers.sentence_transformer.modules.StaticEmbedding`,
+                whose inputs have no batch dimension to split along.
+            mini_batch_size: Size for the mini-batches. It does not have
+                to divide the batch size in your data loader. It bounds
+                both the activation memory of the embedding steps and the
+                size of the similarity matrix used to mine the hardest
+                negatives, so lower it if you run out of memory.
+            show_progress_bar: If True, a progress bar for the
+                mini-batches is shown during training. The default is
+                False.
 
         References:
             - This loss function was inspired by the ParaNMT paper: https://www.aclweb.org/anthology/P18-1042/
@@ -57,6 +70,10 @@ class MegaBatchMarginLoss(nn.Module):
         Recommendations:
             - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
+
+        Relations:
+            - The hardest negative is mined from the other positives in the batch, so the batch size directly
+              determines the quality of the negatives. ``use_mini_batched_version=True`` is what lets you raise it.
 
         Example:
             ::
@@ -87,87 +104,92 @@ class MegaBatchMarginLoss(nn.Module):
                 trainer.train()
         """
         super().__init__()
+        if use_mini_batched_version and has_static_embedding_input(model):
+            raise ValueError(
+                "The mini-batched MegaBatchMarginLoss is not compatible with a SentenceTransformer model based on a "
+                "StaticEmbedding, whose inputs cannot be split into mini-batches along a batch dimension. "
+                "Consider passing use_mini_batched_version=False instead."
+            )
+
         self.model = model
         self.positive_margin = positive_margin
         self.negative_margin = negative_margin
         self.mini_batch_size = mini_batch_size
+        self.show_progress_bar = show_progress_bar
+        self.use_mini_batched_version = use_mini_batched_version
+        # Both only apply to the mini-batched path: without it there is nothing to slice, and the
+        # backward pass runs straight from the returned loss rather than from a hook.
+        self.requires_media_counts = use_mini_batched_version
+        self.uses_gradient_cache = use_mini_batched_version
         self.forward = self.forward_mini_batched if use_mini_batched_version else self.forward_non_mini_batched
 
+    @staticmethod
+    def _validate_input(sentence_features: list[dict[str, Tensor]]) -> None:
+        if len(sentence_features) != 2:
+            raise ValueError(
+                f"MegaBatchMarginLoss expects exactly 2 input columns, (anchor, positive), but got "
+                f"{len(sentence_features)}. It mines the hardest negative for each anchor from the other "
+                "positives in the batch, so it has no use for an explicit negative column. Consider "
+                "CachedMultipleNegativesRankingLoss if you want to train with explicit negatives."
+            )
+
+    def calculate_loss(
+        self, reps: list[list[Tensor]], labels: Tensor | None = None, *, with_backward: bool = False
+    ) -> Tensor:
+        """Compute the margin loss over the whole batch, from the per-mini-batch embeddings.
+
+        The labels are unused: the negatives are mined from the other positives in the batch. For each
+        anchor, the hardest negative is the most similar positive belonging to a *different* anchor, so
+        this needs every (anchor, positive) similarity. Only ``mini_batch_size`` rows of that matrix are
+        materialized at a time.
+        """
+        anchors = torch.cat(reps[0]) if len(reps[0]) > 1 else reps[0][0]
+        positives = torch.cat(reps[1]) if len(reps[1]) > 1 else reps[1][0]
+        batch_size = len(anchors)
+
+        # Chunking the similarity matrix only saves memory if each chunk's graph is released as we go:
+        # either we back-propagate it here, or there is no graph at all. On the non mini-batched path
+        # the caller still needs the graph for its own backward pass, so every chunk would have to keep
+        # its own normalized copy of `positives` alive, which costs more than the chunking saves.
+        chunk_size = self.mini_batch_size if with_backward or not torch.is_grad_enabled() else batch_size
+
+        losses = []
+        for begin in range(0, batch_size, chunk_size):
+            end = min(begin + chunk_size, batch_size)
+            rows = torch.arange(end - begin, device=anchors.device)
+            diagonal = rows + begin
+
+            # (chunk_size, batch_size): this anchor chunk against every positive in the batch
+            cos_scores = util.pytorch_cos_sim(anchors[begin:end], positives)
+            positive_scores = cos_scores[rows, diagonal]
+
+            # Drop the positive scores off the diagonal, so that max() picks the hardest negative
+            # rather than the anchor's own positive.
+            negative_scores = cos_scores.clone()
+            negative_scores[rows, diagonal] = -torch.inf
+            negatives_max, _ = torch.max(negative_scores, dim=1)
+
+            chunk_loss = (
+                F.relu(self.positive_margin - positive_scores) + F.relu(negatives_max - self.negative_margin)
+            ).sum() / batch_size
+            if with_backward:
+                chunk_loss.backward()
+                chunk_loss = chunk_loss.detach()
+            losses.append(chunk_loss)
+
+        return sum(losses)
+
     def forward_mini_batched(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
-        anchor, positive = sentence_features
-        feature_names = list(anchor.keys())
-        batch_size = len(positive[next(iter(positive))])
-
-        all_positive_emb = []
-        with torch.no_grad():
-            self.model.eval()
-            for start_idx in range(0, batch_size, self.mini_batch_size):
-                end_idx = start_idx + self.mini_batch_size
-                input_mini_batch = {k: v[start_idx:end_idx] for k, v in positive.items()}
-                all_positive_emb.append(self.model(input_mini_batch)["sentence_embedding"].detach())
-            self.model.train()
-        all_positive_emb = torch.cat(all_positive_emb, dim=0)
-
-        diagonal_matrix = torch.eye(len(all_positive_emb), len(all_positive_emb), device=all_positive_emb.device)
-
-        # Iterate over the triplets (anchor, positive, hardest_negative) in smaller mini_batch sizes
-        for start_idx in range(0, len(all_positive_emb), self.mini_batch_size):
-            end_idx = start_idx + self.mini_batch_size
-            anchor_emb = self.model({key: anchor[key][start_idx:end_idx] for key in feature_names})[
-                "sentence_embedding"
-            ]
-
-            # Find hard negatives. For each anchor, find the hardest negative
-            # Store them in the triplets (anchor, positive, hardest_negative)
-            hard_negative_features = {key: [] for key in feature_names}
-            with torch.no_grad():
-                cos_scores = util.pytorch_cos_sim(anchor_emb, all_positive_emb)
-                negative_scores = (
-                    cos_scores - 2 * diagonal_matrix[start_idx:end_idx]
-                )  # Remove positive scores along the diagonal, set them to -1 so that they are not selected by the max() operation
-                negatives_max, negatives_ids = torch.max(negative_scores, dim=1)
-
-            for hard_negative_id in negatives_ids:
-                for key in feature_names:
-                    hard_negative_features[key].append(positive[key][hard_negative_id])
-
-            for key in feature_names:
-                hard_negative_features[key] = torch.stack(hard_negative_features[key])
-
-            # Compute differentiable negative and positive embeddings
-            positive_emb = self.model({key: positive[key][start_idx:end_idx] for key in feature_names})[
-                "sentence_embedding"
-            ]
-            negative_emb = self.model(hard_negative_features)["sentence_embedding"]
-
-            assert anchor_emb.shape == positive_emb.shape
-            assert anchor_emb.shape == negative_emb.shape
-
-            # Compute loss
-            pos_cosine = F.cosine_similarity(anchor_emb, positive_emb)
-            neg_cosine = F.cosine_similarity(anchor_emb, negative_emb)
-            losses = F.relu(self.positive_margin - pos_cosine) + F.relu(neg_cosine - self.negative_margin)
-            losses = losses.mean()
-
-            # Backpropagate unless it is the last mini batch. The last mini-batch will be back propagated by the outside train loop
-            if end_idx < len(cos_scores):
-                losses.backward()
-
-        return losses
+        sentence_features = list(sentence_features)
+        self._validate_input(sentence_features)
+        return self.forward_cached(sentence_features, labels)
 
     ##### Non mini-batched version ###
     def forward_non_mini_batched(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
+        sentence_features = list(sentence_features)
+        self._validate_input(sentence_features)
         reps = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
-        embeddings_a, embeddings_b = reps
-
-        cos_scores = util.pytorch_cos_sim(embeddings_a, embeddings_b)
-        positive_scores = torch.diagonal(cos_scores)
-        negative_scores = cos_scores - (
-            2 * torch.eye(*cos_scores.shape, device=cos_scores.device)
-        )  # Remove positive scores along the diagonal
-        negatives_max, _ = torch.max(negative_scores, dim=1)
-        losses = F.relu(self.positive_margin - positive_scores) + F.relu(negatives_max - self.negative_margin)
-        return losses.mean()
+        return self.calculate_loss([[rep] for rep in reps])
 
     def get_config_dict(self) -> dict[str, Any]:
         return {

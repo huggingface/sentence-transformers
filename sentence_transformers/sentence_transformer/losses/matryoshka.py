@@ -9,11 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from sentence_transformers.sentence_transformer.losses import (
-    CachedGISTEmbedLoss,
-    CachedMultipleNegativesRankingLoss,
-    CachedMultipleNegativesSymmetricRankingLoss,
-)
+from sentence_transformers.sentence_transformer.losses.gradcache import uses_gradient_cache
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 logger = logging.getLogger(__name__)
@@ -219,23 +215,20 @@ class MatryoshkaLoss(nn.Module):
         self.matryoshka_dims, self.matryoshka_weights = zip(*sorted(dims_weights, key=lambda x: x[0], reverse=True))
         self.n_dims_per_step = n_dims_per_step
 
-        # The Cached... losses require a special treatment as their backward pass is incompatible with the
-        # ForwardDecorator approach. Instead, we use a CachedLossDecorator to compute the loss for each
-        # Matryoshka dimensionality given pre-computed embeddings passed to `calculate_loss`.
-        self.cached_losses = (
-            CachedMultipleNegativesRankingLoss,
-            CachedGISTEmbedLoss,
-            CachedMultipleNegativesSymmetricRankingLoss,
-        )
-        if isinstance(loss, self.cached_losses):
+        # The gradient-caching losses require special treatment: they back-propagate from a hook, which
+        # fires long after the ForwardDecorator below has been removed again. Instead, we decorate their
+        # `calculate_loss` to compute the loss for each Matryoshka dimensionality from the embeddings
+        # they have already cached.
+        self.uses_gradient_cache = uses_gradient_cache(loss)
+        if self.uses_gradient_cache:
             loss.calculate_loss = CachedLossDecorator(
                 loss.calculate_loss, self.matryoshka_dims, self.matryoshka_weights, self.n_dims_per_step
             )
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
-        # For the Cached... losses, the CachedLossDecorator has been applied to the `calculate_loss` method,
-        # so we can directly call the loss function.
-        if isinstance(self.loss, self.cached_losses):
+        # For the gradient-caching losses, the CachedLossDecorator has been applied to the `calculate_loss`
+        # method, so we can directly call the loss function.
+        if self.uses_gradient_cache:
             return self.loss(sentence_features, labels)
 
         # Otherwise, we apply the ForwardDecorator to the model's forward pass, which will cache the output

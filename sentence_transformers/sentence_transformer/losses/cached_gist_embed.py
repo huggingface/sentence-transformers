@@ -11,7 +11,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import get_device_states, set_device_states
 from transformers import PreTrainedTokenizerBase
 
-from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
+from sentence_transformers.sentence_transformer.losses.gradcache import (
     _create_minibatch,
     _get_batch_size,
 )
@@ -88,6 +88,9 @@ def _backward_hook(
 class CachedGISTEmbedLoss(nn.Module):
     # Enables per-sample media counting in Transformer.preprocess for VLM minibatching
     requires_media_counts = True
+
+    # Back-propagates from a hook on the returned loss; see `_gradcache.uses_gradient_cache`.
+    uses_gradient_cache = True
 
     def __init__(
         self,

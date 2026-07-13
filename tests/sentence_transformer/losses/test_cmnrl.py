@@ -13,7 +13,7 @@ from sentence_transformers.sentence_transformer.losses import (
     CachedMultipleNegativesRankingLoss,
     MultipleNegativesRankingLoss,
 )
-from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
+from sentence_transformers.sentence_transformer.losses.gradcache import (
     _create_minibatch,
     _get_batch_size,
 )
@@ -140,7 +140,7 @@ def test_cmnrl_same_grad(
 @pytest.mark.parametrize("use_rand_context", [True, False])
 def test_rand_context_working(use_rand_context: bool):
     # Given:
-    from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import RandContext
+    from sentence_transformers.sentence_transformer.losses.gradcache import RandContext
 
     a = torch.Tensor(1)
     b = torch.Tensor(1)

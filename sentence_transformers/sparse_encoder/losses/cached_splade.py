@@ -10,7 +10,7 @@ import torch
 import tqdm
 from torch import Tensor, nn
 
-from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
+from sentence_transformers.sentence_transformer.losses.gradcache import (
     RandContext,
     _backward_hook,
     _create_minibatch,
@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 class CachedSpladeLoss(SpladeLoss):
+    # Back-propagates from a hook on the returned loss; see `_gradcache.uses_gradient_cache`.
+    uses_gradient_cache = True
+
     def __init__(
         self,
         model: SparseEncoder,
@@ -250,8 +253,20 @@ class CachedSpladeLoss(SpladeLoss):
             # Step (2): Calculate the combined loss, backward to embeddings and cache gradients
             loss = self.calculate_loss_and_cache_gradients(reps, labels)
 
-            # Step (3): Register backward hook to chain cached gradients back through the model
-            loss.register_hook(partial(_backward_hook, sentence_features=sentence_features, loss_obj=self))
+            # Step (3): Register backward hook to chain cached gradients back through the model.
+            # The hook is handed this forward pass's cache rather than reading it off `self` at
+            # backward time, so a second forward pass cannot make it back-propagate the wrong batch.
+            cache, self.cache = self.cache, None
+            random_states, self.random_states = self.random_states, None
+            loss.register_hook(
+                partial(
+                    _backward_hook,
+                    sentence_features=sentence_features,
+                    loss_obj=self,
+                    cache=cache,
+                    random_states=random_states,
+                )
+            )
 
             # Build dict for loss component logging while preserving gradient flow through `loss`.
             # The trainer sums all dict values for backward, so we put the gradient-carrying tensor
