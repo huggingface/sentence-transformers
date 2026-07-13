@@ -24,6 +24,7 @@ from .distill_kl_div import DistillKLDivLoss
 from .embed_distill import EmbedDistillLoss
 from .gist_embed import GISTEmbedLoss
 from .global_orthogonal_regularization import GlobalOrthogonalRegularizationLoss
+from .gradcache import GradCacheLoss
 from .margin_mse import MarginMSELoss
 from .matryoshka import MatryoshkaLoss
 from .matryoshka_2d import Matryoshka2dLoss
@@ -62,6 +63,7 @@ __all__ = [
     "DenoisingAutoEncoderLoss",
     "GISTEmbedLoss",
     "GlobalOrthogonalRegularizationLoss",
+    "GradCacheLoss",
     "BatchHardTripletLoss",
     "BatchHardTripletLossDistanceFunction",
     "BatchHardSoftMarginTripletLoss",

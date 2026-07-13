@@ -12,43 +12,10 @@ from sentence_transformers.sentence_transformer.losses import (
     MegaBatchMarginLoss,
 )
 from sentence_transformers.sentence_transformer.modules import Router, StaticEmbedding
+from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
 
 ANCHORS = ["anchor a", "anchor b", "anchor c", "anchor d", "anchor e", "anchor f", "anchor g"]
 POSITIVES = ["positive a", "positive b", "positive c", "positive d", "positive e", "positive f", "positive g"]
-
-
-def _disable_dropout(model: SentenceTransformer) -> None:
-    """Disable every dropout, so that both loss variants are deterministic and directly comparable.
-
-    transformers<5 keeps the SDPA attention dropout as a plain float attribute rather than an ``nn.Dropout``
-    module, so zeroing only the modules would leave attention dropout active there.
-    """
-    for module in model.modules():
-        if isinstance(module, torch.nn.Dropout):
-            module.p = 0.0
-        for attribute in ("dropout_prob", "attention_dropout", "attention_probs_dropout_prob"):
-            if isinstance(getattr(module, attribute, None), float):
-                setattr(module, attribute, 0.0)
-
-    # If a future transformers release keeps the rate somewhere this doesn't look, the equivalence tests
-    # would start failing as a confusing "gradients do not match", pointing at the loss rather than here.
-    was_training = model.training
-    model.train()
-    features = model.preprocess(ANCHORS[:2])
-    with torch.no_grad():
-        first, second = model(features)["sentence_embedding"], model(features)["sentence_embedding"]
-    model.train(was_training)
-    assert torch.equal(first, second), "dropout is still active in training mode; _disable_dropout needs updating"
-
-
-def _grads(model: SentenceTransformer) -> dict[str, torch.Tensor]:
-    return {name: param.grad.clone() for name, param in model.named_parameters() if param.grad is not None}
-
-
-def _assert_trained(grads: dict[str, torch.Tensor]) -> None:
-    """Guard against a vacuous comparison: an empty or all-zero gradient dict passes any assert_close loop."""
-    assert grads, "no parameter received a gradient at all"
-    assert sum(grad.abs().sum() for grad in grads.values()) > 0, "every gradient is zero"
 
 
 def _loss_and_grads(
@@ -61,7 +28,7 @@ def _loss_and_grads(
     features = [model.preprocess(ANCHORS[:batch_size]), model.preprocess(POSITIVES[:batch_size])]
     loss_value = loss(features, torch.zeros(batch_size, dtype=torch.long))
     loss_value.backward()
-    return loss_value.detach(), _grads(model)
+    return loss_value.detach(), gradients(model)
 
 
 @pytest.mark.parametrize(
@@ -92,14 +59,14 @@ def test_mega_batch_margin_mini_batched_matches_non_mini_batched(
     contributed nothing to the gradient.
     """
     model = stsb_bert_tiny_model.to("cpu")
-    _disable_dropout(model)
+    disable_dropout(model)
     model.train()  # the loss is used during training, so exercise the training-mode code path
 
     loss_mini, grads_mini = _loss_and_grads(model, True, mini_batch_size, batch_size)
     loss_full, grads_full = _loss_and_grads(model, False, batch_size, batch_size)
 
-    _assert_trained(grads_mini)
-    _assert_trained(grads_full)
+    assert_trained(grads_mini)
+    assert_trained(grads_full)
     assert loss_mini.item() == pytest.approx(loss_full.item(), rel=1e-4, abs=1e-5)
     for name, grad in grads_mini.items():
         torch.testing.assert_close(grad, grads_full[name], rtol=1e-4, atol=1e-5, msg=name)
@@ -151,7 +118,7 @@ def test_mega_batch_margin_two_forwards_before_one_backward(stsb_bert_tiny_model
     back-propagated the second batch's gradients against the first batch's inputs -- with no error.
     """
     model = stsb_bert_tiny_model.to("cpu")
-    _disable_dropout(model)
+    disable_dropout(model)
     model.train()
 
     first = [model.preprocess(ANCHORS[:4]), model.preprocess(POSITIVES[:4])]
@@ -162,16 +129,16 @@ def test_mega_batch_margin_two_forwards_before_one_backward(stsb_bert_tiny_model
     model.zero_grad()
     shared = MegaBatchMarginLoss(model, mini_batch_size=2)
     (shared(first, labels) + shared(second, labels)).backward()
-    shared_grads = _grads(model)
+    shared_grads = gradients(model)
 
     # Two loss objects, which cannot interfere with each other, as the reference.
     model.zero_grad()
     first_loss = MegaBatchMarginLoss(model, mini_batch_size=2)(first, labels)
     second_loss = MegaBatchMarginLoss(model, mini_batch_size=2)(second, labels)
     (first_loss + second_loss).backward()
-    reference_grads = _grads(model)
+    reference_grads = gradients(model)
 
-    _assert_trained(shared_grads)
+    assert_trained(shared_grads)
     for name, grad in shared_grads.items():
         torch.testing.assert_close(grad, reference_grads[name], rtol=1e-4, atol=1e-6, msg=name)
 
@@ -184,7 +151,7 @@ def test_mega_batch_margin_under_no_grad(stsb_bert_tiny_model: SentenceTransform
     of tensors does not require grad" whenever the eval batch was larger than ``mini_batch_size``.
     """
     model = stsb_bert_tiny_model.to("cpu")
-    _disable_dropout(model)
+    disable_dropout(model)
     model.train(training)
     features = [model.preprocess(ANCHORS[:6]), model.preprocess(POSITIVES[:6])]
     labels = torch.zeros(6, dtype=torch.long)
@@ -225,7 +192,7 @@ def test_mega_batch_margin_scales_with_the_outer_backward(
     mini-batch is reached by ``grad_output``, so scaling the loss must scale the whole gradient.
     """
     model = stsb_bert_tiny_model.to("cpu")
-    _disable_dropout(model)
+    disable_dropout(model)
     model.train()
     features = [model.preprocess(ANCHORS[:6]), model.preprocess(POSITIVES[:6])]
     labels = torch.zeros(6, dtype=torch.long)
@@ -233,15 +200,15 @@ def test_mega_batch_margin_scales_with_the_outer_backward(
     def grads(scale: float) -> dict[str, torch.Tensor]:
         model.zero_grad()
         (MegaBatchMarginLoss(model, mini_batch_size=2)(features, labels) * scale).backward()
-        return _grads(model)
+        return gradients(model)
 
     unscaled = grads(1.0)
     scaled = grads(1 / grad_accum_steps)
 
     # Without these, a backward hook that never fires produces no gradient at all, both dicts come back
     # empty, and the comparison below asserts nothing.
-    _assert_trained(unscaled)
-    _assert_trained(scaled)
+    assert_trained(unscaled)
+    assert_trained(scaled)
     for name, grad in scaled.items():
         torch.testing.assert_close(grad, unscaled[name] / grad_accum_steps, rtol=1e-4, atol=1e-6, msg=name)
 
@@ -280,7 +247,7 @@ def test_mega_batch_margin_matryoshka(stsb_bert_tiny_model: SentenceTransformer,
     through the decorator instead makes it agree with the non mini-batched version, as everywhere else.
     """
     model = stsb_bert_tiny_model.to("cpu")
-    _disable_dropout(model)
+    disable_dropout(model)
     model.train()
     features = [model.preprocess(ANCHORS[:6]), model.preprocess(POSITIVES[:6])]
     labels = torch.zeros(6, dtype=torch.long)
@@ -290,12 +257,12 @@ def test_mega_batch_margin_matryoshka(stsb_bert_tiny_model: SentenceTransformer,
         loss = MatryoshkaLoss(model, MegaBatchMarginLoss(model, **kwargs), matryoshka_dims=[128, 64, 32])
         loss_value = loss(features, labels)
         loss_value.backward()
-        return loss_value.detach(), _grads(model)
+        return loss_value.detach(), gradients(model)
 
     loss_mini, grads_mini = loss_and_grads(mini_batch_size=mini_batch_size)
     loss_full, grads_full = loss_and_grads(use_mini_batched_version=False)
 
-    _assert_trained(grads_mini)
+    assert_trained(grads_mini)
     assert loss_mini.item() == pytest.approx(loss_full.item(), rel=1e-4, abs=1e-5)
     for name, grad in grads_mini.items():
         torch.testing.assert_close(grad, grads_full[name], rtol=1e-4, atol=1e-5, msg=name)
