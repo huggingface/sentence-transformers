@@ -92,33 +92,36 @@ def test_import_module_class_local_path_with_trust_does_not_warn(tmp_path):
     assert cls is fake_class
 
 
-def test_append_to_last_row_extends_last_data_row(tmp_path):
+@pytest.mark.parametrize(
+    ("content", "additional_data", "expected_return", "expected_content"),
+    [
+        pytest.param(
+            # Two data rows, so this pins the *last* one getting extended, not the first.
+            b"epoch,score\r\n0,0.5\r\n1,0.7\r\n",
+            ["0.9"],
+            True,
+            b"epoch,score\r\n0,0.5\r\n1,0.7,0.9\r\n",
+            id="appends-to-the-last-data-row",
+        ),
+        pytest.param(
+            # The sparse evaluators pass `sparsity_stats.values()`: a dict_values of floats, not a list of strings.
+            b"epoch,steps,accuracy\r\n-1,-1,0.83\r\n",
+            {"active_dims": 64.5, "sparsity_ratio": 0.99}.values(),
+            True,
+            b"epoch,steps,accuracy\r\n-1,-1,0.83,64.5,0.99\r\n",
+            id="appends-every-dict-value",
+        ),
+        # A header on its own isn't a data row, so there's nothing to append to.
+        pytest.param(b"epoch,score\r\n", ["0.9"], False, b"epoch,score\r\n", id="noop-on-header-only"),
+        pytest.param(b"", ["0.9"], False, b"", id="noop-on-empty-file"),
+    ],
+)
+def test_append_to_last_row(tmp_path, content, additional_data, expected_return, expected_content):
+    """Only writes when there's a header plus at least one data row, and then appends every value
+    to that row. Otherwise it no-ops and leaves the file untouched.
+    """
     csv_path = tmp_path / "results.csv"
-    csv_path.write_text("epoch,score\n0,0.5\n1,0.7\n", encoding="utf-8")
+    csv_path.write_bytes(content)
 
-    assert append_to_last_row(csv_path, ["0.9"]) is True
-    assert csv_path.read_text(encoding="utf-8") == "epoch,score\n0,0.5\n1,0.7,0.9\n"
-
-
-def test_append_to_last_row_accepts_multiple_values(tmp_path):
-    csv_path = tmp_path / "results.csv"
-    csv_path.write_text("a,b\n1,2\n", encoding="utf-8")
-
-    assert append_to_last_row(csv_path, ["3", "4"]) is True
-    assert csv_path.read_text(encoding="utf-8") == "a,b\n1,2,3,4\n"
-
-
-def test_append_to_last_row_noop_on_header_only_file(tmp_path):
-    csv_path = tmp_path / "results.csv"
-    csv_path.write_text("epoch,score\n", encoding="utf-8")
-
-    assert append_to_last_row(csv_path, ["0.9"]) is False
-    assert csv_path.read_text(encoding="utf-8") == "epoch,score\n"
-
-
-def test_append_to_last_row_noop_on_empty_file(tmp_path):
-    csv_path = tmp_path / "results.csv"
-    csv_path.write_text("", encoding="utf-8")
-
-    assert append_to_last_row(csv_path, ["0.9"]) is False
-    assert csv_path.read_text(encoding="utf-8") == ""
+    assert append_to_last_row(str(csv_path), additional_data) is expected_return
+    assert csv_path.read_bytes() == expected_content
