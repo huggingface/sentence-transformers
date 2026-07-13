@@ -120,7 +120,6 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
             similarities, so (unlike bounded cosine, where the dense loss uses ``scale=20.0``) it needs no
             amplification. ``scale=20`` would saturate the softmax. See
             :class:`MultiVectorMultipleNegativesRankingLoss` for the full rationale.
-        temperature: Optional alias for ``1 / scale``.
         size_average: Whether to average (``True``, default) or sum the cross-entropy loss across the batch.
         gather_across_devices: If True, AllGather document embeddings across DDP ranks.
         show_progress_bar: If True, show a TQDM progress bar for the embedding / scoring steps.
@@ -136,7 +135,6 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         mini_batch_size: int = 32,
         score_mini_batch_size: int | None = None,
         scale: float = 1.0,
-        temperature: float | None = None,
         size_average: bool = True,
         gather_across_devices: bool = False,
         show_progress_bar: bool = False,
@@ -146,8 +144,6 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         self.score_metric = score_metric if score_metric is not None else colbert_scores
         self.mini_batch_size = mini_batch_size
         self.score_mini_batch_size = score_mini_batch_size if score_mini_batch_size is not None else mini_batch_size
-        if temperature is not None:
-            scale = 1.0 / temperature
         self.scale = scale
         self.size_average = size_average
         self.gather_across_devices = gather_across_devices

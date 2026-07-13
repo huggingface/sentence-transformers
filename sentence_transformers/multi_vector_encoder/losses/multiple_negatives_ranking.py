@@ -39,7 +39,6 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
             similarities (range ``~[0, num_query_tokens]``), so it needs no amplification. This is the same
             reason the dense loss recommends ``scale=1`` for dot-product similarity. ``scale=20`` here would
             saturate the softmax and kill gradients.
-        temperature: Optional alias for ``1 / scale``. If supplied, overrides ``scale``.
         score_mini_batch_size: If set, queries are processed in chunks of this size during the scoring
             phase. Useful to bound transient scoring memory for large effective batch sizes. Gradients
             still flow through a single backward.
@@ -64,7 +63,6 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
         model: MultiVectorEncoder,
         score_metric: Callable | None = None,
         scale: float = 1.0,
-        temperature: float | None = None,
         score_mini_batch_size: int | None = None,
         size_average: bool = True,
         gather_across_devices: bool = False,
@@ -72,16 +70,10 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
         super().__init__()
         self.model = model
         self.score_metric = score_metric if score_metric is not None else colbert_scores
-        if temperature is not None:
-            scale = 1.0 / temperature
         self.scale = scale
         self.score_mini_batch_size = score_mini_batch_size
         self.size_average = size_average
         self.gather_across_devices = gather_across_devices
-
-    @property
-    def temperature(self) -> float:
-        return 1.0 / self.scale
 
     def get_config_dict(self) -> dict[str, Any]:
         score_metric = getattr(self.score_metric, "__name__", type(self.score_metric).__name__)

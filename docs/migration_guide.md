@@ -24,6 +24,7 @@ punctuation skiplist recovered from the saved config.
 | `pylate.scores.colbert_scores` | `model.similarity` or `sentence_transformers.util.maxsim` |
 | `pylate.losses.Contrastive` | `MultiVectorMultipleNegativesRankingLoss` |
 | `pylate.losses.CachedContrastive` | `CachedMultiVectorMultipleNegativesRankingLoss` |
+| `temperature=X` on the contrastive losses | `scale=1/X` (the Sentence Transformers convention) |
 | `pylate.losses.Distillation` | `MultiVectorDistillKLDivLoss` |
 | `pylate.evaluation.ColBERTTripletEvaluator` | `MultiVectorTripletEvaluator` |
 | `pylate.evaluation.ColBERTDistillationEvaluator` | `MultiVectorDistillationEvaluator` |
