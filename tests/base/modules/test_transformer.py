@@ -597,6 +597,33 @@ class TestForward:
             assert isinstance(model.model_forward_params, set)
             assert {"input_ids", "attention_mask"} <= model.model_forward_params
 
+    def test_document_length_applies_to_document_task_only(self, bert_tiny_transformer, monkeypatch):
+        """Tasks are ``"query"`` / ``"document"`` throughout the library: ``document_length`` only
+        truncates ``task="document"`` batches, any other task falls through untouched."""
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "document_length", 6)
+        long_text = "a rather long document with clearly more than six tokens in it"
+        assert transformer.preprocess([long_text], task="document")["input_ids"].shape[1] == 6
+        for task in ("query", None):
+            assert transformer.preprocess([long_text], task=task)["input_ids"].shape[1] > 6
+
+    def test_expansion_pad_contract_survives_processing_kwargs(self, bert_tiny_transformer, monkeypatch):
+        """A processing_kwargs padding/max_length override must not silently break pad_* expansion's
+        fixed width (which would make query embeddings depend on batch composition): the expansion
+        contract is re-applied with a warning."""
+        import sentence_transformers.base.modules.transformer as transformer_module
+
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "query_expansion", {"strategy": "pad_skip", "token": None, "length": 16})
+        warnings: list[str] = []
+        monkeypatch.setattr(transformer_module.logger, "warning_once", warnings.append)
+
+        features = transformer.preprocess(
+            ["short", "a somewhat longer query"], task="query", processing_kwargs={"text": {"padding": True}}
+        )
+        assert features["input_ids"].shape[1] == 16
+        assert warnings and "fixed width" in warnings[0]
+
     def test_retrieval_task_warns_on_text_documents(self, bert_tiny_transformer, monkeypatch):
         """`*ForRetrieval` processors always render text as a query: asking for document treatment
         on text inputs must warn instead of silently query-formatting the documents."""

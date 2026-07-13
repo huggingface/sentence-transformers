@@ -1215,18 +1215,26 @@ class Transformer(InputModule):
         if task_max_length is not None and expansion is None:
             modality_kwargs["text"]["max_length"] = task_max_length
 
-        # pad_skip / pad_attend: pad to the config's length so the post-tokenization swap below has
-        # explicit pad positions to replace with the expansion token.
-        if expansion is not None:
-            modality_kwargs["text"]["max_length"] = expansion["length"]
-            modality_kwargs["text"]["padding"] = "max_length"
-
         effective_processing_kwargs = self._merge_processing_kwargs(processing_kwargs)
         if "common" in effective_processing_kwargs:
             common_kwargs.update(effective_processing_kwargs["common"])
         for modality_key in modality_kwargs:
             if overrides := effective_processing_kwargs.get(modality_key):  # type: ignore[arg-type]
                 modality_kwargs[modality_key].update(overrides)
+
+        # pad_skip / pad_attend: pad to the expansion length so the post-tokenization swap below has
+        # pad positions to replace. Applied after the merge so processing_kwargs can't break the fixed width.
+        if expansion is not None:
+            text_overrides = effective_processing_kwargs.get("text") or {}
+            if "padding" in text_overrides or "max_length" in text_overrides:
+                logger.warning_once(
+                    "processing_kwargs overrides the text padding or max_length, but pad_* query "
+                    "expansion requires a fixed width: re-applying padding='max_length' with the "
+                    "expansion length for query batches."
+                )
+            modality_kwargs["text"]["max_length"] = expansion["length"]
+            modality_kwargs["text"]["padding"] = "max_length"
+
         chat_template_kwargs = effective_processing_kwargs.get("chat_template", {})
         # Task-aware templates can branch on the task, e.g. to append query augmentation tokens.
         # Only forwarded when declared: transformers treats unknown kwargs as processor kwargs.
