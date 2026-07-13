@@ -48,6 +48,14 @@ def test_mega_batch_margin_all_minibatches_contribute(stsb_bert_tiny_model: Sent
 
     assert grad_mini and grad_non_mini
     assert sum(g.abs().sum() for g in grad_mini.values()) > 0
-    for name, grad in grad_mini.items():
-        expected = num_mini_batches * grad_non_mini[name]
-        assert torch.allclose(grad, expected, rtol=1e-3, atol=1e-4), name
+
+    # The two paths are mathematically equivalent up to the reduction, so the mini-batched
+    # gradient must equal ``num_mini_batches`` times the whole-batch gradient. They are not
+    # bit-identical: the mini-batched path re-embeds each hard negative with a fresh forward pass
+    # while the non-mini path reuses the positive embeddings, so word-embedding gradients differ by
+    # floating-point recompute noise whose size varies across transformers versions. Compare the
+    # relative norm, which is robust to that per-element noise, instead of an element-wise tolerance.
+    flat_mini = torch.cat([grad_mini[name].flatten() for name in sorted(grad_mini)])
+    flat_expected = num_mini_batches * torch.cat([grad_non_mini[name].flatten() for name in sorted(grad_mini)])
+    relative_error = (flat_mini - flat_expected).norm() / flat_expected.norm()
+    assert relative_error < 1e-3, relative_error
