@@ -13,7 +13,7 @@ from transformers import PreTrainedTokenizerBase
 
 from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
     _create_minibatch,
-    _get_batch_size,
+    _minibatch_ranges,
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
@@ -67,14 +67,18 @@ def _backward_hook(
     """A backward hook to backpropagate the cached gradients mini-batch by mini-batch."""
     assert loss_obj.cache is not None
     assert loss_obj.random_states is not None
+    assert loss_obj.minibatch_ranges is not None
     with torch.enable_grad():
-        for sentence_feature, grad, random_states in zip(sentence_features, loss_obj.cache, loss_obj.random_states):
+        for sentence_feature, grad, random_states, ranges in zip(
+            sentence_features, loss_obj.cache, loss_obj.random_states, loss_obj.minibatch_ranges
+        ):
             for (reps_mb, _, _), grad_mb in zip(
                 loss_obj.embed_minibatch_iter(
                     sentence_feature=sentence_feature,
                     with_grad=True,
                     copy_random_state=False,
                     random_states=random_states,
+                    ranges=ranges,
                 ),
                 grad,
             ):
@@ -101,6 +105,7 @@ class CachedGISTEmbedLoss(nn.Module):
         contrast_anchors: bool = True,
         contrast_positives: bool = True,
         gather_across_devices: bool = False,
+        mini_batch_num_tokens: int | None = None,
     ) -> None:
         """
         This loss is a combination of :class:`GISTEmbedLoss` and :class:`CachedMultipleNegativesRankingLoss`.
@@ -140,6 +145,9 @@ class CachedGISTEmbedLoss(nn.Module):
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
+            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count instead of by
+                sequence count, overriding ``mini_batch_size`` for the embedding forward passes. See
+                :class:`CachedMultipleNegativesRankingLoss` for details. The default is None.
 
         References:
             - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
@@ -214,8 +222,12 @@ class CachedGISTEmbedLoss(nn.Module):
                 "Both the training model and the guiding model must use a PreTrainedTokenizer from transformers."
             )
         self.mini_batch_size = mini_batch_size
+        if mini_batch_num_tokens is not None and mini_batch_num_tokens <= 0:
+            raise ValueError("mini_batch_num_tokens must be a positive integer or None.")
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.cache: list[list[Tensor]] | None = None
         self.random_states: list[list[RandContext]] | None = None
+        self.minibatch_ranges: list[list[tuple[int, int]]] | None = None
         self.show_progress_bar = show_progress_bar
         self.must_retokenize = (
             model.tokenizer.vocab != guide.tokenizer.vocab or guide.max_seq_length < model.max_seq_length
@@ -270,19 +282,18 @@ class CachedGISTEmbedLoss(nn.Module):
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
+        ranges: list[tuple[int, int]] | None = None,
     ) -> Iterator[tuple[Tensor, Tensor, RandContext | None]]:
         """Do forward pass on all the minibatches of the input features and yield corresponding embeddings."""
-        batch_size = _get_batch_size(sentence_feature)
-        for i, begin in enumerate(
-            tqdm.trange(
-                0,
-                batch_size,
-                self.mini_batch_size,
+        if ranges is None:
+            ranges = _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+        for i, (begin, end) in enumerate(
+            tqdm.tqdm(
+                ranges,
                 desc="Embed mini-batches",
                 disable=not self.show_progress_bar,
             )
         ):
-            end = begin + self.mini_batch_size
             reps, guide_reps, random_state = self.embed_minibatch(
                 sentence_feature=sentence_feature,
                 begin=begin,
@@ -418,10 +429,19 @@ class CachedGISTEmbedLoss(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         # Step (1): A quick embedding step without gradients/computation graphs to get all the embeddings
+        sentence_features = list(sentence_features)
         reps = []
         reps_guided = []
         self.random_states = []  # Copy random states to guarantee exact reproduction of the embeddings during the second forward pass, i.e. step (3)
-        for sentence_feature in sentence_features:
+        # Compute the mini-batch boundaries once and replay them in the backward hook: modules may
+        # modify the features in-place (e.g. Pooling zeroes prompt tokens in the attention mask when
+        # include_prompt=False), so recomputing boundaries in the second pass could misalign them
+        # with the cached gradients and random states.
+        self.minibatch_ranges = [
+            _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+            for sentence_feature in sentence_features
+        ]
+        for sentence_feature, ranges in zip(sentence_features, self.minibatch_ranges):
             reps_mbs = []
             reps_guided_mbs = []
             random_state_mbs = []
@@ -429,6 +449,7 @@ class CachedGISTEmbedLoss(nn.Module):
                 sentence_feature=sentence_feature,
                 with_grad=False,
                 copy_random_state=True,
+                ranges=ranges,
             ):
                 reps_mbs.append(reps_mb.detach().requires_grad_())
                 reps_guided_mbs.append(reps_guided_mb.detach())  # does not requires gradient
@@ -453,6 +474,7 @@ class CachedGISTEmbedLoss(nn.Module):
             "guide": self.guide,
             "temperature": self.temperature,
             "mini_batch_size": self.mini_batch_size,
+            "mini_batch_num_tokens": self.mini_batch_num_tokens,
             "margin_strategy": self.margin_strategy,
             "margin": self.margin,
             "contrast_anchors": self.contrast_anchors,

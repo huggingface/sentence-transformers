@@ -16,6 +16,7 @@ from sentence_transformers.sentence_transformer.losses import (
 from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
     _create_minibatch,
     _get_batch_size,
+    _minibatch_ranges,
 )
 
 
@@ -87,12 +88,20 @@ from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives
         ),
     ],
 )
+@pytest.mark.parametrize(
+    "cmnrl_kwargs",
+    [
+        pytest.param({"mini_batch_size": 2}, id="mini_batch_size"),
+        pytest.param({"mini_batch_num_tokens": 12}, id="mini_batch_num_tokens"),
+    ],
+)
 def test_cmnrl_same_grad(
     train_samples_mnrl: list[tuple[str, str, str]],
     train_samples_cmnrl: list[tuple[str, str, str]],
     same_grad: bool,
     scaler: float,
     precision: float,
+    cmnrl_kwargs: dict,
 ):
     # Given:
     model = SentenceTransformer("distilbert/distilbert-base-uncased")
@@ -114,7 +123,7 @@ def test_cmnrl_same_grad(
     # Then run with this cached version:
     set_seed(42)
     optimizer.zero_grad()
-    loss_cmnrl = CachedMultipleNegativesRankingLoss(model, mini_batch_size=2)
+    loss_cmnrl = CachedMultipleNegativesRankingLoss(model, **cmnrl_kwargs)
     queries_cmnrl, positives_cmnrl, negatives_cmnrl = zip(*train_samples_cmnrl)
     features_cmnrl = [model.preprocess(list(texts)) for texts in (queries_cmnrl, positives_cmnrl, negatives_cmnrl)]
     loss_cmnrl_value = loss_cmnrl(features_cmnrl, labels) * scaler
@@ -135,6 +144,150 @@ def test_cmnrl_same_grad(
         assert nclose == len(grad_expected)
     else:
         assert nclose != len(grad_expected)
+
+
+class TestMinibatchRanges:
+    """Tests for the _minibatch_ranges helper that splits batches into mini-batches."""
+
+    @staticmethod
+    def padded_features(lengths: list[int]) -> dict[str, torch.Tensor]:
+        max_len = max(lengths)
+        attention_mask = torch.zeros(len(lengths), max_len, dtype=torch.long)
+        for row, length in enumerate(lengths):
+            attention_mask[row, :length] = 1
+        return {
+            "input_ids": torch.zeros(len(lengths), max_len, dtype=torch.long),
+            "attention_mask": attention_mask,
+        }
+
+    @staticmethod
+    def flattened_features(lengths: list[int]) -> dict[str, torch.Tensor]:
+        cumulative = [0]
+        for length in lengths:
+            cumulative.append(cumulative[-1] + length)
+        cu_seq_lens = torch.tensor(cumulative, dtype=torch.int32)
+        return {
+            "input_ids": torch.zeros(1, sum(lengths), dtype=torch.long),
+            "cu_seq_lens_q": cu_seq_lens,
+            "cu_seq_lens_k": cu_seq_lens,
+        }
+
+    def test_fixed_mini_batch_size(self):
+        features = self.padded_features([4] * 10)
+        assert _minibatch_ranges(features, mini_batch_size=4) == [(0, 4), (4, 8), (8, 10)]
+
+    def test_token_budget_padded(self):
+        # Cumulative token counts: [5, 8, 10, 14, 20]
+        features = self.padded_features([5, 3, 2, 4, 6])
+        ranges = _minibatch_ranges(features, mini_batch_size=32, mini_batch_num_tokens=8)
+        assert ranges == [(0, 2), (2, 4), (4, 5)]
+        # Padding must not count towards the budget: identical lengths, more padding
+        features["attention_mask"] = torch.cat(
+            [features["attention_mask"], torch.zeros(5, 10, dtype=torch.long)], dim=1
+        )
+        assert _minibatch_ranges(features, mini_batch_size=32, mini_batch_num_tokens=8) == ranges
+
+    def test_token_budget_flattened(self):
+        features = self.flattened_features([5, 3, 2, 4, 6])
+        assert _minibatch_ranges(features, mini_batch_size=32, mini_batch_num_tokens=8) == [(0, 2), (2, 4), (4, 5)]
+
+    def test_token_budget_matches_between_padded_and_flattened(self):
+        lengths = [7, 1, 3, 9, 2, 2, 5, 30, 1, 4]
+        padded = _minibatch_ranges(self.padded_features(lengths), mini_batch_size=32, mini_batch_num_tokens=10)
+        flattened = _minibatch_ranges(self.flattened_features(lengths), mini_batch_size=32, mini_batch_num_tokens=10)
+        assert padded == flattened
+
+    def test_oversized_sequences_get_their_own_mini_batch(self):
+        # Sequences longer than the budget must still be processed, one per mini-batch
+        features = self.padded_features([10, 2, 10, 2])
+        ranges = _minibatch_ranges(features, mini_batch_size=32, mini_batch_num_tokens=4)
+        assert ranges == [(0, 1), (1, 2), (2, 3), (3, 4)]
+
+    def test_budget_larger_than_batch(self):
+        features = self.padded_features([5, 3, 2])
+        assert _minibatch_ranges(features, mini_batch_size=2, mini_batch_num_tokens=1000) == [(0, 3)]
+
+    def test_ranges_cover_batch_exactly(self):
+        lengths = [3, 17, 1, 1, 1, 12, 4, 9, 2, 6]
+        ranges = _minibatch_ranges(self.padded_features(lengths), mini_batch_size=32, mini_batch_num_tokens=13)
+        assert ranges[0][0] == 0
+        assert ranges[-1][1] == len(lengths)
+        for (_, prev_end), (begin, end) in zip(ranges, ranges[1:]):
+            assert begin == prev_end
+            assert end > begin
+        for begin, end in ranges:
+            assert end == begin + 1 or sum(lengths[begin:end]) <= 13
+
+    def test_missing_token_counts_raises(self):
+        features = {"input_ids": torch.zeros(4, 8, dtype=torch.long)}
+        with pytest.raises(ValueError, match="mini_batch_num_tokens"):
+            _minibatch_ranges(features, mini_batch_size=32, mini_batch_num_tokens=8)
+
+    def test_non_positive_budget_raises(self):
+        model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+        with pytest.raises(ValueError, match="mini_batch_num_tokens"):
+            CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=0)
+
+    def test_positional_arguments_unchanged(self):
+        # mini_batch_num_tokens sits at the end of the signature: existing positional calls must
+        # keep binding the fifth argument to gather_across_devices, not to the new parameter.
+        from sentence_transformers import util
+
+        model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+        loss = CachedMultipleNegativesRankingLoss(model, 20.0, util.cos_sim, 16, True)
+        assert loss.mini_batch_size == 16
+        assert loss.gather_across_devices is True
+        assert loss.mini_batch_num_tokens is None
+
+
+def test_cmnrl_token_budget_ranges_survive_mask_mutation():
+    """With include_prompt=False, Pooling zeroes prompt tokens in the attention mask in-place
+    during the first (no-grad) pass. The backward-hook replay must reuse the mini-batch boundaries
+    computed from the original mask; recomputing them from the mutated mask would misalign the
+    replayed mini-batches with the cached gradients and random states."""
+    model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    model.to("cpu")
+    model[1].include_prompt = False
+    optimizer = Adam(model.parameters())
+
+    # Equal-length texts (6 tokens each with [CLS]/[SEP]), so with a budget of two full sequences,
+    # zeroing a 2-token prompt in each mask would let three sequences fit on the second pass.
+    texts_a = ["cat dog bird fish", "red blue green yellow", "one two three four", "north south east west"]
+    texts_b = ["dogs are pets today", "colors are bright now", "numbers are fun too", "maps are useful here"]
+    labels = torch.zeros(len(texts_a), dtype=torch.long)
+
+    def preprocess(texts):
+        features = model.preprocess(texts)
+        features["prompt_length"] = torch.tensor([2] * len(texts))
+        return features
+
+    budget = int(preprocess(texts_a)["attention_mask"].sum(dim=1)[:2].sum())
+
+    set_seed(42)
+    optimizer.zero_grad()
+    loss_tok = CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=budget)
+    features = [preprocess(texts_a), preprocess(texts_b)]
+    expected_ranges = [_minibatch_ranges(f, mini_batch_size=32, mini_batch_num_tokens=budget) for f in features]
+    loss_tok_value = loss_tok(features, labels)
+    loss_tok_value.backward()
+    grad_tok = {name: p.grad.clone() for name, p in loss_tok.named_parameters() if p.grad is not None}
+
+    # The replayed boundaries must be the ones computed from the original, unmutated masks
+    assert loss_tok.minibatch_ranges == expected_ranges
+
+    # And the gradients must match a fixed-size run, which is unaffected by the mask mutation
+    set_seed(42)
+    optimizer.zero_grad()
+    loss_fixed = CachedMultipleNegativesRankingLoss(model, mini_batch_size=2)
+    loss_fixed_value = loss_fixed([preprocess(texts_a), preprocess(texts_b)], labels)
+    loss_fixed_value.backward()
+    grad_fixed = {name: p.grad.clone() for name, p in loss_fixed.named_parameters() if p.grad is not None}
+
+    assert pytest.approx(loss_fixed_value.item()) == loss_tok_value.item()
+    # calculate_loss chunks the score matrix by mini_batch_size (32 vs 2 here), so gradients can
+    # differ by float summation order; 1e-5 matches the precision used in test_cmnrl_same_grad.
+    for name in grad_fixed:
+        assert torch.allclose(grad_tok[name], grad_fixed[name], rtol=1e-5, atol=1e-5), name
 
 
 @pytest.mark.parametrize("use_rand_context", [True, False])

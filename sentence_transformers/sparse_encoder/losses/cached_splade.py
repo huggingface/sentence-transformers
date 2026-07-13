@@ -14,7 +14,7 @@ from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives
     RandContext,
     _backward_hook,
     _create_minibatch,
-    _get_batch_size,
+    _minibatch_ranges,
 )
 from sentence_transformers.sparse_encoder.losses.splade import SpladeLoss
 from sentence_transformers.sparse_encoder.model import SparseEncoder
@@ -36,6 +36,7 @@ class CachedSpladeLoss(SpladeLoss):
         use_document_regularizer_only: bool = False,
         mini_batch_size: int = 32,
         show_progress_bar: bool = False,
+        mini_batch_num_tokens: int | None = None,
     ):
         """
         Cached version of :class:`SpladeLoss` that uses the GradCache technique to allow for much larger
@@ -78,6 +79,10 @@ class CachedSpladeLoss(SpladeLoss):
                 training is, but the slower the training will be. It's recommended to set it as high as your GPU
                 memory allows. The default value is 32.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training.
+            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count instead of by
+                sequence count, overriding ``mini_batch_size`` for the embedding forward passes. See
+                :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss` for
+                details. The default is None.
 
         References:
             - Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup:
@@ -127,9 +132,13 @@ class CachedSpladeLoss(SpladeLoss):
             use_document_regularizer_only=use_document_regularizer_only,
         )
         self.mini_batch_size = mini_batch_size
+        if mini_batch_num_tokens is not None and mini_batch_num_tokens <= 0:
+            raise ValueError("mini_batch_num_tokens must be a positive integer or None.")
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
         self.cache: list[list[Tensor]] | None = None
         self.random_states: list[list[RandContext]] | None = None
+        self.minibatch_ranges: list[list[tuple[int, int]]] | None = None
 
     def embed_minibatch(
         self,
@@ -156,19 +165,18 @@ class CachedSpladeLoss(SpladeLoss):
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
+        ranges: list[tuple[int, int]] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
         """Iterate over mini-batches of inputs for embedding."""
-        batch_size = _get_batch_size(sentence_feature)
-        for i, begin in enumerate(
-            tqdm.trange(
-                0,
-                batch_size,
-                self.mini_batch_size,
+        if ranges is None:
+            ranges = _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+        for i, (begin, end) in enumerate(
+            tqdm.tqdm(
+                ranges,
                 desc="Embed mini-batches",
                 disable=not self.show_progress_bar,
             )
         ):
-            end = begin + self.mini_batch_size
             reps, random_state = self.embed_minibatch(
                 sentence_feature=sentence_feature,
                 begin=begin,
@@ -233,13 +241,21 @@ class CachedSpladeLoss(SpladeLoss):
         # Step (1): Embed all mini-batches without gradients to get all embeddings
         reps = []
         self.random_states = []
-        for sentence_feature in sentence_features:
+        # Compute the mini-batch boundaries once and replay them in the backward hook: modules may
+        # modify the features in-place, so recomputing boundaries in the second pass could misalign
+        # them with the cached gradients and random states.
+        self.minibatch_ranges = [
+            _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+            for sentence_feature in sentence_features
+        ]
+        for sentence_feature, ranges in zip(sentence_features, self.minibatch_ranges):
             reps_mbs = []
             random_state_mbs = []
             for reps_mb, random_state in self.embed_minibatch_iter(
                 sentence_feature=sentence_feature,
                 with_grad=False,
                 copy_random_state=True,
+                ranges=ranges,
             ):
                 reps_mbs.append(reps_mb.detach().requires_grad_())
                 random_state_mbs.append(random_state)
@@ -300,6 +316,7 @@ class CachedSpladeLoss(SpladeLoss):
     def get_config_dict(self) -> dict[str, Any]:
         config = super().get_config_dict()
         config["mini_batch_size"] = self.mini_batch_size
+        config["mini_batch_num_tokens"] = self.mini_batch_num_tokens
         return config
 
     @property

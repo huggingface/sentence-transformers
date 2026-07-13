@@ -25,6 +25,7 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
         mini_batch_size: int = 32,
         gather_across_devices: bool = False,
         show_progress_bar: bool = False,
+        mini_batch_num_tokens: int | None = None,
     ) -> None:
         """
         .. warning::
@@ -72,6 +73,9 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
+            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count instead of by
+                sequence count, overriding ``mini_batch_size`` for the embedding forward passes. See
+                :class:`CachedMultipleNegativesRankingLoss` for details. The default is None.
 
         Requirements:
             1. (anchor, positive) pairs
@@ -121,6 +125,7 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
             scale=scale,
             similarity_fct=similarity_fct,
             mini_batch_size=mini_batch_size,
+            mini_batch_num_tokens=mini_batch_num_tokens,
             gather_across_devices=gather_across_devices,
             directions=("query_to_doc", "doc_to_query"),  # Symmetric directions
             partition_mode="per_direction",  # Separate softmax normalization for each direction

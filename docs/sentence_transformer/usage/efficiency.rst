@@ -124,6 +124,24 @@ If you're using a GPU, then you can use the following options to speed up your i
 
    Flash Attention 2 with input flattening always outperforms standard Flash Attention 2, while using considerably less VRAM. The gains grow with the variance in input length, with the mixed dataset with wildly varying lengths (10-500 tokens) benefitting the most.
 
+   Input flattening also speeds up training. When training with a cached loss such as
+   :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss`, you can additionally set
+   ``mini_batch_num_tokens`` instead of ``mini_batch_size``. Mini-batches are then packed by total token count
+   rather than by sequence count, so every mini-batch performs a similar amount of work regardless of how
+   sequence lengths are distributed within the batch. This keeps memory usage roughly constant, letting you pick
+   a token budget close to your GPU's limit without risking out-of-memory errors on batches full of long texts,
+   and it can substantially increase training throughput on datasets with varying text lengths:
+
+   .. code-block:: python
+
+      from sentence_transformers import SentenceTransformer, losses
+
+      model = SentenceTransformer(
+          "answerdotai/ModernBERT-base",
+          model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": "bfloat16"},
+      )
+      loss = losses.CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=32768)
+
    .. seealso::
 
       The `Transformers Attention Interface <https://huggingface.co/docs/transformers/en/attention_interface>`_ documentation

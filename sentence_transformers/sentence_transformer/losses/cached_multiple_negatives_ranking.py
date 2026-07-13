@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import bisect
 import logging
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import nullcontext
@@ -168,20 +169,65 @@ def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) ->
     return result
 
 
+def _minibatch_ranges(
+    sentence_feature: dict[str, Any],
+    mini_batch_size: int,
+    mini_batch_num_tokens: int | None = None,
+) -> list[tuple[int, int]]:
+    """Compute the ``(begin, end)`` sequence ranges that split a batch into mini-batches.
+
+    If ``mini_batch_num_tokens`` is None, every range spans ``mini_batch_size`` sequences.
+    Otherwise, each range greedily packs as many sequences as possible while keeping the total
+    number of non-padding tokens at or below ``mini_batch_num_tokens``; a single sequence whose
+    length exceeds the budget forms its own mini-batch. Per-sequence token counts are read from
+    ``cu_seq_lens_q`` for flattened inputs, or from the attention mask for padded inputs.
+    """
+    batch_size = _get_batch_size(sentence_feature)
+    if mini_batch_num_tokens is None:
+        return [(begin, min(begin + mini_batch_size, batch_size)) for begin in range(0, batch_size, mini_batch_size)]
+
+    if "cu_seq_lens_q" in sentence_feature:
+        # cu_seq_lens_q already holds the cumulative token counts [0, len_0, len_0 + len_1, ...]
+        cumulative_num_tokens = sentence_feature["cu_seq_lens_q"][1:].tolist()
+    elif "attention_mask" in sentence_feature:
+        cumulative_num_tokens = sentence_feature["attention_mask"].sum(dim=1).cumsum(dim=0).tolist()
+    else:
+        raise ValueError(
+            "mini_batch_num_tokens requires per-sequence token counts, but the tokenized inputs contain "
+            "neither 'cu_seq_lens_q' (flattened inputs) nor 'attention_mask' (padded inputs). "
+            "Use mini_batch_size instead."
+        )
+
+    ranges: list[tuple[int, int]] = []
+    begin = 0
+    while begin < batch_size:
+        previous_num_tokens = cumulative_num_tokens[begin - 1] if begin > 0 else 0
+        end = bisect.bisect_right(cumulative_num_tokens, previous_num_tokens + mini_batch_num_tokens)
+        # Always make progress, even if a single sequence exceeds the token budget
+        end = max(end, begin + 1)
+        ranges.append((begin, end))
+        begin = end
+    return ranges
+
+
 def _backward_hook(
     grad_output: Tensor, sentence_features: Iterable[dict[str, Tensor]], loss_obj: CachedMultipleNegativesRankingLoss
 ) -> None:
     """A backward hook to backpropagate the cached gradients mini-batch by mini-batch."""
     assert loss_obj.cache is not None
     assert loss_obj.random_states is not None
+    assert loss_obj.minibatch_ranges is not None
     with torch.enable_grad():
-        for sentence_feature, grad, random_states in zip(sentence_features, loss_obj.cache, loss_obj.random_states):
+        for sentence_feature, grad, random_states, ranges in zip(
+            sentence_features, loss_obj.cache, loss_obj.random_states, loss_obj.minibatch_ranges
+        ):
             for (reps_mb, _), grad_mb in zip(
                 loss_obj.embed_minibatch_iter(
                     sentence_feature=sentence_feature,
                     with_grad=True,
                     copy_random_state=False,
                     random_states=random_states,
+                    ranges=ranges,
                 ),
                 grad,
             ):
@@ -211,6 +257,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         show_progress_bar: bool = False,
         hardness_mode: Literal["in_batch_negatives", "hard_negatives", "all_negatives"] | None = None,
         hardness_strength: float = 0.0,
+        mini_batch_num_tokens: int | None = None,
     ) -> None:
         """
         Boosted version of :class:`MultipleNegativesRankingLoss` (https://huggingface.co/papers/1705.00652) by GradCache (https://huggingface.co/papers/2101.06983).
@@ -283,6 +330,14 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 - For ``"hard_negatives"``: acts as ``alpha`` in the hardness penalty, `Schechter Vera et al. 2025 <https://huggingface.co/papers/2509.20354>`_ uses 5.
 
                 Must be non-negative. Ignored when ``hardness_mode`` is ``None``.
+            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count instead of by
+                sequence count, overriding ``mini_batch_size`` for the embedding forward passes. Each mini-batch
+                contains as many sequences as fit within this token budget, so memory usage stays roughly constant
+                even when input lengths vary widely, instead of being dictated by the longest inputs. This is most
+                effective when the model processes inputs without padding, e.g. with flash attention input flattening
+                (see :attr:`~sentence_transformers.base.modules.transformer.Transformer.unpad_inputs`), where compute
+                and memory scale with the number of real tokens. It's recommended to set it as high as your GPU memory
+                allows. The default is None, i.e. mini-batches of ``mini_batch_size`` sequences each.
 
         References:
             - Efficient Natural Language Response Suggestion for Smart Reply, Section 4.4: https://huggingface.co/papers/1705.00652
@@ -324,6 +379,9 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
                 loss = losses.CachedMultipleNegativesRankingLoss(model, mini_batch_size=64)
+                # Or, when the model runs without padding (e.g. flash attention input flattening),
+                # pack mini-batches by token count for constant memory usage and higher throughput:
+                # loss = losses.CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=32768)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
@@ -343,6 +401,9 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         self.scale = scale
         self.similarity_fct = similarity_fct
         self.mini_batch_size = mini_batch_size
+        if mini_batch_num_tokens is not None and mini_batch_num_tokens <= 0:
+            raise ValueError("mini_batch_num_tokens must be a positive integer or None.")
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.gather_across_devices = gather_across_devices
         valid_directions = {"query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"}
         if not directions:
@@ -384,6 +445,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
 
         self.cache: list[list[Tensor]] | None = None
         self.random_states: list[list[RandContext]] | None = None
+        self.minibatch_ranges: list[list[tuple[int, int]]] | None = None
 
     def embed_minibatch(
         self,
@@ -410,19 +472,18 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
+        ranges: list[tuple[int, int]] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
         """Do forward pass on all the minibatches of the input features and yield corresponding embeddings."""
-        batch_size = _get_batch_size(sentence_feature)
-        for i, begin in enumerate(
-            tqdm.trange(
-                0,
-                batch_size,
-                self.mini_batch_size,
+        if ranges is None:
+            ranges = _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+        for i, (begin, end) in enumerate(
+            tqdm.tqdm(
+                ranges,
                 desc="Embed mini-batches",
                 disable=not self.show_progress_bar,
             )
         ):
-            end = begin + self.mini_batch_size
             reps, random_state = self.embed_minibatch(
                 sentence_feature=sentence_feature,
                 begin=begin,
@@ -574,13 +635,22 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
 
         reps = []
         self.random_states = []
-        for sentence_feature in sentence_features:
+        # Compute the mini-batch boundaries once and replay them in the backward hook: modules may
+        # modify the features in-place (e.g. Pooling zeroes prompt tokens in the attention mask when
+        # include_prompt=False), so recomputing boundaries in the second pass could misalign them
+        # with the cached gradients and random states.
+        self.minibatch_ranges = [
+            _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+            for sentence_feature in sentence_features
+        ]
+        for sentence_feature, ranges in zip(sentence_features, self.minibatch_ranges):
             reps_mbs = []
             random_state_mbs = []
             for reps_mb, random_state in self.embed_minibatch_iter(
                 sentence_feature=sentence_feature,
                 with_grad=False,
                 copy_random_state=True,
+                ranges=ranges,
             ):
                 reps_mbs.append(reps_mb.detach().requires_grad_())
                 random_state_mbs.append(random_state)
@@ -604,6 +674,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             "scale": self.scale,
             "similarity_fct": self.similarity_fct.__name__,
             "mini_batch_size": self.mini_batch_size,
+            "mini_batch_num_tokens": self.mini_batch_num_tokens,
             "gather_across_devices": self.gather_across_devices,
             "directions": self.directions,
             "partition_mode": self.partition_mode,
