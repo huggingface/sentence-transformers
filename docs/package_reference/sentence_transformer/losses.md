@@ -94,6 +94,12 @@ This allows our network to be fine-tuned to recognize the similarity of sentence
 .. autoclass:: sentence_transformers.sentence_transformer.losses.CachedGISTEmbedLoss
 ```
 
+## GradCacheLoss
+
+```{eval-rst}
+.. autoclass:: sentence_transformers.sentence_transformer.losses.GradCacheLoss
+```
+
 ## GlobalOrthogonalRegularizationLoss
 
 ```{eval-rst}

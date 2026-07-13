@@ -440,8 +440,10 @@ class BaseTrainer(Trainer, ABC):
         else:
             loss = loss(model).to(model.device)
 
-        # Enable per-sample media counting in Transformer.preprocess for losses that minibatch VLM inputs
-        if getattr(loss, "requires_media_counts", False):
+        # Enable per-sample media counting in Transformer.preprocess for losses that minibatch VLM
+        # inputs. The loss may be wrapped (e.g. MatryoshkaLoss around a gradient-cached loss), so
+        # look through its submodules rather than only at the outermost loss.
+        if any(getattr(module, "requires_media_counts", False) for module in loss.modules()):
             if isinstance(model[0], Router):
                 input_modules = [route[0] for route in model[0].sub_modules.values()]  # type: ignore[index]
             else:
