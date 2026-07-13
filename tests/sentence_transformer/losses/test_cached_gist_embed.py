@@ -178,3 +178,38 @@ def test_relative_margin_negative_positive_score_suppresses_closer_negative():
     scores = captured[0]
     assert scores[0, 1].item() == float("-inf"), f"closer negative must be masked, got {scores[0, 1].item()}"
     assert torch.isfinite(scores[0, 0]) and torch.isfinite(loss)
+
+
+def test_cached_gist_two_forwards_before_one_backward(stsb_bert_tiny_model) -> None:
+    """Each forward pass must hand its own cached gradients to its own backward hook.
+
+    The cache used to live on the loss module, so a second forward pass overwrote it and both hooks
+    then back-propagated the second batch's gradients against the first batch's inputs.
+    """
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+
+    anchors = ["anchor a", "anchor b", "anchor c", "anchor d", "anchor e"]
+    positives = ["positive a", "positive b", "positive c", "positive d", "positive e"]
+    first = [model.preprocess(anchors[:3]), model.preprocess(positives[:3])]
+    second = [model.preprocess(anchors[2:]), model.preprocess(positives[2:])]
+    labels = torch.zeros(3, dtype=torch.long)
+
+    def make_loss() -> CachedGISTEmbedLoss:
+        return CachedGISTEmbedLoss(model, guide=model, mini_batch_size=2)
+
+    model.zero_grad()
+    shared = make_loss()
+    (shared(first, labels) + shared(second, labels)).backward()
+    shared_grads = gradients(model)
+
+    model.zero_grad()
+    (make_loss()(first, labels) + make_loss()(second, labels)).backward()
+    reference_grads = gradients(model)
+
+    assert_trained(shared_grads)
+    for name, grad in shared_grads.items():
+        torch.testing.assert_close(grad, reference_grads[name], rtol=1e-4, atol=1e-6, msg=name)
