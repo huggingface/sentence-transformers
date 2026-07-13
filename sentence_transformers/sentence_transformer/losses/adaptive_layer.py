@@ -9,10 +9,10 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from sentence_transformers import SentenceTransformer
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.losses.gradcache import uses_gradient_cache
+from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
 class TransformerDecorator:

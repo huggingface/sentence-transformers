@@ -5,10 +5,11 @@ from collections.abc import Callable
 from torch import Tensor
 from typing_extensions import deprecated
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import util
 from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
     CachedMultipleNegativesRankingLoss,
 )
+from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
 @deprecated(
