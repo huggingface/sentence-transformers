@@ -66,8 +66,8 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
             similarity_fct: similarity function between embeddings. By default, cos_sim. Can also be set to dot
                 product (and then set scale to 1)
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
-                training and evaluation. The larger the mini-batch size, the more memory efficient the training is, but
-                the slower the training will be. It's recommended to set it as high as your GPU memory allows. The default
+                training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory
+                is used. It's recommended to set it as high as your GPU memory allows. The default
                 value is 32.
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down

@@ -259,9 +259,14 @@ def _backward_hook(
                 grad,
             ):
                 if not reps_mb.requires_grad:
-                    # e.g. a frozen Router route: skip remaining minibatches as none need backprop
-                    break
-                surrogate = torch.dot(reps_mb.flatten(), grad_mb.flatten()) * grad_output
+                    # e.g. a frozen Router route. Skip rather than stop: with mixed inputs (say, a
+                    # frozen text tower next to a trainable vision tower), a later mini-batch of the
+                    # same column may still need backprop.
+                    continue
+                # The forward pass may run under autocast, in which case the cached gradients are
+                # reduced-precision while this re-embedding (inside backward, outside autocast) is
+                # fp32 -- compute the surrogate in fp32 either way.
+                surrogate = torch.dot(reps_mb.flatten().float(), grad_mb.flatten().float()) * grad_output
                 surrogate.backward()
 
 
@@ -347,6 +352,16 @@ class CachedLossMixin:
         loss = self.calculate_loss(reps, labels, with_backward=True)
         loss = loss.detach().requires_grad_()
         cache = [[rep.grad for rep in rep_mbs] for rep_mbs in reps]
+        unused_columns = [str(index) for index, grad_mbs in enumerate(cache) if any(g is None for g in grad_mbs)]
+        if unused_columns:
+            # Without this, the backward hook would crash on the None gradients -- deep inside
+            # loss.backward(), with no hint that the loss simply never read these embeddings.
+            raise ValueError(
+                f"The loss computation of {self.__class__.__name__} did not use input column(s) "
+                f"{', '.join(unused_columns)}: their embeddings received no gradient. Every input column "
+                "is embedded (twice, with gradient caching), so remove the unused column(s) from the "
+                "dataset instead."
+            )
         return loss, cache
 
     def forward_cached(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None) -> Tensor:
@@ -529,6 +544,17 @@ class GradCacheLoss(CachedLossMixin, nn.Module):
             raise ValueError(
                 "SpladeLoss is scheduled by the SparseEncoderTrainer, which would not recognize it inside "
                 f"a {self.__class__.__name__}. Use CachedSpladeLoss instead."
+            )
+
+        inner_model = next(
+            (getattr(loss, attribute) for attribute in ("model", "sentence_embedder") if hasattr(loss, attribute)),
+            None,
+        )
+        if inner_model is not None and inner_model is not model:
+            raise ValueError(
+                f"{loss.__class__.__name__} was initialized with a different model than the one passed to "
+                f"{self.__class__.__name__}. Both must embed with the same model, or the cached gradients "
+                "belong to embeddings the wrapped loss never saw."
             )
 
         model_parameters = {id(parameter) for parameter in model.parameters()}

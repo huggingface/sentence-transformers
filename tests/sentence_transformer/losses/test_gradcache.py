@@ -356,9 +356,16 @@ def test_gradcache_get_config_dict(stsb_bert_tiny_model: SentenceTransformer) ->
 
 
 def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """Smoke test under bf16 autocast: mixed-precision embeddings must flow through the cache, the
-    surrogate backward, and the loss stage without dtype errors, NaNs, or an empty gradient."""
+    """Under autocast, the cached gradients are reduced-precision while the backward hook's
+    re-embedding runs outside autocast in fp32; the surrogate must bridge the dtypes.
+
+    A LayerNorm-final model exits autocast in fp32 and would pass vacuously, so append a Dense
+    module: its Linear runs in bf16, making the cached embeddings (and their gradients) bf16.
+    """
+    from sentence_transformers.sentence_transformer.modules import Dense
+
     model = stsb_bert_tiny_model.to("cpu")
+    model.append(Dense(model.get_embedding_dimension(), 64, activation_function=torch.nn.Tanh()))
     disable_dropout(model)
     model.train()
     labels = torch.zeros(6, dtype=torch.long)
@@ -367,9 +374,34 @@ def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> 
     model.zero_grad()
     with torch.autocast("cpu", dtype=torch.bfloat16):
         loss = loss_fn(_features(model, 2, 6), labels)
+        assert loss.dtype == torch.bfloat16, "the test premise requires reduced-precision embeddings"
     assert torch.isfinite(loss)
     loss.backward()
 
     grads = gradients(model)
     assert_trained(grads)
     assert all(torch.isfinite(grad).all() for grad in grads.values())
+
+
+def test_gradcache_rejects_a_loss_built_with_a_different_model(
+    stsb_bert_tiny_model: SentenceTransformer,
+) -> None:
+    """Wrapping a loss that embeds with a different model would cache gradients for embeddings the
+    wrapped loss never saw; the mismatch must be named, not reported as 'own trainable parameters'."""
+    import copy
+
+    model = stsb_bert_tiny_model.to("cpu")
+    other_model = copy.deepcopy(model)
+    with pytest.raises(ValueError, match="initialized with a different model"):
+        GradCacheLoss(model, MultipleNegativesRankingLoss(other_model))
+
+
+def test_gradcache_names_the_unused_column(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """A wrapped loss that ignores an input column (e.g. a single-column loss handed extra columns)
+    must raise a pointed error at forward time, not crash on a None gradient inside loss.backward()."""
+    model = stsb_bert_tiny_model.to("cpu")
+    model.train()
+    loss = GradCacheLoss(model, BatchAllTripletLoss(model), mini_batch_size=2)
+
+    with pytest.raises(ValueError, match=r"did not use input column\(s\) 1"):
+        loss(_features(model, 2, 6), torch.arange(6) // 2)

@@ -69,8 +69,8 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
             use_document_regularizer_only: If True, all input embeddings are treated as documents and regularized
                 together with document_regularizer_weight.
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used
-                during training and evaluation. The larger the mini-batch size, the more memory efficient the
-                training is, but the slower the training will be. It's recommended to set it as high as your GPU
+                during training and evaluation. The larger the mini-batch size, the faster the
+                training is, but the more memory is used. It's recommended to set it as high as your GPU
                 memory allows. The default value is 32.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training.
 

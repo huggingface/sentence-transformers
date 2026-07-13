@@ -429,3 +429,36 @@ def test_cmnrl_matryoshka(stsb_bert_tiny_model: SentenceTransformer, mini_batch_
     # The Matryoshka sum over 3 dims triples the loss magnitude and with it the float noise.
     for name, grad in cached_grads.items():
         torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-4, msg=name)
+
+
+def test_cmnrl_hyperparameters_stay_assignable(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """The delegating properties must keep supporting assignment, as the plain attributes did before
+    the rebase -- including assigning an ``nn.Module`` similarity, which ``nn.Module.__setattr__``
+    would otherwise capture into ``_modules`` without ever reaching the wrapped loss."""
+    model = stsb_bert_tiny_model
+    loss = CachedMultipleNegativesRankingLoss(model, mini_batch_size=4)
+
+    loss.scale = 5.0
+    assert loss.scale == 5.0
+    assert loss.loss.scale == 5.0
+    assert loss.temperature == pytest.approx(0.2)
+
+    similarity = torch.nn.CosineSimilarity(dim=-1)
+    loss.similarity_fct = similarity
+    assert loss.similarity_fct is similarity
+    assert loss.loss.similarity_fct is similarity
+    assert "similarity_fct" not in loss._modules, "the module must not shadow the property on the wrapper"
+    loss.get_config_dict()  # must not raise for a __name__-less similarity
+
+
+def test_rand_context_stays_importable_from_this_module() -> None:
+    """RandContext (and the mini-batching helpers) historically lived in this module and are copied
+    around the ecosystem; the extraction to gradcache.py must not break those imports."""
+    from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (  # noqa: F401
+        RandContext,
+        _create_minibatch,
+        _get_batch_size,
+    )
+    from sentence_transformers.sentence_transformer.losses.gradcache import RandContext as CanonicalRandContext
+
+    assert RandContext is CanonicalRandContext

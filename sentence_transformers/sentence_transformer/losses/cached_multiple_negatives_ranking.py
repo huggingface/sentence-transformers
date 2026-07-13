@@ -5,10 +5,17 @@ from typing import Any, Literal
 
 import torch
 import tqdm
-from torch import Tensor
+from torch import Tensor, nn
 
 from sentence_transformers import util
-from sentence_transformers.sentence_transformer.losses.gradcache import GradCacheLoss
+
+# RandContext and the mini-batching helpers historically lived in this module; keep them importable.
+from sentence_transformers.sentence_transformer.losses.gradcache import (  # noqa: F401
+    GradCacheLoss,
+    RandContext,
+    _create_minibatch,
+    _get_batch_size,
+)
 from sentence_transformers.sentence_transformer.losses.multiple_negatives_ranking import (
     MultipleNegativesRankingLoss,
 )
@@ -63,8 +70,7 @@ class CachedMultipleNegativesRankingLoss(GradCacheLoss):
             similarity_fct: similarity function between embeddings. By default, cos_sim. Can also be set to dot
                 product (and then set scale to 1)
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
-                training and evaluation. The larger the mini-batch size, the more memory efficient the training is, but
-                the slower the training will be. It's recommended to set it as high as your GPU memory allows. The default
+                training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory is used. It's recommended to set it as high as your GPU memory allows. The default
                 value is 32.
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
@@ -172,6 +178,25 @@ class CachedMultipleNegativesRankingLoss(GradCacheLoss):
         )
 
     # The hyperparameters live on the wrapped loss; these keep the documented attributes readable.
+    # Assignments are delegated too: without the __setattr__ hook below, `loss.scale = 5.0` would hit
+    # the setterless property and raise, and `loss.similarity_fct = nn.CosineSimilarity()` would be
+    # captured by nn.Module.__setattr__ into _modules without ever reaching the wrapped loss.
+    _delegated_to_wrapped_loss = (
+        "scale",
+        "similarity_fct",
+        "gather_across_devices",
+        "directions",
+        "partition_mode",
+        "hardness_mode",
+        "hardness_strength",
+    )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in self._delegated_to_wrapped_loss and isinstance(getattr(self, "loss", None), nn.Module):
+            setattr(self.loss, name, value)
+        else:
+            super().__setattr__(name, value)
+
     @property
     def scale(self) -> float:
         return self.loss.scale
