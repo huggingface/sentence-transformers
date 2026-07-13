@@ -369,7 +369,7 @@ def semantic_search_usearch(
 
 
 def quantize_embeddings(
-    embeddings: Tensor | np.ndarray,
+    embeddings: Tensor | np.ndarray | list[Tensor] | list[np.ndarray],
     precision: Literal["float32", "int8", "uint8", "binary", "ubinary"],
     ranges: np.ndarray | None = None,
     calibration_embeddings: np.ndarray | None = None,
@@ -404,6 +404,9 @@ def quantize_embeddings(
     if isinstance(embeddings, Tensor):
         embeddings = embeddings.cpu().numpy()
     elif isinstance(embeddings, list):
+        if not embeddings:
+            # Nothing to quantize: preserve the (empty) list shape.
+            return []
         if isinstance(embeddings[0], Tensor):
             embeddings = [embedding.cpu().numpy() for embedding in embeddings]
         # Multi-vector input: a list of (num_tokens, dim) matrices (possibly ragged, one per text). Quantize

@@ -103,3 +103,9 @@ def test_quantize_multi_vector_handles_empty_matrices() -> None:
     # A corpus of only empty matrices must not crash int8 calibration either.
     all_empty = quantize_embeddings([np.zeros((0, 16), dtype=np.float32)], precision="int8")
     assert all_empty[0].shape == (0, 16)
+
+
+def test_quantize_empty_list_returns_empty_list() -> None:
+    """An empty input list (e.g. encode() of zero texts) must return an empty list, not IndexError."""
+    for precision in ("int8", "uint8", "binary", "ubinary", "float32"):
+        assert quantize_embeddings([], precision=precision) == []
