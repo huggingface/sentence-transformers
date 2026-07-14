@@ -115,7 +115,7 @@ def test_mega_batch_margin_two_forwards_before_one_backward(stsb_bert_tiny_model
     """Each forward pass must hand its own cached gradients to its own backward hook.
 
     The cache used to live on the loss module, so a second forward pass overwrote it and both hooks then
-    back-propagated the second batch's gradients against the first batch's inputs -- with no error.
+    back-propagated the second batch's gradients against the first batch's inputs, with no error.
     """
     model = stsb_bert_tiny_model.to("cpu")
     disable_dropout(model)
@@ -242,7 +242,7 @@ def test_mega_batch_margin_matryoshka(stsb_bert_tiny_model: SentenceTransformer,
     """MatryoshkaLoss must route the mini-batched loss through its ``CachedLossDecorator``.
 
     The mini-batched loss back-propagates from a hook, which fires long after MatryoshkaLoss has restored
-    the undecorated ``model.forward`` -- so the hook re-embedded at the full dimensionality while the cached
+    the undecorated ``model.forward``, so the hook re-embedded at the full dimensionality while the cached
     gradients were for the truncated one, raising ``RuntimeError: inconsistent tensor size``. Routing it
     through the decorator instead makes it agree with the non mini-batched version, as everywhere else.
     """
@@ -270,7 +270,7 @@ def test_mega_batch_margin_matryoshka(stsb_bert_tiny_model: SentenceTransformer,
 
 def test_mega_batch_margin_adaptive_layer_warns(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """AdaptiveLayerLoss calls its base loss once per layer, and the mini-batched loss defers its backward
-    pass to a hook, so the combination is unsupported -- exactly as it is for the Cached* losses, which it
+    pass to a hook, so the combination is unsupported, exactly as it is for the Cached* losses, which it
     already warns about. It used to construct silently and then die with ``KeyError``.
     """
     model = stsb_bert_tiny_model.to("cpu")
@@ -296,7 +296,7 @@ def test_mega_batch_margin_rejects_static_embedding(static_embedding_model: Sent
 
 def test_mega_batch_margin_rejects_static_embedding_behind_a_router(static_embedding: StaticEmbedding) -> None:
     """A Router keeps its input modules one level down, so a guard that only inspects ``model[0]`` waves a
-    StaticEmbedding straight through -- and ``_get_batch_size`` then reads the total token count as the
+    StaticEmbedding straight through, and ``_get_batch_size`` then reads the total token count as the
     batch size, mini-batching the EmbeddingBag features by token index."""
     model = SentenceTransformer(
         modules=[Router.for_query_document(query_modules=[static_embedding], document_modules=[static_embedding])]

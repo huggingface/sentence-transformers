@@ -26,7 +26,7 @@ class CachedGISTEmbedLoss(nn.Module):
     # Enables per-sample media counting in Transformer.preprocess for VLM minibatching
     requires_media_counts = True
 
-    # Back-propagates from a hook on the returned loss; see `gradcache.uses_gradient_cache`.
+    # Back-propagates from a hook on the returned loss (see `gradcache.uses_gradient_cache`).
     uses_gradient_cache = True
 
     def __init__(
@@ -405,9 +405,8 @@ class CachedGISTEmbedLoss(nn.Module):
         # Step (2): Calculate the loss, backward up to the embeddings and cache the gradients wrt. to the embeddings
         loss, cache = self.calculate_loss_and_cache_gradients(reps, reps_guided)
 
-        # Step (3): A 2nd embedding step with gradients/computation graphs and connect the cached gradients
-        # into the backward chain. The cache is handed to the hook rather than stored on `self`, so that a
-        # second forward pass cannot make the hook back-propagate the wrong batch's gradients.
+        # Step (3): a 2nd embedding step with gradients, connecting the cached gradients into
+        # the backward chain. The hook gets this pass's cache, so another forward cannot clobber it.
         loss.register_hook(
             partial(
                 _backward_hook,

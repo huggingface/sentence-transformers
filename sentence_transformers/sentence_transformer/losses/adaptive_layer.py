@@ -175,9 +175,8 @@ class AdaptiveLayerLoss(nn.Module):
         self.kl_temperature = kl_temperature
         assert isinstance(self.model[0], Transformer)
         if uses_gradient_cache(loss):
-            # These losses back-propagate from a hook, which fires after the TransformerDecorator below
-            # has been removed again, and they cache one batch of gradients per forward pass while this
-            # loss calls the inner loss once per layer.
+            # These losses back-propagate from a hook that fires after the TransformerDecorator is
+            # removed, and they cache one batch of gradients while this loss runs once per layer.
             warnings.warn(f"AdaptiveLayerLoss is not compatible with {loss.__class__.__name__}.", stacklevel=2)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:

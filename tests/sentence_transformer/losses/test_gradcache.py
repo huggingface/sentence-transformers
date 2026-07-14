@@ -1,6 +1,6 @@
 """Tests for the shared GradCache engine (sentence_transformers/base/losses/gradcache.py), exercised
 through CachedMultipleNegativesRankingLoss, its thinnest consumer. Loss-specific behavior lives in the
-per-loss test files; this file pins the engine invariants: gradient equivalence, RNG replay,
+per-loss test files. This file pins the engine invariants: gradient equivalence, RNG replay,
 per-forward cache isolation, grad_output scaling, token-budget boundaries, and mask non-mutation."""
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def test_cached_mnrl_matches_mnrl(
 
 
 def test_gradcache_replays_dropout_in_the_backward_pass(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """The backward pass must re-embed exactly what the forward pass embedded, dropout included; the
+    """The backward pass must re-embed exactly what the forward pass embedded, dropout included. The
     cached gradients belong to the first pass's embeddings, so the two must agree bit-for-bit."""
     model = stsb_bert_tiny_model.to("cpu")
     model.train()
@@ -174,7 +174,7 @@ def test_gradcache_under_no_grad(stsb_bert_tiny_model: SentenceTransformer, trai
 
 def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """Under autocast, the cached gradients are reduced-precision while the backward hook's
-    re-embedding runs outside autocast in fp32; the surrogate must bridge the dtypes.
+    re-embedding runs outside autocast in fp32, so the surrogate must bridge the dtypes.
 
     A LayerNorm-final model exits autocast in fp32 and would pass vacuously, so append a Dense
     module: its Linear runs in bf16, making the cached embeddings (and their gradients) bf16.
@@ -201,7 +201,7 @@ def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> 
 
 
 def test_adaptive_layer_warns_for_gradient_cached_losses(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """AdaptiveLayerLoss calls its base loss once per layer, which gradient caching cannot support; the
+    """AdaptiveLayerLoss calls its base loss once per layer, which gradient caching cannot support. The
     ``uses_gradient_cache`` capability check must catch any engine consumer, not a hardcoded list."""
     model = stsb_bert_tiny_model.to("cpu")
     with pytest.warns(UserWarning, match="AdaptiveLayerLoss is not compatible with CachedMultipleNegatives"):
@@ -209,7 +209,7 @@ def test_adaptive_layer_warns_for_gradient_cached_losses(stsb_bert_tiny_model: S
 
 
 def test_gradcache_names_the_unused_column(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """A ``calculate_loss`` that ignores an input column leaves its embeddings without gradients; the
+    """A ``calculate_loss`` that ignores an input column leaves its embeddings without gradients. The
     mixin must raise a pointed error at forward time, not crash on a None gradient inside
     ``loss.backward()``. None of the first-party losses ignore columns, so pin the engine guard with a
     minimal consumer."""
@@ -293,8 +293,8 @@ class TestMinibatchRanges:
 
 
 def test_gradcache_token_budget_replays_dropout(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """The backward hook must replay the exact (uneven) token-budget boundaries of the forward pass;
-    with dropout active, any boundary drift would surface as differing re-embeddings."""
+    """The backward hook must replay the exact (uneven) token-budget boundaries of the forward pass.
+    With dropout active, any boundary drift would surface as differing re-embeddings."""
     model = stsb_bert_tiny_model.to("cpu")
     model.train()
 
@@ -326,7 +326,7 @@ def test_gradcache_token_budget_replays_dropout(stsb_bert_tiny_model: SentenceTr
 def test_gradcache_replays_through_prompt_exclusion(
     stsb_bert_tiny_model: SentenceTransformer, minibatching: dict
 ) -> None:
-    """``Pooling(include_prompt=False)`` zeroes prompt positions in the attention mask; it used to do so
+    """``Pooling(include_prompt=False)`` zeroes prompt positions in the attention mask. It used to do so
     in place on the caller's features, through the mini-batch views. The backward pass then re-embedded
     with a *different* mask than the forward pass (silently wrong gradients), and recomputed token-budget
     boundaries no longer matched the cached gradients. The mask is now pruned on a copy, so both

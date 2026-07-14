@@ -141,8 +141,7 @@ class Pooling(Module):
 
             if prompt_length is not None:
                 attention_mask = self._exclude_prompt_from_mask(attention_mask, prompt_length)
-                # Expose the effective pooling mask to downstream consumers (e.g.
-                # ``encode(..., output_value=None)``) by replacing the key -- NOT by mutating the
+                # Expose the effective pooling mask by replacing the key, not by mutating the
                 # input tensor, which the gradient-cached losses re-embed in their backward pass.
                 features["attention_mask"] = attention_mask
 
@@ -158,7 +157,7 @@ class Pooling(Module):
         Operates on a copy: the mask belongs to the caller's features, and zeroing it in place would
         leak into any later forward pass over the same features. The gradient-cached losses re-embed
         the same features in their backward pass, and were served a mask with the prompt already
-        removed -- silently changing the transformer's attention between the two passes.
+        removed, silently changing the transformer's attention between the two passes.
         """
         attention_mask = attention_mask.clone()
         pad_lengths = attention_mask.to(torch.int32).argmax(dim=1)

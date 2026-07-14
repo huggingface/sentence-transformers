@@ -372,9 +372,8 @@ def test_pooling_excludes_prompt_tokens_directly(padding_side: str, prompt_lengt
             dtype=torch.int64,
         )
 
-    # Clone to verify the input tensor is NOT mutated: Pooling replaces the features'
-    # "attention_mask" key with a pruned copy, but the caller's tensor must stay pristine --
-    # the gradient-cached losses re-embed the same features in their backward pass.
+    # Pooling must replace the features' "attention_mask" key with a pruned copy, leaving
+    # the caller's tensor pristine for the gradient-cached losses' backward re-embedding.
     original_attention_mask = attention_mask.clone()
 
     features = {
@@ -396,7 +395,7 @@ def test_pooling_excludes_prompt_tokens_directly(padding_side: str, prompt_lengt
     pad_lengths = original_attention_mask.to(torch.int32).argmax(dim=1)
     expected_zero_upto = pad_lengths + prompt_length_scalar
 
-    # The input tensor must be untouched; the pruned mask is exposed via the features dict.
+    # The input tensor must be untouched. The pruned mask is exposed via the features dict.
     assert torch.equal(attention_mask, original_attention_mask)
     effective_mask = features["attention_mask"]
     assert effective_mask is not attention_mask

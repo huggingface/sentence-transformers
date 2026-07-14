@@ -16,7 +16,7 @@ from sentence_transformers.util import batch_to_device
 
 
 class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
-    # Back-propagates from a hook on the returned loss; see `gradcache.uses_gradient_cache`.
+    # Back-propagates from a hook on the returned loss (see `gradcache.uses_gradient_cache`).
     uses_gradient_cache = True
 
     def __init__(
@@ -149,14 +149,17 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
         prompt: str | None = None,
         task: str | None = None,
     ) -> tuple[Tensor, RandContext | None]:
-        """Do forward pass on a minibatch of the input features and return corresponding logits."""
+        """Do forward pass on a minibatch of the input features and return corresponding logits.
+
+        The pairs are tokenized and moved to the device before the RNG state is snapshot, since
+        RandContext only captures the state of devices it sees tensors for, while the forward
+        pass draws its randomness (e.g. dropout masks) from the device generator. Snapshotting
+        before tokenization, when only the raw string pairs exist, captured no device state at
+        all, so on CUDA the backward re-prediction drew different dropout masks than the ones
+        the cached gradients belong to.
+        """
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
-        # Tokenize and move to the device before snapshotting the RNG state: RandContext only captures
-        # the state of the devices it sees tensors for, while the forward pass draws its randomness
-        # (e.g. dropout masks) from the device generator. Snapshotting before tokenization -- when only
-        # the raw string pairs exist -- captured no device state at all, so on CUDA the backward hook's
-        # second forward pass drew different dropout masks than the one the cached gradients belong to.
         features = self.model.preprocess(pairs, prompt=prompt, task=task)
         features = batch_to_device(features, self.model.device)
         with random_state_context:
@@ -267,9 +270,8 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
         # Step (2): Calculate the loss, backward up to the logits and cache the gradients wrt. to the logits
         loss, cache = self.calculate_loss_and_cache_gradients(logits, batch_size)
 
-        # Step (3): A 2nd prediction step with gradients/computation graphs and connect the cached gradients
-        # into the backward chain. The cache is handed to the hook rather than stored on `self`, so that a
-        # second forward pass cannot make the hook back-propagate the wrong batch's gradients.
+        # Step (3): a 2nd prediction step with gradients, connecting the cached gradients into
+        # the backward chain. The hook gets this pass's cache, so another forward cannot clobber it.
         loss.register_hook(
             partial(
                 _backward_hook,

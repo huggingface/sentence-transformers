@@ -57,7 +57,7 @@ def test_cached_ce_mnrl_replays_dropout_on_cuda(reranker_bert_tiny_model_v54: Cr
     """The backward pass must re-predict exactly the logits of the forward pass, dropout included.
 
     ``RandContext`` can only capture the RNG state of devices it sees tensors for. It used to be handed
-    the raw string pairs -- before tokenization -- so it captured no device state at all, and on CUDA the
+    the raw string pairs, before tokenization, so it captured no device state at all, and on CUDA the
     backward hook's second forward pass drew different dropout masks than the logits the cached gradients
     belong to: silently wrong gradients for every reranker trained with dropout on a GPU.
     """
@@ -94,7 +94,7 @@ def test_cached_ce_mnrl_replays_dropout_on_cuda(reranker_bert_tiny_model_v54: Cr
 
 
 def test_cached_ce_mnrl_two_forwards_before_one_backward(reranker_bert_tiny_model_v54: CrossEncoder) -> None:
-    """Each forward pass must hand its own cached gradients to its own backward hook; the cache used to
+    """Each forward pass must hand its own cached gradients to its own backward hook. The cache used to
     live on the loss module, where a second forward pass overwrote it."""
     model = reranker_bert_tiny_model_v54
     _disable_dropout(model)
@@ -164,7 +164,7 @@ NEGATIVES = ["wrong a", "wrong b", "wrong c", "wrong d", "wrong e", "wrong f"]
 
 @pytest.mark.parametrize("mini_batch_size", [2, 5])
 def test_cached_ce_mnrl_with_hard_negatives(reranker_bert_tiny_model_v54: CrossEncoder, mini_batch_size: int) -> None:
-    """Explicit hard negatives (a third input column) triple the pair count; the cached loss must still
+    """Explicit hard negatives (a third input column) triple the pair count. The cached loss must still
     reproduce the non-cached loss and gradient."""
     model = reranker_bert_tiny_model_v54
     _disable_dropout(model)

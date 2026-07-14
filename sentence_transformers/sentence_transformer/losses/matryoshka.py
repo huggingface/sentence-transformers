@@ -215,10 +215,8 @@ class MatryoshkaLoss(nn.Module):
         self.matryoshka_dims, self.matryoshka_weights = zip(*sorted(dims_weights, key=lambda x: x[0], reverse=True))
         self.n_dims_per_step = n_dims_per_step
 
-        # The gradient-caching losses require special treatment: they back-propagate from a hook, which
-        # fires long after the ForwardDecorator below has been removed again. Instead, we decorate their
-        # `calculate_loss` to compute the loss for each Matryoshka dimensionality from the embeddings
-        # they have already cached.
+        # Gradient-caching losses back-propagate from a hook that fires after the ForwardDecorator
+        # is removed, so decorate their `calculate_loss` to shrink the cached embeddings instead.
         self.uses_gradient_cache = uses_gradient_cache(loss)
         if self.uses_gradient_cache:
             loss.calculate_loss = CachedLossDecorator(

@@ -11,7 +11,7 @@ Only one mini-batch of activations is alive at a time in (1) and (3), which is w
 The second forward pass reproduces the first exactly by replaying its RNG state (:class:`RandContext`),
 so dropout draws the same masks and the cached gradients belong to the embeddings they are applied to.
 
-:class:`CachedLossMixin` implements all of this; a loss only has to provide ``calculate_loss``.
+:class:`CachedLossMixin` implements all of this. A loss only has to provide ``calculate_loss``.
 """
 
 from __future__ import annotations
@@ -183,10 +183,10 @@ def uses_gradient_cache(loss: Any) -> bool:
     Such a loss re-embeds each mini-batch during the *backward* pass, by which time a decorator that
     patched ``SentenceTransformer.forward`` for the duration of the forward pass has been removed
     again. ``MatryoshkaLoss`` and ``AdaptiveLayerLoss`` both work by patching that forward, so they
-    have to treat these losses specially -- MatryoshkaLoss by decorating ``calculate_loss`` instead,
-    AdaptiveLayerLoss by warning that the combination is unsupported.
+    have to treat these losses specially: MatryoshkaLoss decorates ``calculate_loss`` instead, and
+    AdaptiveLayerLoss warns that the combination is unsupported.
 
-    Losses report this by setting ``uses_gradient_cache``; :class:`CachedLossMixin` sets it to True,
+    Losses report this by setting ``uses_gradient_cache``. :class:`CachedLossMixin` sets it to True,
     and a loss that can turn the caching off at construction time (``MegaBatchMarginLoss``) overrides
     it per instance.
     """
@@ -202,7 +202,7 @@ def _minibatch_ranges(
 
     If ``mini_batch_num_tokens`` is None, every range spans ``mini_batch_size`` sequences.
     Otherwise, each range greedily packs as many sequences as possible while keeping the total
-    number of non-padding tokens at or below ``mini_batch_num_tokens``; a single sequence whose
+    number of non-padding tokens at or below ``mini_batch_num_tokens``. A single sequence whose
     length exceeds the budget forms its own mini-batch. Per-sequence token counts are read from
     ``cu_seq_lens_q`` for flattened inputs, or from the attention mask for padded inputs.
     """
@@ -243,7 +243,7 @@ def has_static_embedding_input(model: Any) -> bool:
     """Whether the model embeds its inputs with a StaticEmbedding, directly or behind a Router.
 
     StaticEmbedding features are an EmbeddingBag (``input_ids``, ``offsets``) with no batch dimension,
-    so they cannot be sliced into mini-batches; losses that mini-batch must reject such models.
+    so they cannot be sliced into mini-batches, meaning losses that mini-batch must reject such models.
     """
     from sentence_transformers.sentence_transformer.modules import Router, StaticEmbedding
 
@@ -265,9 +265,9 @@ def _backward_hook(
     """A backward hook to backpropagate the cached gradients mini-batch by mini-batch.
 
     ``loss_obj`` only needs an ``embed_minibatch_iter(sentence_feature, with_grad, copy_random_state,
-    random_states, ranges)`` iterator whose items *start* with the embeddings tensor -- extra elements
+    random_states, ranges)`` iterator whose items *start* with the embeddings tensor. Extra elements
     are ignored (e.g. ``CachedGISTEmbedLoss`` also yields the guide model's embeddings).
-    :class:`CachedLossMixin` provides the standard implementation; the cross-encoder
+    :class:`CachedLossMixin` provides the standard implementation, and the cross-encoder
     ``CachedMultipleNegativesRankingLoss`` satisfies the contract with its own adapter.
 
     ``cache``, ``random_states`` and ``ranges`` belong to one specific forward pass and are passed in
@@ -277,8 +277,8 @@ def _backward_hook(
     two passes (e.g. ``Pooling`` with ``include_prompt=False`` zeroes prompt tokens in the attention
     mask), which would change recomputed token-budget boundaries.
 
-    Every mini-batch is scaled by ``grad_output``, which is whatever the outer backward pass hands us
-    -- so the fp16 gradient scaler and the gradient accumulation division reach all of them.
+    Every mini-batch is scaled by ``grad_output``, which is whatever the outer backward pass hands us,
+    so the fp16 gradient scaler and the gradient accumulation division reach all of them.
     """
     with torch.enable_grad():
         for sentence_feature, grad, random_state, column_ranges in zip(
@@ -295,13 +295,11 @@ def _backward_hook(
                 grad,
             ):
                 if not reps_mb.requires_grad:
-                    # e.g. a frozen Router route. Skip rather than stop: with mixed inputs (say, a
-                    # frozen text tower next to a trainable vision tower), a later mini-batch of the
-                    # same column may still need backprop.
+                    # e.g. a frozen Router route. Skip rather than stop, as with mixed inputs
+                    # a later mini-batch of the same column may still need backprop.
                     continue
-                # The forward pass may run under autocast, in which case the cached gradients are
-                # reduced-precision while this re-embedding (inside backward, outside autocast) is
-                # fp32 -- compute the surrogate in fp32 either way.
+                # Under autocast the cached gradients are reduced-precision while this re-embedding
+                # (inside backward, outside autocast) is fp32, so compute the surrogate in fp32.
                 surrogate = torch.dot(reps_mb.flatten().float(), grad_mb.flatten().float()) * grad_output
                 surrogate.backward()
 
@@ -387,9 +385,8 @@ class CachedLossMixin:
         sentence_features = list(sentence_features)
         grad_enabled = torch.is_grad_enabled()
 
-        # Compute the mini-batch boundaries before any forward pass: modules may modify the features
-        # in place while embedding (e.g. Pooling with include_prompt=False zeroes prompt tokens in the
-        # attention mask), and step (3) must replay exactly the boundaries step (1) used.
+        # Compute the mini-batch boundaries before any forward pass. Modules may modify the
+        # features in place while embedding, and step (3) must replay step (1)'s boundaries.
         ranges = [
             _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
             for sentence_feature in sentence_features
@@ -426,7 +423,7 @@ class CachedLossMixin:
         cache = [[rep.grad for rep in rep_mbs] for rep_mbs in reps]
         unused_columns = [str(index) for index, grad_mbs in enumerate(cache) if any(g is None for g in grad_mbs)]
         if unused_columns:
-            # Without this, the backward hook would crash on the None gradients -- deep inside
+            # Without this, the backward hook would crash on the None gradients deep inside
             # loss.backward(), with no hint that the loss simply never read these embeddings.
             raise ValueError(
                 f"The loss computation of {self.__class__.__name__} did not use input column(s) "
@@ -435,10 +432,8 @@ class CachedLossMixin:
                 "dataset instead."
             )
 
-        # Step (3): re-embed each mini-batch with gradients and connect the cached gradients into the
-        # backward chain. The cache is handed to the hook rather than stored on `self`, so that it
-        # cannot be clobbered by another forward pass, and so that it is not held across the
-        # optimizer step.
+        # Step (3): re-embed each mini-batch with gradients, connecting the cached gradients into
+        # the backward chain. The hook gets this pass's cache, so another forward cannot clobber it.
         loss.register_hook(
             partial(
                 _backward_hook,

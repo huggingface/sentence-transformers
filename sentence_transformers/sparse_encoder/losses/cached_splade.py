@@ -22,7 +22,7 @@ def _reconstruct_loss_components(total: Tensor, components: dict[str, Tensor]) -
 
     The trainer sums a dict-valued loss for its backward pass, but after gradient caching only
     ``total`` carries the gradient. Exactly one entry must therefore hold it, so the first component
-    is adjusted such that the dict still sums exactly to ``total``; the rest are detached values that
+    is adjusted such that the dict still sums exactly to ``total``. The rest are detached values that
     only serve the per-component logging.
     """
     components = {key: value.detach() for key, value in components.items()}

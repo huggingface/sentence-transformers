@@ -347,7 +347,7 @@ class TestCreateMinibatchMixedModality:
 
 
 def test_cmnrl_attributes_and_config_back_compat(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """CachedMultipleNegativesRankingLoss composes an inner MultipleNegativesRankingLoss;
+    """CachedMultipleNegativesRankingLoss composes an inner MultipleNegativesRankingLoss, but
     the documented attributes and ``get_config_dict`` keys must keep working as before the rebase."""
     from functools import partial
 
@@ -384,7 +384,7 @@ def test_cmnrl_attributes_and_config_back_compat(stsb_bert_tiny_model: SentenceT
         "hardness_strength": 9.0,
     }
 
-    # The inner loss validates; the cached variant used to silently accept an invalid scale.
+    # The inner loss validates. The cached variant used to silently accept an invalid scale.
     with pytest.raises(ValueError, match="Scale must be a positive value."):
         CachedMultipleNegativesRankingLoss(model, scale=-1.0)
 
@@ -395,8 +395,8 @@ def test_cmnrl_attributes_and_config_back_compat(stsb_bert_tiny_model: SentenceT
 
 @pytest.mark.parametrize("mini_batch_size", [2, 3])
 def test_cmnrl_matryoshka(stsb_bert_tiny_model: SentenceTransformer, mini_batch_size: int) -> None:
-    """``MatryoshkaLoss(CachedMultipleNegativesRankingLoss(...))`` -- the combination the visual document
-    retrieval example ships with -- must match ``MatryoshkaLoss(MultipleNegativesRankingLoss(...))``.
+    """``MatryoshkaLoss(CachedMultipleNegativesRankingLoss(...))``, the combination the visual document
+    retrieval example ships with, must match ``MatryoshkaLoss(MultipleNegativesRankingLoss(...))``.
 
     This pins the *chunked* ``calculate_loss`` under Matryoshka's ``CachedLossDecorator``, a different
     code path than the generic wrapper's un-chunked loss stage.
@@ -434,7 +434,7 @@ def test_cmnrl_matryoshka(stsb_bert_tiny_model: SentenceTransformer, mini_batch_
 
 def test_cmnrl_hyperparameters_stay_assignable(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """The delegating properties must keep supporting assignment, as the plain attributes did before
-    the rebase -- including assigning an ``nn.Module`` similarity, which ``nn.Module.__setattr__``
+    the rebase. That includes assigning an ``nn.Module`` similarity, which ``nn.Module.__setattr__``
     would otherwise capture into ``_modules`` without ever reaching the wrapped loss."""
     model = stsb_bert_tiny_model
     loss = CachedMultipleNegativesRankingLoss(model, mini_batch_size=4)
@@ -454,7 +454,7 @@ def test_cmnrl_hyperparameters_stay_assignable(stsb_bert_tiny_model: SentenceTra
 
 def test_rand_context_stays_importable_from_this_module() -> None:
     """RandContext (and the mini-batching helpers) historically lived in this module and are copied
-    around the ecosystem; the extraction to gradcache.py must not break those imports."""
+    around the ecosystem, so the extraction to gradcache.py must not break those imports."""
     from sentence_transformers.base.losses.gradcache import RandContext as CanonicalRandContext
     from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (  # noqa: F401
         RandContext,
@@ -466,7 +466,7 @@ def test_rand_context_stays_importable_from_this_module() -> None:
 
 
 def test_cmnrl_token_budget_matches_mnrl(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """With ``mini_batch_num_tokens``, the embedding passes pack by token count; the loss and gradient
+    """With ``mini_batch_num_tokens``, the embedding passes pack by token count, but the loss and gradient
     must still exactly match MultipleNegativesRankingLoss."""
     from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
 

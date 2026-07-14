@@ -9,7 +9,7 @@ from torch import Tensor, nn
 
 from sentence_transformers import util
 
-# RandContext and the mini-batching helpers historically lived in this module; keep them importable.
+# RandContext and the mini-batching helpers historically lived in this module, so keep them importable.
 from sentence_transformers.base.losses.gradcache import (  # noqa: F401
     CachedLossMixin,
     RandContext,
@@ -180,7 +180,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
         _validate_mini_batch_num_tokens(mini_batch_num_tokens)
 
         self.model = model
-        # The wrapped loss owns and validates every hyperparameter; this class adds the gradient
+        # The wrapped loss owns and validates every hyperparameter. This class adds the gradient
         # caching (CachedLossMixin) and the chunking of the loss stage (see calculate_loss).
         self.loss = MultipleNegativesRankingLoss(
             model,
@@ -196,10 +196,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
         self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
 
-    # The hyperparameters live on the wrapped loss; these keep the documented attributes readable.
-    # Assignments are delegated too: without the __setattr__ hook below, `loss.scale = 5.0` would hit
-    # the setterless property and raise, and `loss.similarity_fct = nn.CosineSimilarity()` would be
-    # captured by nn.Module.__setattr__ into _modules without ever reaching the wrapped loss.
+    # The hyperparameters live on the wrapped loss. See __setattr__ for assignment delegation.
     _delegated_to_wrapped_loss = (
         "scale",
         "similarity_fct",
@@ -211,6 +208,12 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
     )
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Delegate assignments of the wrapped loss's hyperparameters to the wrapped loss.
+
+        Without this, ``loss.scale = 5.0`` would hit the setterless property and raise, and
+        ``loss.similarity_fct = nn.CosineSimilarity()`` would be captured into ``_modules`` by
+        ``nn.Module.__setattr__`` without ever reaching the wrapped loss.
+        """
         if name in self._delegated_to_wrapped_loss and isinstance(getattr(self, "loss", None), nn.Module):
             setattr(self.loss, name, value)
         else:

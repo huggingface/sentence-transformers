@@ -161,10 +161,8 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
         positives = torch.cat(reps[1]) if len(reps[1]) > 1 else reps[1][0]
         batch_size = len(anchors)
 
-        # Chunking the similarity matrix only saves memory if each chunk's graph is released as we go:
-        # either we back-propagate it here, or there is no graph at all. On the non mini-batched path
-        # the caller still needs the graph for its own backward pass, so every chunk would have to keep
-        # its own normalized copy of `positives` alive, which costs more than the chunking saves.
+        # Chunking only saves memory when each chunk's graph is freed as we go: back-propagated
+        # here, or never built. Otherwise every chunk keeps its own normalized copy of `positives`.
         chunk_size = self.mini_batch_size if with_backward or not torch.is_grad_enabled() else batch_size
 
         losses = []
