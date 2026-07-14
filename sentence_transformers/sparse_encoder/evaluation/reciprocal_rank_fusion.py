@@ -337,12 +337,6 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
 
         return mrr, ndcg, ap
 
-    def prefix_name_to_metrics(self, metrics: dict[str, float], prefix: str) -> dict[str, float]:
-        """Prefix all metric names with the evaluator name."""
-        if not prefix:
-            return metrics
-        return {f"{prefix}_{k}": v for k, v in metrics.items()}
-
     def get_config_dict(self):
         return {
             "at_k": self.at_k,
