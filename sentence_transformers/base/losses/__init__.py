@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from .gradcache import (
-    CachedLoss,
     CachedLossMixin,
     RandContext,
     has_static_embedding_input,
@@ -10,7 +9,6 @@ from .gradcache import (
 )
 
 __all__ = [
-    "CachedLoss",
     "CachedLossMixin",
     "RandContext",
     "has_static_embedding_input",

@@ -20,7 +20,7 @@ import bisect
 from collections.abc import Iterable, Iterator
 from contextlib import nullcontext
 from functools import partial
-from typing import Any, Protocol
+from typing import Any
 
 import torch
 import tqdm
@@ -254,37 +254,21 @@ def has_static_embedding_input(model: Any) -> bool:
     return any(isinstance(module, StaticEmbedding) for module in input_modules)
 
 
-class CachedLoss(Protocol):
-    """The structural contract :func:`_backward_hook` relies on: a loss that can re-embed a
-    mini-batch with gradients, replaying the RNG state of the first forward pass.
-
-    :class:`CachedLossMixin` is the standard implementation, but ``CachedSpladeLoss`` also
-    satisfies this protocol with its own. Implementations may yield extra elements after the
-    embeddings (e.g. ``CachedGISTEmbedLoss`` yields the guide model's embeddings too); the
-    backward hook only reads the first element.
-    """
-
-    mini_batch_size: int
-
-    def embed_minibatch_iter(
-        self,
-        sentence_feature: dict[str, Tensor],
-        with_grad: bool,
-        copy_random_state: bool,
-        random_states: list[RandContext] | None = None,
-        ranges: list[tuple[int, int]] | None = None,
-    ) -> Iterator[tuple[Tensor, RandContext | None]]: ...
-
-
 def _backward_hook(
     grad_output: Tensor,
     sentence_features: Iterable[dict[str, Tensor]],
-    loss_obj: CachedLoss,
+    loss_obj: Any,
     cache: list[list[Tensor]],
     random_states: list[list[RandContext]],
     ranges: list[list[tuple[int, int]] | None],
 ) -> None:
     """A backward hook to backpropagate the cached gradients mini-batch by mini-batch.
+
+    ``loss_obj`` only needs an ``embed_minibatch_iter(sentence_feature, with_grad, copy_random_state,
+    random_states, ranges)`` iterator whose items *start* with the embeddings tensor -- extra elements
+    are ignored (e.g. ``CachedGISTEmbedLoss`` also yields the guide model's embeddings).
+    :class:`CachedLossMixin` provides the standard implementation; the cross-encoder
+    ``CachedMultipleNegativesRankingLoss`` satisfies the contract with its own adapter.
 
     ``cache``, ``random_states`` and ``ranges`` belong to one specific forward pass and are passed in
     rather than read off ``loss_obj``, so that a second forward pass before the first backward pass
