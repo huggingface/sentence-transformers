@@ -579,15 +579,34 @@ def test_load_module_class_from_ref_sentence_transformers(stsb_bert_tiny_model: 
     assert cls is Pooling
 
 
-def test_load_module_class_from_ref_fallback_to_import(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """A non-sentence_transformers class ref without trust_remote_code should fall back to import_from_string."""
-    cls = stsb_bert_tiny_model._load_module_class_from_ref(
-        "torch.nn.Linear",
-        model_name_or_path="nonexistent_path_12345",
-        trust_remote_code=False,
-        revision=None,
-        model_kwargs=None,
+def test_load_module_class_from_ref_untrusted_ref_warns_about_v6(
+    stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-sentence_transformers class ref from an untrusted, non-local model still resolves for now, but
+    must emit a FutureWarning that v6.0 will require `trust_remote_code=True` (the import runs
+    repository-chosen code)."""
+    dynamic_loading_attempted = False
+
+    def mock_get_class(class_ref, model_name_or_path, **kwargs):
+        nonlocal dynamic_loading_attempted
+        dynamic_loading_attempted = True
+        raise OSError("must not be reached for an untrusted, non-local ref")
+
+    monkeypatch.setattr(
+        "transformers.dynamic_module_utils.get_class_from_dynamic_module",
+        mock_get_class,
     )
+
+    with pytest.warns(FutureWarning, match="trust_remote_code"):
+        cls = stsb_bert_tiny_model._load_module_class_from_ref(
+            "torch.nn.Linear",
+            model_name_or_path="nonexistent_path_12345",
+            trust_remote_code=False,
+            revision=None,
+            model_kwargs=None,
+        )
+    # Untrusted + non-local must not attempt remote (dynamic) loading. The ref resolves via direct import.
+    assert not dynamic_loading_attempted
     assert cls is nn.Linear
 
 
@@ -639,6 +658,28 @@ def test_load_module_class_from_ref_code_revision(
     )
     assert "code_revision" not in model_kwargs
     assert captured_kwargs.get("code_revision") == "v1.0"
+
+
+@pytest.mark.parametrize("model_class", [SentenceTransformer, CrossEncoder, SparseEncoder])
+def test_model_path_pointing_to_a_file_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_class: type
+) -> None:
+    """A path that exists but is not a directory is not a local model, and must be rejected before any
+    loading happens. `load_file_path` only skips its Hub fallback for real directories, so accepting a file
+    would source `modules.json` (and the module class it names) from the Hub while the path still counts as
+    local. A file whose name collides with a repo id would then silently load that repo (#3801).
+    """
+    collision = tmp_path / "bert-base-uncased"
+    collision.write_text("not a model")
+
+    def fail_hub_request(*args, **kwargs):
+        raise AssertionError("no Hub request may be made for a path that points to a file")
+
+    monkeypatch.setattr("sentence_transformers.util.file_io.hf_hub_download", fail_hub_request)
+    monkeypatch.setattr("sentence_transformers.util.file_io.snapshot_download", fail_hub_request)
+
+    with pytest.raises(NotADirectoryError, match="is a file, not a directory"):
+        model_class(str(collision))
 
 
 def _setup_hub_mocks(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict | list]:

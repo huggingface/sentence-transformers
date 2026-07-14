@@ -17,7 +17,7 @@ from torch import nn
 from tqdm import tqdm
 
 from sentence_transformers.base.modules.input_module import InputModule
-from sentence_transformers.util import fullname, http_get, import_from_string
+from sentence_transformers.util import fullname, http_get, import_module_class
 
 from .tokenizer import TransformersTokenizerWrapper, WhitespaceTokenizer, WordTokenizer
 
@@ -124,7 +124,17 @@ class WordEmbeddings(InputModule):
             "local_files_only": local_files_only,
         }
         config = cls.load_config(model_name_or_path=model_name_or_path, **hub_kwargs)
-        tokenizer_class = import_from_string(config.pop("tokenizer_class"))
+        # `tokenizer_class` is a config-controlled dotted path, so resolve it through the same trust gate as
+        # the module `type` field
+        tokenizer_class = import_module_class(
+            config.pop("tokenizer_class"),
+            model_name_or_path=model_name_or_path,
+            trust_remote_code=kwargs.get("trust_remote_code", False),
+            revision=revision,
+            token=token,
+            cache_folder=cache_folder,
+            local_files_only=local_files_only,
+        )
         tokenizer_local_path = cls.load_dir_path(model_name_or_path=model_name_or_path, **hub_kwargs)
         tokenizer = tokenizer_class.load(tokenizer_local_path)
 
