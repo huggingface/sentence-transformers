@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from sentence_transformers.sentence_transformer.losses.gradcache import uses_gradient_cache
+from sentence_transformers.base.losses.gradcache import uses_gradient_cache
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 logger = logging.getLogger(__name__)

@@ -18,6 +18,7 @@ precomputed embeddings (``compute_loss_from_embeddings``) and adds gradient cach
 
 from __future__ import annotations
 
+import bisect
 import inspect
 from collections.abc import Iterable, Iterator
 from contextlib import nullcontext
@@ -195,6 +196,52 @@ def uses_gradient_cache(loss: Any) -> bool:
     return getattr(loss, "uses_gradient_cache", False)
 
 
+def _minibatch_ranges(
+    sentence_feature: dict[str, Any],
+    mini_batch_size: int,
+    mini_batch_num_tokens: int | None = None,
+) -> list[tuple[int, int]]:
+    """Compute the ``(begin, end)`` sequence ranges that split a batch into mini-batches.
+
+    If ``mini_batch_num_tokens`` is None, every range spans ``mini_batch_size`` sequences.
+    Otherwise, each range greedily packs as many sequences as possible while keeping the total
+    number of non-padding tokens at or below ``mini_batch_num_tokens``; a single sequence whose
+    length exceeds the budget forms its own mini-batch. Per-sequence token counts are read from
+    ``cu_seq_lens_q`` for flattened inputs, or from the attention mask for padded inputs.
+    """
+    batch_size = _get_batch_size(sentence_feature)
+    if mini_batch_num_tokens is None:
+        return [(begin, min(begin + mini_batch_size, batch_size)) for begin in range(0, batch_size, mini_batch_size)]
+
+    if "cu_seq_lens_q" in sentence_feature:
+        # cu_seq_lens_q already holds the cumulative token counts [0, len_0, len_0 + len_1, ...]
+        cumulative_num_tokens = sentence_feature["cu_seq_lens_q"][1:].tolist()
+    elif "attention_mask" in sentence_feature:
+        cumulative_num_tokens = sentence_feature["attention_mask"].sum(dim=1).cumsum(dim=0).tolist()
+    else:
+        raise ValueError(
+            "mini_batch_num_tokens requires per-sequence token counts, but the tokenized inputs contain "
+            "neither 'cu_seq_lens_q' (flattened inputs) nor 'attention_mask' (padded inputs). "
+            "Use mini_batch_size instead."
+        )
+
+    ranges: list[tuple[int, int]] = []
+    begin = 0
+    while begin < batch_size:
+        previous_num_tokens = cumulative_num_tokens[begin - 1] if begin > 0 else 0
+        end = bisect.bisect_right(cumulative_num_tokens, previous_num_tokens + mini_batch_num_tokens)
+        # Always make progress, even if a single sequence exceeds the token budget
+        end = max(end, begin + 1)
+        ranges.append((begin, end))
+        begin = end
+    return ranges
+
+
+def _validate_mini_batch_num_tokens(mini_batch_num_tokens: int | None) -> None:
+    if mini_batch_num_tokens is not None and mini_batch_num_tokens <= 0:
+        raise ValueError("mini_batch_num_tokens must be a positive integer or None.")
+
+
 def has_static_embedding_input(model: Any) -> bool:
     """Whether the model embeds its inputs with a StaticEmbedding, directly or behind a Router.
 
@@ -228,6 +275,7 @@ class CachedLoss(Protocol):
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
+        ranges: list[tuple[int, int]] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]: ...
 
 
@@ -237,24 +285,31 @@ def _backward_hook(
     loss_obj: CachedLoss,
     cache: list[list[Tensor]],
     random_states: list[list[RandContext]],
+    ranges: list[list[tuple[int, int]] | None],
 ) -> None:
     """A backward hook to backpropagate the cached gradients mini-batch by mini-batch.
 
-    ``cache`` and ``random_states`` belong to one specific forward pass and are passed in rather than
-    read off ``loss_obj``, so that a second forward pass before the first backward pass cannot make
-    this hook back-propagate the wrong batch's gradients.
+    ``cache``, ``random_states`` and ``ranges`` belong to one specific forward pass and are passed in
+    rather than read off ``loss_obj``, so that a second forward pass before the first backward pass
+    cannot make this hook back-propagate the wrong batch's gradients. Replaying the forward pass's
+    mini-batch ``ranges`` also matters because modules may modify the features in place between the
+    two passes (e.g. ``Pooling`` with ``include_prompt=False`` zeroes prompt tokens in the attention
+    mask), which would change recomputed token-budget boundaries.
 
     Every mini-batch is scaled by ``grad_output``, which is whatever the outer backward pass hands us
     -- so the fp16 gradient scaler and the gradient accumulation division reach all of them.
     """
     with torch.enable_grad():
-        for sentence_feature, grad, random_state in zip(sentence_features, cache, random_states):
+        for sentence_feature, grad, random_state, column_ranges in zip(
+            sentence_features, cache, random_states, ranges
+        ):
             for (reps_mb, *_), grad_mb in zip(
                 loss_obj.embed_minibatch_iter(
                     sentence_feature=sentence_feature,
                     with_grad=True,
                     copy_random_state=False,
                     random_states=random_state,
+                    ranges=column_ranges,
                 ),
                 grad,
             ):
@@ -279,6 +334,7 @@ class CachedLossMixin:
 
     model: Any
     mini_batch_size: int
+    mini_batch_num_tokens: int | None = None
     show_progress_bar: bool = False
 
     # Enables per-sample media counting in Transformer.preprocess, so that _create_minibatch can
@@ -324,14 +380,14 @@ class CachedLossMixin:
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
+        ranges: list[tuple[int, int]] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
         """Do a forward pass on every mini-batch of the input features and yield the embeddings."""
-        batch_size = _get_batch_size(sentence_feature)
-        for i, begin in enumerate(
-            tqdm.trange(
-                0,
-                batch_size,
-                self.mini_batch_size,
+        if ranges is None:
+            ranges = _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+        for i, (begin, end) in enumerate(
+            tqdm.tqdm(
+                ranges,
                 desc="Embed mini-batches",
                 disable=not self.show_progress_bar,
             )
@@ -339,7 +395,7 @@ class CachedLossMixin:
             yield self.embed_minibatch(
                 sentence_feature=sentence_feature,
                 begin=begin,
-                end=begin + self.mini_batch_size,
+                end=end,
                 with_grad=with_grad,
                 copy_random_state=copy_random_state,
                 random_state=None if random_states is None else random_states[i],
@@ -369,11 +425,19 @@ class CachedLossMixin:
         sentence_features = list(sentence_features)
         grad_enabled = torch.is_grad_enabled()
 
+        # Compute the mini-batch boundaries before any forward pass: modules may modify the features
+        # in place while embedding (e.g. Pooling with include_prompt=False zeroes prompt tokens in the
+        # attention mask), and step (3) must replay exactly the boundaries step (1) used.
+        ranges = [
+            _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+            for sentence_feature in sentence_features
+        ]
+
         # Step (1): embed every mini-batch without gradients, keeping the RNG state of each forward
         # pass so that step (3) can reproduce it exactly.
         reps = []
         random_states = []
-        for sentence_feature in sentence_features:
+        for sentence_feature, column_ranges in zip(sentence_features, ranges):
             reps_mbs = []
             random_state_mbs = []
             for reps_mb, random_state in self.embed_minibatch_iter(
@@ -382,6 +446,7 @@ class CachedLossMixin:
                 # Only the backward hook replays them, and it is only registered when gradients are
                 # enabled, so don't pay for the RNG snapshots during evaluation.
                 copy_random_state=grad_enabled,
+                ranges=column_ranges,
             ):
                 reps_mbs.append(reps_mb.detach().requires_grad_())
                 random_state_mbs.append(random_state)
@@ -406,6 +471,7 @@ class CachedLossMixin:
                 loss_obj=self,
                 cache=cache,
                 random_states=random_states,
+                ranges=ranges,
             )
         )
         return loss
@@ -432,6 +498,7 @@ class GradCacheLoss(CachedLossMixin, nn.Module):
         model: Any,
         loss: nn.Module,
         mini_batch_size: int = 32,
+        mini_batch_num_tokens: int | None = None,
         show_progress_bar: bool = False,
     ) -> None:
         """
@@ -471,6 +538,14 @@ class GradCacheLoss(CachedLossMixin, nn.Module):
             mini_batch_size: Mini-batch size for the forward pass. This denotes how much memory is actually
                 used during training and evaluation; the larger the mini-batch size, the faster the
                 training is, but the more memory is used. It does not affect the loss or the gradient.
+            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count
+                instead of by sequence count, overriding ``mini_batch_size`` for the embedding passes.
+                Every mini-batch then does a near-constant amount of work regardless of how sequence
+                lengths are distributed, so the budget can be tuned once against the GPU's memory and
+                trusted for the whole run. Most effective with variable-length inputs and models that
+                run without padding (flash attention input flattening, or models that unpad internally).
+                Note that only text tokens count toward the budget: with vision-language inputs, image
+                patches do not, so leave headroom for them.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The
                 default is False.
 
@@ -518,9 +593,11 @@ class GradCacheLoss(CachedLossMixin, nn.Module):
         """
         super().__init__()
         self._validate_wrappable(model, loss)
+        _validate_mini_batch_num_tokens(mini_batch_num_tokens)
         self.model = model
         self.loss = loss
         self.mini_batch_size = mini_batch_size
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
         # Per-component values of the last dict-valued loss computation; logging-only (see forward).
         self._loss_components: dict[str, Tensor] | None = None
@@ -625,7 +702,11 @@ class GradCacheLoss(CachedLossMixin, nn.Module):
         return reconstruct_loss_components(loss, self._loss_components)
 
     def get_config_dict(self) -> dict[str, Any]:
-        return {"loss": self.loss, "mini_batch_size": self.mini_batch_size}
+        return {
+            "loss": self.loss,
+            "mini_batch_size": self.mini_batch_size,
+            "mini_batch_num_tokens": self.mini_batch_num_tokens,
+        }
 
     @property
     def citation(self) -> str:

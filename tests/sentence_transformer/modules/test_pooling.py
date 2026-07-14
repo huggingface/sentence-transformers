@@ -372,8 +372,9 @@ def test_pooling_excludes_prompt_tokens_directly(padding_side: str, prompt_lengt
             dtype=torch.int64,
         )
 
-    # Clone so we can compare after the forward pass, since Pooling
-    # mutates the attention mask in-place when include_prompt=False.
+    # Clone to verify the input tensor is NOT mutated: Pooling replaces the features'
+    # "attention_mask" key with a pruned copy, but the caller's tensor must stay pristine --
+    # the gradient-cached losses re-embed the same features in their backward pass.
     original_attention_mask = attention_mask.clone()
 
     features = {
@@ -395,11 +396,16 @@ def test_pooling_excludes_prompt_tokens_directly(padding_side: str, prompt_lengt
     pad_lengths = original_attention_mask.to(torch.int32).argmax(dim=1)
     expected_zero_upto = pad_lengths + prompt_length_scalar
 
+    # The input tensor must be untouched; the pruned mask is exposed via the features dict.
+    assert torch.equal(attention_mask, original_attention_mask)
+    effective_mask = features["attention_mask"]
+    assert effective_mask is not attention_mask
+
     for i in range(batch_size):
         # All positions strictly before expected_zero_upto[i] must be 0
-        assert torch.all(attention_mask[i, : expected_zero_upto[i]] == 0)
+        assert torch.all(effective_mask[i, : expected_zero_upto[i]] == 0)
         # All original padding positions must still be 0
-        assert torch.all(attention_mask[i, original_attention_mask[i] == 0] == 0)
+        assert torch.all(effective_mask[i, original_attention_mask[i] == 0] == 0)
 
 
 # Shared test fixtures: two sequences with different lengths and a mix of padding.

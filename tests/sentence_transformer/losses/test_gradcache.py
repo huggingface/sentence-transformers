@@ -7,6 +7,7 @@ import torch
 from torch import Tensor
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.base.losses.gradcache import _minibatch_ranges
 from sentence_transformers.sentence_transformer.losses import (
     AdaptiveLayerLoss,
     BatchAllTripletLoss,
@@ -352,7 +353,7 @@ def test_gradcache_get_config_dict(stsb_bert_tiny_model: SentenceTransformer) ->
     model = stsb_bert_tiny_model.to("cpu")
     inner = MultipleNegativesRankingLoss(model, scale=42.0)
     config = GradCacheLoss(model, inner, mini_batch_size=8).get_config_dict()
-    assert config == {"loss": inner, "mini_batch_size": 8}
+    assert config == {"loss": inner, "mini_batch_size": 8, "mini_batch_num_tokens": None}
 
 
 def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> None:
@@ -405,3 +406,203 @@ def test_gradcache_names_the_unused_column(stsb_bert_tiny_model: SentenceTransfo
 
     with pytest.raises(ValueError, match=r"did not use input column\(s\) 1"):
         loss(_features(model, 2, 6), torch.arange(6) // 2)
+
+
+class TestMinibatchRanges:
+    """Unit tests for the token-budget mini-batch boundary computation."""
+
+    def _padded(self, lengths: list[int]) -> dict[str, torch.Tensor]:
+        width = max(lengths)
+        mask = torch.zeros(len(lengths), width, dtype=torch.long)
+        for row, length in enumerate(lengths):
+            mask[row, :length] = 1
+        return {"input_ids": torch.ones_like(mask), "attention_mask": mask}
+
+    def _flattened(self, lengths: list[int]) -> dict[str, torch.Tensor]:
+        cu_seq_lens = torch.tensor([0] + list(torch.tensor(lengths).cumsum(0)), dtype=torch.long)
+        return {"input_ids": torch.ones(1, int(cu_seq_lens[-1])), "cu_seq_lens_q": cu_seq_lens}
+
+    def test_fixed_size_splitting_unchanged(self) -> None:
+        ranges = _minibatch_ranges(self._padded([3] * 7), mini_batch_size=3)
+        assert ranges == [(0, 3), (3, 6), (6, 7)]
+
+    def test_padded_and_flattened_agree(self) -> None:
+        lengths = [5, 3, 8, 2, 9, 1, 4]
+        padded = _minibatch_ranges(self._padded(lengths), 2, mini_batch_num_tokens=10)
+        flattened = _minibatch_ranges(self._flattened(lengths), 2, mini_batch_num_tokens=10)
+        # 5+3=8, then 8+2=10 and 9+1=10 fill the budget exactly, and 4 remains
+        assert padded == flattened == [(0, 2), (2, 4), (4, 6), (6, 7)]
+
+    def test_padding_does_not_count(self) -> None:
+        # Rows are padded to width 9, but only the real tokens fill the budget.
+        ranges = _minibatch_ranges(self._padded([2, 2, 9, 2]), 1, mini_batch_num_tokens=4)
+        assert ranges == [(0, 2), (2, 3), (3, 4)]
+
+    def test_oversized_sequence_gets_its_own_minibatch(self) -> None:
+        ranges = _minibatch_ranges(self._padded([2, 50, 2]), 1, mini_batch_num_tokens=4)
+        assert ranges == [(0, 1), (1, 2), (2, 3)]
+
+    def test_budget_larger_than_the_batch(self) -> None:
+        ranges = _minibatch_ranges(self._padded([3, 3, 3]), 1, mini_batch_num_tokens=1000)
+        assert ranges == [(0, 3)]
+
+    def test_ranges_cover_the_batch_exactly(self) -> None:
+        lengths = [7, 1, 3, 9, 2, 2, 5, 8]
+        ranges = _minibatch_ranges(self._padded(lengths), 3, mini_batch_num_tokens=9)
+        assert ranges[0][0] == 0 and ranges[-1][1] == len(lengths)
+        assert all(previous[1] == current[0] for previous, current in zip(ranges, ranges[1:]))
+
+    def test_missing_token_counts_raise(self) -> None:
+        with pytest.raises(ValueError, match="neither 'cu_seq_lens_q' .* nor 'attention_mask'"):
+            _minibatch_ranges({"pixel_values": torch.ones(4, 3)}, 2, mini_batch_num_tokens=8)
+
+    def test_non_positive_budget_rejected_at_construction(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
+        model = stsb_bert_tiny_model.to("cpu")
+        with pytest.raises(ValueError, match="mini_batch_num_tokens must be a positive integer or None."):
+            GradCacheLoss(model, MultipleNegativesRankingLoss(model), mini_batch_num_tokens=0)
+
+
+# Variable-length columns, so token-budget boundaries genuinely differ from fixed-size ones.
+VARIED_A = ["a", "anchor b with quite a few more words in it", "c and d", "final anchor sentence", "e", "f g h"]
+VARIED_B = ["short", "positive b also has a longer surface form here", "p", "another positive text", "q r", "s"]
+
+
+def test_gradcache_token_budget_matches_the_wrapped_loss(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """``mini_batch_num_tokens`` only changes how mini-batches are packed, so the loss and gradient
+    must match the wrapped loss exactly, as with ``mini_batch_size``."""
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+    labels = torch.zeros(6, dtype=torch.long)
+
+    def loss_and_grads(loss_fn: torch.nn.Module) -> tuple[Tensor, dict[str, Tensor]]:
+        model.zero_grad()
+        loss_value = loss_fn([model.preprocess(VARIED_A), model.preprocess(VARIED_B)], labels)
+        loss_value.backward()
+        return loss_value.detach(), gradients(model)
+
+    wrapper = GradCacheLoss(model, MultipleNegativesRankingLoss(model), mini_batch_num_tokens=16)
+    wrapped_loss, wrapped_grads = loss_and_grads(wrapper)
+    plain_loss, plain_grads = loss_and_grads(MultipleNegativesRankingLoss(model))
+
+    assert_trained(wrapped_grads)
+    assert wrapped_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
+    for name, grad in wrapped_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)
+
+
+def test_gradcache_token_budget_replays_dropout(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """The backward hook must replay the exact (uneven) token-budget boundaries of the forward pass;
+    with dropout active, any boundary drift would surface as differing re-embeddings."""
+    model = stsb_bert_tiny_model.to("cpu")
+    model.train()
+
+    loss = GradCacheLoss(model, MultipleNegativesRankingLoss(model), mini_batch_num_tokens=16)
+    forward_reps: list[Tensor] = []
+    backward_reps: list[Tensor] = []
+    sink = forward_reps
+    embed_minibatch = loss.embed_minibatch
+
+    def spy(**kwargs):
+        reps, random_state = embed_minibatch(**kwargs)
+        sink.append(reps.detach().clone())
+        return reps, random_state
+
+    loss.embed_minibatch = spy
+
+    loss_value = loss([model.preprocess(VARIED_A), model.preprocess(VARIED_B)], torch.zeros(6, dtype=torch.long))
+    number_of_forward_minibatches = len(forward_reps)
+    sink = backward_reps
+    loss_value.backward()
+
+    assert number_of_forward_minibatches == len(backward_reps) > 2, "expected several uneven mini-batches"
+    for index, (forward_rep, backward_rep) in enumerate(zip(forward_reps, backward_reps)):
+        assert forward_rep.shape == backward_rep.shape, f"mini-batch {index} was re-embedded with other boundaries"
+        assert torch.equal(forward_rep, backward_rep), f"mini-batch {index} was re-embedded differently"
+
+
+@pytest.mark.parametrize("minibatching", [{"mini_batch_size": 2}, {"mini_batch_num_tokens": 16}])
+def test_gradcache_replays_through_prompt_exclusion(
+    stsb_bert_tiny_model: SentenceTransformer, minibatching: dict
+) -> None:
+    """``Pooling(include_prompt=False)`` zeroes prompt positions in the attention mask; it used to do so
+    in place on the caller's features, through the mini-batch views. The backward pass then re-embedded
+    with a *different* mask than the forward pass (silently wrong gradients), and recomputed token-budget
+    boundaries no longer matched the cached gradients. The mask is now pruned on a copy, so both
+    mini-batching modes must replay bitwise and match the non-cached loss."""
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+    model[1].include_prompt = False
+    labels = torch.zeros(6, dtype=torch.long)
+
+    def features() -> list[dict[str, Tensor]]:
+        columns = []
+        for column in (VARIED_A, VARIED_B):
+            feature = model.preprocess(column)
+            feature["prompt_length"] = 2  # as Transformer.preprocess sets it when a prompt is used
+            columns.append(feature)
+        return columns
+
+    loss = GradCacheLoss(model, MultipleNegativesRankingLoss(model), **minibatching)
+    forward_reps: list[Tensor] = []
+    backward_reps: list[Tensor] = []
+    sink = forward_reps
+    embed_minibatch = loss.embed_minibatch
+
+    def spy(**kwargs):
+        reps, random_state = embed_minibatch(**kwargs)
+        sink.append(reps.detach().clone())
+        return reps, random_state
+
+    loss.embed_minibatch = spy
+
+    model.zero_grad()
+    batch = features()
+    pristine_mask = batch[0]["attention_mask"].clone()
+    loss_value = loss(batch, labels)
+    assert torch.equal(pristine_mask, batch[0]["attention_mask"]), "Pooling must not mutate the features' mask"
+    sink = backward_reps
+    loss_value.backward()
+    wrapped_grads = gradients(model)
+
+    for index, (forward_rep, backward_rep) in enumerate(zip(forward_reps, backward_reps)):
+        assert torch.equal(forward_rep, backward_rep), f"mini-batch {index} was re-embedded differently"
+
+    model.zero_grad()
+    plain_loss = MultipleNegativesRankingLoss(model)(features(), labels)
+    plain_loss.backward()
+    plain_grads = gradients(model)
+
+    assert_trained(wrapped_grads)
+    assert loss_value.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
+    for name, grad in wrapped_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)
+
+
+def test_gradcache_token_budget_two_forwards_before_one_backward(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """The per-forward boundaries must ride each forward pass's backward hook: two batches with
+    different length distributions produce different ranges, and mixing them up would misalign the
+    cached gradients."""
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+    labels = torch.zeros(3, dtype=torch.long)
+
+    first = [model.preprocess(VARIED_A[:3]), model.preprocess(VARIED_B[:3])]
+    second = [model.preprocess(VARIED_A[3:]), model.preprocess(VARIED_B[3:])]
+
+    model.zero_grad()
+    shared = GradCacheLoss(model, MultipleNegativesRankingLoss(model), mini_batch_num_tokens=16)
+    (shared(first, labels) + shared(second, labels)).backward()
+    shared_grads = gradients(model)
+
+    model.zero_grad()
+    first_loss = GradCacheLoss(model, MultipleNegativesRankingLoss(model), mini_batch_num_tokens=16)(first, labels)
+    second_loss = GradCacheLoss(model, MultipleNegativesRankingLoss(model), mini_batch_num_tokens=16)(second, labels)
+    (first_loss + second_loss).backward()
+    reference_grads = gradients(model)
+
+    assert_trained(shared_grads)
+    for name, grad in shared_grads.items():
+        torch.testing.assert_close(grad, reference_grads[name], rtol=1e-4, atol=1e-6, msg=name)

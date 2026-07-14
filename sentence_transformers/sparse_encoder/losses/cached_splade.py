@@ -7,8 +7,9 @@ from typing import Any
 import torch
 from torch import Tensor, nn
 
-from sentence_transformers.sentence_transformer.losses.gradcache import (
+from sentence_transformers.base.losses.gradcache import (
     CachedLossMixin,
+    _validate_mini_batch_num_tokens,
     reconstruct_loss_components,
 )
 from sentence_transformers.sparse_encoder.losses.splade import SpladeLoss
@@ -30,6 +31,7 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
         query_regularizer_threshold: int | None = None,
         use_document_regularizer_only: bool = False,
         mini_batch_size: int = 32,
+        mini_batch_num_tokens: int | None = None,
         show_progress_bar: bool = False,
     ):
         """
@@ -72,6 +74,9 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
                 during training and evaluation. The larger the mini-batch size, the faster the
                 training is, but the more memory is used. It's recommended to set it as high as your GPU
                 memory allows. The default value is 32.
+            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count
+                instead of by sequence count, overriding ``mini_batch_size`` for the embedding passes.
+                See :class:`~sentence_transformers.sentence_transformer.losses.GradCacheLoss`.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training.
 
         References:
@@ -121,7 +126,9 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
             query_regularizer_threshold=query_regularizer_threshold,
             use_document_regularizer_only=use_document_regularizer_only,
         )
+        _validate_mini_batch_num_tokens(mini_batch_num_tokens)
         self.mini_batch_size = mini_batch_size
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
 
     def calculate_loss(
@@ -181,6 +188,7 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
     def get_config_dict(self) -> dict[str, Any]:
         config = super().get_config_dict()
         config["mini_batch_size"] = self.mini_batch_size
+        config["mini_batch_num_tokens"] = self.mini_batch_num_tokens
         return config
 
     @property

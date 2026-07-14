@@ -9,9 +9,9 @@ import torch
 import tqdm
 from torch import Tensor, nn
 
+from sentence_transformers.base.losses.gradcache import RandContext, _backward_hook
 from sentence_transformers.cross_encoder.losses.multiple_negatives_ranking import MultipleNegativesRankingLoss
 from sentence_transformers.cross_encoder.model import CrossEncoder
-from sentence_transformers.sentence_transformer.losses.gradcache import RandContext, _backward_hook
 from sentence_transformers.util import batch_to_device
 
 
@@ -203,9 +203,12 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
+        ranges: list[tuple[int, int]] | None = None,
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
         """Adapter for the shared backward hook, which iterates per-column features. This loss has one
-        "column": the flat pair list, bundled with the prompt/task it must be tokenized with."""
+        "column": the flat pair list, bundled with the prompt/task it must be tokenized with. The
+        ``ranges`` are unused: this loss slices its pairs by count (token budgets would require
+        tokenizing the whole pair list up front, a follow-up)."""
         yield from self.predict_minibatch_iter(
             pairs=sentence_feature["pairs"],
             with_grad=with_grad,
@@ -274,6 +277,7 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
                 loss_obj=self,
                 cache=[cache],
                 random_states=[random_states],
+                ranges=[None],
             )
         )
         return loss

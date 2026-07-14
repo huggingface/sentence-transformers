@@ -10,7 +10,7 @@ from torch import Tensor, nn
 from sentence_transformers import util
 
 # RandContext and the mini-batching helpers historically lived in this module; keep them importable.
-from sentence_transformers.sentence_transformer.losses.gradcache import (  # noqa: F401
+from sentence_transformers.base.losses.gradcache import (  # noqa: F401
     GradCacheLoss,
     RandContext,
     _create_minibatch,
@@ -30,6 +30,7 @@ class CachedMultipleNegativesRankingLoss(GradCacheLoss):
         scale: float = 20.0,
         similarity_fct: Callable[[Tensor, Tensor], Tensor] = util.cos_sim,
         mini_batch_size: int = 32,
+        mini_batch_num_tokens: int | None = None,
         gather_across_devices: bool = False,
         directions: tuple[
             Literal["query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"],
@@ -72,6 +73,14 @@ class CachedMultipleNegativesRankingLoss(GradCacheLoss):
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
                 training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory is used. It's recommended to set it as high as your GPU memory allows. The default
                 value is 32.
+            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count
+                instead of by sequence count, overriding ``mini_batch_size`` for the embedding passes.
+                Every mini-batch then does a near-constant amount of work regardless of how sequence
+                lengths are distributed, so the budget can be tuned once against the GPU's memory and
+                trusted for the whole run. Most effective with variable-length inputs and models that
+                run without padding (flash attention input flattening, or models that unpad internally).
+                The loss computation itself still chunks its score matrix by ``mini_batch_size``, which
+                is independent of sequence lengths.
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
@@ -175,6 +184,7 @@ class CachedMultipleNegativesRankingLoss(GradCacheLoss):
             ),
             mini_batch_size=mini_batch_size,
             show_progress_bar=show_progress_bar,
+            mini_batch_num_tokens=mini_batch_num_tokens,
         )
 
     # The hyperparameters live on the wrapped loss; these keep the documented attributes readable.
@@ -363,6 +373,7 @@ class CachedMultipleNegativesRankingLoss(GradCacheLoss):
             "scale": self.scale,
             "similarity_fct": getattr(self.similarity_fct, "__name__", str(self.similarity_fct)),
             "mini_batch_size": self.mini_batch_size,
+            "mini_batch_num_tokens": self.mini_batch_num_tokens,
             "gather_across_devices": self.gather_across_devices,
             "directions": self.directions,
             "partition_mode": self.partition_mode,

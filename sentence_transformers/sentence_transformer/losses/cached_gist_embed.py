@@ -10,11 +10,12 @@ import tqdm
 from torch import Tensor, nn
 from transformers import PreTrainedTokenizerBase
 
-from sentence_transformers.sentence_transformer.losses.gradcache import (
+from sentence_transformers.base.losses.gradcache import (
     RandContext,
     _backward_hook,
     _create_minibatch,
-    _get_batch_size,
+    _minibatch_ranges,
+    _validate_mini_batch_num_tokens,
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
@@ -34,6 +35,7 @@ class CachedGISTEmbedLoss(nn.Module):
         guide: SentenceTransformer,
         temperature: float = 0.01,
         mini_batch_size: int = 32,
+        mini_batch_num_tokens: int | None = None,
         show_progress_bar: bool = False,
         margin_strategy: Literal["absolute", "relative"] = "absolute",
         margin: float = 0.0,
@@ -66,6 +68,9 @@ class CachedGISTEmbedLoss(nn.Module):
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
                 training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory is used. It's recommended to set it as high as your GPU memory allows. The default
                 value is 32.
+            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count
+                instead of by sequence count, overriding ``mini_batch_size`` for the embedding passes.
+                See :class:`GradCacheLoss`. The loss computation itself still chunks by ``mini_batch_size``.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
             margin_strategy: Strategy used for false negative filtering. One of {"absolute", "relative"}.
             margin: The margin value for filtering negatives. Defaults to 0.0, together with the "absolute" strategy,
@@ -151,7 +156,9 @@ class CachedGISTEmbedLoss(nn.Module):
             raise ValueError(
                 "Both the training model and the guiding model must use a PreTrainedTokenizer from transformers."
             )
+        _validate_mini_batch_num_tokens(mini_batch_num_tokens)
         self.mini_batch_size = mini_batch_size
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
         self.must_retokenize = (
             model.tokenizer.vocab != guide.tokenizer.vocab or guide.max_seq_length < model.max_seq_length
@@ -211,19 +218,18 @@ class CachedGISTEmbedLoss(nn.Module):
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
+        ranges: list[tuple[int, int]] | None = None,
     ) -> Iterator[tuple[Tensor, Tensor, RandContext | None]]:
         """Do forward pass on all the minibatches of the input features and yield corresponding embeddings."""
-        batch_size = _get_batch_size(sentence_feature)
-        for i, begin in enumerate(
-            tqdm.trange(
-                0,
-                batch_size,
-                self.mini_batch_size,
+        if ranges is None:
+            ranges = _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+        for i, (begin, end) in enumerate(
+            tqdm.tqdm(
+                ranges,
                 desc="Embed mini-batches",
                 disable=not self.show_progress_bar,
             )
         ):
-            end = begin + self.mini_batch_size
             reps, guide_reps, random_state = self.embed_minibatch(
                 sentence_feature=sentence_feature,
                 begin=begin,
@@ -361,12 +367,20 @@ class CachedGISTEmbedLoss(nn.Module):
         # Step (1): A quick embedding step without gradients/computation graphs to get all the embeddings
         sentence_features = list(sentence_features)
         grad_enabled = torch.is_grad_enabled()
+
+        # Compute the mini-batch boundaries before any forward pass: modules may modify the features
+        # in place while embedding, and step (3) must replay exactly the boundaries step (1) used.
+        ranges = [
+            _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+            for sentence_feature in sentence_features
+        ]
+
         reps = []
         reps_guided = []
         # Copy random states to guarantee exact reproduction of the embeddings during the second forward
         # pass, i.e. step (3). Only the backward hook replays them, so skip them during evaluation.
         random_states = []
-        for sentence_feature in sentence_features:
+        for sentence_feature, column_ranges in zip(sentence_features, ranges):
             reps_mbs = []
             reps_guided_mbs = []
             random_state_mbs = []
@@ -374,6 +388,7 @@ class CachedGISTEmbedLoss(nn.Module):
                 sentence_feature=sentence_feature,
                 with_grad=False,
                 copy_random_state=grad_enabled,
+                ranges=column_ranges,
             ):
                 reps_mbs.append(reps_mb.detach().requires_grad_())
                 reps_guided_mbs.append(reps_guided_mb.detach())  # does not requires gradient
@@ -399,6 +414,7 @@ class CachedGISTEmbedLoss(nn.Module):
                 loss_obj=self,
                 cache=cache,
                 random_states=random_states,
+                ranges=ranges,
             )
         )
         return loss
@@ -408,6 +424,7 @@ class CachedGISTEmbedLoss(nn.Module):
             "guide": self.guide,
             "temperature": self.temperature,
             "mini_batch_size": self.mini_batch_size,
+            "mini_batch_num_tokens": self.mini_batch_num_tokens,
             "margin_strategy": self.margin_strategy,
             "margin": self.margin,
             "contrast_anchors": self.contrast_anchors,

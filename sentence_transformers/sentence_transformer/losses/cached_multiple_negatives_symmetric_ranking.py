@@ -24,6 +24,7 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
         scale: float = 20.0,
         similarity_fct: Callable[[Tensor, Tensor], Tensor] = util.cos_sim,
         mini_batch_size: int = 32,
+        mini_batch_num_tokens: int | None = None,
         gather_across_devices: bool = False,
         show_progress_bar: bool = False,
     ) -> None:
@@ -126,4 +127,5 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
             directions=("query_to_doc", "doc_to_query"),  # Symmetric directions
             partition_mode="per_direction",  # Separate softmax normalization for each direction
             show_progress_bar=show_progress_bar,
+            mini_batch_num_tokens=mini_batch_num_tokens,
         )

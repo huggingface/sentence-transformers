@@ -170,3 +170,37 @@ def test_cached_splade_inference_free_frozen_query_route(inference_free_splade_b
     assert all(parameter.grad is None for parameter in query_route_parameters), (
         "the frozen query route must receive no gradients"
     )
+
+
+def test_cached_splade_token_budget_matches_splade(splade_bert_tiny_model: SparseEncoder) -> None:
+    """The token budget must reproduce SpladeLoss's per-component losses and gradients."""
+    model = splade_bert_tiny_model.to("cpu")
+    _disable_dropout(model)
+    model.train()
+
+    anchors = ["a", "anchor b with quite a few more words in it", "c and d", "final anchor sentence", "e", "f g"]
+    positives = ["short", "positive b also has a longer surface form", "p", "another positive text", "q r", "s"]
+
+    def loss_and_grads(cached: bool) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+        model.zero_grad()
+        kwargs = {
+            "model": model,
+            "loss": SparseMultipleNegativesRankingLoss(model),
+            "document_regularizer_weight": 3e-5,
+            "query_regularizer_weight": 5e-5,
+        }
+        loss_fn = CachedSpladeLoss(**kwargs, mini_batch_num_tokens=16) if cached else SpladeLoss(**kwargs)
+        output = loss_fn([model.preprocess(anchors), model.preprocess(positives)], None)
+        torch.stack(list(output.values())).sum().backward()
+        grads = {name: param.grad.clone() for name, param in model.named_parameters() if param.grad is not None}
+        return output, grads
+
+    cached_output, cached_grads = loss_and_grads(cached=True)
+    plain_output, plain_grads = loss_and_grads(cached=False)
+
+    assert cached_output.keys() == plain_output.keys()
+    for key in plain_output:
+        assert cached_output[key].item() == pytest.approx(plain_output[key].item(), rel=1e-4, abs=1e-5), key
+    assert cached_grads and sum(grad.abs().sum() for grad in cached_grads.values()) > 0
+    for name, grad in cached_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=2e-4, msg=name)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .cosent import CoSENTLoss  # isort: skip
 
+from ...base.losses.gradcache import GradCacheLoss
 from .adaptive_layer import AdaptiveLayerLoss
 from .angle import AnglELoss
 from .batch_all_triplet import BatchAllTripletLoss
@@ -24,7 +25,6 @@ from .distill_kl_div import DistillKLDivLoss
 from .embed_distill import EmbedDistillLoss
 from .gist_embed import GISTEmbedLoss
 from .global_orthogonal_regularization import GlobalOrthogonalRegularizationLoss
-from .gradcache import GradCacheLoss
 from .margin_mse import MarginMSELoss
 from .matryoshka import MatryoshkaLoss
 from .matryoshka_2d import Matryoshka2dLoss

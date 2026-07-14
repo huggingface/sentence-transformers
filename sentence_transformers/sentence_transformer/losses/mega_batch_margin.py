@@ -8,7 +8,11 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from sentence_transformers import util
-from sentence_transformers.sentence_transformer.losses.gradcache import CachedLossMixin, has_static_embedding_input
+from sentence_transformers.base.losses.gradcache import (
+    CachedLossMixin,
+    _validate_mini_batch_num_tokens,
+    has_static_embedding_input,
+)
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
@@ -20,6 +24,7 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
         negative_margin: float = 0.3,
         use_mini_batched_version: bool = True,
         mini_batch_size: int = 50,
+        mini_batch_num_tokens: int | None = None,
         show_progress_bar: bool = False,
     ) -> None:
         """
@@ -49,6 +54,12 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
                 both the activation memory of the embedding steps and the
                 size of the similarity matrix used to mine the hardest
                 negatives, so lower it if you run out of memory.
+            mini_batch_num_tokens: If set, mini-batches are packed by
+                total (non-padding) token count instead of by sequence
+                count, overriding ``mini_batch_size`` for the embedding
+                passes. See :class:`GradCacheLoss`. The hardest-negative
+                mining still chunks its similarity matrix by
+                ``mini_batch_size``.
             show_progress_bar: If True, a progress bar for the
                 mini-batches is shown during training. The default is
                 False.
@@ -114,7 +125,9 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
         self.model = model
         self.positive_margin = positive_margin
         self.negative_margin = negative_margin
+        _validate_mini_batch_num_tokens(mini_batch_num_tokens)
         self.mini_batch_size = mini_batch_size
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
         self.use_mini_batched_version = use_mini_batched_version
         # Both only apply to the mini-batched path: without it there is nothing to slice, and the
@@ -196,6 +209,7 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
             "positive_margin": self.positive_margin,
             "negative_margin": self.negative_margin,
             "mini_batch_size": self.mini_batch_size,
+            "mini_batch_num_tokens": self.mini_batch_num_tokens,
         }
 
     @property

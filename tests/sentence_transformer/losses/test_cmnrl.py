@@ -9,13 +9,13 @@ from torch.optim import Adam
 from transformers import set_seed
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.base.losses.gradcache import (
+    _create_minibatch,
+    _get_batch_size,
+)
 from sentence_transformers.sentence_transformer.losses import (
     CachedMultipleNegativesRankingLoss,
     MultipleNegativesRankingLoss,
-)
-from sentence_transformers.sentence_transformer.losses.gradcache import (
-    _create_minibatch,
-    _get_batch_size,
 )
 
 
@@ -140,7 +140,7 @@ def test_cmnrl_same_grad(
 @pytest.mark.parametrize("use_rand_context", [True, False])
 def test_rand_context_working(use_rand_context: bool):
     # Given:
-    from sentence_transformers.sentence_transformer.losses.gradcache import RandContext
+    from sentence_transformers.base.losses.gradcache import RandContext
 
     a = torch.Tensor(1)
     b = torch.Tensor(1)
@@ -376,6 +376,7 @@ def test_cmnrl_attributes_and_config_back_compat(stsb_bert_tiny_model: SentenceT
         "scale": 42.0,
         "similarity_fct": "cos_sim",
         "mini_batch_size": 4,
+        "mini_batch_num_tokens": None,
         "gather_across_devices": False,
         "directions": ("query_to_doc", "doc_to_query"),
         "partition_mode": "per_direction",
@@ -454,11 +455,39 @@ def test_cmnrl_hyperparameters_stay_assignable(stsb_bert_tiny_model: SentenceTra
 def test_rand_context_stays_importable_from_this_module() -> None:
     """RandContext (and the mini-batching helpers) historically lived in this module and are copied
     around the ecosystem; the extraction to gradcache.py must not break those imports."""
+    from sentence_transformers.base.losses.gradcache import RandContext as CanonicalRandContext
     from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (  # noqa: F401
         RandContext,
         _create_minibatch,
         _get_batch_size,
     )
-    from sentence_transformers.sentence_transformer.losses.gradcache import RandContext as CanonicalRandContext
 
     assert RandContext is CanonicalRandContext
+
+
+def test_cmnrl_token_budget_matches_mnrl(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """With ``mini_batch_num_tokens``, the embedding passes pack by token count; the loss and gradient
+    must still exactly match MultipleNegativesRankingLoss."""
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+
+    anchors = ["a", "anchor b with quite a few more words in it", "c and d", "final anchor sentence", "e", "f g h"]
+    positives = ["short", "positive b also has a longer surface form", "p", "another positive text", "q r", "s"]
+    labels = torch.zeros(6, dtype=torch.long)
+
+    def loss_and_grads(loss_fn: torch.nn.Module) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        model.zero_grad()
+        loss_value = loss_fn([model.preprocess(anchors), model.preprocess(positives)], labels)
+        loss_value.backward()
+        return loss_value.detach(), gradients(model)
+
+    cached_loss, cached_grads = loss_and_grads(CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=16))
+    plain_loss, plain_grads = loss_and_grads(MultipleNegativesRankingLoss(model))
+
+    assert_trained(cached_grads)
+    assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
+    for name, grad in cached_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)

@@ -306,3 +306,29 @@ def test_mega_batch_margin_rejects_static_embedding_behind_a_router(static_embed
         MegaBatchMarginLoss(model)
 
     MegaBatchMarginLoss(model, use_mini_batched_version=False)  # the non mini-batched version is fine
+
+
+def test_mega_batch_margin_token_budget_matches_non_mini_batched(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Packing the embedding passes by token count must not change the loss or the gradient."""
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+
+    anchors = ["a", "anchor b with quite a few more words in it", "c and d", "final anchor sentence", "e", "f g h"]
+    positives = ["short", "positive b also has a longer surface form", "p", "another positive text", "q r", "s"]
+    labels = torch.zeros(6, dtype=torch.long)
+
+    def loss_and_grads(**kwargs) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        model.zero_grad()
+        loss_fn = MegaBatchMarginLoss(model, **kwargs)
+        loss_value = loss_fn([model.preprocess(anchors), model.preprocess(positives)], labels)
+        loss_value.backward()
+        return loss_value.detach(), gradients(model)
+
+    budget_loss, budget_grads = loss_and_grads(mini_batch_num_tokens=16)
+    full_loss, full_grads = loss_and_grads(use_mini_batched_version=False)
+
+    assert_trained(budget_grads)
+    assert budget_loss.item() == pytest.approx(full_loss.item(), rel=1e-4, abs=1e-5)
+    for name, grad in budget_grads.items():
+        torch.testing.assert_close(grad, full_grads[name], rtol=1e-4, atol=1e-5, msg=name)

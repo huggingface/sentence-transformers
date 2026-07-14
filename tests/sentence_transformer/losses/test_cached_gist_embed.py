@@ -284,3 +284,32 @@ def test_cached_gist_replays_dropout_in_the_backward_pass(stsb_bert_tiny_model) 
     assert len(forward_reps) == len(backward_reps) == 6
     for index, (forward, backward) in enumerate(zip(forward_reps, backward_reps)):
         assert torch.equal(forward, backward), f"mini-batch {index} was re-embedded with different dropout"
+
+
+def test_cached_gist_token_budget_matches_gist(stsb_bert_tiny_model) -> None:
+    """The token budget must flow through this loss's bespoke ``embed_minibatch_iter`` (which also runs
+    the guide model) without changing the loss or gradient."""
+    from sentence_transformers.sentence_transformer.losses import GISTEmbedLoss
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+
+    anchors = ["a", "anchor b with quite a few more words in it", "c and d", "final anchor sentence", "e"]
+    positives = ["short", "positive b also has a longer surface form", "p", "another positive text", "q r"]
+    labels = torch.zeros(5, dtype=torch.long)
+
+    def loss_and_grads(loss_fn: torch.nn.Module) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        model.zero_grad()
+        loss_value = loss_fn([model.preprocess(anchors), model.preprocess(positives)], labels)
+        loss_value.backward()
+        return loss_value.detach(), gradients(model)
+
+    cached_loss, cached_grads = loss_and_grads(CachedGISTEmbedLoss(model, guide=model, mini_batch_num_tokens=16))
+    plain_loss, plain_grads = loss_and_grads(GISTEmbedLoss(model, guide=model))
+
+    assert_trained(cached_grads)
+    assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
+    for name, grad in cached_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)
