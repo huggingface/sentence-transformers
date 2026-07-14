@@ -10,12 +10,26 @@ from torch import Tensor, nn
 from sentence_transformers.base.losses.gradcache import (
     CachedLossMixin,
     _validate_mini_batch_num_tokens,
-    reconstruct_loss_components,
 )
 from sentence_transformers.sparse_encoder.losses.splade import SpladeLoss
 from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 logger = logging.getLogger(__name__)
+
+
+def _reconstruct_loss_components(total: Tensor, components: dict[str, Tensor]) -> dict[str, Tensor]:
+    """Rebuild a per-component loss dict around a single gradient-carrying total.
+
+    The trainer sums a dict-valued loss for its backward pass, but after gradient caching only
+    ``total`` carries the gradient. Exactly one entry must therefore hold it, so the first component
+    is adjusted such that the dict still sums exactly to ``total``; the rest are detached values that
+    only serve the per-component logging.
+    """
+    components = {key: value.detach() for key, value in components.items()}
+    first = next(iter(components))
+    others = sum((value for key, value in components.items() if key != first), start=torch.zeros_like(total))
+    components[first] = total - others
+    return components
 
 
 class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
@@ -183,7 +197,7 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
         }
         if self._query_reg_value is not None:
             components["query_regularizer_loss"] = torch.tensor(self._query_reg_value, device=total.device)
-        return reconstruct_loss_components(total, components)
+        return _reconstruct_loss_components(total, components)
 
     def get_config_dict(self) -> dict[str, Any]:
         config = super().get_config_dict()

@@ -382,25 +382,6 @@ class CachedLossMixin:
                 random_state=None if random_states is None else random_states[i],
             )
 
-    def calculate_loss_and_cache_gradients(
-        self, reps: list[list[Tensor]], labels: Tensor | None = None
-    ) -> tuple[Tensor, list[list[Tensor]]]:
-        """Compute the loss and return it alongside the gradients wrt. the embeddings."""
-        loss = self.calculate_loss(reps, labels, with_backward=True)
-        loss = loss.detach().requires_grad_()
-        cache = [[rep.grad for rep in rep_mbs] for rep_mbs in reps]
-        unused_columns = [str(index) for index, grad_mbs in enumerate(cache) if any(g is None for g in grad_mbs)]
-        if unused_columns:
-            # Without this, the backward hook would crash on the None gradients -- deep inside
-            # loss.backward(), with no hint that the loss simply never read these embeddings.
-            raise ValueError(
-                f"The loss computation of {self.__class__.__name__} did not use input column(s) "
-                f"{', '.join(unused_columns)}: their embeddings received no gradient. Every input column "
-                "is embedded (twice, with gradient caching), so remove the unused column(s) from the "
-                "dataset instead."
-            )
-        return loss, cache
-
     def forward_cached(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None) -> Tensor:
         """Run the three-step GradCache forward pass. See the module docstring."""
         sentence_features = list(sentence_features)
@@ -438,8 +419,21 @@ class CachedLossMixin:
             # In evaluation there are no gradients to cache and no backward pass to hook into.
             return self.calculate_loss(reps, labels)
 
-        # Step (2): compute the loss over the whole batch and cache the gradients wrt. the embeddings.
-        loss, cache = self.calculate_loss_and_cache_gradients(reps, labels)
+        # Step (2): compute the loss over the whole batch, back-propagating it up to the embeddings,
+        # whose gradients become the cache.
+        loss = self.calculate_loss(reps, labels, with_backward=True)
+        loss = loss.detach().requires_grad_()
+        cache = [[rep.grad for rep in rep_mbs] for rep_mbs in reps]
+        unused_columns = [str(index) for index, grad_mbs in enumerate(cache) if any(g is None for g in grad_mbs)]
+        if unused_columns:
+            # Without this, the backward hook would crash on the None gradients -- deep inside
+            # loss.backward(), with no hint that the loss simply never read these embeddings.
+            raise ValueError(
+                f"The loss computation of {self.__class__.__name__} did not use input column(s) "
+                f"{', '.join(unused_columns)}: their embeddings received no gradient. Every input column "
+                "is embedded (twice, with gradient caching), so remove the unused column(s) from the "
+                "dataset instead."
+            )
 
         # Step (3): re-embed each mini-batch with gradients and connect the cached gradients into the
         # backward chain. The cache is handed to the hook rather than stored on `self`, so that it
@@ -456,18 +450,3 @@ class CachedLossMixin:
             )
         )
         return loss
-
-
-def reconstruct_loss_components(total: Tensor, components: dict[str, Tensor]) -> dict[str, Tensor]:
-    """Rebuild a per-component loss dict around a single gradient-carrying total.
-
-    The trainer sums a dict-valued loss for its backward pass, but after gradient caching only
-    ``total`` carries the gradient. Exactly one entry must therefore hold it, so the first component
-    is adjusted such that the dict still sums exactly to ``total``; the rest are detached values that
-    only serve the per-component logging.
-    """
-    components = {key: value.detach() for key, value in components.items()}
-    first = next(iter(components))
-    others = sum((value for key, value in components.items() if key != first), start=torch.zeros_like(total))
-    components[first] = total - others
-    return components
