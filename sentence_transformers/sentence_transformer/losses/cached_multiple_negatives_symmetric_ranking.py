@@ -70,6 +70,10 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
                 training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory
                 is used. It's recommended to set it as high as your GPU memory allows. The default
                 value is 32.
+            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count
+                instead of by sequence count, overriding ``mini_batch_size`` for the embedding passes.
+                See :class:`CachedMultipleNegativesRankingLoss`. The loss computation itself still
+                chunks by ``mini_batch_size``.
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
@@ -123,9 +127,9 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
             scale=scale,
             similarity_fct=similarity_fct,
             mini_batch_size=mini_batch_size,
+            mini_batch_num_tokens=mini_batch_num_tokens,
             gather_across_devices=gather_across_devices,
             directions=("query_to_doc", "doc_to_query"),  # Symmetric directions
             partition_mode="per_direction",  # Separate softmax normalization for each direction
             show_progress_bar=show_progress_bar,
-            mini_batch_num_tokens=mini_batch_num_tokens,
         )

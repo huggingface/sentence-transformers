@@ -122,7 +122,7 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
                 )
                 trainer.train()
         """
-        super().__init__(model, num_negatives, scale, activation_fn)
+        super().__init__(model, num_negatives=num_negatives, scale=scale, activation_fn=activation_fn)
         self.mini_batch_size = mini_batch_size
         self.show_progress_bar = show_progress_bar
 
