@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from .cosent import CoSENTLoss  # isort: skip
 
-from ...base.losses.gradcache import GradCacheLoss
 from .adaptive_layer import AdaptiveLayerLoss
 from .angle import AnglELoss
 from .batch_all_triplet import BatchAllTripletLoss
@@ -63,7 +62,6 @@ __all__ = [
     "DenoisingAutoEncoderLoss",
     "GISTEmbedLoss",
     "GlobalOrthogonalRegularizationLoss",
-    "GradCacheLoss",
     "BatchHardTripletLoss",
     "BatchHardTripletLossDistanceFunction",
     "BatchHardSoftMarginTripletLoss",

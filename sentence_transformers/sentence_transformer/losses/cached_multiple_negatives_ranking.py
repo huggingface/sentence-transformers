@@ -11,10 +11,12 @@ from sentence_transformers import util
 
 # RandContext and the mini-batching helpers historically lived in this module; keep them importable.
 from sentence_transformers.base.losses.gradcache import (  # noqa: F401
-    GradCacheLoss,
+    CachedLossMixin,
     RandContext,
     _create_minibatch,
     _get_batch_size,
+    _validate_mini_batch_num_tokens,
+    has_static_embedding_input,
 )
 from sentence_transformers.sentence_transformer.losses.multiple_negatives_ranking import (
     MultipleNegativesRankingLoss,
@@ -23,7 +25,7 @@ from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
 
 
-class CachedMultipleNegativesRankingLoss(GradCacheLoss):
+class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
     def __init__(
         self,
         model: SentenceTransformer,
@@ -168,24 +170,31 @@ class CachedMultipleNegativesRankingLoss(GradCacheLoss):
                 )
                 trainer.train()
         """
-        # The wrapped loss owns and validates every hyperparameter; this class only adds the chunking
-        # of the loss stage on top of GradCacheLoss (see calculate_loss).
-        super().__init__(
+        super().__init__()
+        if has_static_embedding_input(model):
+            raise ValueError(
+                "CachedMultipleNegativesRankingLoss is not compatible with a SentenceTransformer model based on a "
+                "StaticEmbedding, whose inputs cannot be split into mini-batches along a batch dimension. "
+                "Consider using MultipleNegativesRankingLoss instead."
+            )
+        _validate_mini_batch_num_tokens(mini_batch_num_tokens)
+
+        self.model = model
+        # The wrapped loss owns and validates every hyperparameter; this class adds the gradient
+        # caching (CachedLossMixin) and the chunking of the loss stage (see calculate_loss).
+        self.loss = MultipleNegativesRankingLoss(
             model,
-            MultipleNegativesRankingLoss(
-                model,
-                scale=scale,
-                similarity_fct=similarity_fct,
-                gather_across_devices=gather_across_devices,
-                directions=directions,
-                partition_mode=partition_mode,
-                hardness_mode=hardness_mode,
-                hardness_strength=hardness_strength,
-            ),
-            mini_batch_size=mini_batch_size,
-            show_progress_bar=show_progress_bar,
-            mini_batch_num_tokens=mini_batch_num_tokens,
+            scale=scale,
+            similarity_fct=similarity_fct,
+            gather_across_devices=gather_across_devices,
+            directions=directions,
+            partition_mode=partition_mode,
+            hardness_mode=hardness_mode,
+            hardness_strength=hardness_strength,
         )
+        self.mini_batch_size = mini_batch_size
+        self.mini_batch_num_tokens = mini_batch_num_tokens
+        self.show_progress_bar = show_progress_bar
 
     # The hyperparameters live on the wrapped loss; these keep the documented attributes readable.
     # Assignments are delegated too: without the __setattr__ hook below, `loss.scale = 5.0` would hit
@@ -384,3 +393,16 @@ class CachedMultipleNegativesRankingLoss(GradCacheLoss):
     @property
     def temperature(self) -> float:
         return 1.0 / self.scale
+
+    @property
+    def citation(self) -> str:
+        return """
+@misc{gao2021scaling,
+    title={Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup},
+    author={Luyu Gao and Yunyi Zhang and Jiawei Han and Jamie Callan},
+    year={2021},
+    eprint={2101.06983},
+    archivePrefix={arXiv},
+    primaryClass={cs.LG}
+}
+"""

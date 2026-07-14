@@ -70,7 +70,8 @@ class CachedGISTEmbedLoss(nn.Module):
                 value is 32.
             mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count
                 instead of by sequence count, overriding ``mini_batch_size`` for the embedding passes.
-                See :class:`GradCacheLoss`. The loss computation itself still chunks by ``mini_batch_size``.
+                See :class:`CachedMultipleNegativesRankingLoss`. The loss computation itself still chunks by
+                ``mini_batch_size``.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
             margin_strategy: Strategy used for false negative filtering. One of {"absolute", "relative"}.
             margin: The margin value for filtering negatives. Defaults to 0.0, together with the "absolute" strategy,

@@ -347,7 +347,7 @@ class TestCreateMinibatchMixedModality:
 
 
 def test_cmnrl_attributes_and_config_back_compat(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """CachedMultipleNegativesRankingLoss is GradCacheLoss around an inner MultipleNegativesRankingLoss;
+    """CachedMultipleNegativesRankingLoss composes an inner MultipleNegativesRankingLoss;
     the documented attributes and ``get_config_dict`` keys must keep working as before the rebase."""
     from functools import partial
 

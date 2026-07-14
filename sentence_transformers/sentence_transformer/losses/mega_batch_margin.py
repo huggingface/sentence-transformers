@@ -57,7 +57,8 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
             mini_batch_num_tokens: If set, mini-batches are packed by
                 total (non-padding) token count instead of by sequence
                 count, overriding ``mini_batch_size`` for the embedding
-                passes. See :class:`GradCacheLoss`. The hardest-negative
+                passes. See :class:`CachedMultipleNegativesRankingLoss`.
+                The hardest-negative
                 mining still chunks its similarity matrix by
                 ``mini_batch_size``.
             show_progress_bar: If True, a progress bar for the
