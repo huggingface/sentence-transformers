@@ -230,7 +230,7 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
         return loss, cache
 
     def forward(
-        self, inputs: list[list[str]], labels: Tensor, prompt: str | None = None, task: str | None = None
+        self, inputs: list[list[str]], labels: Tensor | None = None, prompt: str | None = None, task: str | None = None
     ) -> Tensor:
         # Step (1): A quick prediction step without gradients/computation graphs to get all the logits
         anchors = inputs[0][::]

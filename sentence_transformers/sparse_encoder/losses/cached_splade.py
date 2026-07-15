@@ -199,8 +199,8 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
     ) -> dict[str, Tensor]:
         total = self.forward_cached(sentence_features, labels)
 
-        # Rebuild the per-component dict for the trainer's logging, around the single
-        # gradient-carrying total: the first entry is adjusted so that sum(values) == total exactly.
+        # Rebuild the per-component dict for the trainer's logging, around the single gradient-carrying
+        # total. The scalars stay fp32 on purpose: it keeps the sum(values) == total adjustment exact.
         components = {key: torch.tensor(value, device=total.device) for key, value in self._component_values.items()}
         return _reconstruct_loss_components(total, components)
 
