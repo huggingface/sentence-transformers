@@ -200,7 +200,13 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             adapt_transformers_to_gaudi()
 
         # Load model
-        if model_name_or_path and not os.path.exists(model_name_or_path):
+        if model_name_or_path and not os.path.isdir(model_name_or_path):
+            if os.path.isfile(model_name_or_path):
+                raise NotADirectoryError(
+                    f"Path {model_name_or_path} is a file, not a directory. `model_name_or_path` must be a "
+                    f"local directory containing a model, or a Hugging Face Hub model ID."
+                )
+
             # Not a local path, load from hub
             if (os.sep == "\\" and "\\" in model_name_or_path) or model_name_or_path.count("/") > 1:
                 raise FileNotFoundError(f"Path {model_name_or_path} not found")
@@ -510,6 +516,21 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 }
             input = module(input, **module_kwargs)
         return input
+
+    def compile(self, *args, **kwargs) -> None:
+        """
+        Compile the model's forward pass with :func:`torch.compile` to speed up inference.
+
+        All arguments are forwarded to :func:`torch.compile`. Inference (e.g. ``encode()`` or ``predict()``) runs
+        the forward pass by calling the model, so compiling the model speeds up these calls.
+
+        .. tip::
+
+            Pass ``dynamic=True`` for inputs with variable sequence lengths, so one compiled kernel handles any
+            length. Explicit ``dynamic=False`` recompiles the model for every new sequence length, which adds
+            significant overhead.
+        """
+        return super().compile(*args, **kwargs)
 
     def preprocess(
         self,

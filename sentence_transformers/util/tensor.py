@@ -134,38 +134,56 @@ def truncate_embeddings(embeddings: np.ndarray | torch.Tensor, truncate_dim: int
     return embeddings[..., :truncate_dim]
 
 
-def select_max_active_dims(embeddings: np.ndarray | torch.Tensor, max_active_dims: int | None) -> torch.Tensor:
+@overload
+def select_max_active_dims(embeddings: np.ndarray | torch.Tensor, max_active_dims: int) -> torch.Tensor: ...
+
+
+@overload
+def select_max_active_dims(embeddings: np.ndarray, max_active_dims: None) -> np.ndarray: ...
+
+
+@overload
+def select_max_active_dims(embeddings: torch.Tensor, max_active_dims: None) -> torch.Tensor: ...
+
+
+def select_max_active_dims(
+    embeddings: np.ndarray | torch.Tensor, max_active_dims: int | None
+) -> np.ndarray | torch.Tensor:
     """
-    Keeps only the top-k values (in absolute terms) for each embedding and creates a sparse tensor.
+    Returns a new tensor with only the top-k values (in absolute terms) of each embedding, all others set to zero.
+
+    The input embeddings are never modified in place.
 
     Args:
-        embeddings (Union[np.ndarray, torch.Tensor]): Embeddings to sparsify by keeping only top_k values.
-        max_active_dims (int): Number of values to keep as non-zeros per embedding.
+        embeddings (Union[np.ndarray, torch.Tensor]): Embeddings to sparsify by keeping only the largest values.
+        max_active_dims (Optional[int]): Number of values to keep as non-zeros per embedding. `None` keeps all
+            values, returning the embeddings as-is.
+
+    Raises:
+        ValueError: If `max_active_dims` is 0 or negative.
 
     Returns:
-        torch.Tensor: A sparse tensor containing only the top-k values per embedding.
+        Union[np.ndarray, torch.Tensor]: A new dense tensor of the same shape, with all but the top-k values per
+            embedding set to zero. If `max_active_dims` is `None`, the embeddings are returned unchanged.
     """
     if max_active_dims is None:
         return embeddings
-    # Convert to tensor if numpy array
+    if max_active_dims <= 0:
+        raise ValueError(f"max_active_dims must be a positive integer, got {max_active_dims}.")
+
     if isinstance(embeddings, np.ndarray):
         embeddings = torch.tensor(embeddings)
 
-    batch_size, dim = embeddings.shape
-    device = embeddings.device
+    embedding_dim = embeddings.shape[-1]
 
     # Get the top-k indices for each embedding (by absolute value)
-    _, top_indices = torch.topk(torch.abs(embeddings), k=min(max_active_dims, dim), dim=1)
+    _, top_indices = torch.topk(torch.abs(embeddings), k=min(max_active_dims, embedding_dim), dim=-1)
 
-    # Create a mask of zeros, then set the top-k positions to 1
-    mask = torch.zeros_like(embeddings, dtype=torch.bool)
-    batch_indices = torch.arange(batch_size, device=device).unsqueeze(1).expand(-1, min(max_active_dims, dim))
-    mask[batch_indices.flatten(), top_indices.flatten()] = True
+    # topk ran on absolute values, so gather the original (signed) values at those indices
+    selected = torch.zeros_like(embeddings)
+    selected.scatter_(-1, top_indices, embeddings.gather(-1, top_indices))
 
-    # Create a sparse tensor with only the top values
-    embeddings[~mask] = 0
-
-    return embeddings
+    return selected
 
 
 def batch_to_device(batch: dict[str, Any], target_device: device) -> dict[str, Any]:

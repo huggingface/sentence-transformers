@@ -658,7 +658,8 @@ class SentenceTransformer(BaseModel, FitMixin):
 
             features = batch_to_device(features, device)
 
-            out_features = self.forward(features, **kwargs)
+            # Route through __call__ so that model.compile() applies to the forward pass.
+            out_features = self(features, **kwargs)
             if is_hpu:
                 out_features = copy.deepcopy(out_features)
 

@@ -529,7 +529,8 @@ class SparseEncoder(BaseModel):
             features = batch_to_device(features, device)
 
             with torch.inference_mode():
-                embeddings = self.forward(features, **forward_kwargs)["sentence_embedding"]
+                # Route through __call__ so that model.compile() applies to the forward pass.
+                embeddings = self(features, **forward_kwargs)["sentence_embedding"]
 
                 if max_active_dims is not None:
                     embeddings = select_max_active_dims(embeddings, max_active_dims=max_active_dims)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 import tempfile
 from pathlib import Path
 
@@ -284,6 +285,10 @@ def test_safe_serialization(reranker_bert_tiny_model: CrossEncoder, safe_seriali
 
 
 def test_bfloat16() -> None:
+    if sys.platform == "win32" and not torch.cuda.is_available():
+        pytest.skip(
+            "bfloat16 CPU matmul can hard-crash (0xc000001d) on some Windows machines. Skipping to avoid CI failures."
+        )
     model = CrossEncoder(
         "cross-encoder-testing/reranker-bert-tiny-gooaq-bce", automodel_args={"torch_dtype": torch.bfloat16}
     )
@@ -901,6 +906,18 @@ Judge whether the Document meets the requirements based on the Query and the Ins
 
     # Assert scores match expected values with tolerance
     assert scores == pytest.approx(expected_scores, abs=1e-4)
+
+
+def test_predict_routes_through_module_call(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """predict() must run the forward pass via __call__ so that model.compile() applies to inference."""
+    model = reranker_bert_tiny_model
+    calls = []
+    handle = model.register_forward_hook(lambda module, args, output: calls.append(True))
+    try:
+        model.predict([["Hello there!", "Hello, World!"]])
+    finally:
+        handle.remove()
+    assert calls, "predict() should invoke the model via __call__, not call forward() directly"
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
