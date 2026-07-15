@@ -60,9 +60,8 @@ jobs:
         # Runtime deps at lowest resolution & dev tools at normal resolution
         # av>=12 because av==9.2.0 (from transformers[video]) fails to compile with modern Cython
         # scipy>=1.7.2 because older scipy has no wheels for Python 3.10+ and fails to build from source
-        # datasets>=2.16.0 because older datasets imports HfFolder which newer huggingface_hub removed
         run: |
-          uv pip install '.[train]' 'transformers[vision,audio,video]' 'av>=12.0.0' 'scipy>=1.7.2' 'datasets>=2.16.0' --resolution lowest-direct --system
+          uv pip install '.[train]' 'transformers[vision,audio,video]' 'av>=12.0.0' 'scipy>=1.7.2' --resolution lowest-direct --system
           uv pip install pytest pytest-cov pytest-env pytest-subtests pytest-xdist peft --system
 
       - name: Show installed versions
