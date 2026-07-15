@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
 import torch
 
@@ -33,6 +35,8 @@ def test_listwise_loss_supports_low_precision(
     model = reranker_bert_tiny_model_v54
     if dtype == torch.float16 and not torch.cuda.is_available():
         pytest.skip("float16 CrossEncoder forward is only supported when CUDA is available.")
+    if dtype == torch.bfloat16 and sys.platform == "win32" and not torch.cuda.is_available():
+        pytest.skip("bfloat16 CPU matmul crashes (0xc000001d) on some Windows machines with torch 2.13.0.")
 
     model.model.to(dtype)
     loss_fn = loss_cls(model)
