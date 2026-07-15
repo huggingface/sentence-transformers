@@ -10,7 +10,7 @@ import torch
 from torch import Tensor, nn
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.base.losses.gradcache import CachedLossMixin, _minibatch_ranges
+from sentence_transformers.base.losses.gradcache import CachedLossMixin, _create_minibatch, _minibatch_ranges
 from sentence_transformers.sentence_transformer.losses import (
     AdaptiveLayerLoss,
     CachedMultipleNegativesRankingLoss,
@@ -437,3 +437,53 @@ def test_gradcache_token_budget_two_forwards_before_one_backward(stsb_bert_tiny_
     assert_trained(shared_grads)
     for name, grad in shared_grads.items():
         torch.testing.assert_close(grad, reference_grads[name], rtol=1e-4, atol=1e-6, msg=name)
+
+
+def test_create_minibatch_trims_trailing_padding() -> None:
+    """A padded mini-batch of short sequences must be embedded at its own width, not the whole batch's
+    padded width, or mini_batch_num_tokens would not bound the activation memory."""
+    width = 20
+    lengths = [20, 3, 5, 2, 4]
+    mask = torch.zeros(len(lengths), width, dtype=torch.long)
+    for row, length in enumerate(lengths):
+        mask[row, :length] = 1
+    feature = {"input_ids": torch.arange(len(lengths) * width).reshape(len(lengths), width), "attention_mask": mask}
+
+    # Rows 1..4 hold sequences of length <= 5, so the mini-batch is trimmed to width 5.
+    short = _create_minibatch(feature, 1, 5)
+    assert short["attention_mask"].shape[1] == 5
+    assert short["input_ids"].shape[1] == 5
+    torch.testing.assert_close(short["input_ids"], feature["input_ids"][1:5, :5])
+
+    # A mini-batch that includes the longest sequence keeps the full width.
+    assert _create_minibatch(feature, 0, 5)["attention_mask"].shape[1] == width
+
+
+def test_create_minibatch_keeps_left_padding() -> None:
+    """Leading padding is left in place: trimming it would shift the positions a model derives from the
+    sequence length."""
+    width = 10
+    mask = torch.zeros(3, width, dtype=torch.long)
+    for row, length in enumerate([4, 3, 2]):
+        mask[row, width - length :] = 1  # left-padded
+    feature = {"input_ids": torch.ones(3, width, dtype=torch.long), "attention_mask": mask}
+    assert _create_minibatch(feature, 0, 3)["attention_mask"].shape[1] == width
+
+
+def test_gradcache_token_budget_trims_but_matches_mnrl(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Trimming padded mini-batches to their own width must not change the loss or gradient: the dropped
+    columns are padding for every sequence in the mini-batch, so the transformer ignores them anyway."""
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+    labels = torch.zeros(len(VARIED_A), dtype=torch.long)
+
+    cached = CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=16)
+    cached_loss, cached_grads = _loss_and_grads(model, cached, (VARIED_A, VARIED_B), labels)
+    plain = MultipleNegativesRankingLoss(model)
+    plain_loss, plain_grads = _loss_and_grads(model, plain, (VARIED_A, VARIED_B), labels)
+
+    assert_trained(cached_grads)
+    assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
+    for name, grad in cached_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)

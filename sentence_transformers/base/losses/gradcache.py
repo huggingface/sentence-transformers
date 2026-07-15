@@ -92,7 +92,11 @@ def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
 def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) -> dict[str, Any]:
     """Create a mini-batch from sentence features, handling padded, flattened, and VLM inputs.
 
-    With padded inputs, this simply slices tensors along the batch dimension.
+    With padded inputs, this slices tensors along the batch dimension, then drops trailing columns that
+    are padding across every sequence in the mini-batch. Without that, a mini-batch of short sequences
+    would still be embedded at the full batch's padded width, so ``mini_batch_num_tokens`` would not
+    bound its activation memory. Only trailing (right-side) padding is trimmed. Leading padding is kept,
+    since trimming it would shift the positions a model derives from the sequence length.
     With flattened inputs (from ``DataCollatorWithFlattening``), this extracts the token ranges
     for sequences ``begin:end`` and rebuilds the metadata (``cu_seq_lens_q``, ``seq_idx``, etc.).
 
@@ -137,6 +141,19 @@ def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) ->
                 token_begin, token_end = 0, 0
             custom_ranges[pixel_key] = (token_begin, token_end)
 
+        # Trim trailing padding columns so short-sequence mini-batches are not embedded at the full
+        # batch width (see the docstring). Left padding is kept, to preserve length-derived positions.
+        token_axis_end: int | None = None
+        seq_width: int | None = None
+        attention_mask = sentence_feature.get("attention_mask")
+        if isinstance(attention_mask, torch.Tensor) and attention_mask.ndim == 2:
+            seq_width = attention_mask.shape[1]
+            active_columns = attention_mask[begin:end].any(dim=0)
+            if active_columns.any():
+                last_active = int(active_columns.nonzero().max().item())
+                if last_active + 1 < seq_width:
+                    token_axis_end = last_active + 1
+
         result: dict[str, Any] = {}
         for key, value in sentence_feature.items():
             if not isinstance(value, torch.Tensor):
@@ -144,6 +161,8 @@ def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) ->
             elif key in custom_ranges:
                 r_begin, r_end = custom_ranges[key]
                 result[key] = value[r_begin:r_end]
+            elif token_axis_end is not None and value.ndim >= 2 and value.shape[1] == seq_width:
+                result[key] = value[begin:end, :token_axis_end]
             else:
                 result[key] = value[begin:end]
         return result

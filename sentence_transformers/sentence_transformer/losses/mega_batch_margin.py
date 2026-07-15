@@ -130,7 +130,6 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
         self.mini_batch_size = mini_batch_size
         self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
-        self.use_mini_batched_version = use_mini_batched_version
         # Both only apply to the mini-batched path: without it there is nothing to slice, and the
         # backward pass runs straight from the returned loss rather than from a hook.
         self.requires_media_counts = use_mini_batched_version
