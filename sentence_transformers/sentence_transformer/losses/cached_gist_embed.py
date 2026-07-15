@@ -16,9 +16,9 @@ from sentence_transformers.base.losses.gradcache import (
     _create_minibatch,
     _minibatch_ranges,
     _validate_mini_batch_num_tokens,
+    has_static_embedding_input,
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
 
 
@@ -140,7 +140,7 @@ class CachedGISTEmbedLoss(nn.Module):
                 trainer.train()
         """
         super().__init__()
-        if isinstance(model[0], StaticEmbedding):
+        if has_static_embedding_input(model):
             raise ValueError(
                 "CachedGISTEmbedLoss is not compatible with a SentenceTransformer model based on a StaticEmbedding. "
                 "Consider using GISTEmbedLoss instead."

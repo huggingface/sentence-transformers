@@ -512,6 +512,9 @@ class BaseTrainer(Trainer, ABC):
     def track_loss_components(self, loss: dict[str, torch.Tensor]) -> None:
         training_type = "train" if self.model.training else "eval"
         for key, value in loss.items():
+            # Accumulate free of the autograd graph, which would otherwise stay alive (with the
+            # gradient caches of the Cached* losses) until log() resets the accumulators.
+            value = value.detach()
             # if loss is nan or inf simply add the average of previous logged losses
             if self.args.logging_nan_inf_filter and (torch.isnan(value) or torch.isinf(value)):
                 if key not in self.accum_loss_components[training_type]:

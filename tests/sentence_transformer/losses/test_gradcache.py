@@ -381,6 +381,34 @@ def test_gradcache_replays_through_prompt_exclusion(
         torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)
 
 
+def test_gradcache_backward_releases_the_hook_state(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """The backward hook partial holds each forward's cache and tokenized features. Dropping
+    the loss tensor after backward must release them, or a trainer that keeps a (detached)
+    reference per step would still pin every step's caches until its logging flush."""
+    import gc
+    import weakref
+
+    model = stsb_bert_tiny_model.to("cpu")
+    model.train()
+    loss_fn = CachedMultipleNegativesRankingLoss(model, mini_batch_size=3)
+
+    features = [model.preprocess(COLUMN_A[:4]), model.preprocess(COLUMN_B[:4])]
+    refs = [weakref.ref(value) for feature in features for value in feature.values() if isinstance(value, Tensor)]
+    assert refs, "expected tokenized tensors to track"
+    loss = loss_fn(features, torch.zeros(4, dtype=torch.long))
+    loss.backward()
+    detached = loss.detach()
+
+    del features
+    gc.collect()
+    assert any(ref() is not None for ref in refs), "the hook must hold the features until the loss is dropped"
+
+    del loss
+    gc.collect()
+    assert all(ref() is None for ref in refs), "dropping the loss tensor must release the hook state"
+    assert torch.isfinite(detached)
+
+
 def test_gradcache_token_budget_two_forwards_before_one_backward(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """The per-forward boundaries must ride each forward pass's backward hook: two batches with
     different length distributions produce different ranges, and mixing them up would misalign the
