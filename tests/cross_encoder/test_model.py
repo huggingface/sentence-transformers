@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 import tempfile
 from pathlib import Path
 
@@ -284,6 +285,10 @@ def test_safe_serialization(reranker_bert_tiny_model: CrossEncoder, safe_seriali
 
 
 def test_bfloat16() -> None:
+    if sys.platform == "win32" and not torch.cuda.is_available():
+        pytest.skip(
+            "bfloat16 CPU matmul can hard-crash (0xc000001d) on some Windows machines. Skipping to avoid CI failures."
+        )
     model = CrossEncoder(
         "cross-encoder-testing/reranker-bert-tiny-gooaq-bce", automodel_args={"torch_dtype": torch.bfloat16}
     )
