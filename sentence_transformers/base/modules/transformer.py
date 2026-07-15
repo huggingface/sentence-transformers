@@ -2010,14 +2010,15 @@ class Transformer(InputModule):
         Returns None if the processor does not produce ``input_ids``.
         """
         # TODO: Perhaps mirror the _chat_template_suffix_ids implementation with 2 forwards and then checking the common prefix
+        # The prompt is measured under plain tokenization: with the task kept, query expansion would pad
+        # the lone prompt to the expansion length and report that width instead of the prompt's own size.
+        # Task is also excluded from the cache key so the same prompt is measured once across tasks.
+        kwargs = {key: value for key, value in kwargs.items() if key != "task"}
         cache_key = (prompt, *sorted(kwargs.items()))
         if cache_key in self._prompt_length_mapping:
             return self._prompt_length_mapping[cache_key]
 
-        # Measure under plain tokenization: with the task kept, query expansion would pad the lone
-        # prompt to the expansion length and report that width instead of the prompt's own size.
-        preprocess_kwargs = {key: value for key, value in kwargs.items() if key != "task"}
-        tokenized_prompt = self.preprocess([prompt], **preprocess_kwargs)
+        tokenized_prompt = self.preprocess([prompt], **kwargs)
         if "input_ids" not in tokenized_prompt:
             self._prompt_length_mapping[cache_key] = None
             return None

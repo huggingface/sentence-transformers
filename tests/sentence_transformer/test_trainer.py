@@ -748,7 +748,9 @@ def test_data_collator(
     only_prompt_length = len(model.tokenizer(["Prompt: "], add_special_tokens=False)["input_ids"][0])
     if has_bos_token:
         only_prompt_length += 1
-    assert model[0]._prompt_length_mapping == {("Prompt: ", ("task", None)): only_prompt_length}
+    # The task is intentionally excluded from the cache key: prompts are measured under plain
+    # tokenization, and caching once per prompt avoids redundant per-task entries.
+    assert model[0]._prompt_length_mapping == {("Prompt: ",): only_prompt_length}
 
 
 def test_trainer_get_batch_sampler_class(
