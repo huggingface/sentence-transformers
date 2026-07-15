@@ -128,9 +128,11 @@ If you're using a GPU, then you can use the following options to speed up your i
    :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`, you can additionally set
    ``mini_batch_num_tokens`` instead of ``mini_batch_size``. Mini-batches are then packed by total token count
    rather than by sequence count, so every mini-batch performs a similar amount of work regardless of how
-   sequence lengths are distributed within the batch. This keeps memory usage roughly constant, letting you pick
-   a token budget close to your GPU's limit without risking out-of-memory errors on batches full of long texts,
-   and it can substantially increase training throughput on datasets with varying text lengths:
+   sequence lengths are distributed within the batch. This keeps memory usage roughly constant and predictable,
+   and it can substantially increase training throughput on datasets with varying text lengths. Prefer the
+   smallest budget that saturates your GPU: throughput plateaus beyond that point, and budgets that push peak
+   memory close to the card's limit gain little and can silently slow training down when the driver spills
+   to system RAM instead of erroring:
 
    .. code-block:: python
 

@@ -78,11 +78,13 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
             mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count
                 instead of by sequence count, overriding ``mini_batch_size`` for the embedding passes.
                 Every mini-batch then does a near-constant amount of work regardless of how sequence
-                lengths are distributed, so the budget can be tuned once against the GPU's memory and
-                trusted for the whole run. Most effective with variable-length inputs and models that
-                run without padding (flash attention input flattening, or models that unpad internally).
-                The loss computation itself still chunks its score matrix by ``mini_batch_size``, which
-                is independent of sequence lengths.
+                lengths are distributed, so the budget can be tuned once and trusted for the whole run.
+                Prefer the smallest budget that saturates the GPU: throughput plateaus beyond that point,
+                and budgets that push peak memory close to the card's limit can silently slow training
+                down when the driver spills to system RAM instead of erroring. Most effective with
+                variable-length inputs and models that run without padding (flash attention input
+                flattening, or models that unpad internally). The loss computation itself still chunks
+                its score matrix by ``mini_batch_size``, which is independent of sequence lengths.
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
