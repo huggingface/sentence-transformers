@@ -197,6 +197,17 @@ def test_encode_document_varies_with_length(model: MultiVectorEncoder) -> None:
     assert embs[1].shape[0] > embs[0].shape[0]
 
 
+def test_encode_routes_through_module_call(model: MultiVectorEncoder) -> None:
+    """encode() must run the forward pass via __call__ so that model.compile() applies to inference."""
+    calls = []
+    handle = model.register_forward_hook(lambda module, args, output: calls.append(True))
+    try:
+        model.encode_document(["Hello world"])
+    finally:
+        handle.remove()
+    assert calls, "encode() should invoke the model via __call__, not call forward() directly"
+
+
 def test_encode_document_skiplist_removes_punctuation() -> None:
     # The bare-HF default is now an empty skiplist, so opt punctuation back in to exercise the
     # masking logic: the (token-count) embedding of a heavily-punctuated doc should match its

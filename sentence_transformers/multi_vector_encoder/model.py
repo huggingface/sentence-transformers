@@ -464,7 +464,8 @@ class MultiVectorEncoder(BaseModel):
             features = batch_to_device(features, device)
 
             with torch.inference_mode():
-                features = self.forward(features, task=task)
+                # Route through __call__ so that model.compile() applies to the forward pass.
+                features = self(features, task=task)
                 if output_value is None:
                     # Raw per-input module outputs, unsliced. Batch-first tensors are split per
                     # input, other values (ints, strings, flattened tensors) are carried as-is.

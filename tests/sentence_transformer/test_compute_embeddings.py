@@ -84,3 +84,15 @@ def test_encode_tuple_sentences(paraphrase_distilroberta_base_v1_model: Sentence
     )
     assert emb.shape == (3, 768)
     assert abs(np.sum(emb) - 32.14627) < 0.002
+
+
+def test_encode_routes_through_module_call(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """encode() must run the forward pass via __call__ so that model.compile() applies to inference."""
+    model = stsb_bert_tiny_model
+    calls = []
+    handle = model.register_forward_hook(lambda module, args, output: calls.append(True))
+    try:
+        model.encode("Hello world")
+    finally:
+        handle.remove()
+    assert calls, "encode() should invoke the model via __call__, not call forward() directly"

@@ -795,6 +795,24 @@ class TestBatchToMessage:
         assert new_mod == "message"
         assert len(new_inputs["message"]) == 2
 
+    def test_two_element_video_not_routed_to_pair(self):
+        """A 2-frame video (2 image paths) stays one video message, not a query/document pair (#3840)."""
+        processor_inputs = {"video": [["frame1.png", "frame2.png"]]}
+        modality, result = self.fmt.batch_to_message("video", processor_inputs)
+        assert modality == "message"
+        messages = result["message"][0]
+        # A single "user" message, not a ("query", "document") pair
+        assert [msg["role"] for msg in messages] == ["user"]
+        assert messages[0]["content"] == [{"type": "video", "video": ["frame1.png", "frame2.png"]}]
+
+    def test_two_element_text_still_routed_to_pair(self):
+        """A 2-element text input keeps routing to query/document roles (#3840)."""
+        processor_inputs = {"text": [["a query", "a document"]]}
+        modality, result = self.fmt.batch_to_message("text", processor_inputs)
+        assert modality == "message"
+        messages = result["message"][0]
+        assert [msg["role"] for msg in messages] == ["query", "document"]
+
 
 class TestPrependPromptToMessages:
     def test_structured_format(self):

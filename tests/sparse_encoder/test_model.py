@@ -883,6 +883,18 @@ def test_encode_document_prompt_priority(splade_bert_tiny_model: SparseEncoder, 
     assert kwargs["prompt_name"] is None
 
 
+def test_encode_routes_through_module_call(splade_bert_tiny_model: SparseEncoder) -> None:
+    """encode() must run the forward pass via __call__ so that model.compile() applies to inference."""
+    model = splade_bert_tiny_model
+    calls = []
+    handle = model.register_forward_hook(lambda module, args, output: calls.append(True))
+    try:
+        model.encode("Hello world")
+    finally:
+        handle.remove()
+    assert calls, "encode() should invoke the model via __call__, not call forward() directly"
+
+
 def test_similarity_fn_name_rejects_multi_vector_names(splade_bert_tiny_model: SparseEncoder) -> None:
     """MaxSim scores ragged token embeddings: setting it on a sparse model would produce wrong shapes
     silently, so it must fail loud with a pointer to MultiVectorEncoder."""

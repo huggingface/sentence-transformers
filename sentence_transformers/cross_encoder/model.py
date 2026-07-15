@@ -686,7 +686,8 @@ class CrossEncoder(BaseModel, FitMixin):
             batch = inputs_sorted[start_index : start_index + batch_size]
             features = self.preprocess(batch, prompt=prompt, **kwargs)
             features = batch_to_device(features, device)
-            out_features = self.forward(features, **kwargs)
+            # Route through __call__ so that model.compile() applies to the forward pass.
+            out_features = self(features, **kwargs)
             scores = out_features["scores"]
 
             if activation_fn is not None:

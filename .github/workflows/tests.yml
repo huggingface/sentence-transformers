@@ -48,10 +48,10 @@ jobs:
         if: runner.os == 'Linux'
 
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Setup Python environment
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -59,12 +59,15 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
 
       # kenlm doesn't compile on Python 3.13, and pyctcdecode pins numpy<2.0.0
-      # which conflicts with the rest of the stack. Exclude both on Python 3.13.
+      # which conflicts with the rest of the stack. transformers[audio] also pulls
+      # librosa, which needs numba, which needs llvmlite. On Python 3.13 uv backtracks
+      # to the old numba 0.53.1, whose pinned llvmlite==0.36.0 only supports Python
+      # <3.10 and fails to build. Exclude all of them on Python 3.13.
       - name: Create excludes file for packages without Python 3.13 support
         shell: bash
         run: |
           if [ "${{ matrix.python-version }}" = "3.13" ]; then
-            echo -e "kenlm\npyctcdecode" > excludes.txt
+            echo -e "kenlm\npyctcdecode\nlibrosa\nnumba\nllvmlite" > excludes.txt
           else
             touch excludes.txt
           fi

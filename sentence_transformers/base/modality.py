@@ -144,6 +144,7 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
             {
                 "fps": video_value.metadata.average_fps,
                 "total_num_frames": video_value.metadata.num_frames,
+                "duration": video_value.metadata.duration_seconds,
                 "frames_indices": list(range(frame_batch.data.shape[0])),
             }
         )
@@ -429,8 +430,13 @@ class InputFormatter:
             typed_input = {mod: processor_inputs[mod][i] for mod in processor_inputs if mod in modalities}
             # Text pairs (e.g. ("query", "document")) are routed to pair_to_messages instead
             if len(typed_input) == 1:
-                value = next(iter(typed_input.values()))
-                if isinstance(value, (tuple, list)) and len(value) == 2 and all(isinstance(v, str) for v in value):
+                mod, value = next(iter(typed_input.items()))
+                if (
+                    mod == "text"
+                    and isinstance(value, (tuple, list))
+                    and len(value) == 2
+                    and all(isinstance(v, str) for v in value)
+                ):
                     messages.append(self.pair_to_messages(value))
                     continue
             messages.append(self.to_message(typed_input))  # type: ignore[arg-type]

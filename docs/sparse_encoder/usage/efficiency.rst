@@ -79,6 +79,47 @@ If you're using a GPU, then you can use the following options to speed up your i
       sentences = ["This is an example sentence", "Each sentence is converted"]
       embeddings = model.encode(sentences)
 
+.. tab:: torch.compile
+
+   :meth:`model.compile() <sentence_transformers.base.model.BaseModel.compile>` wraps the model's forward pass with
+   :func:`torch.compile`. Whether it helps depends strongly on the model and hardware: the benefit grows with model
+   size, and very small models on a fast GPU can see little gain or even a slight slowdown, since their inference is
+   dominated by tokenization and Python overhead. Always measure on your own model, hardware, and inputs. It composes
+   with the fp16/bf16 options above.
+
+   .. code-block:: python
+
+      from sentence_transformers import SparseEncoder
+
+      model = SparseEncoder("naver/splade-v3", model_kwargs={"torch_dtype": "bfloat16"})
+      model.compile(dynamic=True)
+
+      sentences = ["This is an example sentence", "Each sentence is converted"]
+      embeddings = model.encode(sentences)
+
+   ``dynamic=True`` enables dynamic shapes so a compiled graph can handle variable sequence lengths, reducing
+   recompilation when your inputs vary in length. For the largest speedup, use ``mode="reduce-overhead"`` instead:
+   it applies CUDA graphs to remove the per-kernel launch overhead that dominates batch-size-1 inference.
+
+   .. code-block:: python
+
+      model.compile(mode="reduce-overhead")
+
+   However, CUDA graphs capture one graph per input shape, so they need stable shapes. Pad every input to a fixed
+   length near your typical length by passing ``padding="max_length"`` through ``processing_kwargs`` when encoding:
+
+   .. code-block:: python
+
+      embeddings = model.encode(sentences, processing_kwargs={"text": {"padding": "max_length", "max_length": 256}})
+
+   ``max_length`` sets the fixed length that shorter inputs are padded up to and longer inputs are truncated down to.
+   It is optional and defaults to the tokenizer's ``model_max_length``.
+
+   Padding up to a large ``model_max_length`` (for example 8192) makes every call process the full length and is slower
+   than not compiling at all. CUDA graphs also reuse output buffers, and ``encode`` returns tensors on the GPU by
+   default, so clone any embedding you keep across calls. Compilation is lazy, so warm the model up on representative
+   inputs before benchmarking or serving.
+
 ONNX
 ----
 
