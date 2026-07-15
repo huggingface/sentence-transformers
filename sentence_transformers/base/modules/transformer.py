@@ -1721,18 +1721,34 @@ class Transformer(InputModule):
             model_kwargs (dict[str, Any]): Keyword arguments passed to the Hugging Face Transformers model.
         """
         if backend == "torch":
-            # When loading a PEFT model, we load the base model first. The revision
-            # (e.g. "main") refers to the adapter checkpoint, not the base model, so
-            # we must not pass it to the base model's from_pretrained.
+            model_cls = TRANSFORMER_TASK_TO_AUTO_MODEL[transformer_task]
+
             if is_peft_model:
+                # Load the base model and let transformers' native PEFT integration attach the
+                # adapter, so the underlying model is a `PeftAdapterMixin`-compatible transformers
+                # model (e.g. `BertModel`) rather than a `peft.PeftModel*` wrapper. This keeps
+                # `SentenceTransformer.add_adapter`/`load_adapter`/... working. See #3247.
+                #
+                # We deliberately do NOT pass the PeftConfig as `config=`: it is a PeftConfig, not
+                # a PretrainedConfig, and passing it prevents the base model's config from being
+                # resolved correctly. The adapter's `revision` (e.g. "main") refers to the adapter
+                # checkpoint, not the base model, so it must not reach the base model's
+                # from_pretrained; we keep it for reloading the adapter weights afterwards.
+                adapter_download_kwargs = {
+                    key: model_kwargs[key]
+                    for key in ("revision", "cache_dir", "token", "subfolder", "local_files_only")
+                    if key in model_kwargs
+                }
                 model_kwargs.pop("revision", None)
+                model = model_cls.from_pretrained(model_name_or_path, **model_kwargs)
+                self._reload_peft_adapter_weights(model, model_name_or_path, adapter_download_kwargs)
+                return model
 
             if transformer_task == "feature-extraction":
                 model = self._load_encoder_only_model(model_name_or_path, config, **model_kwargs)
                 if model is not None:
                     return model
 
-            model_cls = TRANSFORMER_TASK_TO_AUTO_MODEL[transformer_task]
             return model_cls.from_pretrained(model_name_or_path, config=config, **model_kwargs)
         elif backend == "onnx":
             return load_onnx_model(
@@ -1750,6 +1766,36 @@ class Transformer(InputModule):
             )
         else:
             raise ValueError(f"Unsupported backend '{backend}'. `backend` should be `torch`, `onnx`, or `openvino`.")
+
+    @staticmethod
+    def _reload_peft_adapter_weights(
+        model: PreTrainedModel, model_name_or_path: str, download_kwargs: dict[str, Any]
+    ) -> None:
+        """Ensure the trained PEFT adapter weights are actually loaded onto ``model``.
+
+        transformers' native PEFT integration attaches the adapter *modules* when loading an
+        adapter repository, but (depending on the transformers/peft versions) it can fail to map
+        the checkpoint's ``base_model.model.``-prefixed keys onto a bare transformers model. When
+        that happens the adapter is left with freshly-initialized (zero-effect) weights and the
+        trained weights are silently discarded, so the model returns base-model embeddings. We
+        re-load the adapter weights and set them explicitly; this is a no-op when they were
+        already loaded correctly. See https://github.com/huggingface/sentence-transformers/issues/3247.
+        """
+        if not getattr(model, "_hf_peft_config_loaded", False):
+            return
+
+        from peft.utils import load_peft_weights, set_peft_model_state_dict
+
+        adapter_weights = load_peft_weights(model_name_or_path, **download_kwargs)
+        # PEFT stores adapter weights under the ``base_model.model.`` prefix used by a full
+        # `PeftModel`, but the adapter is attached directly to the transformers model here, so
+        # its module keys are un-prefixed. Strip the prefix so the state dict lines up.
+        prefix = "base_model.model."
+        remapped = {
+            (key[len(prefix) :] if key.startswith(prefix) else key): value for key, value in adapter_weights.items()
+        }
+        for adapter_name in model.peft_config:
+            set_peft_model_state_dict(model, remapped, adapter_name=adapter_name)
 
     def _load_encoder_only_model(
         self,

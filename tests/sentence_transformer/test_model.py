@@ -952,6 +952,58 @@ def test_load_adapter_with_revision():
     assert embeddings.shape == (128,)
 
 
+@pytest.mark.skipif(not is_peft_available(), reason="PEFT must be available to test loading PEFT models.")
+@pytest.mark.skipif(
+    is_ci(), reason="huggingface_hub & PEFT incorrectly set the user agent in the CI, leading to failures."
+)
+def test_load_peft_adapter_model(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Loading a PEFT adapter repository must (1) produce a ``PeftAdapterMixin``-compatible
+    transformers model rather than a ``peft.PeftModel*`` wrapper, so the Sentence Transformers
+    PEFT surface keeps working, and (2) actually load the trained adapter weights rather than a
+    freshly-initialized (zero-effect) adapter. Regression test for #3247.
+    """
+    from peft import LoraConfig, PeftModel, TaskType
+    from transformers import AutoModel
+    from transformers.integrations.peft import PeftAdapterMixin
+
+    adapter_id = "sentence-transformers-testing/stsb-bert-tiny-lora"
+    base_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+
+    model = SentenceTransformer(adapter_id)
+    auto_model = model[0].auto_model
+
+    # (1) The underlying model is a transformers model with PEFT support, not a PeftModel wrapper,
+    # so the ST PEFT methods (which check ``isinstance(..., PeftAdapterMixin)``) work.
+    assert isinstance(auto_model, BertModel)
+    assert isinstance(auto_model, PeftAdapterMixin)
+    assert model.has_peft_compatible_model()
+    assert auto_model._hf_peft_config_loaded
+    assert auto_model.active_adapters() == ["default"]
+
+    # (2) The trained adapter weights are loaded: embeddings differ from the base model and match a
+    # reference model where the adapter is loaded via peft's own (correct) ``PeftModel``.
+    features = model[0].preprocess(["Hello there!", "How are you?"])
+    forward_inputs = {
+        key: features[key] for key in ("input_ids", "attention_mask", "token_type_ids") if key in features
+    }
+    reference = PeftModel.from_pretrained(AutoModel.from_pretrained(base_id), adapter_id)
+    base_only = AutoModel.from_pretrained(base_id)
+    auto_model.eval()
+    reference.eval()
+    base_only.eval()
+    with torch.no_grad():
+        adapter_output = auto_model(**forward_inputs).last_hidden_state
+        reference_output = reference(**forward_inputs).last_hidden_state
+        base_output = base_only(**forward_inputs).last_hidden_state
+    assert torch.allclose(adapter_output, reference_output, atol=1e-5)
+    assert not torch.allclose(adapter_output, base_output, atol=1e-3)
+
+    # The ST PEFT surface remains usable, e.g. adding another adapter.
+    peft_config = LoraConfig(target_modules=["value"], task_type=TaskType.FEATURE_EXTRACTION, r=2, lora_alpha=16)
+    model.add_adapter(peft_config, "extra_adapter")
+    assert model.active_adapters() == ["extra_adapter"]
+
+
 def test_clip():
     model = CLIPModel()
     assert model.max_seq_length == 77
