@@ -64,6 +64,15 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
             (3) A 2nd embedding step with gradients/computation graphs and connect the cached gradients into the
                 backward chain.
 
+        .. note::
+
+            Only the embedding passes (steps 1 and 3) are mini-batched. Step 2 computes the base loss over the
+            full batch of embeddings at once, because the wrapped base loss owns that computation. Mini-batching
+            bounds the transformer activations, which dominate memory, so this remains a favorable trade in
+            practice. Unlike :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`,
+            the base loss's score matrix is not itself chunked, so it can become the memory ceiling at very large
+            batch sizes.
+
         Args:
             model: SparseEncoder model
             loss: The principal loss function to use can be any of the SparseEncoder losses except CSR related
@@ -144,6 +153,7 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
         self.mini_batch_size = mini_batch_size
         self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
+        self._component_values: dict[str, float] = {}
 
     def calculate_loss(
         self, reps: list[list[Tensor]], labels: Tensor | None = None, *, with_backward: bool = False
