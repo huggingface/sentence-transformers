@@ -158,7 +158,7 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
         kl = torch.nn.functional.kl_div(
             student_log_probs, teacher_log_probs, reduction="batchmean", log_target=True
         ).item()
-        spearman = spearmanr(self.scores.numpy().ravel(), student_scores.numpy().ravel()).statistic
+        spearman, _ = spearmanr(self.scores.numpy().ravel(), student_scores.numpy().ravel())
         if spearman != spearman:  # NaN if all scores are constant
             spearman = 0.0
 

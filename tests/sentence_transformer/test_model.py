@@ -43,10 +43,15 @@ from sentence_transformers.sentence_transformer.modules import (
 from sentence_transformers.util.similarity import SimilarityFunction
 from tests.utils import is_ci
 
+skip_if_torch_cannot_load_bin = pytest.mark.skipif(
+    parse(torch.__version__) < Version("2.6"),
+    reason="transformers v5 requires torch>=2.6 to load pytorch_model.bin checkpoints (CVE-2025-32434)",
+)
+
 
 def test_load_with_safetensors() -> None:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache_folder:
-        safetensors_model = SentenceTransformer(
+        SentenceTransformer(
             "sentence-transformers-testing/stsb-bert-tiny-safetensors",
             cache_folder=cache_folder,
         )
@@ -57,6 +62,9 @@ def test_load_with_safetensors() -> None:
         safetensors_files = list(Path(cache_folder).glob("**/model.safetensors"))
         assert 1 == len(safetensors_files), "Safetensors model file must be downloaded."
 
+
+@skip_if_torch_cannot_load_bin
+def test_load_with_pytorch_bin(stsb_bert_tiny_model: SentenceTransformer) -> None:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache_folder:
         transformer = Transformer(
             "sentence-transformers-testing/stsb-bert-tiny-safetensors",
@@ -74,7 +82,7 @@ def test_load_with_safetensors() -> None:
 
     sentences = ["This is a test sentence", "This is another test sentence"]
     assert torch.equal(
-        safetensors_model.encode(sentences, convert_to_tensor=True),
+        stsb_bert_tiny_model.encode(sentences, convert_to_tensor=True),
         pytorch_model.encode(sentences, convert_to_tensor=True),
     ), "Ensure that Safetensors and PyTorch loaded models result in identical embeddings"
 
@@ -958,6 +966,8 @@ def test_load_adapter_with_revision():
     assert embeddings.shape == (128,)
 
 
+# The default openai/clip-vit-base-patch32 repository only provides pytorch_model.bin weights
+@skip_if_torch_cannot_load_bin
 def test_clip():
     model = CLIPModel()
     assert model.max_seq_length == 77
@@ -1340,10 +1350,15 @@ def test_router_transformers_model_property(
 @pytest.mark.parametrize(
     ("model_name", "expected_pooling_mode"),
     [
-        ("hf-internal-testing/tiny-random-LlamaForCausalLM", "lasttoken"),
-        ("hf-internal-testing/tiny-random-BertLMHeadModel", "mean"),
+        pytest.param("hf-internal-testing/tiny-random-LlamaForCausalLM", "lasttoken", id="causal_lm"),
+        # tiny-random-BertLMHeadModel only provides pytorch_model.bin weights
+        pytest.param(
+            "hf-internal-testing/tiny-random-BertLMHeadModel",
+            "mean",
+            id="encoder",
+            marks=skip_if_torch_cannot_load_bin,
+        ),
     ],
-    ids=["causal_lm", "encoder"],
 )
 def test_default_pooling_mode(model_name: str, expected_pooling_mode: str) -> None:
     """CausalLM models should default to last-token pooling, while encoder models default to mean pooling."""
