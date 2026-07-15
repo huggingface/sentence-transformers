@@ -275,7 +275,6 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
         docs_all = torch.cat(docs, dim=0)
         docs_pos = docs[0]
         local_indices = torch.arange(offset, offset + batch_size, device=queries.device)
-        identity = torch.eye(world_batch_size, device=queries.device)
         num_docs = len(docs)
 
         losses: list[torch.Tensor] = []
@@ -292,6 +291,12 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
             # (mini_batch_size, embedding_dim)
             local_queries = queries[local_batch]
             local_docs = docs_pos[local_batch]
+
+            # One-hot rows marking each local row's own column. Replaces indexing a full identity
+            # matrix, whose O(batch^2) memory defeated the chunking at the batch sizes it targets.
+            if "doc_to_doc" in self.directions or (self.hardness_mode is not None and self.hardness_strength > 0.0):
+                own_columns = torch.zeros(len(local_batch), world_batch_size, dtype=torch.bool, device=queries.device)
+                own_columns[row_indices, local_batch] = True
 
             sim_matrices = {}
             # (mbs, bs * ws * (1 + nn))
@@ -311,7 +316,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
                 # (mbs, bs * ws * (1 + nn))
                 sim_matrices["doc_to_doc"] = self.similarity_fct(docs_all, local_docs).T
                 # Remove d_i_a -> d_i_b for all documents belonging to the same query
-                same_query_doc_mask = identity[local_batch].repeat(1, num_docs).bool()
+                same_query_doc_mask = own_columns.repeat(1, num_docs)
                 sim_matrices["doc_to_doc"].masked_fill_(same_query_doc_mask, -torch.inf)
 
             # Compute hardness penalties on the unscaled (raw cosine) similarities (Lan et al. 2025, Eq. 5).
@@ -325,8 +330,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
                 penalty = self.hardness_strength * sim_matrices["query_to_doc"].detach()
 
                 # True where the document belongs to the same query (own positive + own hard negatives)
-                own_doc_mask = torch.eye(world_batch_size, device=queries.device, dtype=torch.bool)[local_batch]
-                own_doc_mask = own_doc_mask.repeat(1, num_docs)
+                own_doc_mask = own_columns.repeat(1, num_docs)
 
                 if self.hardness_mode == "hard_negatives":
                     # Exclude positives and in-batch negatives, keeping only own hard negatives

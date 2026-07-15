@@ -5,6 +5,7 @@ import torch
 
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.losses import CachedMultipleNegativesRankingLoss, MultipleNegativesRankingLoss
+from tests.sentence_transformer.losses.utils import disable_dropout
 
 QUERIES = ["query a", "query b", "query c", "query d", "query e", "query f"]
 ANSWERS = ["answer a", "answer b", "answer c", "answer d", "answer e", "answer f"]
@@ -24,12 +25,7 @@ def _loss_and_grads(model: CrossEncoder, loss_fn: torch.nn.Module, seed: int = 1
 
 
 def _disable_dropout(model: CrossEncoder) -> None:
-    for module in model.model.modules():
-        if isinstance(module, torch.nn.Dropout):
-            module.p = 0.0
-        for attribute in ("dropout_prob", "attention_dropout", "attention_probs_dropout_prob"):
-            if isinstance(getattr(module, attribute, None), float):
-                setattr(module, attribute, 0.0)
+    disable_dropout(model, canary_inputs=[["a canary query", "a canary answer"], ["another query", "another answer"]])
 
 
 @pytest.mark.parametrize("mini_batch_size", [2, 5, 64])
@@ -60,6 +56,9 @@ def test_cached_ce_mnrl_replays_dropout_on_cuda(reranker_bert_tiny_model_v54: Cr
     the raw string pairs, before tokenization, so it captured no device state at all, and on CUDA the
     backward hook's second forward pass drew different dropout masks than the logits the cached gradients
     belong to: silently wrong gradients for every reranker trained with dropout on a GPU.
+
+    Note that the project CI has no GPU job, so this regression test only guards the fix on machines
+    with CUDA. The CPU equivalence tests cannot catch it: the bug only manifests on an accelerator.
     """
     model = reranker_bert_tiny_model_v54
     model.model.to("cuda")

@@ -9,18 +9,10 @@ from sentence_transformers.sparse_encoder.losses import (
     SparseMultipleNegativesRankingLoss,
     SpladeLoss,
 )
+from tests.sentence_transformer.losses.utils import disable_dropout as _disable_dropout
 
 ANCHORS = ["anchor a", "anchor b", "anchor c", "anchor d", "anchor e", "anchor f"]
 POSITIVES = ["positive a", "positive b", "positive c", "positive d", "positive e", "positive f"]
-
-
-def _disable_dropout(model: SparseEncoder) -> None:
-    for module in model.modules():
-        if isinstance(module, torch.nn.Dropout):
-            module.p = 0.0
-        for attribute in ("dropout_prob", "attention_dropout", "attention_probs_dropout_prob"):
-            if isinstance(getattr(module, attribute, None), float):
-                setattr(module, attribute, 0.0)
 
 
 def _make_loss(model: SparseEncoder, cached: bool, mini_batch_size: int = 2) -> torch.nn.Module:
@@ -204,3 +196,81 @@ def test_cached_splade_token_budget_matches_splade(splade_bert_tiny_model: Spars
     assert cached_grads and sum(grad.abs().sum() for grad in cached_grads.values()) > 0
     for name, grad in cached_grads.items():
         torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=2e-4, msg=name)
+
+
+def test_cached_splade_keeps_dict_base_loss_components(splade_bert_tiny_model: SparseEncoder) -> None:
+    """A dict-valued base loss must keep its own component keys in the returned dict, exactly as
+    SpladeLoss spreads them. The separate keys are the point of returning a dict: the trainer logs
+    each component on its own. The cached loss used to collapse them into a single ``base_loss``."""
+
+    class TwoPartLoss(torch.nn.Module):
+        def __init__(self, model: SparseEncoder) -> None:
+            super().__init__()
+            self.model = model
+            self.inner = SparseMultipleNegativesRankingLoss(model)
+
+        def compute_loss_from_embeddings(self, embeddings, labels=None):
+            loss = self.inner.compute_loss_from_embeddings(embeddings, labels)
+            return {"part_a": loss * 0.25, "part_b": loss * 0.75}
+
+    model = splade_bert_tiny_model.to("cpu")
+    _disable_dropout(model)
+    model.train()
+
+    def outputs(cached: bool) -> dict[str, torch.Tensor]:
+        kwargs = {
+            "model": model,
+            "loss": TwoPartLoss(model),
+            "document_regularizer_weight": 3e-5,
+            "query_regularizer_weight": 5e-5,
+        }
+        loss_fn = CachedSpladeLoss(**kwargs, mini_batch_size=2) if cached else SpladeLoss(**kwargs)
+        return loss_fn([model.preprocess(ANCHORS[:4]), model.preprocess(POSITIVES[:4])], None)
+
+    cached_output = outputs(cached=True)
+    plain_output = outputs(cached=False)
+
+    assert set(cached_output) == set(plain_output)
+    assert set(cached_output) == {"part_a", "part_b", "document_regularizer_loss", "query_regularizer_loss"}
+    for key, value in plain_output.items():
+        assert cached_output[key].item() == pytest.approx(value.item(), rel=1e-4, abs=2e-4), key
+
+    # The trainer back-propagates the summed dict, so the invariants of the scalar case must
+    # hold for dict-valued base losses too: one gradient carrier, summing exactly to the total.
+    assert sum(value.requires_grad for value in cached_output.values()) == 1
+    total = torch.stack(list(cached_output.values())).sum()
+    assert total.requires_grad
+    total.backward()
+    assert any(param.grad is not None and param.grad.abs().sum() > 0 for param in model.parameters())
+
+
+def test_cached_splade_replays_dropout_in_the_backward_pass(splade_bert_tiny_model: SparseEncoder) -> None:
+    """The backward pass must re-embed exactly what the forward pass embedded, dropout included,
+    making this loss self-guarding instead of relying only on the shared engine's tests."""
+    model = splade_bert_tiny_model.to("cpu")
+    model.train()
+    assert any(module.p > 0 for module in model.modules() if isinstance(module, torch.nn.Dropout)), (
+        "the model has no active dropout, so this test would be vacuous"
+    )
+
+    loss_fn = _make_loss(model, cached=True, mini_batch_size=2)
+    forward_reps: list[torch.Tensor] = []
+    backward_reps: list[torch.Tensor] = []
+    sink = forward_reps
+    embed_minibatch = loss_fn.embed_minibatch
+
+    def spy(**kwargs):
+        reps, random_state = embed_minibatch(**kwargs)
+        sink.append(reps.detach().clone())
+        return reps, random_state
+
+    loss_fn.embed_minibatch = spy
+
+    output = loss_fn([model.preprocess(ANCHORS[:4]), model.preprocess(POSITIVES[:4])], None)
+    sink = backward_reps  # the hook's re-embedding lands here
+    torch.stack(list(output.values())).sum().backward()
+
+    # 2 columns x ceil(4 / 2) mini-batches, embedded once per pass
+    assert len(forward_reps) == len(backward_reps) == 4
+    for index, (forward_rep, backward_rep) in enumerate(zip(forward_reps, backward_reps)):
+        assert torch.equal(forward_rep, backward_rep), f"mini-batch {index} was re-embedded with different dropout"

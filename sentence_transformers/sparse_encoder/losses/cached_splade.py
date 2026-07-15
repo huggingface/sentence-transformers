@@ -151,13 +151,14 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
         """Compute the total loss (base loss + regularizers) from the per-mini-batch embeddings."""
         embeddings = [torch.cat(r) for r in reps]
 
-        # Base loss
+        # Base loss. A dict-valued base loss keeps its per-component keys, as SpladeLoss does.
         base_loss = self.loss.compute_loss_from_embeddings(embeddings, labels)
         if isinstance(base_loss, dict):
+            component_values = {key: value.detach().item() for key, value in base_loss.items()}
             total_loss = sum(base_loss.values())
         else:
+            component_values = {"base_loss": base_loss.detach().item()}
             total_loss = base_loss
-        self._base_loss_value = total_loss.detach().item()
 
         # Document regularizer
         if self.use_document_regularizer_only:
@@ -166,17 +167,16 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
             document_emb = torch.cat(embeddings[1:])
         doc_reg_loss = self.document_regularizer.compute_loss_from_embeddings(document_emb)
         weighted_doc_reg = doc_reg_loss * self.document_regularizer_weight
-        self._doc_reg_value = weighted_doc_reg.detach().item()
+        component_values["document_regularizer_loss"] = weighted_doc_reg.detach().item()
         total_loss = total_loss + weighted_doc_reg
 
         # Query regularizer
         if self.query_regularizer_weight is not None:
             query_reg_loss = self.query_regularizer.compute_loss_from_embeddings(embeddings[0])
             weighted_query_reg = query_reg_loss * self.query_regularizer_weight
-            self._query_reg_value = weighted_query_reg.detach().item()
+            component_values["query_regularizer_loss"] = weighted_query_reg.detach().item()
             total_loss = total_loss + weighted_query_reg
-        else:
-            self._query_reg_value = None
+        self._component_values = component_values
 
         if with_backward:
             total_loss.backward()
@@ -190,13 +190,8 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
         total = self.forward_cached(sentence_features, labels)
 
         # Rebuild the per-component dict for the trainer's logging, around the single
-        # gradient-carrying total: base_loss is adjusted so that sum(values) == total exactly.
-        components = {
-            "base_loss": torch.tensor(self._base_loss_value, device=total.device),
-            "document_regularizer_loss": torch.tensor(self._doc_reg_value, device=total.device),
-        }
-        if self._query_reg_value is not None:
-            components["query_regularizer_loss"] = torch.tensor(self._query_reg_value, device=total.device)
+        # gradient-carrying total: the first entry is adjusted so that sum(values) == total exactly.
+        components = {key: torch.tensor(value, device=total.device) for key, value in self._component_values.items()}
         return _reconstruct_loss_components(total, components)
 
     def get_config_dict(self) -> dict[str, Any]:

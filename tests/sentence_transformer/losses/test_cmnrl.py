@@ -491,3 +491,41 @@ def test_cmnrl_token_budget_matches_mnrl(stsb_bert_tiny_model: SentenceTransform
     assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
     for name, grad in cached_grads.items():
         torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)
+
+
+def test_cmnrl_gather_across_devices_offset(stsb_bert_tiny_model: SentenceTransformer, monkeypatch) -> None:
+    """The ``gather_across_devices`` path has no other test. Simulate world=2/rank=1 by having
+    ``all_gather_with_grad`` return ``[local; local]``: the gathered batch is the local block
+    duplicated and ``offset = batch_size``, so the rank-1 loss (a mean over the local rows) equals
+    the non-gathered loss over the doubled batch by symmetry. This is the only test that drives the
+    offset-aware ``own_columns`` mask at ``offset > 0``. Sizing it by the local batch instead of the
+    world batch would raise an IndexError here."""
+    import sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking as cmnrl_module
+
+    model = stsb_bert_tiny_model.to("cpu")
+    # directions and hardness together exercise both consumers of own_columns.
+    config = {
+        "directions": ("query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"),
+        "hardness_mode": "all_negatives",
+        "hardness_strength": 5.0,
+        "mini_batch_size": 2,
+    }
+    generator = torch.Generator().manual_seed(0)
+    anchors = torch.randn(4, 16, generator=generator)
+    positives = torch.randn(4, 16, generator=generator)
+
+    # Reference: the non-gathered loss over the doubled batch [local; local] (offset 0, world = 8).
+    reference = CachedMultipleNegativesRankingLoss(model, gather_across_devices=False, **config).calculate_loss(
+        [[torch.cat([anchors, anchors])], [torch.cat([positives, positives])]]
+    )
+
+    # Rank 1 of a simulated world of 2: all_gather duplicates the local block, offset = batch_size = 4.
+    monkeypatch.setattr(cmnrl_module, "all_gather_with_grad", lambda tensor: torch.cat([tensor, tensor], dim=0))
+    monkeypatch.setattr(cmnrl_module, "is_dist_initialized", lambda: True)
+    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 1, raising=False)
+    rank1 = CachedMultipleNegativesRankingLoss(model, gather_across_devices=True, **config).calculate_loss(
+        [[anchors], [positives]]
+    )
+
+    assert torch.isfinite(rank1)
+    torch.testing.assert_close(rank1, reference, rtol=1e-5, atol=1e-6)

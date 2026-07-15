@@ -40,7 +40,9 @@ def _loss_and_grads(
     [
         {},
         {"scale": 50.0, "directions": ("query_to_doc", "doc_to_query"), "partition_mode": "per_direction"},
+        {"directions": ("query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc")},
         {"hardness_mode": "in_batch_negatives", "hardness_strength": 9.0},
+        {"hardness_mode": "all_negatives", "hardness_strength": 5.0},
     ],
 )
 @pytest.mark.parametrize("mini_batch_size", [3, 50])
