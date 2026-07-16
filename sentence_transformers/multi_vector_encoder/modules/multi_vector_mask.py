@@ -58,9 +58,7 @@ class MultiVectorMask(Module):
         keep_only_token_ids: list[int] | None = None,
     ) -> None:
         super().__init__()
-        # TODO: skiplist is document-only: is that a problem or are we fine to keep that restriction?
-        # Maybe fine to keep originally, but think about how we would eventually expand that + make sure
-        # we're not inhibiting that future expansion.
+        # The skiplist only applies to non-query tokens
         self.skiplist_words: list[str] = list(skiplist_words) if skiplist_words is not None else []
         # Stored as a list (not a cached tensor) so users can tweak it after construction without a rebuild.
         self.keep_only_token_ids: list[int] | None = (
