@@ -70,8 +70,9 @@ class CachedGISTEmbedLoss(nn.Module):
                 value is 32.
             mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding)
                 token count instead of by ``mini_batch_size`` sequences. Prefer the smallest budget that
-                saturates the GPU. See `Training Efficiency
-                <https://sbert.net/docs/sentence_transformer/usage/efficiency.html>`_ for details.
+                saturates the GPU. See the `token-budget mini-batching
+                <https://sbert.net/docs/sentence_transformer/usage/efficiency.html#mini-batch-num-tokens>`_
+                documentation for details.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
             margin_strategy: Strategy used for false negative filtering. One of {"absolute", "relative"}.
             margin: The margin value for filtering negatives. Defaults to 0.0, together with the "absolute" strategy,
