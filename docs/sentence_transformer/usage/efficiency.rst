@@ -127,17 +127,9 @@ If you're using a GPU, then you can use the following options to speed up your i
    Input flattening also speeds up training. When training with a gradient-cached loss such as
    :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`, you can additionally set
    ``mini_batch_num_tokens`` instead of ``mini_batch_size``. Mini-batches are then packed by total token count
-   rather than by sequence count, so every mini-batch performs a similar amount of work regardless of how
-   sequence lengths are distributed within the batch. ``mini_batch_size`` then no longer affects the embedding
-   passes. Losses that chunk their loss computation, like
-   :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`, still chunk
-   it by ``mini_batch_size`` rows of pooled embeddings: an independent partition of the full batch, not a
-   subdivision of the embedding mini-batches, as the loss cost does not depend on sequence lengths.
-   This keeps memory usage roughly constant and predictable,
-   and it can substantially increase training throughput on datasets with varying text lengths. Prefer the
-   smallest budget that saturates your GPU: throughput plateaus beyond that point, and budgets that push peak
-   memory close to the card's limit gain little and can silently slow training down when the driver spills
-   to system RAM instead of erroring:
+   rather than by sequence count, so every mini-batch performs a similar amount of work and uses a similar,
+   predictable amount of memory, regardless of how sequence lengths are distributed within the batch. This can
+   substantially increase training throughput on datasets with varying text lengths:
 
    .. code-block:: python
 
@@ -148,6 +140,10 @@ If you're using a GPU, then you can use the following options to speed up your i
           model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": "bfloat16"},
       )
       loss = losses.CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=32768)
+
+   Prefer the smallest budget that saturates your GPU: throughput plateaus beyond that point, and budgets that
+   push peak memory close to the card's limit gain little and can silently slow training down when the driver
+   spills to system RAM instead of erroring.
 
    .. seealso::
 
@@ -198,7 +194,7 @@ If you're using a GPU, then you can use the following options to speed up your i
 
 .. note::
 
-   When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU can help (e.g. ``SentenceTransformer(..., device=\"cpu\")`` or ``model.encode(..., device=\"cpu\")``).
+   When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU can help (e.g. ``SentenceTransformer(..., device="cpu")`` or ``model.encode(..., device="cpu")``).
 
 ONNX
 ----
