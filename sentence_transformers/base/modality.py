@@ -608,7 +608,7 @@ def infer_modality(
             raise ValueError(
                 "Dict input with 'array' key must also include 'sampling_rate' (for audio) "
                 "or 'video_metadata' (for video). "
-                f"Got keys: {sorted(sample.keys())}"
+                f"Got keys: {sorted(sample.keys(), key=str)}"
             )
         case dict() if sample:
             # Single-key dicts collapse to the bare modality string so {"image": pil} matches
@@ -633,7 +633,7 @@ def infer_modality(
                     )
                 hint = (" " + "\n\n".join(hints)) if hints else ""
                 raise ValueError(
-                    f"Multimodal dict input contains unrecognized modality keys: {sorted(invalid_keys)}. "
+                    f"Multimodal dict input contains unrecognized modality keys: {sorted(invalid_keys, key=str)}. "
                     f"Expected keys from: {sorted(MULTIMODAL_DICT_KEYS)}.{hint}"
                 )
             if len(sample) == 1:

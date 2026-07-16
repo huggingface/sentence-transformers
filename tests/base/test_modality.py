@@ -232,6 +232,17 @@ class TestInferModality:
         assert "'foo'" in message
         assert "To attach" not in message
 
+    def test_unrecognized_modality_keys_of_mixed_types_still_raise_valueerror(self):
+        # The reported keys are sorted for deterministic output, but keys of mixed types are not
+        # mutually comparable, so a plain sort would raise TypeError and mask the actionable error.
+        with pytest.raises(ValueError, match="unrecognized modality keys"):
+            infer_modality({"image": "cat.jpg", "foo": 1, 0: 2})
+
+    def test_dict_array_with_mixed_key_types_still_raises_valueerror(self):
+        # As above, for the sibling 'array' error that also sorts the reported keys.
+        with pytest.raises(ValueError, match="must also include 'sampling_rate'"):
+            infer_modality({"array": np.zeros(16000), 0: 2})
+
     def test_sibling_video_metadata_key_hints_array_form(self):
         # video_metadata as a sibling key is a common mistake (issue #3864): the error should name the
         # offending key and point to the {"video": {"array": ..., "video_metadata": ...}} form.
