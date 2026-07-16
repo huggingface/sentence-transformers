@@ -5,6 +5,8 @@ per-forward cache isolation, grad_output scaling, token-budget boundaries, and m
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 import torch
 from torch import Tensor, nn
@@ -174,6 +176,10 @@ def test_gradcache_under_no_grad(stsb_bert_tiny_model: SentenceTransformer, trai
     assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="bfloat16 CPU matmul can hard-crash (0xc000001d) on some Windows machines. Skipping to avoid CI failures.",
+)
 def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """Under autocast, the cached gradients are reduced-precision while the backward hook's
     re-embedding runs outside autocast in fp32, so the surrogate must bridge the dtypes.
