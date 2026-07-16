@@ -1,6 +1,6 @@
 ---
 name: train-sentence-transformers
-description: Train or fine-tune sentence-transformers models across `SentenceTransformer` (bi-encoder, dense or static embedding model for retrieval, similarity, clustering, classification, paraphrase mining, dedup, multimodal), `CrossEncoder` (reranker, pair scoring for two-stage retrieval / pair classification), and `SparseEncoder` (SPLADE, sparse embedding model for learned-sparse retrieval). Covers loss selection, hard-negative mining, evaluators, distillation, LoRA, Matryoshka, and Hugging Face Hub publishing. Use for any sentence-transformers training task.
+description: Train or fine-tune sentence-transformers models across `SentenceTransformer` (bi-encoder, dense or static embedding model for retrieval, similarity, clustering, classification, paraphrase mining, dedup, multimodal), `CrossEncoder` (reranker, pair scoring for two-stage retrieval / pair classification), `SparseEncoder` (SPLADE, sparse embedding model for learned-sparse retrieval), and `MultiVectorEncoder` (ColBERT / late-interaction, per-token embeddings scored with MaxSim). Covers loss selection, hard-negative mining, evaluators, distillation, LoRA, Matryoshka, and Hugging Face Hub publishing. Use for any sentence-transformers training task.
 ---
 
 # Train a sentence-transformers Model
@@ -16,8 +16,9 @@ description: Train or fine-tune sentence-transformers models across `SentenceTra
 | **[SentenceTransformer]** | `SentenceTransformer` (bi-encoder) | Maps each input to a fixed-dim dense vector | Retrieval, similarity, clustering, classification, paraphrase mining, dedup |
 | **[CrossEncoder]** | `CrossEncoder` (reranker) | Scores `(query, passage)` pairs jointly | Two-stage retrieval (rerank top-100 from bi-encoder), pair classification |
 | **[SparseEncoder]** | `SparseEncoder` (SPLADE) | Sparse vectors over the vocabulary | Learned-sparse retrieval, inverted-index backends (Elasticsearch / OpenSearch / Lucene) |
+| **[MultiVectorEncoder]** | `MultiVectorEncoder` (ColBERT) | One embedding per token, scored with MaxSim | Late-interaction retrieval, recall gains over bi-encoders at higher storage cost, multimodal (ColPali / ColQwen2) |
 
-Tiebreakers when the request is ambiguous: "embedding model" / "vector search" / "similarity" → **[SentenceTransformer]**. "rerank" / "ranker" / "two-stage" → **[CrossEncoder]**. "SPLADE" / "sparse" / "inverted index" → **[SparseEncoder]**. If still unclear, ask.
+Tiebreakers when the request is ambiguous: "embedding model" / "vector search" / "similarity" → **[SentenceTransformer]**. "rerank" / "ranker" / "two-stage" → **[CrossEncoder]**. "SPLADE" / "sparse" / "inverted index" → **[SparseEncoder]**. "ColBERT" / "late interaction" / "multi-vector" / "MaxSim" / "ColPali" / "ColQwen" → **[MultiVectorEncoder]**. If still unclear, ask.
 
 ## 2. Required reading
 
@@ -40,6 +41,11 @@ Tiebreakers when the request is ambiguous: "embedding model" / "vector search" /
 - `references/losses_sparse_encoder.md`: `SpladeLoss` wrapper requirement, FLOPS regularizer weights, smoke-test active-dim ramp behavior.
 - `references/evaluators_sparse_encoder.md`: `SparseNanoBEIREvaluator` (English-only) and the in-domain alternative, `eval_{name}_{primary_metric}` key format.
 - `scripts/train_sparse_encoder_example.py`: production template. Copy this as your starting point.
+
+**[MultiVectorEncoder]**
+- `references/losses_multi_vector_encoder.md`: MaxSim scoring, `scale=1.0` default (never `scale=20.0`), MNRL / CachedMNRL / MarginMSE / DistillKLDiv, XTR-vs-ColBERT scoring, CachedMNRL ↔ `gradient_checkpointing` incompatibility.
+- `references/evaluators_multi_vector_encoder.md`: `MultiVectorNanoBEIREvaluator` (English-only) and the in-domain alternative, `eval_NanoBEIR_mean_maxsim_ndcg@10` key format, distillation-eval spearman variant.
+- `scripts/train_multi_vector_encoder_example.py`: production template. Copy this as your starting point.
 
 ### Cross-cutting: always required (regardless of task)
 
@@ -79,6 +85,7 @@ These are non-negotiable contracts. Implementation lives in the production templ
 - Smoke-test before any long run (`max_steps=1` + tiny dataset slice). The production templates show one common pattern (`SMOKE_TEST` env var).
 - **[CrossEncoder]** Include `EarlyStoppingCallback(patience>=3)`. CE rerankers often peak mid-training and regress.
 - **[SparseEncoder]** Log `query_active_dims` / `corpus_active_dims` on the verdict line. High nDCG with collapsed sparsity is not a win. The keys come back name-prefixed (e.g. `..._query_active_dims`). Use suffix matching to pluck them. See the SPARSE production template for the exact pattern.
+- **[MultiVectorEncoder]** Keep `scale=1.0` on any MNRL-family loss. MaxSim is unbounded, so `scale=20.0` copied from bi-encoder MNRL saturates the softmax and destroys learning. `XTRScores` is a train-only `score_metric`: the evaluators reject it, so evaluation always scores with MaxSim, including for XTR-trained models.
 
 ## 5. Workflow
 
@@ -94,7 +101,8 @@ These are non-negotiable contracts. Implementation lives in the production templ
 
 ```bash
 pip install "sentence-transformers[train]>=5.0"        # add [train,image] / [audio] / [video] for [SentenceTransformer] multimodal
-pip install trackio                                    # optional tracker; or wandb / tensorboard / mlflow
+                                                       # [MultiVectorEncoder] requires >=6.0
+pip install trackio                                    # optional tracker (or wandb / tensorboard / mlflow)
 hf auth login                                          # or set HF_TOKEN with write scope (for Hub push)
 ```
 
