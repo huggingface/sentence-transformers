@@ -54,13 +54,10 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
                 both the activation memory of the embedding steps and the
                 size of the similarity matrix used to mine the hardest
                 negatives, so lower it if you run out of memory.
-            mini_batch_num_tokens: If set, mini-batches are packed by
-                total (non-padding) token count instead of by sequence
-                count, overriding ``mini_batch_size`` for the embedding
-                passes. See :class:`CachedMultipleNegativesRankingLoss`.
-                The hardest-negative
-                mining still chunks its similarity matrix by
-                ``mini_batch_size``.
+            mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding)
+                token count instead of by ``mini_batch_size`` sequences. Prefer the smallest budget that
+                saturates the GPU. See `Training Efficiency
+                <https://sbert.net/docs/sentence_transformer/usage/efficiency.html>`_ for details.
             show_progress_bar: If True, a progress bar for the
                 mini-batches is shown during training. The default is
                 False.
@@ -156,8 +153,8 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
         this needs every (anchor, positive) similarity. Only ``mini_batch_size`` rows of that matrix are
         materialized at a time.
         """
-        anchors = torch.cat(reps[0]) if len(reps[0]) > 1 else reps[0][0]
-        positives = torch.cat(reps[1]) if len(reps[1]) > 1 else reps[1][0]
+        anchors = torch.cat(reps[0])
+        positives = torch.cat(reps[1])
         batch_size = len(anchors)
 
         # Chunking only saves memory when each chunk's graph is freed as we go: back-propagated

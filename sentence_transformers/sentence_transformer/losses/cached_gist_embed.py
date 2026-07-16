@@ -68,10 +68,10 @@ class CachedGISTEmbedLoss(nn.Module):
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
                 training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory is used. It's recommended to set it as high as your GPU memory allows. The default
                 value is 32.
-            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count
-                instead of by sequence count, overriding ``mini_batch_size`` for the embedding passes.
-                See :class:`CachedMultipleNegativesRankingLoss`. The loss computation itself still chunks by
-                ``mini_batch_size``.
+            mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding)
+                token count instead of by ``mini_batch_size`` sequences. Prefer the smallest budget that
+                saturates the GPU. See `Training Efficiency
+                <https://sbert.net/docs/sentence_transformer/usage/efficiency.html>`_ for details.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
             margin_strategy: Strategy used for false negative filtering. One of {"absolute", "relative"}.
             margin: The margin value for filtering negatives. Defaults to 0.0, together with the "absolute" strategy,

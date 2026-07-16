@@ -25,7 +25,7 @@ def _reconstruct_loss_components(total: Tensor, components: dict[str, Tensor]) -
     is adjusted such that the dict still sums exactly to ``total``. The rest are detached values that
     only serve the per-component logging.
     """
-    components = {key: value.detach() for key, value in components.items()}
+    components = dict(components)
     first = next(iter(components))
     others = sum((value for key, value in components.items() if key != first), start=torch.zeros_like(total))
     components[first] = total - others
@@ -69,9 +69,8 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
             Only the embedding passes (steps 1 and 3) are mini-batched. Step 2 computes the base loss over the
             full batch of embeddings at once, because the wrapped base loss owns that computation. Mini-batching
             bounds the transformer activations, which dominate memory, so this remains a favorable trade in
-            practice. Unlike :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`,
-            the base loss's score matrix is not itself chunked, so it can become the memory ceiling at very large
-            batch sizes.
+            practice, though the base loss's score matrix is not itself chunked and can become the memory
+            ceiling at very large batch sizes.
 
         Args:
             model: SparseEncoder model
@@ -97,9 +96,10 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
                 during training and evaluation. The larger the mini-batch size, the faster the
                 training is, but the more memory is used. It's recommended to set it as high as your GPU
                 memory allows. The default value is 32.
-            mini_batch_num_tokens: If set, mini-batches are packed by total (non-padding) token count
-                instead of by sequence count, overriding ``mini_batch_size`` for the embedding passes.
-                See :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`.
+            mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding)
+                token count instead of by ``mini_batch_size`` sequences. Prefer the smallest budget that
+                saturates the GPU. See `Training Efficiency
+                <https://sbert.net/docs/sentence_transformer/usage/efficiency.html>`_ for details.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training.
 
         References:

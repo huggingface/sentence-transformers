@@ -151,12 +151,9 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
     ) -> tuple[Tensor, RandContext | None]:
         """Do forward pass on a minibatch of the input features and return corresponding logits.
 
-        The pairs are tokenized and moved to the device before the RNG state is snapshot, since
-        RandContext only captures the state of devices it sees tensors for, while the forward
-        pass draws its randomness (e.g. dropout masks) from the device generator. Snapshotting
-        before tokenization, when only the raw string pairs exist, captured no device state at
-        all, so on CUDA the backward re-prediction drew different dropout masks than the ones
-        the cached gradients belong to.
+        Pairs are tokenized and moved to the device before the RNG snapshot: RandContext only captures
+        state for devices it sees tensors for. Snapshotting the raw strings caught no device state, so on
+        CUDA the backward re-prediction drew different dropout masks than the cached gradients belonged to.
         """
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state

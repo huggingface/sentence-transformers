@@ -29,20 +29,13 @@ from torch.utils.checkpoint import get_device_states, set_device_states
 
 
 class RandContext:
-    """
-    Random-state context manager class. Reference: https://github.com/luyug/GradCache.
-
-    This class will back up the pytorch's random state during initialization. Then when the context is activated,
-    the class will set up the random state with the backed-up one.
-    """
+    """Snapshot the CPU/CUDA/MPS RNG at init and restore it on enter, so the cached second forward
+    replays the first's randomness (e.g. dropout). Ref: https://github.com/luyug/GradCache."""
 
     def __init__(self, *tensors) -> None:
         self.fwd_cpu_state = torch.get_rng_state()
-        # torch.utils.checkpoint.get_device_states() fails when it sees MPS tensors (it
-        # calls the non-existent torch.mps.device()), so capture the MPS RNG state for
-        # top-level MPS tensor arguments and filter them out before calling it. The MPS
-        # state is restored in __enter__ so the cached second forward replays the same
-        # randomness (e.g. dropout).
+        # get_device_states() calls the nonexistent torch.mps.device() on MPS tensors, so snapshot the
+        # MPS RNG separately and filter MPS tensors out before calling it (restored in __enter__).
         self.fwd_mps_state = (
             torch.mps.get_rng_state()
             if any(isinstance(t, torch.Tensor) and t.device.type == "mps" for t in tensors)
@@ -78,9 +71,8 @@ def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
     """
     if "cu_seq_lens_q" in sentence_feature:
         return len(sentence_feature["cu_seq_lens_q"]) - 1
-    # Prefer known batch-indexed keys to avoid accidentally using flattened tensors
-    # like pixel_values whose first dimension may differ from the batch size in
-    # vision-language models (e.g. Qwen2-VL).
+    # Prefer known batch-indexed keys, since flattened tensors like pixel_values can have a
+    # first dimension that differs from the batch size in VLMs (e.g. Qwen2-VL).
     for key in ("input_ids", "attention_mask"):
         if key in sentence_feature and isinstance(sentence_feature[key], torch.Tensor):
             return sentence_feature[key].shape[0]
@@ -92,11 +84,9 @@ def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
 def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) -> dict[str, Any]:
     """Create a mini-batch from sentence features, handling padded, flattened, and VLM inputs.
 
-    With padded inputs, this slices tensors along the batch dimension, then drops trailing columns that
-    are padding across every sequence in the mini-batch. Without that, a mini-batch of short sequences
-    would still be embedded at the full batch's padded width, so ``mini_batch_num_tokens`` would not
-    bound its activation memory. Only trailing (right-side) padding is trimmed. Leading padding is kept,
-    since trimming it would shift the positions a model derives from the sequence length.
+    With padded inputs, this slices along the batch dimension and drops trailing padding columns shared
+    by the whole mini-batch, so short-sequence mini-batches aren't embedded at the full batch width
+    (else ``mini_batch_num_tokens`` would not bound memory). Leading padding is kept to preserve positions.
     With flattened inputs (from ``DataCollatorWithFlattening``), this extracts the token ranges
     for sequences ``begin:end`` and rebuilds the metadata (``cu_seq_lens_q``, ``seq_idx``, etc.).
 

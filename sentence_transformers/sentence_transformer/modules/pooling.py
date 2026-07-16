@@ -154,10 +154,8 @@ class Pooling(Module):
     def _exclude_prompt_from_mask(attention_mask: Tensor, prompt_length: int) -> Tensor:
         """Zero out prompt token positions in the attention mask so they are excluded from pooling.
 
-        Operates on a copy: the mask belongs to the caller's features, and zeroing it in place would
-        leak into any later forward pass over the same features. The gradient-cached losses re-embed
-        the same features in their backward pass, and were served a mask with the prompt already
-        removed, silently changing the transformer's attention between the two passes.
+        Operates on a copy: the gradient-cached losses re-embed the caller's features in their backward
+        pass, so zeroing the mask in place would change their attention between the two forward passes.
         """
         attention_mask = attention_mask.clone()
         pad_lengths = attention_mask.to(torch.int32).argmax(dim=1)
