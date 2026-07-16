@@ -440,8 +440,9 @@ class BaseTrainer(Trainer, ABC):
         else:
             loss = loss(model).to(model.device)
 
-        # Enable per-sample media counting in Transformer.preprocess for losses that minibatch VLM inputs
-        if getattr(loss, "requires_media_counts", False):
+        # Enable per-sample media counting in Transformer.preprocess for losses that minibatch VLM
+        # inputs. The loss may be wrapped (e.g. MatryoshkaLoss), so look through its submodules.
+        if any(getattr(module, "requires_media_counts", False) for module in loss.modules()):
             if isinstance(model[0], Router):
                 input_modules = [route[0] for route in model[0].sub_modules.values()]  # type: ignore[index]
             else:
@@ -511,6 +512,9 @@ class BaseTrainer(Trainer, ABC):
     def track_loss_components(self, loss: dict[str, torch.Tensor]) -> None:
         training_type = "train" if self.model.training else "eval"
         for key, value in loss.items():
+            # Accumulate free of the autograd graph, which would otherwise stay alive (with the
+            # gradient caches of the Cached* losses) until log() resets the accumulators.
+            value = value.detach()
             # if loss is nan or inf simply add the average of previous logged losses
             if self.args.logging_nan_inf_filter and (torch.isnan(value) or torch.isinf(value)):
                 if key not in self.accum_loss_components[training_type]:

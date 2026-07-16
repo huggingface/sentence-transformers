@@ -176,3 +176,197 @@ def test_relative_margin_negative_positive_score_suppresses_closer_negative():
     scores = captured[0]
     assert scores[0, 1].item() == float("-inf"), f"closer negative must be masked, got {scores[0, 1].item()}"
     assert torch.isfinite(scores[0, 0]) and torch.isfinite(loss)
+
+
+def test_cached_gist_two_forwards_before_one_backward(stsb_bert_tiny_model) -> None:
+    """Each forward pass must hand its own cached gradients to its own backward hook.
+
+    The cache used to live on the loss module, so a second forward pass overwrote it and both hooks
+    then back-propagated the second batch's gradients against the first batch's inputs.
+    """
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+
+    anchors = ["anchor a", "anchor b", "anchor c", "anchor d", "anchor e"]
+    positives = ["positive a", "positive b", "positive c", "positive d", "positive e"]
+    first = [model.preprocess(anchors[:3]), model.preprocess(positives[:3])]
+    second = [model.preprocess(anchors[2:]), model.preprocess(positives[2:])]
+    labels = torch.zeros(3, dtype=torch.long)
+
+    def make_loss() -> CachedGISTEmbedLoss:
+        return CachedGISTEmbedLoss(model, guide=model, mini_batch_size=2)
+
+    model.zero_grad()
+    shared = make_loss()
+    (shared(first, labels) + shared(second, labels)).backward()
+    shared_grads = gradients(model)
+
+    model.zero_grad()
+    (make_loss()(first, labels) + make_loss()(second, labels)).backward()
+    reference_grads = gradients(model)
+
+    assert_trained(shared_grads)
+    for name, grad in shared_grads.items():
+        torch.testing.assert_close(grad, reference_grads[name], rtol=1e-4, atol=1e-6, msg=name)
+
+
+@pytest.mark.parametrize("num_columns", [2, 3])
+@pytest.mark.parametrize("mini_batch_size", [2, 3])
+def test_cached_gist_matches_gist(stsb_bert_tiny_model, num_columns: int, mini_batch_size: int) -> None:
+    """``mini_batch_size`` only bounds memory: for the 2- and 3-column shapes the non-cached loss
+    supports, the cached loss must reproduce GISTEmbedLoss's loss and gradient."""
+    from sentence_transformers.sentence_transformer.losses import GISTEmbedLoss
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+
+    columns = [
+        ["anchor a", "anchor b", "anchor c", "anchor d", "anchor e"],
+        ["positive a", "positive b", "positive c", "positive d", "positive e"],
+        ["negative a", "negative b", "negative c", "negative d", "negative e"],
+    ][:num_columns]
+    labels = torch.zeros(5, dtype=torch.long)
+
+    def loss_and_grads(loss_fn: torch.nn.Module) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        model.zero_grad()
+        loss_value = loss_fn([model.preprocess(column) for column in columns], labels)
+        loss_value.backward()
+        return loss_value.detach(), gradients(model)
+
+    cached_loss, cached_grads = loss_and_grads(
+        CachedGISTEmbedLoss(model, guide=model, mini_batch_size=mini_batch_size)
+    )
+    plain_loss, plain_grads = loss_and_grads(GISTEmbedLoss(model, guide=model))
+
+    assert_trained(cached_grads)
+    assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
+    for name, grad in cached_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)
+
+
+def test_cached_gist_replays_dropout_in_the_backward_pass(stsb_bert_tiny_model) -> None:
+    """The backward pass must re-embed exactly what the forward pass embedded, dropout included,
+    also with this loss's bespoke ``embed_minibatch``, which runs the guide model in the
+    forward pass but skips it in the backward re-embedding."""
+    model = stsb_bert_tiny_model.to("cpu")
+    model.train()
+    assert any(module.p > 0 for module in model.modules() if isinstance(module, torch.nn.Dropout)), (
+        "the model has no active dropout, so this test would be vacuous"
+    )
+
+    loss_fn = CachedGISTEmbedLoss(model, guide=model, mini_batch_size=2)
+    forward_reps: list[torch.Tensor] = []
+    backward_reps: list[torch.Tensor] = []
+    sink = forward_reps
+    embed_minibatch = loss_fn.embed_minibatch
+
+    def spy(**kwargs):
+        reps, guide_reps, random_state = embed_minibatch(**kwargs)
+        sink.append(reps.detach().clone())
+        return reps, guide_reps, random_state
+
+    loss_fn.embed_minibatch = spy
+
+    anchors = ["anchor a", "anchor b", "anchor c", "anchor d", "anchor e"]
+    positives = ["positive a", "positive b", "positive c", "positive d", "positive e"]
+    loss = loss_fn([model.preprocess(anchors), model.preprocess(positives)], torch.zeros(5, dtype=torch.long))
+    sink = backward_reps  # the hook's re-embedding lands here
+    loss.backward()
+
+    # 2 columns x ceil(5 / 2) mini-batches, embedded once per pass
+    assert len(forward_reps) == len(backward_reps) == 6
+    for index, (forward, backward) in enumerate(zip(forward_reps, backward_reps)):
+        assert torch.equal(forward, backward), f"mini-batch {index} was re-embedded with different dropout"
+
+
+def test_cached_gist_rejects_static_embedding_behind_a_router(static_embedding, stsb_bert_tiny_model) -> None:
+    """A Router keeps its input modules one level down, so a guard that only inspects ``model[0]``
+    waves a StaticEmbedding straight through, and mini-batching then slices the EmbeddingBag
+    features by token index."""
+    from sentence_transformers import SentenceTransformer
+    from sentence_transformers.sentence_transformer.modules import Router
+
+    model = SentenceTransformer(
+        modules=[Router.for_query_document(query_modules=[static_embedding], document_modules=[static_embedding])]
+    )
+    with pytest.raises(ValueError, match="not compatible with a SentenceTransformer model based on a StaticEmbedding"):
+        CachedGISTEmbedLoss(model, guide=stsb_bert_tiny_model)
+
+
+@pytest.mark.parametrize("mini_batch_size", [2, 3])
+def test_gist_matryoshka_matches_cached_gist_matryoshka(stsb_bert_tiny_model, mini_batch_size: int) -> None:
+    """``MatryoshkaLoss(GISTEmbedLoss(...))`` must match ``MatryoshkaLoss(CachedGISTEmbedLoss(...))``.
+
+    The plain loss used to run the guide on the same features dicts whose model outputs
+    MatryoshkaLoss's ``ForwardDecorator`` caches, so every dim beyond the first pooled the
+    guide's no-grad embeddings and only the largest dim trained. The cached loss embeds fresh
+    mini-batch dicts and never had the bug, so it doubles as the reference here.
+
+    The guide is a copy of the model rather than the model itself: MatryoshkaLoss decorates
+    ``model.forward``, and a guide sharing that object would have its embeddings shrunk in the
+    plain path but not in the cached path."""
+    import copy
+
+    from sentence_transformers.sentence_transformer.losses import GISTEmbedLoss, MatryoshkaLoss
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+    guide = copy.deepcopy(model)
+
+    anchors = ["anchor a", "anchor b", "anchor c", "anchor d", "anchor e"]
+    positives = ["positive a", "positive b", "positive c", "positive d", "positive e"]
+    labels = torch.zeros(5, dtype=torch.long)
+
+    def loss_and_grads(inner: torch.nn.Module) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        model.zero_grad()
+        features = [model.preprocess(anchors), model.preprocess(positives)]
+        loss_value = MatryoshkaLoss(model, inner, matryoshka_dims=[128, 64, 32])(features, labels)
+        loss_value.backward()
+        return loss_value.detach(), gradients(model)
+
+    plain_loss, plain_grads = loss_and_grads(GISTEmbedLoss(model, guide=guide))
+    cached_loss, cached_grads = loss_and_grads(
+        CachedGISTEmbedLoss(model, guide=guide, mini_batch_size=mini_batch_size)
+    )
+
+    assert_trained(plain_grads)
+    assert plain_loss.item() == pytest.approx(cached_loss.item(), rel=1e-4, abs=1e-5)
+    # The Matryoshka sum over 3 dims triples the loss magnitude and with it the float noise.
+    for name, grad in plain_grads.items():
+        torch.testing.assert_close(grad, cached_grads[name], rtol=1e-4, atol=1e-4, msg=name)
+
+
+def test_cached_gist_token_budget_matches_gist(stsb_bert_tiny_model) -> None:
+    """The token budget must flow through this loss's bespoke ``embed_minibatch_iter`` (which also runs
+    the guide model) without changing the loss or gradient."""
+    from sentence_transformers.sentence_transformer.losses import GISTEmbedLoss
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+
+    model = stsb_bert_tiny_model.to("cpu")
+    disable_dropout(model)
+    model.train()
+
+    anchors = ["a", "anchor b with quite a few more words in it", "c and d", "final anchor sentence", "e"]
+    positives = ["short", "positive b also has a longer surface form", "p", "another positive text", "q r"]
+    labels = torch.zeros(5, dtype=torch.long)
+
+    def loss_and_grads(loss_fn: torch.nn.Module) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        model.zero_grad()
+        loss_value = loss_fn([model.preprocess(anchors), model.preprocess(positives)], labels)
+        loss_value.backward()
+        return loss_value.detach(), gradients(model)
+
+    cached_loss, cached_grads = loss_and_grads(CachedGISTEmbedLoss(model, guide=model, mini_batch_num_tokens=16))
+    plain_loss, plain_grads = loss_and_grads(GISTEmbedLoss(model, guide=model))
+
+    assert_trained(cached_grads)
+    assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
+    for name, grad in cached_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)

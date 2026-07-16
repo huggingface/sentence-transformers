@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import torch
 from huggingface_hub import HfApi
 
 from sentence_transformers import (
@@ -125,3 +126,25 @@ def test_push_from_checkpoint_skips_when_end_strategy(
     # hub_strategy="end" pushes only at the end of training, not mid-training. No copy, no upload.
     assert not mock_upload.called
     assert not (output_dir / "modules.json").exists()
+
+
+def test_track_loss_components_detaches_the_accumulated_values() -> None:
+    """The component dict values carry the autograd graph and, for the Cached* losses, the
+    gradient caches held by their backward hook. Accumulating them undetached would pin
+    every step's caches until the next logging flush (multi-GB at default logging_steps)."""
+    trainer = SimpleNamespace(
+        args=SimpleNamespace(logging_nan_inf_filter=False),
+        model=SimpleNamespace(training=True),
+        accum_loss_components={"train": {}, "eval": {}},
+        state=SimpleNamespace(global_step=0),
+        _globalstep_last_logged=0,
+    )
+    value = torch.tensor(2.0, requires_grad=True) * 3
+    assert value.grad_fn is not None, "the test premise requires a graph-carrying component"
+
+    SentenceTransformerTrainer.track_loss_components(trainer, {"base_loss": value})
+    SentenceTransformerTrainer.track_loss_components(trainer, {"base_loss": value})
+
+    accumulated = trainer.accum_loss_components["train"]["base_loss"]
+    assert accumulated.grad_fn is None and not accumulated.requires_grad
+    assert accumulated.item() == pytest.approx(12.0)

@@ -153,8 +153,10 @@ class GISTEmbedLoss(nn.Module):
                     for sentence_feature in sentence_features
                 ]
 
+            # Run the guide on shallow copies: it writes its outputs into the features it is
+            # given, and loss decorators like MatryoshkaLoss reuse the dicts the model filled.
             guide_embeddings = [
-                self.guide(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features
+                self.guide(dict(sentence_feature))["sentence_embedding"] for sentence_feature in sentence_features
             ]
 
         negative = None

@@ -5,10 +5,11 @@ from collections.abc import Callable
 from torch import Tensor
 from typing_extensions import deprecated
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import util
 from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
     CachedMultipleNegativesRankingLoss,
 )
+from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
 @deprecated(
@@ -23,6 +24,7 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
         scale: float = 20.0,
         similarity_fct: Callable[[Tensor, Tensor], Tensor] = util.cos_sim,
         mini_batch_size: int = 32,
+        mini_batch_num_tokens: int | None = None,
         gather_across_devices: bool = False,
         show_progress_bar: bool = False,
     ) -> None:
@@ -65,9 +67,13 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
             similarity_fct: similarity function between embeddings. By default, cos_sim. Can also be set to dot
                 product (and then set scale to 1)
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
-                training and evaluation. The larger the mini-batch size, the more memory efficient the training is, but
-                the slower the training will be. It's recommended to set it as high as your GPU memory allows. The default
+                training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory
+                is used. It's recommended to set it as high as your GPU memory allows. The default
                 value is 32.
+            mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding)
+                token count instead of by ``mini_batch_size`` sequences, which speeds up training on
+                variable-length data. Most effective for models that avoid padded compute, e.g. flash
+                attention with input flattening. See the Speeding up Inference documentation for details.
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
@@ -121,6 +127,7 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
             scale=scale,
             similarity_fct=similarity_fct,
             mini_batch_size=mini_batch_size,
+            mini_batch_num_tokens=mini_batch_num_tokens,
             gather_across_devices=gather_across_devices,
             directions=("query_to_doc", "doc_to_query"),  # Symmetric directions
             partition_mode="per_direction",  # Separate softmax normalization for each direction

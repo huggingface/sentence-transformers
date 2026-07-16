@@ -96,6 +96,10 @@ class ContrastiveLoss(nn.Module):
         return {"distance_metric": distance_metric_name, "margin": self.margin, "size_average": self.size_average}
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
+        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        return self.compute_loss_from_embeddings(embeddings, labels)
+
+    def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
         if not self._checked_labels:
             self._checked_labels = True
             if labels.ne(0).logical_and(labels.ne(1)).any().item():
@@ -106,9 +110,8 @@ class ContrastiveLoss(nn.Module):
                     stacklevel=4,
                 )
 
-        reps = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
-        assert len(reps) == 2
-        rep_anchor, rep_other = reps
+        assert len(embeddings) == 2
+        rep_anchor, rep_other = embeddings
         distances = self.distance_metric(rep_anchor, rep_other)
         losses = 0.5 * (
             labels.float() * distances.pow(2) + (1 - labels).float() * F.relu(self.margin - distances).pow(2)

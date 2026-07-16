@@ -124,6 +124,27 @@ If you're using a GPU, then you can use the following options to speed up your i
 
    Flash Attention 2 with input flattening always outperforms standard Flash Attention 2, while using considerably less VRAM. The gains grow with the variance in input length, with the mixed dataset with wildly varying lengths (10-500 tokens) benefitting the most.
 
+   Input flattening also speeds up training. When training with a gradient-cached loss such as
+   :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`, you can additionally set
+   ``mini_batch_num_tokens`` instead of ``mini_batch_size``. Mini-batches are then packed by total token count
+   rather than by sequence count, so every mini-batch performs a similar amount of work and uses a similar,
+   predictable amount of memory, regardless of how sequence lengths are distributed within the batch. This can
+   substantially increase training throughput on datasets with varying text lengths:
+
+   .. code-block:: python
+
+      from sentence_transformers import SentenceTransformer, losses
+
+      model = SentenceTransformer(
+          "answerdotai/ModernBERT-base",
+          model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": "bfloat16"},
+      )
+      loss = losses.CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=32768)
+
+   Prefer the smallest budget that saturates your GPU: throughput plateaus beyond that point, and budgets that
+   push peak memory close to the card's limit gain little and can silently slow training down when the driver
+   spills to system RAM instead of erroring.
+
    .. seealso::
 
       The `Transformers Attention Interface <https://huggingface.co/docs/transformers/en/attention_interface>`_ documentation
@@ -173,7 +194,7 @@ If you're using a GPU, then you can use the following options to speed up your i
 
 .. note::
 
-   When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU can help (e.g. ``SentenceTransformer(..., device=\"cpu\")`` or ``model.encode(..., device=\"cpu\")``).
+   When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU can help (e.g. ``SentenceTransformer(..., device="cpu")`` or ``model.encode(..., device="cpu")``).
 
 ONNX
 ----
