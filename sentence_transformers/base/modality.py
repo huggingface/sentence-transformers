@@ -608,16 +608,33 @@ def infer_modality(
             raise ValueError(
                 "Dict input with 'array' key must also include 'sampling_rate' (for audio) "
                 "or 'video_metadata' (for video). "
-                f"Got keys: {set(sample.keys())}"
+                f"Got keys: {sorted(sample.keys())}"
             )
         case dict() if sample:
             # Single-key dicts collapse to the bare modality string so {"image": pil} matches
             # the same support/routing as a raw PIL input.
             invalid_keys = set(sample.keys()) - MULTIMODAL_DICT_KEYS
             if invalid_keys:
+                # Per-sample metadata as a sibling key is a common mistake, so let's point at the array-dict
+                # form that actually carries it, nested under its modality key so that it still composes
+                # with any sibling modalities in the same sample.
+                hints = []
+                if "video_metadata" in invalid_keys:
+                    hints.append(
+                        "To attach per-sample video metadata, pass the video itself as a dict, and keep "
+                        "processor options in processing_kwargs, e.g.:\n"
+                        '{"video": {"array": frames, "video_metadata": {"fps": 15, "total_num_frames": 3}}}\n'
+                        'processing_kwargs={"video": {"do_sample_frames": False}}'
+                    )
+                if "sampling_rate" in invalid_keys:
+                    hints.append(
+                        "To attach the sampling rate, pass the audio itself as a dict, e.g.:\n"
+                        '{"audio": {"array": waveform, "sampling_rate": 16000}}'
+                    )
+                hint = (" " + "\n\n".join(hints)) if hints else ""
                 raise ValueError(
-                    f"Multimodal dict input contains unrecognized modality keys: {invalid_keys}. "
-                    f"Expected keys from: {sorted(MULTIMODAL_DICT_KEYS)}"
+                    f"Multimodal dict input contains unrecognized modality keys: {sorted(invalid_keys)}. "
+                    f"Expected keys from: {sorted(MULTIMODAL_DICT_KEYS)}.{hint}"
                 )
             if len(sample) == 1:
                 return next(iter(sample))
