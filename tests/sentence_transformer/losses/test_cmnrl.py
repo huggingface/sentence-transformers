@@ -521,8 +521,7 @@ def test_cmnrl_gather_across_devices_offset(stsb_bert_tiny_model: SentenceTransf
 
     # Rank 1 of a simulated world of 2: all_gather duplicates the local block, offset = batch_size = 4.
     monkeypatch.setattr(cmnrl_module, "all_gather_with_grad", lambda tensor: torch.cat([tensor, tensor], dim=0))
-    monkeypatch.setattr(cmnrl_module, "is_dist_initialized", lambda: True)
-    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 1, raising=False)
+    monkeypatch.setattr(cmnrl_module, "get_rank", lambda: 1)
     rank1 = CachedMultipleNegativesRankingLoss(model, gather_across_devices=True, **config).calculate_loss(
         [[anchors], [positives]]
     )
