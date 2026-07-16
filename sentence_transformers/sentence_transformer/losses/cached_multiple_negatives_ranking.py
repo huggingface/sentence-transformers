@@ -76,10 +76,9 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
                 training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory is used. It's recommended to set it as high as your GPU memory allows. The default
                 value is 32.
             mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding)
-                token count instead of by ``mini_batch_size`` sequences. Prefer the smallest budget that
-                saturates the GPU. See the `token-budget mini-batching
-                <https://sbert.net/docs/sentence_transformer/usage/efficiency.html#mini-batch-num-tokens>`_
-                documentation for details.
+                token count instead of by ``mini_batch_size`` sequences, which speeds up training on
+                variable-length data. Most effective for models that avoid padded compute, e.g. flash
+                attention with input flattening. See the Speeding up Inference documentation for details.
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.

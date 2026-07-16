@@ -55,10 +55,9 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
                 size of the similarity matrix used to mine the hardest
                 negatives, so lower it if you run out of memory.
             mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding)
-                token count instead of by ``mini_batch_size`` sequences. Prefer the smallest budget that
-                saturates the GPU. See the `token-budget mini-batching
-                <https://sbert.net/docs/sentence_transformer/usage/efficiency.html#mini-batch-num-tokens>`_
-                documentation for details.
+                token count instead of by ``mini_batch_size`` sequences, which speeds up training on
+                variable-length data. Most effective for models that avoid padded compute, e.g. flash
+                attention with input flattening. See the Speeding up Inference documentation for details.
             show_progress_bar: If True, a progress bar for the
                 mini-batches is shown during training. The default is
                 False.

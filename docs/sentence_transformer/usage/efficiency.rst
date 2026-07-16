@@ -124,8 +124,6 @@ If you're using a GPU, then you can use the following options to speed up your i
 
    Flash Attention 2 with input flattening always outperforms standard Flash Attention 2, while using considerably less VRAM. The gains grow with the variance in input length, with the mixed dataset with wildly varying lengths (10-500 tokens) benefitting the most.
 
-   .. _mini_batch_num_tokens:
-
    Input flattening also speeds up training. When training with a gradient-cached loss such as
    :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`, you can additionally set
    ``mini_batch_num_tokens`` instead of ``mini_batch_size``. Mini-batches are then packed by total token count
