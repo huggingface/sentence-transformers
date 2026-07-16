@@ -15,6 +15,7 @@ import pytest
 import torch
 from torch import Tensor, nn
 
+from sentence_transformers.base.losses.gradcache import _minibatch_ranges
 from sentence_transformers.multi_vector_encoder import losses as mve_losses
 
 
@@ -141,6 +142,71 @@ def test_cached_mnr_gradients_match_non_cached(size_average: bool) -> None:
     assert torch.allclose(plain_value, cached_value, atol=1e-6)
     for plain_sf, cached_sf in zip(plain_features, cached_features):
         assert torch.allclose(plain_sf["token_embeddings"].grad, cached_sf["token_embeddings"].grad, atol=1e-6)
+
+
+def _make_ragged_feature(lengths: list[int], dim: int, seed: int) -> dict[str, Tensor]:
+    """Like ``_make_feature``, but each sample has its own real token count. ``mini_batch_num_tokens``
+    packs by real tokens, so it only produces uneven mini-batches when the mask is ragged."""
+    g = torch.Generator().manual_seed(seed)
+    batch, width = len(lengths), max(lengths)
+    emb = torch.nn.functional.normalize(torch.randn(batch, width, dim, generator=g), p=2, dim=-1)
+    emb.requires_grad_(True)
+    mask = torch.zeros(batch, width, dtype=torch.bool)
+    for row, length in enumerate(lengths):
+        mask[row, :length] = True
+    return {"token_embeddings": emb, "attention_mask": mask}
+
+
+@pytest.mark.parametrize("size_average", [True, False])
+def test_cached_mnr_token_budget_matches_non_cached(size_average: bool) -> None:
+    """``mini_batch_num_tokens`` packs mini-batches by real token count rather than by sequence count,
+    which must not change the loss or the gradients. Padded positions dropped by the mini-batch pad
+    trimming are masked out anyway, so both paths have to agree exactly."""
+    dim = 8
+    query_lengths = [3, 6, 2, 5, 4, 7]
+    positive_lengths = [8, 3, 9, 4, 6, 2]
+
+    def build_features() -> list[dict[str, Tensor]]:
+        return [
+            _make_ragged_feature(query_lengths, dim=dim, seed=1),
+            _make_ragged_feature(positive_lengths, dim=dim, seed=2),
+        ]
+
+    # Guard against a vacuous comparison: the budget must genuinely split the column into
+    # uneven mini-batches, rather than falling back to one chunk for the whole batch.
+    ranges = _minibatch_ranges(build_features()[0], mini_batch_size=len(query_lengths), mini_batch_num_tokens=10)
+    assert len(ranges) > 1, f"token budget did not split the batch: {ranges}"
+    assert len({end - begin for begin, end in ranges}) > 1, f"expected uneven mini-batches, got {ranges}"
+
+    plain_features = build_features()
+    plain_loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(
+        model=_PassthroughModel(), size_average=size_average
+    )
+    plain_value = plain_loss(plain_features, labels=None)
+    plain_value.backward()
+
+    cached_features = build_features()
+    cached_loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+        model=_PassthroughModel(),
+        mini_batch_num_tokens=10,
+        size_average=size_average,
+        show_progress_bar=False,
+    )
+    cached_value = cached_loss(cached_features, labels=None)
+    cached_value.backward()
+
+    assert torch.allclose(plain_value, cached_value, atol=1e-6)
+    for plain_sf, cached_sf in zip(plain_features, cached_features):
+        # Guard the comparison against a loss that silently produces no gradient at all.
+        assert cached_sf["token_embeddings"].grad.abs().sum() > 0
+        assert torch.allclose(plain_sf["token_embeddings"].grad, cached_sf["token_embeddings"].grad, atol=1e-6)
+
+
+def test_cached_mnr_rejects_non_positive_token_budget() -> None:
+    """The constructor runs the shared validation, so a non-positive budget fails at build time
+    rather than producing a degenerate mini-batch split later."""
+    with pytest.raises(ValueError, match="mini_batch_num_tokens must be a positive integer or None."):
+        mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel(), mini_batch_num_tokens=0)
 
 
 class _RaggedTrimPassthroughModel(nn.Module):

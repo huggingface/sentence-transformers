@@ -9,11 +9,16 @@ import torch
 import torch.nn.functional as F
 import tqdm
 from torch import Tensor, nn
-from torch.utils.checkpoint import get_device_states, set_device_states
 
+from sentence_transformers.base.losses.gradcache import (
+    RandContext,
+    _backward_hook,
+    _create_minibatch,
+    _minibatch_ranges,
+    _validate_mini_batch_num_tokens,
+)
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.scoring import colbert_scores
-from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import _create_minibatch
 from sentence_transformers.util import (
     all_gather_padded,
     cat_padded_token_embeddings,
@@ -21,77 +26,6 @@ from sentence_transformers.util import (
     get_world_size,
     stack_padded_token_embeddings,
 )
-
-
-def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
-    """Get the number of samples in sentence features, handling both padded and flattened inputs.
-
-    With padded inputs, the batch size is the first dimension of any tensor.
-    With flattened inputs (from ``DataCollatorWithFlattening``), the batch size is derived
-    from ``cu_seq_lens_q`` which has shape ``(num_seqs + 1,)``.
-    """
-    if "cu_seq_lens_q" in sentence_feature:
-        return len(sentence_feature["cu_seq_lens_q"]) - 1
-    # Prefer known batch-indexed keys to avoid accidentally using flattened tensors
-    # like pixel_values whose first dimension may differ from the batch size in
-    # vision-language models (e.g. Qwen2-VL).
-    for key in ("input_ids", "attention_mask"):
-        if key in sentence_feature and isinstance(sentence_feature[key], torch.Tensor):
-            return sentence_feature[key].shape[0]
-    return next(
-        value.shape[0] for value in sentence_feature.values() if isinstance(value, torch.Tensor) and value.ndim > 0
-    )
-
-
-class RandContext:
-    """A random-state snapshot used to reproduce a forward pass during the GradCache 2nd-phase backward.
-
-    Reference: https://github.com/luyug/GradCache.
-    """
-
-    def __init__(self, *tensors) -> None:
-        self.fwd_cpu_state = torch.get_rng_state()
-        if torch.backends.mps.is_available():
-            raise RuntimeError("MPS backend is not supported for this operation. Please use CPU or CUDA.")
-        self.fwd_gpu_devices, self.fwd_gpu_states = get_device_states(*tensors)
-
-    def __enter__(self) -> None:
-        self._fork = torch.random.fork_rng(devices=self.fwd_gpu_devices, enabled=True)
-        self._fork.__enter__()
-        torch.set_rng_state(self.fwd_cpu_state)
-        set_device_states(self.fwd_gpu_devices, self.fwd_gpu_states)
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self._fork.__exit__(exc_type, exc_val, exc_tb)
-        self._fork = None
-
-
-def _backward_hook(
-    grad_output: Tensor,
-    sentence_features: Iterable[dict[str, Tensor]],
-    loss_obj: CachedMultiVectorMultipleNegativesRankingLoss,
-) -> None:
-    """Re-run the embedding forward (with gradients enabled) for each mini-batch and plug the cached
-    per-embedding gradients back into the autograd graph."""
-    assert loss_obj.cache is not None
-    assert loss_obj.random_states is not None
-    with torch.enable_grad():
-        for idx, (sentence_feature, grad, random_states) in enumerate(
-            zip(sentence_features, loss_obj.cache, loss_obj.random_states)
-        ):
-            task = sentence_feature.get("task", "query" if idx == 0 else "document")
-            for (reps_mb, _, _), grad_mb in zip(
-                loss_obj.embed_minibatch_iter(
-                    sentence_feature=sentence_feature,
-                    task=task,
-                    with_grad=True,
-                    copy_random_state=False,
-                    random_states=random_states,
-                ),
-                grad,
-            ):
-                surrogate = torch.dot(reps_mb.flatten(), grad_mb.flatten()) * grad_output
-                surrogate.backward()
 
 
 class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
@@ -112,6 +46,10 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
             :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRScores` for XTR-style scoring.
         mini_batch_size: Chunk size for the **embedding** forward / backward pass. Keep small enough that a
             single chunk fits in GPU memory.
+        mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding) token
+            count instead of by ``mini_batch_size`` sequences, which speeds up training on variable-length
+            data. Most effective for models that avoid padded compute, e.g. flash attention with input
+            flattening. See the Speeding up Inference documentation for details.
         score_mini_batch_size: Chunk size for the **scoring** phase (independent of ``mini_batch_size``).
             Smaller values trim transient scoring intermediates ``(Q, Q*N, q_tokens, d_tokens)`` which are
             usually the bottleneck at large effective batch sizes. Defaults to ``mini_batch_size``.
@@ -128,11 +66,15 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
     # Enables per-sample media counting in Transformer.preprocess for VLM minibatching
     requires_media_counts = True
 
+    # Back-propagates from a hook on the returned loss (see `gradcache.uses_gradient_cache`).
+    uses_gradient_cache = True
+
     def __init__(
         self,
         model: MultiVectorEncoder,
         score_metric: Callable | None = None,
         mini_batch_size: int = 32,
+        mini_batch_num_tokens: int | None = None,
         score_mini_batch_size: int | None = None,
         scale: float = 1.0,
         size_average: bool = True,
@@ -140,17 +82,16 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         show_progress_bar: bool = False,
     ) -> None:
         super().__init__()
+        _validate_mini_batch_num_tokens(mini_batch_num_tokens)
         self.model = model
         self.score_metric = score_metric if score_metric is not None else colbert_scores
         self.mini_batch_size = mini_batch_size
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.score_mini_batch_size = score_mini_batch_size if score_mini_batch_size is not None else mini_batch_size
         self.scale = scale
         self.size_average = size_average
         self.gather_across_devices = gather_across_devices
         self.show_progress_bar = show_progress_bar
-
-        self.cache: list[list[Tensor]] | None = None
-        self.random_states: list[list[RandContext]] | None = None
 
     def get_config_dict(self) -> dict[str, Any]:
         score_metric = getattr(self.score_metric, "__name__", type(self.score_metric).__name__)
@@ -162,6 +103,7 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         return {
             "score_metric": score_metric,
             "mini_batch_size": self.mini_batch_size,
+            "mini_batch_num_tokens": self.mini_batch_num_tokens,
             "score_mini_batch_size": self.score_mini_batch_size,
             "scale": self.scale,
             "size_average": self.size_average,
@@ -171,7 +113,6 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
     def embed_minibatch(
         self,
         sentence_feature: dict[str, Tensor],
-        task: str,
         begin: int,
         end: int,
         with_grad: bool,
@@ -182,6 +123,8 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         random_state_context = nullcontext() if random_state is None else random_state
         # Grid-aware slicing: flattened VLM tensors (pixel_values) and FA2 metadata can't be sliced per sample.
         mb = _create_minibatch(sentence_feature, begin, end)
+        # Task was stamped on the sentence_feature in forward(), so it survives into the mini-batch dict.
+        task = mb.get("task")
         with random_state_context:
             with grad_context():
                 random_state = (
@@ -197,32 +140,31 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
     def embed_minibatch_iter(
         self,
         sentence_feature: dict[str, Tensor],
-        task: str,
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
+        ranges: list[tuple[int, int]] | None = None,
     ) -> Iterator[tuple[Tensor, Tensor, RandContext | None]]:
-        bsz = _get_batch_size(sentence_feature)
-        for i, b in enumerate(
-            tqdm.trange(0, bsz, self.mini_batch_size, desc="Embed mini-batches", disable=not self.show_progress_bar)
+        if ranges is None:
+            ranges = _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+        for i, (begin, end) in enumerate(
+            tqdm.tqdm(ranges, desc="Embed mini-batches", disable=not self.show_progress_bar)
         ):
-            e = b + self.mini_batch_size
-            reps, mask, random_state = self.embed_minibatch(
+            yield self.embed_minibatch(
                 sentence_feature=sentence_feature,
-                task=task,
-                begin=b,
-                end=e,
+                begin=begin,
+                end=end,
                 with_grad=with_grad,
                 copy_random_state=copy_random_state,
                 random_state=None if random_states is None else random_states[i],
             )
-            yield reps, mask, random_state
 
-    def _calculate_loss(
+    def calculate_loss(
         self,
         reps: list[list[Tensor]],
         masks_chunks: list[list[Tensor]],
-        with_backward: bool,
+        *,
+        with_backward: bool = False,
     ) -> Tensor:
         # Each per-column ``reps[i]`` is a list of mini-batch ``(B_mini, T_mini, D)`` chunks. For
         # native-resolution VLMs (Qwen2-VL family) each mini-batch can emit a different ``T``, so
@@ -272,37 +214,57 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
 
         return torch.stack(losses).sum()
 
-    def _calculate_loss_and_cache_gradients(
+    def calculate_loss_and_cache_gradients(
         self,
         reps: list[list[Tensor]],
         masks_chunks: list[list[Tensor]],
-    ) -> Tensor:
-        loss = self._calculate_loss(reps, masks_chunks, with_backward=True)
+    ) -> tuple[Tensor, list[list[Tensor]]]:
+        loss = self.calculate_loss(reps, masks_chunks, with_backward=True)
         loss = loss.detach().requires_grad_()
-        self.cache = [[r.grad for r in rs] for rs in reps]
-        return loss
+        cache = [[rep.grad for rep in rep_mbs] for rep_mbs in reps]
+        unused_columns = [str(index) for index, grad_mbs in enumerate(cache) if any(g is None for g in grad_mbs)]
+        if unused_columns:
+            # Without this, the backward hook would crash on the None gradients deep inside
+            # loss.backward(), with no hint that the loss simply never read these embeddings.
+            raise ValueError(
+                f"The loss computation of {self.__class__.__name__} did not use input column(s) "
+                f"{', '.join(unused_columns)}: their embeddings received no gradient. Every input column "
+                "is embedded (twice, with gradient caching), so remove the unused column(s) from the "
+                "dataset instead."
+            )
+        return loss, cache
 
     def forward(
         self,
         sentence_features: Iterable[dict[str, Tensor]],
         labels: Tensor | None = None,
     ) -> Tensor:
-        sentence_features = list(sentence_features)
+        # Stamp the task on each column (respecting collator-supplied overrides) so both the first pass
+        # here and the second pass in _backward_hook route to the same task, without needing an index.
+        sentence_features = [
+            {**sf, "task": sf.get("task", "query" if idx == 0 else "document")}
+            for idx, sf in enumerate(sentence_features)
+        ]
+        grad_enabled = torch.is_grad_enabled()
+
+        # Compute the mini-batch boundaries before any forward pass: modules may modify the features
+        # in place while embedding, and step (3) must replay exactly the boundaries step (1) used.
+        ranges = [_minibatch_ranges(sf, self.mini_batch_size, self.mini_batch_num_tokens) for sf in sentence_features]
+
         reps: list[list[Tensor]] = []
         masks_chunks: list[list[Tensor]] = []
-        self.random_states = []
-
-        for idx, sentence_feature in enumerate(sentence_features):
-            # Collator-stamped task (column 0 is the query unless router_mapping overrides it).
-            task = sentence_feature.get("task", "query" if idx == 0 else "document")
+        random_states: list[list[RandContext | None]] = []
+        for sentence_feature, column_ranges in zip(sentence_features, ranges):
             reps_mbs: list[Tensor] = []
             mask_mbs: list[Tensor] = []
-            random_state_mbs: list[RandContext] = []
+            random_state_mbs: list[RandContext | None] = []
             for reps_mb, mask_mb, random_state in self.embed_minibatch_iter(
                 sentence_feature=sentence_feature,
-                task=task,
                 with_grad=False,
-                copy_random_state=True,
+                # Only the backward hook replays them, and it is only registered when gradients are
+                # enabled, so don't pay for the RNG snapshots during evaluation.
+                copy_random_state=grad_enabled,
+                ranges=column_ranges,
             ):
                 # Only token_embeddings are gradient-cached: extra per-token channels must ride
                 # INSIDE this tensor (trailing columns), a separate tensor would get no gradient
@@ -312,13 +274,25 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
                 random_state_mbs.append(random_state)
             reps.append(reps_mbs)
             masks_chunks.append(mask_mbs)
-            self.random_states.append(random_state_mbs)
+            random_states.append(random_state_mbs)
 
-        if torch.is_grad_enabled():
-            loss = self._calculate_loss_and_cache_gradients(reps, masks_chunks)
-            loss.register_hook(partial(_backward_hook, sentence_features=sentence_features, loss_obj=self))
-        else:
-            loss = self._calculate_loss(reps, masks_chunks, with_backward=False)
+        if not grad_enabled:
+            # In evaluation there are no gradients to cache and no backward pass to hook into.
+            return self.calculate_loss(reps, masks_chunks)
+
+        loss, cache = self.calculate_loss_and_cache_gradients(reps, masks_chunks)
+        # The shared hook unpacks the iterator with (reps_mb, *_), so mask and random_state from our
+        # 3-tuple are ignored during the with-grad re-embed.
+        loss.register_hook(
+            partial(
+                _backward_hook,
+                sentence_features=sentence_features,
+                loss_obj=self,
+                cache=cache,
+                random_states=random_states,
+                ranges=ranges,
+            )
+        )
         return loss
 
     @property
