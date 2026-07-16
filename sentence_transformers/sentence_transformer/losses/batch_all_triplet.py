@@ -92,7 +92,10 @@ class BatchAllTripletLoss(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         rep = self.sentence_embedder(sentence_features[0])["sentence_embedding"]
-        return self.batch_all_triplet_loss(labels, rep)
+        return self.compute_loss_from_embeddings([rep], labels)
+
+    def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
+        return self.batch_all_triplet_loss(labels, embeddings[0])
 
     def batch_all_triplet_loss(self, labels: Tensor, embeddings: Tensor) -> Tensor:
         """Build the triplet loss over a batch of embeddings.

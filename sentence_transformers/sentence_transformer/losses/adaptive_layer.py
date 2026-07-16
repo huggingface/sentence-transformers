@@ -9,16 +9,10 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from sentence_transformers import SentenceTransformer
+from sentence_transformers.base.losses.gradcache import uses_gradient_cache
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.modules import Transformer
-from sentence_transformers.sentence_transformer.losses.cached_gist_embed import CachedGISTEmbedLoss
-from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
-    CachedMultipleNegativesRankingLoss,
-)
-from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_symmetric_ranking import (
-    CachedMultipleNegativesSymmetricRankingLoss,
-)
+from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
 class TransformerDecorator:
@@ -134,8 +128,10 @@ class AdaptiveLayerLoss(nn.Module):
             - `Adaptive Layers <../../../examples/sentence_transformer/training/adaptive_layer/README.html>`_
 
         Requirements:
-            1. The base loss cannot be :class:`CachedMultipleNegativesRankingLoss`,
-               :class:`CachedMultipleNegativesSymmetricRankingLoss`, or :class:`CachedGISTEmbedLoss`.
+            1. The base loss cannot be one that back-propagates from a hook, i.e.
+               :class:`CachedMultipleNegativesRankingLoss`, :class:`CachedMultipleNegativesSymmetricRankingLoss`,
+               :class:`CachedGISTEmbedLoss`, or :class:`MegaBatchMarginLoss` with its default
+               ``use_mini_batched_version=True``.
 
         Inputs:
             +---------------------------------------+--------+
@@ -178,11 +174,10 @@ class AdaptiveLayerLoss(nn.Module):
         self.kl_div_weight = kl_div_weight
         self.kl_temperature = kl_temperature
         assert isinstance(self.model[0], Transformer)
-        if isinstance(
-            loss,
-            (CachedMultipleNegativesRankingLoss, CachedMultipleNegativesSymmetricRankingLoss, CachedGISTEmbedLoss),
-        ):
-            warnings.warn(f"MatryoshkaLoss is not compatible with {loss.__class__.__name__}.", stacklevel=2)
+        if uses_gradient_cache(loss):
+            # These losses back-propagate from a hook that fires after the TransformerDecorator is
+            # removed, and they cache one batch of gradients while this loss runs once per layer.
+            warnings.warn(f"AdaptiveLayerLoss is not compatible with {loss.__class__.__name__}.", stacklevel=2)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         # Unwrap DDP (`.module`) / torch.compile (`_orig_mod`) wrappers so `self.model[0]`

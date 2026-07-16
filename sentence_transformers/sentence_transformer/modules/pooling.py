@@ -141,6 +141,9 @@ class Pooling(Module):
 
             if prompt_length is not None:
                 attention_mask = self._exclude_prompt_from_mask(attention_mask, prompt_length)
+                # Expose the effective pooling mask by replacing the key, not by mutating the
+                # input tensor, which the gradient-cached losses re-embed in their backward pass.
+                features["attention_mask"] = attention_mask
 
             output_vectors = self._forward_padded(token_embeddings, attention_mask, features)
 
@@ -149,7 +152,12 @@ class Pooling(Module):
 
     @staticmethod
     def _exclude_prompt_from_mask(attention_mask: Tensor, prompt_length: int) -> Tensor:
-        """Zero out prompt token positions in the attention mask so they are excluded from pooling."""
+        """Zero out prompt token positions in the attention mask so they are excluded from pooling.
+
+        Operates on a copy: the gradient-cached losses re-embed the caller's features in their backward
+        pass, so zeroing the mask in place would change their attention between the two forward passes.
+        """
+        attention_mask = attention_mask.clone()
         pad_lengths = attention_mask.to(torch.int32).argmax(dim=1)
         if pad_lengths.sum() == 0:
             # No left-padding: directly zero-out the first ``prompt_length`` positions.

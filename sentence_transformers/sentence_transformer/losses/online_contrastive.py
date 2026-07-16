@@ -75,6 +75,10 @@ class OnlineContrastiveLoss(nn.Module):
         self._checked_labels = False
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor, size_average=False) -> Tensor:
+        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        return self.compute_loss_from_embeddings(embeddings, labels)
+
+    def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
         if not self._checked_labels:
             self._checked_labels = True
             if labels.ne(0).logical_and(labels.ne(1)).any().item():
@@ -84,8 +88,6 @@ class OnlineContrastiveLoss(nn.Module):
                     UserWarning,
                     stacklevel=4,
                 )
-
-        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
 
         distance_matrix = self.distance_metric(embeddings[0], embeddings[1])
         negs = distance_matrix[labels == 0]

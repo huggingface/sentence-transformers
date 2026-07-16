@@ -1,207 +1,38 @@
 from __future__ import annotations
 
-import logging
-from collections.abc import Callable, Iterable, Iterator
-from contextlib import nullcontext
-from functools import partial
+from collections.abc import Callable, Iterable
 from typing import Any, Literal
 
 import torch
 import tqdm
 from torch import Tensor, nn
-from torch.utils.checkpoint import get_device_states, set_device_states
 
 from sentence_transformers import util
+
+# RandContext and the mini-batching helpers historically lived in this module, so keep them importable.
+from sentence_transformers.base.losses.gradcache import (  # noqa: F401
+    CachedLossMixin,
+    RandContext,
+    _create_minibatch,
+    _get_batch_size,
+    _validate_mini_batch_num_tokens,
+    has_static_embedding_input,
+)
+from sentence_transformers.sentence_transformer.losses.multiple_negatives_ranking import (
+    MultipleNegativesRankingLoss,
+)
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
 
-logger = logging.getLogger(__name__)
 
-
-class RandContext:
-    """
-    Random-state context manager class. Reference: https://github.com/luyug/GradCache.
-
-    This class will back up the pytorch's random state during initialization. Then when the context is activated,
-    the class will set up the random state with the backed-up one.
-    """
-
-    def __init__(self, *tensors) -> None:
-        self.fwd_cpu_state = torch.get_rng_state()
-        # torch.utils.checkpoint.get_device_states() fails when it sees MPS tensors (it
-        # calls the non-existent torch.mps.device()), so capture the MPS RNG state for
-        # top-level MPS tensor arguments and filter them out before calling it. The MPS
-        # state is restored in __enter__ so the cached second forward replays the same
-        # randomness (e.g. dropout).
-        self.fwd_mps_state = (
-            torch.mps.get_rng_state()
-            if any(isinstance(t, torch.Tensor) and t.device.type == "mps" for t in tensors)
-            else None
-        )
-        non_mps_tensors = tuple(t for t in tensors if not (isinstance(t, torch.Tensor) and t.device.type == "mps"))
-        self.fwd_gpu_devices, self.fwd_gpu_states = get_device_states(*non_mps_tensors)
-
-    def __enter__(self) -> None:
-        self._fork = torch.random.fork_rng(devices=self.fwd_gpu_devices, enabled=True)
-        self._fork.__enter__()
-        torch.set_rng_state(self.fwd_cpu_state)
-        if self.fwd_mps_state is not None:
-            # This fork_rng call uses the default device_type="cuda", so save the outer
-            # MPS state here and restore it in __exit__ (mirroring fork_rng for CPU/CUDA).
-            self._mps_state_outside = torch.mps.get_rng_state()
-            torch.mps.set_rng_state(self.fwd_mps_state)
-        set_device_states(self.fwd_gpu_devices, self.fwd_gpu_states)
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        if self.fwd_mps_state is not None:
-            torch.mps.set_rng_state(self._mps_state_outside)
-        self._fork.__exit__(exc_type, exc_val, exc_tb)
-        self._fork = None
-
-
-def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
-    """Get the number of samples in sentence features, handling both padded and flattened inputs.
-
-    With padded inputs, the batch size is the first dimension of any tensor.
-    With flattened inputs (from ``DataCollatorWithFlattening``), the batch size is derived
-    from ``cu_seq_lens_q`` which has shape ``(num_seqs + 1,)``.
-    """
-    if "cu_seq_lens_q" in sentence_feature:
-        return len(sentence_feature["cu_seq_lens_q"]) - 1
-    # Prefer known batch-indexed keys to avoid accidentally using flattened tensors
-    # like pixel_values whose first dimension may differ from the batch size in
-    # vision-language models (e.g. Qwen2-VL).
-    for key in ("input_ids", "attention_mask"):
-        if key in sentence_feature and isinstance(sentence_feature[key], torch.Tensor):
-            return sentence_feature[key].shape[0]
-    return next(
-        value.shape[0] for value in sentence_feature.values() if isinstance(value, torch.Tensor) and value.ndim > 0
-    )
-
-
-def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) -> dict[str, Any]:
-    """Create a mini-batch from sentence features, handling padded, flattened, and VLM inputs.
-
-    With padded inputs, this simply slices tensors along the batch dimension.
-    With flattened inputs (from ``DataCollatorWithFlattening``), this extracts the token ranges
-    for sequences ``begin:end`` and rebuilds the metadata (``cu_seq_lens_q``, ``seq_idx``, etc.).
-
-    VLMs like Qwen2-VL flatten per-sample visual tokens into a single tensor
-    (e.g. ``pixel_values`` shape ``(total_visual_tokens, hidden_dim)``) with a grid tensor
-    (e.g. ``image_grid_thw`` shape ``(num_items, 3)``) whose per-row product gives the token
-    count per item.  ``num_images_per_sample`` / ``num_videos_per_sample`` (precomputed by
-    ``Transformer.preprocess``) map grid rows to samples; when unavailable we fall back to
-    assuming one grid row per sample when ``grid.shape[0] == batch_size``.
-    """
-    if "cu_seq_lens_q" not in sentence_feature:
-        batch_size = _get_batch_size(sentence_feature)
-        end = min(end, batch_size)
-
-        custom_ranges: dict[str, tuple[int, int]] = {}
-        for grid_key, pixel_key, count_key in (
-            ("image_grid_thw", "pixel_values", "num_images_per_sample"),
-            ("video_grid_thw", "pixel_values_videos", "num_videos_per_sample"),
-        ):
-            grid = sentence_feature.get(grid_key)
-            pixel_values = sentence_feature.get(pixel_key)
-            if grid is None or pixel_values is None:
-                continue
-
-            num_per_sample = sentence_feature.get(count_key)
-            if num_per_sample is not None:
-                cumsum_items = num_per_sample.cumsum(dim=0)
-                grid_begin = 0 if begin == 0 else int(cumsum_items[begin - 1].item())
-                grid_end = int(cumsum_items[end - 1].item())
-                custom_ranges[grid_key] = (grid_begin, grid_end)
-            elif grid.shape[0] == batch_size:
-                grid_begin, grid_end = begin, end
-            else:
-                continue
-
-            if grid_begin < grid_end:
-                tokens_per_item = grid.prod(dim=1)
-                token_cumsum = tokens_per_item.cumsum(dim=0)
-                token_begin = 0 if grid_begin == 0 else int(token_cumsum[grid_begin - 1].item())
-                token_end = int(token_cumsum[grid_end - 1].item())
-            else:
-                token_begin, token_end = 0, 0
-            custom_ranges[pixel_key] = (token_begin, token_end)
-
-        result: dict[str, Any] = {}
-        for key, value in sentence_feature.items():
-            if not isinstance(value, torch.Tensor):
-                result[key] = value
-            elif key in custom_ranges:
-                r_begin, r_end = custom_ranges[key]
-                result[key] = value[r_begin:r_end]
-            else:
-                result[key] = value[begin:end]
-        return result
-
-    cu_seq_lens_q = sentence_feature["cu_seq_lens_q"]
-    num_seqs = len(cu_seq_lens_q) - 1
-    end = min(end, num_seqs)
-
-    token_begin = int(cu_seq_lens_q[begin].item())
-    token_end = int(cu_seq_lens_q[end].item())
-    total_tokens = int(cu_seq_lens_q[-1].item())
-
-    new_cu_seq_lens = cu_seq_lens_q[begin : end + 1] - cu_seq_lens_q[begin]
-
-    result: dict[str, Any] = {}
-    for key, value in sentence_feature.items():
-        if key in ("cu_seq_lens_q", "cu_seq_lens_k"):
-            result[key] = new_cu_seq_lens
-        elif key in ("max_length_q", "max_length_k"):
-            mb_seq_lens = new_cu_seq_lens[1:] - new_cu_seq_lens[:-1]
-            result[key] = int(mb_seq_lens.max().item())
-        elif key == "seq_idx":
-            result[key] = value[..., token_begin:token_end] - begin
-        elif isinstance(value, torch.Tensor) and value.ndim >= 1 and value.shape[-1] == total_tokens:
-            # Heuristic: tensors whose last dimension matches the total token count are assumed
-            # to be token-level (e.g. input_ids, position_ids). This covers all known keys from
-            # DataCollatorWithFlattening without hard-coding them.
-            result[key] = value[..., token_begin:token_end]
-        else:
-            result[key] = value
-    return result
-
-
-def _backward_hook(
-    grad_output: Tensor, sentence_features: Iterable[dict[str, Tensor]], loss_obj: CachedMultipleNegativesRankingLoss
-) -> None:
-    """A backward hook to backpropagate the cached gradients mini-batch by mini-batch."""
-    assert loss_obj.cache is not None
-    assert loss_obj.random_states is not None
-    with torch.enable_grad():
-        for sentence_feature, grad, random_states in zip(sentence_features, loss_obj.cache, loss_obj.random_states):
-            for (reps_mb, _), grad_mb in zip(
-                loss_obj.embed_minibatch_iter(
-                    sentence_feature=sentence_feature,
-                    with_grad=True,
-                    copy_random_state=False,
-                    random_states=random_states,
-                ),
-                grad,
-            ):
-                if not reps_mb.requires_grad:
-                    # e.g. a frozen Router route: skip remaining minibatches as none need backprop
-                    break
-                surrogate = torch.dot(reps_mb.flatten(), grad_mb.flatten()) * grad_output
-                surrogate.backward()
-
-
-class CachedMultipleNegativesRankingLoss(nn.Module):
-    # Enables per-sample media counting in Transformer.preprocess for VLM minibatching
-    requires_media_counts = True
-
+class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
     def __init__(
         self,
         model: SentenceTransformer,
         scale: float = 20.0,
         similarity_fct: Callable[[Tensor, Tensor], Tensor] = util.cos_sim,
         mini_batch_size: int = 32,
+        mini_batch_num_tokens: int | None = None,
         gather_across_devices: bool = False,
         directions: tuple[
             Literal["query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"],
@@ -242,9 +73,12 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             similarity_fct: similarity function between embeddings. By default, cos_sim. Can also be set to dot
                 product (and then set scale to 1)
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
-                training and evaluation. The larger the mini-batch size, the more memory efficient the training is, but
-                the slower the training will be. It's recommended to set it as high as your GPU memory allows. The default
+                training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory is used. It's recommended to set it as high as your GPU memory allows. The default
                 value is 32.
+            mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding)
+                token count instead of by ``mini_batch_size`` sequences, which speeds up training on
+                variable-length data. Most effective for models that avoid padded compute, e.g. flash
+                attention with input flattening. See the Speeding up Inference documentation for details.
             gather_across_devices: If True, gather the embeddings across all devices before computing the loss.
                 Recommended when training on multiple GPUs, as it allows for larger batch sizes, but it may slow down
                 training due to communication overhead, and can potentially lead to out-of-memory errors.
@@ -333,117 +167,87 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 trainer.train()
         """
         super().__init__()
-        if isinstance(model[0], StaticEmbedding):
+        if has_static_embedding_input(model):
             raise ValueError(
-                "CachedMultipleNegativesRankingLoss is not compatible with a SentenceTransformer model based on a StaticEmbedding. "
+                "CachedMultipleNegativesRankingLoss is not compatible with a SentenceTransformer model based on a "
+                "StaticEmbedding, whose inputs cannot be split into mini-batches along a batch dimension. "
                 "Consider using MultipleNegativesRankingLoss instead."
             )
+        _validate_mini_batch_num_tokens(mini_batch_num_tokens)
 
         self.model = model
-        self.scale = scale
-        self.similarity_fct = similarity_fct
+        # The wrapped loss owns and validates every hyperparameter. This class adds the gradient
+        # caching (CachedLossMixin) and the chunking of the loss stage (see calculate_loss).
+        self.loss = MultipleNegativesRankingLoss(
+            model,
+            scale=scale,
+            similarity_fct=similarity_fct,
+            gather_across_devices=gather_across_devices,
+            directions=directions,
+            partition_mode=partition_mode,
+            hardness_mode=hardness_mode,
+            hardness_strength=hardness_strength,
+        )
         self.mini_batch_size = mini_batch_size
-        self.gather_across_devices = gather_across_devices
-        valid_directions = {"query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"}
-        if not directions:
-            raise ValueError("At least one direction must be specified.")
-        if not set(directions).issubset(valid_directions):
-            raise ValueError(f"Invalid directions: {set(directions) - valid_directions}. Valid: {valid_directions}")
-        if "query_to_doc" not in directions:
-            raise ValueError("'query_to_doc' direction is required (contains the positive pair).")
-        self.directions = tuple(directions)
-
-        if partition_mode not in ("joint", "per_direction"):
-            raise ValueError(f"partition_mode must be 'joint' or 'per_direction', got {partition_mode}")
-        if partition_mode == "per_direction" and set(directions) & {"query_to_query", "doc_to_doc"}:
-            # per_direction on query_to_query or doc_to_doc is possible, but it results in a negative loss.
-            # This is not strictly bad (the loss is still a valid training signal), but it is rather confusing,
-            # and the optimizer will focus on likely further decreasing the already negative loss from the
-            # query_to_query or doc_to_doc terms instead of optimizing the positive score from the query_to_doc
-            # term, which most likely leads to reduced performance.
-            raise ValueError(
-                "partition_mode='per_direction' requires every direction's candidate pool to include the positive pair. "
-                "'query_to_query' and 'doc_to_doc' only contain same-type similarities and never include the positive, "
-                "making the per-direction loss ill-defined. Use partition_mode='joint' instead."
-            )
-        self.partition_mode = partition_mode
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
 
-        valid_hardness_modes = {None, "in_batch_negatives", "hard_negatives", "all_negatives"}
-        if hardness_mode not in valid_hardness_modes:
-            raise ValueError(f"hardness_mode must be one of {valid_hardness_modes}, got {hardness_mode!r}")
-        self.hardness_mode = hardness_mode
-        if hardness_strength < 0.0:
-            raise ValueError("hardness_strength must be non-negative.")
-        self.hardness_strength = hardness_strength
-        if hardness_mode is not None and hardness_strength == 0.0:
-            logger.warning(
-                f"hardness_mode={hardness_mode!r} is set but hardness_strength=0.0, so hardness weighting has no "
-                "effect. Set hardness_strength to a positive value to enable hardness weighting."
-            )
+    # The hyperparameters live on the wrapped loss. See __setattr__ for assignment delegation.
+    _delegated_to_wrapped_loss = (
+        "scale",
+        "similarity_fct",
+        "gather_across_devices",
+        "directions",
+        "partition_mode",
+        "hardness_mode",
+        "hardness_strength",
+    )
 
-        self.cache: list[list[Tensor]] | None = None
-        self.random_states: list[list[RandContext]] | None = None
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Delegate assignments of the wrapped loss's hyperparameters to the wrapped loss.
 
-    def embed_minibatch(
-        self,
-        sentence_feature: dict[str, Tensor],
-        begin: int,
-        end: int,
-        with_grad: bool,
-        copy_random_state: bool,
-        random_state: RandContext | None = None,
-    ) -> tuple[Tensor, RandContext | None]:
-        """Embed a mini-batch of inputs."""
-        grad_context = nullcontext if with_grad else torch.no_grad
-        random_state_context = nullcontext() if random_state is None else random_state
-        sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
-        with random_state_context:
-            with grad_context():
-                random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
-                reps = self.model(sentence_feature_minibatch)["sentence_embedding"]  # (mini_batch_size, dim)
-        return reps, random_state
+        Without this, ``loss.scale = 5.0`` would hit the setterless property and raise, and
+        ``loss.similarity_fct = nn.CosineSimilarity()`` would be captured into ``_modules`` by
+        ``nn.Module.__setattr__`` without ever reaching the wrapped loss.
+        """
+        if name in self._delegated_to_wrapped_loss and isinstance(getattr(self, "loss", None), nn.Module):
+            setattr(self.loss, name, value)
+        else:
+            super().__setattr__(name, value)
 
-    def embed_minibatch_iter(
-        self,
-        sentence_feature: dict[str, Tensor],
-        with_grad: bool,
-        copy_random_state: bool,
-        random_states: list[RandContext] | None = None,
-    ) -> Iterator[tuple[Tensor, RandContext | None]]:
-        """Do forward pass on all the minibatches of the input features and yield corresponding embeddings."""
-        batch_size = _get_batch_size(sentence_feature)
-        for i, begin in enumerate(
-            tqdm.trange(
-                0,
-                batch_size,
-                self.mini_batch_size,
-                desc="Embed mini-batches",
-                disable=not self.show_progress_bar,
-            )
-        ):
-            end = begin + self.mini_batch_size
-            reps, random_state = self.embed_minibatch(
-                sentence_feature=sentence_feature,
-                begin=begin,
-                end=end,
-                with_grad=with_grad,
-                copy_random_state=copy_random_state,
-                random_state=None if random_states is None else random_states[i],
-            )
-            yield reps, random_state
+    @property
+    def scale(self) -> float:
+        return self.loss.scale
 
-    def calculate_loss_and_cache_gradients(self, reps: list[list[Tensor]]) -> Tensor:
-        """Calculate the cross-entropy loss and cache the gradients wrt. the embeddings."""
-        loss = self.calculate_loss(reps, with_backward=True)
-        loss = loss.detach().requires_grad_()
+    @property
+    def similarity_fct(self) -> Callable[[Tensor, Tensor], Tensor]:
+        return self.loss.similarity_fct
 
-        self.cache = [[r.grad for r in rs] for rs in reps]
+    @property
+    def gather_across_devices(self) -> bool:
+        return self.loss.gather_across_devices
 
-        return loss
+    @property
+    def directions(self) -> tuple[str, ...]:
+        return self.loss.directions
 
-    def calculate_loss(self, reps: list[list[Tensor]], with_backward: bool = False) -> Tensor:
-        """Calculate the all-pairs InfoNCE loss without caching gradients (for evaluation)."""
+    @property
+    def partition_mode(self) -> str:
+        return self.loss.partition_mode
+
+    @property
+    def hardness_mode(self) -> str | None:
+        return self.loss.hardness_mode
+
+    @property
+    def hardness_strength(self) -> float:
+        return self.loss.hardness_strength
+
+    def calculate_loss(
+        self, reps: list[list[Tensor]], labels: Tensor | None = None, *, with_backward: bool = False
+    ) -> Tensor:
+        """Calculate the all-pairs InfoNCE loss, chunked over ``mini_batch_size`` rows of the score
+        matrix. The labels are unused: the positive pair is the in-batch diagonal."""
         queries = torch.cat(reps[0])
         docs = [torch.cat(r) for r in reps[1:]]
         batch_size = len(queries)
@@ -467,7 +271,6 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         docs_all = torch.cat(docs, dim=0)
         docs_pos = docs[0]
         local_indices = torch.arange(offset, offset + batch_size, device=queries.device)
-        identity = torch.eye(world_batch_size, device=queries.device)
         num_docs = len(docs)
 
         losses: list[torch.Tensor] = []
@@ -484,6 +287,12 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
             # (mini_batch_size, embedding_dim)
             local_queries = queries[local_batch]
             local_docs = docs_pos[local_batch]
+
+            # One-hot rows marking each local row's own column. Replaces indexing a full identity
+            # matrix, whose O(batch^2) memory defeated the chunking at the batch sizes it targets.
+            if "doc_to_doc" in self.directions or (self.hardness_mode is not None and self.hardness_strength > 0.0):
+                own_columns = torch.zeros(len(local_batch), world_batch_size, dtype=torch.bool, device=queries.device)
+                own_columns[row_indices, local_batch] = True
 
             sim_matrices = {}
             # (mbs, bs * ws * (1 + nn))
@@ -503,7 +312,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 # (mbs, bs * ws * (1 + nn))
                 sim_matrices["doc_to_doc"] = self.similarity_fct(docs_all, local_docs).T
                 # Remove d_i_a -> d_i_b for all documents belonging to the same query
-                same_query_doc_mask = identity[local_batch].repeat(1, num_docs).bool()
+                same_query_doc_mask = own_columns.repeat(1, num_docs)
                 sim_matrices["doc_to_doc"].masked_fill_(same_query_doc_mask, -torch.inf)
 
             # Compute hardness penalties on the unscaled (raw cosine) similarities (Lan et al. 2025, Eq. 5).
@@ -517,8 +326,7 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
                 penalty = self.hardness_strength * sim_matrices["query_to_doc"].detach()
 
                 # True where the document belongs to the same query (own positive + own hard negatives)
-                own_doc_mask = torch.eye(world_batch_size, device=queries.device, dtype=torch.bool)[local_batch]
-                own_doc_mask = own_doc_mask.repeat(1, num_docs)
+                own_doc_mask = own_columns.repeat(1, num_docs)
 
                 if self.hardness_mode == "hard_negatives":
                     # Exclude positives and in-batch negatives, keeping only own hard negatives
@@ -567,43 +375,17 @@ class CachedMultipleNegativesRankingLoss(nn.Module):
         return sum(losses)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
-        # Step (1): A quick embedding step without gradients/computation graphs to get all the embeddings
         sentence_features = list(sentence_features)
         if len(sentence_features) < 2:
             raise ValueError(f"Expected at least 2 inputs, got {len(sentence_features)}")
-
-        reps = []
-        self.random_states = []
-        for sentence_feature in sentence_features:
-            reps_mbs = []
-            random_state_mbs = []
-            for reps_mb, random_state in self.embed_minibatch_iter(
-                sentence_feature=sentence_feature,
-                with_grad=False,
-                copy_random_state=True,
-            ):
-                reps_mbs.append(reps_mb.detach().requires_grad_())
-                random_state_mbs.append(random_state)
-            reps.append(reps_mbs)
-            self.random_states.append(random_state_mbs)
-
-        if torch.is_grad_enabled():
-            # Step (2): Calculate the loss, backward up to the embeddings and cache the gradients wrt. to the embeddings
-            loss = self.calculate_loss_and_cache_gradients(reps)
-
-            # Step (3): A 2nd embedding step with gradients/computation graphs and connect the cached gradients into the backward chain
-            loss.register_hook(partial(_backward_hook, sentence_features=sentence_features, loss_obj=self))
-        else:
-            # If grad is not enabled (e.g. in evaluation), then we don't have to worry about the gradients or backward hook
-            loss = self.calculate_loss(reps)
-
-        return loss
+        return self.forward_cached(sentence_features, labels)
 
     def get_config_dict(self) -> dict[str, Any]:
         return {
             "scale": self.scale,
-            "similarity_fct": self.similarity_fct.__name__,
+            "similarity_fct": getattr(self.similarity_fct, "__name__", str(self.similarity_fct)),
             "mini_batch_size": self.mini_batch_size,
+            "mini_batch_num_tokens": self.mini_batch_num_tokens,
             "gather_across_devices": self.gather_across_devices,
             "directions": self.directions,
             "partition_mode": self.partition_mode,

@@ -8,86 +8,26 @@ from typing import Any, Literal
 import torch
 import tqdm
 from torch import Tensor, nn
-from torch.utils.checkpoint import get_device_states, set_device_states
 from transformers import PreTrainedTokenizerBase
 
-from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
+from sentence_transformers.base.losses.gradcache import (
+    RandContext,
+    _backward_hook,
     _create_minibatch,
-    _get_batch_size,
+    _minibatch_ranges,
+    _validate_mini_batch_num_tokens,
+    has_static_embedding_input,
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
-
-
-class RandContext:
-    """
-    Random-state context manager class. Reference: https://github.com/luyug/GradCache.
-
-    This class will back up the pytorch's random state during initialization. Then when the context is activated,
-    the class will set up the random state with the backed-up one.
-    """
-
-    def __init__(self, *tensors) -> None:
-        self.fwd_cpu_state = torch.get_rng_state()
-        # torch.utils.checkpoint.get_device_states() fails when it sees MPS tensors (it
-        # calls the non-existent torch.mps.device()), so capture the MPS RNG state for
-        # top-level MPS tensor arguments and filter them out before calling it. The MPS
-        # state is restored in __enter__ so the cached second forward replays the same
-        # randomness (e.g. dropout).
-        self.fwd_mps_state = (
-            torch.mps.get_rng_state()
-            if any(isinstance(t, torch.Tensor) and t.device.type == "mps" for t in tensors)
-            else None
-        )
-        non_mps_tensors = tuple(t for t in tensors if not (isinstance(t, torch.Tensor) and t.device.type == "mps"))
-        self.fwd_gpu_devices, self.fwd_gpu_states = get_device_states(*non_mps_tensors)
-
-    def __enter__(self) -> None:
-        self._fork = torch.random.fork_rng(devices=self.fwd_gpu_devices, enabled=True)
-        self._fork.__enter__()
-        torch.set_rng_state(self.fwd_cpu_state)
-        if self.fwd_mps_state is not None:
-            # This fork_rng call uses the default device_type="cuda", so save the outer
-            # MPS state here and restore it in __exit__ (mirroring fork_rng for CPU/CUDA).
-            self._mps_state_outside = torch.mps.get_rng_state()
-            torch.mps.set_rng_state(self.fwd_mps_state)
-        set_device_states(self.fwd_gpu_devices, self.fwd_gpu_states)
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        if self.fwd_mps_state is not None:
-            torch.mps.set_rng_state(self._mps_state_outside)
-        self._fork.__exit__(exc_type, exc_val, exc_tb)
-        self._fork = None
-
-
-def _backward_hook(
-    grad_output: Tensor, sentence_features: Iterable[dict[str, Tensor]], loss_obj: CachedGISTEmbedLoss
-) -> None:
-    """A backward hook to backpropagate the cached gradients mini-batch by mini-batch."""
-    assert loss_obj.cache is not None
-    assert loss_obj.random_states is not None
-    with torch.enable_grad():
-        for sentence_feature, grad, random_states in zip(sentence_features, loss_obj.cache, loss_obj.random_states):
-            for (reps_mb, _, _), grad_mb in zip(
-                loss_obj.embed_minibatch_iter(
-                    sentence_feature=sentence_feature,
-                    with_grad=True,
-                    copy_random_state=False,
-                    random_states=random_states,
-                ),
-                grad,
-            ):
-                if not reps_mb.requires_grad:
-                    # e.g. a frozen Router route: skip remaining minibatches as none need backprop
-                    break
-                surrogate = torch.dot(reps_mb.flatten(), grad_mb.flatten()) * grad_output
-                surrogate.backward()
 
 
 class CachedGISTEmbedLoss(nn.Module):
     # Enables per-sample media counting in Transformer.preprocess for VLM minibatching
     requires_media_counts = True
+
+    # Back-propagates from a hook on the returned loss (see `gradcache.uses_gradient_cache`).
+    uses_gradient_cache = True
 
     def __init__(
         self,
@@ -95,6 +35,7 @@ class CachedGISTEmbedLoss(nn.Module):
         guide: SentenceTransformer,
         temperature: float = 0.01,
         mini_batch_size: int = 32,
+        mini_batch_num_tokens: int | None = None,
         show_progress_bar: bool = False,
         margin_strategy: Literal["absolute", "relative"] = "absolute",
         margin: float = 0.0,
@@ -125,9 +66,12 @@ class CachedGISTEmbedLoss(nn.Module):
             guide: SentenceTransformer model to guide the in-batch negative sample selection.
             temperature: Temperature parameter to scale the cosine similarities.
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
-                training and evaluation. The larger the mini-batch size, the more memory efficient the training is, but
-                the slower the training will be. It's recommended to set it as high as your GPU memory allows. The default
+                training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory is used. It's recommended to set it as high as your GPU memory allows. The default
                 value is 32.
+            mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding)
+                token count instead of by ``mini_batch_size`` sequences, which speeds up training on
+                variable-length data. Most effective for models that avoid padded compute, e.g. flash
+                attention with input flattening. See the Speeding up Inference documentation for details.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training. The default is False.
             margin_strategy: Strategy used for false negative filtering. One of {"absolute", "relative"}.
             margin: The margin value for filtering negatives. Defaults to 0.0, together with the "absolute" strategy,
@@ -196,7 +140,7 @@ class CachedGISTEmbedLoss(nn.Module):
                 trainer.train()
         """
         super().__init__()
-        if isinstance(model[0], StaticEmbedding):
+        if has_static_embedding_input(model):
             raise ValueError(
                 "CachedGISTEmbedLoss is not compatible with a SentenceTransformer model based on a StaticEmbedding. "
                 "Consider using GISTEmbedLoss instead."
@@ -213,9 +157,9 @@ class CachedGISTEmbedLoss(nn.Module):
             raise ValueError(
                 "Both the training model and the guiding model must use a PreTrainedTokenizer from transformers."
             )
+        _validate_mini_batch_num_tokens(mini_batch_num_tokens)
         self.mini_batch_size = mini_batch_size
-        self.cache: list[list[Tensor]] | None = None
-        self.random_states: list[list[RandContext]] | None = None
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
         self.must_retokenize = (
             model.tokenizer.vocab != guide.tokenizer.vocab or guide.max_seq_length < model.max_seq_length
@@ -242,7 +186,7 @@ class CachedGISTEmbedLoss(nn.Module):
         with_grad: bool,
         copy_random_state: bool,
         random_state: RandContext | None = None,
-    ) -> tuple[Tensor, Tensor, RandContext | None]:
+    ) -> tuple[Tensor, Tensor | None, RandContext | None]:
         """Do forward pass on a minibatch of the input features and return corresponding embeddings."""
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
@@ -251,16 +195,21 @@ class CachedGISTEmbedLoss(nn.Module):
             with grad_context():
                 random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
                 reps = self.model(sentence_feature_minibatch)["sentence_embedding"]  # (mbsz, hdim)
-            with torch.no_grad():
-                if self.must_retokenize:
-                    decoded = self.tokenizer.batch_decode(
-                        sentence_feature_minibatch["input_ids"], skip_special_tokens=True
-                    )
-                    sentence_feature_minibatch = self.guide.preprocess(decoded)
-                    sentence_feature_minibatch = {
-                        key: value.to(self.guide.device) for key, value in sentence_feature_minibatch.items()
-                    }
-                guide_reps = self.guide(sentence_feature_minibatch)["sentence_embedding"]
+            if with_grad:
+                # The with-gradient pass is the backward hook's re-embedding, which only needs the
+                # model's embeddings: the guide's were already used to compute the cached gradients.
+                guide_reps = None
+            else:
+                with torch.no_grad():
+                    if self.must_retokenize:
+                        decoded = self.tokenizer.batch_decode(
+                            sentence_feature_minibatch["input_ids"], skip_special_tokens=True
+                        )
+                        sentence_feature_minibatch = self.guide.preprocess(decoded)
+                        sentence_feature_minibatch = {
+                            key: value.to(self.guide.device) for key, value in sentence_feature_minibatch.items()
+                        }
+                    guide_reps = self.guide(sentence_feature_minibatch)["sentence_embedding"]
 
         return reps, guide_reps, random_state
 
@@ -270,19 +219,18 @@ class CachedGISTEmbedLoss(nn.Module):
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
+        ranges: list[tuple[int, int]] | None = None,
     ) -> Iterator[tuple[Tensor, Tensor, RandContext | None]]:
         """Do forward pass on all the minibatches of the input features and yield corresponding embeddings."""
-        batch_size = _get_batch_size(sentence_feature)
-        for i, begin in enumerate(
-            tqdm.trange(
-                0,
-                batch_size,
-                self.mini_batch_size,
+        if ranges is None:
+            ranges = _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+        for i, (begin, end) in enumerate(
+            tqdm.tqdm(
+                ranges,
                 desc="Embed mini-batches",
                 disable=not self.show_progress_bar,
             )
         ):
-            end = begin + self.mini_batch_size
             reps, guide_reps, random_state = self.embed_minibatch(
                 sentence_feature=sentence_feature,
                 begin=begin,
@@ -293,17 +241,17 @@ class CachedGISTEmbedLoss(nn.Module):
             )
             yield reps, guide_reps, random_state  # reps: (mbsz, hdim)
 
-    def calculate_loss_and_cache_gradients(self, reps: list[list[Tensor]], reps_guided: list[list[Tensor]]) -> Tensor:
-        """Generalized function to calculate the cross-entropy loss and cache the gradients wrt. the embeddings."""
+    def calculate_loss_and_cache_gradients(
+        self, reps: list[list[Tensor]], reps_guided: list[list[Tensor]]
+    ) -> tuple[Tensor, list[list[Tensor]]]:
+        """Calculate the cross-entropy loss and return it alongside the gradients wrt. the embeddings."""
         loss = self.calculate_loss(reps, reps_guided, with_backward=True)
         loss = loss.detach().requires_grad_()
-
-        self.cache = [[r.grad for r in rs] for rs in reps]
-
-        return loss
+        cache = [[r.grad for r in rs] for rs in reps]
+        return loss, cache
 
     def calculate_loss(
-        self, reps: list[list[Tensor]], reps_guided: list[list[Tensor]], with_backward: bool = False
+        self, reps: list[list[Tensor]], reps_guided: list[list[Tensor]], *, with_backward: bool = False
     ) -> Tensor:
         """Generalized function to calculate the cross-entropy loss without caching gradients."""
         if len(reps) != len(reps_guided):
@@ -418,34 +366,57 @@ class CachedGISTEmbedLoss(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         # Step (1): A quick embedding step without gradients/computation graphs to get all the embeddings
+        sentence_features = list(sentence_features)
+        grad_enabled = torch.is_grad_enabled()
+
+        # Compute the mini-batch boundaries before any forward pass: modules may modify the features
+        # in place while embedding, and step (3) must replay exactly the boundaries step (1) used.
+        ranges = [
+            _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+            for sentence_feature in sentence_features
+        ]
+
         reps = []
         reps_guided = []
-        self.random_states = []  # Copy random states to guarantee exact reproduction of the embeddings during the second forward pass, i.e. step (3)
-        for sentence_feature in sentence_features:
+        # Copy random states to guarantee exact reproduction of the embeddings during the second forward
+        # pass, i.e. step (3). Only the backward hook replays them, so skip them during evaluation.
+        random_states = []
+        for sentence_feature, column_ranges in zip(sentence_features, ranges):
             reps_mbs = []
             reps_guided_mbs = []
             random_state_mbs = []
             for reps_mb, reps_guided_mb, random_state in self.embed_minibatch_iter(
                 sentence_feature=sentence_feature,
                 with_grad=False,
-                copy_random_state=True,
+                copy_random_state=grad_enabled,
+                ranges=column_ranges,
             ):
                 reps_mbs.append(reps_mb.detach().requires_grad_())
                 reps_guided_mbs.append(reps_guided_mb.detach())  # does not requires gradient
                 random_state_mbs.append(random_state)
             reps.append(reps_mbs)
             reps_guided.append(reps_guided_mbs)
-            self.random_states.append(random_state_mbs)
+            random_states.append(random_state_mbs)
 
-        if torch.is_grad_enabled():
-            # Step (2): Calculate the loss, backward up to the embeddings and cache the gradients wrt. to the embeddings
-            loss = self.calculate_loss_and_cache_gradients(reps, reps_guided)
-
-            # Step (3): A 2nd embedding step with gradients/computation graphs and connect the cached gradients into the backward chain
-            loss.register_hook(partial(_backward_hook, sentence_features=sentence_features, loss_obj=self))
-        else:
+        if not grad_enabled:
             # If grad is not enabled (e.g. in evaluation), then we don't have to worry about the gradients or backward hook
-            loss = self.calculate_loss(reps, reps_guided)
+            return self.calculate_loss(reps, reps_guided)
+
+        # Step (2): Calculate the loss, backward up to the embeddings and cache the gradients wrt. to the embeddings
+        loss, cache = self.calculate_loss_and_cache_gradients(reps, reps_guided)
+
+        # Step (3): a 2nd embedding step with gradients, connecting the cached gradients into
+        # the backward chain. The hook gets this pass's cache, so another forward cannot clobber it.
+        loss.register_hook(
+            partial(
+                _backward_hook,
+                sentence_features=sentence_features,
+                loss_obj=self,
+                cache=cache,
+                random_states=random_states,
+                ranges=ranges,
+            )
+        )
         return loss
 
     def get_config_dict(self) -> dict[str, Any]:
@@ -453,6 +424,7 @@ class CachedGISTEmbedLoss(nn.Module):
             "guide": self.guide,
             "temperature": self.temperature,
             "mini_batch_size": self.mini_batch_size,
+            "mini_batch_num_tokens": self.mini_batch_num_tokens,
             "margin_strategy": self.margin_strategy,
             "margin": self.margin,
             "contrast_anchors": self.contrast_anchors,

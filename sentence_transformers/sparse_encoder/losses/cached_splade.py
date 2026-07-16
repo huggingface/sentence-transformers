@@ -1,20 +1,15 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Iterator
-from contextlib import nullcontext
-from functools import partial
+from collections.abc import Iterable
 from typing import Any
 
 import torch
-import tqdm
 from torch import Tensor, nn
 
-from sentence_transformers.sentence_transformer.losses.cached_multiple_negatives_ranking import (
-    RandContext,
-    _backward_hook,
-    _create_minibatch,
-    _get_batch_size,
+from sentence_transformers.base.losses.gradcache import (
+    CachedLossMixin,
+    _validate_mini_batch_num_tokens,
 )
 from sentence_transformers.sparse_encoder.losses.splade import SpladeLoss
 from sentence_transformers.sparse_encoder.model import SparseEncoder
@@ -22,7 +17,22 @@ from sentence_transformers.sparse_encoder.model import SparseEncoder
 logger = logging.getLogger(__name__)
 
 
-class CachedSpladeLoss(SpladeLoss):
+def _reconstruct_loss_components(total: Tensor, components: dict[str, Tensor]) -> dict[str, Tensor]:
+    """Rebuild a per-component loss dict around a single gradient-carrying total.
+
+    The trainer sums a dict-valued loss for its backward pass, but after gradient caching only
+    ``total`` carries the gradient. Exactly one entry must therefore hold it, so the first component
+    is adjusted such that the dict still sums exactly to ``total``. The rest are detached values that
+    only serve the per-component logging.
+    """
+    components = dict(components)
+    first = next(iter(components))
+    others = sum((value for key, value in components.items() if key != first), start=torch.zeros_like(total))
+    components[first] = total - others
+    return components
+
+
+class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
     def __init__(
         self,
         model: SparseEncoder,
@@ -35,6 +45,7 @@ class CachedSpladeLoss(SpladeLoss):
         query_regularizer_threshold: int | None = None,
         use_document_regularizer_only: bool = False,
         mini_batch_size: int = 32,
+        mini_batch_num_tokens: int | None = None,
         show_progress_bar: bool = False,
     ):
         """
@@ -52,6 +63,14 @@ class CachedSpladeLoss(SpladeLoss):
                 gradients w.r.t. the embeddings;
             (3) A 2nd embedding step with gradients/computation graphs and connect the cached gradients into the
                 backward chain.
+
+        .. note::
+
+            Only the embedding passes (steps 1 and 3) are mini-batched. Step 2 computes the base loss over the
+            full batch of embeddings at once, because the wrapped base loss owns that computation. Mini-batching
+            bounds the transformer activations, which dominate memory, so this remains a favorable trade in
+            practice, though the base loss's score matrix is not itself chunked and can become the memory
+            ceiling at very large batch sizes.
 
         Args:
             model: SparseEncoder model
@@ -74,9 +93,13 @@ class CachedSpladeLoss(SpladeLoss):
             use_document_regularizer_only: If True, all input embeddings are treated as documents and regularized
                 together with document_regularizer_weight.
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used
-                during training and evaluation. The larger the mini-batch size, the more memory efficient the
-                training is, but the slower the training will be. It's recommended to set it as high as your GPU
+                during training and evaluation. The larger the mini-batch size, the faster the
+                training is, but the more memory is used. It's recommended to set it as high as your GPU
                 memory allows. The default value is 32.
+            mini_batch_num_tokens: If set, the embedding mini-batches are packed by total (non-padding)
+                token count instead of by ``mini_batch_size`` sequences, which speeds up training on
+                variable-length data. Most effective for models that avoid padded compute, e.g. flash
+                attention with input flattening. See the Speeding up Inference documentation for details.
             show_progress_bar: If True, a progress bar for the mini-batches is shown during training.
 
         References:
@@ -126,79 +149,26 @@ class CachedSpladeLoss(SpladeLoss):
             query_regularizer_threshold=query_regularizer_threshold,
             use_document_regularizer_only=use_document_regularizer_only,
         )
+        _validate_mini_batch_num_tokens(mini_batch_num_tokens)
         self.mini_batch_size = mini_batch_size
+        self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
-        self.cache: list[list[Tensor]] | None = None
-        self.random_states: list[list[RandContext]] | None = None
+        self._component_values: dict[str, float] = {}
 
-    def embed_minibatch(
-        self,
-        sentence_feature: dict[str, Tensor],
-        begin: int,
-        end: int,
-        with_grad: bool,
-        copy_random_state: bool,
-        random_state: RandContext | None = None,
-    ) -> tuple[Tensor, RandContext | None]:
-        """Embed a mini-batch of inputs."""
-        grad_context = nullcontext if with_grad else torch.no_grad
-        random_state_context = nullcontext() if random_state is None else random_state
-        sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
-        with random_state_context:
-            with grad_context():
-                random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
-                reps = self.model(sentence_feature_minibatch)["sentence_embedding"]
-        return reps, random_state
-
-    def embed_minibatch_iter(
-        self,
-        sentence_feature: dict[str, Tensor],
-        with_grad: bool,
-        copy_random_state: bool,
-        random_states: list[RandContext] | None = None,
-    ) -> Iterator[tuple[Tensor, RandContext | None]]:
-        """Iterate over mini-batches of inputs for embedding."""
-        batch_size = _get_batch_size(sentence_feature)
-        for i, begin in enumerate(
-            tqdm.trange(
-                0,
-                batch_size,
-                self.mini_batch_size,
-                desc="Embed mini-batches",
-                disable=not self.show_progress_bar,
-            )
-        ):
-            end = begin + self.mini_batch_size
-            reps, random_state = self.embed_minibatch(
-                sentence_feature=sentence_feature,
-                begin=begin,
-                end=end,
-                with_grad=with_grad,
-                copy_random_state=copy_random_state,
-                random_state=None if random_states is None else random_states[i],
-            )
-            yield reps, random_state
-
-    def calculate_loss_and_cache_gradients(self, reps: list[list[Tensor]], labels: Tensor | None) -> Tensor:
-        """Calculate the combined loss (base + regularizers) and cache gradients w.r.t. the embeddings."""
-        loss = self._compute_total_loss(reps, labels, with_backward=True)
-        loss = loss.detach().requires_grad_()
-        self.cache = [[r.grad for r in rs] for rs in reps]
-        return loss
-
-    def _compute_total_loss(
-        self, reps: list[list[Tensor]], labels: Tensor | None, with_backward: bool = False
+    def calculate_loss(
+        self, reps: list[list[Tensor]], labels: Tensor | None = None, *, with_backward: bool = False
     ) -> Tensor:
-        """Compute total loss from base loss + regularizers on mini-batch reps."""
+        """Compute the total loss (base loss + regularizers) from the per-mini-batch embeddings."""
         embeddings = [torch.cat(r) for r in reps]
 
-        # Base loss
+        # Base loss. A dict-valued base loss keeps its per-component keys, as SpladeLoss does.
         base_loss = self.loss.compute_loss_from_embeddings(embeddings, labels)
         if isinstance(base_loss, dict):
+            component_values = {key: value.detach().item() for key, value in base_loss.items()}
             total_loss = sum(base_loss.values())
         else:
+            component_values = {"base_loss": base_loss.detach().item()}
             total_loss = base_loss
-        self._base_loss_value = total_loss.detach().item()
 
         # Document regularizer
         if self.use_document_regularizer_only:
@@ -207,17 +177,16 @@ class CachedSpladeLoss(SpladeLoss):
             document_emb = torch.cat(embeddings[1:])
         doc_reg_loss = self.document_regularizer.compute_loss_from_embeddings(document_emb)
         weighted_doc_reg = doc_reg_loss * self.document_regularizer_weight
-        self._doc_reg_value = weighted_doc_reg.detach().item()
+        component_values["document_regularizer_loss"] = weighted_doc_reg.detach().item()
         total_loss = total_loss + weighted_doc_reg
 
         # Query regularizer
         if self.query_regularizer_weight is not None:
             query_reg_loss = self.query_regularizer.compute_loss_from_embeddings(embeddings[0])
             weighted_query_reg = query_reg_loss * self.query_regularizer_weight
-            self._query_reg_value = weighted_query_reg.detach().item()
+            component_values["query_regularizer_loss"] = weighted_query_reg.detach().item()
             total_loss = total_loss + weighted_query_reg
-        else:
-            self._query_reg_value = None
+        self._component_values = component_values
 
         if with_backward:
             total_loss.backward()
@@ -227,79 +196,18 @@ class CachedSpladeLoss(SpladeLoss):
 
     def forward(
         self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None
-    ) -> dict[str, Tensor] | Tensor:
-        sentence_features = list(sentence_features)
+    ) -> dict[str, Tensor]:
+        total = self.forward_cached(sentence_features, labels)
 
-        # Step (1): Embed all mini-batches without gradients to get all embeddings
-        reps = []
-        self.random_states = []
-        for sentence_feature in sentence_features:
-            reps_mbs = []
-            random_state_mbs = []
-            for reps_mb, random_state in self.embed_minibatch_iter(
-                sentence_feature=sentence_feature,
-                with_grad=False,
-                copy_random_state=True,
-            ):
-                reps_mbs.append(reps_mb.detach().requires_grad_())
-                random_state_mbs.append(random_state)
-            reps.append(reps_mbs)
-            self.random_states.append(random_state_mbs)
-
-        if torch.is_grad_enabled():
-            # Step (2): Calculate the combined loss, backward to embeddings and cache gradients
-            loss = self.calculate_loss_and_cache_gradients(reps, labels)
-
-            # Step (3): Register backward hook to chain cached gradients back through the model
-            loss.register_hook(partial(_backward_hook, sentence_features=sentence_features, loss_obj=self))
-
-            # Build dict for loss component logging while preserving gradient flow through `loss`.
-            # The trainer sums all dict values for backward, so we put the gradient-carrying tensor
-            # in "base_loss" and use detached tensors for regularizer entries.
-            device = loss.device
-            result = {}
-            non_base_sum = torch.tensor(0.0, device=device)
-
-            doc_reg_detached = torch.tensor(self._doc_reg_value, device=device)
-            result["document_regularizer_loss"] = doc_reg_detached
-            non_base_sum = non_base_sum + doc_reg_detached
-
-            if self._query_reg_value is not None:
-                query_reg_detached = torch.tensor(self._query_reg_value, device=device)
-                result["query_regularizer_loss"] = query_reg_detached
-                non_base_sum = non_base_sum + query_reg_detached
-
-            # base_loss = loss - regularizers, so trainer's sum(values) = loss (exact gradient flow)
-            result["base_loss"] = loss - non_base_sum
-
-            return result
-        else:
-            # Eval mode: no caching needed, compute losses directly
-            embeddings = [torch.cat(r) for r in reps]
-            losses = {}
-
-            base_loss = self.loss.compute_loss_from_embeddings(embeddings, labels)
-            if isinstance(base_loss, dict):
-                losses.update(base_loss)
-            else:
-                losses["base_loss"] = base_loss
-
-            if self.use_document_regularizer_only:
-                document_emb = torch.cat(embeddings)
-            else:
-                document_emb = torch.cat(embeddings[1:])
-            doc_reg_loss = self.document_regularizer.compute_loss_from_embeddings(document_emb)
-            losses["document_regularizer_loss"] = doc_reg_loss * self.document_regularizer_weight
-
-            if self.query_regularizer_weight is not None:
-                query_reg_loss = self.query_regularizer.compute_loss_from_embeddings(embeddings[0])
-                losses["query_regularizer_loss"] = query_reg_loss * self.query_regularizer_weight
-
-            return losses
+        # Rebuild the per-component dict for the trainer's logging, around the single gradient-carrying
+        # total. The scalars stay fp32 on purpose: it keeps the sum(values) == total adjustment exact.
+        components = {key: torch.tensor(value, device=total.device) for key, value in self._component_values.items()}
+        return _reconstruct_loss_components(total, components)
 
     def get_config_dict(self) -> dict[str, Any]:
         config = super().get_config_dict()
         config["mini_batch_size"] = self.mini_batch_size
+        config["mini_batch_num_tokens"] = self.mini_batch_num_tokens
         return config
 
     @property
