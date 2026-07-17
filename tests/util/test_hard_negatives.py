@@ -922,6 +922,37 @@ def test_cache(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTrans
     assert len(result1) == len(result2)
 
 
+def test_cache_respects_prompt(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, tmp_path: Path
+) -> None:
+    """The cache key must incorporate the prompt arguments, so a different query_prompt/corpus_prompt
+    produces its own cache file rather than silently reusing embeddings computed with a different prompt."""
+    model = static_retrieval_mrl_en_v1_model
+    cache_dir = os.path.join(tmp_path, "embeddings_cache")
+
+    mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        cache_folder=cache_dir,
+        query_prompt="Represent this question for retrieval: ",
+        verbose=False,
+    )
+    query_files_a = {f for f in os.listdir(cache_dir) if f.startswith("query_embeddings")}
+
+    mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        cache_folder=cache_dir,
+        query_prompt="Represent this statement for retrieval: ",
+        verbose=False,
+    )
+    query_files_b = {f for f in os.listdir(cache_dir) if f.startswith("query_embeddings")}
+
+    # A second, distinct query_prompt must add a new cache file, not reuse the first prompt's.
+    assert query_files_a != query_files_b
+    assert query_files_a.issubset(query_files_b)
+
+
 def test_multiple_positives_per_query(
     queries: list[str], passages: list[str], static_retrieval_mrl_en_v1_model: SentenceTransformer
 ):
