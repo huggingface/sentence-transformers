@@ -707,7 +707,10 @@ class Transformer(InputModule):
         # Causal models require left padding so the last position is always a real token,
         # which is needed for logits_to_keep=1 and LogitScore.
         if self.transformer_task in ("text-generation", "any-to-any"):
-            self.processor.padding_side = "left"
+            # A multimodal processor pads via its tokenizer and has no padding_side of its own that
+            # transformers reads. Setting one anyway plants an attribute that looks authoritative but isn't.
+            if hasattr(self.processor, "padding_side"):
+                self.processor.padding_side = "left"
             if hasattr(self.processor, "tokenizer"):
                 self.processor.tokenizer.padding_side = "left"
 
@@ -1009,16 +1012,53 @@ class Transformer(InputModule):
             processor_output["prompt_length"] = prompt_length
 
         if self.transformer_task in ("text-generation", "any-to-any"):
-            if self.processor.padding_side != "left":
-                raise ValueError(
-                    f"The processor padding side is {self.processor.padding_side!r}, but causal models require "
-                    "left padding so that the last token position is always a real token. "
-                    "This is needed for efficient logit computation (logits_to_keep=1) and for LogitScore. "
-                    'Please set ``processing_kwargs={"padding_side": "left"}``.'
-                )
+            self._verify_left_padding(processor_output, modality_kwargs, common_kwargs)
             processor_output["logits_to_keep"] = 1
 
         return processor_output
+
+    def _verify_left_padding(
+        self,
+        processor_output: dict[str, Any],
+        modality_kwargs: dict[str, dict[str, Any]],
+        common_kwargs: dict[str, Any],
+    ) -> None:
+        """Verify that causal inputs are left-padded, i.e. that every sample ends in a real token.
+
+        Checks the produced ``attention_mask`` rather than ``padding_side``, because the side that
+        actually applies can come from the tokenizer attribute or from either the ``"text"`` or
+        ``"common"`` processing_kwargs bucket, and which of those wins differs per processor type and
+        per call path. The output is the only signal that covers every route.
+        """
+        attention_mask = processor_output.get("attention_mask")
+        if not isinstance(attention_mask, torch.Tensor) or attention_mask.ndim != 2:
+            return
+        if attention_mask[:, -1].all():
+            return
+
+        # Only reached when padding is wrong, so it's worth working out which route caused it. Either
+        # bucket can be the one that wins, depending on the processor type, so blame whichever is at fault.
+        kwargs_side = next(
+            (
+                side
+                for side in (modality_kwargs["text"].get("padding_side"), common_kwargs.get("padding_side"))
+                if side is not None and side != "left"
+            ),
+            None,
+        )
+        if kwargs_side is not None:
+            fix = f'Your ``processing_kwargs`` set the padding side to {kwargs_side!r}. Remove it or set it to "left".'
+        else:
+            padder_path = "processor.tokenizer" if hasattr(self.processor, "tokenizer") else "processor"
+            fix = (
+                f'The module sets ``{padder_path}.padding_side`` to "left" on load, so it was changed afterwards. '
+                f'Restore it with ``{padder_path}.padding_side = "left"``.'
+            )
+        raise ValueError(
+            "At least one sample ends in a padding token, but causal models require left padding so that "
+            "the last token position is always a real token. "
+            "This is needed for efficient logit computation (logits_to_keep=1) and for LogitScore. " + fix
+        )
 
     def _merge_processing_kwargs(self, per_call: ProcessingKwargs | None) -> ProcessingKwargs:
         """Merge per-call ``processing_kwargs`` on top of the instance-level ``self.processing_kwargs``.

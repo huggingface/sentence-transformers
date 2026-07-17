@@ -15,6 +15,7 @@ from packaging.version import parse as parse_version
 from tokenizers.normalizers import NFC, Lowercase, Sequence
 from transformers import AutoModel, AutoProcessor
 from transformers import __version__ as transformers_version
+from transformers.utils import is_torchvision_available, is_vision_available
 
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.base.modules.transformer import (
@@ -28,6 +29,10 @@ transformer_module = sys.modules[Transformer.__module__]
 
 TINY_BERT = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
 TINY_LLAMA = "hf-internal-testing/tiny-random-LlamaForCausalLM"
+TINY_LLAVA = "hf-internal-testing/tiny-random-LlavaForConditionalGeneration"
+
+# Uneven lengths, so that padding is actually applied and the padded side is observable.
+RAGGED_BATCH = ["hi", "a considerably longer sentence than the other one"]
 
 
 @pytest.fixture()
@@ -500,6 +505,79 @@ class TestPreprocess:
             processing_kwargs={"text": {"max_length": 5, "truncation": True}},
         )
         assert bert_tiny_transformer.processing_kwargs == before
+
+    def test_causal_task_left_pads_by_default(self):
+        """The module sets padding_side to "left" on load, so a ragged batch ends in real tokens."""
+        transformer = Transformer(TINY_LLAMA, transformer_task="text-generation")
+        features = transformer.preprocess(RAGGED_BATCH)
+        assert transformer.processor.padding_side == "left"
+        assert features["attention_mask"][:, -1].all()
+
+    def test_causal_right_padding_via_attribute_raises(self):
+        """padding_side is set to "left" on load, so reaching this means it was mutated afterwards."""
+        transformer = Transformer(TINY_LLAMA, transformer_task="text-generation")
+        transformer.processor.padding_side = "right"
+        with pytest.raises(ValueError) as exc_info:
+            transformer.preprocess(RAGGED_BATCH)
+        message = str(exc_info.value)
+        assert "ends in a padding token" in message
+        assert 'processor.padding_side = "left"' in message
+
+    def test_causal_right_padding_via_processing_kwargs_raises(self):
+        """processing_kwargs overrides the attribute at call time, so the attribute alone can't be trusted:
+        it still reads "left" here while the processor pads right."""
+        transformer = Transformer(TINY_LLAMA, transformer_task="text-generation")
+        with pytest.raises(ValueError) as exc_info:
+            transformer.preprocess(RAGGED_BATCH, processing_kwargs={"text": {"padding_side": "right"}})
+        assert transformer.processor.padding_side == "left"
+        message = str(exc_info.value)
+        assert "ends in a padding token" in message
+        assert "processing_kwargs" in message
+
+    @pytest.mark.parametrize("bucket", ["text", "common"])
+    def test_causal_right_padding_via_processing_kwargs_raises_without_message_modality(self, bucket):
+        """TINY_LLAMA has a chat template, so text normally routes through apply_chat_template, which only
+        forwards the "text" bucket. Without a "message" modality the tokenizer is called directly and the
+        "common" bucket reaches it as well, so both buckets must be caught."""
+        transformer = Transformer(
+            TINY_LLAMA,
+            transformer_task="text-generation",
+            modality_config={"text": {"method": "forward", "method_output_name": "logits"}},
+            module_output_name="causal_logits",
+        )
+        assert "message" not in transformer.modality_config
+        with pytest.raises(ValueError) as exc_info:
+            transformer.preprocess(RAGGED_BATCH, processing_kwargs={bucket: {"padding_side": "right"}})
+        message = str(exc_info.value)
+        assert "ends in a padding token" in message
+        assert "processing_kwargs" in message
+
+    def test_causal_padding_check_ignores_unpadded_batches(self):
+        """A batch with nothing to pad has no last-token problem, whatever padding_side says."""
+        transformer = Transformer(TINY_LLAMA, transformer_task="text-generation")
+        transformer.processor.padding_side = "right"
+        transformer.preprocess(["same length here"])
+
+    @pytest.mark.skipif(
+        Version(transformers_version) < Version("5.0.0"), reason="any-to-any requires transformers v5+"
+    )
+    @pytest.mark.skipif(
+        not (is_vision_available() and is_torchvision_available()),
+        reason="Loading the Llava processor requires Pillow and torchvision",
+    )
+    def test_causal_right_padding_via_multimodal_tokenizer_raises(self):
+        """A multimodal processor pads via its tokenizer and has no padding_side of its own, so the
+        tokenizer attribute is the only one that can be wrong, and the only one worth reporting."""
+        transformer = Transformer(TINY_LLAVA, transformer_task="any-to-any")
+        assert not hasattr(transformer.processor, "padding_side")
+        assert transformer.processor.tokenizer.padding_side == "left"
+
+        transformer.processor.tokenizer.padding_side = "right"
+        with pytest.raises(ValueError) as exc_info:
+            transformer.preprocess(RAGGED_BATCH)
+        message = str(exc_info.value)
+        assert "ends in a padding token" in message
+        assert 'processor.tokenizer.padding_side = "left"' in message
 
 
 class TestForward:
