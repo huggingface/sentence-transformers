@@ -944,6 +944,33 @@ def test_multiple_positives_per_query(
     assert len(result) >= len(dataset_dup)
 
 
+@pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
+def test_faiss_multiple_positives_matches_non_faiss(
+    queries: list[str], passages: list[str], static_retrieval_mrl_en_v1_model: SentenceTransformer
+) -> None:
+    """FAISS and non-FAISS paths must mine the same number of negatives when queries have multiple positives.
+
+    Regression test for the FAISS branch requesting only ``range_max + 1`` candidates from
+    ``index.search`` instead of ``range_max + max_positives`` (as the non-FAISS ``torch.topk`` sibling
+    does). With 2+ positives per query the FAISS path retrieved too few candidates and could mine fewer
+    negatives than the non-FAISS path for the same input. This crosses ``use_faiss=True`` with the
+    multi-positive case, which neither ``test_faiss`` nor ``test_multiple_positives_per_query`` covered.
+    """
+    model = static_retrieval_mrl_en_v1_model
+    # Duplicate queries with different positives -> repeated queries have multiple positives (max_positives == 2).
+    queries_dup = queries[:3] + queries[:2]
+    passages_dup = passages[:3] + passages[5:7]
+    dataset_dup = Dataset.from_dict({"query": queries_dup, "passage": passages_dup})
+
+    kwargs = dict(dataset=dataset_dup, model=model, num_negatives=1, range_max=3, faiss_batch_size=2, verbose=False)
+    faiss_result = mine_hard_negatives(use_faiss=True, **kwargs)
+    non_faiss_result = mine_hard_negatives(use_faiss=False, **kwargs)
+
+    # The invariant the fix restores: both paths mine the same number of negatives for the same input
+    # (default "triplet" output_format yields one negative per row, so len == number of mined negatives).
+    assert len(faiss_result) == len(non_faiss_result)
+
+
 def test_deprecated_parameters(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
     """Test deprecated parameters: as_triplets and margin."""
     model = static_retrieval_mrl_en_v1_model
