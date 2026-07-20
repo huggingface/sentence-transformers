@@ -302,7 +302,7 @@ class MultiVectorEncoder(BaseModel):
             **kwargs,
         )
 
-    # TODO: Consider replacing convert_to_* with return_as / output_format
+    # TODO (v6.0): Consider replacing convert_to_* with return_as / output_format
     def encode(
         self,
         inputs: list[SingleInput] | SingleInput,

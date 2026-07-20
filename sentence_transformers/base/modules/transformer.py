@@ -988,8 +988,9 @@ class Transformer(InputModule):
         """Tokenizer-aware checks. The structural ``_normalize_query_expansion`` runs without the
         tokenizer, so this method catches the two silent-wrong-behavior cases that require it:
 
-        * ``pad_*`` strategies with ``token=None`` fall back to ``mask_token_id``. If the tokenizer
-          doesn't have one, the preprocess swap silently no-ops and the encoder sees raw pad tokens.
+        * ``pad_*`` strategies with ``token=None`` fall back to ``mask_token_id``, then
+          ``eos_token_id``. If the tokenizer has neither, the preprocess swap silently no-ops and
+          the encoder sees raw pad tokens.
         * An explicit ``token`` that isn't in the tokenizer's vocabulary resolves to
           ``unk_token_id`` (or ``None``), silently inserting unk tokens at expansion positions.
         """
@@ -998,12 +999,13 @@ class Transformer(InputModule):
         strategy = expansion["strategy"]
         token = expansion["token"]
         if token is None:
-            # pad_skip / pad_attend with the mask_token fallback.
-            if self.tokenizer.mask_token_id is None:
+            # pad_skip / pad_attend fall back to mask_token, then eos_token (PyLate's chain:
+            # [MASK] for encoder models, EOS for decoder models without one).
+            if self.tokenizer.mask_token_id is None and self.tokenizer.eos_token_id is None:
                 raise ValueError(
                     f"query_expansion strategy={strategy!r} with token=None falls back to the "
-                    "tokenizer's mask_token, but this tokenizer doesn't have one. Set "
-                    "``query_expansion={..., 'token': '<your_token>'}`` explicitly."
+                    "tokenizer's mask_token, then its eos_token, but this tokenizer has neither. "
+                    "Set ``query_expansion={..., 'token': '<your_token>'}`` explicitly."
                 )
             return
         token_id = self.tokenizer.convert_tokens_to_ids(token)
@@ -1341,11 +1343,13 @@ class Transformer(InputModule):
         is_query = task == "query"
         expansion = self.query_expansion if is_query else None
         if expansion is not None and self.tokenizer is not None:
-            expansion_id = (
-                self.tokenizer.convert_tokens_to_ids(expansion["token"])
-                if expansion["token"] is not None
-                else self.tokenizer.mask_token_id
-            )
+            if expansion["token"] is not None:
+                expansion_id = self.tokenizer.convert_tokens_to_ids(expansion["token"])
+            else:
+                # PyLate's fallback chain: [MASK] for encoder models, EOS for decoder models.
+                expansion_id = self.tokenizer.mask_token_id
+                if expansion_id is None:
+                    expansion_id = self.tokenizer.eos_token_id
             pad_id = self.tokenizer.pad_token_id
             if (
                 expansion_id is not None

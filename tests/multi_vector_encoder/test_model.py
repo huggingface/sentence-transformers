@@ -150,20 +150,25 @@ def test_query_expansion_rejects_count_key() -> None:
         )
 
 
-def test_query_expansion_pad_strategy_requires_mask_token() -> None:
-    # ``pad_skip`` / ``pad_attend`` with token=None fall back to tokenizer.mask_token. If the
-    # tokenizer doesn't have one (common for decoder-only models), the silent-no-op swap would
-    # send pads (not masks) through the encoder. Caught at construction with a helpful error.
+def test_query_expansion_pad_strategy_requires_mask_or_eos_token() -> None:
+    # ``pad_skip`` / ``pad_attend`` with token=None fall back to tokenizer.mask_token, then
+    # eos_token (PyLate's chain: [MASK] for encoders, EOS for decoder-only models such as
+    # LFM2-ColBERT). If the tokenizer has neither, the silent-no-op swap would send pads through
+    # the encoder. Caught at construction with a helpful error.
     transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
     original_mask = transformer.tokenizer.mask_token
     original_mask_id = transformer.tokenizer.mask_token_id
     transformer.tokenizer.mask_token = None
     try:
-        with pytest.raises(ValueError, match="doesn't have"):
+        with pytest.raises(ValueError, match="has neither"):
             transformer.query_expansion = {"strategy": "pad_skip", "length": 32}
-        with pytest.raises(ValueError, match="doesn't have"):
+        with pytest.raises(ValueError, match="has neither"):
             transformer.query_expansion = {"strategy": "pad_attend", "length": 32}
+        # With an EOS token but no mask token, the EOS fallback applies and construction passes.
+        transformer.tokenizer.eos_token = "[SEP]"
+        transformer.query_expansion = {"strategy": "pad_skip", "length": 32}
     finally:
+        transformer.tokenizer.eos_token = None
         transformer.tokenizer.mask_token = original_mask
         transformer.tokenizer.mask_token_id = original_mask_id
 

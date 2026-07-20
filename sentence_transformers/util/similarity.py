@@ -414,7 +414,6 @@ def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:
     return torch.abs(norm_angle)
 
 
-# TODO: Should we fully separate dense and multi-vector similarity functions? They don't overlap
 class SimilarityFunction(Enum):
     """
     Enum class for supported similarity functions. The following functions are supported:
