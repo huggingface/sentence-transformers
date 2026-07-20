@@ -553,6 +553,11 @@ def mine_hard_negatives(
         if use_multi_process:
             cross_encoder.stop_multi_process_pool(pool)
 
+    if use_faiss:
+        # FAISS pads short result sets with index -1, which would resolve to the last corpus entry.
+        # Applied after the CrossEncoder rescoring, as that overwrites the score of every candidate.
+        scores[indices == -1] = -float("inf")
+
     if not include_positives:
         # for each query, create a mask that is True for the positives and False for the negatives in the indices
         positive_mask = torch.stack(

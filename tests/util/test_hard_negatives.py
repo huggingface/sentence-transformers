@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import math
 import os
+from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -962,13 +963,95 @@ def test_faiss_multiple_positives_matches_non_faiss(
     passages_dup = passages[:3] + passages[5:7]
     dataset_dup = Dataset.from_dict({"query": queries_dup, "passage": passages_dup})
 
-    kwargs = dict(dataset=dataset_dup, model=model, num_negatives=1, range_max=3, faiss_batch_size=2, verbose=False)
+    # num_negatives must reach into the tail of the candidate pool (num_negatives == range_max), otherwise the
+    # missing candidates are never selected and the assertion below passes even without the fix.
+    kwargs = dict(dataset=dataset_dup, model=model, num_negatives=3, range_max=3, faiss_batch_size=2, verbose=False)
     faiss_result = mine_hard_negatives(use_faiss=True, **kwargs)
     non_faiss_result = mine_hard_negatives(use_faiss=False, **kwargs)
 
     # The invariant the fix restores: both paths mine the same number of negatives for the same input
     # (default "triplet" output_format yields one negative per row, so len == number of mined negatives).
     assert len(faiss_result) == len(non_faiss_result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
+@pytest.mark.parametrize("range_max", [3, 10])
+def test_faiss_corpus_smaller_than_k(
+    queries: list[str], passages: list[str], static_retrieval_mrl_en_v1_model: SentenceTransformer, range_max: int
+) -> None:
+    """Candidates must never include a query's own positives when ``k`` exceeds the corpus size.
+
+    FAISS pads short result sets with index -1 and score -3.4e38. The score survives the -inf filters and
+    the index resolves to the last corpus entry, so the final document could be mined as a negative for
+    every query, including for the query it is a positive of.
+    """
+    model = static_retrieval_mrl_en_v1_model
+    corpus = passages[:4]
+    # The first query has two positives (max_positives == 2), so k = range_max + 2 overruns the 4 document corpus.
+    queries_dup = queries[:3] + queries[:1]
+    passages_dup = [passages[0], passages[1], passages[2], passages[3]]
+    dataset_dup = Dataset.from_dict({"query": queries_dup, "passage": passages_dup})
+
+    result = mine_hard_negatives(
+        dataset=dataset_dup,
+        model=model,
+        corpus=corpus,
+        num_negatives=3,
+        range_max=range_max,
+        use_faiss=True,
+        faiss_batch_size=2,
+        verbose=False,
+    )
+
+    positives_per_query = defaultdict(set)
+    for query, positive in zip(dataset_dup["query"], dataset_dup["passage"]):
+        positives_per_query[query].add(positive)
+
+    for row in result:
+        assert row["negative"] != row["passage"]
+        assert row["negative"] not in positives_per_query[row["query"]]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
+def test_faiss_corpus_smaller_than_k_with_cross_encoder(
+    queries: list[str],
+    passages: list[str],
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    reranker_bert_tiny_model: CrossEncoder,
+) -> None:
+    """The FAISS -1 padding must stay disqualified after the CrossEncoder rescoring.
+
+    The rescoring assigns a fresh score to every candidate, so disqualifying the padding at search time
+    is not enough: the padded slots get a genuine score back and can be mined as negatives. A negative
+    ``absolute_margin`` keeps the margin filter from incidentally removing them.
+    """
+    model = static_retrieval_mrl_en_v1_model
+    corpus = passages[:4]
+    # The first query has two positives (max_positives == 2), so k = 3 + 2 overruns the 4 document corpus.
+    queries_dup = queries[:3] + queries[:1]
+    passages_dup = [passages[0], passages[1], passages[2], passages[3]]
+    dataset_dup = Dataset.from_dict({"query": queries_dup, "passage": passages_dup})
+
+    result = mine_hard_negatives(
+        dataset=dataset_dup,
+        model=model,
+        corpus=corpus,
+        cross_encoder=reranker_bert_tiny_model,
+        num_negatives=3,
+        range_max=3,
+        absolute_margin=-10.0,
+        use_faiss=True,
+        faiss_batch_size=2,
+        verbose=False,
+    )
+
+    positives_per_query = defaultdict(set)
+    for query, positive in zip(dataset_dup["query"], dataset_dup["passage"]):
+        positives_per_query[query].add(positive)
+
+    for row in result:
+        assert row["negative"] != row["passage"]
+        assert row["negative"] not in positives_per_query[row["query"]]
 
 
 def test_deprecated_parameters(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
