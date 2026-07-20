@@ -2,8 +2,9 @@
 
 ## Migrating from v5.x to v6.x
 
-Notes to self:
-- `TripletEvaluator` (and `SparseTripletEvaluator`) now embed anchors with `encode_query` and positives/negatives with `encode_document`, instead of `encode` for all three. This is a no-op for models without `query` / `document` prompts. Prompt-configured (asymmetric) models will report different triplet accuracy than before, because those prompts are now applied during evaluation.
+```{eval-rst}
+The v6.0 release introduces :class:`~sentence_transformers.MultiVectorEncoder`, a fourth model type for ColBERT-style multi-vector (late interaction) retrieval models. It absorbs the modeling, training, and evaluation of `PyLate <https://github.com/lightonai/pylate>`_ and `colpali-engine <https://github.com/illuin-tech/colpali>`_: see the two dedicated sections below if you are migrating from either library.
+```
 
 ### Migrating from PyLate
 
@@ -59,6 +60,12 @@ and the processor formats queries and image documents.
 | `mask_non_image_embeddings=True` | `MultiVectorMask(keep_only_token_ids=[processor.image_token_id])` |
 | `HierarchicalTokenPooler` | `HierarchicalTokenPooling` (see its docstring for exact-parity notes) |
 | `colpali_engine.interpretability` | `sentence_transformers.multi_vector_encoder.interpretability` |
+
+### Smaller changes
+
+```{eval-rst}
+- :class:`~sentence_transformers.sentence_transformer.evaluation.TripletEvaluator` and :class:`~sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator` now embed anchors with ``encode_query`` and positives / negatives with ``encode_document``, instead of ``encode`` for all three. This is a no-op for models without ``query`` / ``document`` prompts, but asymmetric models will report different triplet accuracy than in v5.x because their prompts are now applied.
+```
 
 ## Migrating from v5.x to v5.4+
 

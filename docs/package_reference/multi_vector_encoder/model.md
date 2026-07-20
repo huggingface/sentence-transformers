@@ -1,3 +1,5 @@
+# MultiVectorEncoder
+
 ## MultiVectorEncoder
 ```{eval-rst}
 .. autoclass:: sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder
