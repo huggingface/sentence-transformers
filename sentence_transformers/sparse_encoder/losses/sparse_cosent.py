@@ -10,7 +10,7 @@ from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 
 class SparseCoSENTLoss(CoSENTLoss):
-    def __init__(self, model: SparseEncoder, scale: float = 20.0, similarity_fct=util.cos_sim) -> None:
+    def __init__(self, model: SparseEncoder, scale: float = 20.0, similarity_fct=util.pairwise_cos_sim) -> None:
         """
         This class implements CoSENT (Cosine Sentence).
         It expects that each of the inputs consists of a pair of inputs (e.g., texts) and a float valued label,

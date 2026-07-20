@@ -244,7 +244,9 @@ def mine_hard_negatives(
         cache_folder (str, optional): Directory path for caching embeddings. If provided, the function will save
             ``query_embeddings_{hash}.npy`` and ``corpus_embeddings_{hash}.npy`` under this folder after the first run,
             and on subsequent calls will load from these files if they exist to avoid recomputation. The hashes are
-            computed based on the model name and the queries/corpus. Defaults to None.
+            computed based on the model name, the query/corpus prompts, and the queries/corpus, so changing the prompt
+            arguments invalidates the cache rather than silently returning embeddings from a different prompt.
+            Defaults to None.
         as_triplets (bool, optional): Deprecated. Use `output_format` instead. Defaults to None.
         margin (float, optional): Deprecated. Use `absolute_margin` or `relative_margin` instead. Defaults to None.
 
@@ -390,8 +392,14 @@ def mine_hard_negatives(
         os.makedirs(cache_folder, exist_ok=True)
 
         model_name = model.model_card_data.base_model or ""
-        query_hash = hashlib.sha256((model_name + "".join(queries)).encode(), usedforsecurity=False).hexdigest()
-        corpus_hash = hashlib.sha256((model_name + "".join(corpus)).encode(), usedforsecurity=False).hexdigest()
+        query_hash = hashlib.sha256(
+            repr((model_name, query_prompt, query_prompt_name, queries)).encode(),
+            usedforsecurity=False,
+        ).hexdigest()
+        corpus_hash = hashlib.sha256(
+            repr((model_name, corpus_prompt, corpus_prompt_name, corpus)).encode(),
+            usedforsecurity=False,
+        ).hexdigest()
 
         query_cache_file = os.path.join(cache_folder, f"query_embeddings_{query_hash}.npy")
         corpus_cache_file = os.path.join(cache_folder, f"corpus_embeddings_{corpus_hash}.npy")

@@ -222,6 +222,62 @@ class TestInferModality:
         assert infer_modality({"audio": np.zeros(16000)}) == "audio"
         assert infer_modality({"video": np.zeros((8, 3, 224, 224))}) == "video"
 
+    def test_unrecognized_modality_key_raises_without_metadata_hint(self):
+        # A genuinely unknown key reports the invalid key and the valid modality keys, and does not
+        # add the array-dict hint (which is reserved for the video_metadata/sampling_rate mistake).
+        with pytest.raises(ValueError) as exc_info:
+            infer_modality({"image": "cat.jpg", "foo": 1})
+        message = str(exc_info.value)
+        assert "unrecognized modality keys" in message
+        assert "'foo'" in message
+        assert "To attach" not in message
+
+    def test_unrecognized_modality_keys_of_mixed_types_still_raise_valueerror(self):
+        # The reported keys are sorted for deterministic output, but keys of mixed types are not
+        # mutually comparable, so a plain sort would raise TypeError and mask the actionable error.
+        with pytest.raises(ValueError, match="unrecognized modality keys"):
+            infer_modality({"image": "cat.jpg", "foo": 1, 0: 2})
+
+    def test_dict_array_with_mixed_key_types_still_raises_valueerror(self):
+        # As above, for the sibling 'array' error that also sorts the reported keys.
+        with pytest.raises(ValueError, match="must also include 'sampling_rate'"):
+            infer_modality({"array": np.zeros(16000), 0: 2})
+
+    def test_sibling_video_metadata_key_hints_array_form(self):
+        # video_metadata as a sibling key is a common mistake (issue #3864): the error should name the
+        # offending key and point to the {"video": {"array": ..., "video_metadata": ...}} form.
+        with pytest.raises(ValueError) as exc_info:
+            infer_modality({"video": np.zeros((8, 3, 224, 224)), "video_metadata": {"fps": 30}})
+        message = str(exc_info.value)
+        assert "['video_metadata']" in message
+        assert '{"video": {"array": frames, "video_metadata"' in message
+        assert 'processing_kwargs={"video": {"do_sample_frames": False}}' in message
+
+    def test_sibling_sampling_rate_key_hints_array_form(self):
+        # As above for audio. Hints are picked per modality, so it must not recite the video form.
+        with pytest.raises(ValueError) as exc_info:
+            infer_modality({"audio": np.zeros(16000), "sampling_rate": 16000})
+        message = str(exc_info.value)
+        assert "['sampling_rate']" in message
+        assert '{"audio": {"array": waveform, "sampling_rate": 16000}}' in message
+        assert "video_metadata" not in message
+
+    def test_both_sibling_metadata_keys_hint_both_forms(self):
+        # Neither modality wins arbitrarily: a sample carrying both mistakes gets both hints.
+        with pytest.raises(ValueError) as exc_info:
+            infer_modality(
+                {
+                    "audio": np.zeros(16000),
+                    "sampling_rate": 16000,
+                    "video": np.zeros((8, 3, 224, 224)),
+                    "video_metadata": {"fps": 30},
+                }
+            )
+        message = str(exc_info.value)
+        assert "['sampling_rate', 'video_metadata']" in message
+        assert '{"video": {"array": frames, "video_metadata"' in message
+        assert '{"audio": {"array": waveform, "sampling_rate": 16000}}' in message
+
     def test_unsupported_type_raises(self):
         with pytest.raises(ValueError, match="Unsupported input type"):
             infer_modality(12345)
@@ -645,6 +701,17 @@ class TestParseInputs:
         assert inputs["audio"][0] is arr
         assert inputs["text"] == ["describe this"]
         assert extra["audio"]["sampling_rate"] == 16000
+
+    def test_multimodal_dict_unwraps_video_alongside_text(self):
+        """Video metadata should survive alongside other modalities, as the #3864 error message advises."""
+        arr = np.zeros((8, 3, 224, 224))
+        modality, inputs, extra = self.fmt.parse_inputs(
+            [{"video": {"array": arr, "video_metadata": {"fps": 30}}, "text": "describe this"}]
+        )
+        assert modality == ("text", "video")
+        assert inputs["video"][0] is arr
+        assert inputs["text"] == ["describe this"]
+        assert extra["video"]["video_metadata"] == [{"fps": 30}]
 
     def test_multimodal_dict_unwraps_audio_decoder(self):
         """A ``{"audio": AudioDecoder}`` wrapper should unwrap the decoder into a raw array."""
