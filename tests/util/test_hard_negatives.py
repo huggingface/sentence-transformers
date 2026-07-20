@@ -1572,3 +1572,28 @@ def test_relative_margin_with_negative_positive_score() -> None:
     positive_score, negative_score = row["scores"]
     assert row["negative"] == "n_far"
     assert negative_score < positive_score
+
+
+def test_range_max_larger_than_corpus_does_not_crash() -> None:
+    """Requesting more candidates than the corpus holds must not crash the default (non-FAISS)
+    path. `torch.topk` cannot return more columns than the corpus size, so the candidate set is
+    capped at the corpus size and padded up, mirroring the FAISS branch."""
+    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"]})
+    # The corpus has only 3 unique entries, yet range_max + max_positives (11) asks for far more.
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=ControlledNegativeScoreModel(),
+        anchor_column_name="query",
+        positive_column_name="positive",
+        corpus=["p", "n_more_similar", "n_far"],
+        range_max=10,
+        num_negatives=1,
+        use_faiss=False,
+        output_scores=True,
+        verbose=False,
+    )
+    row = result[0]
+    # A real (non-padded) negative must be returned and the positive excluded.
+    assert row["negative"] in {"n_more_similar", "n_far"}
+    positive_score, negative_score = row["scores"]
+    assert math.isfinite(negative_score)

@@ -489,17 +489,29 @@ def mine_hard_negatives(
         scores_list = []
         indices_list = []
         corpus_embeddings = torch.as_tensor(corpus_embeddings)
+        # torch.topk cannot return more candidates than there are corpus entries, so we cap k at the
+        # corpus size. This mirrors the FAISS branch above, which is allowed to request more
+        # candidates than the corpus holds and pads the shortfall with an index of -1.
+        k = min(range_max + max_positives, len(corpus))
         # Compute the similarity scores between the queries and the corpus in batches, to avoid
         # materializing the full (n_queries, n_corpus) similarity matrix
         for i in trange(0, len(query_embeddings), faiss_batch_size, desc="Computing similarity scores"):
             chunk_scores = model.similarity(query_embeddings[i : i + faiss_batch_size], corpus_embeddings).to(device)
 
             # Keep only the range_max + max_positives highest scores. We offset by max_positives to leave room for the positive pair(s).
-            chunk_scores, chunk_indices = torch.topk(chunk_scores, k=range_max + max_positives, dim=1)
+            chunk_scores, chunk_indices = torch.topk(chunk_scores, k=k, dim=1)
             scores_list.append(chunk_scores)
             indices_list.append(chunk_indices)
         scores = torch.cat(scores_list, dim=0)
         indices = torch.cat(indices_list, dim=0)
+
+        # If the corpus was smaller than range_max + max_positives, pad the candidate set up to the
+        # expected width with an index of -1, exactly as the FAISS branch does. These padded
+        # candidates are masked out (scored -inf) below.
+        missing = (range_max + max_positives) - scores.size(1)
+        if missing > 0:
+            scores = torch.cat([scores, scores.new_full((scores.size(0), missing), -float("inf"))], dim=1)
+            indices = torch.cat([indices, indices.new_full((indices.size(0), missing), -1)], dim=1)
 
     # As we may have duplicated queries (i.e., a single query with multiple positives),
     # We keep track, for each unique query, of where their positives are in the list of positives (positive_indices).
@@ -561,10 +573,10 @@ def mine_hard_negatives(
         if use_multi_process:
             cross_encoder.stop_multi_process_pool(pool)
 
-    if use_faiss:
-        # FAISS pads short result sets with index -1, which would resolve to the last corpus entry.
-        # Applied after the CrossEncoder rescoring, as that overwrites the score of every candidate.
-        scores[indices == -1] = -float("inf")
+    # Both branches pad short result sets with index -1, which would otherwise resolve to the last
+    # corpus entry. Applied after the CrossEncoder rescoring, as that overwrites the score of every
+    # candidate.
+    scores[indices == -1] = -float("inf")
 
     if not include_positives:
         # for each query, create a mask that is True for the positives and False for the negatives in the indices
