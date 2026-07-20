@@ -384,17 +384,20 @@ def test_losses_read_scoring_mask_from_model_output() -> None:
     corrupted = margin_mse(build(corrupt=True, n_docs=2), margin_labels).item()
     assert abs(baseline - corrupted) < 1e-5, f"MarginMSE read the input mask: {baseline} vs {corrupted}"
 
-    # KD shape: 2 queries with a flattened 3-way document column and (2, 3) teacher scores.
+    # KD shape: 2 queries with 3 candidate document columns and (2, 3) teacher scores.
     kd_labels = torch.tensor([[5.0, 1.0, 0.1], [4.0, 0.5, 0.2]])
     kd = mve_losses.MultiVectorDistillKLDivLoss(model=model)
 
     def build_kd(corrupt: bool) -> list[dict[str, Tensor]]:
         query = _make_feature(t_tokens=6, batch=2, dim=dim, seed=7)
-        docs = _make_feature(t_tokens=10, batch=6, dim=dim, seed=8)
+        # Ragged token counts across columns exercise the pad branch of stack_padded_token_embeddings,
+        # which is the production path (columns are padded independently by the collator).
+        docs = [_make_feature(t_tokens=10 + 2 * way, batch=2, dim=dim, seed=8 + way) for way in range(3)]
         if corrupt:
             with torch.no_grad():
-                docs["token_embeddings"][:, -2:] = 1e3
-        return [query, docs]
+                for doc in docs:
+                    doc["token_embeddings"][:, -2:] = 1e3
+        return [query, *docs]
 
     baseline = kd(build_kd(corrupt=False), kd_labels).item()
     corrupted = kd(build_kd(corrupt=True), kd_labels).item()
@@ -449,15 +452,14 @@ def test_cached_mnr_gather_across_devices_single_process(varlen_features) -> Non
     value.backward()
 
 
-def test_distill_kl_div_validates_document_count_and_label_shape() -> None:
-    """A document column that is not batch_size * n_ways, or teacher scores with the wrong shape,
-    must fail loud instead of producing an opaque view error."""
+def test_distill_kl_div_validates_input_columns_and_label_shape() -> None:
+    """Too few input columns, or teacher scores whose width does not match the number of document
+    columns, must fail loud instead of producing an opaque shape error."""
     loss = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel())
     queries = _make_feature(t_tokens=4, batch=3, dim=8, seed=1)
-    documents = _make_feature(t_tokens=6, batch=7, dim=8, seed=2)  # 7 not divisible by 3
-    with pytest.raises(ValueError, match=r"batch_size \* n_ways"):
-        loss([queries, documents], torch.randn(3, 2))
+    with pytest.raises(ValueError, match="at least 2 sentence features"):
+        loss([queries], torch.randn(3, 2))
 
-    documents = _make_feature(t_tokens=6, batch=6, dim=8, seed=2)  # n_ways = 2
+    documents = [_make_feature(t_tokens=6, batch=3, dim=8, seed=2 + way) for way in range(2)]
     with pytest.raises(ValueError, match="teacher scores"):
-        loss([queries, documents], torch.randn(3, 3))
+        loss([queries, *documents], torch.randn(3, 3))

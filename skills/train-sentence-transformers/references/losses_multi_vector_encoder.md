@@ -11,7 +11,7 @@ Multi-vector models emit **one embedding per token** and score `(query, document
 | `(anchor, positive)` or `(anchor, positive, negative)` triplets | `MultiVectorMultipleNegativesRankingLoss` |
 | Same, want effective batch size of 128+ | `CachedMultiVectorMultipleNegativesRankingLoss` |
 | Cross-encoder teacher scores, `(query, positive, negative, score_diff)` | `MultiVectorMarginMSELoss` |
-| Listwise distillation `(query, [doc_1..doc_N], teacher_scores)` | `MultiVectorDistillKLDivLoss` |
+| Listwise distillation `(query, [doc_1..doc_N], scores)` | `MultiVectorDistillKLDivLoss` |
 
 Hard-negative mining is essential for competitive results, because random in-batch negatives leave a lot on the table for late-interaction models. See `dataset_formats.md` (Hard-negative mining section) and `../scripts/mine_hard_negatives.py`.
 
@@ -53,6 +53,8 @@ loss = CachedMultiVectorMultipleNegativesRankingLoss(
 
 Distillation is where multi-vector models learn most efficiently: cross-encoder teachers (e.g. `gte-modernbert-base`) score `(query, doc)` pairs offline, and the student MaxSim model regresses to that signal.
 
+For the standard MS MARCO KD format (LightOn's `ms-marco-en-bge` and similar: `(query_id, document_ids, scores)` with separate `queries` / `documents` splits), you can use `sentence_transformers.util.resolve_ids` to join the IDs against the text splits at load time. It's a factory that returns a batched transform: pass a mapping from each input ID column to its lookup dataset, e.g. `dataset.set_transform(resolve_ids({"query_id": queries, "document_ids": documents}, max_list_length=32))` (lazy, no caching) or via `dataset.map(..., batched=True, remove_columns=["query_id", "document_ids"])` (eager, cached: `map` keeps input columns unless told to drop them, so pass the ID columns to `remove_columns`), yielding `(query, document_1, ..., document_32, scores)` rows ready for `MultiVectorDistillKLDivLoss`. The same mapping shape covers triplets with IDs (`{"query_id": queries, "positive_id": documents, "negative_id": documents}`) and ID-only contrastive datasets without a `scores` column.
+
 ### `MultiVectorMarginMSELoss`
 
 Regress the **margin** between positive and negative MaxSim scores against the teacher's margin.
@@ -74,7 +76,7 @@ Listwise KL-div: student's softmax distribution over N candidates should match t
 loss = MultiVectorDistillKLDivLoss(model=model)
 ```
 
-- **Data**: `(query, [doc_1..doc_N], teacher_scores)`. One query per row with a flattened `N`-way document column and a `(batch, N)` teacher-scores label.
+- **Data**: `(query, document_1, ..., document_N, scores)` where `scores` is a list of N teacher scores per row. One column per candidate document (the standard positional multi-column convention), and the label column must use a recognized name (`label`, `labels`, `score`, `scores`). `resolve_ids` expands a stored ID list into the numbered columns.
 - Stronger training signal than `MarginMSE` when you have full `N`-way teacher scores (not just positive/negative margins).
 - `score_metric` defaults to `colbert_kd_scores`, the listwise KD variant, not the `colbert_scores` used by the MNRL family. `XTRKDScores` is the XTR counterpart.
 - `temperature` softens both distributions before the softmax, and the loss is scaled by `temperature ** 2` so gradient magnitudes stay comparable across temperatures. `normalize_scores=True` min-max normalises the student scores along the `N` dimension first.

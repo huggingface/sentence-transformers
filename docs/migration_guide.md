@@ -28,11 +28,19 @@ punctuation skiplist recovered from the saved config.
 | `pylate.losses.Distillation` | `MultiVectorDistillKLDivLoss` |
 | `pylate.evaluation.ColBERTTripletEvaluator` | `MultiVectorTripletEvaluator` |
 | `pylate.evaluation.ColBERTDistillationEvaluator` | `MultiVectorDistillationEvaluator` |
-| `pylate.utils.KDProcessing` | `sentence_transformers.multi_vector_encoder.KDProcessing` |
+| `pylate.utils.KDProcessing` | `sentence_transformers.util.resolve_ids` |
 | `pylate.indexes.PLAID` / `pylate.retrieve.ColBERT` | no Sentence Transformers equivalent: keep indexing with PyLate (in a separate environment for now, as PyLate pins an older sentence-transformers version) |
 
 Note that the save compatibility is one-way: PyLate checkpoints load into `MultiVectorEncoder`, but
 models saved with `MultiVectorEncoder.save_pretrained` are not loadable by PyLate.
+
+Data handling also differs from PyLate in three ways. `resolve_ids` expands the per-query document
+list into numbered columns (`document_1`, ..., `document_N`) rather than keeping a nested list,
+matching the `(query, positive, negative_1, ...)` convention of the other losses. The collators no
+longer skip ID-named columns silently: they warn once and tokenize them, so drop or resolve raw ID
+columns before training. And a document ID that is missing from its lookup dataset raises a
+`KeyError` instead of silently substituting an empty document, so pre-filter dangling IDs. String-encoded
+list columns (e.g. from CSV loads) are not parsed either: convert them to native lists first.
 
 ### Migrating from colpali-engine
 

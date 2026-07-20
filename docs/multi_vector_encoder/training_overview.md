@@ -223,11 +223,11 @@ It is important that your dataset format matches your loss function (or that you
 
 Be sure to re-order your dataset columns with :meth:`Dataset.select_columns <datasets.Dataset.select_columns>` if your columns are not ordered correctly. For example, if your dataset has ``["good_answer", "bad_answer", "question"]`` as columns, then this dataset can technically be used with a loss that requires (anchor, positive, negative) triplets, but the ``good_answer`` column will be taken as the query, ``bad_answer`` as the positive document, and ``question`` as the negative document.
 
-Additionally, if your dataset has extraneous columns (e.g. sample_id, metadata, source, type), you should remove these with :meth:`Dataset.remove_columns <datasets.Dataset.remove_columns>` as they will be used as inputs otherwise. The exception are columns whose name contains ``_id`` (e.g. ``query_id``, ``document_ids``): those are passed through without tokenization. You can also use :meth:`Dataset.select_columns <datasets.Dataset.select_columns>` to keep only the desired columns.
+Additionally, if your dataset has extraneous columns (e.g. sample_id, metadata, source, type), you should remove these with :meth:`Dataset.remove_columns <datasets.Dataset.remove_columns>` as they will be used as inputs otherwise. You can also use :meth:`Dataset.select_columns <datasets.Dataset.select_columns>` to keep only the desired columns.
 
 There are two multi-vector specific conventions on top of this:
 
-- **Knowledge distillation format**: a column holding a *list* of N documents per row (with a matching list of N teacher scores as the label) is flattened by the collator and reshaped inside :class:`~sentence_transformers.multi_vector_encoder.losses.MultiVectorDistillKLDivLoss`. For KD datasets that store query / document *IDs* alongside separate text datasets (e.g. `lightonai/ms-marco-en-bge <https://huggingface.co/datasets/lightonai/ms-marco-en-bge>`_), use :class:`~sentence_transformers.multi_vector_encoder.KDProcessing` to resolve the IDs on the fly.
+- **Knowledge distillation format**: one column per candidate document, i.e. ``(query, document_1, ..., document_N, scores)`` where ``scores`` is a list of N teacher scores per row. This is the same multi-column convention as ``(query, positive, negative_1, ...)``, read positionally by :class:`~sentence_transformers.multi_vector_encoder.losses.MultiVectorDistillKLDivLoss`. For KD datasets that store query / document *IDs* alongside separate text datasets (e.g. `lightonai/ms-marco-en-bge <https://huggingface.co/datasets/lightonai/ms-marco-en-bge>`_), you can use :func:`~sentence_transformers.util.dataset.resolve_ids` to resolve the IDs on the fly: it expands the stored ID list into the numbered document columns.
 - **Positional query / document assignment**: the first column is embedded as the *query* and all following columns as *documents*. This default can be overridden per column via the standard ``router_mapping`` training argument, mapping column names to ``"query"`` or ``"document"``.
 ```
 
@@ -532,7 +532,7 @@ The :class:`~sentence_transformers.MultiVectorEncoderTrainer` is where all previ
 
 .. tab:: Knowledge Distillation
 
-    The strongest late-interaction models are trained by distilling the rankings of a strong teacher (e.g. a `Cross Encoder <../cross_encoder/usage/usage.html>`_) over N candidate documents per query, rather than from raw pairs or triplets. `lightonai/ms-marco-en-bge <https://huggingface.co/datasets/lightonai/ms-marco-en-bge>`_ provides exactly that: per-query candidate document IDs with teacher scores, resolved to texts on the fly by :class:`~sentence_transformers.multi_vector_encoder.KDProcessing`.
+    The strongest late-interaction models are trained by distilling the rankings of a strong teacher (e.g. a `Cross Encoder <../cross_encoder/usage/usage.html>`_) over N candidate documents per query, rather than from raw pairs or triplets. `lightonai/ms-marco-en-bge <https://huggingface.co/datasets/lightonai/ms-marco-en-bge>`_ provides exactly that: per-query candidate document IDs with teacher scores, resolved to texts on the fly by :func:`~sentence_transformers.util.dataset.resolve_ids`.
 
     ::
 
@@ -546,14 +546,14 @@ The :class:`~sentence_transformers.MultiVectorEncoderTrainer` is where all previ
             MultiVectorEncoderTrainer,
             MultiVectorEncoderTrainingArguments,
         )
-        from sentence_transformers.multi_vector_encoder import KDProcessing
+        from sentence_transformers.util import resolve_ids
         from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorNanoBEIREvaluator
         from sentence_transformers.multi_vector_encoder.losses import MultiVectorDistillKLDivLoss
 
         logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
-        n_ways = 32  # Number of candidate documents (1 positive + negatives) scored per query
-        train_batch_size = 4  # Each batch holds train_batch_size * n_ways documents, so keep it small
+        max_list_length = 32  # Number of candidate documents (1 positive + negatives) scored per query
+        train_batch_size = 4  # Each batch holds train_batch_size * max_list_length documents, so keep it small
 
         # 1. Load a model to finetune with 2. (Optional) model card data
         # Loading in fp32 is preferred for training if your memory can handle it
@@ -572,8 +572,10 @@ The :class:`~sentence_transformers.MultiVectorEncoderTrainer` is where all previ
         queries = load_dataset("lightonai/ms-marco-en-bge", "queries", split="train")
         documents = load_dataset("lightonai/ms-marco-en-bge", "documents", split="train")
 
-        # KDProcessing resolves query_id -> query text and document_ids -> document texts on the fly.
-        train_dataset.set_transform(KDProcessing(queries=queries, documents=documents, n_ways=n_ways).transform)
+        # resolve_ids resolves query_id -> query text and document_ids -> document texts on the fly.
+        train_dataset.set_transform(
+            resolve_ids({"query_id": queries, "document_ids": documents}, max_list_length=max_list_length)
+        )
 
         # 4. Define a loss function: KL divergence between the teacher and student score distributions
         loss = MultiVectorDistillKLDivLoss(model=model)

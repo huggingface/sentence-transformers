@@ -81,7 +81,7 @@ All listwise losses expect the dataset to have per-query **lists** of candidate 
 
 The state-of-the-art listwise ranking loss. Optimizes a surrogate of nDCG via weighted pairwise comparisons.
 
-**Data shape**: `(query, [doc1...docN], [score1...scoreN])` per row. One query, a list of candidate documents, and a parallel list of relevance scores. Use `mine_hard_negatives(..., output_format="labeled-list", ...)` to build this from `(query, positive)` pairs.
+**Data shape**: `(query, [doc1...docN], [score1...scoreN])` per row. One query, a list of candidate documents, and a parallel list of relevance scores. Use `mine_hard_negatives(..., output_format="labeled-list", ...)` to build this from `(query, positive)` pairs. For ID-only datasets with separate text splits (e.g. `lightonai/ms-marco-en-bge`), `sentence_transformers.util.resolve_ids(..., output_format="lists")` produces this nested shape directly.
 
 ```python
 import torch.nn as nn

@@ -49,12 +49,12 @@ These loss functions are specifically designed to be used when distilling the kn
 |--------------------------------------------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `(query, positive, negative)`                    | `gold_sim(query, positive) - gold_sim(query, negative)`                   | <a href="../package_reference/multi_vector_encoder/losses.html#multivectormarginmseloss">`MultiVectorMarginMSELoss`</a>                                 |
 | `(query, positive, negative_1, ..., negative_n)` | `[gold_sim(query, positive) - gold_sim(query, negative_i) for i in 1..n]` | <a href="../package_reference/multi_vector_encoder/losses.html#multivectormarginmseloss">`MultiVectorMarginMSELoss`</a>                                 |
-| `(query, [doc_1, ..., doc_n])`                   | `[gold_sim(query, doc_i) for i in 1..n]`                                  | <a href="../package_reference/multi_vector_encoder/losses.html#multivectordistillkldivloss">`MultiVectorDistillKLDivLoss`</a> ★                         |
+| `(query, doc_1, ..., doc_n)`                     | `[gold_sim(query, doc_i) for i in 1..n]`                                  | <a href="../package_reference/multi_vector_encoder/losses.html#multivectordistillkldivloss">`MultiVectorDistillKLDivLoss`</a> ★                         |
 
 ```{eval-rst}
 For the n-way KD format with externally-stored query / document texts (e.g.
-`lightonai/ms-marco-en-bge <https://huggingface.co/datasets/lightonai/ms-marco-en-bge>`_), use
-:class:`~sentence_transformers.multi_vector_encoder.KDProcessing` to resolve IDs against the query and
+`lightonai/ms-marco-en-bge <https://huggingface.co/datasets/lightonai/ms-marco-en-bge>`_), you can use
+:func:`~sentence_transformers.util.dataset.resolve_ids` to resolve IDs against the query and
 document datasets on the fly.
 ```
 
@@ -63,7 +63,7 @@ document datasets on the fly.
 In practice, not all loss functions get used equally often. The most common scenarios are:
 
 * `(anchor, positive) pairs` without any labels: <a href="../package_reference/multi_vector_encoder/losses.html#multivectormultiplenegativesrankingloss"><code>MultiVectorMultipleNegativesRankingLoss</code></a> (a.k.a. InfoNCE or in-batch negatives loss) is cheap to obtain data for and generally very performant, especially combined with mined hard negatives. <a href="../package_reference/multi_vector_encoder/losses.html#cachedmultivectormultiplenegativesrankingloss"><code>CachedMultiVectorMultipleNegativesRankingLoss</code></a> extends it to very large effective batch sizes.
-* `(query, [doc_1, ..., doc_n])` with teacher scores: <a href="../package_reference/multi_vector_encoder/losses.html#multivectordistillkldivloss"><code>MultiVectorDistillKLDivLoss</code></a> implements the n-way knowledge distillation recipe behind the strongest late-interaction models.
+* `(query, doc_1, ..., doc_n)` with teacher scores: <a href="../package_reference/multi_vector_encoder/losses.html#multivectordistillkldivloss"><code>MultiVectorDistillKLDivLoss</code></a> implements the n-way knowledge distillation recipe behind the strongest late-interaction models.
 
 ## Custom Loss Functions
 

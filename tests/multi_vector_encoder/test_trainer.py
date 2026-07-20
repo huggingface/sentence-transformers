@@ -51,17 +51,14 @@ def triplet_dataset() -> Dataset:
 
 @pytest.fixture
 def kd_dataset() -> Dataset:
+    # One column per candidate document, matching the (query, document_1, ..., document_N) shape
+    # that resolve_ids produces and MultiVectorDistillKLDivLoss expects.
     return Dataset.from_dict(
         {
             "query": ["What is AI?", "Capital of France?"],
-            "documents": [
-                ["AI is intelligence in machines.", "Trees produce oxygen.", "Cats are pets."],
-                [
-                    "Paris is the capital of France.",
-                    "Berlin is the capital of Germany.",
-                    "Madrid is the capital of Spain.",
-                ],
-            ],
+            "document_1": ["AI is intelligence in machines.", "Paris is the capital of France."],
+            "document_2": ["Trees produce oxygen.", "Berlin is the capital of Germany."],
+            "document_3": ["Cats are pets.", "Madrid is the capital of Spain."],
             "scores": [[5.0, 0.5, 0.1], [5.0, 0.3, 0.2]],
         }
     )

@@ -44,8 +44,10 @@ class MultiVectorEncoderTrainer(BaseTrainer):
         model: The :class:`~sentence_transformers.MultiVectorEncoder` to train.
         args: Training arguments.
         train_dataset: Training dataset. Standard ST formats are supported (pair / triplet / multi-negative),
-            plus the knowledge-distillation format ``(query, documents, scores)`` where ``documents`` is a list
-            of N strings and ``scores`` is a list of N teacher scores per row.
+            plus the knowledge-distillation format ``(query, document_1, ..., document_N, scores)`` where
+            ``scores`` is a list of N teacher scores per row. You can use
+            :func:`~sentence_transformers.util.dataset.resolve_ids` to build the numbered columns from
+            ID-only KD datasets.
         eval_dataset: Evaluation dataset.
         loss: A loss class, dict of dataset-name → loss, callable returning a loss, or dict of callables.
             Defaults to :class:`~sentence_transformers.multi_vector_encoder.losses.MultiVectorMultipleNegativesRankingLoss`.

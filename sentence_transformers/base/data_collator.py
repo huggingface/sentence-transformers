@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 import torch
+from transformers.utils import logging as transformers_logging
 
-logger = logging.getLogger(__name__)
+# NOTE: transformers wraps the regular logging module for e.g. warning_once
+logger = transformers_logging.get_logger(__name__)
+
+# Keep in sync with util.dataset.DEFAULT_LABEL_COLUMNS (a shared import would be circular).
+DEFAULT_LABEL_COLUMNS: tuple[str, ...] = ("label", "labels", "score", "scores")
 
 
 @dataclass
@@ -25,7 +29,7 @@ class BaseDataCollator:
     """
 
     preprocess_fn: Callable
-    valid_label_columns: list[str] = field(default_factory=lambda: ["label", "labels", "score", "scores"])
+    valid_label_columns: list[str] = field(default_factory=lambda: list(DEFAULT_LABEL_COLUMNS))
     router_mapping: dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
     prompts: str | dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
 
@@ -74,6 +78,12 @@ class BaseDataCollator:
             return prompts[column_name]
         return None
 
+    def _get_task_for_column(
+        self, column_name: str, column_position: int, router_mapping: dict[str, str]
+    ) -> str | None:
+        """Resolve the task a column is preprocessed with. Subclasses may add positional defaults."""
+        return router_mapping.get(column_name)
+
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
         if not features:
             return {}
@@ -100,14 +110,25 @@ class BaseDataCollator:
         router_mapping = self._resolve_router_mapping(batch)
         prompts = self._resolve_prompts(batch)
 
-        for column_name in column_names:
-            task = router_mapping.get(column_name, None)
+        id_like = [col for col in column_names if col == "id" or col.endswith(("_id", "_ids", "_idx"))]
+        if id_like:
+            logger.warning_once(
+                f"Column(s) {id_like} look like ID columns, but they will be tokenized and trained on as "
+                "text. If they hold IDs, resolve them to their values first, e.g. with "
+                "`sentence_transformers.util.resolve_ids`, or remove them from the dataset."
+            )
+
+        for column_position, column_name in enumerate(column_names):
+            task = self._get_task_for_column(column_name, column_position, router_mapping)
             prompt = self._get_prompt_for_column(prompts, column_name)
             inputs = [row[column_name] for row in features]
-
             preprocessed = self.preprocess_fn(inputs, prompt=prompt, task=task)
             for key, value in preprocessed.items():
                 batch[f"{column_name}_{key}"] = value
+            # Stamp the resolved task so losses can re-run the model under the task each column was
+            # tokenized with (e.g. router_mapping overrides or a subclass positional default).
+            if task is not None:
+                batch[f"{column_name}_task"] = task
 
         return batch
 

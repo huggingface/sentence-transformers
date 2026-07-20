@@ -2,8 +2,8 @@
 This script demonstrates how to train a ColBERT-style multi-vector model with knowledge distillation on MS MARCO.
 
 As dataset, we use lightonai/ms-marco-en-bge, which provides per-query lists of N candidate document IDs together with
-teacher scores from a BGE bi-encoder. KDProcessing resolves those IDs against the queries / documents datasets on the
-fly during training.
+teacher scores from a BGE bi-encoder. resolve_ids resolves those IDs against the queries / documents datasets on
+the fly during training.
 
 As loss function, we use MultiVectorDistillKLDivLoss, which minimizes the KL divergence between the (softmaxed) teacher
 scores and the student's MaxSim scores over each query's candidate documents. This recipe is adapted from PyLate's
@@ -21,9 +21,9 @@ from sentence_transformers import (
     MultiVectorEncoderTrainer,
     MultiVectorEncoderTrainingArguments,
 )
-from sentence_transformers.multi_vector_encoder import KDProcessing
 from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorNanoBEIREvaluator
 from sentence_transformers.multi_vector_encoder.losses import MultiVectorDistillKLDivLoss
+from sentence_transformers.util import resolve_ids
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -34,8 +34,8 @@ def main():
     model_name = "answerdotai/ModernBERT-base"
     short_model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
 
-    n_ways = 32  # Number of candidate documents (1 positive + negatives) scored per query
-    train_batch_size = 4  # Each batch holds train_batch_size * n_ways documents, so keep it small
+    max_list_length = 32  # Number of candidate documents (1 positive + negatives) scored per query
+    train_batch_size = 4  # Each batch holds train_batch_size * max_list_length documents, so keep it small
     num_epochs = 1
     learning_rate = 3e-5
 
@@ -58,8 +58,10 @@ def main():
     queries = load_dataset("lightonai/ms-marco-en-bge", "queries", split="train")
     documents = load_dataset("lightonai/ms-marco-en-bge", "documents", split="train")
 
-    # KDProcessing resolves query_id -> query text and document_ids -> document texts on the fly.
-    train_dataset.set_transform(KDProcessing(queries=queries, documents=documents, n_ways=n_ways).transform)
+    # resolve_ids resolves query_id -> query text and document_ids -> document texts on the fly.
+    train_dataset.set_transform(
+        resolve_ids({"query_id": queries, "document_ids": documents}, max_list_length=max_list_length)
+    )
     logging.info(train_dataset)
 
     # 3. Define our training loss: KL divergence between the teacher and student score distributions

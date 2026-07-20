@@ -529,7 +529,7 @@ class BaseModelCardData(CardData):
                 continue
 
             if dataset[dataset_name].format["type"] == "custom":
-                # A custom transform is set (e.g. KDProcessing resolving query/document IDs to texts lazily).
+                # A custom transform is set (e.g. resolve_ids resolving query/document IDs to texts lazily).
                 # dataset.features then describes the pre-transform columns, so the select_columns below would
                 # starve the transform of the columns it needs. Skip widget examples for such datasets.
                 continue

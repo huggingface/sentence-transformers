@@ -9,6 +9,7 @@ from torch import Tensor, nn
 
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.scoring import colbert_kd_scores
+from sentence_transformers.util import stack_padded_token_embeddings
 
 
 class MultiVectorDistillKLDivLoss(nn.Module):
@@ -18,12 +19,13 @@ class MultiVectorDistillKLDivLoss(nn.Module):
     teacher scores ``(N,)``. This loss computes the model's MaxSim scores against the same documents and
     minimises the KL divergence between the softmaxed teacher and student distributions.
 
-    The expected input format from the data collator:
+    The expected input format, matching the standard multi-column convention:
 
     - ``sentence_features[0]``: query features of shape ``(batch_size, q_tokens)``.
-    - ``sentence_features[1]``: document features of shape ``(batch_size * n_ways, d_tokens)``, produced by
-      the collator flattening the per-row ``documents`` list. ``n_ways`` is the document count // batch size.
-    - ``labels``: teacher scores of shape ``(batch_size, n_ways)``.
+    - ``sentence_features[1:]``: one feature dict per candidate document column, each of shape
+      ``(batch_size, d_tokens)``, i.e. dataset columns ``(query, document_1, ..., document_N)``.
+      :func:`~sentence_transformers.util.dataset.resolve_ids` produces this shape from ID-only KD datasets.
+    - ``labels``: teacher scores of shape ``(batch_size, N)``.
 
     Args:
         model: A :class:`~sentence_transformers.MultiVectorEncoder`.
@@ -76,38 +78,34 @@ class MultiVectorDistillKLDivLoss(nn.Module):
         labels: Tensor,
     ) -> Tensor:
         sentence_features = list(sentence_features)
-        if len(sentence_features) != 2:
+        if len(sentence_features) < 2:
             raise ValueError(
-                f"{type(self).__name__} expects exactly 2 sentence features (query, documents), but "
-                f"got {len(sentence_features)}."
+                f"{type(self).__name__} expects at least 2 sentence features "
+                f"(query, document_1, ..., document_N), but got {len(sentence_features)}."
             )
 
         # Collator-stamped tasks (positional fallback), masks from the model output where
         # MultiVectorMask has rewritten attention_mask into the per-row scoring mask.
-        query_features, document_features = sentence_features
-        query_outputs = self.model(query_features, task=query_features.get("task", "query"))
-        document_outputs = self.model(document_features, task=document_features.get("task", "document"))
-        queries_embeddings = query_outputs["token_embeddings"]
-        documents_embeddings = document_outputs["token_embeddings"]
+        outputs = [
+            self.model(sf, task=sf.get("task", "query" if idx == 0 else "document"))
+            for idx, sf in enumerate(sentence_features)
+        ]
+        queries_embeddings = outputs[0]["token_embeddings"]
+        queries_mask = outputs[0]["attention_mask"].bool()
 
         bs = queries_embeddings.size(0)
-        n_docs = documents_embeddings.size(0)
-        if bs == 0 or n_docs % bs != 0:
-            raise ValueError(
-                f"{type(self).__name__} expects the document column to hold batch_size * n_ways rows "
-                f"(each query with the same number of candidate documents), but got {n_docs} documents "
-                f"for {bs} queries."
-            )
-        n_ways = n_docs // bs
+        n_ways = len(outputs) - 1
         if labels.shape != (bs, n_ways):
             raise ValueError(
                 f"{type(self).__name__} expects teacher scores of shape (batch_size, n_ways) = "
                 f"({bs}, {n_ways}), but got {tuple(labels.shape)}."
             )
-        documents_embeddings = documents_embeddings.view(bs, n_ways, *documents_embeddings.shape[1:])
-        queries_mask = query_outputs["attention_mask"].bool()
-        documents_mask = document_outputs["attention_mask"].bool()
-        documents_mask = documents_mask.view(bs, n_ways, *documents_mask.shape[1:])
+        # Stack the per-column document embeddings into (batch_size, n_ways, d_tokens, dim), padding
+        # the token axis to the cross-column max (columns are padded independently).
+        documents_embeddings, documents_mask = stack_padded_token_embeddings(
+            [output["token_embeddings"] for output in outputs[1:]],
+            [output["attention_mask"].bool() for output in outputs[1:]],
+        )
 
         scores = self.score_metric(
             queries_embeddings,

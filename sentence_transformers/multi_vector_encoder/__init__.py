@@ -7,7 +7,6 @@ from .model import MultiVectorEncoder
 from .model_card import MultiVectorEncoderModelCardData
 from .trainer import MultiVectorEncoderTrainer
 from .training_args import MultiVectorEncoderTrainingArguments
-from .utils import KDProcessing
 
 __all__ = [
     "MultiVectorEncoder",
@@ -15,7 +14,6 @@ __all__ = [
     "MultiVectorEncoderModelCardData",
     "MultiVectorEncoderTrainer",
     "MultiVectorEncoderTrainingArguments",
-    "KDProcessing",
     "maxsim",
     "maxsim_pairwise",
 ]

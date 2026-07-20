@@ -37,7 +37,7 @@ from sentence_transformers.sparse_encoder import (
     SparseEncoderTrainer,
     SparseEncoderTrainingArguments,
 )
-from sentence_transformers.util import mine_hard_negatives
+from sentence_transformers.util import mine_hard_negatives, resolve_ids
 from sentence_transformers.util.deprecated_import import setup_deprecated_module_imports
 from sentence_transformers.util.logging import LoggingHandler
 from sentence_transformers.util.quantization import quantize_embeddings
@@ -83,4 +83,5 @@ __all__ = [
     "DefaultBatchSampler",
     "MultiDatasetDefaultBatchSampler",
     "mine_hard_negatives",
+    "resolve_ids",
 ]

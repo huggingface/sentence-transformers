@@ -84,7 +84,7 @@ class TestSetWidgetExamples:
         )
 
         def transform(batch):
-            # Mimics KDProcessing: needs the "scores" column that select_columns would drop.
+            # Mimics resolve_ids: needs the "scores" column that select_columns would drop.
             return {
                 "query": [f"query {qid}" for qid in batch["query_id"]],
                 "documents": [["doc"] * len(scores) for scores in batch["scores"]],

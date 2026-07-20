@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .dataset import resolve_ids
 from .decorators import save_to_hub_args_decorator
 from .distributed import all_gather, all_gather_padded, all_gather_with_grad, get_rank, get_world_size
 from .environment import (
@@ -130,4 +131,6 @@ __all__ = [
     "truncate_embeddings",
     # From hard_negatives.py
     "mine_hard_negatives",
+    # From dataset.py
+    "resolve_ids",
 ]
