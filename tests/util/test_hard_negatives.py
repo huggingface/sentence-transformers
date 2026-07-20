@@ -925,7 +925,7 @@ def test_cache(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTrans
 def test_cache_respects_prompt(
     dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, tmp_path: Path
 ) -> None:
-    """The cache key must incorporate the prompt arguments, so a different query_prompt/corpus_prompt
+    """The cache key must incorporate the prompt arguments, so a different `query_prompt`
     produces its own cache file rather than silently reusing embeddings computed with a different prompt."""
     model = static_retrieval_mrl_en_v1_model
     cache_dir = os.path.join(tmp_path, "embeddings_cache")

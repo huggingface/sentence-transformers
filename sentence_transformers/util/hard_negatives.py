@@ -393,11 +393,11 @@ def mine_hard_negatives(
 
         model_name = model.model_card_data.base_model or ""
         query_hash = hashlib.sha256(
-            (repr((model_name, query_prompt, query_prompt_name)) + "".join(queries)).encode(),
+            repr((model_name, query_prompt, query_prompt_name, queries)).encode(),
             usedforsecurity=False,
         ).hexdigest()
         corpus_hash = hashlib.sha256(
-            (repr((model_name, corpus_prompt, corpus_prompt_name)) + "".join(corpus)).encode(),
+            repr((model_name, corpus_prompt, corpus_prompt_name, corpus)).encode(),
             usedforsecurity=False,
         ).hexdigest()
 
