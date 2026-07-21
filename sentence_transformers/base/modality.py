@@ -116,15 +116,27 @@ def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict
     """Unwrap dict-wrapped audio or an ``AudioDecoder`` into a raw array, collecting ``sampling_rate``.
 
     Passes through unchanged if ``audio_value`` is already a raw array/tensor/URL/path.
+
+    Conflicting per-sample sampling rates raise rather than silently overwriting a batch-level
+    scalar (feature extractors only accept one rate for the whole batch).
     """
+    def _set_sampling_rate(rate: Any) -> None:
+        existing = extra_modality_kwargs["audio"].get("sampling_rate", None)
+        if existing is not None and existing != rate:
+            raise ValueError(
+                f"Conflicting audio sampling rates in the same batch: {existing} and {rate}. "
+                "All audio samples in a batch must share one sampling rate, or be processed separately."
+            )
+        extra_modality_kwargs["audio"]["sampling_rate"] = rate
+
     if isinstance(audio_value, dict):
         if "sampling_rate" in audio_value:
-            extra_modality_kwargs["audio"]["sampling_rate"] = audio_value["sampling_rate"]
+            _set_sampling_rate(audio_value["sampling_rate"])
         return audio_value["array"]
     if AudioDecoder is not None and isinstance(audio_value, AudioDecoder):
         samples = audio_value.get_all_samples()
         # AudioDecoder returns (channels, samples); mean over channels to get 1D numpy
-        extra_modality_kwargs["audio"]["sampling_rate"] = samples.sample_rate
+        _set_sampling_rate(samples.sample_rate)
         return samples.data.mean(dim=0).numpy()
     return audio_value
 
@@ -133,14 +145,17 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
     """Unwrap dict-wrapped video or a ``VideoDecoder`` into a raw array, collecting ``video_metadata``.
 
     Passes through unchanged if ``video_value`` is already a raw array/tensor/URL/path.
+
+    ``video_metadata`` is always kept batch-aligned: samples without explicit metadata
+    contribute ``None`` so later samples cannot shift onto earlier videos.
     """
+    metadata_list = extra_modality_kwargs["video"].setdefault("video_metadata", [])
     if isinstance(video_value, dict):
-        if "video_metadata" in video_value:
-            extra_modality_kwargs["video"].setdefault("video_metadata", []).append(video_value["video_metadata"])
+        metadata_list.append(video_value.get("video_metadata"))
         return video_value["array"]
     if VideoDecoder is not None and isinstance(video_value, VideoDecoder):
         frame_batch = video_value.get_frames_in_range(0, len(video_value))
-        extra_modality_kwargs["video"].setdefault("video_metadata", []).append(
+        metadata_list.append(
             {
                 "fps": video_value.metadata.average_fps,
                 "total_num_frames": video_value.metadata.num_frames,
@@ -149,7 +164,22 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
             }
         )
         return frame_batch.data
+    # Raw path / array / tensor: keep the metadata list aligned with the batch.
+    metadata_list.append(None)
     return video_value
+
+
+
+def _finalize_extra_modality_kwargs(extra_modality_kwargs: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Drop all-None video_metadata lists so raw-only batches keep prior behavior."""
+    video_kwargs = extra_modality_kwargs.get("video")
+    if video_kwargs and "video_metadata" in video_kwargs:
+        metadata = video_kwargs["video_metadata"]
+        if isinstance(metadata, list) and all(item is None for item in metadata):
+            del video_kwargs["video_metadata"]
+        if not video_kwargs:
+            del extra_modality_kwargs["video"]
+    return extra_modality_kwargs
 
 
 class InputFormatter:
@@ -314,7 +344,7 @@ class InputFormatter:
                 else:
                     typed = value if isinstance(mod, tuple) else {mod: value}
                     messages.append(self.to_message(typed))
-            return "message", {"message": messages}, extra_modality_kwargs
+            return "message", {"message": messages}, _finalize_extra_modality_kwargs(extra_modality_kwargs)
 
         modalities, processed_inputs = zip(*typed_inputs)
         processed_inputs = list(processed_inputs)
@@ -338,7 +368,7 @@ class InputFormatter:
             }
             modality = "message"
 
-        return modality, processed_inputs, extra_modality_kwargs
+        return modality, processed_inputs, _finalize_extra_modality_kwargs(extra_modality_kwargs)
 
     def pair_to_messages(self, pair: tuple | list) -> list[dict[str, Any]]:
         """Convert a pair of inputs to query/document message format.

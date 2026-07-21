@@ -818,6 +818,26 @@ class TestParseInputs:
         assert inputs == {"text": ["hello", image_url, "world"]}
 
 
+    def test_mixed_raw_and_wrapped_video_keeps_metadata_aligned(self):
+        """Raw videos must reserve a video_metadata slot so later metadata cannot shift (#3874)."""
+        raw_video = np.zeros((4, 3, 8, 8), dtype=np.float32)
+        wrapped_video = {
+            "array": np.ones((4, 3, 8, 8), dtype=np.float32),
+            "video_metadata": {"fps": 15, "total_num_frames": 4},
+        }
+        modality, inputs, extra = self.fmt.parse_inputs([raw_video, wrapped_video])
+        assert modality == "video"
+        assert len(inputs["video"]) == 2
+        assert extra["video"]["video_metadata"] == [None, {"fps": 15, "total_num_frames": 4}]
+
+    def test_conflicting_audio_sampling_rates_raise(self):
+        """A batch with different per-sample sampling rates must not silently overwrite (#3874)."""
+        audio_a = {"array": np.zeros(1600, dtype=np.float32), "sampling_rate": 16000}
+        audio_b = {"array": np.zeros(4410, dtype=np.float32), "sampling_rate": 44100}
+        with pytest.raises(ValueError, match="Conflicting audio sampling rates"):
+            self.fmt.parse_inputs([audio_a, audio_b])
+
+
 class TestBatchToMessage:
     def setup_method(self):
         self.fmt = InputFormatter(model_type="test", message_format="structured")
