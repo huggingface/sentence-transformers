@@ -13,7 +13,13 @@ import torch
 
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.sparse_encoder.model import SparseEncoder
-from sentence_transformers.sparse_encoder.modules import Router, SparseAutoEncoder, SpladePooling, Transformer
+from sentence_transformers.sparse_encoder.modules import (
+    Router,
+    SparseAutoEncoder,
+    SparseTokenPooling,
+    SpladePooling,
+    Transformer,
+)
 from sentence_transformers.util.similarity import SimilarityFunction
 
 
@@ -70,6 +76,15 @@ def test_decode_token_types(splade_bert_tiny_model: SparseEncoder, text: str, ex
     for token, weight in decoded:
         assert isinstance(token, expected_token_types)
         assert isinstance(weight, float)
+
+
+def test_set_pooling_include_prompt_updates_sparse_token_pooling() -> None:
+    pooler = SparseTokenPooling(embedding_dimension=8)
+    model = SparseEncoder(modules=[pooler])
+
+    model.set_pooling_include_prompt(False)
+
+    assert pooler.include_prompt is False
 
 
 @pytest.mark.parametrize(
