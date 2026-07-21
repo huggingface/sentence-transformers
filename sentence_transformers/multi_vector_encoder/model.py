@@ -15,6 +15,7 @@ import numpy as np
 import torch
 from torch import Tensor, nn
 from tqdm import trange
+from transformers import AddedToken
 from transformers.utils import logging as transformers_logging
 
 from sentence_transformers.base import BaseModel
@@ -99,7 +100,8 @@ class MultiVectorEncoder(BaseModel):
         config_kwargs (dict[str, Any], optional): Keyword arguments passed to the Hugging Face Transformers
             config. Defaults to None.
         model_card_data (MultiVectorEncoderModelCardData, optional): A model card data object. Defaults to None.
-        backend (str, optional): The backend to use for inference. Only ``"torch"`` is supported.
+        backend (str, optional): The backend to use for inference. Can be ``"torch"`` (default), ``"onnx"``,
+            or ``"openvino"``. Defaults to ``"torch"``.
         similarity_fn_name (str or SimilarityFunction, optional): The name of the similarity function. Defaults
             to ``"maxsim"``.
 
@@ -157,13 +159,6 @@ class MultiVectorEncoder(BaseModel):
         backend: Literal["torch", "onnx", "openvino"] = "torch",
         similarity_fn_name: str | SimilarityFunction | None = None,
     ) -> None:
-        if backend != "torch":
-            raise NotImplementedError(
-                f"MultiVectorEncoder currently only supports backend='torch', got backend={backend!r}. "
-                "ONNX/OpenVINO export is future work: the per-row masking and variable-length output do "
-                "not map cleanly to fixed-shape graphs."
-            )
-
         # Stash before super().__init__ so _parse_model_config only falls back to saved config when unset.
         self.similarity_fn_name = similarity_fn_name
         # Legacy-checkpoint state populated by ``_parse_model_config`` (PyLate v3) and
@@ -638,34 +633,37 @@ class MultiVectorEncoder(BaseModel):
         """Mark a prompt-prefix token as special so the tokenizer emits it as a single piece.
 
         Call only with the prefixes of an existing token-prepended checkpoint (the caller guards on
-        ``self._legacy.prefixes``). Needed for checkpoints (Stanford ColBERTv2, answerai-colbert, ...) whose
-        prefix is an in-vocab marker like ``[unused0]`` applied via token insertion at training time, so
-        their saved tokenizer never marked it special. Prepending it as text would shatter it
-        (``[unused0]`` -> ``['[','unused','##0',']']``) and diverge from training. Registering it
-        restores single-piece tokenization, making text-prepending byte-identical to token insertion.
+        ``self._legacy.prefixes``). Needed for checkpoints (Stanford ColBERTv2, answerai-colbert,
+        mxbai-edge-colbert, ...) whose prefix is a known token like ``[unused0]`` or ``[Q] `` applied
+        via token insertion at training time. Prepending it as text would shatter it
+        (``[unused0]`` -> ``['[','unused','##0',']']``, and an added ``[Q] `` stored with
+        ``normalized=True`` never matches input text on a lowercasing tokenizer) and diverge from
+        training. Registering it as a non-normalized special token restores single-piece
+        tokenization, making text-prepending byte-identical to token insertion.
 
-        Three gates keep this a no-op when no fix is required:
+        Two gates keep this a no-op when no fix is required:
 
-        1. Skip tokens already special / added (e.g. modern ``[Q] `` checkpoints). Nothing to do.
-        2. Skip tokens not in the vocab: a non-vocab prefix (``[Q]`` on a plain BERT, or a text prompt
-           like ``query: ``) is left as ordinary text rather than growing the embedding table.
-        3. Skip tokens the tokenizer already emits as a single piece, no fix needed.
+        1. Skip prefixes the tokenizer doesn't know: neither the full prompt value (PyLate saves
+           ``[Q] `` with its trailing space as one token) nor its first whitespace-delimited token
+           has an id. Such prefixes (``[Q]`` on a plain BERT, or a text prompt like ``query:``) are
+           left as ordinary text rather than growing the embedding table.
+        2. Skip prefixes the tokenizer already emits as a single piece, no fix needed.
         """
         tokenizer = self.tokenizer
         if tokenizer is None:
             return
-        added = set(getattr(tokenizer, "added_tokens_encoder", None) or {}) | set(tokenizer.all_special_tokens)
+        added = set(getattr(tokenizer, "added_tokens_encoder", None) or {})
         vocab = tokenizer.get_vocab()
-        to_register: list[str] = []
+        to_register: list[AddedToken] = []
         for value in prompts.values():
             if not value or not value.split():
                 continue
-            prefix = value.split(None, 1)[0]
-            if prefix in added or prefix not in vocab:
-                continue
-            if tokenizer.tokenize(prefix) == [prefix]:
-                continue
-            to_register.append(prefix)
+            for prefix in (value, value.split(None, 1)[0]):
+                if prefix not in added and prefix not in vocab:
+                    continue
+                if tokenizer.tokenize(prefix) != [prefix]:
+                    to_register.append(AddedToken(prefix, normalized=False, special=True))
+                break
         if to_register:
             tokenizer.add_special_tokens({"additional_special_tokens": to_register})
 

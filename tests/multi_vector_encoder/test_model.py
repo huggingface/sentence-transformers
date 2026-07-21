@@ -183,6 +183,43 @@ def test_query_expansion_token_not_in_vocab_raises() -> None:
         )
 
 
+def test_resolve_retrieval_model_class_from_peft_config() -> None:
+    # A PEFT adapter checkpoint carries a LoraConfig without `architectures`. The retrieval class
+    # must resolve via the adapter's base model config instead of raising.
+    peft = pytest.importorskip("peft")
+    from sentence_transformers.base.modules.transformer import _resolve_retrieval_model_class
+
+    config = peft.LoraConfig(base_model_name_or_path="vidore/colqwen2-v1.0-hf")
+    assert _resolve_retrieval_model_class(config).__name__ == "ColQwen2ForRetrieval"
+
+
+def test_gradient_checkpointing_skips_unsupporting_wrapper() -> None:
+    # transformers wrappers that don't declare gradient checkpointing support (e.g.
+    # ColQwen2ForRetrieval in transformers 5.13) must be skipped with a warning instead of the
+    # ValueError from PreTrainedModel.gradient_checkpointing_enable crashing training.
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    model.transformers_model.supports_gradient_checkpointing = False
+    model.gradient_checkpointing_enable()
+
+
+def test_prefix_added_token_repaired_to_single_piece() -> None:
+    # PyLate checkpoints (e.g. mxbai-edge-colbert) store "[Q] " as an added token with
+    # normalized=True, which never matches input text on a lowercasing tokenizer: text-prepended
+    # prompts shatter into pieces and diverge from the training-time token insertion. Registration
+    # must repair the token to match as a single piece, without growing the vocabulary.
+    from transformers import AddedToken
+
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    tokenizer = model[0].tokenizer
+    tokenizer.add_tokens([AddedToken("[Q] ", normalized=True, special=False)])
+    size_before = len(tokenizer)
+    assert tokenizer.tokenize("[Q] hello")[0] != "[Q] "
+
+    model._register_prefix_tokens({"query": "[Q] "})
+    assert tokenizer.tokenize("[Q] hello")[0] == "[Q] "
+    assert len(tokenizer) == size_before
+
+
 def test_query_expansion_setter_validates_post_init() -> None:
     # Mid-life mutation must go through the same validation as __init__, not skip it. Without the
     # property setter, model[0].query_expansion = {...} would store an unvalidated dict and break
