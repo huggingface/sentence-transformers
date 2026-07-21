@@ -18,15 +18,15 @@ DOCUMENTS = [
     "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
 ]
 
-# Per-document MaxSim scores for QUERY, generated with PyLate (the reference implementation) in float32
-# via `demo_multi_vector_pylate.py`. This is a cross-library parity guard: the ST MultiVectorEncoder must
-# reproduce PyLate's scores for these checkpoints (PyLate-format ModernBERT, a small PyLate model, and a
-# Stanford-NLP ColBERTv2 checkpoint), covering all the load paths.
+# Cross-library parity guard, one entry per load path. Expected scores come from PyLate (the
+# reference implementation) via `demo_multi_vector_pylate.py`. LFM2 is the only decoder-only entry,
+# so it alone covers the EOS query-expansion fallback.
 MODELS_TO_MAXSIM: dict[str, list[float]] = {
     "lightonai/Reason-ModernColBERT": [9.05118, 10.18419, 9.12381, 9.39101],
     "answerdotai/answerai-colbert-small-v1": [30.56916, 31.48954, 31.30291, 31.30716],
     "colbert-ir/colbertv2.0": [12.79703, 27.19449, 23.8495, 24.56564],
     "lightonai/colbertv2.0": [12.79703, 27.19449, 23.8495, 24.56564],
+    "LiquidAI/LFM2-ColBERT-350M": [30.3855, 30.63302, 30.43718, 30.55411],
 }
 
 # doc{i} is the relevant page for IMAGE_QUERIES[i], so the correct retrieval is the diagonal.
@@ -39,13 +39,9 @@ IMAGE_DOCUMENTS = [
     f"https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc{i}.jpg" for i in range(1, 5)
 ]
 
-# Per-(query, page) MaxSim matrices in float32, generated with each checkpoint's *reference* implementation
-# rather than with ST: colpali-engine's `ColPali` + `ColPaliProcessor` for the merged ColPali checkpoint, and
-# transformers' `ColQwen2ForRetrieval` + `ColQwen2Processor` for the transformers-native ColQwen2. ST
-# reproduced both exactly (max abs diff 0.0). This is the image-document counterpart of MODELS_TO_MAXSIM, and
-# it covers both multimodal load paths: an explicit Transformer -> Dense -> Normalize -> MultiVectorMask
-# pipeline (ColPali), and the auto-recognised `*ForRetrieval` pipeline where the projection and the
-# normalisation live inside the model (ColQwen2).
+# Image-document counterpart of MODELS_TO_MAXSIM, generated with each checkpoint's own reference
+# implementation: colpali-engine for ColPali, transformers' ColQwen2ForRetrieval for ColQwen2. The
+# two cover the explicit Dense + Normalize pipeline and the auto-recognised `*ForRetrieval` one.
 IMAGE_MODELS_TO_MAXSIM: dict[str, list[list[float]]] = {
     "tomaarsen/colpali-v1.3-merged-st": [
         [19.49800, 17.41141, 17.37556, 16.74520],
@@ -71,6 +67,28 @@ def test_pretrained_multi_vector_maxsim(model_name: str, expected_score: list[fl
     assert np.allclose(similarities, expected_score, rtol=0.001, atol=0.001), (
         f"Expected MaxSim scores for {model_name} to be close to {expected_score}, but got {similarities.tolist()}"
     )
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+@pytest.mark.parametrize("model_name", MODELS_TO_MAXSIM)
+@pytest.mark.slow
+def test_pretrained_prompt_prefix_stays_one_token(model_name: str) -> None:
+    """These checkpoints were trained by inserting the prefix *token*, while we prepend the prompt as
+    *text*, so the two only agree while the prefix tokenizes to one piece. Registration drops the
+    trailing space for an in-vocab marker (``[unused0] `` -> ``[unused0]``) but keeps it for a
+    PyLate-style added token (``[Q] ``), hence the two accepted forms.
+    """
+    model = MultiVectorEncoder(model_name)
+    tokenizer = model.tokenizer
+    prompts = {task: prompt for task, prompt in model.prompts.items() if prompt and prompt.strip()}
+    assert prompts, f"{model_name} is expected to carry query / document prompts"
+    for task, prompt in prompts.items():
+        pieces = tokenizer.tokenize(prompt)
+        assert pieces == [prompt.strip()] or pieces == [prompt], (
+            f"The {task!r} prompt {prompt!r} of {model_name} must tokenize to a single piece, got {pieces}"
+        )
     del model
     gc.collect()
     torch.cuda.empty_cache()
@@ -106,9 +124,8 @@ def test_pretrained_image_document_maxsim(model_name: str, expected_scores: list
     torch.cuda.empty_cache()
 
 
-# (repo, expected_skiplist) for the three legacy load paths that need to pre-seed punctuation. The
-# bare-HF default is empty (covered by ``test_default_colbert_attributes``). These tests guard the
-# three legacy-format saves so changing the default never silently regresses their masking behaviour.
+# The bare-HF default is empty (covered by ``test_default_colbert_attributes``), so these guard that
+# each legacy source still seeds punctuation. One entry per load path.
 LEGACY_SKIPLIST_CASES: list[tuple[str, list[str]]] = [
     # Stanford-NLP `artifact.metadata` with ``mask_punctuation=True`` → punctuation skiplist.
     ("colbert-ir/colbertv2.0", list(string.punctuation)),
@@ -122,11 +139,7 @@ LEGACY_SKIPLIST_CASES: list[tuple[str, list[str]]] = [
 @pytest.mark.parametrize("model_name, expected_skiplist", LEGACY_SKIPLIST_CASES)
 @pytest.mark.slow
 def test_pretrained_legacy_save_seeds_punctuation_skiplist(model_name: str, expected_skiplist: list[str]) -> None:
-    """Legacy PyLate / Stanford-NLP saves still get the punctuation skiplist after the default flip
-    (empty was the new bare-HF default). Each load path threads its own source: Stanford reads
-    ``mask_punctuation`` from ``artifact.metadata``, while PyLate reads ``skiplist_words`` from
-    ``config_sentence_transformers.json`` (via ``_apply_legacy_fixups`` for v3 and
-    ``_load_converted_modules`` for PyLate-as-ST)."""
+    """Legacy saves still get the punctuation skiplist after the bare-HF default flipped to empty."""
     model = MultiVectorEncoder(model_name)
     mask_module = model[2]
     assert isinstance(mask_module, MultiVectorMask)
@@ -144,21 +157,15 @@ def test_pretrained_legacy_save_seeds_punctuation_skiplist(model_name: str, expe
 )
 @pytest.mark.slow
 def test_pretrained_colpali_multimodal() -> None:
-    """Regression guard for the image-document path (ColPali / PaliGemma backbone -> token-level Dense
-    projection -> Normalize -> MultiVectorMask). Unlike the text checkpoints above, documents here are
-    images, exercising the multimodal modality routing end to end.
-
-    Assertions are dtype-robust (shapes, projection dim, unit-norm tokens, retrieval ranking) rather than
-    exact MaxSim values: the checkpoint loads in bfloat16, so absolute scores drift across GPU architectures.
+    """Image-document path end to end. The checkpoint loads in bfloat16, so absolute MaxSim values
+    drift across GPU architectures and the assertions stay structural instead.
     """
     model = MultiVectorEncoder("tomaarsen/colpali-v1.3-merged-st")
 
-    # doc{i} is the relevant page for query {i}, so the correct retrieval is the diagonal (query i -> doc i).
     queries = [
         "What is the variable represented on the y-axis of the graph?",
         "Total outlay is maximum in which year?",
     ]
-    # Image URLs as strings: ST's loader fetches and RGB-converts them (doc1.jpg is grayscale).
     images = [
         "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc1.jpg",
         "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc2.jpg",
@@ -169,7 +176,6 @@ def test_pretrained_colpali_multimodal() -> None:
     query_embeddings = model.encode_query(queries, convert_to_tensor=True)
     document_embeddings = model.encode_document(images, convert_to_tensor=True)
 
-    # Structural: text queries -> per-token 128-dim vectors. Image docs -> >=1024 image-patch tokens, 128-dim.
     dim = model.get_embedding_dimension()
     assert dim == 128
     assert len(query_embeddings) == len(queries)
@@ -177,12 +183,12 @@ def test_pretrained_colpali_multimodal() -> None:
     assert len(document_embeddings) == len(images)
     assert all(d.ndim == 2 and d.shape[0] >= 1024 and d.shape[1] == dim for d in document_embeddings)
 
-    # The Normalize module ran: every retained token vector is unit-norm (loose atol for bfloat16).
+    # The Normalize module ran (loose atol for bfloat16).
     for d in document_embeddings:
         norms = d.float().norm(dim=-1)
         assert torch.allclose(norms, torch.ones_like(norms), atol=0.05)
 
-    # Semantic: each query retrieves its matching page (query i -> doc i).
+    # Each query retrieves its matching page, so the argmax is the diagonal.
     scores = model.similarity(query_embeddings, document_embeddings)
     assert tuple(scores.shape) == (len(queries), len(images))
     assert scores.argmax(dim=1).tolist() == list(range(len(queries)))
@@ -197,24 +203,16 @@ def test_pretrained_colpali_multimodal() -> None:
 )
 @pytest.mark.slow
 def test_pretrained_colqwen2_hf_for_retrieval(tmp_path) -> None:
-    """Auto-recognition of transformers-native late-interaction retrievers (``*ForRetrieval``).
-
-    ``vidore/colqwen2-v1.0-hf`` carries no Sentence Transformers config at all, so this exercises
-    :meth:`MultiVectorEncoder._load_default_modules`: the ``ColQwen2ForRetrieval`` head already
-    projects, L2-normalises and zeroes padded positions, so the pipeline must be exactly
-    ``Transformer(retrieval) -> MultiVectorMask`` with no Dense and no Normalize.
-
-    The load-bearing assertion is token-id parity with ``ColQwen2Processor``: these models bake the
-    trained query prefix, the query-augmentation buffer and the visual prompt into the processor's
-    ``__call__``, so no chat template must be involved. Scores stay dtype-robust (bfloat16 drifts
-    across GPU architectures), hence rankings rather than absolute MaxSim values.
+    """Auto-recognition of transformers-native ``*ForRetrieval`` retrievers, which carry no Sentence
+    Transformers config. The head projects and normalises internally, so the pipeline must come out
+    as ``Transformer(retrieval) -> MultiVectorMask`` with no Dense and no Normalize. Scores stay
+    structural because bfloat16 drifts across GPU architectures.
     """
     from transformers import AutoProcessor, ColQwen2ForRetrieval
 
     model_id = "vidore/colqwen2-v1.0-hf"
     model = MultiVectorEncoder(model_id)
 
-    # Auto-recognised pipeline: the projection + normalisation live inside the model.
     assert [type(module).__name__ for module in model] == ["Transformer", "MultiVectorMask"]
     assert model[0].transformer_task == "retrieval"
     assert isinstance(model[0].auto_model, ColQwen2ForRetrieval)
@@ -229,7 +227,8 @@ def test_pretrained_colqwen2_hf_for_retrieval(tmp_path) -> None:
         f"https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc{i}.jpg" for i in range(1, 5)
     ]
 
-    # Token-id parity with the reference processor: no chat template, prefixes applied by the processor.
+    # The processor bakes in the trained prefix and the augmentation buffer, so matching its ids is
+    # what proves no chat template got involved.
     processor = AutoProcessor.from_pretrained(model_id)
     st_query_ids = model[0].preprocess(queries, task="query")["input_ids"].cpu()
     assert torch.equal(st_query_ids, processor.process_queries(queries)["input_ids"])
@@ -247,13 +246,12 @@ def test_pretrained_colqwen2_hf_for_retrieval(tmp_path) -> None:
         norms = document_embedding.float().norm(dim=-1)
         assert torch.allclose(norms, torch.ones_like(norms), atol=0.05)
 
-    # Semantic: each query retrieves its matching page (query i -> doc i).
     scores = model.similarity(query_embeddings, document_embeddings)
     assert tuple(scores.shape) == (len(queries), len(images))
     assert scores.argmax(dim=1).tolist() == list(range(len(queries)))
 
-    # Save / reload round-trip: the config-modules load path must reconstruct the retrieval pipeline
-    # from the persisted transformer_task + modality_config, without re-running auto-recognition.
+    # Reloading must rebuild the pipeline from the persisted transformer_task and modality_config,
+    # without re-running auto-recognition.
     model.save_pretrained(str(tmp_path))
     del model
     gc.collect()
