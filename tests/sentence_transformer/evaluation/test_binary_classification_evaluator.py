@@ -4,6 +4,8 @@ Tests the correct computation of evaluation scores from BinaryClassificationEval
 
 from __future__ import annotations
 
+import csv
+
 import numpy as np
 import pytest
 from sklearn.metrics import accuracy_score, f1_score
@@ -64,3 +66,29 @@ def test_BinaryClassificationEvaluator_multiple_similarity_fn_names(
     assert evaluator.primary_metric == "max_ap"
     for metric in ["accuracy", "f1", "precision", "recall", "ap", "mcc"]:
         assert metrics[f"max_{metric}"] == max(metrics[f"{name}_{metric}"] for name in similarity_fn_names)
+
+
+@pytest.mark.parametrize("similarity_fn_names", [["cosine"], ["cosine", "dot", "euclidean", "manhattan"]])
+def test_BinaryClassificationEvaluator_csv_columns_are_aligned(
+    stsb_bert_tiny_model: SentenceTransformer, tmp_path, similarity_fn_names: list[str]
+) -> None:
+    """The results CSV data row must have as many columns as the header row.
+
+    The ``*_accuracy_threshold`` and ``*_f1_threshold`` metrics contain a second underscore, so a
+    ``count("_") == 1`` filter dropped them from the data row while keeping them in the header,
+    shifting every later column and leaving the trailing ``*_ap``/``*_mcc`` columns empty.
+    """
+    model = stsb_bert_tiny_model
+    evaluator = evaluation.BinaryClassificationEvaluator(
+        sentences1=["A man is eating food.", "A cat sits outside.", "The girl plays guitar."],
+        sentences2=["A man eats something.", "The sky is blue.", "A woman plays a guitar."],
+        labels=[1, 0, 1],
+        similarity_fn_names=similarity_fn_names,
+    )
+    evaluator(model, output_path=str(tmp_path))
+
+    with open(tmp_path / evaluator.csv_file, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+
+    assert len(rows) == 2
+    assert len(rows[1]) == len(rows[0])
