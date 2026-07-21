@@ -13,7 +13,7 @@ import huggingface_hub
 from huggingface_hub import list_repo_files
 
 if TYPE_CHECKING:
-    from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
+    from sentence_transformers import CrossEncoder, MultiVectorEncoder, SentenceTransformer, SparseEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -161,9 +161,9 @@ def save_or_push_to_hub_model(
     create_pr: bool = False,
     file_suffix: str | None = None,
     backend: str = "onnx",
-    model: SentenceTransformer | SparseEncoder | CrossEncoder | None = None,
+    model: SentenceTransformer | SparseEncoder | CrossEncoder | MultiVectorEncoder | None = None,
 ):
-    from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
+    from sentence_transformers import CrossEncoder, MultiVectorEncoder, SentenceTransformer, SparseEncoder
 
     if backend == "onnx":
         file_name = f"model_{file_suffix}.onnx"
@@ -262,6 +262,47 @@ print(embeddings.shape)
 
 similarities = model.similarity(embeddings, embeddings)
 print(similarities)
+```
+
+---
+*This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util.html#sentence_transformers.backend.{export_function_name}).*
+"""
+                elif isinstance(model, MultiVectorEncoder):
+                    commit_description = f"""\
+Hello!
+
+This pull request adds an exported {backend} model (`{file_name}`).
+
+## Config
+```python
+{opt_config_string}
+```
+
+## Testing this pull request
+You can test this pull request before merging by loading the model from this PR with the `revision` argument:
+```python
+from sentence_transformers import MultiVectorEncoder
+
+# NOTE: Update this to the number of your pull request
+pr_number = 2
+model = MultiVectorEncoder(
+    "{model_name_or_path}",
+    revision=f"refs/pr/{{pr_number}}",
+    backend="{backend}",
+    model_kwargs={{"file_name": "{file_name}"}},
+)
+
+# Verify that everything works as expected
+queries = ["What is the capital of France?"]
+documents = [
+    "Paris is the capital of France.",
+    "Berlin is the capital of Germany.",
+]
+query_embeddings = model.encode_query(queries)
+document_embeddings = model.encode_document(documents)
+
+scores = model.similarity(query_embeddings, document_embeddings)
+print(scores)
 ```
 
 ---
