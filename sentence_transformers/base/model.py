@@ -1439,6 +1439,13 @@ This pull request has been automatically generated to add {self.__class__.__name
         # Propagate the gradient checkpointing to the transformer model
         for module in self.modules():
             if module is not self and hasattr(module, "gradient_checkpointing_enable"):
+                if getattr(module, "supports_gradient_checkpointing", True) is False:
+                    # e.g. a `*ForRetrieval` wrapper that doesn't declare support while its inner
+                    # model does: skip it so the supporting submodules still enable checkpointing.
+                    logger.warning_once(
+                        f"{type(module).__name__} does not support gradient checkpointing, skipping it."
+                    )
+                    continue
                 try:
                     module.gradient_checkpointing_enable(gradient_checkpointing_kwargs)
                 except TypeError:

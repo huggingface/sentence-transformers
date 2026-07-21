@@ -167,6 +167,12 @@ def _resolve_retrieval_model_class(config: PretrainedConfig | PeftConfig) -> typ
     except (ImportError, KeyError):
         pass
 
+    # PEFT adapter checkpoints carry a PeftConfig without `architectures`: resolve from the base
+    # model's config instead.
+    base_model_name_or_path = getattr(config, "base_model_name_or_path", None)
+    if base_model_name_or_path:
+        return _resolve_retrieval_model_class(AutoConfig.from_pretrained(base_model_name_or_path))
+
     import transformers
 
     for architecture in getattr(config, "architectures", None) or []:
@@ -1164,6 +1170,9 @@ class Transformer(InputModule):
         except ImportError:
             return False
         attn_impl = getattr(self.config, "_attn_implementation", None)
+        if attn_impl is None:
+            # E.g. ONNX/OpenVINO-loaded configs never materialize _attn_implementation.
+            return False
         return is_flash_attention_requested(requested_attention_implementation=attn_impl)
 
     def preprocess(
