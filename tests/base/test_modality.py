@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import defaultdict
+
 import numpy as np
 import pytest
 import torch
@@ -8,6 +10,7 @@ from PIL import Image
 from sentence_transformers.base.modality import (
     InputFormatter,
     _is_non_text_pair,
+    _unwrap_video,
     infer_batch_modality,
     infer_modality,
     is_audio_url_or_path,
@@ -1231,3 +1234,18 @@ class TestIsTextOnlyMessages:
             ]
         ]
         assert InputFormatter.is_text_only_messages(batch) is True
+
+
+class TestUnwrapVideoMetadata:
+    def test_metadata_stays_aligned_when_batch_mixes_metadata_and_raw_videos(self):
+        # Regression for #3874: a raw video contributed no video_metadata entry, so a batch
+        # mixing metadata-carrying and raw videos produced a list shorter than the batch and
+        # the processor paired metadata with the wrong video by index. Every video now gets one
+        # entry (None for a raw video), keeping the list index-aligned with the batch.
+        extra_modality_kwargs = defaultdict(dict)
+        first = {"fps": 1.0}
+        second = {"fps": 2.0}
+        _unwrap_video({"array": np.zeros((1, 2, 2, 3)), "video_metadata": first}, extra_modality_kwargs)
+        _unwrap_video(np.zeros((1, 2, 2, 3)), extra_modality_kwargs)
+        _unwrap_video({"array": np.zeros((1, 2, 2, 3)), "video_metadata": second}, extra_modality_kwargs)
+        assert extra_modality_kwargs["video"]["video_metadata"] == [first, None, second]

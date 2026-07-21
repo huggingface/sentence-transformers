@@ -133,23 +133,28 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
     """Unwrap dict-wrapped video or a ``VideoDecoder`` into a raw array, collecting ``video_metadata``.
 
     Passes through unchanged if ``video_value`` is already a raw array/tensor/URL/path.
+
+    Appends one ``video_metadata`` entry per video (``None`` when the video carries no
+    metadata) so the collected list stays index-aligned with the batch. Otherwise a raw
+    video contributes no entry, the list ends up shorter than the batch, and the processor
+    (which pairs metadata to videos by index) attaches metadata to the wrong video.
     """
+    metadata: Any = None
+    result: Any = video_value
     if isinstance(video_value, dict):
-        if "video_metadata" in video_value:
-            extra_modality_kwargs["video"].setdefault("video_metadata", []).append(video_value["video_metadata"])
-        return video_value["array"]
-    if VideoDecoder is not None and isinstance(video_value, VideoDecoder):
+        metadata = video_value.get("video_metadata")
+        result = video_value["array"]
+    elif VideoDecoder is not None and isinstance(video_value, VideoDecoder):
         frame_batch = video_value.get_frames_in_range(0, len(video_value))
-        extra_modality_kwargs["video"].setdefault("video_metadata", []).append(
-            {
-                "fps": video_value.metadata.average_fps,
-                "total_num_frames": video_value.metadata.num_frames,
-                "duration": video_value.metadata.duration_seconds,
-                "frames_indices": list(range(frame_batch.data.shape[0])),
-            }
-        )
-        return frame_batch.data
-    return video_value
+        metadata = {
+            "fps": video_value.metadata.average_fps,
+            "total_num_frames": video_value.metadata.num_frames,
+            "duration": video_value.metadata.duration_seconds,
+            "frames_indices": list(range(frame_batch.data.shape[0])),
+        }
+        result = frame_batch.data
+    extra_modality_kwargs["video"].setdefault("video_metadata", []).append(metadata)
+    return result
 
 
 class InputFormatter:
@@ -298,6 +303,15 @@ class InputFormatter:
                 value = item
 
             typed_inputs.append((modality, value))
+
+        # A ``video_metadata`` entry is collected per video (``None`` for videos without
+        # metadata) to keep the list index-aligned with the batch; if no video provided any
+        # metadata, drop the list so the processor keeps its default per-video handling.
+        video_kwargs = extra_modality_kwargs.get("video")
+        if video_kwargs is not None:
+            video_metadata = video_kwargs.get("video_metadata")
+            if video_metadata is not None and all(entry is None for entry in video_metadata):
+                del video_kwargs["video_metadata"]
 
         # Non-text pairs require conversion to message format. When the batch contains any
         # non-text pairs, ALL items must be converted to messages for consistency. Text pairs
