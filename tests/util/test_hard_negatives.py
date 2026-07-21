@@ -193,7 +193,6 @@ def test_separate_corpus(
     result = mine_hard_negatives(
         dataset=dataset,
         model=model,
-        range_max=3,  # Limit range to avoid k out of range error
         corpus=passages[5:],  # Use different passages as corpus
         verbose=False,
     )
@@ -218,7 +217,6 @@ def test_cross_encoder(
         dataset=dataset,
         model=model,
         cross_encoder=cross_encoder,
-        range_max=3,  # Limit the range to avoid k out of range error
         max_score=0.8,  # Need a filtering criterion for cross-encoder to be used
         verbose=False,
     )
@@ -241,7 +239,6 @@ def test_cross_encoder_detailed(
         model=model,
         cross_encoder=cross_encoder,
         range_min=1,
-        range_max=3,  # Keep range_max small to avoid k out of range error
         max_score=0.7,
         min_score=0.2,
         num_negatives=2,
@@ -268,7 +265,6 @@ def test_cross_encoder_with_multiple_positives_non_faiss(
         dataset=multiple_positive_dataset,
         model=model,
         cross_encoder=cross_encoder,
-        range_max=3,  # keep small to avoid k out of range
         max_score=0.9,  # ensure CrossEncoder path is exercised
         num_negatives=2,
         verbose=False,
@@ -303,7 +299,6 @@ def test_score_filters(dataset: Dataset, static_retrieval_mrl_en_v1_model: Sente
     result = mine_hard_negatives(
         dataset=dataset,
         model=model,
-        range_max=3,  # Limit range to avoid k out of range error
         max_score=0.8,  # Only consider candidates with score <= 0.8
         min_score=0.1,  # Only consider candidates with score >= 0.1
         verbose=False,
@@ -322,7 +317,6 @@ def test_margin_parameters(dataset: Dataset, static_retrieval_mrl_en_v1_model: S
     result_abs = mine_hard_negatives(
         dataset=dataset,
         model=model,
-        range_max=3,  # Limit range to avoid k out of range error
         absolute_margin=0.1,  # Negative must be at least 0.1 less similar than positive
         verbose=False,
     )
@@ -331,7 +325,6 @@ def test_margin_parameters(dataset: Dataset, static_retrieval_mrl_en_v1_model: S
     result_rel = mine_hard_negatives(
         dataset=dataset,
         model=model,
-        range_max=3,  # Limit range to avoid k out of range error
         relative_margin=0.05,  # Negative must be at most 95% as similar as positive
         verbose=False,
     )
@@ -413,7 +406,6 @@ def test_include_positives_with_labeled_formats(
         model=model,
         include_positives=True,
         output_format="labeled-pair",
-        range_max=3,  # Limit range to avoid k out of range error
         verbose=False,
     )
 
@@ -433,7 +425,6 @@ def test_include_positives_with_labeled_formats(
         model=model,
         include_positives=True,
         output_format="labeled-list",
-        range_max=3,  # Limit range to avoid k out of range error
         verbose=False,
     )
 
@@ -1107,14 +1098,16 @@ def test_deprecated_parameters(dataset: Dataset, static_retrieval_mrl_en_v1_mode
     assert "negative" in result_margin.column_names
 
 
-def test_margin_with_safe_range(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
-    """Test margin parameter with safe range values to avoid k out of range error."""
+def test_margin_with_default_range_max(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+) -> None:
+    """Test the deprecated margin parameter with the auto-derived range_max, which exceeds the
+    corpus size and relies on the candidate set being capped at the corpus size."""
     model = static_retrieval_mrl_en_v1_model
     result = mine_hard_negatives(
         dataset=dataset,
         model=model,
         margin=0.2,  # Use deprecated margin parameter
-        range_max=3,  # Small range_max to avoid k out of range error
         verbose=False,
     )
 
@@ -1141,7 +1134,6 @@ def test_multi_process(
         dataset=dataset,
         model=model,
         cross_encoder=cross_encoder,
-        range_max=3,  # Reduced to avoid k out of range error
         num_negatives=2,
         relative_margin=0.1,
         use_multi_process=True,
@@ -1178,12 +1170,12 @@ def test_larger_dataset_with_combinations(
 
     larger_dataset = Dataset.from_dict({"query": queries_large, "passage": passages_large})
 
-    # Test combination of parameters - using smaller range_max to avoid k out of range error
+    # Test a combination of parameters
     result = mine_hard_negatives(
         dataset=larger_dataset,
         model=model,
         range_min=1,
-        range_max=3,  # Reduced from 15 to avoid k out of range error
+        range_max=15,
         max_score=0.9,
         min_score=0.1,
         absolute_margin=0.05,
@@ -1592,8 +1584,10 @@ def test_range_max_larger_than_corpus_does_not_crash() -> None:
         output_scores=True,
         verbose=False,
     )
+    assert len(result) == 1
     row = result[0]
-    # A real (non-padded) negative must be returned and the positive excluded.
-    assert row["negative"] in {"n_more_similar", "n_far"}
+    # The top real negative must be returned, with the positive excluded and no padding leaking through.
+    assert row["negative"] == "n_more_similar"
     positive_score, negative_score = row["scores"]
-    assert math.isfinite(negative_score)
+    assert positive_score == pytest.approx(-0.50)
+    assert negative_score == pytest.approx(-0.49)

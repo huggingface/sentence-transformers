@@ -489,9 +489,7 @@ def mine_hard_negatives(
         scores_list = []
         indices_list = []
         corpus_embeddings = torch.as_tensor(corpus_embeddings)
-        # torch.topk cannot return more candidates than there are corpus entries, so we cap k at the
-        # corpus size. This mirrors the FAISS branch above, which is allowed to request more
-        # candidates than the corpus holds and pads the shortfall with an index of -1.
+        # torch.topk raises if k exceeds the corpus size, so cap it here and pad back up below.
         k = min(range_max + max_positives, len(corpus))
         # Compute the similarity scores between the queries and the corpus in batches, to avoid
         # materializing the full (n_queries, n_corpus) similarity matrix
@@ -505,9 +503,7 @@ def mine_hard_negatives(
         scores = torch.cat(scores_list, dim=0)
         indices = torch.cat(indices_list, dim=0)
 
-        # If the corpus was smaller than range_max + max_positives, pad the candidate set up to the
-        # expected width with an index of -1, exactly as the FAISS branch does. These padded
-        # candidates are masked out (scored -inf) below.
+        # Pad back up to range_max + max_positives columns with index -1, mirroring the FAISS branch.
         missing = (range_max + max_positives) - scores.size(1)
         if missing > 0:
             scores = torch.cat([scores, scores.new_full((scores.size(0), missing), -float("inf"))], dim=1)
