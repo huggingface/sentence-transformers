@@ -1013,8 +1013,11 @@ class BaseModelCardData(CardData):
 
                 stats = _MinMeanMax()
                 suffix = "characters"
+                # `*ForRetrieval` processors render text as queries regardless of task: request the
+                # query treatment directly instead of triggering the text-as-document warning.
+                task = "query" if getattr(self.model[0], "transformer_task", None) == "retrieval" else "document"
                 for chunk in chunks():
-                    tokenized = self.model.preprocess(chunk, task="document")
+                    tokenized = self.model.preprocess(chunk, task=task)
                     if isinstance(tokenized, (dict, UserDict)) and "attention_mask" in tokenized:
                         stats.add_many(tokenized["attention_mask"].sum(dim=1).tolist())
                         suffix = "tokens"

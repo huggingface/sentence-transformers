@@ -64,6 +64,8 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
     )
 
     usage_examples: list[list[str]] | None = field(default=None, init=False)
+    usage_query_shape: tuple[int, ...] | None = field(default=None, init=False, repr=False)
+    usage_document_shape: tuple[int, ...] | None = field(default=None, init=False, repr=False)
 
     pipeline_tag: str = field(default=None, init=False)
     template_path: Path = field(default=Path(__file__).parent / "model_card_template.md", init=False, repr=False)
@@ -98,7 +100,13 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
         return metadata
 
     def run_usage_snippet(self) -> None:
-        super().run_usage_snippet()
+        if self.usage_examples is None:
+            self.usage_examples = [
+                "Which planet is known as the Red Planet?",
+                "Venus is often called Earth's twin because of its similar size and proximity.",
+                "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
+                "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
+            ]
 
         if not self.generate_widget_examples:
             return
@@ -107,98 +115,61 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
         prepared_examples = [self._prepare_for_inference(item) for item in self.usage_examples]
         # Mirror the positional queries / documents split of the generated snippet (first example is
         # the query, the rest are documents) so the printed similarity matrix matches what a user
-        # running the snippet sees. Text-only examples stay symmetric.
-        if self._is_multimodal_snippet() and len(prepared_examples) >= 2:
+        # running the snippet sees.
+        if len(prepared_examples) >= 2:
             queries = prepared_examples[:1]
             documents = prepared_examples[1:]
         else:
             queries = documents = prepared_examples
         query_embeddings = self.model.encode_query(queries, convert_to_tensor=True, show_progress_bar=False)
         doc_embeddings = self.model.encode_document(documents, convert_to_tensor=True, show_progress_bar=False)
+        self.usage_query_shape = tuple(query_embeddings[0].shape)
+        self.usage_document_shape = tuple(doc_embeddings[0].shape)
         similarity = self.model.similarity(query_embeddings, doc_embeddings)
 
         with torch._tensor_str.printoptions(precision=4, sci_mode=False):
             self.similarities = "\n".join(f"# {line}" for line in str(similarity.cpu()).splitlines())
 
-    def _is_multimodal_snippet(self) -> bool:
-        """Whether the usage examples contain non-text items. Classified on ``usage_examples`` (the
-        original values): by rendering time, ``usage_examples_display`` has already converted images
-        to asset path strings, so a type check on it would classify every image as text."""
-        source = self.usage_examples or self.usage_examples_display
-        return bool(source) and any(not isinstance(item, (str, list)) for item in source)
-
     def generate_usage_snippet(self) -> str:
-        # MV encode() returns variable-length per-token lists (no `.shape`), so the base snippet is wrong.
-        # Multimodal examples split positionally (query + documents), text-only checkpoints use
-        # symmetric encode_query / encode_document.
+        # MV encode() returns variable-length per-token lists (no stacked `.shape`), and late
+        # interaction is always retrieval, so the snippet splits positionally into queries /
+        # documents, matching how the base sources IR usage examples (query from the first dataset
+        # column, documents from the second). Text and image documents render identically.
         display = self.usage_examples_display or self.usage_examples
-        if self._is_multimodal_snippet() and display and len(display) >= 2:
-            return self._generate_multimodal_snippet(display)
-        return self._generate_text_only_snippet(display)
-
-    def _generate_text_only_snippet(self, display: list | None) -> str:
-        model_class = self._snippet_model_class
-        model_id = self.model_id or self._snippet_default_model_id
         examples = display or [
-            "The weather is lovely today.",
-            "It's so sunny outside!",
-            "He drove to the stadium.",
+            "Which planet is known as the Red Planet?",
+            "Venus is often called Earth's twin because of its similar size and proximity.",
+            "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
+            "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
         ]
-        output_dim = self._get_snippet_output_dimensionality()
-
-        lines = [
-            f"from sentence_transformers import {model_class}",
-            "",
-            "# Download from the 🤗 Hub",
-            f'model = {model_class}("{model_id}")',
-            "# Run inference: each input becomes a list of per-token vectors (variable length).",
-            "sentences = [",
-            *(f"    {text!r}," for text in examples),
-            "]",
-            "query_embeddings = model.encode_query(sentences)",
-            "document_embeddings = model.encode_document(sentences)",
-            "print(query_embeddings[0].shape)",
-            f"# (num_query_tokens, {output_dim})",
-            "",
-            "# Get the MaxSim similarity scores",
-            "similarities = model.similarity(query_embeddings, document_embeddings)",
-        ]
-        if self.similarities:
-            lines.append("print(similarities)")
-            lines.append(self.similarities)
-        else:
-            lines.extend(["print(similarities.shape)", f"# [{len(examples)}, {len(examples)}]"])
-
-        return "```python\n" + "\n".join(lines) + "\n```"
-
-    def _generate_multimodal_snippet(self, display: list) -> str:
-        """Image / multimodal-document usage snippet for ColPali-style models. The split is
-        positional, matching how the base sources IR usage examples: the first item is the query
-        (first dataset column), the rest are documents (second column).
-        """
         model_class = self._snippet_model_class
         model_id = self.model_id or self._snippet_default_model_id
         output_dim = self._get_snippet_output_dimensionality()
 
-        queries_repr = display[:1]
-        non_text_items = display[1:]
+        if len(examples) >= 2:
+            queries = examples[:1]
+            documents = examples[1:]
+        else:
+            queries = documents = examples
+        query_shape = self.usage_query_shape or f"(num_query_tokens, {output_dim})"
+        document_shape = self.usage_document_shape or f"(num_document_tokens, {output_dim})"
 
         lines = [
             f"from sentence_transformers import {model_class}",
             "",
             "# Download from the 🤗 Hub",
             f'model = {model_class}("{model_id}")',
-            "# Run inference",
+            "# Run inference: each input becomes a sequence of per-token vectors (variable length).",
             "queries = [",
-            *(f"    {self._format_snippet_value(item)}," for item in queries_repr),
+            *(f"    {self._format_snippet_value(item)}," for item in queries),
             "]",
             "documents = [",
-            *(f"    {self._format_snippet_value(item)}," for item in non_text_items),
+            *(f"    {self._format_snippet_value(item)}," for item in documents),
             "]",
             "query_embeddings = model.encode_query(queries)",
             "document_embeddings = model.encode_document(documents)",
-            "print(query_embeddings[0].shape)",
-            f"# (num_query_tokens, {output_dim})",
+            "print(query_embeddings[0].shape, document_embeddings[0].shape)",
+            f"# {query_shape} {document_shape}",
             "",
             "# Get the MaxSim similarity scores",
             "similarities = model.similarity(query_embeddings, document_embeddings)",
@@ -207,12 +178,7 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
             lines.append("print(similarities)")
             lines.append(self.similarities)
         else:
-            lines.extend(
-                [
-                    "print(similarities.shape)",
-                    f"# [{len(queries_repr)}, {len(non_text_items)}]",
-                ]
-            )
+            lines.extend(["print(similarities.shape)", f"# [{len(queries)}, {len(documents)}]"])
 
         return "```python\n" + "\n".join(lines) + "\n```"
 

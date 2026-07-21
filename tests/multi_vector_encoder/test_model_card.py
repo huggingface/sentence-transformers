@@ -81,8 +81,8 @@ class TestGenerateUsageSnippetTextOnly:
         data.usage_examples = ["q1", "q2"]
         snippet = data.generate_usage_snippet()
 
-        assert "model.encode_query(sentences)" in snippet
-        assert "model.encode_document(sentences)" in snippet
+        assert "model.encode_query(queries)" in snippet
+        assert "model.encode_document(documents)" in snippet
         assert "model.similarity(query_embeddings, document_embeddings)" in snippet
 
     def test_default_examples_when_none(self) -> None:
@@ -90,17 +90,33 @@ class TestGenerateUsageSnippetTextOnly:
         data.usage_examples = None
         snippet = data.generate_usage_snippet()
 
-        # The text-only branch falls back to its built-in sample sentences.
-        assert "The weather is lovely today." in snippet
-        assert "queries = [" not in snippet  # multimodal-only header
-        assert "documents = [" not in snippet
+        # The snippet falls back to its built-in retrieval sample sentences.
+        assert "Which planet is known as the Red Planet?" in snippet
+        assert "queries = [" in snippet
+        assert "documents = [" in snippet
 
     def test_default_examples_shape_comment(self) -> None:
         data = _make_data()
         data.usage_examples = ["a", "b", "c"]
         snippet = data.generate_usage_snippet()
 
-        assert "# [3, 3]" in snippet  # similarities.shape comment uses examples count
+        assert "# [1, 2]" in snippet  # positional split: 1 query, 2 documents
+
+    def test_shape_comment_uses_measured_shapes_when_available(self) -> None:
+        data = _make_data()
+        data.usage_examples = ["q", "d1", "d2"]
+        data.usage_query_shape = (32, 128)
+        data.usage_document_shape = (47, 128)
+        snippet = data.generate_usage_snippet()
+
+        assert "# (32, 128) (47, 128)" in snippet
+
+    def test_shape_comment_placeholder_without_measured_shapes(self) -> None:
+        data = _make_data()
+        data.usage_examples = ["q", "d"]
+        snippet = data.generate_usage_snippet()
+
+        assert "# (num_query_tokens, ?) (num_document_tokens, ?)" in snippet
 
 
 class TestGenerateUsageSnippetMultimodal:
@@ -115,14 +131,15 @@ class TestGenerateUsageSnippetMultimodal:
         assert "queries = [" in snippet
         assert "documents = [" in snippet
 
-    def test_single_example_falls_back_to_text_snippet(self) -> None:
-        # One example cannot split into query + documents, so the symmetric snippet is used.
+    def test_single_example_uses_symmetric_lists(self) -> None:
+        # One example cannot split into query + documents, so it is used as both.
         data = _make_data()
         data.usage_examples = [Image.new("RGB", (8, 8))]
         snippet = data.generate_usage_snippet()
 
-        assert "queries = [" not in snippet
-        assert "documents = [" not in snippet
+        assert "queries = [" in snippet
+        assert "documents = [" in snippet
+        assert "# [1, 1]" in snippet
 
     def test_mixed_text_and_image_splits_queries_documents(self) -> None:
         data = _make_data()
