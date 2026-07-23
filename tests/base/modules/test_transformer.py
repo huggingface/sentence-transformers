@@ -5,6 +5,7 @@ import logging
 import sys
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -13,7 +14,7 @@ import torch
 from packaging.version import Version
 from packaging.version import parse as parse_version
 from tokenizers.normalizers import NFC, Lowercase, Sequence
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoConfig, AutoModel, AutoProcessor
 from transformers import __version__ as transformers_version
 from transformers.utils import is_torchvision_available, is_vision_available
 
@@ -51,15 +52,17 @@ def test_infer_flatten_position_offset(bert_tiny_transformer):
     and multimodal wrappers nest the offset embeddings below ``.embeddings``."""
     assert bert_tiny_transformer._infer_flatten_position_offset() == 0
 
-    xlmr = Transformer(TINY_XLMR)
-    assert xlmr.model.embeddings.padding_idx == 1
-    assert xlmr._infer_flatten_position_offset() == 2
+    def offset_of(model) -> int:
+        return Transformer._infer_flatten_position_offset(SimpleNamespace(model=model))
 
-    llama = Transformer(TINY_LLAMA)
-    assert llama._infer_flatten_position_offset() == 0
+    # The scan only reads module structure, so build from config alone: these repos' weight files
+    # predate safetensors, and loading them trips the torch.load guard on torch < 2.6.
+    xlmr = AutoModel.from_config(AutoConfig.from_pretrained(TINY_XLMR))
+    assert xlmr.embeddings.padding_idx == 1
+    assert offset_of(xlmr) == 2
 
-    altclip = Transformer(TINY_ALTCLIP)
-    assert altclip._infer_flatten_position_offset() == 2
+    assert offset_of(AutoModel.from_config(AutoConfig.from_pretrained(TINY_LLAMA))) == 0
+    assert offset_of(AutoModel.from_config(AutoConfig.from_pretrained(TINY_ALTCLIP))) == 2
 
 
 def test_preprocess_unsupported_modality_uses_shared_error(bert_tiny_transformer):
