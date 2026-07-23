@@ -124,6 +124,8 @@ If you're using a GPU, then you can use the following options to speed up your i
 
    Flash Attention 2 with input flattening always outperforms standard Flash Attention 2, while using considerably less VRAM. The gains grow with the variance in input length, with the mixed dataset with wildly varying lengths (10-500 tokens) benefitting the most.
 
+   In the full backend benchmark below, fp16 with Flash Attention and input unpadding was the fastest configuration measured (3.87x over fp32, comparing each backend at its best batch size) at no loss of quality, making it the recommended GPU configuration when the model architecture supports it.
+
    Input flattening also speeds up training. When training with a gradient-cached loss such as
    :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`, you can additionally set
    ``mini_batch_num_tokens`` instead of ``mini_batch_size``. Mini-batches are then packed by total token count
@@ -537,7 +539,7 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
 Benchmarks
 ----------
 
-The following images show the benchmark results for the different backends on GPUs and CPUs. The results are averaged across 4 models of various sizes, 3 datasets, and numerous batch sizes.
+The following images show the benchmark results for the different backends on GPUs and CPUs. Each backend runs at its best batch size per model and dataset, and the bars show the median speedup over PyTorch fp32 across those combinations.
 
 .. raw:: html
 
@@ -548,7 +550,7 @@ The following images show the benchmark results for the different backends on GP
    Speedup ratio:
    <ul>
       <li>
-         <b>Hardware: </b>RTX 3090 GPU, i7-17300K CPU
+         <b>Hardware: </b>RTX 3090 GPU, i7-13700K CPU
       </li>
       <li>
          <b>Datasets: </b> 2000 samples for GPU tests, 1000 samples for CPU tests.
@@ -568,18 +570,21 @@ The following images show the benchmark results for the different backends on GP
          <b>Models: </b>
          <ul>
             <li>
-               <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">sentence-transformers/all-MiniLM-L6-v2</a>: 22.7M parameters. Batch sizes of 16, 32, 64, 128 and 256.
+               <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">sentence-transformers/all-MiniLM-L6-v2</a>: 22.7M parameters.
             </li>
             <li>
-               <a href="https://huggingface.co/BAAI/bge-base-en-v1.5">BAAI/bge-base-en-v1.5</a>: 109M parameters. Batch sizes of 16, 32, 64, and 128.
+               <a href="https://huggingface.co/BAAI/bge-base-en-v1.5">BAAI/bge-base-en-v1.5</a>: 109M parameters.
             </li>
             <li>
-               <a href="https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1">mixedbread-ai/mxbai-embed-large-v1</a>: 335M parameters. Batch sizes of 8, 16, 32, and 64. Also 128 and 256 for GPU tests.
+               <a href="https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1">mixedbread-ai/mxbai-embed-large-v1</a>: 335M parameters.
             </li>
             <li>
-               <a href="https://huggingface.co/BAAI/bge-m3">BAAI/bge-m3</a>: 567M parameters. Batch sizes of 2, 4. Also 8, 16, and 32 for GPU tests.
+               <a href="https://huggingface.co/BAAI/bge-m3">BAAI/bge-m3</a>: 567M parameters.
             </li>
          </ul>
+      </li>
+      <li>
+         <b>Batch sizes: </b>each backend is measured at increasing batch sizes until its throughput declines or memory is exceeded, and the ratios compare peak against peak. Columns still climbing at the largest measured batch size (mainly the Flash Attention ones) are shown conservatively.
       </li>
    </ul>
    Performance ratio: The same models and hardware was used. We compare the performance against the performance of PyTorch with fp32, i.e. the default backend and precision.
@@ -611,6 +616,12 @@ The following images show the benchmark results for the different backends on GP
                <code>torch-bf16</code>: PyTorch with bfloat16 precision, via <code>model_kwargs={"torch_dtype": "bfloat16"}</code>.
             </li>
             <li>
+               <code>torch-fp16-fa2</code>: PyTorch with float16 precision and FlashAttention-2 with automatic input unpadding, via <code>model_kwargs={"torch_dtype": "float16", "attn_implementation": "flash_attention_2"}</code>.
+            </li>
+            <li>
+               <code>torch-bf16-fa2</code>: the same with bfloat16 precision.
+            </li>
+            <li>
                <code>onnx</code>: ONNX with float32 precision, via <code>backend="onnx"</code>.
             </li>
             <li>
@@ -638,9 +649,9 @@ The following images show the benchmark results for the different backends on GP
       </li>
    </ul>
 
-   Note that the aggressive averaging across models, datasets, and batch sizes prevents some more intricate patterns from being visible. For example, for GPUs, if we only consider the stsb dataset with the shortest texts, ONNX becomes better: 1.46x for ONNX, and ONNX-O4 reaches 1.83x whereas fp16 and bf16 reach 1.54x and 1.53x respectively. So, for shorter texts we recommend ONNX on GPU.<br>
+   On GPU, fp16 with FlashAttention-2 and input unpadding is the strongest configuration everywhere (3.87x median at no loss of quality), making it the recommended setup when the model architecture supports it. Plain fp16 (2.92x) also beats every ONNX level on every dataset: compared to the original benchmark, the ONNX ratios dropped to roughly 1.2x because exported graphs are static and do not inherit the torch runtime improvements that made the fresh fp32 baseline much faster. The original recommendation of ONNX for short texts on GPU no longer holds: even on the short-text stsb dataset, plain fp16 (2.80x) outperforms onnx-O4 (2.57x), with the Flash Attention backends at 3.9x. The one niche ONNX keeps on GPU is latency-critical workloads pinned to small batches of short texts, where onnx-O4 still leads at the smallest measured batch sizes. Note that checkpoints stored in half precision (e.g. mxbai-embed-large-v1) load in that dtype by default since transformers v5, so they already run at fp16 speed without any configuration. The benchmark forces true fp32 for its baseline.<br>
    <br>
-   For CPU, ONNX is also stronger for the stsb dataset with the shortest texts: 1.39x for ONNX, outperforming 1.29x for OpenVINO. ONNX with int8 quantization is even stronger with a 3.08x speedup. For longer texts, ONNX and OpenVINO can even perform slightly worse than PyTorch, so we recommend testing the different backends with your specific model and data to find the best one for your use case.
+   For CPU, ONNX is stronger than OpenVINO on the short-text stsb dataset (1.35x against 1.24x), while int8 quantization pays off most: 3.23x for onnx-qint8 and 5.29x for openvino-qint8 overall, at a performance cost of less than half a percent. For longer texts, ONNX and OpenVINO can perform slightly worse than PyTorch, so we recommend testing the different backends with your specific model and data to find the best one for your use case. Half precision must be avoided on CPU altogether: torch-fp16 and torch-bf16 run largely emulated there and collapse to roughly 0.01x.
 
    </details>
    <br>
@@ -668,15 +679,15 @@ Based on the benchmarks, this flowchart should help you decide which backend to 
       }
    }}%%
    graph TD
-   A(What is your hardware?) -->|GPU| B(Is your text usually smaller<br>than 500 characters?)
-   A -->|CPU| C(Is a 0.4% accuracy loss<br>acceptable?)
-   B -->|yes| D[onnx-O4]
+   A("What is your hardware?") -->|GPU| B("Does your model support<br>Flash Attention?")
+   A -->|CPU| C("Is a 0.4% accuracy loss<br>acceptable?")
+   B -->|yes| K["float16 + Flash Attention"]
    B -->|no| F[float16]
    C -->|yes| G[openvino-qint8]
-   C -->|no| H(Do you have an Intel CPU?)
+   C -->|no| H("Do you have an Intel CPU?")
    H -->|yes| I[openvino]
    H -->|no| J[onnx]
-   click D "#optimizing-onnx-models"
+   click K "#pytorch"
    click F "#pytorch"
    click G "#quantizing-openvino-models"
    click I "#openvino"

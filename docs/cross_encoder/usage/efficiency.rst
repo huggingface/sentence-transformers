@@ -99,6 +99,27 @@ If you're using a GPU, then you can use the following options to speed up your i
       scores = model.predict([(query, passage) for passage in passages])
       print(scores)
 
+.. tab:: Flash Attention
+
+   `Flash Attention <https://github.com/Dao-AILab/flash-attention>`_ can be enabled by specifying
+   ``attn_implementation="flash_attention_2"`` in ``model_kwargs`` (installable via ``pip install kernels`` or
+   ``pip install flash-attn``):
+
+   .. code-block:: python
+
+      from sentence_transformers import CrossEncoder
+
+      model = CrossEncoder(
+          "cross-encoder/ms-marco-MiniLM-L6-v2",
+          model_kwargs={"torch_dtype": "float16", "attn_implementation": "flash_attention_2"},
+      )
+
+   However, we do not currently recommend it for Cross Encoder models: the automatic input unpadding that makes
+   Flash Attention shine for Sentence Transformer and Multi-Vector Encoder models only applies to the
+   feature-extraction task, as classification heads are incompatible with flattened inputs. Without unpadding, our
+   benchmarks measured the bare kernel swap at equal speed to fp16 on long texts and 20 to 45% slower on short
+   texts, across all four benchmarked rerankers. Prefer plain fp16 by simply dropping ``attn_implementation``.
+
 .. tab:: torch.compile
 
    :meth:`model.compile() <sentence_transformers.base.model.BaseModel.compile>` wraps the model's forward pass with
@@ -502,7 +523,7 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
 Benchmarks
 ----------
 
-The following images show the benchmark results for the different backends on GPUs and CPUs. The results are averaged across 4 models of various sizes, 3 datasets, and numerous batch sizes.
+The following images show the benchmark results for the different backends on GPUs and CPUs. Each backend runs at its best batch size per model and dataset, and the bars show the median speedup over PyTorch fp32 across those combinations.
 
 .. raw:: html
 
@@ -513,7 +534,10 @@ The following images show the benchmark results for the different backends on GP
    Speedup ratio:
    <ul>
       <li>
-         <b>Hardware: </b>RTX 3090 GPU, i7-17300K CPU
+         <b>Batch sizes: </b>each backend is measured at increasing batch sizes until its throughput declines or memory is exceeded, and the ratios compare peak against peak. Columns still climbing at the largest measured batch size (mainly the Flash Attention ones) are shown conservatively.
+      </li>
+      <li>
+         <b>Hardware: </b>RTX 3090 GPU, i7-13700K CPU. The GPU results were re-measured in July 2026 under WSL2 (Linux) with torch 2.12 to add the Flash Attention backends. The CPU results are from the original benchmark. Ratios are only comparable within one figure: the Linux re-measurement made the fp32 baseline itself faster for small models, which compresses their speedup ratios relative to the original figures.
       </li>
       <li>
          <b>Datasets: </b> 2000 samples for GPU tests, 1000 samples for CPU tests.
@@ -573,6 +597,9 @@ The following images show the benchmark results for the different backends on GP
                <code>torch-bf16</code>: PyTorch with bfloat16 precision, via <code>model_kwargs={"torch_dtype": "bfloat16"}</code>.
             </li>
             <li>
+               <code>torch-fp16-fa2</code> and <code>torch-bf16-fa2</code>: half precision with FlashAttention-2, via <code>model_kwargs={"torch_dtype": ..., "attn_implementation": "flash_attention_2"}</code>. Input unpadding does not apply to the sequence-classification task, so these measure the attention kernel swap alone.
+            </li>
+            <li>
                <code>onnx</code>: ONNX with float32 precision, via <code>backend="onnx"</code>.
             </li>
             <li>
@@ -600,7 +627,7 @@ The following images show the benchmark results for the different backends on GP
       </li>
    </ul>
 
-   Note that the aggressive averaging across models, datasets, and batch sizes prevents some more intricate patterns from being visible. For example, ONNX seems to perform stronger at low batch sizes. However, ONNX and OpenVINO can even perform slightly worse than PyTorch, so we recommend testing the different backends with your specific model and data to find the best one for your use case.
+   Note that the aggressive averaging across models, datasets, and batch sizes prevents some more intricate patterns from being visible. For example, ONNX seems to perform stronger at low batch sizes. However, ONNX and OpenVINO can even perform slightly worse than PyTorch, so we recommend testing the different backends with your specific model and data to find the best one for your use case. The Flash Attention backends are not recommended for Cross Encoders: without input unpadding (feature-extraction only), they measured at or below plain fp16 everywhere. Compared to the original benchmark, the ONNX ratios dropped to roughly break-even (0.9 to 1.1x): exported graphs are static and do not inherit the torch runtime improvements that made the fp32 baseline much faster, so PyTorch with fp16 is now the better GPU default. Half precision still pays off 2 to 3x on the larger rerankers. Note that checkpoints stored in half precision (e.g. mxbai-rerank-large-v1, stored in fp16) load in that dtype by default since transformers v5, so they already run at fp16 speed without any configuration. The benchmark forces true fp32 for its baseline. On CPU, half precision must be avoided altogether: torch-fp16 and torch-bf16 run at roughly 0.17x.
 
    </details>
    <br>
@@ -628,19 +655,16 @@ Based on the benchmarks, this flowchart should help you decide which backend to 
       }
    }}%%
    graph TD
-   A("What is your hardware?") -->|GPU| B("Are you using a small<br>batch size?")
+   A("What is your hardware?") -->|GPU| F[float16]
    A -->|CPU| C("Are minor performance<br>degradations acceptable?")
-   B -->|yes| D[onnx-O4]
-   B -->|no| F[float16]
    C -->|yes| G[openvino-qint8]
    C -->|no| H("Do you have an Intel CPU?")
    H -->|yes| I[openvino]
-   H -->|no| J[onnx]
-   click D "#optimizing-onnx-models"
+   H -->|no| J[onnx-O3]
    click F "#pytorch"
    click G "#quantizing-openvino-models"
    click I "#openvino"
-   click J "#onnx"
+   click J "#optimizing-onnx-models"
 
 .. note::
 
