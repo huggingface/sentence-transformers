@@ -153,7 +153,7 @@ def load_dir_path(
         Exception: Errors that are not unambiguously "this is not on the Hub" propagate
             to the caller. ``HFValidationError`` and ``LocalEntryNotFoundError`` are
             converted to a ``None`` return. Other failures (auth, rate-limit, network)
-            trigger a single cache-only retry; if the cache also lacks the file, the
+            trigger a single cache-only retry. If the cache also lacks the file, the
             original exception is re-raised (a cache miss would mask the real cause).
 
     Returns:

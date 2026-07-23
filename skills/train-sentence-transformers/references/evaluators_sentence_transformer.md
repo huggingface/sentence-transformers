@@ -6,7 +6,7 @@ All bi-encoder evaluators live in `sentence_transformers.sentence_transformer.ev
 
 | Task | Evaluator |
 |---|---|
-| Retrieval (nDCG, MRR, Recall) — fast default | `NanoBEIREvaluator` |
+| Retrieval (nDCG, MRR, Recall), fast default | `NanoBEIREvaluator` |
 | Retrieval on your own corpus / qrels | `InformationRetrievalEvaluator` |
 | STS / continuous similarity | `EmbeddingSimilarityEvaluator` |
 | Binary classification | `BinaryClassificationEvaluator` |
@@ -40,7 +40,7 @@ evaluator = NanoBEIREvaluator(
 )
 ```
 
-- Default dataset list covers 13 tasks; pick a subset for speed during training.
+- Default dataset list covers 13 tasks. Pick a subset for speed during training.
 - Output key for `metric_for_best_model`: **`eval_NanoBEIR_mean_cosine_ndcg@10`** (bi-encoder default = cosine similarity).
 
 ### `EmbeddingSimilarityEvaluator` (STS-style)
@@ -87,13 +87,13 @@ evaluator = InformationRetrievalEvaluator(
 
 Output keys: `eval_{name}_cosine_ndcg@10`, `eval_{name}_cosine_mrr@10`, etc.
 
-Heavy for large corpora — each eval encodes the full corpus. Don't run it every 100 steps. Use `NanoBEIREvaluator` for frequent evaluation during training and reserve full IR for milestones / post-training.
+Heavy for large corpora: each eval encodes the full corpus. Don't run it every 100 steps. Use `NanoBEIREvaluator` for frequent evaluation during training and reserve full IR for milestones / post-training.
 
 ## Other bi-encoder evaluators
 
 ### `BinaryClassificationEvaluator`
 
-For labeled pair classification (e.g. duplicate detection, entailment as binary). Reports accuracy, F1, precision/recall, AP. Supports all distance metrics — finds the best threshold per metric.
+For labeled pair classification (e.g. duplicate detection, entailment as binary). Reports accuracy, F1, precision/recall, AP. Supports all distance metrics. Finds the best threshold per metric.
 
 ### `TripletEvaluator`
 
@@ -122,9 +122,9 @@ For a `SoftmaxLoss`-trained classifier head. Reports accuracy on held-out data.
 ## Writing `metric_for_best_model`
 
 Pattern: `f"eval_{evaluator.primary_metric}"`. Inspect after construction: `print(evaluator.primary_metric)`. Common values:
-- `eval_NanoBEIR_mean_cosine_ndcg@10` — `NanoBEIREvaluator`
-- `eval_sts-dev_spearman_cosine` — `EmbeddingSimilarityEvaluator(name="sts-dev")`
-- `eval_{name}_cosine_ndcg@10` — `InformationRetrievalEvaluator(name=...)`
+- `eval_NanoBEIR_mean_cosine_ndcg@10`: `NanoBEIREvaluator`
+- `eval_sts-dev_spearman_cosine`: `EmbeddingSimilarityEvaluator(name="sts-dev")`
+- `eval_{name}_cosine_ndcg@10`: `InformationRetrievalEvaluator(name=...)`
 
 ## Multi-dimensional evaluation (Matryoshka)
 
@@ -146,6 +146,6 @@ The first evaluator's score drives `load_best_model_at_end`.
 
 ## Gotchas
 
-- **Always run `evaluator(model)` once before training** — pre-training baseline. If the post-training delta is tiny, the loss/data/base is wrong.
-- Don't run `InformationRetrievalEvaluator` with a large corpus (>100k docs) at frequent `eval_steps` — use `NanoBEIREvaluator` during training, reserve full IR for end-of-training.
-- `greater_is_better=True` is the default; right for nDCG / MRR / accuracy.
+- **Always run `evaluator(model)` once before training**: pre-training baseline. If the post-training delta is tiny, the loss/data/base is wrong.
+- Don't run `InformationRetrievalEvaluator` with a large corpus (>100k docs) at frequent `eval_steps`. Use `NanoBEIREvaluator` during training, reserve full IR for end-of-training.
+- `greater_is_better=True` is the default, right for nDCG / MRR / accuracy.

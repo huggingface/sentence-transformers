@@ -528,6 +528,12 @@ class BaseModelCardData(CardData):
                 # We can't set widget examples from an IterableDataset without losing data
                 continue
 
+            if dataset[dataset_name].format["type"] == "custom":
+                # A custom transform is set (e.g. resolve_ids resolving query/document IDs to texts lazily).
+                # dataset.features then describes the pre-transform columns, so the select_columns below would
+                # starve the transform of the columns it needs. Skip widget examples for such datasets.
+                continue
+
             # Sample 1000 examples from the dataset, sort them by length, and pick the shortest examples as the core
             # examples for the widget
             columns = [
@@ -987,7 +993,7 @@ class BaseModelCardData(CardData):
         n_total = min(len(dataset), 100)
         first = dataset[0][column]
 
-        # Columns like int/float/list don't map to a modality; ValueError signals that
+        # Columns like int/float/list don't map to a modality, so infer_modality raises ValueError
         try:
             raw_modality = infer_modality(first, supported_modalities=getattr(self.model, "modalities", None))
         except ValueError:
@@ -1007,8 +1013,11 @@ class BaseModelCardData(CardData):
 
                 stats = _MinMeanMax()
                 suffix = "characters"
+                # `*ForRetrieval` processors render text as queries regardless of task: request the
+                # query treatment directly instead of triggering the text-as-document warning.
+                task = "query" if getattr(self.model[0], "transformer_task", None) == "retrieval" else "document"
                 for chunk in chunks():
-                    tokenized = self.model.preprocess(chunk, task="document")
+                    tokenized = self.model.preprocess(chunk, task=task)
                     if isinstance(tokenized, (dict, UserDict)) and "attention_mask" in tokenized:
                         stats.add_many(tokenized["attention_mask"].sum(dim=1).tolist())
                         suffix = "tokens"

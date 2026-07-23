@@ -225,7 +225,7 @@ def test_pooling_max_respects_attention_mask() -> None:
     dim = 1
     pooling = Pooling(embedding_dimension=dim, pooling_mode="max")
 
-    # Last position has the largest value but is masked out; max should
+    # Last position has the largest value but is masked out. Max should
     # therefore come from the last unmasked token.
     token_embeddings = torch.tensor(
         [
@@ -300,7 +300,7 @@ def test_pooling_lasttoken_finds_last_attended_token() -> None:
     dim = 1
     pooling = Pooling(embedding_dimension=dim, pooling_mode="lasttoken")
 
-    # Each row has a different pattern of attended tokens; the last
+    # Each row has a different pattern of attended tokens. The last
     # attended position should be selected.
     token_embeddings = torch.tensor(
         [

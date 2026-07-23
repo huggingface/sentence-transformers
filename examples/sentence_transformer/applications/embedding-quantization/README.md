@@ -2,7 +2,7 @@
 
 Embeddings may be challenging to scale up, which leads to expensive solutions and high latencies. Currently, many state-of-the-art models produce embeddings with 1024 dimensions, each of which is encoded in `float32`, i.e., they require 4 bytes per dimension. To perform retrieval over 50 million vectors, you would therefore need around 200GB of memory. This tends to require complex and costly solutions at scale.
 
-However, there is a new approach to counter this problem; it entails reducing the size of each of the individual values in the embedding: **Quantization**. Experiments on quantization have shown that we can maintain a large amount of performance while significantly speeding up computation and saving on memory, storage, and costs.
+However, there is a new approach to counter this problem. It entails reducing the size of each of the individual values in the embedding: **Quantization**. Experiments on quantization have shown that we can maintain a large amount of performance while significantly speeding up computation and saving on memory, storage, and costs.
 
 To learn more about Embedding Quantization and their performance, please read the [blogpost](https://huggingface.co/blog/embedding-quantization) by Sentence Transformers and mixedbread.ai.
 
@@ -145,8 +145,8 @@ It is possible to combine binary and scalar quantization to get the best of both
 
 1. The query is embedded using the [`mixedbread-ai/mxbai-embed-large-v1`](https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1) SentenceTransformer model.
 1. The query is quantized to binary using the <a href="../../../../docs/package_reference/quantization.html#sentence_transformers.quantization.quantize_embeddings"><code>quantize_embeddings</code></a> function from the `sentence-transformers` library.
-1. A binary index (41M binary embeddings; 5.2GB of memory/disk space) is searched using the quantized query for the top 40 documents.
-1. The top 40 documents are loaded on the fly from an int8 index on disk (41M int8 embeddings; 0 bytes of memory, 47.5GB of disk space).
+1. A binary index (41M binary embeddings, 5.2GB of memory/disk space) is searched using the quantized query for the top 40 documents.
+1. The top 40 documents are loaded on the fly from an int8 index on disk (41M int8 embeddings, 0 bytes of memory, 47.5GB of disk space).
 1. The top 40 documents are rescored using the float32 query and the int8 embeddings to get the top 10 documents.
 1. The top 10 documents are sorted by score and displayed.
 

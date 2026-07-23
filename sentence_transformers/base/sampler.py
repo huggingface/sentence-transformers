@@ -282,7 +282,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         for sample_idx, label in enumerate(labels):
             groups[label].append(sample_idx)
 
-        # Keep labels with >= 2 samples; trim each to an even count so every
+        # Keep labels with >= 2 samples. Trim each to an even count so every
         # label contributes complete pairs in the interleaving.
         self.groups = {
             label: indices[: len(indices) // 2 * 2] for label, indices in groups.items() if len(indices) >= 2
@@ -318,7 +318,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
             perm = torch.randperm(len(indices), generator=self.generator)
             queues[label] = deque(indices[i] for i in perm)
 
-        # Round-robin: each label emits 2 samples per round; stop when < 2 labels remain.
+        # Round-robin: each label emits 2 samples per round. Stop when < 2 labels remain.
         # The label visit order is reshuffled every round for diverse batches.
         remaining_labels = list(queues)
         batch: list[int] = []

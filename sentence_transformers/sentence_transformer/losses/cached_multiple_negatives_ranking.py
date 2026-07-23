@@ -22,7 +22,7 @@ from sentence_transformers.sentence_transformer.losses.multiple_negatives_rankin
     MultipleNegativesRankingLoss,
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
+from sentence_transformers.util import all_gather_with_grad, get_rank
 
 
 class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
@@ -54,8 +54,8 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
 
         In detail:
 
-            (1) It first does a quick embedding step without gradients/computation graphs to get all the embeddings;
-            (2) Calculate the loss, backward up to the embeddings and cache the gradients wrt. to the embeddings;
+            (1) It first does a quick embedding step without gradients/computation graphs to get all the embeddings.
+            (2) Calculate the loss, backward up to the embeddings and cache the gradients wrt. to the embeddings.
             (3) A 2nd embedding step with gradients/computation graphs and connect the cached gradients into the backward chain.
 
         Notes: All steps are done with mini-batches. In the original implementation of GradCache, (2) is not done in mini-batches and
@@ -262,10 +262,9 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
             docs = [all_gather_with_grad(doc) for doc in docs]
             # (1 + num_negatives) tensors of shape (batch_size * world_size, embedding_dim)
 
-            # Adjust the offset to account for the gathered candidates, so that each device computes the correct local indices.
-            if is_dist_initialized():
-                rank = torch.distributed.get_rank()
-                offset = rank * batch_size
+            # Adjust the offset to account for the gathered candidates, so that each device computes the correct
+            # local indices. get_rank() returns 0 when not running distributed, so offset stays 0 in that case.
+            offset = get_rank() * batch_size
 
         world_batch_size = queries.size(0)
         docs_all = torch.cat(docs, dim=0)

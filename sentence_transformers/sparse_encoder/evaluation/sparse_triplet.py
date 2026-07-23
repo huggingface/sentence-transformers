@@ -162,9 +162,16 @@ class SparseTripletEvaluator(TripletEvaluator):
         self,
         model: SparseEncoder,
         sentences: str | list[str] | np.ndarray,
+        encode_fn_name: str | None = None,
         **kwargs,
     ) -> torch.Tensor:
-        embeddings = model.encode(
+        if encode_fn_name == "query":
+            encode_fn = model.encode_query
+        elif encode_fn_name == "document":
+            encode_fn = model.encode_document
+        else:
+            encode_fn = model.encode
+        embeddings = encode_fn(
             sentences,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,

@@ -14,7 +14,7 @@ from sentence_transformers.util import cos_sim
 def mock_model():
     def mock_encode(sentences: str | list[str], **kwargs) -> torch.Tensor:
         """
-        We simply one-hot encode the sentences; if a sentence contains a keyword, the corresponding one-hot
+        We simply one-hot encode the sentences. If a sentence contains a keyword, the corresponding one-hot
         encoding is added to the sentence embedding.
         """
         one_hot_encodings = {
@@ -124,7 +124,7 @@ def test_metrics(test_data, mock_model, tmp_path: Path):
     )
     results = ir_evaluator(mock_model, output_path=str(tmp_path))
     # We expect test_cosine_precision@3 to be 0.4, since 6 out of 15 (5 queries * 3) are True Positives
-    # We expect test_cosine_recall@1 to be 0.9; the average of 4 times a recall of 1 and once a recall of 0.5
+    # We expect test_cosine_recall@1 to be 0.9: the average of 4 times a recall of 1 and once a recall of 0.5
     expected_results = {
         "test_cosine_accuracy@1": 1.0,
         "test_cosine_accuracy@3": 1.0,

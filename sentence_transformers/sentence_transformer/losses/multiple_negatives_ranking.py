@@ -9,7 +9,7 @@ from torch import Tensor, nn
 
 from sentence_transformers import util
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
+from sentence_transformers.util import all_gather_with_grad, get_rank
 
 logger = logging.getLogger(__name__)
 
@@ -249,9 +249,8 @@ class MultipleNegativesRankingLoss(nn.Module):
             # We do this in such a way that the backward pass on the embeddings can flow back to the original devices.
             queries = all_gather_with_grad(queries)
             docs = [all_gather_with_grad(doc) for doc in docs]
-            if is_dist_initialized():
-                rank = torch.distributed.get_rank()
-                offset = rank * batch_size
+            # get_rank() returns 0 when not running distributed, so offset stays 0 in that case.
+            offset = get_rank() * batch_size
 
         world_batch_size = queries.size(0)
         docs_all = torch.cat(docs, dim=0)

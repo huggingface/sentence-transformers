@@ -11,6 +11,8 @@ from sentence_transformers.util.similarity import (
     dot_score,
     euclidean_sim,
     manhattan_sim,
+    maxsim,
+    maxsim_pairwise,
     pairwise_angle_sim,
     pairwise_cos_sim,
     pairwise_dot_score,
@@ -247,6 +249,98 @@ def test_pairwise_euclidean_sim_sparse(sparse_tensors):
     assert torch.allclose(sim_sparse, sim_dense, rtol=1e-5, atol=1e-5)
 
 
+def test_maxsim_ragged_matrix_hand_computed() -> None:
+    """MaxSim of ragged (variable-length) inputs, with a hand-computed (2, 2) score matrix."""
+    queries = [
+        torch.tensor([[1.0, 0.0], [0.0, 1.0]]),  # 2 tokens
+        torch.tensor([[1.0, 1.0]]),  # 1 token
+    ]
+    documents = [
+        torch.tensor([[1.0, 0.0], [0.0, 0.5]]),  # 2 tokens
+        torch.tensor([[0.0, 1.0]]),  # 1 token
+    ]
+    # res[i][j] = sum over query tokens of the max similarity to any document token, e.g.
+    # res[0][0] = max(1, 0) + max(0, 0.5) = 1.5. res[0][1] = max(0) + max(1) = 1.0
+    expected = torch.tensor([[1.5, 1.0], [1.0, 1.0]])
+    scores = maxsim(queries, documents)
+    assert scores.shape == (2, 2)
+    assert torch.allclose(scores, expected)
+
+
+def test_maxsim_list_matches_masked_padded_tensor() -> None:
+    """The ragged-list path auto-derives a length mask. It must match an explicitly padded + masked 3D tensor."""
+    queries = [torch.tensor([[1.0, 0.0], [0.0, 1.0]]), torch.tensor([[1.0, 1.0]])]
+    documents = [torch.tensor([[1.0, 0.0]]), torch.tensor([[0.0, 1.0], [0.5, 0.5]])]
+    from_list = maxsim(queries, documents)
+
+    queries_padded = torch.nn.utils.rnn.pad_sequence(queries, batch_first=True)
+    documents_padded = torch.nn.utils.rnn.pad_sequence(documents, batch_first=True)
+    query_mask = torch.tensor([[1.0, 1.0], [1.0, 0.0]])
+    document_mask = torch.tensor([[1.0, 0.0], [1.0, 1.0]])
+    from_padded = maxsim(queries_padded, documents_padded, a_mask=query_mask, b_mask=document_mask)
+
+    assert torch.allclose(from_list, from_padded)
+
+
+def test_maxsim_document_mask_excludes_padding_tokens() -> None:
+    """A masked-out document token must not participate in the max, even with the highest similarity."""
+    query = torch.tensor([[[1.0, 0.0]]])  # (1 document-query, 1 token, dim 2)
+    document_real_only = torch.tensor([[[0.8, 0.6]]])  # similarity 0.8
+    document_with_pad = torch.tensor([[[0.8, 0.6], [5.0, 0.0]]])  # 2nd token would otherwise dominate the max
+    mask = torch.tensor([[1.0, 0.0]])
+
+    base = maxsim(query, document_real_only)
+    masked = maxsim(query, document_with_pad, b_mask=mask)
+    assert torch.allclose(base, masked)
+    # Without the mask the high-similarity padding token wins, inflating the score.
+    assert maxsim(query, document_with_pad).item() > base.item()
+
+
+def test_maxsim_negative_similarities_survive_padding() -> None:
+    """A padding token (from a shorter document) must not inflate a negative MaxSim score to 0."""
+    query = [torch.tensor([[1.0, 0.0]])]  # 1 query, 1 token
+    documents = [
+        torch.tensor([[-0.5, 0.0]]),  # 1 token: best (only) similarity -0.5
+        torch.tensor([[-0.5, 0.0], [-0.3, 0.0]]),  # 2 tokens: best similarity -0.3
+    ]
+    # The first document is padded to length 2. The padding must be excluded from the max so the score
+    # stays -0.5 instead of the 0 a zero-valued padding token would otherwise produce.
+    scores = maxsim(query, documents)
+    assert torch.allclose(scores, torch.tensor([[-0.5, -0.3]]))
+
+
+def test_maxsim_query_mask_excludes_query_tokens() -> None:
+    """MaxSim sums over query tokens. Masking a query token drops its contribution from the sum."""
+    query = torch.tensor([[[1.0, 0.0], [0.0, 1.0]]])  # 2 query tokens
+    document = torch.tensor([[[1.0, 0.0]]])  # token0 similarity 1, token1 similarity 0
+    assert torch.allclose(maxsim(query, document), torch.tensor([[1.0]]))
+    mask = torch.tensor([[0.0, 1.0]])  # keep only the second (zero-similarity) query token
+    assert torch.allclose(maxsim(query, document, a_mask=mask), torch.tensor([[0.0]]))
+
+
+def test_maxsim_pairwise_matches_maxsim_diagonal() -> None:
+    """maxsim_pairwise(q, d) must equal the diagonal of the full maxsim(q, d) matrix, even with padding."""
+    # randn gives mixed-sign similarities and the documents have different lengths, so the padded maxsim
+    # path and the unpadded pairwise path only agree if masked padding tokens are excluded from the max.
+    torch.manual_seed(0)
+    queries = [torch.randn(3, 8), torch.randn(2, 8)]
+    documents = [torch.randn(4, 8), torch.randn(6, 8)]
+    full = maxsim(queries, documents)
+    pairwise = maxsim_pairwise(queries, documents)
+    assert pairwise.shape == (2,)
+    assert torch.allclose(pairwise, torch.diagonal(full), atol=1e-5)
+
+
+def test_maxsim_pairwise_tensor_path_matches_list_path() -> None:
+    """maxsim_pairwise should give the same result for a 3D tensor and the equivalent list of 2D tensors."""
+    queries = torch.rand(2, 3, 8)
+    documents = torch.rand(2, 4, 8)
+    from_tensor = maxsim_pairwise(queries, documents)
+    from_list = maxsim_pairwise([queries[0], queries[1]], [documents[0], documents[1]])
+    assert from_tensor.shape == (2,)
+    assert torch.allclose(from_tensor, from_list, atol=1e-5)
+
+
 def test_pairwise_angle_sim_even_and_odd_sparse_embeddings(splade_bert_tiny_model: SparseEncoder) -> None:
     """Ensure pairwise_angle_sim works for even and artificially odd dims."""
 
@@ -277,3 +371,20 @@ def test_pairwise_angle_sim_even_and_odd_sparse_embeddings(splade_bert_tiny_mode
 
     assert sim_even.shape == sim_odd.shape
     assert torch.allclose(sim_even, sim_odd, rtol=1e-5, atol=1e-5)
+
+
+def test_maxsim_document_chunking_matches_unchunked() -> None:
+    """The chunked path masks and sums per chunk (bounding peak memory), which must be numerically
+    identical to the single-einsum path, including with query and document masks."""
+    generator = torch.Generator().manual_seed(7)
+    a = torch.nn.functional.normalize(torch.randn(5, 9, 16, generator=generator), p=2, dim=-1)
+    b = torch.nn.functional.normalize(torch.randn(13, 11, 16, generator=generator), p=2, dim=-1)
+    a_mask = torch.rand(5, 9, generator=generator) > 0.2
+    b_mask = torch.rand(13, 11, generator=generator) > 0.2
+    a_mask[:, 0] = True
+    b_mask[:, 0] = True
+
+    unchunked = maxsim(a, b, a_mask=a_mask, b_mask=b_mask)
+    for chunk_size in (1, 4, 13, 50):
+        chunked = maxsim(a, b, a_mask=a_mask, b_mask=b_mask, document_chunk_size=chunk_size)
+        assert torch.allclose(unchunked, chunked, atol=1e-6), f"chunk_size={chunk_size}"

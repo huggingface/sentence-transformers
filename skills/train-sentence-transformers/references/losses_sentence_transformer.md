@@ -9,7 +9,7 @@ Losses are grouped by data shape. The #1 rule: **pick a loss that matches your d
 | You have | Use |
 |---|---|
 | `(anchor, positive)` pairs | `MultipleNegativesRankingLoss` (or Cached variant for large batches) |
-| `(anchor, positive, negative)` triplets | `MultipleNegativesRankingLoss` — it handles triplets natively |
+| `(anchor, positive, negative)` triplets | `MultipleNegativesRankingLoss` (it handles triplets natively) |
 | `(text1, text2, score)` with `score ∈ [-1, 1]` or `[0, 1]` | `CoSENTLoss` (strongly recommended) |
 | `(text1, text2, label)` with `label ∈ {0, 1}` | `OnlineContrastiveLoss` |
 | `(text, class_id)` single-column with integer class | `BatchAllTripletLoss` |
@@ -31,7 +31,7 @@ loss = MultipleNegativesRankingLoss(model, scale=20.0)  # similarity_fct default
 - **Data**: `(anchor, positive)` or `(anchor, positive, negative)`. More columns = more explicit hard negatives per row.
 - **Scale**: temperature. Default `scale=20.0` multiplies similarities by 20 (equivalent to softmax temperature 0.05). Tune only if cosine similarities end up saturated.
 - **Critical**: set `batch_sampler=BatchSamplers.NO_DUPLICATES` on training args. Otherwise duplicate anchors create false negatives.
-- **Tip**: batch size matters a lot — more in-batch negatives = better gradients.
+- **Tip**: batch size matters a lot. More in-batch negatives = better gradients.
 
 ### `CachedMultipleNegativesRankingLoss`
 
@@ -46,7 +46,7 @@ loss = CachedMultipleNegativesRankingLoss(model, mini_batch_size=32)
 
 ### `MultipleNegativesSymmetricRankingLoss`
 
-MNRL computed bidirectionally — scores positives from both (anchor -> positive) and (positive -> anchor) directions. Slightly better on retrieval tasks where the "anchor" and "positive" distinctions are soft (paraphrase, deduplication).
+MNRL computed bidirectionally. Scores positives from both (anchor -> positive) and (positive -> anchor) directions. Slightly better on retrieval tasks where the "anchor" and "positive" distinctions are soft (paraphrase, deduplication).
 
 ### `CachedMultipleNegativesSymmetricRankingLoss`
 
@@ -54,7 +54,7 @@ Cached variant of the above.
 
 ### `GISTEmbedLoss`
 
-Like MNRL, but uses a **guide model** (a separate pretrained Sentence Transformer) to **filter out false negatives** before computing the contrastive loss. The guide model scores each potential negative; if it looks too similar to the positive, it's excluded.
+Like MNRL, but uses a **guide model** (a separate pretrained Sentence Transformer) to **filter out false negatives** before computing the contrastive loss. The guide model scores each potential negative. If it looks too similar to the positive, it's excluded.
 
 ```python
 guide = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
@@ -74,13 +74,13 @@ In-batch margin-based triplet: for each anchor, find the hardest negative in the
 
 ### `TripletLoss`
 
-Classic triplet margin loss on explicit `(anchor, positive, negative)`. Uses a fixed margin and the hardest in-batch is not considered — only the provided triplet.
+Classic triplet margin loss on explicit `(anchor, positive, negative)`. Uses a fixed margin and the hardest in-batch is not considered, only the provided triplet.
 
 ```python
 loss = TripletLoss(model, distance_metric=TripletDistanceMetric.EUCLIDEAN, triplet_margin=5)
 ```
 
-- Simpler than MNRL; less powerful when the batch has useful negatives.
+- Simpler than MNRL, less powerful when the batch has useful negatives.
 - Good for cases where you have *trusted* pre-mined triplets and want to avoid in-batch noise.
 
 ## Batch-triplet losses (single column + integer label)
@@ -136,7 +136,7 @@ Squared-error loss on cosine similarity: `mse(cos(text1, text2), label)`. Simple
 
 ### `ContrastiveLoss`
 
-For `(text1, text2, label)` where `label ∈ {0, 1}`. Minimizes distance for positives; pushes negatives past a margin.
+For `(text1, text2, label)` where `label ∈ {0, 1}`. Minimizes distance for positives. Pushes negatives past a margin.
 
 ```python
 loss = ContrastiveLoss(model, margin=0.5, distance_metric=SiameseDistanceMetric.COSINE_DISTANCE)
@@ -183,7 +183,7 @@ See `../scripts/train_sentence_transformer_distillation_example.py` for the end-
 
 ## Regularizer / wrapper losses
 
-These don't have their own data shape — they wrap another loss and add a regularization objective.
+These don't have their own data shape. They wrap another loss and add a regularization objective.
 
 ### `MatryoshkaLoss`
 
@@ -208,7 +208,7 @@ loss = MatryoshkaLoss(
 
 ### `AdaptiveLayerLoss`
 
-Wrap any loss; adds a term that trains each of the transformer's layers to be a valid exit point. Deploy with fewer layers at inference for faster encoding.
+Wrap any loss. Adds a term that trains each of the transformer's layers to be a valid exit point. Deploy with fewer layers at inference for faster encoding.
 
 ```python
 loss = AdaptiveLayerLoss(
@@ -222,17 +222,17 @@ loss = AdaptiveLayerLoss(
 
 ### `GlobalOrthogonalRegularizationLoss` (GOR)
 
-Stand-alone regularizer (not a wrapper, despite living in this section). Penalizes embedding pairs whose dot product deviates from orthogonality, encouraging the model to spread embeddings across the full vector space. Use it alongside a primary contrastive loss by summing the two outputs in your own training step; can help with downstream retrieval diversity.
+Stand-alone regularizer (not a wrapper, despite living in this section). Penalizes embedding pairs whose dot product deviates from orthogonality, encouraging the model to spread embeddings across the full vector space. Use it alongside a primary contrastive loss by summing the two outputs in your own training step. Can help with downstream retrieval diversity.
 
 ## Unsupervised losses
 
 ### `DenoisingAutoEncoderLoss` (TSDAE)
 
-Sentence-level denoising autoencoder: corrupt a sentence (drop tokens), force the model to reconstruct it. Pretraining-style — useful for domain adaptation when you have unlabeled in-domain sentences.
+Sentence-level denoising autoencoder: corrupt a sentence (drop tokens), force the model to reconstruct it. Pretraining-style, useful for domain adaptation when you have unlabeled in-domain sentences.
 
 ### `ContrastiveTensionLoss`
 
-Unsupervised contrastive: two copies of the model encode the same sentence; they should agree. Pure self-supervised.
+Unsupervised contrastive: two copies of the model encode the same sentence. They should agree. Pure self-supervised.
 
 ### `ContrastiveTensionLossInBatchNegatives`
 

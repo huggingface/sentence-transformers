@@ -1,5 +1,72 @@
 # Migration Guide
 
+## Migrating from v5.x to v6.x
+
+```{eval-rst}
+The v6.0 release introduces :class:`~sentence_transformers.MultiVectorEncoder`, a fourth model type for ColBERT-style multi-vector (late interaction) retrieval models. It absorbs the modeling, training, and evaluation of `PyLate <https://github.com/lightonai/pylate>`_ and `colpali-engine <https://github.com/illuin-tech/colpali>`_: see the two dedicated sections below if you are migrating from either library.
+```
+
+### Migrating from PyLate
+
+```{eval-rst}
+:class:`~sentence_transformers.MultiVectorEncoder` absorbs PyLate's ColBERT modeling, training, and
+evaluation. Existing PyLate checkpoints load directly, e.g.
+``MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")``, with the prefix tokens, query expansion, and
+punctuation skiplist recovered from the saved config.
+```
+
+| PyLate | Sentence Transformers |
+|---|---|
+| `pylate.models.ColBERT(model_name_or_path=...)` | `MultiVectorEncoder(...)` |
+| `model.encode(..., is_query=True)` | `model.encode_query(...)` |
+| `model.encode(..., is_query=False)` | `model.encode_document(...)` |
+| `query_prefix="[Q] "` / `document_prefix="[D] "` | `prompts={"query": "[Q] ", "document": "[D] "}` |
+| `attend_to_expansion_tokens=True` | `query_expansion={"strategy": "pad_attend", "length": 32}` on the `Transformer` module |
+| `pylate.scores.colbert_scores` | `model.similarity` or `sentence_transformers.util.maxsim` |
+| `pylate.losses.Contrastive` | `MultiVectorMultipleNegativesRankingLoss` |
+| `pylate.losses.CachedContrastive` | `CachedMultiVectorMultipleNegativesRankingLoss` |
+| `temperature=X` on the contrastive losses | `scale=1/X` (the Sentence Transformers convention) |
+| `pylate.losses.Distillation` | `MultiVectorDistillKLDivLoss` |
+| `pylate.evaluation.ColBERTTripletEvaluator` | `MultiVectorTripletEvaluator` |
+| `pylate.evaluation.ColBERTDistillationEvaluator` | `MultiVectorDistillationEvaluator` |
+| `pylate.utils.KDProcessing` | `sentence_transformers.util.resolve_ids` |
+| `pylate.indexes.PLAID` / `pylate.retrieve.ColBERT` | no Sentence Transformers equivalent: keep indexing with PyLate (in a separate environment for now, as PyLate pins an older sentence-transformers version) |
+
+Note that the save compatibility is one-way: PyLate checkpoints load into `MultiVectorEncoder`, but
+models saved with `MultiVectorEncoder.save_pretrained` are not loadable by PyLate.
+
+Data handling also differs from PyLate in three ways. `resolve_ids` expands the per-query document
+list into numbered columns (`document_1`, ..., `document_N`) rather than keeping a nested list,
+matching the `(query, positive, negative_1, ...)` convention of the other losses. The collators no
+longer skip ID-named columns silently: they warn once and tokenize them, so drop or resolve raw ID
+columns before training. And a document ID that is missing from its lookup dataset raises a
+`KeyError` instead of silently substituting an empty document, so pre-filter dangling IDs. String-encoded
+list columns (e.g. from CSV loads) are not parsed either: convert them to native lists first.
+
+### Migrating from colpali-engine
+
+```{eval-rst}
+transformers-native ``*ForRetrieval`` checkpoints (the ``-hf`` variants of the ``vidore`` models, e.g.
+``vidore/colqwen2-v1.0-hf``) are auto-detected: the projection and normalisation run inside the model,
+and the processor formats queries and image documents.
+```
+
+| colpali-engine | Sentence Transformers |
+|---|---|
+| `ColQwen2.from_pretrained(...)` + `ColQwen2Processor` | `MultiVectorEncoder("vidore/colqwen2-v1.0-hf")` |
+| `processor.process_queries(...)` + `model(**batch)` | `model.encode_query(queries)` |
+| `processor.process_images(...)` + `model(**batch)` | `model.encode_document(images)` |
+| `processor.score_multi_vector(qs, ds)` | `model.similarity(query_embeddings, document_embeddings)` |
+| `mask_non_image_embeddings=True` | `MultiVectorMask(keep_only_token_ids=[processor.image_token_id])` |
+| `HierarchicalTokenPooler` | `HierarchicalTokenPooling` (see its docstring for exact-parity notes) |
+| `colpali_engine.interpretability` | `sentence_transformers.multi_vector_encoder.interpretability` |
+
+### Smaller changes
+
+```{eval-rst}
+- :class:`~sentence_transformers.sentence_transformer.evaluation.TripletEvaluator` and :class:`~sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator` now embed anchors with ``encode_query`` and positives / negatives with ``encode_document``, instead of ``encode`` for all three. This is a no-op for models without ``query`` / ``document`` prompts, but asymmetric models will report different triplet accuracy than in v5.x because their prompts are now applied.
+```
+
 ## Migrating from v5.x to v5.4+
 
 ```{eval-rst}

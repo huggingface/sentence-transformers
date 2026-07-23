@@ -307,7 +307,7 @@ class TestCrossEncoderInitArgsDecorator:
 
 class TestCrossEncoderPredictRankArgsDecorator:
     def test_all_deprecated_kwargs(self, caplog):
-        """Renames (sentences→inputs, activation_fct→activation_fn) are wired via deprecated_kwargs;
+        """Renames (sentences→inputs, activation_fct→activation_fn) are wired via deprecated_kwargs.
         num_workers is removed as a no-op."""
 
         @cross_encoder_predict_rank_args_decorator

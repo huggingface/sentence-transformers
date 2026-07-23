@@ -183,7 +183,7 @@ class Router(InputModule):
                 text_embedding = model.encode("A photo of a cat")
                 multimodal_embedding = model.encode({"text": "A photo of a <image>", "image": Image.open("cat.jpg")})
 
-                # Compute the similarity; it'll be poor as the model hasn't yet been trained
+                # Compute the similarity. It'll be poor as the model hasn't yet been trained
                 similarity = model.similarity(text_embedding, multimodal_embedding)
 
             Hybrid Asymmetric + Multimodal Example:

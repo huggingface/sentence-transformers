@@ -2,8 +2,8 @@
 
 A "cached" loss trades compute for memory in three steps:
 
-    (1) a quick embedding step without gradients/computation graphs, to get all the embeddings;
-    (2) calculate the loss, backward up to the embeddings, and cache the gradients wrt. the embeddings;
+    (1) a quick embedding step without gradients/computation graphs, to get all the embeddings.
+    (2) calculate the loss, backward up to the embeddings, and cache the gradients wrt. the embeddings.
     (3) a 2nd embedding step with gradients/computation graphs, connecting the cached gradients into
         the backward chain.
 
@@ -94,7 +94,7 @@ def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) ->
     (e.g. ``pixel_values`` shape ``(total_visual_tokens, hidden_dim)``) with a grid tensor
     (e.g. ``image_grid_thw`` shape ``(num_items, 3)``) whose per-row product gives the token
     count per item.  ``num_images_per_sample`` / ``num_videos_per_sample`` (precomputed by
-    ``Transformer.preprocess``) map grid rows to samples; when unavailable we fall back to
+    ``Transformer.preprocess``) map grid rows to samples. When unavailable we fall back to
     assuming one grid row per sample when ``grid.shape[0] == batch_size``.
     """
     if "cu_seq_lens_q" not in sentence_feature:

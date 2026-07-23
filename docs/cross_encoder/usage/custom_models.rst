@@ -308,7 +308,7 @@ It has two abstract methods that you need to implement, and one method that you 
 
 Optionally, you can also implement or override the following:
 
-* A :attr:`~sentence_transformers.base.modules.InputModule.modalities` property that returns the list of modalities supported by the module. Defaults to ``["text"]``. Each entry can be a single modality string (e.g. ``"text"``) or a tuple for compound modalities (e.g. ``("image", "text")``); tuples should be sorted alphabetically. :meth:`BaseModel.preprocess <sentence_transformers.base.model.BaseModel.preprocess>` validates input modalities against this list before calling the module's ``preprocess()``, so you don't need to handle unsupported modalities yourself.
+* A :attr:`~sentence_transformers.base.modules.InputModule.modalities` property that returns the list of modalities supported by the module. Defaults to ``["text"]``. Each entry can be a single modality string (e.g. ``"text"``) or a tuple for compound modalities (e.g. ``("image", "text")``). Tuples should be sorted alphabetically. :meth:`BaseModel.preprocess <sentence_transformers.base.model.BaseModel.preprocess>` validates input modalities against this list before calling the module's ``preprocess()``, so you don't need to handle unsupported modalities yourself.
 * A :meth:`~sentence_transformers.base.modules.Module.load` class method that loads the module from a saved directory or Hugging Face model.
 * A ``max_seq_length`` property that returns the maximum sequence length the module can process.
 

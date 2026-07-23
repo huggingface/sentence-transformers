@@ -296,6 +296,60 @@ Finetuning Sparse Encoder models is easy and requires only a few lines of code. 
 
     Read `Sparse Encoder > Usage > Speeding up Inference <sparse_encoder/usage/efficiency.html>`_ for tips on how to speed up inference of models by up to 2x-3x.
 
+Multi-Vector Encoder
+--------------------
+
+Characteristics of Multi-Vector Encoder (a.k.a ColBERT-style or "late-interaction") models:
+
+1. Calculates a **sequence of token-level vectors** per input rather than a single fixed-size embedding.
+2. Scores queries against documents with the **MaxSim** operator: for each query token, take the maximum similarity to any document token, then sum across query tokens.
+3. Preserves **token-level matching information** that single-vector models discard, typically yielding stronger retrieval at the cost of a larger index footprint.
+4. Recent VLM-backed variants (ColPali, ColQwen2, ColGemma3, ...) extend this to **image documents** (each image patch becomes a "token"), enabling end-to-end OCR-free document retrieval.
+
+The usage for Multi-Vector Encoder models follows a similar pattern to Sentence Transformers:
+
+.. sidebar:: Documentation
+
+   1. :class:`MultiVectorEncoder <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder>`
+   2. :meth:`MultiVectorEncoder.encode_query <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode_query>`
+   3. :meth:`MultiVectorEncoder.encode_document <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode_document>`
+   4. :meth:`MultiVectorEncoder.similarity <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.similarity>`
+
+   **Other useful methods and links:**
+
+   - `MultiVectorEncoder > Usage <./multi_vector_encoder/usage/usage.html>`_
+   - `MultiVectorEncoder > Training Overview <./multi_vector_encoder/training_overview.html>`_
+
+::
+
+   from sentence_transformers import MultiVectorEncoder
+
+   # 1. Load a pretrained MultiVectorEncoder model
+   model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+
+   queries = ["What is the capital of France?"]
+   documents = [
+       "Paris is the capital of France.",
+       "Berlin is the capital of Germany.",
+   ]
+
+   # 2. Encode queries and documents (note the asymmetric encode_query / encode_document split)
+   query_embeddings = model.encode_query(queries)
+   document_embeddings = model.encode_document(documents)
+
+   # Each entry is a 2D array of shape (num_tokens_i, embedding_dim), variable-length per input.
+   print(query_embeddings[0].shape)  # e.g. (32, 128)
+   print(document_embeddings[0].shape)  # e.g. (7, 128) and (8, 128)
+
+   # 3. Score with MaxSim
+   scores = model.similarity(query_embeddings, document_embeddings)
+   print(scores)
+   # tensor([[16.6394, 13.3328]])
+
+With ``MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")`` we pick a pretrained late-interaction model. Late-interaction models are particularly strong for **retrieval** tasks where token-level matching matters (named entities, exact-phrase queries, sub-document relevance). ColPali-style variants extend this to image document retrieval over scanned pages, slides, and figures.
+
+Finetuning Multi-Vector Encoder models is easy and requires only a few lines of code. For more information, see the `Training Overview <./multi_vector_encoder/training_overview.html>`__ section.
+
 Next Steps
 ----------
 
@@ -312,4 +366,6 @@ Consider reading one of the following sections next:
 * `Sparse Encoder > Usage <./sparse_encoder/usage/usage.html>`_
 * `Sparse Encoder > Pretrained Models <./sparse_encoder/pretrained_models.html>`_
 * `Sparse Encoder > Vector Database Integration <../examples/sparse_encoder/applications/semantic_search/README.html#vector-database-search>`_
+* `Multi-Vector Encoder > Usage <./multi_vector_encoder/usage/usage.html>`_
+* `Multi-Vector Encoder > Training Overview <./multi_vector_encoder/training_overview.html>`_
 

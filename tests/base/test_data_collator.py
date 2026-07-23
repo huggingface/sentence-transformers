@@ -150,3 +150,40 @@ class TestColumnOrderWarning:
         with caplog.at_level(logging.WARNING):
             collator(features)
         assert not any("question" in msg and "index" in msg for msg in caplog.messages)
+
+
+class TestIdColumnWarning:
+    def test_warns_on_id_like_columns(self, caplog):
+        collator = make_collator()
+        features = [{"query_id": "q1", "sentence": "hello"}]
+        with caplog.at_level(logging.WARNING):
+            batch = collator(features)
+        assert any("look like ID columns" in msg for msg in caplog.messages)
+        # Warn-only: the column is still tokenized.
+        assert "query_id_input_ids" in batch
+
+    def test_no_warning_without_id_like_columns(self, caplog):
+        collator = make_collator()
+        features = [{"sentence1": "hello", "sentence2": "world"}]
+        with caplog.at_level(logging.WARNING):
+            collator(features)
+        assert not any("look like ID columns" in msg for msg in caplog.messages)
+
+
+class TestTaskResolution:
+    def test_base_hook_returns_router_mapping_entry(self):
+        collator = make_collator()
+        assert collator._get_task_for_column("question", 0, {"question": "query"}) == "query"
+        assert collator._get_task_for_column("answer", 1, {"question": "query"}) is None
+
+    def test_task_stamped_when_router_mapping_resolves(self):
+        collator = make_collator(router_mapping={"question": "query", "answer": "document"})
+        batch = collator([{"question": "q", "answer": "a"}])
+        assert batch["question_task"] == "query"
+        assert batch["answer_task"] == "document"
+
+    def test_no_stamp_without_router_mapping(self):
+        collator = make_collator()
+        batch = collator([{"question": "q", "answer": "a"}])
+        assert "question_task" not in batch
+        assert "answer_task" not in batch

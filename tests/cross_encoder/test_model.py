@@ -338,7 +338,7 @@ def test_num_labels_fresh_model():
 
 # The transformer-less stacks below aren't runnable end-to-end (no non-Transformer InputModule
 # currently preprocesses CrossEncoder pairs), but we technically allow them so the property logic
-# (config/model/num_labels/activation_fn) is exercised in isolation; it's what makes stacks like
+# (config/model/num_labels/activation_fn) is exercised in isolation. It's what makes stacks like
 # Transformer + Pooling + Dense(scores) usable as rerankers.
 @pytest.mark.parametrize("out_features", [1, 3, 7])
 def test_num_labels_from_dense_scores_module(static_embedding: StaticEmbedding, out_features: int):

@@ -69,6 +69,47 @@ class _FakeLoss:
     pass
 
 
+@pytest.mark.skipif(not is_datasets_available(), reason="datasets is not installed")
+class TestSetWidgetExamples:
+    def test_skips_dataset_with_custom_transform(self) -> None:
+        # A set_transform dataset (e.g. KD-style lazy ID -> text resolution) reports its pre-transform
+        # columns via .features, so the widget-example column selection must not run the transform with a
+        # reduced column set. set_widget_examples should skip it rather than starving the transform.
+        dataset = Dataset.from_dict(
+            {
+                "query_id": ["q1", "q2", "q3"],
+                "document_ids": [["d1", "d2"], ["d2", "d1"], ["d1", "d2"]],
+                "scores": [[1.0, 0.5], [0.9, 0.2], [0.7, 0.3]],
+            }
+        )
+
+        def transform(batch):
+            # Mimics resolve_ids: needs the "scores" column that select_columns would drop.
+            return {
+                "query": [f"query {qid}" for qid in batch["query_id"]],
+                "documents": [["doc"] * len(scores) for scores in batch["scores"]],
+                "scores": batch["scores"],
+            }
+
+        dataset.set_transform(transform)
+
+        data = _make_model_card_data()
+        data.set_widget_examples(dataset)  # Must not raise KeyError from the starved transform.
+        assert data.widget == []
+
+    def test_generates_examples_for_plain_text_dataset(self) -> None:
+        # A plain text dataset (no transform) must still produce widget examples: the skip above is targeted.
+        dataset = Dataset.from_dict(
+            {
+                "anchor": [f"anchor sentence {i}" for i in range(10)],
+                "positive": [f"positive sentence {i}" for i in range(10)],
+            }
+        )
+        data = _make_model_card_data()
+        data.set_widget_examples(dataset)
+        assert data.widget
+
+
 class TestIsTypedMediaDict:
     def test_audio_dict(self) -> None:
         assert BaseModelCardData._is_typed_media_dict({"array": np.zeros(10), "sampling_rate": 16000}) is True
@@ -595,7 +636,7 @@ class TestSetMultimodalPredictExample:
         assert model.model_card_data.usage_examples == ["original"]
 
     def test_duplicate_images_deduplicated(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
-        """Duplicate images in the first rows are skipped; unique images are picked from later rows."""
+        """Duplicate images in the first rows are skipped. Unique images are picked from later rows."""
         model = stsb_bert_tiny_model
 
         # First 3 rows have the same image, rows 3-5 have distinct images
@@ -828,7 +869,7 @@ class TestComputeDatasetMetricsColumns:
         lines = [line.strip() for line in table.splitlines() if line.strip()]
         modality_lines = [line for line in lines if line.startswith("| modality")]
         assert len(modality_lines) == 1, f"Expected one modality row, got: {modality_lines}"
-        # anchor → "text"; score → "" (numeric has no modality)
+        # anchor → "text", score → "" (numeric has no modality)
         assert "text" in modality_lines[0]
 
 

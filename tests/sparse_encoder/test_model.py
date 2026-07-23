@@ -237,11 +237,11 @@ def test_inference_free_splade_max_active_dims_routing(inference_free_splade_ber
     query = "What is the capital of France?"
     document = "The capital of France is Paris."
 
-    # Encode without max_active_dims — baseline
+    # Encode without max_active_dims: baseline
     query_emb = model.encode_query(query)
     doc_emb = model.encode_document(document)
 
-    # Encode with max_active_dims — should route to the same sub-modules
+    # Encode with max_active_dims: should route to the same sub-modules
     query_emb_mad = model.encode_query(query, max_active_dims=50)
     doc_emb_mad = model.encode_document(document, max_active_dims=50)
 
@@ -605,7 +605,11 @@ def test_get_model_kwargs(splade_bert_tiny_model: SparseEncoder) -> None:
         model.encode("Test sentence", task="document", foo=True, document_arg_1=12)
 
 
-@pytest.mark.parametrize("similarity_fn_name", SimilarityFunction.possible_values())
+# MaxSim is for multi-vector (3D) embeddings. SparseEncoder is single-vector so it's not applicable.
+@pytest.mark.parametrize(
+    "similarity_fn_name",
+    [v for v in SimilarityFunction.possible_values() if v != SimilarityFunction.MAXSIM.value],
+)
 def test_similarity_score(splade_bert_tiny_model: SparseEncoder, similarity_fn_name: str) -> None:
     model = splade_bert_tiny_model
     model.similarity_fn_name = similarity_fn_name
@@ -889,3 +893,38 @@ def test_encode_routes_through_module_call(splade_bert_tiny_model: SparseEncoder
     finally:
         handle.remove()
     assert calls, "encode() should invoke the model via __call__, not call forward() directly"
+
+
+def test_similarity_fn_name_rejects_multi_vector_names(splade_bert_tiny_model: SparseEncoder) -> None:
+    """MaxSim scores ragged token embeddings: setting it on a sparse model would produce wrong shapes
+    silently, so it must fail loud with a pointer to MultiVectorEncoder."""
+    with pytest.raises(ValueError, match="MultiVectorEncoder"):
+        splade_bert_tiny_model.similarity_fn_name = "maxsim"
+
+
+def test_parse_model_config_ignores_multi_vector_similarity(splade_bert_tiny_model: SparseEncoder) -> None:
+    """A saved multi-vector similarity falls through to the default instead of raising in the strict
+    setter during config parsing."""
+    model = splade_bert_tiny_model
+    original = model._similarity_fn_name
+    try:
+        model._similarity_fn_name = None
+        model._parse_model_config({"similarity_fn_name": "maxsim"})
+        assert model._similarity_fn_name is None
+    finally:
+        model._similarity_fn_name = original
+
+
+def test_conversion_keeps_prompts_from_multi_vector_save(tmp_path) -> None:
+    """Converting a save of another model type parses its config first, so saved prompts survive.
+    The source's "maxsim" similarity is unsupported here and falls back to the default."""
+    from sentence_transformers import MultiVectorEncoder
+
+    source = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    source.prompts = {"query": "find: ", "document": "text: "}
+    source.save_pretrained(str(tmp_path))
+
+    model = SparseEncoder(str(tmp_path))
+    assert model.prompts.get("query") == "find: "
+    assert model.prompts.get("document") == "text: "
+    assert model.similarity_fn_name != "maxsim"

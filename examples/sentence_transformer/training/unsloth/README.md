@@ -84,7 +84,7 @@ Your Unsloth-finetuned model can then be deployed anywhere Sentence Transformers
 
 ## Benchmarks
 
-Unsloth benchmarks indicate 1.8–3.3× speedups for embedding fine-tuning over strong FlashAttention 2 baselines, across sequence lengths from 128 to 2048 and beyond. For example, `google/embeddinggemma-300m` can be trained with QLoRA on ~3GB VRAM and with LoRA on ~6GB VRAM.
+Unsloth benchmarks indicate 1.8-3.3× speedups for embedding fine-tuning over strong FlashAttention 2 baselines, across sequence lengths from 128 to 2048 and beyond. For example, `google/embeddinggemma-300m` can be trained with QLoRA on ~3GB VRAM and with LoRA on ~6GB VRAM.
 
 For up-to-date benchmark visualizations and details, see the Unsloth documentation: [Embedding fine-tuning benchmarks](https://unsloth.ai/docs/new/embedding-finetuning#unsloth-benchmarks).
 

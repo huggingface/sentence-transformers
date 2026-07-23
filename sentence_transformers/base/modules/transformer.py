@@ -43,6 +43,7 @@ from transformers.utils import ModelOutput
 from transformers.utils import logging as transformers_logging
 from transformers.utils.import_utils import is_peft_available
 from transformers.utils.peft_utils import find_adapter_config_file
+from typing_extensions import NotRequired
 
 from sentence_transformers.backend import load_onnx_model, load_openvino_model
 from sentence_transformers.base.modality import InputFormatter, format_modality, raise_unsupported_modality_error
@@ -105,6 +106,14 @@ except ImportError:
         pass
 
 
+try:
+    from transformers import PaliGemmaProcessor
+except ImportError:
+
+    class PaliGemmaProcessor:
+        pass
+
+
 if TYPE_CHECKING and is_peft_available():
     from peft import PeftConfig
 
@@ -122,7 +131,7 @@ _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS = frozenset({"padding", "truncation", "max
 _CHAT_TEMPLATE_SUFFIX_CACHE_SIZE = 256
 
 TransformerTask = Literal[
-    "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask"
+    "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask", "retrieval"
 ]
 
 
@@ -144,11 +153,51 @@ class ModalityParams(_ModalityParamsRequired, total=False):
 
 ModalityConfig = dict[Modality, ModalityParams]
 
+
+def _resolve_retrieval_model_class(config: PretrainedConfig | PeftConfig) -> type[PreTrainedModel]:
+    """Resolve the concrete ``*ForRetrieval`` class (ColPali, ColQwen2, ...) for ``transformer_task="retrieval"``.
+
+    transformers (as of v5.13) has no ``AutoModelForRetrieval``, and ``MODEL_FOR_RETRIEVAL_MAPPING`` is
+    incomplete (missing ``colqwen2``), so fall back to the checkpoint's ``architectures`` entry.
+    """
+    try:
+        from transformers.models.auto.modeling_auto import MODEL_FOR_RETRIEVAL_MAPPING
+
+        return MODEL_FOR_RETRIEVAL_MAPPING[type(config)]
+    except (ImportError, KeyError):
+        pass
+
+    # PEFT adapter checkpoints carry a PeftConfig without `architectures`: resolve from the base
+    # model's config instead.
+    base_model_name_or_path = getattr(config, "base_model_name_or_path", None)
+    if base_model_name_or_path:
+        return _resolve_retrieval_model_class(AutoConfig.from_pretrained(base_model_name_or_path))
+
+    import transformers
+
+    for architecture in getattr(config, "architectures", None) or []:
+        model_class = getattr(transformers, architecture, None)
+        if model_class is not None:
+            return model_class
+
+    # Remote-code checkpoints (e.g. ColQwen3) define their class in-repo, so only ``auto_map`` can
+    # resolve it. AutoModel still refuses to execute that code without ``trust_remote_code``.
+    if "AutoModel" in (getattr(config, "auto_map", None) or {}):
+        return AutoModel
+
+    raise ValueError(
+        f"Could not resolve a retrieval model class for model_type {getattr(config, 'model_type', None)!r}. "
+        'The transformer_task="retrieval" expects a `*ForRetrieval` architecture, e.g. ColPali, '
+        "ColQwen2 or ColModernVBert."
+    )
+
+
 TRANSFORMER_TASK_TO_AUTO_MODEL: dict[TransformerTask, Any] = {
     "feature-extraction": AutoModel,  # Used by SentenceTransformer, also covers "image-feature-extraction"
     "sequence-classification": AutoModelForSequenceClassification,  # Used by CrossEncoder
     "text-generation": AutoModelForCausalLM,  # Used by CrossEncoder
     "fill-mask": AutoModelForMaskedLM,  # Used by SparseEncoder
+    "retrieval": None,  # Used by MultiVectorEncoder, via _resolve_retrieval_model_class
 }
 
 try:
@@ -184,6 +233,14 @@ TRANSFORMER_TASK_DEFAULTS: dict[TransformerTask, tuple[ModalityConfig, str]] = {
         {"text": {"method": "forward", "method_output_name": "logits"}},
         "token_embeddings",
     ),
+    # `*ForRetrieval` heads return already-projected, already-normalised token embeddings.
+    "retrieval": (
+        {
+            "text": {"method": "forward", "method_output_name": "embeddings"},
+            "image": {"method": "forward", "method_output_name": "embeddings"},
+        },
+        "token_embeddings",
+    ),
 }
 
 # Registry of encoder-decoder architectures whose encoder can be loaded standalone.
@@ -208,8 +265,8 @@ _ENCODER_ONLY_MODELS: list[tuple[type, str, str]] = [
     (MoonshineConfig, "transformers.models.moonshine.modeling_moonshine", "MoonshineEncoder"),
     (WhisperConfig, "transformers.models.whisper.modeling_whisper", "WhisperEncoder"),
     (MarianConfig, "transformers.models.marian.modeling_marian", "MarianEncoder"),
-    # T5Gemma2TextConfig is for loading from an already encoder-only checkpoint;
-    # loading the encoder from a full T5Gemma2Config is handled separately in _load_encoder_only_model.
+    # T5Gemma2TextConfig is for loading from an already encoder-only checkpoint.
+    # Loading the encoder from a full T5Gemma2Config is handled separately in _load_encoder_only_model.
     (T5Gemma2TextConfig, "transformers.models.t5gemma2.modeling_t5gemma2", "T5Gemma2Encoder"),
 ]
 
@@ -318,7 +375,7 @@ _FEATURE_EXTRACTION_EDGE_CASES: dict[str, tuple[ModalityConfig, str, bool]] = {
         "token_embeddings",
         False,
     ),
-    # Audio encoder models; we load only the encoder, so text decoding is not available
+    # Audio encoder models: we load only the encoder, so text decoding is not available
     "hubert": _AUDIO_MODALITY_CONFIG,
     "moonshine": _AUDIO_MODALITY_CONFIG,
     "sew": _AUDIO_MODALITY_CONFIG,
@@ -453,6 +510,75 @@ class ProcessingKwargs(TypedDict, total=False):
     chat_template: dict[str, Any]
 
 
+class QueryExpansionConfig(TypedDict):
+    """ColBERT-style query expansion config. When set, :meth:`Transformer.preprocess` expands every
+    ``task="query"`` batch, regardless of the downstream modules: only meaningful with a
+    :class:`MultiVectorMask` downstream (which scores the expansion positions), so leave it ``None``
+    for dense / sparse / cross-encoder pipelines. Keys:
+
+    * ``strategy``:
+
+      - ``"pad_skip"`` (classic ColBERT): pad queries to ``length``, swap pads for ``token``
+        (defaults to the tokenizer's ``mask_token``), and leave them at ``attention_mask=0`` so
+        the encoder skips them in the forward pass. MaxSim still scores them, the expansion
+        positions soak up query context via the asymmetric attention mask.
+      - ``"pad_attend"``: same as ``"pad_skip"`` but force ``attention_mask=1`` at expansion
+        positions so the encoder also attends to them. Used by some ColBERT variants.
+
+    * ``token``: defaults to the tokenizer's ``mask_token``.
+
+    * ``length``: pad target (total tokens after expansion). **Required** (classic ColBERT uses
+      32). This is separate from ``Transformer.query_length`` (a content-cap for truncation), so
+      the same knob doesn't quietly serve two purposes.
+
+    Both strategies exist for classic mask-token checkpoints (PyLate / Stanford-NLP ColBERT):
+    their attention-mask surgery and fixed-length pad target cannot be expressed in a chat
+    template. Modern chat-template backbones (the colpali-engine ColQwen / ColGemma / ColIdefics
+    families) should instead own their query augmentation in the checkpoint's chat template,
+    which receives the ``task`` kwarg and can e.g. append the family's suffix tokens for
+    ``task == "query"`` renders.
+    """
+
+    strategy: Literal["pad_skip", "pad_attend"]
+    token: NotRequired[str | None]
+    length: NotRequired[int]
+
+
+_VALID_QUERY_EXPANSION_KEYS: set[str] = {"strategy", "token", "length"}
+_VALID_QUERY_EXPANSION_STRATEGIES: tuple[str, ...] = ("pad_skip", "pad_attend")
+
+
+def _normalize_query_expansion(
+    query_expansion: QueryExpansionConfig | None,
+) -> QueryExpansionConfig | None:
+    """Validate the dict, fill defaults, and return a fully-populated config (or ``None`` for the
+    no-expansion case).
+    """
+    if query_expansion is None:
+        return None
+    unknown = set(query_expansion) - _VALID_QUERY_EXPANSION_KEYS
+    if unknown:
+        raise ValueError(
+            f"query_expansion has unknown keys {sorted(unknown)!r}. "
+            f"Valid keys: {sorted(_VALID_QUERY_EXPANSION_KEYS)!r}."
+        )
+    strategy = query_expansion.get("strategy")
+    if strategy not in _VALID_QUERY_EXPANSION_STRATEGIES:
+        raise ValueError(
+            f"query_expansion['strategy'] must be one of {_VALID_QUERY_EXPANSION_STRATEGIES!r}, got {strategy!r}."
+        )
+    token = query_expansion.get("token")
+    normalized: QueryExpansionConfig = {"strategy": strategy, "token": token}
+    length = query_expansion.get("length")
+    if not isinstance(length, int) or isinstance(length, bool) or length < 1:
+        raise ValueError(
+            f"query_expansion strategy={strategy!r} requires 'length': a positive int specifying "
+            "the pad target (total tokens after expansion). Classic ColBERT uses 32."
+        )
+    normalized["length"] = length
+    return normalized
+
+
 def _count_media_per_sample(messages: list[list[dict[str, Any]]]) -> tuple[list[int], list[int]]:
     """Count images and videos per sample from the message structure.
 
@@ -480,6 +606,22 @@ def _count_media_per_sample(messages: list[list[dict[str, Any]]]) -> tuple[list[
         num_images.append(img_count)
         num_videos.append(vid_count)
     return num_images, num_videos
+
+
+# Forward-kwarg filter constants: ST/tokenizer bookkeeping to never forward, plus common kwargs to always allow.
+_NON_MODEL_FEATURE_KEYS = frozenset(
+    {
+        # Sentence Transformers' own bookkeeping.
+        "modality",
+        "prompt_length",
+        "query_expansion_positions",
+        # Tokenizer extras from return_* flags (return_offsets_mapping, etc.), never forward inputs.
+        "offset_mapping",
+        "overflow_to_sample_mapping",
+        "special_tokens_mask",
+    }
+)
+_FORWARD_SAFETY_NET_KEYS = frozenset({"input_ids", "attention_mask", "token_type_ids", "inputs_embeds", "return_dict"})
 
 
 class Transformer(InputModule):
@@ -562,10 +704,25 @@ class Transformer(InputModule):
             padding for faster inference using flash attention's variable-length functions. Non-text
             inputs (images, audio, video) are always padded normally. If ``None`` (default), unpadding
             is enabled automatically when all prerequisites are met (flash attention with variable-length
-            support, ``"torch"`` backend, ``"feature-extraction"`` task). Set to ``False`` to force
+            support, ``"torch"`` backend, and the ``"feature-extraction"`` or ``"fill-mask"`` task).
+            Set to ``False`` to force
             padding, which is needed for architectures that don't support unpadded inputs (e.g.
-            ``qwen2_vl``). Set to ``True`` to request unpadding explicitly; a warning is logged if the
+            ``qwen2_vl``). Set to ``True`` to request unpadding explicitly. A warning is logged if the
             prerequisites are not met. Defaults to None.
+        query_length (int, optional): Per-task text max-length applied when ``task="query"`` reaches
+            :meth:`preprocess` (e.g. via :meth:`encode_query`). Content-cap only (truncation). ``None``
+            (default) falls back to the tokenizer's ``model_max_length``. Used by ColBERT-style
+            retrieval to cap queries shorter than documents. Not the pad target: query expansion
+            specifies its pad target via ``query_expansion["length"]``, which overrides this (a
+            smaller ``query_length`` raises when the expansion is assigned).
+        document_length (int, optional): Per-task text max-length applied when ``task="document"``
+            reaches :meth:`preprocess`. ``None`` (default) falls back to the tokenizer's
+            ``model_max_length``.
+        query_expansion (QueryExpansionConfig, optional): ColBERT-style query expansion config. See
+            :class:`QueryExpansionConfig`. ``None`` (default) means no expansion. When set, every
+            ``task="query"`` batch is expanded during preprocessing, so only set this with a
+            :class:`MultiVectorMask` downstream (leave it ``None`` for dense / sparse /
+            cross-encoder pipelines).
         max_seq_length (int, optional): Truncate any inputs longer than this value. Prefer setting
             ``model_max_length`` via ``processor_kwargs`` instead. Defaults to None.
         do_lower_case (bool, optional): If true, lowercases the input (independent of whether the model
@@ -581,7 +738,18 @@ class Transformer(InputModule):
         "module_output_name",
         "processing_kwargs",
         "unpad_inputs",
+        "query_length",
+        "document_length",
+        "query_expansion",
     ]
+    # Config keys held at their default for dense / sparse / cross-encoder use are omitted from the
+    # saved ``sentence_bert_config.json`` (see :meth:`get_config_dict`). The multi-vector machinery is
+    # paid-for only when a model actually opts into it.
+    _DEFAULT_CONFIG_VALUES: dict[str, Any] = {
+        "query_length": None,
+        "document_length": None,
+        "query_expansion": None,
+    }
     save_in_root: bool = True
     _VALID_PROCESSING_KWARGS_KEYS: set[str] = {"common", "text", "audio", "image", "video", "chat_template"}
 
@@ -599,6 +767,9 @@ class Transformer(InputModule):
         modality_config: ModalityConfig | None = None,
         module_output_name: str | None = None,
         unpad_inputs: bool | None = None,
+        query_length: int | None = None,
+        document_length: int | None = None,
+        query_expansion: QueryExpansionConfig | None = None,
         max_seq_length: int | None = None,
         do_lower_case: bool = False,
         tokenizer_name_or_path: str | None = None,
@@ -635,6 +806,11 @@ class Transformer(InputModule):
         self._prompt_length_mapping = {}
         self._method_signature_cache: dict[str, set[str]] = {}
         self._chat_template_suffix_cache: dict[Any, list[int]] = {}
+        # Per-task max-length overrides applied to the text modality. When ``task`` reaches
+        # :meth:`preprocess` as ``"query"`` / ``"document"`` we pick the matching attribute. ``None``
+        # leaves the tokenizer's default behaviour intact.
+        self.query_length = query_length
+        self.document_length = document_length
 
         config, is_peft_model = self._load_config(model_name_or_path, backend, config_kwargs)
         self._warn_on_unsupported_attention_config(config)
@@ -655,15 +831,18 @@ class Transformer(InputModule):
             model_name_or_path, transformer_task, config, backend, is_peft_model, **model_kwargs
         )
 
-        # Start from the forward signature and add common parameter names as a safety net
-        # for models that use **kwargs or a wrapper that hides them from the signature.
-        self.model_forward_params = set(inspect.signature(self.model.forward).parameters) | {
-            "input_ids",
-            "attention_mask",
-            "token_type_ids",
-            "inputs_embeds",
-            "return_dict",
-        }
+        # Unwrap PEFT first: ``PeftModel.forward`` hides the base model's multimodal params (e.g. ``pixel_values``).
+        forward_model = self.model
+        if is_peft_available():
+            from peft import PeftModel
+
+            if isinstance(forward_model, PeftModel):
+                forward_model = forward_model.get_base_model()
+        # ``None`` = forward accepts ``**kwargs`` (pass all but ST bookkeeping). Set = declared params plus safety net.
+        forward_signature = inspect.signature(forward_model.forward)
+        self.model_forward_params: set[str] | None = None
+        if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in forward_signature.parameters.values()):
+            self.model_forward_params = set(forward_signature.parameters) | _FORWARD_SAFETY_NET_KEYS
 
         if max_seq_length is not None and "model_max_length" not in processor_kwargs:
             processor_kwargs["model_max_length"] = max_seq_length
@@ -753,6 +932,10 @@ class Transformer(InputModule):
         # Evaluate whether we can skip padding
         self.unpad_inputs = unpad_inputs
 
+        # ColBERT-style query expansion. The setter normalizes the dict, fills defaults, and
+        # runs the FA2 compatibility check for the pad_skip strategy.
+        self.query_expansion = query_expansion
+
     @property
     def unpad_inputs(self) -> bool | None:
         """Whether text-only inputs are concatenated without padding for faster inference.
@@ -779,6 +962,75 @@ class Transformer(InputModule):
                     "Falling back to padded inputs."
                 )
 
+    @property
+    def query_expansion(self) -> QueryExpansionConfig | None:
+        """ColBERT-style query expansion config. See :class:`QueryExpansionConfig`. Validated and
+        normalized on assignment, so re-setting after construction is safe::
+
+            model[0].query_expansion = {"strategy": "pad_attend", "length": 32}
+            model[0].query_expansion = None  # turn off
+        """
+        return self._query_expansion
+
+    @query_expansion.setter
+    def query_expansion(self, value: QueryExpansionConfig | None) -> None:
+        expansion = _normalize_query_expansion(value)
+        # ``model`` may not exist yet during very early init. Skip tokenizer + FA2 checks until it does.
+        if expansion is not None and getattr(self, "model", None) is not None:
+            self._validate_query_expansion_token(expansion)
+            if expansion["strategy"] == "pad_skip" and self._is_flash_attention_requested():
+                raise ValueError(
+                    "FlashAttention-2 is incompatible with query_expansion strategy='pad_skip'. "
+                    "FA2 strips attention_mask=0 positions, so the [MASK] expansion tokens used by MaxSim "
+                    "never receive an attention update. Pass attn_implementation='sdpa' (preserves semantics) "
+                    "or switch to strategy='pad_attend' (changes semantics)."
+                )
+        # Expansion tokenizes with max_length=length, so a smaller query_length content cap is
+        # inexpressible: raise instead of silently ignoring it.
+        query_length = getattr(self, "query_length", None)
+        if expansion is not None and query_length is not None and query_length < expansion["length"]:
+            raise ValueError(
+                f"query_length={query_length} is smaller than query_expansion['length']={expansion['length']}. "
+                "With the pad_skip / pad_attend strategies, queries are tokenized directly to the expansion "
+                "length, so a smaller query_length content cap is not applied. Drop query_length, raise it to "
+                "at least the expansion length, or lower the expansion length."
+            )
+        self._query_expansion = expansion
+
+    def _validate_query_expansion_token(self, expansion: QueryExpansionConfig) -> None:
+        """Tokenizer-aware checks. The structural ``_normalize_query_expansion`` runs without the
+        tokenizer, so this method catches the two silent-wrong-behavior cases that require it:
+
+        * ``pad_*`` strategies with ``token=None`` fall back to ``mask_token_id``, then
+          ``eos_token_id``. If the tokenizer has neither, the preprocess swap silently no-ops and
+          the encoder sees raw pad tokens.
+        * An explicit ``token`` that isn't in the tokenizer's vocabulary resolves to
+          ``unk_token_id`` (or ``None``), silently inserting unk tokens at expansion positions.
+        """
+        if self.tokenizer is None:
+            return
+        strategy = expansion["strategy"]
+        token = expansion["token"]
+        if token is None:
+            # pad_skip / pad_attend fall back to mask_token, then eos_token (PyLate's chain:
+            # [MASK] for encoder models, EOS for decoder models without one).
+            if self.tokenizer.mask_token_id is None and self.tokenizer.eos_token_id is None:
+                raise ValueError(
+                    f"query_expansion strategy={strategy!r} with token=None falls back to the "
+                    "tokenizer's mask_token, then its eos_token, but this tokenizer has neither. "
+                    "Set ``query_expansion={..., 'token': '<your_token>'}`` explicitly."
+                )
+            return
+        token_id = self.tokenizer.convert_tokens_to_ids(token)
+        unk_id = self.tokenizer.unk_token_id
+        if token_id is None or (token_id == unk_id and token != self.tokenizer.unk_token):
+            raise ValueError(
+                f"query_expansion token={token!r} isn't in this tokenizer's vocabulary (resolves "
+                f"to {'None' if token_id is None else 'unk_token_id'}). Check your model family's "
+                "expected token: PaliGemma uses '<pad>', Qwen2/2.5/3/Omni use '<|endoftext|>', "
+                "Gemma3 uses '<eos>', Idefics3 / ModernVBERT use '<end_of_utterance>'."
+            )
+
     def _can_flatten_inputs(self) -> bool:
         """Determine whether text-only inputs can be flattened (concatenated without padding) for more efficient inference.
 
@@ -788,10 +1040,12 @@ class Transformer(InputModule):
         returns True.
 
         This requires:
-        1. The ``"feature-extraction"`` task, as model heads (e.g. ``AutoModelForSequenceClassification``)
-           are incompatible with flattened inputs.
+        1. The ``"feature-extraction"`` or ``"fill-mask"`` task. Position-reading model heads
+           (e.g. ``AutoModelForSequenceClassification``, which pools specific positions) are
+           incompatible with flattened inputs, but the masked language modelling head is strictly
+           position-wise, so its logits stay correct on a flattened sequence.
         2. The ``"text"`` modality must be supported by the model.
-        3. All modality call methods must be ``"forward"``; ``get_..._features`` methods apply heads
+        3. All modality call methods must be ``"forward"``. ``get_..._features`` methods apply heads
            that are incompatible with flattened inputs.
         4. The ``"torch"`` backend with an attention-interface-compatible model.
         5. Flash attention with variable-length function support.
@@ -803,7 +1057,7 @@ class Transformer(InputModule):
             bool: True if text-only inputs can be flattened for efficient inference.
         """
         if (
-            self.transformer_task != "feature-extraction"
+            self.transformer_task not in ("feature-extraction", "fill-mask")
             or "text" not in self.modality_config
             or self.backend != "torch"
             or not getattr(self.model, "is_backend_compatible", lambda: False)()
@@ -814,7 +1068,6 @@ class Transformer(InputModule):
         try:
             from transformers import DataCollatorWithFlattening
             from transformers.modeling_flash_attention_utils import lazy_import_flash_attention
-            from transformers.utils.generic import is_flash_attention_requested
         except ImportError:
             logger.debug(
                 "Consider upgrading to transformers >= 5.0.0 to skip padding for text-only inputs, "
@@ -822,11 +1075,10 @@ class Transformer(InputModule):
             )
             return False
 
-        attn_implementation = self.config._attn_implementation
-        if not is_flash_attention_requested(requested_attention_implementation=attn_implementation):
+        if not self._is_flash_attention_requested():
             return False
 
-        (_, flash_varlen_fn, *_), _ = lazy_import_flash_attention(attn_implementation)
+        (_, flash_varlen_fn, *_), _ = lazy_import_flash_attention(self.config._attn_implementation)
         if flash_varlen_fn is None:
             return False
 
@@ -838,17 +1090,20 @@ class Transformer(InputModule):
             return_flash_attn_kwargs=True,
             return_position_ids=True,  # Crucial for performance
         )
-        # Ensure the flash attention keys reach the model through **kwargs. They
-        # are not named parameters in the model's forward signature, but the model
-        # passes them through to its attention layers via **kwargs.
-        self.model_forward_params |= {
-            "cu_seq_lens_q",
-            "cu_seq_lens_k",
-            "max_length_q",
-            "max_length_k",
-            "seq_idx",
-        }
+        self._flatten_position_offset = self._infer_flatten_position_offset()
         return True
+
+    def _infer_flatten_position_offset(self) -> int:
+        # DataCollatorWithFlattening emits 0-based position_ids, but RoBERTa-family embeddings
+        # (XLM-R, MPNet, ...) expect positions from padding_idx + 1. No 0-based or rotary module
+        # pairs an int padding_idx with a learned position_embeddings table.
+        for module in self.model.modules():
+            padding_idx = getattr(module, "padding_idx", None)
+            if isinstance(padding_idx, int) and isinstance(
+                getattr(module, "position_embeddings", None), torch.nn.Embedding
+            ):
+                return padding_idx + 1
+        return 0
 
     @property
     def max_seq_length(self) -> int | None:
@@ -895,6 +1150,53 @@ class Transformer(InputModule):
             return self.processor
         return getattr(self.processor, "tokenizer", None)
 
+    def _chat_template_declares_task(self) -> bool:
+        """Whether the active chat template (the processor's, else the tokenizer's) uses a ``task``
+        variable, e.g. to append query augmentation tokens for ``task == "query"`` renders.
+        Reuses the template introspection transformers' own kwarg routing is based on."""
+        try:
+            from transformers.utils.chat_template_utils import _get_template_variables
+        except ImportError:
+            # Without the introspection-based kwarg routing, an extra template kwarg is harmless.
+            return True
+        template = getattr(self.processor, "chat_template", None)
+        if template is None and self.tokenizer is not None:
+            template = getattr(self.tokenizer, "chat_template", None)
+        templates = template.values() if isinstance(template, dict) else [template]
+        return any(isinstance(value, str) and "task" in _get_template_variables(value) for value in templates)
+
+    def _should_flatten_inputs(
+        self,
+        modality: Modality,
+        processor_inputs: dict[str, Any],
+        **kwargs: Any,
+    ) -> bool:
+        """Whether to pack variable-length text inputs into a single flat sequence (FA2 unpadding).
+
+        Only safe for text-only inputs, since :class:`DataCollatorWithFlattening` only handles
+        ``input_ids`` / ``labels``. Subclasses can override to opt out for specific tasks.
+        """
+        # FA2 unpadding would drop the pad positions before `preprocess` can swap them for the expansion
+        # token, so fall back to padded for expansion queries.
+        if kwargs.get("task") == "query" and self.query_expansion is not None:
+            return False
+        return self.can_flatten_inputs and (
+            modality == "text"
+            or (modality == "message" and self.input_formatter.is_text_only_messages(processor_inputs["message"]))
+        )
+
+    def _is_flash_attention_requested(self) -> bool:
+        """Whether the loaded model was configured for FlashAttention-2 (via ``attn_implementation``)."""
+        try:
+            from transformers.utils.generic import is_flash_attention_requested
+        except ImportError:
+            return False
+        attn_impl = getattr(self.config, "_attn_implementation", None)
+        if attn_impl is None:
+            # E.g. ONNX/OpenVINO-loaded configs never materialize _attn_implementation.
+            return False
+        return is_flash_attention_requested(requested_attention_implementation=attn_impl)
+
     def preprocess(
         self,
         inputs: list[SingleInput | PairInput],
@@ -910,7 +1212,7 @@ class Transformer(InputModule):
             prompt: Optional prompt to prepend to text inputs or inject as a system message.
             processing_kwargs: Per-call overrides for the processor kwargs configured on the module
                 via the ``processing_kwargs`` constructor argument. Same nested structure (modality
-                keys plus ``"common"`` and ``"chat_template"``); per-call values are merged on top of
+                keys plus ``"common"`` and ``"chat_template"``). Per-call values are merged on top of
                 the instance-level kwargs with shallow per-modality merge, so individual settings
                 (e.g. only ``max_length``) can be overridden without replacing the entire modality
                 dict. Defaults to None.
@@ -937,25 +1239,63 @@ class Transformer(InputModule):
             # padding=True ("longest") which would override that default. Restore "max_length".
             modality_kwargs["audio"]["padding"] = "max_length"
 
+        # Apply the per-task max-length override for text inputs (e.g. ColBERT-style
+        # query_length/document_length). Caller-supplied processing_kwargs still wins below.
+        task = kwargs.get("task")
+        task_max_length = (
+            self.query_length if task == "query" else self.document_length if task == "document" else None
+        )
+        # Expansion queries manage their own max_length below (pad_* pads to the config length).
+        # Skip the generic path for them.
+        expansion = self.query_expansion if task == "query" else None
+        if task_max_length is not None and expansion is None:
+            modality_kwargs["text"]["max_length"] = task_max_length
+
         effective_processing_kwargs = self._merge_processing_kwargs(processing_kwargs)
         if "common" in effective_processing_kwargs:
             common_kwargs.update(effective_processing_kwargs["common"])
         for modality_key in modality_kwargs:
             if overrides := effective_processing_kwargs.get(modality_key):  # type: ignore[arg-type]
                 modality_kwargs[modality_key].update(overrides)
+
+        # pad_skip / pad_attend: pad to the expansion length so the post-tokenization swap below has
+        # pad positions to replace. Applied after the merge so processing_kwargs can't break the fixed width.
+        if expansion is not None:
+            text_overrides = effective_processing_kwargs.get("text") or {}
+            if "padding" in text_overrides or "max_length" in text_overrides:
+                logger.warning_once(
+                    "processing_kwargs overrides the text padding or max_length, but pad_* query "
+                    "expansion requires a fixed width: re-applying padding='max_length' with the "
+                    "expansion length for query batches."
+                )
+            modality_kwargs["text"]["max_length"] = expansion["length"]
+            modality_kwargs["text"]["padding"] = "max_length"
+
         chat_template_kwargs = effective_processing_kwargs.get("chat_template", {})
+        # Task-aware templates can branch on the task, e.g. to append query augmentation tokens.
+        # Only forwarded when declared: transformers treats unknown kwargs as processor kwargs.
+        if task is not None and self._chat_template_declares_task():
+            chat_template_kwargs = {"task": task, **chat_template_kwargs}
 
         modality, processor_inputs, extra_modality_kwargs = self.input_formatter.parse_inputs(inputs)
+
+        # `*ForRetrieval` processors have no document treatment for text (always query-rendered):
+        # warn instead of silently scoring query-formatted "documents".
+        if self.transformer_task == "retrieval" and modality == "text" and task is not None and task != "query":
+            logger.warning_once(
+                f"This retrieval model's processor always renders text as a query, but task={task!r} was "
+                "requested: these inputs get the query prefix and augmentation tokens. *ForRetrieval "
+                "models expect image documents."
+            )
 
         for modality_key, extra_kwargs in extra_modality_kwargs.items():
             modality_kwargs[modality_key].update(extra_kwargs)
 
         # Flatten inputs to avoid padding overhead when using flash attention variable-length functions.
-        # Only safe for text-only inputs, since DataCollatorWithFlattening only handles input_ids/labels.
-        should_flatten = self.can_flatten_inputs and (
-            modality == "text"
-            or (modality == "message" and self.input_formatter.is_text_only_messages(processor_inputs["message"]))
-        )
+        # Subclasses can override `_should_flatten_inputs` to opt out of flattening for specific tasks
+        # (e.g. ColBERT-style query expansion, which repurposes padding positions as [MASK] tokens and
+        # therefore can't have them dropped by FA2 unpadding).
+        should_flatten = self._should_flatten_inputs(modality, processor_inputs, **kwargs)
         if should_flatten:
             del common_kwargs["return_tensors"]
             modality_kwargs["text"].pop("padding", None)
@@ -963,6 +1303,18 @@ class Transformer(InputModule):
 
         # Always convert to the message format if it's supported, since it's most flexible with e.g. defaults
         if "message" in self.modality_config and modality != "message":
+            if expansion is not None and modality == "text":
+                # The expansion length would be applied as max_length to the chat-rendered
+                # sequence, right-truncating it: at small lengths every query collapses to the
+                # identical template preamble.
+                raise ValueError(
+                    f"query_expansion strategy={expansion['strategy']!r} cannot be combined with a "
+                    "chat-template (message) backbone: queries are rendered through the chat template "
+                    "and then padded / truncated to the expansion length, which destroys the query "
+                    "content. Chat-template backbones should own their query augmentation in the "
+                    "template itself (it receives task='query'), or pin modality_config to the plain "
+                    "text modality."
+                )
             modality, processor_inputs = self.input_formatter.batch_to_message(modality, processor_inputs)
         elif modality not in self.modality_config:
             raise_unsupported_modality_error(inputs, modality, list(self.modality_config.keys()), "Transformer module")
@@ -981,10 +1333,11 @@ class Transformer(InputModule):
 
         # Track per-sample image/video counts before the processor flattens them into single tensors.
         # Losses that minibatch VLM inputs (e.g. CachedMNRL) use these counts to slice visual tensors.
-        # Only used if the Trainer updated track_media_counts to True.
+        # Only used if the Trainer updated track_media_counts to True. Not gated on self.training:
+        # trainer.evaluate() computes the eval loss under model.eval() and needs the counts too.
         num_images_per_sample = None
         num_videos_per_sample = None
-        if self.training and self.track_media_counts and modality == "message":
+        if self.track_media_counts and modality == "message":
             num_images_per_sample, num_videos_per_sample = _count_media_per_sample(processor_inputs["message"])
 
         with suggest_extra_on_exception():
@@ -1006,6 +1359,8 @@ class Transformer(InputModule):
             per_sample = [dict(zip(processor_output, values)) for values in zip(*processor_output.values())]
             processor_output = self.data_collator(per_sample)
             processor_output.pop("labels", None)
+            if self._flatten_position_offset:
+                processor_output["position_ids"] = processor_output["position_ids"] + self._flatten_position_offset
 
         processor_output["modality"] = modality
         if prompt_length is not None:
@@ -1014,6 +1369,42 @@ class Transformer(InputModule):
         if self.transformer_task in ("text-generation", "any-to-any"):
             self._verify_left_padding(processor_output, modality_kwargs, common_kwargs)
             processor_output["logits_to_keep"] = 1
+
+        # ColBERT-style query expansion (pad_skip / pad_attend): swap pad positions for the expansion
+        # token id so the encoder produces expansion-token embeddings there. The
+        # ``query_expansion_positions`` mask below tells downstream modules to score those positions.
+        is_query = task == "query"
+        expansion = self.query_expansion if is_query else None
+        if expansion is not None and self.tokenizer is not None:
+            if expansion["token"] is not None:
+                expansion_id = self.tokenizer.convert_tokens_to_ids(expansion["token"])
+            else:
+                # PyLate's fallback chain: [MASK] for encoder models, EOS for decoder models.
+                expansion_id = self.tokenizer.mask_token_id
+                if expansion_id is None:
+                    expansion_id = self.tokenizer.eos_token_id
+            pad_id = self.tokenizer.pad_token_id
+            if (
+                expansion_id is not None
+                and pad_id is not None
+                and pad_id != expansion_id
+                and "input_ids" in processor_output
+            ):
+                input_ids = processor_output["input_ids"]
+                processor_output["input_ids"] = torch.where(
+                    input_ids == pad_id,
+                    torch.tensor(expansion_id, dtype=input_ids.dtype, device=input_ids.device),
+                    input_ids,
+                )
+        # Record where the expansion tokens sit (the tokenizer's pad positions) so the downstream
+        # scoring mask can force-include exactly those positions. Recorded per position rather than
+        # as a per-batch flag so expansion strategies without fixed-width rows stay expressible.
+        if expansion is not None and "attention_mask" in processor_output:
+            processor_output["query_expansion_positions"] = processor_output["attention_mask"] == 0
+        # ``pad_attend`` forces attention_mask=1 at expansion positions so the encoder attends to
+        # them. ``pad_skip`` leaves them at 0 (the classic ColBERT "skip during forward" trick).
+        if expansion is not None and expansion["strategy"] == "pad_attend" and "attention_mask" in processor_output:
+            processor_output["attention_mask"] = torch.ones_like(processor_output["attention_mask"])
 
         return processor_output
 
@@ -1095,7 +1486,7 @@ class Transformer(InputModule):
         Args:
             features: Input features dictionary produced by :meth:`preprocess`. Must contain the
                 keys expected by the underlying model (e.g. ``input_ids``, ``pixel_values``, etc.).
-                A ``modality`` key selects the modality config to use; defaults to ``"text"``
+                A ``modality`` key selects the modality config to use. Defaults to ``"text"``
                 when absent.
             **kwargs: Additional keyword arguments forwarded to the model method (override features).
 
@@ -1121,7 +1512,13 @@ class Transformer(InputModule):
             raise ValueError(f"Model does not have the requested '{method_name}' method")
 
         if method_name == "forward":
-            filtered_kwargs = {key: value for key, value in all_kwargs.items() if key in self.model_forward_params}
+            if self.model_forward_params is None:
+                # forward accepts **kwargs: pass everything except ST's own bookkeeping keys.
+                filtered_kwargs = {
+                    key: value for key, value in all_kwargs.items() if key not in _NON_MODEL_FEATURE_KEYS
+                }
+            else:
+                filtered_kwargs = {key: value for key, value in all_kwargs.items() if key in self.model_forward_params}
         else:
             method_params = self._method_signature_cache.get(method_name)
             if method_params is None:
@@ -1193,6 +1590,10 @@ class Transformer(InputModule):
         # Edge case for timm models
         if isinstance(self.model.config, TimmWrapperConfig):
             return self.model.config.num_features
+
+        # `*ForRetrieval` heads project down to `config.embedding_dim`, not the backbone hidden size.
+        if self.transformer_task == "retrieval" and getattr(self.model.config, "embedding_dim", None) is not None:
+            return self.model.config.embedding_dim
 
         def get_hidden_size_from_config(config):
             # If we're directly outputting sentence embeddings from the transformer (e.g., using the pooler output),
@@ -1288,6 +1689,18 @@ class Transformer(InputModule):
         common_kwargs: dict[str, Any],
     ) -> dict[str, Any]:
         """Call a :class:`ProcessorMixin` processor, handling both legacy and v5 calling conventions."""
+        # `*ForRetrieval` processors reject raw image strings, and the retrieval path skips the chat
+        # template that resolves them elsewhere: load URLs / paths / base64 here (also converts to RGB).
+        if self.transformer_task == "retrieval" and "image" in processor_inputs:
+            from transformers.image_utils import load_image
+
+            processor_inputs = {
+                **processor_inputs,
+                "image": [
+                    load_image(image) if isinstance(image, str) else image for image in processor_inputs["image"]
+                ],
+            }
+
         # Convert modality keys to processor argument names (e.g., "image" -> "images")
         processor_inputs = {MODALITY_TO_PROCESSOR_ARG.get(key, key): value for key, value in processor_inputs.items()}
 
@@ -1410,6 +1823,27 @@ class Transformer(InputModule):
             chat_template_kwargs = dict(chat_template_kwargs)
             folded = {key: chat_template_kwargs.pop(key) for key in size_keys}
             modality_kwargs = {**modality_kwargs, "text": {**modality_kwargs["text"], **folded}}
+
+        # PaliGemmaProcessor refuses text-only inputs. Fall back to the tokenizer's apply_chat_template
+        # (same token ids). Extend the isinstance check if other processors share the constraint.
+        if (
+            isinstance(self.processor, PaliGemmaProcessor)
+            and self.tokenizer is not None
+            and self.input_formatter.is_text_only_messages(messages)
+        ):
+            top_level_kwarg_names = {"padding", "truncation", "max_length", "return_tensors"}
+            top_level_kwargs = {key: common_kwargs.pop(key) for key in top_level_kwarg_names & common_kwargs.keys()}
+            top_level_kwargs |= {
+                key: modality_kwargs["text"].pop(key) for key in top_level_kwarg_names & modality_kwargs["text"].keys()
+            }
+            return self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                return_dict=True,
+                **top_level_kwargs,
+                **modality_kwargs["text"],
+                **chat_template_kwargs,
+            )
 
         if isinstance(self.processor, ProcessorMixin):
             # Transformers v5.4.0 prefers us to pass processor_kwargs as a single dict, but there's still some top level
@@ -1653,6 +2087,10 @@ class Transformer(InputModule):
         Returns None if the processor does not produce ``input_ids``.
         """
         # TODO: Perhaps mirror the _chat_template_suffix_ids implementation with 2 forwards and then checking the common prefix
+        # The prompt is measured under plain tokenization: with the task kept, query expansion would pad
+        # the lone prompt to the expansion length and report that width instead of the prompt's own size.
+        # Task is also excluded from the cache key so the same prompt is measured once across tasks.
+        kwargs = {key: value for key, value in kwargs.items() if key != "task"}
         cache_key = (prompt, *sorted(kwargs.items()))
         if cache_key in self._prompt_length_mapping:
             return self._prompt_length_mapping[cache_key]
@@ -1742,9 +2180,7 @@ class Transformer(InputModule):
     def _load_model(
         self,
         model_name_or_path: str,
-        transformer_task: Literal[
-            "feature-extraction", "sequence-classification", "text-generation", "any-to-any", "fill-mask"
-        ],
+        transformer_task: TransformerTask,
         config: PeftConfig | PretrainedConfig,
         backend: str,
         is_peft_model: bool,
@@ -1772,7 +2208,11 @@ class Transformer(InputModule):
                 if model is not None:
                     return model
 
-            model_cls = TRANSFORMER_TASK_TO_AUTO_MODEL[transformer_task]
+            if transformer_task == "retrieval":
+                # No AutoModelForRetrieval exists: resolve the concrete `*ForRetrieval` class per checkpoint.
+                model_cls = _resolve_retrieval_model_class(config)
+            else:
+                model_cls = TRANSFORMER_TASK_TO_AUTO_MODEL[transformer_task]
             return model_cls.from_pretrained(model_name_or_path, config=config, **model_kwargs)
         elif backend == "onnx":
             return load_onnx_model(
@@ -2051,6 +2491,7 @@ class Transformer(InputModule):
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
         backend: str = "torch",
+        init_defaults: dict[str, Any] | None = None,
         **kwargs,
     ) -> Self:
         """Load a Transformer module from a pretrained model directory or Hugging Face model name."""
@@ -2067,6 +2508,9 @@ class Transformer(InputModule):
             config_kwargs=config_kwargs,
             backend=backend,
         )
+        # init_kwargs has priority over init_defaults
+        for key, value in (init_defaults or {}).items():
+            init_kwargs.setdefault(key, value)
         return cls(model_name_or_path=model_name_or_path, **init_kwargs)
 
     @classmethod
@@ -2244,6 +2688,11 @@ class Transformer(InputModule):
             config_dict.pop("processing_kwargs", None)
         if self.unpad_inputs is None:
             config_dict.pop("unpad_inputs", None)
+        # Drop multi-vector knobs held at their dense/sparse/cross-encoder defaults so
+        # ``sentence_bert_config.json`` for non-multi-vector models stays uncluttered.
+        for key, default in self._DEFAULT_CONFIG_VALUES.items():
+            if config_dict.get(key) == default:
+                config_dict.pop(key, None)
         return config_dict
 
     def __repr__(self) -> str:

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from .dataset import resolve_ids
 from .decorators import save_to_hub_args_decorator
-from .distributed import all_gather, all_gather_with_grad
+from .distributed import all_gather, all_gather_padded, all_gather_with_grad, get_rank, get_world_size
 from .environment import (
     check_package_availability,
     get_device_name,
@@ -36,6 +37,8 @@ from .similarity import (
     dot_score,
     euclidean_sim,
     manhattan_sim,
+    maxsim,
+    maxsim_pairwise,
     pairwise_angle_sim,
     pairwise_cos_sim,
     pairwise_dot_score,
@@ -48,9 +51,12 @@ from .tensor import (
     _convert_to_batch_tensor,
     _convert_to_tensor,
     batch_to_device,
+    cat_padded_token_embeddings,
     compute_count_vector,
     normalize_embeddings,
+    repad_flattened_features,
     select_max_active_dims,
+    stack_padded_token_embeddings,
     to_scipy_coo,
     truncate_embeddings,
 )
@@ -60,7 +66,10 @@ __all__ = [
     "save_to_hub_args_decorator",
     # From distributed.py
     "all_gather",
+    "all_gather_padded",
     "all_gather_with_grad",
+    "get_rank",
+    "get_world_size",
     # From environment.py
     "get_device_name",
     "check_package_availability",
@@ -99,6 +108,8 @@ __all__ = [
     "dot_score",
     "euclidean_sim",
     "manhattan_sim",
+    "maxsim",
+    "maxsim_pairwise",
     "pairwise_angle_sim",
     "pairwise_cos_sim",
     "pairwise_dot_score",
@@ -110,11 +121,16 @@ __all__ = [
     "_convert_to_batch_tensor",
     "_convert_to_tensor",
     "batch_to_device",
+    "cat_padded_token_embeddings",
+    "compute_count_vector",
     "normalize_embeddings",
+    "repad_flattened_features",
     "select_max_active_dims",
+    "stack_padded_token_embeddings",
     "to_scipy_coo",
     "truncate_embeddings",
-    "compute_count_vector",
     # From hard_negatives.py
     "mine_hard_negatives",
+    # From dataset.py
+    "resolve_ids",
 ]

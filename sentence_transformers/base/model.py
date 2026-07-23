@@ -69,13 +69,13 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     # The default Hugging Face organization to prepend to short model names.
     default_huggingface_organization: str | None = None
     # Default prompts to initialize for new model instances. Use None as the value for prompts
-    # that should be filled by the saved model config; empty string "" means intentionally blank.
+    # that should be filled by the saved model config. Empty string "" means intentionally blank.
     _default_prompts: dict[str, str | None] = {}
     # The placeholder model ID in model card templates that gets replaced with the actual model ID.
     _model_card_model_id_placeholder: str = "sentence_transformers_model_id"
     # The archetype identifier written to `config_sentence_transformers.json` and used to
     # discriminate which loader path runs (see `_load_modules`). Subclasses inherit the
-    # archetype value by default; override on a subclass to opt out of that identity.
+    # archetype value by default. Override on a subclass to opt out of that identity.
     model_type: str
 
     def __init__(
@@ -218,6 +218,11 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             ):
                 model_name_or_path = f"{self.default_huggingface_organization}/{model_name_or_path}"
 
+        if model_name_or_path and modules is not None:
+            logger.warning(
+                "Both `model_name_or_path` and `modules` were provided. The modules are loaded from "
+                "`model_name_or_path`, so the `modules` argument is ignored."
+            )
         if model_name_or_path:
             modules, self.module_kwargs = self._load_modules(
                 model_name_or_path,
@@ -425,7 +430,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             return input_module.can_flatten_inputs
         if isinstance(input_module, Router):
             for route in input_module.sub_modules.values():
-                # Each route is nn.Sequential; the first child is the Transformer
+                # Each route is nn.Sequential. The first child is the Transformer
                 first_in_route = next(iter(route.children()), None)
                 if not isinstance(first_in_route, Transformer) or not first_in_route.can_flatten_inputs:
                     return False
@@ -1109,7 +1114,7 @@ This pull request has been automatically generated to add {self.__class__.__name
 
             self._parse_model_config(model_config)
 
-        # Check if a readme exists. README is optional metadata; a transient Hub error
+        # Check if a readme exists. README is optional metadata. A transient Hub error
         # here shouldn't block model loading.
         try:
             model_card_path = load_file_path(
@@ -1168,8 +1173,8 @@ This pull request has been automatically generated to add {self.__class__.__name
             if len(load_signature.parameters) == 1:
                 signature = inspect.signature(module_class.__init__)
                 # Detect Transformer-based modules by checking for model/config kwargs in __init__.
-                # Old custom modules (e.g. jinaai/jina-embeddings-v3) use model_args/config_args;
-                # new-style modules use model_kwargs/config_kwargs.
+                # Old custom modules (e.g. jinaai/jina-embeddings-v3) use model_args/config_args.
+                # New-style modules use model_kwargs/config_kwargs.
                 init_params = set(signature.parameters)
                 uses_old_names = {"model_args", "config_args", "tokenizer_args"} & init_params
                 uses_new_names = {"model_kwargs", "config_kwargs"} <= init_params
@@ -1224,6 +1229,11 @@ This pull request has been automatically generated to add {self.__class__.__name
                     module = module_class.load(local_path)
 
             else:
+                # Only pass a non-empty init_defaults: third-party load() overrides without **kwargs would fail
+                extra_load_kwargs = {}
+                if init_defaults := self._get_module_init_defaults(class_ref):
+                    extra_load_kwargs["init_defaults"] = init_defaults
+
                 # Newer modules that support the new loading method are loaded with the new style
                 # i.e. with many keyword arguments that can optionally be used by the modules
                 module = module_class.load(
@@ -1240,6 +1250,7 @@ This pull request has been automatically generated to add {self.__class__.__name
                     processor_kwargs=processor_kwargs,
                     config_kwargs=config_kwargs,
                     backend=self.backend,
+                    **extra_load_kwargs,
                 )
 
             modules[module_config["name"]] = module
@@ -1283,6 +1294,22 @@ This pull request has been automatically generated to add {self.__class__.__name
         config_kwargs: dict[str, Any] | None = None,
         model_type: str | None = None,
     ) -> tuple[list[nn.Module] | OrderedDict[str, nn.Module], dict[str, Any]]:
+        """Load a save of a different model type by building this class's default modules on top of it.
+
+        The source's ``config_sentence_transformers.json`` (prompts etc.) is parsed first so it
+        survives the conversion (same-type loads get this via :meth:`_load_config_modules`).
+        """
+        config_path = load_file_path(
+            model_name_or_path,
+            "config_sentence_transformers.json",
+            token=token,
+            cache_folder=cache_folder,
+            revision=revision,
+            local_files_only=local_files_only,
+        )
+        if config_path is not None:
+            with open(config_path, encoding="utf8") as fIn:
+                self._parse_model_config(json.load(fIn))
         return self._load_default_modules(
             model_name_or_path,
             token=token,
@@ -1340,6 +1367,18 @@ This pull request has been automatically generated to add {self.__class__.__name
             config = json.load(fIn)
             # Older SentenceTransformer models won't have "model_type", so those default to "SentenceTransformer"
             return config.get("model_type", "SentenceTransformer")
+
+    def _get_module_init_defaults(self, class_ref: str) -> dict[str, Any]:
+        """Hook for subclasses to inject extra defaults into a module's ``__init__`` at load time.
+
+        Returned kwargs are forwarded to ``module_class.load(..., init_defaults=...)`` and applied
+        with ``setdefault`` priority: saved config wins, so this only fills keys the saved config
+        omitted. Used by :class:`~sentence_transformers.MultiVectorEncoder` to flip the
+        ``query_expansion`` / ``query_length`` / ``document_length`` knobs on for the backbone
+        Transformer when promoting a dense SentenceTransformer or PyLate v3 checkpoint, without
+        post-init ``setattr`` + re-validation. Base implementation returns ``{}``.
+        """
+        return {}
 
     def _load_module_class_from_ref(
         self,
@@ -1400,6 +1439,13 @@ This pull request has been automatically generated to add {self.__class__.__name
         # Propagate the gradient checkpointing to the transformer model
         for module in self.modules():
             if module is not self and hasattr(module, "gradient_checkpointing_enable"):
+                if getattr(module, "supports_gradient_checkpointing", True) is False:
+                    # e.g. a `*ForRetrieval` wrapper that doesn't declare support while its inner
+                    # model does: skip it so the supporting submodules still enable checkpointing.
+                    logger.warning_once(
+                        f"{type(module).__name__} does not support gradient checkpointing, skipping it."
+                    )
+                    continue
                 try:
                     module.gradient_checkpointing_enable(gradient_checkpointing_kwargs)
                 except TypeError:

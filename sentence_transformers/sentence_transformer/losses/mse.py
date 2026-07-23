@@ -46,7 +46,7 @@ class MSELoss(EmbedDistillLoss):
                text column, shape ``(batch_size, teacher_dim)``. For multiple text columns
                with per-column teacher embeddings, shape ``(batch_size, num_columns, teacher_dim)``.
                2D labels with multiple text columns are broadcast (same teacher embedding
-               targeted by every column; useful for multilingual distillation).
+               targeted by every column, useful for multilingual distillation).
 
         Inputs:
             +-----------------------------------------+-----------------------------------------------------+

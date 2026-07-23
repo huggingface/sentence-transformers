@@ -7,8 +7,8 @@ from __future__ import annotations
 import copy
 import json
 import logging
-import os
 import re
+import shutil
 import tempfile
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -43,10 +43,15 @@ from sentence_transformers.sentence_transformer.modules import (
 from sentence_transformers.util.similarity import SimilarityFunction
 from tests.utils import is_ci
 
+skip_if_torch_cannot_load_bin = pytest.mark.skipif(
+    parse(torch.__version__) < Version("2.6"),
+    reason="transformers v5 requires torch>=2.6 to load pytorch_model.bin checkpoints (CVE-2025-32434)",
+)
+
 
 def test_load_with_safetensors() -> None:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache_folder:
-        safetensors_model = SentenceTransformer(
+        SentenceTransformer(
             "sentence-transformers-testing/stsb-bert-tiny-safetensors",
             cache_folder=cache_folder,
         )
@@ -57,6 +62,9 @@ def test_load_with_safetensors() -> None:
         safetensors_files = list(Path(cache_folder).glob("**/model.safetensors"))
         assert 1 == len(safetensors_files), "Safetensors model file must be downloaded."
 
+
+@skip_if_torch_cannot_load_bin
+def test_load_with_pytorch_bin(stsb_bert_tiny_model: SentenceTransformer) -> None:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache_folder:
         transformer = Transformer(
             "sentence-transformers-testing/stsb-bert-tiny-safetensors",
@@ -74,7 +82,7 @@ def test_load_with_safetensors() -> None:
 
     sentences = ["This is a test sentence", "This is another test sentence"]
     assert torch.equal(
-        safetensors_model.encode(sentences, convert_to_tensor=True),
+        stsb_bert_tiny_model.encode(sentences, convert_to_tensor=True),
         pytorch_model.encode(sentences, convert_to_tensor=True),
     ), "Ensure that Safetensors and PyTorch loaded models result in identical embeddings"
 
@@ -311,7 +319,7 @@ def test_load_local_without_normalize_directory(stsb_bert_tiny_model: SentenceTr
         model.save(str(model_path))
 
         assert (model_path / "2_Normalize").exists()
-        os.rmdir(model_path / "2_Normalize")
+        shutil.rmtree(model_path / "2_Normalize")
         assert not (model_path / "2_Normalize").exists()
 
         # This fails in v2.3.0
@@ -473,7 +481,9 @@ def test_prompt_length_calculation(
     if has_bos_token:
         only_prompt_length += 1
 
-    assert model[0]._prompt_length_mapping == {("Prompt: ", ("task", "query")): only_prompt_length}
+    # The task is not part of the cache key: prompts are measured under plain tokenization
+    # (with the task kept, query expansion would pad the lone prompt to the expansion length).
+    assert model[0]._prompt_length_mapping == {("Prompt: ",): only_prompt_length}
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test float16 support.")
@@ -657,7 +667,7 @@ def test_encode_truncate(
         # Test content
         if normalize_embeddings:
             if output_value is None:
-                # Currently, normalization is not performed; it's the raw output of the forward pass
+                # Currently, normalization is not performed: it's the raw output of the forward pass
                 pass
             else:
                 normalize = partial(torch.nn.functional.normalize, p=2, dim=-1)
@@ -693,7 +703,11 @@ def test_encode_truncate(
     test(model, expected_dim=original_output_dim)
 
 
-@pytest.mark.parametrize("similarity_fn_name", SimilarityFunction.possible_values())
+# MaxSim is for multi-vector (3D) embeddings. SentenceTransformer is single-vector so it's not applicable.
+@pytest.mark.parametrize(
+    "similarity_fn_name",
+    [v for v in SimilarityFunction.possible_values() if v != SimilarityFunction.MAXSIM.value],
+)
 def test_similarity_score(stsb_bert_tiny_model: SentenceTransformer, similarity_fn_name: str) -> None:
     model = stsb_bert_tiny_model
     model.similarity_fn_name = similarity_fn_name
@@ -952,6 +966,8 @@ def test_load_adapter_with_revision():
     assert embeddings.shape == (128,)
 
 
+# The default openai/clip-vit-base-patch32 repository only provides pytorch_model.bin weights
+@skip_if_torch_cannot_load_bin
 def test_clip():
     model = CLIPModel()
     assert model.max_seq_length == 77
@@ -1334,10 +1350,15 @@ def test_router_transformers_model_property(
 @pytest.mark.parametrize(
     ("model_name", "expected_pooling_mode"),
     [
-        ("hf-internal-testing/tiny-random-LlamaForCausalLM", "lasttoken"),
-        ("hf-internal-testing/tiny-random-BertLMHeadModel", "mean"),
+        pytest.param("hf-internal-testing/tiny-random-LlamaForCausalLM", "lasttoken", id="causal_lm"),
+        # tiny-random-BertLMHeadModel only provides pytorch_model.bin weights
+        pytest.param(
+            "hf-internal-testing/tiny-random-BertLMHeadModel",
+            "mean",
+            id="encoder",
+            marks=skip_if_torch_cannot_load_bin,
+        ),
     ],
-    ids=["causal_lm", "encoder"],
 )
 def test_default_pooling_mode(model_name: str, expected_pooling_mode: str) -> None:
     """CausalLM models should default to last-token pooling, while encoder models default to mean pooling."""
@@ -1363,3 +1384,40 @@ def test_default_pooling_mode_causal_lm_with_is_causal_false(monkeypatch: pytest
         pooling_module = model[1]
         assert isinstance(pooling_module, Pooling)
         assert pooling_module.pooling_mode == "mean"
+
+
+def test_similarity_fn_name_rejects_multi_vector_names(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """MaxSim scores ragged token embeddings: setting it on a dense model would produce wrong shapes
+    silently, so it must fail loud with a pointer to MultiVectorEncoder."""
+    with pytest.raises(ValueError, match="MultiVectorEncoder"):
+        stsb_bert_tiny_model.similarity_fn_name = "maxsim"
+
+
+def test_parse_model_config_ignores_multi_vector_similarity(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """A saved multi-vector similarity (e.g. converting a MultiVectorEncoder save) falls through to
+    the default instead of raising in the strict setter during config parsing."""
+    model = stsb_bert_tiny_model
+    original = model._similarity_fn_name
+    try:
+        model._similarity_fn_name = None
+        model._parse_model_config({"similarity_fn_name": "maxsim"})
+        assert model._similarity_fn_name is None
+        model._parse_model_config({"similarity_fn_name": "dot"})
+        assert model._similarity_fn_name == "dot"
+    finally:
+        model._similarity_fn_name = original
+
+
+def test_conversion_keeps_prompts_from_multi_vector_save(tmp_path) -> None:
+    """Converting a save of another model type parses its config first, so saved prompts survive.
+    The source's "maxsim" similarity is unsupported here and falls back to the default."""
+    from sentence_transformers import MultiVectorEncoder
+
+    source = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    source.prompts = {"query": "find: ", "document": "text: "}
+    source.save_pretrained(str(tmp_path))
+
+    model = SentenceTransformer(str(tmp_path))
+    assert model.prompts.get("query") == "find: "
+    assert model.prompts.get("document") == "text: "
+    assert model.similarity_fn_name == "cosine"

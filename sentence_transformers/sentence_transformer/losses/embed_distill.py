@@ -40,8 +40,8 @@ class EmbedDistillLoss(nn.Module):
                 that maps student embeddings into the teacher's embedding space before the
                 distance is computed. Use this when the student and teacher have different
                 embedding dimensions. The projection layer lives on the loss and gets trained
-                alongside the student. By default it is not persisted with the saved model;
-                use `save_projection` / `load_projection` to reuse it across runs, e.g. for
+                alongside the student. By default it is not persisted with the saved model.
+                Use `save_projection` / `load_projection` to reuse it across runs, e.g. for
                 multi-stage training. Defaults to None (no projection).
 
         References:
@@ -53,7 +53,7 @@ class EmbedDistillLoss(nn.Module):
                text column, shape ``(batch_size, teacher_dim)``. For multiple text columns
                with per-column teacher embeddings, shape ``(batch_size, num_columns, teacher_dim)``.
                2D labels with multiple text columns are broadcast (same teacher embedding
-               targeted by every column; useful for multilingual distillation).
+               targeted by every column, useful for multilingual distillation).
 
         Inputs:
             +-----------------------------------------+-----------------------------------------------------+
@@ -66,7 +66,7 @@ class EmbedDistillLoss(nn.Module):
             +-----------------------------------------+-----------------------------------------------------+
 
         Relations:
-            - :class:`MSELoss` is a subclass that fixes ``distance_metric="mse"``; use it
+            - :class:`MSELoss` is a subclass that fixes ``distance_metric="mse"``. Use it
               when distilling into a model of the same dimension as the teacher (the classic
               monolingual-to-multilingual setup).
             - :class:`MarginMSELoss` and :class:`DistillKLDivLoss` perform *score-based*
@@ -227,7 +227,7 @@ class EmbedDistillLoss(nn.Module):
         """Persist the projection layer's weights so they can be reused in a later run.
 
         The standard Trainer save path only writes the student model, not the loss
-        module's parameters; without this, a learned projection is lost between runs.
+        module's parameters. Without this, a learned projection is lost between runs.
         Saving it lets you reuse the projection in a later run via `load_projection`.
         Typical use case is multi-stage training.
 

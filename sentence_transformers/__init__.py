@@ -19,6 +19,12 @@ from sentence_transformers.cross_encoder import (
     CrossEncoderTrainer,
     CrossEncoderTrainingArguments,
 )
+from sentence_transformers.multi_vector_encoder import (
+    MultiVectorEncoder,
+    MultiVectorEncoderModelCardData,
+    MultiVectorEncoderTrainer,
+    MultiVectorEncoderTrainingArguments,
+)
 from sentence_transformers.sentence_transformer.datasets import ParallelSentencesDataset, SentencesDataset
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.model_card import SentenceTransformerModelCardData
@@ -31,7 +37,7 @@ from sentence_transformers.sparse_encoder import (
     SparseEncoderTrainer,
     SparseEncoderTrainingArguments,
 )
-from sentence_transformers.util import mine_hard_negatives
+from sentence_transformers.util import mine_hard_negatives, resolve_ids
 from sentence_transformers.util.deprecated_import import setup_deprecated_module_imports
 from sentence_transformers.util.logging import LoggingHandler
 from sentence_transformers.util.quantization import quantize_embeddings
@@ -66,6 +72,10 @@ __all__ = [
     "SparseEncoderTrainer",
     "SparseEncoderTrainingArguments",
     "SparseEncoderModelCardData",
+    "MultiVectorEncoder",
+    "MultiVectorEncoderTrainer",
+    "MultiVectorEncoderTrainingArguments",
+    "MultiVectorEncoderModelCardData",
     "quantize_embeddings",
     "export_optimized_onnx_model",
     "export_dynamic_quantized_onnx_model",
@@ -73,4 +83,5 @@ __all__ = [
     "DefaultBatchSampler",
     "MultiDatasetDefaultBatchSampler",
     "mine_hard_negatives",
+    "resolve_ids",
 ]
