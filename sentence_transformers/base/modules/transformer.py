@@ -179,6 +179,12 @@ def _resolve_retrieval_model_class(config: PretrainedConfig | PeftConfig) -> typ
         model_class = getattr(transformers, architecture, None)
         if model_class is not None:
             return model_class
+
+    # Remote-code checkpoints (e.g. ColQwen3) define their class in-repo, so only ``auto_map`` can
+    # resolve it. AutoModel still refuses to execute that code without ``trust_remote_code``.
+    if "AutoModel" in (getattr(config, "auto_map", None) or {}):
+        return AutoModel
+
     raise ValueError(
         f"Could not resolve a retrieval model class for model_type {getattr(config, 'model_type', None)!r}. "
         'The transformer_task="retrieval" expects a `*ForRetrieval` architecture, e.g. ColPali, '
