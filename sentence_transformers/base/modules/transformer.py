@@ -704,7 +704,8 @@ class Transformer(InputModule):
             padding for faster inference using flash attention's variable-length functions. Non-text
             inputs (images, audio, video) are always padded normally. If ``None`` (default), unpadding
             is enabled automatically when all prerequisites are met (flash attention with variable-length
-            support, ``"torch"`` backend, ``"feature-extraction"`` task). Set to ``False`` to force
+            support, ``"torch"`` backend, and the ``"feature-extraction"`` or ``"fill-mask"`` task).
+            Set to ``False`` to force
             padding, which is needed for architectures that don't support unpadded inputs (e.g.
             ``qwen2_vl``). Set to ``True`` to request unpadding explicitly. A warning is logged if the
             prerequisites are not met. Defaults to None.
@@ -1039,8 +1040,10 @@ class Transformer(InputModule):
         returns True.
 
         This requires:
-        1. The ``"feature-extraction"`` task, as model heads (e.g. ``AutoModelForSequenceClassification``)
-           are incompatible with flattened inputs.
+        1. The ``"feature-extraction"`` or ``"fill-mask"`` task. Position-reading model heads
+           (e.g. ``AutoModelForSequenceClassification``, which pools specific positions) are
+           incompatible with flattened inputs, but the masked language modelling head is strictly
+           position-wise, so its logits stay correct on a flattened sequence.
         2. The ``"text"`` modality must be supported by the model.
         3. All modality call methods must be ``"forward"``. ``get_..._features`` methods apply heads
            that are incompatible with flattened inputs.
@@ -1054,7 +1057,7 @@ class Transformer(InputModule):
             bool: True if text-only inputs can be flattened for efficient inference.
         """
         if (
-            self.transformer_task != "feature-extraction"
+            self.transformer_task not in ("feature-extraction", "fill-mask")
             or "text" not in self.modality_config
             or self.backend != "torch"
             or not getattr(self.model, "is_backend_compatible", lambda: False)()

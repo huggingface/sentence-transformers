@@ -75,6 +75,12 @@ class SpladePooling(Module):
         Returns:
             Dictionary containing SPLADE pooled embeddings
         """
+        if "cu_seq_lens_q" in features:
+            # FA2 input unpadding kept the MLM logits flat (`(1, sum_lens, vocab)`). Pool each
+            # sequence's segment directly on the flat tensor: re-padding at vocab width would be
+            # the expensive part, and the flat segments contain no padding to mask out.
+            return self._forward_flattened(features)
+
         mlm_logits = features["token_embeddings"]
         attention_mask = features["attention_mask"]  # Shape: [batch_size, seq_length]
 
@@ -129,6 +135,27 @@ class SpladePooling(Module):
                         "but will allow for larger batch sizes."
                     )
                 raise e
+
+        if self.embedding_dimension is None:
+            self.embedding_dimension = pooled_scores.shape[1]
+        features["sentence_embedding"] = pooled_scores
+        return features
+
+    def _forward_flattened(self, features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        flat_logits = features["token_embeddings"].squeeze(0)  # (total_tokens, vocab_size)
+        cu_seq_lens = features["cu_seq_lens_q"].tolist()
+
+        # Transform per segment inside the loop: a transformed copy of the full flat logits would
+        # double this module's peak memory, which is what caps the reachable batch size.
+        reduce = torch.amax if self.pooling_strategy == "max" else torch.sum
+        pooled = []
+        for start, end in zip(cu_seq_lens[:-1], cu_seq_lens[1:]):
+            transformed = flat_logits[start:end].relu()
+            transformed = transformed.log1p() if self.training else transformed.log1p_()
+            if self.activation_function == "log1p_relu":
+                transformed = transformed.log1p() if self.training else transformed.log1p_()
+            pooled.append(reduce(transformed, dim=0))
+        pooled_scores = torch.stack(pooled)
 
         if self.embedding_dimension is None:
             self.embedding_dimension = pooled_scores.shape[1]
