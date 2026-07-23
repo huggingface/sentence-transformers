@@ -1751,6 +1751,7 @@ class TestConditionalFlattening:
         """A BERT transformer with can_flatten_inputs=True and a mock data_collator."""
         transformer = Transformer(TINY_BERT)
         transformer.can_flatten_inputs = True
+        transformer._flatten_position_offset = transformer._infer_flatten_position_offset()
         transformer.data_collator = MagicMock(
             return_value={"input_ids": torch.tensor([1, 2, 3]), "position_ids": torch.tensor([0, 1, 2])}
         )
