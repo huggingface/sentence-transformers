@@ -30,6 +30,8 @@ transformer_module = sys.modules[Transformer.__module__]
 TINY_BERT = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
 TINY_LLAMA = "hf-internal-testing/tiny-random-LlamaForCausalLM"
 TINY_LLAVA = "hf-internal-testing/tiny-random-LlavaForConditionalGeneration"
+TINY_XLMR = "hf-internal-testing/tiny-xlm-roberta"
+TINY_ALTCLIP = "hf-internal-testing/tiny-random-AltCLIPModel"
 
 # Uneven lengths, so that padding is actually applied and the padded side is observable.
 RAGGED_BATCH = ["hi", "a considerably longer sentence than the other one"]
@@ -39,6 +41,25 @@ RAGGED_BATCH = ["hi", "a considerably longer sentence than the other one"]
 def bert_tiny_transformer(stsb_bert_tiny_model) -> Transformer:
     """A lightweight BERT Transformer for reuse across tests."""
     return stsb_bert_tiny_model[0]
+
+
+def test_infer_flatten_position_offset(bert_tiny_transformer):
+    """RoBERTa-family embeddings compute positions starting at padding_idx + 1, so flattened
+    inputs need their collator-produced 0-based position_ids shifted. The submodule scan keys on
+    an int padding_idx next to a learned position_embeddings table: BERT-style embeddings store
+    neither, rotary decoders store padding_idx on the Model class without position_embeddings,
+    and multimodal wrappers nest the offset embeddings below ``.embeddings``."""
+    assert bert_tiny_transformer._infer_flatten_position_offset() == 0
+
+    xlmr = Transformer(TINY_XLMR)
+    assert xlmr.model.embeddings.padding_idx == 1
+    assert xlmr._infer_flatten_position_offset() == 2
+
+    llama = Transformer(TINY_LLAMA)
+    assert llama._infer_flatten_position_offset() == 0
+
+    altclip = Transformer(TINY_ALTCLIP)
+    assert altclip._infer_flatten_position_offset() == 2
 
 
 def test_preprocess_unsupported_modality_uses_shared_error(bert_tiny_transformer):
