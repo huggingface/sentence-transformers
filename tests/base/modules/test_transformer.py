@@ -5,6 +5,7 @@ import logging
 import sys
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -13,7 +14,7 @@ import torch
 from packaging.version import Version
 from packaging.version import parse as parse_version
 from tokenizers.normalizers import NFC, Lowercase, Sequence
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoConfig, AutoModel, AutoProcessor
 from transformers import __version__ as transformers_version
 from transformers.utils import is_torchvision_available, is_vision_available
 
@@ -30,6 +31,8 @@ transformer_module = sys.modules[Transformer.__module__]
 TINY_BERT = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
 TINY_LLAMA = "hf-internal-testing/tiny-random-LlamaForCausalLM"
 TINY_LLAVA = "hf-internal-testing/tiny-random-LlavaForConditionalGeneration"
+TINY_XLMR = "hf-internal-testing/tiny-xlm-roberta"
+TINY_ALTCLIP = "hf-internal-testing/tiny-random-AltCLIPModel"
 
 # Uneven lengths, so that padding is actually applied and the padded side is observable.
 RAGGED_BATCH = ["hi", "a considerably longer sentence than the other one"]
@@ -39,6 +42,27 @@ RAGGED_BATCH = ["hi", "a considerably longer sentence than the other one"]
 def bert_tiny_transformer(stsb_bert_tiny_model) -> Transformer:
     """A lightweight BERT Transformer for reuse across tests."""
     return stsb_bert_tiny_model[0]
+
+
+def test_infer_flatten_position_offset(bert_tiny_transformer):
+    """RoBERTa-family embeddings compute positions starting at padding_idx + 1, so flattened
+    inputs need their collator-produced 0-based position_ids shifted. The submodule scan keys on
+    an int padding_idx next to a learned position_embeddings table: BERT-style embeddings store
+    neither, rotary decoders store padding_idx on the Model class without position_embeddings,
+    and multimodal wrappers nest the offset embeddings below ``.embeddings``."""
+    assert bert_tiny_transformer._infer_flatten_position_offset() == 0
+
+    def offset_of(model) -> int:
+        return Transformer._infer_flatten_position_offset(SimpleNamespace(model=model))
+
+    # The scan only reads module structure, so build from config alone: these repos' weight files
+    # predate safetensors, and loading them trips the torch.load guard on torch < 2.6.
+    xlmr = AutoModel.from_config(AutoConfig.from_pretrained(TINY_XLMR))
+    assert xlmr.embeddings.padding_idx == 1
+    assert offset_of(xlmr) == 2
+
+    assert offset_of(AutoModel.from_config(AutoConfig.from_pretrained(TINY_LLAMA))) == 0
+    assert offset_of(AutoModel.from_config(AutoConfig.from_pretrained(TINY_ALTCLIP))) == 2
 
 
 def test_preprocess_unsupported_modality_uses_shared_error(bert_tiny_transformer):
@@ -1730,6 +1754,7 @@ class TestConditionalFlattening:
         """A BERT transformer with can_flatten_inputs=True and a mock data_collator."""
         transformer = Transformer(TINY_BERT)
         transformer.can_flatten_inputs = True
+        transformer._flatten_position_offset = transformer._infer_flatten_position_offset()
         transformer.data_collator = MagicMock(
             return_value={"input_ids": torch.tensor([1, 2, 3]), "position_ids": torch.tensor([0, 1, 2])}
         )
