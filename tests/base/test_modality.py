@@ -606,6 +606,54 @@ class TestParseInputs:
         assert len(inputs["video"]) == 2
         assert extra["video"]["video_metadata"] == [{"fps": 30}, {"fps": 24}]
 
+    def test_video_metadata_stays_aligned_when_mixing_wrapped_and_raw(self):
+        """A raw video before a dict-wrapped one must not shift the metadata onto the wrong video.
+
+        https://github.com/huggingface/sentence-transformers/issues/3874
+        """
+        raw = np.zeros((4, 3, 8, 8))
+        wrapped = {"array": np.ones((6, 3, 8, 8)), "video_metadata": {"fps": 15, "total_num_frames": 6}}
+        modality, inputs, extra = self.fmt.parse_inputs([raw, wrapped])
+        assert modality == "video"
+        assert len(inputs["video"]) == 2
+        metadata = extra["video"]["video_metadata"]
+        assert len(metadata) == 2
+        # The raw video gets inferred defaults, mirroring what transformers builds without metadata
+        assert metadata[0]["total_num_frames"] == 4
+        assert metadata[0]["fps"] is None
+        assert metadata[0]["frames_indices"] == [0, 1, 2, 3]
+        # The explicit metadata stays with the video it was attached to
+        assert metadata[1] == {"fps": 15, "total_num_frames": 6}
+
+    def test_video_metadata_key_dropped_when_no_sample_carries_it(self):
+        samples = [np.zeros((8, 3, 224, 224)), np.zeros((8, 3, 224, 224))]
+        modality, inputs, extra = self.fmt.parse_inputs(samples)
+        assert modality == "video"
+        assert dict(extra) == {}
+
+    def test_video_metadata_with_metadata_less_path_raises(self):
+        wrapped = {"array": np.ones((4, 3, 8, 8)), "video_metadata": {"fps": 15, "total_num_frames": 4}}
+        with pytest.raises(ValueError, match="every video"):
+            self.fmt.parse_inputs(["https://example.com/a.mp4", wrapped])
+
+    def test_conflicting_sampling_rates_raise(self):
+        """https://github.com/huggingface/sentence-transformers/issues/3874"""
+        audio_dicts = [
+            {"array": np.zeros(1600), "sampling_rate": 16000},
+            {"array": np.zeros(4410), "sampling_rate": 44100},
+        ]
+        with pytest.raises(ValueError, match="sampling rates"):
+            self.fmt.parse_inputs(audio_dicts)
+
+    def test_matching_sampling_rates_do_not_raise(self):
+        audio_dicts = [
+            {"array": np.zeros(1600), "sampling_rate": 16000},
+            {"array": np.zeros(3200), "sampling_rate": 16000},
+        ]
+        modality, inputs, extra = self.fmt.parse_inputs(audio_dicts)
+        assert modality == "audio"
+        assert extra["audio"]["sampling_rate"] == 16000
+
     def test_message_dict_inputs(self):
         messages = [
             {"role": "user", "content": "hello"},

@@ -112,6 +112,22 @@ def _is_non_text_pair(sample: Any) -> bool:
     return True
 
 
+def _record_sampling_rate(sampling_rate: int, extra_modality_kwargs: dict[str, dict[str, Any]]) -> None:
+    """Record the batch-level ``sampling_rate``, raising if samples disagree.
+
+    Feature extractors accept a single ``sampling_rate`` for the whole batch, so conflicting
+    per-sample rates cannot be honored and would silently process some audio at the wrong rate.
+    """
+    existing = extra_modality_kwargs["audio"].get("sampling_rate")
+    if existing is not None and existing != sampling_rate:
+        raise ValueError(
+            f"This batch mixes audio with different sampling rates ({existing} and {sampling_rate}), but the "
+            "processor accepts a single sampling rate per batch. Resample the audio to a common rate, or "
+            "encode each sampling rate in a separate call."
+        )
+    extra_modality_kwargs["audio"]["sampling_rate"] = sampling_rate
+
+
 def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict[str, Any]]) -> Any:
     """Unwrap dict-wrapped audio or an ``AudioDecoder`` into a raw array, collecting ``sampling_rate``.
 
@@ -119,12 +135,12 @@ def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict
     """
     if isinstance(audio_value, dict):
         if "sampling_rate" in audio_value:
-            extra_modality_kwargs["audio"]["sampling_rate"] = audio_value["sampling_rate"]
+            _record_sampling_rate(audio_value["sampling_rate"], extra_modality_kwargs)
         return audio_value["array"]
     if AudioDecoder is not None and isinstance(audio_value, AudioDecoder):
         samples = audio_value.get_all_samples()
         # AudioDecoder returns (channels, samples); mean over channels to get 1D numpy
-        extra_modality_kwargs["audio"]["sampling_rate"] = samples.sample_rate
+        _record_sampling_rate(samples.sample_rate, extra_modality_kwargs)
         return samples.data.mean(dim=0).numpy()
     return audio_value
 
@@ -132,15 +148,18 @@ def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict
 def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict[str, Any]]) -> Any:
     """Unwrap dict-wrapped video or a ``VideoDecoder`` into a raw array, collecting ``video_metadata``.
 
-    Passes through unchanged if ``video_value`` is already a raw array/tensor/URL/path.
+    Passes through unchanged if ``video_value`` is already a raw array/tensor/URL/path. Appends one
+    metadata entry per video (``None`` when the sample carries none) so the batch-level list stays
+    index-aligned with the videos; :func:`_reconcile_video_metadata` resolves the ``None`` entries
+    once the whole batch has been parsed.
     """
+    metadata_list = extra_modality_kwargs["video"].setdefault("video_metadata", [])
     if isinstance(video_value, dict):
-        if "video_metadata" in video_value:
-            extra_modality_kwargs["video"].setdefault("video_metadata", []).append(video_value["video_metadata"])
+        metadata_list.append(video_value.get("video_metadata"))
         return video_value["array"]
     if VideoDecoder is not None and isinstance(video_value, VideoDecoder):
         frame_batch = video_value.get_frames_in_range(0, len(video_value))
-        extra_modality_kwargs["video"].setdefault("video_metadata", []).append(
+        metadata_list.append(
             {
                 "fps": video_value.metadata.average_fps,
                 "total_num_frames": video_value.metadata.num_frames,
@@ -149,7 +168,51 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
             }
         )
         return frame_batch.data
+    metadata_list.append(None)
     return video_value
+
+
+def _reconcile_video_metadata(
+    typed_inputs: list[tuple[Modality | Literal["pair"], Any]],
+    extra_modality_kwargs: dict[str, dict[str, Any]],
+) -> None:
+    """Resolve the per-sample video metadata entries collected by :func:`_unwrap_video`.
+
+    If no video in the batch carried metadata, the key is dropped so the processor infers defaults
+    itself. Otherwise every ``None`` entry is filled with the same defaults transformers would build,
+    which requires the video to be in memory; path/URL videos without metadata raise instead, as
+    passing a partial list would attach metadata to the wrong videos.
+    """
+    video_kwargs = extra_modality_kwargs.get("video")
+    if not video_kwargs or "video_metadata" not in video_kwargs:
+        return
+    metadata_list = video_kwargs["video_metadata"]
+    if all(entry is None for entry in metadata_list):
+        del video_kwargs["video_metadata"]
+        if not video_kwargs:
+            del extra_modality_kwargs["video"]
+        return
+    videos = [
+        value["video"] if isinstance(mod, tuple) else value
+        for mod, value in typed_inputs
+        if mod == "video" or (isinstance(mod, tuple) and "video" in mod)
+    ]
+    for index, (entry, video) in enumerate(zip(metadata_list, videos)):
+        if entry is not None:
+            continue
+        if isinstance(video, str) or not hasattr(video, "__len__"):
+            raise ValueError(
+                "This batch mixes videos that carry per-sample 'video_metadata' with videos that do not. "
+                "Default metadata can only be inferred for in-memory videos (frame arrays or lists), so "
+                "either pass 'video_metadata' for every video in the batch or for none of them."
+            )
+        num_frames = len(video)
+        metadata_list[index] = {
+            "total_num_frames": num_frames,
+            "fps": None,
+            "duration": None,
+            "frames_indices": list(range(num_frames)),
+        }
 
 
 class InputFormatter:
@@ -298,6 +361,8 @@ class InputFormatter:
                 value = item
 
             typed_inputs.append((modality, value))
+
+        _reconcile_video_metadata(typed_inputs, extra_modality_kwargs)
 
         # Non-text pairs require conversion to message format. When the batch contains any
         # non-text pairs, ALL items must be converted to messages for consistency. Text pairs
