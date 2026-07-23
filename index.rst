@@ -218,6 +218,11 @@ Consider reading one of the following sections to answer the related questions:
    * How do I make Sparse Encoder models **faster**? `Sparse Encoder > Usage > Speeding up Inference <docs/sparse_encoder/usage/efficiency.html>`_
    * How do I **train/finetune** a Sparse Encoder model? `Sparse Encoder > Training Overview <docs/sparse_encoder/training_overview.html>`_
    * How do I **integrate** Sparse Encoder models with search engines? `Sparse Encoder > Vector Database Integration <examples/sparse_encoder/applications/semantic_search/README.html#vector-database-search>`_
+* Multi-Vector Encoder Models:
+   * How to **use** Multi-Vector Encoder models? `Multi-Vector Encoder > Usage <docs/multi_vector_encoder/usage/usage.html>`_
+   * What Multi-Vector Encoder **models** can I use? `Multi-Vector Encoder > Pretrained Models <docs/multi_vector_encoder/pretrained_models.html>`_
+   * How do I make Multi-Vector Encoder models **faster**? `Multi-Vector Encoder > Usage > Speeding up Inference <docs/multi_vector_encoder/usage/efficiency.html>`_
+   * How do I **train/finetune** a Multi-Vector Encoder model? `Multi-Vector Encoder > Training Overview <docs/multi_vector_encoder/training_overview.html>`_
 
 Companion Blog Posts
 ====================

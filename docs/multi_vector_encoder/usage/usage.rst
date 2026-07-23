@@ -140,4 +140,6 @@ entirely. Image documents encode the same way as text, passed as URLs, local pat
    :maxdepth: 1
    :caption: Tasks and Advanced Usage
 
+   ../../../examples/multi_vector_encoder/applications/README
    custom_models
+   efficiency
