@@ -845,7 +845,20 @@ class Transformer(InputModule):
             "max_length_k",
             "seq_idx",
         }
+        self._flatten_position_offset = self._infer_flatten_position_offset()
         return True
+
+    def _infer_flatten_position_offset(self) -> int:
+        # DataCollatorWithFlattening emits 0-based position_ids, but RoBERTa-family embeddings
+        # (XLM-R, MPNet, ...) expect positions from padding_idx + 1. No 0-based or rotary module
+        # pairs an int padding_idx with a learned position_embeddings table.
+        for module in self.model.modules():
+            padding_idx = getattr(module, "padding_idx", None)
+            if isinstance(padding_idx, int) and isinstance(
+                getattr(module, "position_embeddings", None), torch.nn.Embedding
+            ):
+                return padding_idx + 1
+        return 0
 
     @property
     def max_seq_length(self) -> int | None:
@@ -1003,6 +1016,8 @@ class Transformer(InputModule):
             per_sample = [dict(zip(processor_output, values)) for values in zip(*processor_output.values())]
             processor_output = self.data_collator(per_sample)
             processor_output.pop("labels", None)
+            if self._flatten_position_offset:
+                processor_output["position_ids"] = processor_output["position_ids"] + self._flatten_position_offset
 
         processor_output["modality"] = modality
         if prompt_length is not None:
