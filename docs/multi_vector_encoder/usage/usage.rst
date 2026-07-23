@@ -1,14 +1,51 @@
 Usage
 =====
 
-Multi-vector encoders (a.k.a. ColBERT-style or "late-interaction" retrievers) produce a *sequence* of
-token-level vectors per input rather than a single sentence vector. Queries and documents are scored with
-the MaxSim operator: for each query token, take the maximum similarity to any document token, then sum
-across query tokens. This preserves token-level matching information that single-vector models discard and
-typically yields stronger retrieval at the cost of a larger index footprint.
+Characteristics of Multi-Vector Encoder (a.k.a. ColBERT or late-interaction) models:
 
-Loading a pretrained model
---------------------------
+1. Calculates a **sequence of token-level vectors** per input, rather than a single vector for the whole text.
+2. Queries and documents are scored with the **MaxSim operator**: for each query token, take the maximum similarity to any document token, then sum across query tokens.
+3. Preserves **token-level matching information** that single-vector models discard, typically yielding **stronger retrieval** at the cost of a **larger index footprint**.
+4. State of the art for **visual document retrieval** (ColPali-style), where text queries match page images directly, skipping OCR entirely.
+
+Once you have `installed <../../installation.html>`_ Sentence Transformers, you can easily use Multi-Vector Encoder models:
+
+.. sidebar:: Documentation
+
+   1. :class:`MultiVectorEncoder <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder>`
+   2. :meth:`MultiVectorEncoder.encode_query <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode_query>`
+   3. :meth:`MultiVectorEncoder.encode_document <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode_document>`
+   4. :meth:`MultiVectorEncoder.similarity <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.similarity>`
+   5. :meth:`MultiVectorEncoder.similarity_pairwise <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.similarity_pairwise>`
+
+::
+
+   from sentence_transformers import MultiVectorEncoder
+
+   # 1. Load a pretrained MultiVectorEncoder model
+   model = MultiVectorEncoder("mixedbread-ai/mxbai-edge-colbert-v0-32m")
+
+   queries = ["What is the capital of France?"]
+   documents = [
+       "Paris is the capital of France.",
+       "Berlin is the capital of Germany.",
+   ]
+
+   # 2. Encode queries and documents. Each embedding is a 2D array of
+   # shape (num_tokens, embedding_dim), variable-length per input.
+   query_embeddings = model.encode_query(queries)
+   document_embeddings = model.encode_document(documents)
+
+   # 3. Compute the MaxSim similarity matrix
+   scores = model.similarity(query_embeddings, document_embeddings)
+   print(scores)
+   # tensor([[10.6578, 10.4499]])
+
+Use :meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode_query` and
+:meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode_document` for retrieval. These set the
+right prefix token (``[Q]`` / ``[D]``), max length, and apply any document-side skiplist configured on the model (empty by
+default, though legacy ColBERT / PyLate checkpoints pre-seed it with punctuation tokens). When query expansion is enabled,
+queries additionally pad to the fixed ``query_expansion["length"]``.
 
 Multi-vector models can be loaded from any of the following sources, transparently::
 
@@ -33,30 +70,7 @@ Multi-vector models can be loaded from any of the following sources, transparent
     # Bare transformer: a fresh random projection is appended; training required
     model = MultiVectorEncoder("answerdotai/ModernBERT-base")
 
-Encoding queries and documents
-------------------------------
-
-Use ``encode_query`` and ``encode_document`` for retrieval. These set the right prefix token (``[Q]`` /
-``[D]``), max length, and apply any document-side skiplist configured on the model (empty by default, though
-legacy ColBERT / PyLate checkpoints pre-seed it with punctuation tokens)::
-
-    queries = ["What is the capital of France?"]
-    documents = [
-        "Paris is the capital of France.",
-        "Berlin is the capital of Germany.",
-    ]
-
-    query_embeddings = model.encode_query(queries)
-    document_embeddings = model.encode_document(documents)
-
-    # Each entry is a 2D array of shape (num_tokens_i, embedding_dim), variable-length per input.
-    print(query_embeddings[0].shape)  # (variable, 128). Pads to query_expansion["length"] when expansion is enabled
-    print(document_embeddings[0].shape)  # (variable, 128)
-
-Scoring with MaxSim
--------------------
-
-``model.similarity`` returns the full all-pairs MaxSim score matrix. ``model.similarity_pairwise``
+For scoring, ``model.similarity`` returns the full all-pairs MaxSim score matrix, and ``model.similarity_pairwise``
 returns matched-pair scores::
 
     scores = model.similarity(query_embeddings, document_embeddings)
@@ -72,10 +86,7 @@ You can also call the standalone scoring functions directly::
     scores = maxsim(query_embeddings, document_embeddings)
     pairwise = maxsim_pairwise([query_embeddings[0], query_embeddings[0]], document_embeddings)
 
-Image documents (ColPali-style)
--------------------------------
-
-Late interaction is the state of the art for visual document retrieval: text queries against page images, skipping OCR
+Late interaction is also the state of the art for visual document retrieval: text queries against page images, skipping OCR
 entirely. Image documents encode the same way as text, passed as URLs, local paths, or PIL images::
 
     model = MultiVectorEncoder("vidore/colqwen2-v1.0-hf")
