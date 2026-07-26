@@ -788,6 +788,55 @@ def test_predict_per_call_processing_kwargs(reranker_bert_tiny_model: CrossEncod
     assert not np.isclose(truncated[0], full[0])
 
 
+def test_predict_ignores_chat_template_without_pair_roles(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """A generic instruct chat template must not be used to render ``(query, document)`` pairs.
+
+    Backbones such as the Qwen3 chat models carry a template that only handles the
+    ``system``/``user``/``assistant`` roles. Rendering the ``query``/``document`` roles through it
+    yields an empty prompt, so the model used to receive zero-length inputs and crash somewhere deep
+    in the attention implementation. Such a template should be ignored in favour of the tokenizer's
+    native text-pair handling.
+    """
+    generic_chat_template = (
+        "{% for message in messages %}"
+        "{% if message['role'] == 'user' %}<|user|>\n{{ message['content'] }}\n{% endif %}"
+        "{% endfor %}"
+    )
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={"chat_template": generic_chat_template},
+    )
+    transformer = model[0]
+    # The template is picked up, but it cannot render the roles that text pairs map to
+    assert "message" in transformer.modality_config
+
+    pairs = [
+        ["How many people live in Berlin?", "Berlin has a population of 3,520,031 registered inhabitants."],
+        ["How many people live in Berlin?", "Berlin is well known for its museums."],
+    ]
+    features = transformer.preprocess(pairs)
+    assert features["input_ids"].shape[1] > 0
+
+    # The stray template is ignored, so the scores match those of the very same model without it
+    assert model.predict(pairs) == pytest.approx(reranker_bert_tiny_model.predict(pairs), abs=1e-6)
+
+
+def test_predict_applies_chat_template_with_pair_roles() -> None:
+    """A template that does select on the ``query``/``document`` roles must still be applied."""
+    reranker_chat_template = (
+        '<Query>: {{ messages | selectattr("role", "eq", "query") | map(attribute="content") | first }}\n'
+        '<Document>: {{ messages | selectattr("role", "eq", "document") | map(attribute="content") | first }}'
+    )
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={"chat_template": reranker_chat_template},
+    )
+    transformer = model[0]
+    pairs = [["How many people live in Berlin?", "Berlin has 3,520,031 registered inhabitants."]]
+    decoded = transformer.tokenizer.decode(transformer.preprocess(pairs)["input_ids"][0], skip_special_tokens=True)
+    assert "query" in decoded and "document" in decoded
+
+
 # Test suite converted from demo_3406_simple_og.py
 def format_queries(query, instruction=None):
     """Helper function to format queries with the template."""

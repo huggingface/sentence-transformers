@@ -635,6 +635,7 @@ class Transformer(InputModule):
         self._prompt_length_mapping = {}
         self._method_signature_cache: dict[str, set[str]] = {}
         self._chat_template_suffix_cache: dict[Any, list[int]] = {}
+        self._chat_template_supports_pair_roles: bool | None = None
 
         config, is_peft_model = self._load_config(model_name_or_path, backend, config_kwargs)
         self._warn_on_unsupported_attention_config(config)
@@ -976,7 +977,12 @@ class Transformer(InputModule):
 
         # Always convert to the message format if it's supported, since it's most flexible with e.g. defaults
         if "message" in self.modality_config and modality != "message":
-            modality, processor_inputs = self.input_formatter.batch_to_message(modality, processor_inputs)
+            # Text pairs are the exception: they map to the "query"/"document" roles, which only purpose-built
+            # reranker chat templates understand. A backbone that merely carries a generic instruct template
+            # would silently render those roles as an empty string, leaving the model with zero-length inputs,
+            # so fall back to the tokenizer's native text-pair handling there.
+            if not self._is_text_pair_batch(modality, processor_inputs) or self._supports_pair_roles():
+                modality, processor_inputs = self.input_formatter.batch_to_message(modality, processor_inputs)
         elif modality not in self.modality_config:
             raise_unsupported_modality_error(inputs, modality, list(self.modality_config.keys()), "Transformer module")
 
@@ -1361,6 +1367,39 @@ class Transformer(InputModule):
             f"Could not determine how to call processor of type {type(self.processor).__name__} "
             f"for modality '{format_modality(modality)}'"
         )
+
+    @staticmethod
+    def _is_text_pair_batch(modality: Modality, processor_inputs: dict[str, list]) -> bool:
+        """Whether the batch is purely text pairs, i.e. cross-encoder ``(query, document)`` input."""
+        if modality != "text":
+            return False
+        texts = processor_inputs.get("text") or []
+        return bool(texts) and all(
+            isinstance(text, (tuple, list)) and len(text) == 2 and all(isinstance(part, str) for part in text)
+            for text in texts
+        )
+
+    def _supports_pair_roles(self) -> bool:
+        """Whether the processor's chat template renders the ``"query"``/``"document"`` roles.
+
+        Reranker templates (e.g. Qwen3-Reranker) select on those roles explicitly, while a generic
+        instruct template only handles ``system``/``user``/``assistant`` and drops them, producing an
+        empty prompt. Probed once by rendering a sentinel pair and cached for subsequent calls.
+        """
+        if self._chat_template_supports_pair_roles is None:
+            query_probe = "cf1a4b2e-query"
+            document_probe = "cf1a4b2e-document"
+            messages = [self.input_formatter.pair_to_messages((query_probe, document_probe))]
+            try:
+                rendered = self.processor.apply_chat_template(messages, tokenize=False)
+            except Exception:
+                # Templates that raise on unknown roles clearly do not support them
+                self._chat_template_supports_pair_roles = False
+            else:
+                if not isinstance(rendered, str):
+                    rendered = "".join(rendered)
+                self._chat_template_supports_pair_roles = query_probe in rendered and document_probe in rendered
+        return self._chat_template_supports_pair_roles
 
     def _process_chat_messages(
         self,
