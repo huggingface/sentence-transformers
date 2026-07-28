@@ -43,13 +43,13 @@ def semantic_search_faiss(
             quantized to allow for rescoring.
         corpus_embeddings: Embeddings of the corpus sentences. Either
             `corpus_embeddings` or `corpus_index` should be used, not
-            both. The embeddings can be quantized to "int8" or "binary"
-            for more efficient search.
+            both. The embeddings can be quantized to "uint8" or
+            "ubinary" for more efficient search.
         corpus_index: FAISS index for the corpus sentences. Either
             `corpus_embeddings` or `corpus_index` should be used, not
             both.
         corpus_precision: Precision of the corpus embeddings. The
-            options are "float32", "int8", or "binary". Default is
+            options are "float32", "uint8", or "ubinary". Default is
             "float32".
         top_k: Number of top results to retrieve. Default is 10.
         ranges: Ranges for quantization of embeddings. This is only used
@@ -95,6 +95,8 @@ def semantic_search_faiss(
         raise ValueError("Only corpus_embeddings or corpus_index should be used, not both.")
     if corpus_embeddings is None and corpus_index is None:
         raise ValueError("Either corpus_embeddings or corpus_index should be used.")
+    if corpus_precision not in ["float32", "uint8", "ubinary"]:
+        raise ValueError('corpus_precision must be "float32", "uint8" or "ubinary" for faiss')
 
     # If corpus_index is not provided, create a new index
     if corpus_index is None:
@@ -186,7 +188,7 @@ def semantic_search_usearch(
     query_embeddings: np.ndarray,
     corpus_embeddings: np.ndarray | None = None,
     corpus_index: usearch.index.Index | None = None,
-    corpus_precision: Literal["float32", "int8", "binary"] = "float32",
+    corpus_precision: Literal["float32", "int8", "ubinary", "binary"] = "float32",
     top_k: int = 10,
     ranges: np.ndarray | None = None,
     calibration_embeddings: np.ndarray | None = None,

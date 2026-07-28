@@ -9,6 +9,8 @@ the flattened 2-D array, and the following ``.reshape(n, -1)`` raises a
 
 from __future__ import annotations
 
+import importlib.util
+
 import numpy as np
 import pytest
 
@@ -82,6 +84,24 @@ def test_binary_quantize_row_independence(precision: str) -> None:
     else:  # ubinary
         assert result[0, 0] == 0xFF, f"All-positive row: expected 255, got {result[0, 0]}"
         assert result[1, 0] == 0x00, f"All-negative row: expected 0, got {result[1, 0]}"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
+@pytest.mark.parametrize("corpus_precision", ["int8", "binary", "float16"])
+def test_semantic_search_faiss_rejects_unsupported_precision(corpus_precision: str) -> None:
+    """An unsupported `corpus_precision` must say so, not fall through to an unrelated error.
+
+    Neither branch of the index construction matches, so `corpus_index` stayed `None` and the
+    call died on `AttributeError: 'NoneType' object has no attribute 'add'`. `semantic_search_usearch`
+    already validates this argument the same way.
+    """
+    from sentence_transformers.util.quantization import semantic_search_faiss
+
+    embeddings = np.random.default_rng(seed=0).random((4, 16), dtype=np.float32)
+    corpus = quantize_embeddings(embeddings, precision="uint8", calibration_embeddings=embeddings)
+
+    with pytest.raises(ValueError, match="corpus_precision"):
+        semantic_search_faiss(embeddings, corpus_embeddings=corpus, corpus_precision=corpus_precision, top_k=2)
 
 
 @pytest.mark.parametrize("precision", ["int8", "uint8"])
