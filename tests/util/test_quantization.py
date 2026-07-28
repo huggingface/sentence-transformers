@@ -9,6 +9,8 @@ the flattened 2-D array, and the following ``.reshape(n, -1)`` raises a
 
 from __future__ import annotations
 
+import importlib.util
+
 import numpy as np
 import pytest
 
@@ -103,3 +105,83 @@ def test_quantize_clips_out_of_range_values(precision: str) -> None:
         expected = np.array([[0, 170, 255]], dtype=np.uint8)
 
     np.testing.assert_array_equal(result, expected)
+
+
+skip_without_faiss = pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
+
+QUERIES = np.random.default_rng(seed=1).random((2, 16), dtype=np.float32)
+CALIBRATION = np.random.default_rng(seed=2).random((100, 16), dtype=np.float32)
+
+
+def _corpus(n_docs: int, precision: str, seed: int = 0) -> np.ndarray:
+    embeddings = np.random.default_rng(seed=seed).random((n_docs, 16), dtype=np.float32)
+    return quantize_embeddings(embeddings, precision=precision, calibration_embeddings=CALIBRATION)
+
+
+@skip_without_faiss
+@pytest.mark.parametrize("corpus_precision", ["ubinary", "uint8"])
+@pytest.mark.parametrize("rescore", [True, False])
+def test_semantic_search_faiss_drops_padded_indices(corpus_precision: str, rescore: bool) -> None:
+    """A corpus smaller than ``top_k`` must not produce ``corpus_id=-1`` entries.
+
+    FAISS pads its ``indices`` array with -1 when the index holds fewer vectors than
+    were requested. Those are not corpus ids: ``reconstruct(-1)`` reads out of bounds
+    rather than raising, and a caller doing ``corpus[corpus_id]`` with -1 silently gets
+    the *last* document back instead of an error.
+    """
+    from sentence_transformers.util.quantization import semantic_search_faiss
+
+    results, _ = semantic_search_faiss(
+        QUERIES,
+        corpus_embeddings=_corpus(3, corpus_precision),
+        corpus_precision=corpus_precision,
+        top_k=5,  # deliberately larger than the 3-document corpus
+        rescore=rescore,
+        rescore_multiplier=2,
+        calibration_embeddings=CALIBRATION,
+    )
+
+    for query_results in results:
+        corpus_ids = [entry["corpus_id"] for entry in query_results]
+        assert -1 not in corpus_ids
+        # Every existing document is returned exactly once, and nothing else is.
+        assert sorted(corpus_ids) == [0, 1, 2]
+
+
+@skip_without_faiss
+@pytest.mark.parametrize("rescore", [True, False])
+def test_semantic_search_faiss_empty_corpus(rescore: bool) -> None:
+    """An empty corpus yields empty result lists rather than phantom hits."""
+    from sentence_transformers.util.quantization import semantic_search_faiss
+
+    results, _ = semantic_search_faiss(
+        QUERIES,
+        corpus_embeddings=np.empty((0, 2), dtype=np.uint8),
+        corpus_precision="ubinary",
+        top_k=5,
+        rescore=rescore,
+        rescore_multiplier=2,
+    )
+
+    assert results == [[], []]
+
+
+@skip_without_faiss
+@pytest.mark.parametrize("corpus_precision", ["ubinary", "uint8"])
+def test_semantic_search_faiss_returns_top_k_when_corpus_is_large_enough(corpus_precision: str) -> None:
+    """The padding check must not shorten results for a corpus larger than ``top_k``."""
+    from sentence_transformers.util.quantization import semantic_search_faiss
+
+    results, _ = semantic_search_faiss(
+        QUERIES,
+        corpus_embeddings=_corpus(50, corpus_precision, seed=3),
+        corpus_precision=corpus_precision,
+        top_k=5,
+        rescore=True,
+        rescore_multiplier=2,
+        calibration_embeddings=CALIBRATION,
+    )
+
+    for query_results in results:
+        assert len(query_results) == 5
+        assert all(0 <= entry["corpus_id"] < 50 for entry in query_results)
