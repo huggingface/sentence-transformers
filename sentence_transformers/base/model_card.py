@@ -1313,6 +1313,13 @@ class BaseModelCardData(CardData):
         if self.local_files_only:
             # Don't try to get the model info if we are not allowed to access the Hub
             return False
+        if resolved_revision := getattr(revision, "resolved", None):
+            self.base_model = model_id
+            initial_revision = getattr(revision, "initial", revision)
+            self.base_model_revision = (
+                resolved_revision if initial_revision is None or initial_revision == "main" else initial_revision
+            )
+            return True
         try:
             model_info = get_model_info(model_id)
         except Exception:

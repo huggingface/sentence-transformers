@@ -8,6 +8,7 @@ import warnings
 from collections import UserDict
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -17,6 +18,23 @@ from torch import Tensor, nn
 
 from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
 from sentence_transformers.base.evaluation import BaseEvaluator
+from sentence_transformers.base.model_card import BaseModelCardData
+
+
+def test_set_base_model_uses_resolved_revision_without_hub_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ResolvedRevision(str):
+        initial = "main"
+        resolved = "f3cb857cba53019a20df283396bcca179cf051a4"
+
+    get_model_info = MagicMock()
+    monkeypatch.setattr("sentence_transformers.base.model_card.get_model_info", get_model_info)
+
+    data = BaseModelCardData()
+    assert data.set_base_model("sentence-transformers-testing/stsb-bert-tiny-safetensors", ResolvedRevision("main"))
+
+    get_model_info.assert_not_called()
+    assert data.base_model == "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    assert data.base_model_revision == ResolvedRevision.resolved
 
 
 class BaseModelPreprocessTest:
@@ -402,6 +420,36 @@ def test_cache_folder_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SENTENCE_TRANSFORMERS_HOME", "/tmp/fake_cache")
     model = SentenceTransformer(modules=[torch.nn.Linear(10, 10)])
     assert model is not None
+
+
+def test_hub_revision_is_resolved_before_model_loading(monkeypatch: pytest.MonkeyPatch) -> None:
+    resolve_mock = MagicMock(return_value="resolved-revision")
+    load_kwargs = {}
+
+    def mock_load_modules(self, model_name_or_path, **kwargs):
+        load_kwargs.update(kwargs)
+        return [torch.nn.Linear(2, 2)], {}
+
+    monkeypatch.setattr("sentence_transformers.base.model._resolve_model_revision", resolve_mock)
+    monkeypatch.setattr(SentenceTransformer, "_load_modules", mock_load_modules)
+
+    SentenceTransformer(
+        "some-org/some-model",
+        revision="branch",
+        token="token",
+        cache_folder="/cache",
+        local_files_only=True,
+        device="cpu",
+    )
+
+    resolve_mock.assert_called_once_with(
+        "some-org/some-model",
+        "branch",
+        token="token",
+        cache_folder="/cache",
+        local_files_only=True,
+    )
+    assert load_kwargs["revision"] == "resolved-revision"
 
 
 def test_save_creates_expected_files(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
