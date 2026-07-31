@@ -92,11 +92,10 @@ def backend_should_export(
     if is_local:
         model_file_names = [path.relative_to(load_path).as_posix() for path in load_path.glob(glob_pattern)]
     else:
-        revision = model_kwargs.get("revision")
         all_files = list_repo_files(
             load_path.as_posix(),
             repo_type="model",
-            revision=getattr(revision, "resolved", revision),
+            revision=model_kwargs.get("revision", None),
             token=model_kwargs.get("token", None),
         )
         model_file_names = [fname for fname in all_files if fnmatch(fname, glob_pattern)]
