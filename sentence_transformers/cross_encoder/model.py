@@ -691,10 +691,7 @@ class CrossEncoder(BaseModel, FitMixin):
             scores = out_features["scores"]
 
             if torch.is_floating_point(scores) and torch.finfo(scores.dtype).bits < 32:
-                # Upcast sub-float32 logits (float16/bfloat16) so the activation is computed
-                # in float32; applying sigmoid/softmax in reduced precision collapses distinct
-                # relevance scores into spurious ties, making rankings depend on arbitrary
-                # tie-breaking. The upcast is value-preserving and a no-op for float32 logits.
+                # upcast sub-float32 floats (fp8/float16/bfloat16) to break ties
                 scores = scores.float()
 
             if activation_fn is not None:
