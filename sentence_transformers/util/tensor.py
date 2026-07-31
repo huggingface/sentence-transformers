@@ -30,6 +30,12 @@ def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
         a = torch.tensor(a)
     if a.is_sparse:
         return a.to(dtype=torch.float32)
+    if torch.is_floating_point(a) and torch.finfo(a.dtype).bits < 32:
+        # Upcast sub-float32 floats (float16/bfloat16/fp8) so that similarity scores are
+        # computed in float32; scoring in reduced precision collapses distinct scores
+        # into spurious ties, which makes downstream rankings depend on arbitrary
+        # tie-breaking. The upcast is value-preserving and a no-op for float32 inputs.
+        a = a.to(torch.float32)
     return a
 
 
