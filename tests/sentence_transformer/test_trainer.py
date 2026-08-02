@@ -1026,3 +1026,55 @@ def test_trainer_call_model_init_multi_loss(
         assert isinstance(loss_fn, torch.nn.Module), f"Loss '{key}' is not an nn.Module"
         assert loss_fn.model is trainer.model, f"Loss '{key}' model was not updated to the trainer's model"
         assert loss_fn.model is not model, f"Loss '{key}' model was not updated from the original model"
+
+
+@pytest.mark.parametrize("persistent_workers", [True, False])
+def test_trainer_get_eval_dataloader_with_persistent_workers(
+    stsb_bert_tiny_model: SentenceTransformer,
+    stsb_dataset_dict: DatasetDict,
+    persistent_workers: bool,
+    tmp_path: Path,
+) -> None:
+    # With `dataloader_persistent_workers=True`, eval dataloaders must be reused across evaluations,
+    # cached per dataset name. Otherwise, every evaluation of every dataset leaks its persistent
+    # worker processes, eventually exhausting file descriptors and memory.
+    model = stsb_bert_tiny_model
+    train_dataset = stsb_dataset_dict["train"].select(range(8))
+    eval_dataset = DatasetDict(
+        {
+            "first": stsb_dataset_dict["validation"].select(range(8)),
+            "second": stsb_dataset_dict["validation"].select(range(12)),
+        }
+    )
+    loss = CosineSimilarityLoss(model=model)
+    args = SentenceTransformerTrainingArguments(
+        output_dir=tmp_path,
+        dataloader_persistent_workers=persistent_workers,
+        dataloader_num_workers=1,
+    )
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        loss=loss,
+    )
+    # Mocking the prepare method to avoid the dataloader changing with each call to get_eval_dataloader
+    trainer.accelerator.prepare = lambda x: x
+
+    first_dataloader = trainer.get_eval_dataloader("first")
+    first_dataloader_repeated = trainer.get_eval_dataloader("first")
+    second_dataloader = trainer.get_eval_dataloader("second")
+    second_dataloader_repeated = trainer.get_eval_dataloader("second")
+
+    # Each dataset name must resolve to its own dataset, never another entry of the dict
+    assert len(first_dataloader.dataset) == 8
+    assert len(second_dataloader.dataset) == 12
+    assert first_dataloader is not second_dataloader
+
+    if persistent_workers:
+        assert first_dataloader is first_dataloader_repeated
+        assert second_dataloader is second_dataloader_repeated
+    else:
+        assert first_dataloader is not first_dataloader_repeated
+        assert second_dataloader is not second_dataloader_repeated
