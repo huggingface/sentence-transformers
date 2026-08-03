@@ -6,7 +6,43 @@ from unittest.mock import MagicMock
 import pytest
 from huggingface_hub.utils import EntryNotFoundError, HFValidationError, LocalEntryNotFoundError
 
-from sentence_transformers.util.file_io import load_dir_path, load_file_path
+from sentence_transformers.util.file_io import _resolve_model_revision, load_dir_path, load_file_path
+
+
+def test_resolve_model_revision_when_supported(monkeypatch: pytest.MonkeyPatch) -> None:
+    resolve_mock = MagicMock(return_value="resolved-revision")
+    monkeypatch.setattr("sentence_transformers.util.file_io._hub_resolve_revision", resolve_mock)
+
+    revision = _resolve_model_revision(
+        "some-org/some-model",
+        "branch",
+        token="token",
+        cache_folder="/cache",
+        local_files_only=True,
+    )
+
+    assert revision == "resolved-revision"
+    resolve_mock.assert_called_once_with(
+        "some-org/some-model",
+        revision="branch",
+        token="token",
+        cache_dir="/cache",
+        local_files_only=True,
+    )
+
+
+def test_resolve_model_revision_is_noop_with_legacy_hub(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("sentence_transformers.util.file_io._hub_resolve_revision", None)
+
+    assert _resolve_model_revision("some-org/some-model", "branch") == "branch"
+
+
+def test_resolve_model_revision_is_noop_for_local_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    resolve_mock = MagicMock()
+    monkeypatch.setattr("sentence_transformers.util.file_io._hub_resolve_revision", resolve_mock)
+
+    assert _resolve_model_revision(str(tmp_path), "branch") == "branch"
+    resolve_mock.assert_not_called()
 
 
 def test_load_file_path_local_missing_short_circuits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

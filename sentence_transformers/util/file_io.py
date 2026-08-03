@@ -8,6 +8,11 @@ from huggingface_hub import hf_hub_download, snapshot_download
 from huggingface_hub.utils import EntryNotFoundError, HFValidationError, LocalEntryNotFoundError
 from tqdm.autonotebook import tqdm
 
+try:
+    from huggingface_hub import resolve_revision as _hub_resolve_revision
+except ImportError:
+    _hub_resolve_revision = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +34,27 @@ class disabled_tqdm(tqdm):
         except AttributeError:
             if attr != "_lock":
                 raise
+
+
+def _resolve_model_revision(
+    model_name_or_path: str,
+    revision: str | None,
+    *,
+    token: bool | str | None = None,
+    cache_folder: str | None = None,
+    local_files_only: bool = False,
+) -> str | None:
+    """Resolve a Hub revision once when supported, while preserving compatibility with older Hub versions."""
+    if _hub_resolve_revision is None or Path(model_name_or_path).exists():
+        return revision
+
+    return _hub_resolve_revision(
+        model_name_or_path,
+        revision=revision,
+        token=token,
+        cache_dir=cache_folder,
+        local_files_only=local_files_only,
+    )
 
 
 def is_sentence_transformer_model(

@@ -16,6 +16,56 @@ if is_datasets_available():
     from datasets import DatasetDict, load_dataset
 
 
+@pytest.fixture(scope="session", autouse=True)
+def cache_hub_revision_resolution() -> None:
+    """Avoid repeatedly resolving the same Hub revision throughout the integration suite."""
+    from sentence_transformers.util import file_io
+
+    resolve_revision = file_io._hub_resolve_revision
+    if resolve_revision is None:
+        yield
+        return
+
+    resolved_revisions = {}
+
+    def cached_resolve_revision(
+        repo_id,
+        *,
+        repo_type=None,
+        revision=None,
+        cache_dir=None,
+        local_files_only=False,
+        token=None,
+    ):
+        if cache_dir is not None or local_files_only or hasattr(revision, "resolved"):
+            return resolve_revision(
+                repo_id,
+                repo_type=repo_type,
+                revision=revision,
+                cache_dir=cache_dir,
+                local_files_only=local_files_only,
+                token=token,
+            )
+
+        key = (repo_id, repo_type, revision, token)
+        if key not in resolved_revisions:
+            resolved_revisions[key] = resolve_revision(
+                repo_id,
+                repo_type=repo_type,
+                revision=revision,
+                cache_dir=cache_dir,
+                local_files_only=False,
+                token=token,
+            )
+        return resolved_revisions[key]
+
+    file_io._hub_resolve_revision = cached_resolve_revision
+    try:
+        yield
+    finally:
+        file_io._hub_resolve_revision = resolve_revision
+
+
 # Sentence Transformers
 @pytest.fixture(scope="session")
 def _stsb_bert_tiny_model() -> SentenceTransformer:
