@@ -179,9 +179,10 @@ def _reconcile_video_metadata(
     """Resolve the per-sample video metadata entries collected by :func:`_unwrap_video`.
 
     If no video in the batch carried metadata, the key is dropped so the processor infers defaults
-    itself. Otherwise every ``None`` entry is filled with the same defaults transformers would build,
-    which requires the video to be in memory. Path/URL videos without metadata raise instead, as
-    passing a partial list would attach metadata to the wrong videos.
+    itself. Otherwise every ``None`` entry is filled with the frame count of that video, matching what
+    transformers infers for a metadata-less video. This requires the video to be in memory, so
+    path/URL videos without metadata raise instead, as passing a partial list would attach metadata
+    to the wrong videos.
     """
     video_kwargs = extra_modality_kwargs.get("video")
     if not video_kwargs or "video_metadata" not in video_kwargs:

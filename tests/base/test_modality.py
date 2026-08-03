@@ -625,6 +625,16 @@ class TestParseInputs:
         # The explicit metadata stays with the video it was attached to
         assert metadata[1] == {"fps": 15, "total_num_frames": 6}
 
+    def test_video_metadata_filled_for_frame_list_video(self):
+        frames = [np.zeros((3, 8, 8)) for _ in range(4)]
+        wrapped = {"array": np.ones((6, 3, 8, 8)), "video_metadata": {"fps": 15, "total_num_frames": 6}}
+        modality, inputs, extra = self.fmt.parse_inputs([{"video": frames}, wrapped])
+        assert modality == "video"
+        metadata = extra["video"]["video_metadata"]
+        assert metadata[0]["total_num_frames"] == 4
+        assert metadata[0]["frames_indices"] == [0, 1, 2, 3]
+        assert metadata[1] == {"fps": 15, "total_num_frames": 6}
+
     def test_video_metadata_key_dropped_when_no_sample_carries_it(self):
         samples = [np.zeros((8, 3, 224, 224)), np.zeros((8, 3, 224, 224))]
         modality, inputs, extra = self.fmt.parse_inputs(samples)
