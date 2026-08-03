@@ -57,12 +57,12 @@ except ImportError:
 
 try:
     from torchcodec.decoders import AudioDecoder
-except (ImportError, OSError):
+except (ImportError, OSError, RuntimeError):
     AudioDecoder = None  # type: ignore[assignment,misc]
 
 try:
     from torchcodec.decoders import VideoDecoder
-except (ImportError, OSError):
+except (ImportError, OSError, RuntimeError):
     VideoDecoder = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
