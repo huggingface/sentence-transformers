@@ -150,7 +150,7 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
 
     Passes through unchanged if ``video_value`` is already a raw array/tensor/URL/path. Appends one
     metadata entry per video (``None`` when the sample carries none) so the batch-level list stays
-    index-aligned with the videos; :func:`_reconcile_video_metadata` resolves the ``None`` entries
+    index-aligned with the videos. :func:`_reconcile_video_metadata` resolves the ``None`` entries
     once the whole batch has been parsed.
     """
     metadata_list = extra_modality_kwargs["video"].setdefault("video_metadata", [])
@@ -180,7 +180,7 @@ def _reconcile_video_metadata(
 
     If no video in the batch carried metadata, the key is dropped so the processor infers defaults
     itself. Otherwise every ``None`` entry is filled with the same defaults transformers would build,
-    which requires the video to be in memory; path/URL videos without metadata raise instead, as
+    which requires the video to be in memory. Path/URL videos without metadata raise instead, as
     passing a partial list would attach metadata to the wrong videos.
     """
     video_kwargs = extra_modality_kwargs.get("video")
@@ -197,7 +197,7 @@ def _reconcile_video_metadata(
         for mod, value in typed_inputs
         if mod == "video" or (isinstance(mod, tuple) and "video" in mod)
     ]
-    for index, (entry, video) in enumerate(zip(metadata_list, videos)):
+    for index, (entry, video) in enumerate(zip(metadata_list, videos, strict=True)):
         if entry is not None:
             continue
         if isinstance(video, str) or not hasattr(video, "__len__"):
