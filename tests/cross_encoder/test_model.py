@@ -938,8 +938,10 @@ def test_probe_uses_the_configured_chat_template_kwargs() -> None:
         },
     )
     transformer = model[0]
-    with pytest.raises(ValueError, match=PAIR_ROLES_DROPPED):
+    with pytest.raises(ValueError, match=PAIR_ROLES_DROPPED) as excinfo:
         transformer.preprocess(BERLIN_PAIRS[:1])
+    # The dict template infers structured format, so the remedy example must read typed content
+    assert "content[0].text" in str(excinfo.value)
 
     transformer.processing_kwargs["chat_template"] = {"chat_template": "reranker"}
     features = transformer.preprocess(BERLIN_PAIRS[:1])

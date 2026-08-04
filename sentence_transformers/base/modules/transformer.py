@@ -1059,11 +1059,20 @@ class Transformer(InputModule):
         if failure is None:
             return
         model_name = getattr(self.config, "name_or_path", None) or "this model"
+        if self.input_formatter.message_format == "structured":
+            example = (
+                '    <Query>: {{ (messages | selectattr("role", "eq", "query") | first).content[0].text }}\n'
+                '    <Document>: {{ (messages | selectattr("role", "eq", "document") | first).content[0].text }}\n'
+            )
+        else:
+            example = (
+                '    <Query>: {{ messages | selectattr("role", "eq", "query") | map(attribute="content") | first }}\n'
+                '    <Document>: {{ messages | selectattr("role", "eq", "document") | map(attribute="content") | first }}\n'
+            )
         raise ValueError(
             f"The chat template of {model_name} cannot carry a 'query'/'document' pair ({failure}). Pair inputs "
             "are mapped to one message per role, so set a chat template that renders both roles, e.g.:\n"
-            '    <Query>: {{ messages | selectattr("role", "eq", "query") | map(attribute="content") | first }}\n'
-            '    <Document>: {{ messages | selectattr("role", "eq", "document") | map(attribute="content") | first }}\n'
+            f"{example}"
             'via `processor_kwargs={"chat_template": ...}` when loading, `model.processor.chat_template = ...` '
             "afterwards, or a `chat_template.jinja` file alongside the model."
         )
