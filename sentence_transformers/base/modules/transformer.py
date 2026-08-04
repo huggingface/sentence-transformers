@@ -980,6 +980,10 @@ class Transformer(InputModule):
         elif modality not in self.modality_config:
             raise_unsupported_modality_error(inputs, modality, list(self.modality_config.keys()), "Transformer module")
 
+        # Checked after the conversion so it covers pairs that parse_inputs already turned into messages
+        if modality == "message":
+            self._verify_pair_roles_supported(processor_inputs["message"], chat_template_kwargs)
+
         # Incorporate prompt into inputs if applicable
         prompt_length = None
         if prompt and modality == "message":
@@ -1031,6 +1035,47 @@ class Transformer(InputModule):
             processor_output["logits_to_keep"] = 1
 
         return processor_output
+
+    def _verify_pair_roles_supported(
+        self, messages_batch: list[list[dict[str, Any]]], chat_template_kwargs: dict[str, Any]
+    ) -> None:
+        """Raise if the chat template cannot carry the ``query``/``document`` roles a pair is mapped to.
+
+        A template that only branches on ``system``/``user``/``assistant`` renders a pair to an empty
+        prompt, so the model would score an input holding neither the query nor the document. Published
+        rerankers ship a template that handles both roles, so this is reached when a backbone is used,
+        or fine-tuned, without one.
+        """
+        # Checked before the probe, which costs a render, so batches without a pair never pay for it
+        if not self.input_formatter.has_pair_roles(messages_batch):
+            return
+        # Drop what never reaches the Jinja render: size kwargs (tokenization only) and the ST-only restore_suffix
+        probe_kwargs = {
+            key: value
+            for key, value in chat_template_kwargs.items()
+            if key not in _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS and key != "restore_suffix"
+        }
+        failure = self.input_formatter.pair_roles_failure(probe_kwargs)
+        if failure is None:
+            return
+        model_name = getattr(self.config, "name_or_path", None) or "this model"
+        if self.input_formatter.message_format == "structured":
+            example = (
+                '    <Query>: {{ (messages | selectattr("role", "eq", "query") | first).content[0].text }}\n'
+                '    <Document>: {{ (messages | selectattr("role", "eq", "document") | first).content[0].text }}\n'
+            )
+        else:
+            example = (
+                '    <Query>: {{ messages | selectattr("role", "eq", "query") | map(attribute="content") | first }}\n'
+                '    <Document>: {{ messages | selectattr("role", "eq", "document") | map(attribute="content") | first }}\n'
+            )
+        raise ValueError(
+            f"The chat template of {model_name} cannot carry a 'query'/'document' pair ({failure}). Pair inputs "
+            "are mapped to one message per role, so set a chat template that renders both roles, e.g.:\n"
+            f"{example}"
+            'via `processor_kwargs={"chat_template": ...}` when loading, `model.processor.chat_template = ...` '
+            "afterwards, or a `chat_template.jinja` file alongside the model."
+        )
 
     def _verify_left_padding(
         self,

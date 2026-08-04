@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 import random
 import warnings
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import Callable, Iterable
+from typing import Any, Literal
 
 import torch
 from torch import Tensor, nn
@@ -89,6 +90,7 @@ class AdaptiveLayerLoss(nn.Module):
         prior_layers_weight: float = 1.0,
         kl_div_weight: float = 1.0,
         kl_temperature: float = 0.3,
+        layer_weighting: Literal["uniform", "log", "linear"] | Callable[[int], float] = "uniform",
     ) -> None:
         """
         The AdaptiveLayerLoss can be seen as a loss *modifier* that allows you to use other loss functions at non-final
@@ -121,10 +123,24 @@ class AdaptiveLayerLoss(nn.Module):
                 is 1.0.
             kl_temperature: The temperature to use for the KL-divergence
                 loss. If 0, then the KL-divergence loss is not used. The
-                default value is 1.0.
+                default value is 0.3.
+            layer_weighting: The weighting scheme for the prior layer
+                losses. One of "uniform", "log", "linear", or a callable
+                that maps a layer index to a weight. "uniform" weights
+                all prior layers equally, matching the 2DMSE and
+                Starbucks papers. "log" weights layer ``i`` by
+                ``1 / (1 + ln(1 + i))``, matching the ESE paper.
+                "linear" weights layer ``i`` by ``1 / (1 + i)``, the
+                behaviour of this loss before this option existed. Layer
+                index 0 is the embedding layer output. The prior layer
+                losses are always averaged over the number of sampled
+                layers and scaled by ``prior_layers_weight``. The
+                default value is "uniform".
 
         References:
             - The concept was inspired by the 2DMSE paper: https://huggingface.co/papers/2402.14776
+            - The "log" layer weighting follows the ESE paper: https://arxiv.org/abs/2402.14776v2
+            - The "uniform" layer weighting also matches the Starbucks paper: https://huggingface.co/papers/2410.13230
             - `Adaptive Layers <../../../examples/sentence_transformer/training/adaptive_layer/README.html>`_
 
         Requirements:
@@ -173,11 +189,25 @@ class AdaptiveLayerLoss(nn.Module):
         self.prior_layers_weight = prior_layers_weight
         self.kl_div_weight = kl_div_weight
         self.kl_temperature = kl_temperature
+        self.layer_weighting = layer_weighting
+        if not callable(layer_weighting) and layer_weighting not in ("uniform", "log", "linear"):
+            raise ValueError(
+                f'layer_weighting must be "uniform", "log", "linear", or a callable, but got {layer_weighting!r}.'
+            )
         assert isinstance(self.model[0], Transformer)
         if uses_gradient_cache(loss):
             # These losses back-propagate from a hook that fires after the TransformerDecorator is
             # removed, and they cache one batch of gradients while this loss runs once per layer.
             warnings.warn(f"AdaptiveLayerLoss is not compatible with {loss.__class__.__name__}.", stacklevel=2)
+
+    def get_layer_weight(self, layer_idx: int) -> float:
+        if not isinstance(self.layer_weighting, str):
+            return self.layer_weighting(layer_idx)
+        if self.layer_weighting == "log":
+            return 1.0 / (1.0 + math.log(1 + layer_idx))
+        if self.layer_weighting == "linear":
+            return 1.0 / (1 + layer_idx)
+        return 1.0
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         # Unwrap DDP (`.module`) / torch.compile (`_orig_mod`) wrappers so `self.model[0]`
@@ -212,7 +242,8 @@ class AdaptiveLayerLoss(nn.Module):
             loss = self.loss(sentence_features, labels) * self.last_layer_weight
             if self.kl_temperature > 0:
                 final_embeddings = forward_decorator.get_embeddings()
-                final_embeddings = F.softmax(final_embeddings / self.kl_temperature, dim=-1)
+                # The final layer is the self-distillation teacher, so keep it out of the KL gradient (#3757)
+                final_embeddings = F.softmax(final_embeddings / self.kl_temperature, dim=-1).detach()
 
             num_layers = transformer_decorator.num_layers
             layer_indices = range(num_layers - 1)
@@ -227,7 +258,8 @@ class AdaptiveLayerLoss(nn.Module):
                 # Add regular loss for each layer by using the cached embeddings of that layer
                 transformer_decorator.set_layer_idx(layer_idx)
                 layer_loss = self.loss(sentence_features, labels)
-                loss = loss + layer_loss / (1 + layer_idx) / len(layer_indices) * self.prior_layers_weight
+                layer_weight = self.get_layer_weight(layer_idx)
+                loss = loss + layer_loss * layer_weight / len(layer_indices) * self.prior_layers_weight
 
                 # and KL-divergence loss between the current layer and the final layer
                 # Note: we use "batchmean" reduction as that aligns with the mathematical definition
@@ -246,6 +278,10 @@ class AdaptiveLayerLoss(nn.Module):
         return loss
 
     def get_config_dict(self) -> dict[str, Any]:
+        if isinstance(self.layer_weighting, str):
+            layer_weighting = self.layer_weighting
+        else:
+            layer_weighting = getattr(self.layer_weighting, "__name__", "custom")
         return {
             "loss": self.loss.__class__.__name__,
             "n_layers_per_step": self.n_layers_per_step,
@@ -253,6 +289,7 @@ class AdaptiveLayerLoss(nn.Module):
             "prior_layers_weight": self.prior_layers_weight,
             "kl_div_weight": self.kl_div_weight,
             "kl_temperature": self.kl_temperature,
+            "layer_weighting": layer_weighting,
         }
 
     @property

@@ -14,7 +14,7 @@ except ImportError:
 
 try:
     from torchcodec.decoders import AudioDecoder, VideoDecoder
-except (ImportError, OSError):
+except (ImportError, OSError, RuntimeError):
     AudioDecoder = None
     VideoDecoder = None
 

@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 import tempfile
 from copy import deepcopy
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from huggingface_hub.utils import validate_repo_id
 from tokenizers import Tokenizer
 
 from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
@@ -16,13 +18,34 @@ if is_datasets_available():
     from datasets import DatasetDict, load_dataset
 
 
+def _fake_model_info(model_id: str) -> SimpleNamespace:
+    validate_repo_id(model_id)
+    if os.path.exists(model_id):
+        raise ValueError(f"{model_id!r} is a local path, not a Hub model ID")
+    return SimpleNamespace(id=model_id, sha="0123456789abcdef0123456789abcdef01234567")
+
+
+def _fake_dataset_info(dataset_id: str) -> SimpleNamespace:
+    validate_repo_id(dataset_id)
+    if os.path.exists(dataset_id):
+        raise ValueError(f"{dataset_id!r} is a local path, not a Hub dataset ID")
+    return SimpleNamespace(id=dataset_id, cardData=None)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def mock_hub_info():
+    """Mock the Hub requests checking whether base models and datasets exist, e.g. to dodge rate limits in CI."""
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr("sentence_transformers.base.model_card.get_model_info", _fake_model_info)
+        monkeypatch.setattr("sentence_transformers.base.model_card.get_dataset_info", _fake_dataset_info)
+        yield
+
+
 # Sentence Transformers
 @pytest.fixture(scope="session")
 def _stsb_bert_tiny_model() -> SentenceTransformer:
     model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
     model = SentenceTransformer(model_id)
-    if not model.model_card_data.base_model:
-        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -36,8 +59,6 @@ def stsb_bert_tiny_model(_stsb_bert_tiny_model: SentenceTransformer) -> Sentence
 def _avg_word_embeddings_levy() -> SentenceTransformer:
     model_id = "sentence-transformers/average_word_embeddings_levy_dependency"
     model = SentenceTransformer(model_id)
-    if not model.model_card_data.base_model:
-        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -65,10 +86,7 @@ def paraphrase_distilroberta_base_v1_model() -> SentenceTransformer:
 @pytest.fixture(scope="session")
 def _static_retrieval_mrl_en_v1_model() -> SentenceTransformer:
     model_id = "sentence-transformers/static-retrieval-mrl-en-v1"
-    model = SentenceTransformer(model_id)
-    if not model.model_card_data.base_model:
-        model.model_card_data.base_model = model_id
-    return model
+    return SentenceTransformer(model_id)
 
 
 @pytest.fixture()
@@ -102,8 +120,6 @@ def distilbert_base_uncased_model(_distilbert_base_uncased_model: SentenceTransf
 def _reranker_bert_tiny_model() -> CrossEncoder:
     model_id = "cross-encoder-testing/reranker-bert-tiny-gooaq-bce"
     model = CrossEncoder(model_id)
-    if not model.model_card_data.base_model:
-        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -118,8 +134,6 @@ def reranker_bert_tiny_model(_reranker_bert_tiny_model) -> CrossEncoder:
 def _splade_bert_tiny_model() -> SparseEncoder:
     model_id = "sparse-encoder-testing/splade-bert-tiny-nq"
     model = SparseEncoder(model_id)
-    if not model.model_card_data.base_model:
-        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -133,8 +147,6 @@ def splade_bert_tiny_model(_splade_bert_tiny_model: SparseEncoder) -> SparseEnco
 def _inference_free_splade_bert_tiny_model() -> SparseEncoder:
     model_id = "sparse-encoder-testing/inference-free-splade-bert-tiny-nq"
     model = SparseEncoder(model_id)
-    if not model.model_card_data.base_model:
-        model.model_card_data.base_model = model_id
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
@@ -148,8 +160,6 @@ def inference_free_splade_bert_tiny_model(_inference_free_splade_bert_tiny_model
 def _csr_bert_tiny_model() -> SparseEncoder:
     model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
     model = SparseEncoder(model_id)
-    if not model.model_card_data.base_model:
-        model.model_card_data.base_model = model_id
     model[-1].k = 16
     model[-1].k_aux = 32
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing

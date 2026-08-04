@@ -186,9 +186,9 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             sparse_ndcg_scores.append(sparse_ndcg)
             sparse_ap_scores.append(sparse_ap)
 
-            # Create rank maps for each retriever
-            dense_ranks = {doc: rank for rank, doc in enumerate(dense_docs)}
-            sparse_ranks = {doc: rank for rank, doc in enumerate(sparse_docs)}
+            # Create one-based rank maps for each retriever
+            dense_ranks = {doc: rank for rank, doc in enumerate(dense_docs, start=1)}
+            sparse_ranks = {doc: rank for rank, doc in enumerate(sparse_docs, start=1)}
 
             # Combine all unique documents
             all_docs = set(dense_ranks.keys()) | set(sparse_ranks.keys())
@@ -196,9 +196,12 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             # Calculate RRF scores
             rrf_scores = {}
             for doc in all_docs:
-                dense_rank = dense_ranks.get(doc, len(dense_docs))
-                sparse_rank = sparse_ranks.get(doc, len(sparse_docs))
-                rrf_scores[doc] = (1 / (self.rrf_k + dense_rank)) + (1 / (self.rrf_k + sparse_rank))
+                score = 0.0
+                if doc in dense_ranks:
+                    score += 1 / (self.rrf_k + dense_ranks[doc])
+                if doc in sparse_ranks:
+                    score += 1 / (self.rrf_k + sparse_ranks[doc])
+                rrf_scores[doc] = score
 
             # Sort documents by RRF scores in descending order
             fused_docs = sorted(rrf_scores.keys(), key=lambda doc: rrf_scores[doc], reverse=True)

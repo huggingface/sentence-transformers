@@ -12,6 +12,7 @@ import pytest
 import torch
 from huggingface_hub import CommitInfo, HfApi, RepoUrl
 from packaging.version import Version, parse
+from PIL import Image
 from pytest import FixtureRequest
 from transformers import __version__ as transformers_version
 
@@ -22,6 +23,7 @@ from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
+from tests.utils import GENERIC_INSTRUCT_TEMPLATE, RERANKER_TEMPLATE
 
 
 def test_classifier_dropout_is_set() -> None:
@@ -786,6 +788,165 @@ def test_predict_per_call_processing_kwargs(reranker_bert_tiny_model: CrossEncod
     )
     full = model.predict([pair])
     assert not np.isclose(truncated[0], full[0])
+
+
+# ChatML emits the role rather than branching on it, so unknown roles carry their content through
+CHATML_TEMPLATE = (
+    "{% for message in messages %}"
+    "{{ '<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n' }}"
+    "{% endfor %}"
+)
+# Structured-content variant of a rerank template, as a multimodal processor would need
+STRUCTURED_RERANKER_TEMPLATE = (
+    '<Query>: {{ (messages | selectattr("role", "eq", "query") | first).content[0].text }}\n'
+    '<Document>: {{ (messages | selectattr("role", "eq", "document") | first).content[0].text }}'
+)
+BERLIN_PAIRS = [
+    ["How many people live in Berlin?", "Berlin has a population of 3,520,031 registered inhabitants."],
+    ["How many people live in Berlin?", "Berlin is well known for its museums."],
+]
+PAIR_ROLES_DROPPED = "cannot carry a 'query'/'document' pair"
+
+
+def test_replacing_a_rejected_chat_template_takes_effect() -> None:
+    """The error names a remedy, so applying it to a loaded model has to work."""
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={"chat_template": GENERIC_INSTRUCT_TEMPLATE},
+    )
+    with pytest.raises(ValueError, match=PAIR_ROLES_DROPPED):
+        model.predict(BERLIN_PAIRS)
+
+    model.processor.chat_template = RERANKER_TEMPLATE
+    decoded = model[0].tokenizer.decode(
+        model[0].preprocess(BERLIN_PAIRS[:1])["input_ids"][0], skip_special_tokens=True
+    )
+    assert "< query > : how many people live in berlin?" in decoded
+
+
+def test_preprocess_raises_on_non_text_pair_without_pair_roles() -> None:
+    """Non-text pairs reach the roles by a different route, and are dropped just the same."""
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={"chat_template": GENERIC_INSTRUCT_TEMPLATE},
+    )
+    image = Image.new("RGB", (16, 16))
+    with pytest.raises(ValueError, match=PAIR_ROLES_DROPPED):
+        model[0].preprocess([(image, "a document")])
+    # A text pair sharing a batch with a non-text one takes the same route
+    with pytest.raises(ValueError, match=PAIR_ROLES_DROPPED):
+        model[0].preprocess([(image, "a document"), ("a query", "a document")])
+
+
+def test_predict_raises_on_chat_template_without_pair_roles() -> None:
+    """A chat template that drops the pair roles must be reported, not worked around.
+
+    Backbones such as the Qwen3 instruct models carry a template that only branches on
+    ``system``/``user``/``assistant``. Rendering the ``query``/``document`` roles through it drops both
+    messages, leaving the model with a zero-length input. Tokenizing the pair directly instead would
+    score an input the model was never trained on, so the misconfiguration is raised rather than hidden.
+    """
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={"chat_template": GENERIC_INSTRUCT_TEMPLATE},
+    )
+    transformer = model[0]
+    # The template is picked up, it just cannot render the roles that text pairs take
+    assert "message" in transformer.modality_config
+    assert transformer.input_formatter.pair_roles_failure() is not None
+
+    with pytest.raises(ValueError, match=PAIR_ROLES_DROPPED):
+        model.predict(BERLIN_PAIRS)
+
+    # Single texts never take those roles, so they are unaffected
+    features = transformer.preprocess(["a solo text"])
+    assert "a solo text" in transformer.tokenizer.decode(features["input_ids"][0], skip_special_tokens=True)
+
+
+def test_predict_raises_on_mixed_batch_containing_a_pair() -> None:
+    """One pair in a batch is enough, its content would be dropped just the same."""
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={"chat_template": GENERIC_INSTRUCT_TEMPLATE},
+    )
+    with pytest.raises(ValueError, match=PAIR_ROLES_DROPPED):
+        model[0].preprocess(["a solo text", ("How many people live in Berlin?", "Berlin has 3.5M.")])
+
+
+def test_predict_applies_chat_template_with_pair_roles() -> None:
+    """A template that does reference the ``query``/``document`` roles must still be applied."""
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={"chat_template": RERANKER_TEMPLATE},
+    )
+    transformer = model[0]
+    assert transformer.input_formatter.pair_roles_failure() is None
+
+    features = transformer.preprocess(BERLIN_PAIRS[:1])
+    decoded = transformer.tokenizer.decode(features["input_ids"][0], skip_special_tokens=True)
+    assert "< query > : how many people live in berlin?" in decoded
+    assert "< document > : berlin has a population" in decoded
+
+
+def test_predict_applies_chat_template_that_only_echoes_the_role() -> None:
+    """A template that carries unknown roles through must keep working, not raise.
+
+    Pass-through ChatML templates such as SmolLM2's emit ``message['role']`` verbatim, so they never
+    mention ``query``/``document`` yet render both messages in full. Deciding from the template source
+    rather than from a render would break models that are fine today.
+    """
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={"chat_template": CHATML_TEMPLATE},
+    )
+    transformer = model[0]
+    assert transformer.input_formatter.pair_roles_failure() is None
+
+    features = transformer.preprocess(BERLIN_PAIRS[:1])
+    decoded = transformer.tokenizer.decode(features["input_ids"][0], skip_special_tokens=True)
+    assert "query" in decoded and "how many people live in berlin?" in decoded
+    assert "document" in decoded and "berlin has a population" in decoded
+
+
+def test_message_input_with_a_single_pair_role_is_not_checked() -> None:
+    """A hand-written message may use one pair role alone, and that is not a pair.
+
+    The check guards the pair mapping, which always produces both roles in one conversation, so a
+    template rendering just the role the user actually sent must not be rejected for dropping a role
+    the batch never uses.
+    """
+    query_only = "{% for m in messages %}{% if m.role == 'query' %}Instruct: {{ m.content }}{% endif %}{% endfor %}"
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={"chat_template": query_only},
+    )
+    features = model[0].preprocess([[{"role": "query", "content": "hello world"}]])
+    decoded = model[0].tokenizer.decode(features["input_ids"][0], skip_special_tokens=True)
+    assert "instruct : hello world" in decoded
+
+
+def test_probe_uses_the_configured_chat_template_kwargs() -> None:
+    """A model may select a named rerank template via processing kwargs, as Qwen3-VL-Reranker does.
+
+    The probe must measure the selected template rather than the default one, since rejecting the
+    model for a default that drops the pair roles would break a correctly configured reranker.
+    """
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={
+            "chat_template": {"default": GENERIC_INSTRUCT_TEMPLATE, "reranker": STRUCTURED_RERANKER_TEMPLATE}
+        },
+    )
+    transformer = model[0]
+    with pytest.raises(ValueError, match=PAIR_ROLES_DROPPED) as excinfo:
+        transformer.preprocess(BERLIN_PAIRS[:1])
+    # The dict template infers structured format, so the remedy example must read typed content
+    assert "content[0].text" in str(excinfo.value)
+
+    transformer.processing_kwargs["chat_template"] = {"chat_template": "reranker"}
+    features = transformer.preprocess(BERLIN_PAIRS[:1])
+    decoded = transformer.tokenizer.decode(features["input_ids"][0], skip_special_tokens=True)
+    assert "< query > : how many people live in berlin?" in decoded
 
 
 # Test suite converted from demo_3406_simple_og.py

@@ -142,14 +142,23 @@ def semantic_search_faiss(
             "Rescoring is enabled but the query embeddings are quantized. Either pass `rescore=False` or don't quantize the query embeddings."
         )
 
-    # Perform the search using the usearch index
+    # Perform the search using the FAISS index
     start_t = time.time()
     scores, indices = corpus_index.search(query_embeddings, k)
 
     # If rescoring is enabled, we need to rescore the results using the rescore_embeddings
     if rescore_embeddings is not None:
+        # FAISS pads short result sets with index -1, and reconstruct(-1) reads out of bounds
+        # (or segfaults on an empty index), so the padding slots get a zero placeholder instead
+        if corpus_precision == "ubinary":
+            zero_embedding = np.zeros(corpus_index.d // 8, dtype=np.uint8)
+        else:
+            zero_embedding = np.zeros(corpus_index.d, dtype=np.float32)
         top_k_embeddings = np.array(
-            [[corpus_index.reconstruct(idx.item()) for idx in query_indices] for query_indices in indices]
+            [
+                [corpus_index.reconstruct(idx.item()) if idx != -1 else zero_embedding for idx in query_indices]
+                for query_indices in indices
+            ]
         )
         # If the corpus precision is binary, we need to unpack the bits
         if corpus_precision == "ubinary":
@@ -163,17 +172,21 @@ def semantic_search_faiss(
         # We use einsum to calculate the dot product between the query and the top_k embeddings, equivalent to looping
         # over the queries and calculating 'rescore_embeddings[i] @ top_k_embeddings[i].T'
         rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings)
+        # Disqualify the padding slots so their placeholder scores cannot outrank real candidates
+        rescored_scores[indices == -1] = -np.inf
         rescored_indices = np.argsort(-rescored_scores)[:, :top_k]
         indices = indices[np.arange(len(query_embeddings))[:, None], rescored_indices]
         scores = rescored_scores[np.arange(len(query_embeddings))[:, None], rescored_indices]
 
     delta_t = time.time() - start_t
 
+    # FAISS pads short result sets with index -1, which would otherwise resolve to the last corpus entry
     outputs = (
         [
             [
                 {"corpus_id": int(neighbor), "score": float(score)}
                 for score, neighbor in zip(scores[query_id], indices[query_id])
+                if neighbor != -1
             ]
             for query_id in range(len(query_embeddings))
         ],
