@@ -53,7 +53,7 @@ def semantic_search_faiss(
             "float32".
         top_k: Number of top results to retrieve. Default is 10.
         ranges: Ranges for quantization of embeddings. This is only used
-            for uint8 quantization, where the ranges refers to the
+            for uint8 quantization, where the ranges refer to the
             minimum and maximum values for each dimension. So, it's a 2D
             array with shape (2, embedding_dim). Default is None, which
             means that the ranges will be calculated from the
@@ -237,7 +237,7 @@ def semantic_search_usearch(
             Default is "float32".
         top_k: Number of top results to retrieve. Default is 10.
         ranges: Ranges for quantization of embeddings. This is only used
-            for int8 quantization, where the ranges refers to the
+            for int8 quantization, where the ranges refer to the
             minimum and maximum values for each dimension. So, it's a 2D
             array with shape (2, embedding_dim). Default is None, which
             means that the ranges will be calculated from the
@@ -403,17 +403,17 @@ def quantize_embeddings(
         precision: The precision to convert to. Options are "float32",
             "int8", "uint8", "binary", "ubinary".
         ranges (Optional[np.ndarray]): Ranges for quantization of
-            embeddings. This is only used for int8 quantization, where
-            the ranges refers to the minimum and maximum values for each
+            embeddings. This is only used for int8 and uint8 quantization,
+            where the ranges refer to the minimum and maximum values for each
             dimension. So, it's a 2D array with shape (2,
             embedding_dim). Default is None, which means that the ranges
             will be calculated from the calibration embeddings.
         calibration_embeddings (Optional[np.ndarray]): Embeddings used
             for calibration during quantization. This is only used for
-            int8 quantization, where the calibration embeddings can be
-            used to compute ranges, i.e. the minimum and maximum values
-            for each dimension. Default is None, which means that the
-            ranges will be calculated from the query embeddings. This is
+            int8 and uint8 quantization, where the calibration embeddings
+            can be used to compute ranges, i.e. the minimum and maximum
+            values for each dimension. Default is None, which means that
+            the ranges will be calculated from the embeddings. This is
             not recommended.
 
     Returns:
