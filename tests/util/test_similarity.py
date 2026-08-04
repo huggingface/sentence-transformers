@@ -247,6 +247,34 @@ def test_pairwise_euclidean_sim_sparse(sparse_tensors):
     assert torch.allclose(sim_sparse, sim_dense, rtol=1e-5, atol=1e-5)
 
 
+@pytest.mark.parametrize(
+    ("similarity_fn", "pairwise_similarity_fn"),
+    [
+        (cos_sim, pairwise_cos_sim),
+        (dot_score, pairwise_dot_score),
+        (manhattan_sim, pairwise_manhattan_sim),
+        (euclidean_sim, pairwise_euclidean_sim),
+    ],
+)
+@pytest.mark.parametrize("sparse_first", [True, False])
+def test_similarity_mixed_sparse_dense(sparse_tensors, similarity_fn, pairwise_similarity_fn, sparse_first) -> None:
+    """Test that mixing a sparse and a dense operand matches the all-dense result."""
+    tensor1, tensor2 = sparse_tensors
+
+    dense1 = tensor1.to_dense()
+    dense2 = tensor2.to_dense()
+
+    a, b = (tensor1, dense2) if sparse_first else (dense1, tensor2)
+
+    sim_mixed = similarity_fn(a, b)
+    sim_dense = similarity_fn(dense1, dense2)
+    assert torch.allclose(sim_mixed, sim_dense, rtol=1e-5, atol=1e-5)
+
+    pairwise_mixed = pairwise_similarity_fn(a, b)
+    pairwise_dense = pairwise_similarity_fn(dense1, dense2)
+    assert torch.allclose(pairwise_mixed, pairwise_dense, rtol=1e-5, atol=1e-5)
+
+
 def test_pairwise_angle_sim_even_and_odd_sparse_embeddings(splade_bert_tiny_model: SparseEncoder) -> None:
     """Ensure pairwise_angle_sim works for even and artificially odd dims."""
 

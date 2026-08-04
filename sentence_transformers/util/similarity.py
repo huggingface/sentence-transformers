@@ -16,6 +16,41 @@ from .tensor import _convert_to_batch_tensor, _convert_to_tensor, normalize_embe
 logger = logging.get_logger(__name__)
 
 
+def _row_squared_norms(a: Tensor) -> Tensor:
+    """
+    Computes the row-wise sum of squares for either a sparse or a dense tensor.
+
+    Args:
+        a (Tensor): A 2-dimensional sparse or dense tensor.
+
+    Returns:
+        Tensor: Dense vector with res[i] = sum(a[i] ** 2)
+    """
+    if a.is_sparse:
+        return torch.sparse.sum(a * a, dim=1).to_dense()
+    return (a * a).sum(dim=1)
+
+
+def _match_layouts(a: Tensor, b: Tensor) -> tuple[Tensor, Tensor]:
+    """
+    Densifies the sparse tensor if exactly one of the two inputs is sparse, as element-wise operations require both
+    operands to share a layout. Both inputs have the same shape here, so the dense one already accounts for the
+    memory that densifying the other one takes.
+
+    Args:
+        a (Tensor): The first tensor.
+        b (Tensor): The second tensor.
+
+    Returns:
+        tuple[Tensor, Tensor]: The two tensors, using the same layout.
+    """
+    if a.is_sparse and not b.is_sparse:
+        return a.to_dense(), b
+    if b.is_sparse and not a.is_sparse:
+        return a, b.to_dense()
+    return a, b
+
+
 def pytorch_cos_sim(a: Tensor, b: Tensor) -> Tensor:
     """
     Computes the cosine similarity between two tensors.
@@ -124,8 +159,8 @@ def manhattan_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) 
     if a.is_sparse or b.is_sparse:
         logger.warning_once("Using scipy for sparse Manhattan similarity computation.")
 
-        a_coo = to_scipy_coo(a)
-        b_coo = to_scipy_coo(b)
+        a_coo = to_scipy_coo(a if a.is_sparse else a.to_sparse())
+        b_coo = to_scipy_coo(b if b.is_sparse else b.to_sparse())
         dist = pairwise_distances(a_coo, b_coo, metric="manhattan")
         return torch.from_numpy(-dist).float().to(a.device).to_dense()
 
@@ -146,6 +181,7 @@ def pairwise_manhattan_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray |
     """
     a = _convert_to_tensor(a)
     b = _convert_to_tensor(b)
+    a, b = _match_layouts(a, b)
 
     return -torch.sum(torch.abs(a - b), dim=-1).to_dense()
 
@@ -165,9 +201,9 @@ def euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) 
     a = _convert_to_batch_tensor(a)
     b = _convert_to_batch_tensor(b)
 
-    if a.is_sparse:
-        a_norm_sq = torch.sparse.sum(a * a, dim=1).to_dense().unsqueeze(1)  # Shape (N, 1)
-        b_norm_sq = torch.sparse.sum(b * b, dim=1).to_dense().unsqueeze(0)  # Shape (1, M)
+    if a.is_sparse or b.is_sparse:
+        a_norm_sq = _row_squared_norms(a).unsqueeze(1)  # Shape (N, 1)
+        b_norm_sq = _row_squared_norms(b).unsqueeze(0)  # Shape (1, M)
         dot_product = torch.matmul(a, b.t()).to_dense()  # Shape (N, M)
 
         # Calculate squared distance
@@ -194,6 +230,7 @@ def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray |
     """
     a = _convert_to_tensor(a)
     b = _convert_to_tensor(b)
+    a, b = _match_layouts(a, b)
 
     return -torch.sqrt(torch.sum((a - b) ** 2, dim=-1)).to_dense()
 
