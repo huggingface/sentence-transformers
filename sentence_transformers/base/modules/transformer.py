@@ -1049,8 +1049,7 @@ class Transformer(InputModule):
         # Checked before the probe, which costs a render, so batches without a pair never pay for it
         if not self.input_formatter.has_pair_roles(messages_batch):
             return
-        # Strip what never reaches the real Jinja render: size kwargs only affect tokenization, which
-        # the probe skips, and restore_suffix is a Sentence Transformers flag popped before rendering
+        # Drop what never reaches the Jinja render: size kwargs (tokenization only) and the ST-only restore_suffix
         probe_kwargs = {
             key: value
             for key, value in chat_template_kwargs.items()

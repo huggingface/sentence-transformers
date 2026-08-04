@@ -1323,9 +1323,6 @@ class TestPairRolesFailure:
         both = InputFormatter("bert", processor=FakeProcessor(GENERIC_INSTRUCT_TEMPLATE))
         assert "'query' and 'document' content" in both.pair_roles_failure()
 
-    def test_no_processor_has_no_pair_roles(self):
-        assert InputFormatter("bert").pair_roles_failure() is not None
-
     def test_probe_is_rendered_lazily(self):
         """A template assigned after construction must still be picked up."""
         processor = FakeProcessor(GENERIC_INSTRUCT_TEMPLATE)

@@ -47,9 +47,8 @@ KNOWN_MODEL_TYPES_MESSAGE_FORMATS = {
 
 # The roles pair_to_messages assigns to the two halves of a pair.
 PAIR_ROLES = ("query", "document")
-# Rendered through the chat template to see whether each half of a pair reaches the prompt: a baseline,
-# then one probe per role varying only that role's content. Varied values differ from their baseline in
-# first character and in length, so even a render that truncates hard still moves.
+# A baseline pair, then one probe per role varying only that role's content. Varied values differ from
+# their baseline in first character and in length, so even a render that truncates hard still moves.
 PAIR_ROLE_PROBES = (("alpha", "bravo"), ("charlie", "bravo"), ("alpha", "foxtrot"))
 
 
@@ -353,26 +352,16 @@ class InputFormatter:
     def pair_roles_failure(self, chat_template_kwargs: dict[str, Any] | None = None) -> str | None:
         """Why the chat template cannot carry a ``query``/``document`` pair, or None when it can.
 
-        Rendered rather than read off the template source. Templates that never mention the roles can
-        still pass their content through (ChatML emits ``message['role']`` verbatim), and templates that
-        do mention them may only use them in branches a pair never reaches, so the source text answers a
-        different question than the one that matters.
+        Decided by rendering probe pairs and diffing the outputs, never by reading the template source:
+        templates can pass roles through without naming them (ChatML) or name them in branches a pair
+        never reaches, and may transform content beyond recognition, so only a render that fails to move
+        with its input proves the content goes nowhere. A template that raises is reported with the
+        exception instead. The verdict is cached against a snapshot of the template and kwargs, so
+        fixing either on a loaded model takes effect, which is the documented remedy.
 
-        Decided by varying one half of the pair at a time and diffing the renders, rather than by hunting
-        for a sentinel in the output. A template is free to transform what it renders (``| upper``,
-        ``| truncate``), which leaves no sentinel to find even though every character of the real content
-        would have reached the prompt. A render that does not move when its input does is the only
-        reliable sign that the content goes nowhere. A template that raises on the probe is reported with
-        the exception instead, so the two problems are not conflated.
-
-        Probed with the ``chat_template_kwargs`` the real render passes, because they can change which
-        template renders: models may ship several named templates and select one through these kwargs,
-        the way Qwen3-VL-Reranker selects its ``reranker`` template next to a ``default`` that drops
-        the pair roles.
-
-        Keyed on a snapshot of the template and kwargs rather than cached outright, so replacing the
-        template on a loaded model takes effect, whether by assignment or by editing a named-template
-        dict in place. That is the documented remedy when the pair-role check rejects a model.
+        Args:
+            chat_template_kwargs: The ``apply_chat_template`` kwargs the real render passes. These can
+                select between named templates, so the probe must render with them.
         """
         template = getattr(self.processor, "chat_template", None)
         if template is None:
@@ -407,11 +396,8 @@ class InputFormatter:
     def has_pair_roles(self, messages_batch: list[list[dict[str, Any]]]) -> bool:
         """Whether any conversation in a batch carries both of the ``query``/``document`` pair roles.
 
-        Anchored on the produced messages rather than on the raw inputs, so it covers both routes into
-        :meth:`pair_to_messages`: text pairs converted by :meth:`batch_to_message`, and non-text pairs
-        that :meth:`parse_inputs` already turned into messages. Both roles are required because that is
-        the shape :meth:`pair_to_messages` produces, so a hand-written message using one of the roles
-        alone is not held to a check about pairs.
+        Anchored on produced messages so both routes into :meth:`pair_to_messages` are covered, and
+        requiring both roles keeps hand-written single-role messages outside a check about pairs.
         """
         pair_roles = set(PAIR_ROLES)
         return any(pair_roles <= {message.get("role") for message in messages} for messages in messages_batch)
