@@ -44,6 +44,14 @@ KNOWN_MODEL_TYPES_MESSAGE_FORMATS = {
 }
 
 
+# The roles pair_to_messages assigns to the two halves of a pair.
+PAIR_ROLES = ("query", "document")
+# Rendered through the chat template to see whether each half of a pair reaches the prompt: a baseline,
+# then one probe per role varying only that role's content. Varied values differ from their baseline in
+# first character and in length, so even a render that truncates hard still moves.
+PAIR_ROLE_PROBES = (("alpha", "bravo"), ("charlie", "bravo"), ("alpha", "foxtrot"))
+
+
 def _looks_like_url(text: str) -> bool:
     """Check if a string looks like a valid URL (starts with http(s) and has no spaces)."""
     return text.startswith(("http://", "https://")) and " " not in text
@@ -190,6 +198,7 @@ class InputFormatter:
         self.model_type = model_type
         self.processor = processor
         self.supported_modalities = supported_modalities
+        self._pair_role_probe: tuple[Any, str | None] | None = None
         if message_format == "auto":
             self.message_format = self._infer_format(processor) if processor else "structured"
         else:
@@ -307,7 +316,7 @@ class InputFormatter:
             for mod, value in typed_inputs:
                 if mod == "pair":
                     messages.append(self.pair_to_messages(value))
-                elif mod == "text" and isinstance(value, (tuple, list)) and len(value) == 2:
+                elif mod == "text" and self.is_text_pair(value):
                     messages.append(self.pair_to_messages(value))
                 elif mod == "message":
                     messages.append(value)
@@ -340,6 +349,61 @@ class InputFormatter:
 
         return modality, processed_inputs, extra_modality_kwargs
 
+    @property
+    def pair_roles_failure(self) -> str | None:
+        """Why the chat template cannot carry a ``query``/``document`` pair, or None when it can.
+
+        Rendered rather than read off the template source. Templates that never mention the roles can
+        still pass their content through (ChatML emits ``message['role']`` verbatim), and templates that
+        do mention them may only use them in branches a pair never reaches, so the source text answers a
+        different question than the one that matters.
+
+        Decided by varying one half of the pair at a time and diffing the renders, rather than by hunting
+        for a sentinel in the output. A template is free to transform what it renders (``| upper``,
+        ``| truncate``), which leaves no sentinel to find even though every character of the real content
+        would have reached the prompt. A render that does not move when its input does is the only
+        reliable sign that the content goes nowhere. A template that raises on the probe is reported with
+        the exception instead, so the two problems are not conflated.
+
+        Keyed on the template rather than cached outright, so assigning a working template to a loaded
+        model takes effect. That is the documented remedy when the pair-role check rejects a model.
+        """
+        template = getattr(self.processor, "chat_template", None)
+        if template is None:
+            return "the model has no chat template"
+        if self._pair_role_probe is not None and self._pair_role_probe[0] == template:
+            return self._pair_role_probe[1]
+
+        try:
+            base, *varied = [
+                str(self.processor.apply_chat_template(self.pair_to_messages(pair), tokenize=False))
+                for pair in PAIR_ROLE_PROBES
+            ]
+        except Exception as exc:
+            failure = f"it raised {type(exc).__name__}: {exc}"
+        else:
+            dropped = [role for role, render in zip(PAIR_ROLES, varied) if render == base]
+            if dropped:
+                roles = " and ".join(repr(role) for role in dropped)
+                failure = f"the {roles} content does not reach the rendered prompt"
+            else:
+                failure = None
+        logger.debug(f"Pair-role probe for the chat template: {failure or 'pair content survives'}")
+        self._pair_role_probe = (template, failure)
+        return failure
+
+    def has_pair_roles(self, messages_batch: list[list[dict[str, Any]]]) -> bool:
+        """Whether any conversation in a batch carries both of the ``query``/``document`` pair roles.
+
+        Anchored on the produced messages rather than on the raw inputs, so it covers both routes into
+        :meth:`pair_to_messages`: text pairs converted by :meth:`batch_to_message`, and non-text pairs
+        that :meth:`parse_inputs` already turned into messages. Both roles are required because that is
+        the shape :meth:`pair_to_messages` produces, so a hand-written message using one of the roles
+        alone is not held to a check about pairs.
+        """
+        pair_roles = set(PAIR_ROLES)
+        return any(pair_roles <= {message.get("role") for message in messages} for messages in messages_batch)
+
     def pair_to_messages(self, pair: tuple | list) -> list[dict[str, Any]]:
         """Convert a pair of inputs to query/document message format.
 
@@ -353,14 +417,15 @@ class InputFormatter:
         Returns:
             List of two message dictionaries with ``"query"`` and ``"document"`` roles.
         """
+        query_role, doc_role = PAIR_ROLES
         query_item, doc_item = pair
         query_modality = infer_modality(query_item)
         doc_modality = infer_modality(doc_item)
 
         if self.message_format == "flat":
             return [
-                {"role": "query", "content": query_item},
-                {"role": "document", "content": doc_item},
+                {"role": query_role, "content": query_item},
+                {"role": doc_role, "content": doc_item},
             ]
 
         def _to_content(modality, item):
@@ -374,8 +439,8 @@ class InputFormatter:
             return [{"type": modality, modality: item}]
 
         return [
-            {"role": "query", "content": _to_content(query_modality, query_item)},
-            {"role": "document", "content": _to_content(doc_modality, doc_item)},
+            {"role": query_role, "content": _to_content(query_modality, query_item)},
+            {"role": doc_role, "content": _to_content(doc_modality, doc_item)},
         ]
 
     def to_message(self, typed_input: dict[Modality, Any], role: str = "user") -> list[dict[str, Any]]:
@@ -431,16 +496,16 @@ class InputFormatter:
             # Text pairs (e.g. ("query", "document")) are routed to pair_to_messages instead
             if len(typed_input) == 1:
                 mod, value = next(iter(typed_input.items()))
-                if (
-                    mod == "text"
-                    and isinstance(value, (tuple, list))
-                    and len(value) == 2
-                    and all(isinstance(v, str) for v in value)
-                ):
+                if mod == "text" and self.is_text_pair(value):
                     messages.append(self.pair_to_messages(value))
                     continue
             messages.append(self.to_message(typed_input))  # type: ignore[arg-type]
         return "message", {"message": messages}
+
+    @staticmethod
+    def is_text_pair(value: Any) -> bool:
+        """Whether a single input is a text pair, i.e. cross-encoder ``(query, document)`` input."""
+        return isinstance(value, (tuple, list)) and len(value) == 2 and all(isinstance(part, str) for part in value)
 
     @staticmethod
     def is_text_only_messages(messages_batch: list[list[dict[str, Any]]]) -> bool:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from jinja2 import Environment
 from PIL import Image
 
 from sentence_transformers.base.modality import (
@@ -15,6 +16,7 @@ from sentence_transformers.base.modality import (
     is_video_url_or_path,
 )
 from sentence_transformers.base.modality_types import MODALITY_TO_PROCESSOR_ARG
+from tests.utils import GENERIC_INSTRUCT_TEMPLATE, RERANKER_TEMPLATE
 
 
 class TestIsImageUrlOrPath:
@@ -1231,3 +1233,123 @@ class TestIsTextOnlyMessages:
             ]
         ]
         assert InputFormatter.is_text_only_messages(batch) is True
+
+
+class FakeProcessor:
+    """Minimal stand-in exposing the two attributes the pair-role probe touches."""
+
+    def __init__(self, chat_template):
+        self.chat_template = chat_template
+
+    def apply_chat_template(self, messages, tokenize=False):
+        return Environment().from_string(self.chat_template).render(messages=messages)
+
+
+class TestPairRolesFailure:
+    @pytest.mark.parametrize(
+        ("template", "supported"),
+        [
+            # Reranker templates select on both roles, either via a filter or a branch
+            (RERANKER_TEMPLATE, True),
+            (
+                "{% for m in messages %}{% if m.role == 'query' %}Q{{ m.content }}"
+                "{% elif m.role == 'document' %}D{{ m.content }}{% endif %}{% endfor %}",
+                True,
+            ),
+            # Never mentions the roles yet passes both through, as ChatML templates do
+            ("{% for m in messages %}{{ m.role }}: {{ m.content }}{% endfor %}", True),
+            # Addresses the pair positionally rather than by role name
+            ("Q: {{ messages[0].content }}\nD: {{ messages[1].content }}", True),
+            ("{% for m in messages %}{{ m.content }}\n{% endfor %}", True),
+            # Mentions both roles, but only in a branch a pair never reaches
+            (
+                "{% for m in messages %}{% if m.role == 'user' %}{{ m.content }}"
+                "{% elif m.role == 'query' or m.role == 'document' %}{% endif %}{% endfor %}",
+                False,
+            ),
+            # Half a pair is no better than none, the other side is still dropped
+            ("{% for m in messages %}{% if m.role == 'query' %}{{ m.content }}{% endif %}{% endfor %}", False),
+            (GENERIC_INSTRUCT_TEMPLATE, False),
+            # Anything unrenderable is treated as unable to carry a pair
+            ("{% for m in messages %}{{ m.content }}", False),
+            ("{{ nope.missing.attribute }}", False),
+            (None, False),
+        ],
+    )
+    def test_detection(self, template, supported):
+        assert (InputFormatter("bert", processor=FakeProcessor(template)).pair_roles_failure is None) is supported
+
+    @pytest.mark.parametrize(
+        "filter_expression",
+        ["| upper", "| capitalize", "| truncate(10)", "| wordwrap(4)", "| replace('a', 'z')", "| trim", "[:8]"],
+    )
+    def test_transformed_content_still_counts_as_rendered(self, filter_expression):
+        """A template may reshape what it renders, and the content still reaches the model."""
+        template = "{% for m in messages %}{{ m.content " + filter_expression + " }}\n{% endfor %}"
+        assert InputFormatter("bert", processor=FakeProcessor(template)).pair_roles_failure is None
+
+    def test_failure_names_the_half_that_is_dropped(self):
+        query_only = "{% for m in messages %}{% if m.role == 'query' %}{{ m.content }}{% endif %}{% endfor %}"
+        assert "'document' content" in InputFormatter("bert", processor=FakeProcessor(query_only)).pair_roles_failure
+
+        both = InputFormatter("bert", processor=FakeProcessor(GENERIC_INSTRUCT_TEMPLATE))
+        assert "'query' and 'document' content" in both.pair_roles_failure
+
+    def test_no_processor_has_no_pair_roles(self):
+        assert InputFormatter("bert").pair_roles_failure is not None
+
+    def test_probe_is_rendered_lazily(self):
+        """A template assigned after construction must still be picked up."""
+        processor = FakeProcessor(GENERIC_INSTRUCT_TEMPLATE)
+        formatter = InputFormatter("bert", processor=processor)
+        processor.chat_template = "{% for m in messages %}{{ m.content }}{% endfor %}"
+        assert formatter.pair_roles_failure is None
+
+    def test_probe_reruns_after_a_rejected_template_is_replaced(self):
+        """Replacing a rejected template is the documented remedy, so a stale verdict must not pin it."""
+        processor = FakeProcessor(GENERIC_INSTRUCT_TEMPLATE)
+        formatter = InputFormatter("bert", processor=processor)
+        assert formatter.pair_roles_failure is not None
+
+        processor.chat_template = "{% for m in messages %}{{ m.content }}{% endfor %}"
+        assert formatter.pair_roles_failure is None
+
+    def test_failure_distinguishes_an_empty_render_from_a_raise(self):
+        dropped = InputFormatter("bert", processor=FakeProcessor(GENERIC_INSTRUCT_TEMPLATE))
+        assert "does not reach the rendered prompt" in dropped.pair_roles_failure
+
+        raised = InputFormatter("bert", processor=FakeProcessor("{{ nope() }}"))
+        assert "it raised" in raised.pair_roles_failure
+
+        assert InputFormatter("bert").pair_roles_failure == "the model has no chat template"
+        assert InputFormatter("bert", processor=FakeProcessor(RERANKER_TEMPLATE)).pair_roles_failure is None
+
+
+class TestHasPairRoles:
+    @pytest.mark.parametrize(
+        ("messages_batch", "expected"),
+        [
+            ([[{"role": "query", "content": "q"}, {"role": "document", "content": "d"}]], True),
+            # One pair anywhere in the batch is enough, its content would be dropped just the same
+            (
+                [
+                    [{"role": "user", "content": "hi"}],
+                    [{"role": "query", "content": "q"}, {"role": "document", "content": "d"}],
+                ],
+                True,
+            ),
+            # One pair role alone is not a pair, e.g. a hand-written query message with no document
+            ([[{"role": "query", "content": "q"}]], False),
+            ([[{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}]], False),
+            ([[{"content": "no role at all"}]], False),
+            ([], False),
+        ],
+    )
+    def test_batches(self, messages_batch, expected):
+        assert InputFormatter("bert").has_pair_roles(messages_batch) is expected
+
+    def test_covers_non_text_pairs(self):
+        """Non-text pairs reach pair_to_messages by a different route, but take the same roles."""
+        formatter = InputFormatter("bert")
+        messages = formatter.pair_to_messages((Image.new("RGB", (4, 4)), "a document"))
+        assert formatter.has_pair_roles([messages]) is True
