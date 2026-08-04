@@ -85,6 +85,8 @@ def semantic_search_faiss(
     Raises:
         ValueError: If both `corpus_embeddings` and `corpus_index` are
             provided or if neither is provided.
+        ValueError: If `corpus_precision` is not "float32", "uint8", or
+            "ubinary".
 
     The list of search results is in the format: [[{"corpus_id": int, "score": float}, ...], ...]
     The time taken for the search is a float value.
@@ -225,8 +227,8 @@ def semantic_search_usearch(
             quantized to allow for rescoring.
         corpus_embeddings: Embeddings of the corpus sentences. Either
             `corpus_embeddings` or `corpus_index` should be used, not
-            both. The embeddings can be quantized to "int8" or "binary"
-            for more efficient search.
+            both. The embeddings can be quantized to "int8", "ubinary"
+            or "binary" for more efficient search.
         corpus_index: usearch index for the corpus sentences. Either
             `corpus_embeddings` or `corpus_index` should be used, not
             both.
@@ -267,6 +269,8 @@ def semantic_search_usearch(
     Raises:
         ValueError: If both `corpus_embeddings` and `corpus_index` are
             provided or if neither is provided.
+        ValueError: If `corpus_precision` is not "float32", "int8",
+            "ubinary" or "binary".
 
     The list of search results is in the format: [[{"corpus_id": int, "score": float}, ...], ...]
     The time taken for the search is a float value.

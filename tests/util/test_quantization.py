@@ -1,12 +1,3 @@
-"""
-Tests for the binary / ubinary precision paths of quantize_embeddings.
-
-These paths pack each row independently with ``np.packbits(..., axis=-1)``,
-yielding shape ``(n_samples, ceil(dim / 8))``. Without ``axis=-1``, NumPy packs
-the flattened 2-D array, and the following ``.reshape(n, -1)`` raises a
-``ValueError`` whenever the embedding dimension is not a multiple of 8.
-"""
-
 from __future__ import annotations
 
 import importlib.util
@@ -86,24 +77,6 @@ def test_binary_quantize_row_independence(precision: str) -> None:
         assert result[1, 0] == 0x00, f"All-negative row: expected 0, got {result[1, 0]}"
 
 
-@pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
-@pytest.mark.parametrize("corpus_precision", ["int8", "binary", "float16"])
-def test_semantic_search_faiss_rejects_unsupported_precision(corpus_precision: str) -> None:
-    """An unsupported `corpus_precision` must say so, not fall through to an unrelated error.
-
-    Neither branch of the index construction matches, so `corpus_index` stayed `None` and the
-    call died on `AttributeError: 'NoneType' object has no attribute 'add'`. `semantic_search_usearch`
-    already validates this argument the same way.
-    """
-    from sentence_transformers.util.quantization import semantic_search_faiss
-
-    embeddings = np.random.default_rng(seed=0).random((4, 16), dtype=np.float32)
-    corpus = quantize_embeddings(embeddings, precision="uint8", calibration_embeddings=embeddings)
-
-    with pytest.raises(ValueError, match="corpus_precision"):
-        semantic_search_faiss(embeddings, corpus_embeddings=corpus, corpus_precision=corpus_precision, top_k=2)
-
-
 @pytest.mark.parametrize("precision", ["int8", "uint8"])
 def test_quantize_clips_out_of_range_values(precision: str) -> None:
     """Values outside the calibration range must saturate, not wrap around, on cast.
@@ -134,6 +107,23 @@ CALIBRATION = np.random.default_rng(seed=2).standard_normal((100, 16), dtype=np.
 def _corpus(n_docs: int, precision: str, seed: int = 0) -> np.ndarray:
     embeddings = np.random.default_rng(seed=seed).standard_normal((n_docs, 16), dtype=np.float32)
     return quantize_embeddings(embeddings, precision=precision, calibration_embeddings=CALIBRATION)
+
+
+@skip_without_faiss
+@pytest.mark.parametrize("corpus_precision", ["int8", "binary", "float16"])
+def test_semantic_search_faiss_rejects_unsupported_precision(corpus_precision: str) -> None:
+    """An unsupported ``corpus_precision`` must say so, not fall through to an unrelated error.
+
+    Without validation, no index construction branch matches and the call dies on
+    ``AttributeError: 'NoneType' object has no attribute 'add'``.
+    """
+    with pytest.raises(ValueError, match="corpus_precision"):
+        semantic_search_faiss(
+            QUERIES,
+            corpus_embeddings=_corpus(4, "uint8"),
+            corpus_precision=corpus_precision,
+            top_k=2,
+        )
 
 
 @skip_without_faiss
