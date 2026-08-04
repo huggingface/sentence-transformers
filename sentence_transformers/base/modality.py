@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 from collections import defaultdict
@@ -198,7 +199,7 @@ class InputFormatter:
         self.model_type = model_type
         self.processor = processor
         self.supported_modalities = supported_modalities
-        self._pair_role_probe: tuple[Any, str | None] | None = None
+        self._pair_role_probe: tuple[tuple[Any, dict[str, Any]], str | None] | None = None
         if message_format == "auto":
             self.message_format = self._infer_format(processor) if processor else "structured"
         else:
@@ -349,8 +350,7 @@ class InputFormatter:
 
         return modality, processed_inputs, extra_modality_kwargs
 
-    @property
-    def pair_roles_failure(self) -> str | None:
+    def pair_roles_failure(self, chat_template_kwargs: dict[str, Any] | None = None) -> str | None:
         """Why the chat template cannot carry a ``query``/``document`` pair, or None when it can.
 
         Rendered rather than read off the template source. Templates that never mention the roles can
@@ -365,18 +365,30 @@ class InputFormatter:
         reliable sign that the content goes nowhere. A template that raises on the probe is reported with
         the exception instead, so the two problems are not conflated.
 
-        Keyed on the template rather than cached outright, so assigning a working template to a loaded
-        model takes effect. That is the documented remedy when the pair-role check rejects a model.
+        Probed with the ``chat_template_kwargs`` the real render passes, because they can change which
+        template renders: models may ship several named templates and select one through these kwargs,
+        the way Qwen3-VL-Reranker selects its ``reranker`` template next to a ``default`` that drops
+        the pair roles.
+
+        Keyed on a snapshot of the template and kwargs rather than cached outright, so replacing the
+        template on a loaded model takes effect, whether by assignment or by editing a named-template
+        dict in place. That is the documented remedy when the pair-role check rejects a model.
         """
         template = getattr(self.processor, "chat_template", None)
         if template is None:
             return "the model has no chat template"
-        if self._pair_role_probe is not None and self._pair_role_probe[0] == template:
+        chat_template_kwargs = chat_template_kwargs or {}
+        key = (template, chat_template_kwargs)
+        if self._pair_role_probe is not None and self._pair_role_probe[0] == key:
             return self._pair_role_probe[1]
 
         try:
             base, *varied = [
-                str(self.processor.apply_chat_template(self.pair_to_messages(pair), tokenize=False))
+                str(
+                    self.processor.apply_chat_template(
+                        self.pair_to_messages(pair), tokenize=False, **chat_template_kwargs
+                    )
+                )
                 for pair in PAIR_ROLE_PROBES
             ]
         except Exception as exc:
@@ -389,7 +401,7 @@ class InputFormatter:
             else:
                 failure = None
         logger.debug(f"Pair-role probe for the chat template: {failure or 'pair content survives'}")
-        self._pair_role_probe = (template, failure)
+        self._pair_role_probe = (copy.deepcopy(key), failure)
         return failure
 
     def has_pair_roles(self, messages_batch: list[list[dict[str, Any]]]) -> bool:

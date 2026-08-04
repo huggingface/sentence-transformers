@@ -1241,8 +1241,11 @@ class FakeProcessor:
     def __init__(self, chat_template):
         self.chat_template = chat_template
 
-    def apply_chat_template(self, messages, tokenize=False):
-        return Environment().from_string(self.chat_template).render(messages=messages)
+    def apply_chat_template(self, messages, tokenize=False, chat_template=None, **kwargs):
+        template = self.chat_template
+        if isinstance(template, dict):
+            template = template[chat_template or "default"]
+        return Environment().from_string(template).render(messages=messages, **kwargs)
 
 
 class TestPairRolesFailure:
@@ -1277,7 +1280,7 @@ class TestPairRolesFailure:
         ],
     )
     def test_detection(self, template, supported):
-        assert (InputFormatter("bert", processor=FakeProcessor(template)).pair_roles_failure is None) is supported
+        assert (InputFormatter("bert", processor=FakeProcessor(template)).pair_roles_failure() is None) is supported
 
     @pytest.mark.parametrize(
         "filter_expression",
@@ -1286,43 +1289,77 @@ class TestPairRolesFailure:
     def test_transformed_content_still_counts_as_rendered(self, filter_expression):
         """A template may reshape what it renders, and the content still reaches the model."""
         template = "{% for m in messages %}{{ m.content " + filter_expression + " }}\n{% endfor %}"
-        assert InputFormatter("bert", processor=FakeProcessor(template)).pair_roles_failure is None
+        assert InputFormatter("bert", processor=FakeProcessor(template)).pair_roles_failure() is None
+
+    def test_probe_covers_structured_message_format(self):
+        """Structured-format processors probe through typed content items rather than plain strings."""
+        pass_through = "{% for m in messages %}{{ m.content[0].text }}\n{% endfor %}"
+        formatter = InputFormatter("bert", processor=FakeProcessor(pass_through))
+        assert formatter.message_format == "structured"
+        assert formatter.pair_roles_failure() is None
+
+        user_only = "{% for m in messages %}{% if m.role == 'user' %}{{ m.content[0].text }}{% endif %}{% endfor %}"
+        formatter = InputFormatter("bert", processor=FakeProcessor(user_only))
+        assert formatter.message_format == "structured"
+        assert formatter.pair_roles_failure() is not None
+
+    def test_probe_uses_the_render_kwargs(self):
+        """Kwargs can select a named template, so the probe must measure the one the render uses.
+
+        Qwen3-VL-Reranker ships a ``reranker`` template next to a ``default`` that drops the pair
+        roles, selected through its configured ``processing_kwargs``.
+        """
+        processor = FakeProcessor({"default": GENERIC_INSTRUCT_TEMPLATE, "reranker": RERANKER_TEMPLATE})
+        formatter = InputFormatter("bert", processor=processor)
+        assert formatter.pair_roles_failure() is not None
+        assert formatter.pair_roles_failure({"chat_template": "reranker"}) is None
+        # Verdicts for different kwargs must not serve each other from the cache
+        assert formatter.pair_roles_failure() is not None
 
     def test_failure_names_the_half_that_is_dropped(self):
         query_only = "{% for m in messages %}{% if m.role == 'query' %}{{ m.content }}{% endif %}{% endfor %}"
-        assert "'document' content" in InputFormatter("bert", processor=FakeProcessor(query_only)).pair_roles_failure
+        assert "'document' content" in InputFormatter("bert", processor=FakeProcessor(query_only)).pair_roles_failure()
 
         both = InputFormatter("bert", processor=FakeProcessor(GENERIC_INSTRUCT_TEMPLATE))
-        assert "'query' and 'document' content" in both.pair_roles_failure
+        assert "'query' and 'document' content" in both.pair_roles_failure()
 
     def test_no_processor_has_no_pair_roles(self):
-        assert InputFormatter("bert").pair_roles_failure is not None
+        assert InputFormatter("bert").pair_roles_failure() is not None
 
     def test_probe_is_rendered_lazily(self):
         """A template assigned after construction must still be picked up."""
         processor = FakeProcessor(GENERIC_INSTRUCT_TEMPLATE)
         formatter = InputFormatter("bert", processor=processor)
         processor.chat_template = "{% for m in messages %}{{ m.content }}{% endfor %}"
-        assert formatter.pair_roles_failure is None
+        assert formatter.pair_roles_failure() is None
 
     def test_probe_reruns_after_a_rejected_template_is_replaced(self):
         """Replacing a rejected template is the documented remedy, so a stale verdict must not pin it."""
         processor = FakeProcessor(GENERIC_INSTRUCT_TEMPLATE)
         formatter = InputFormatter("bert", processor=processor)
-        assert formatter.pair_roles_failure is not None
+        assert formatter.pair_roles_failure() is not None
 
         processor.chat_template = "{% for m in messages %}{{ m.content }}{% endfor %}"
-        assert formatter.pair_roles_failure is None
+        assert formatter.pair_roles_failure() is None
+
+    def test_probe_reruns_after_a_named_template_is_edited_in_place(self):
+        """Fixing one entry of a named-template dict edits it in place, and must not hit a stale verdict."""
+        processor = FakeProcessor({"default": GENERIC_INSTRUCT_TEMPLATE})
+        formatter = InputFormatter("bert", processor=processor)
+        assert formatter.pair_roles_failure() is not None
+
+        processor.chat_template["default"] = "{% for m in messages %}{{ m.content }}{% endfor %}"
+        assert formatter.pair_roles_failure() is None
 
     def test_failure_distinguishes_an_empty_render_from_a_raise(self):
         dropped = InputFormatter("bert", processor=FakeProcessor(GENERIC_INSTRUCT_TEMPLATE))
-        assert "does not reach the rendered prompt" in dropped.pair_roles_failure
+        assert "does not reach the rendered prompt" in dropped.pair_roles_failure()
 
         raised = InputFormatter("bert", processor=FakeProcessor("{{ nope() }}"))
-        assert "it raised" in raised.pair_roles_failure
+        assert "it raised" in raised.pair_roles_failure()
 
-        assert InputFormatter("bert").pair_roles_failure == "the model has no chat template"
-        assert InputFormatter("bert", processor=FakeProcessor(RERANKER_TEMPLATE)).pair_roles_failure is None
+        assert InputFormatter("bert").pair_roles_failure() == "the model has no chat template"
+        assert InputFormatter("bert", processor=FakeProcessor(RERANKER_TEMPLATE)).pair_roles_failure() is None
 
 
 class TestHasPairRoles:

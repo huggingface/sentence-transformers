@@ -982,7 +982,7 @@ class Transformer(InputModule):
 
         # Checked after the conversion so it covers pairs that parse_inputs already turned into messages
         if modality == "message":
-            self._verify_pair_roles_supported(processor_inputs["message"])
+            self._verify_pair_roles_supported(processor_inputs["message"], chat_template_kwargs)
 
         # Incorporate prompt into inputs if applicable
         prompt_length = None
@@ -1036,7 +1036,9 @@ class Transformer(InputModule):
 
         return processor_output
 
-    def _verify_pair_roles_supported(self, messages_batch: list[list[dict[str, Any]]]) -> None:
+    def _verify_pair_roles_supported(
+        self, messages_batch: list[list[dict[str, Any]]], chat_template_kwargs: dict[str, Any]
+    ) -> None:
         """Raise if the chat template cannot carry the ``query``/``document`` roles a pair is mapped to.
 
         A template that only branches on ``system``/``user``/``assistant`` renders a pair to an empty
@@ -1047,7 +1049,14 @@ class Transformer(InputModule):
         # Checked before the probe, which costs a render, so batches without a pair never pay for it
         if not self.input_formatter.has_pair_roles(messages_batch):
             return
-        failure = self.input_formatter.pair_roles_failure
+        # Strip what never reaches the real Jinja render: size kwargs only affect tokenization, which
+        # the probe skips, and restore_suffix is a Sentence Transformers flag popped before rendering
+        probe_kwargs = {
+            key: value
+            for key, value in chat_template_kwargs.items()
+            if key not in _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS and key != "restore_suffix"
+        }
+        failure = self.input_formatter.pair_roles_failure(probe_kwargs)
         if failure is None:
             return
         model_name = getattr(self.config, "name_or_path", None) or "this model"

@@ -796,6 +796,11 @@ CHATML_TEMPLATE = (
     "{{ '<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n' }}"
     "{% endfor %}"
 )
+# Structured-content variant of a rerank template, as a multimodal processor would need
+STRUCTURED_RERANKER_TEMPLATE = (
+    '<Query>: {{ (messages | selectattr("role", "eq", "query") | first).content[0].text }}\n'
+    '<Document>: {{ (messages | selectattr("role", "eq", "document") | first).content[0].text }}'
+)
 BERLIN_PAIRS = [
     ["How many people live in Berlin?", "Berlin has a population of 3,520,031 registered inhabitants."],
     ["How many people live in Berlin?", "Berlin is well known for its museums."],
@@ -848,7 +853,7 @@ def test_predict_raises_on_chat_template_without_pair_roles() -> None:
     transformer = model[0]
     # The template is picked up, it just cannot render the roles that text pairs take
     assert "message" in transformer.modality_config
-    assert transformer.input_formatter.pair_roles_failure is not None
+    assert transformer.input_formatter.pair_roles_failure() is not None
 
     with pytest.raises(ValueError, match=PAIR_ROLES_DROPPED):
         model.predict(BERLIN_PAIRS)
@@ -875,7 +880,7 @@ def test_predict_applies_chat_template_with_pair_roles() -> None:
         processor_kwargs={"chat_template": RERANKER_TEMPLATE},
     )
     transformer = model[0]
-    assert transformer.input_formatter.pair_roles_failure is None
+    assert transformer.input_formatter.pair_roles_failure() is None
 
     features = transformer.preprocess(BERLIN_PAIRS[:1])
     decoded = transformer.tokenizer.decode(features["input_ids"][0], skip_special_tokens=True)
@@ -895,7 +900,7 @@ def test_predict_applies_chat_template_that_only_echoes_the_role() -> None:
         processor_kwargs={"chat_template": CHATML_TEMPLATE},
     )
     transformer = model[0]
-    assert transformer.input_formatter.pair_roles_failure is None
+    assert transformer.input_formatter.pair_roles_failure() is None
 
     features = transformer.preprocess(BERLIN_PAIRS[:1])
     decoded = transformer.tokenizer.decode(features["input_ids"][0], skip_special_tokens=True)
@@ -918,6 +923,28 @@ def test_message_input_with_a_single_pair_role_is_not_checked() -> None:
     features = model[0].preprocess([[{"role": "query", "content": "hello world"}]])
     decoded = model[0].tokenizer.decode(features["input_ids"][0], skip_special_tokens=True)
     assert "instruct : hello world" in decoded
+
+
+def test_probe_uses_the_configured_chat_template_kwargs() -> None:
+    """A model may select a named rerank template via processing kwargs, as Qwen3-VL-Reranker does.
+
+    The probe must measure the selected template rather than the default one, since rejecting the
+    model for a default that drops the pair roles would break a correctly configured reranker.
+    """
+    model = CrossEncoder(
+        "cross-encoder-testing/reranker-bert-tiny-gooaq-bce",
+        processor_kwargs={
+            "chat_template": {"default": GENERIC_INSTRUCT_TEMPLATE, "reranker": STRUCTURED_RERANKER_TEMPLATE}
+        },
+    )
+    transformer = model[0]
+    with pytest.raises(ValueError, match=PAIR_ROLES_DROPPED):
+        transformer.preprocess(BERLIN_PAIRS[:1])
+
+    transformer.processing_kwargs["chat_template"] = {"chat_template": "reranker"}
+    features = transformer.preprocess(BERLIN_PAIRS[:1])
+    decoded = transformer.tokenizer.decode(features["input_ids"][0], skip_special_tokens=True)
+    assert "< query > : how many people live in berlin?" in decoded
 
 
 # Test suite converted from demo_3406_simple_og.py
