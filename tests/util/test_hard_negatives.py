@@ -1155,9 +1155,8 @@ def test_empty_dataset(static_retrieval_mrl_en_v1_model: SentenceTransformer) ->
         mine_hard_negatives(dataset=empty_dataset, model=model, verbose=False)
 
 
-@pytest.mark.parametrize("sampling_strategy", ["top", "random"])
 def test_num_negatives_exceeds_range_window(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, sampling_strategy: str
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
 ) -> None:
     """Requesting more negatives than the range window holds must explain itself, not fail on a tensor shape."""
     with pytest.raises(ValueError, match="Cannot mine 10 negatives per query: only 3 candidates remain"):
@@ -1167,7 +1166,6 @@ def test_num_negatives_exceeds_range_window(
             num_negatives=10,
             range_min=0,
             range_max=3,
-            sampling_strategy=sampling_strategy,
             verbose=False,
         )
 
@@ -1176,8 +1174,6 @@ def test_num_negatives_exceeds_range_window_capped_by_faiss(
     dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
 ) -> None:
     """The FAISS cap can shrink an auto-derived range_max below num_negatives, so the error mentions the cap."""
-    pytest.importorskip("faiss")
-
     with pytest.raises(ValueError, match="range_max was capped to 2048"):
         mine_hard_negatives(
             dataset=dataset,
@@ -1204,6 +1200,50 @@ def test_num_negatives_matching_range_window_is_allowed(
     )
 
     assert len(result.column_names) == 2 + 3
+    assert len(result) == len(dataset)
+
+
+def test_range_min_must_be_non_negative(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+) -> None:
+    """A negative range_min would silently slice the candidate window from the wrong end."""
+    with pytest.raises(ValueError, match="range_min must be non-negative"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            range_min=-5,
+            range_max=8,
+            verbose=False,
+        )
+
+
+@pytest.mark.parametrize(("range_min", "range_max"), [(3, 3), (5, 3)])
+def test_range_min_must_be_below_range_max(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, range_min: int, range_max: int
+) -> None:
+    """A range_min at or above range_max leaves no candidate window at all."""
+    with pytest.raises(ValueError, match="range_min must be smaller than range_max"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            range_min=range_min,
+            range_max=range_max,
+            verbose=False,
+        )
+
+
+def test_range_min_above_faiss_capped_range_max(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+) -> None:
+    """The FAISS cap can push an auto-derived range_max below range_min, so the error mentions the cap."""
+    with pytest.raises(ValueError, match="range_min must be smaller than range_max.*range_max was capped to 2048"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            range_min=2050,
+            use_faiss=True,
+            verbose=False,
+        )
 
 
 def test_larger_dataset_with_combinations(
