@@ -8,13 +8,15 @@ from scipy.sparse import coo_matrix
 from torch import Tensor, device
 
 
-def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
+def _convert_to_tensor(a: list | np.ndarray | Tensor, device: device | str | None = None) -> Tensor:
     """
     Converts the input `a` to a PyTorch tensor if it is not already a tensor.
     Handles lists of sparse tensors by stacking them.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The input array or tensor.
+        device (Union[torch.device, str, optional]): The device to move the tensor to. Defaults to None, i.e. the
+            device of the input is preserved (or the default device if `a` is not already a tensor).
 
     Returns:
         Tensor: The converted tensor.
@@ -23,13 +25,15 @@ def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
         # Check if list contains sparse tensors
         if all(isinstance(x, Tensor) and x.is_sparse for x in a):
             # Stack sparse tensors while preserving sparsity
-            return torch.stack([x.coalesce().to(dtype=torch.float32) for x in a])
+            a = torch.stack([x.coalesce().to(dtype=torch.float32) for x in a])
         else:
             a = torch.tensor(a)
     elif not isinstance(a, Tensor):
         a = torch.tensor(a)
     if a.is_sparse:
-        return a.to(dtype=torch.float32)
+        a = a.to(dtype=torch.float32)
+    if device is not None:
+        a = a.to(device=device)
     return a
 
 
@@ -48,18 +52,20 @@ def _convert_to_batch(a: Tensor) -> Tensor:
     return a
 
 
-def _convert_to_batch_tensor(a: list | np.ndarray | Tensor) -> Tensor:
+def _convert_to_batch_tensor(a: list | np.ndarray | Tensor, device: device | str | None = None) -> Tensor:
     """
     Converts the input data to a tensor with a batch dimension.
     Handles lists of sparse tensors by stacking them.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The input data to be converted.
+        device (Union[torch.device, str, optional]): The device to move the tensor to. Defaults to None, i.e. the
+            device of the input is preserved (or the default device if `a` is not already a tensor).
 
     Returns:
         Tensor: The converted tensor with a batch dimension.
     """
-    a = _convert_to_tensor(a)
+    a = _convert_to_tensor(a, device=device)
     if a.dim() == 1:
         a = a.unsqueeze(0)
     return a
