@@ -212,9 +212,7 @@ class AdaptiveLayerLoss(nn.Module):
             loss = self.loss(sentence_features, labels) * self.last_layer_weight
             if self.kl_temperature > 0:
                 final_embeddings = forward_decorator.get_embeddings()
-                # Detach the final-layer embeddings: they act as the (teacher) target for the
-                # self-distillation KL loss below, so no gradient should flow back into the final
-                # layer through them (standard stop-gradient teacher). See #3757.
+                # The final layer is the self-distillation teacher, so keep it out of the KL gradient (#3757)
                 final_embeddings = F.softmax(final_embeddings / self.kl_temperature, dim=-1).detach()
 
             num_layers = transformer_decorator.num_layers
@@ -230,7 +228,7 @@ class AdaptiveLayerLoss(nn.Module):
                 # Add regular loss for each layer by using the cached embeddings of that layer
                 transformer_decorator.set_layer_idx(layer_idx)
                 layer_loss = self.loss(sentence_features, labels)
-                loss = loss + layer_loss / ((1 + layer_idx) / len(layer_indices)) * self.prior_layers_weight
+                loss = loss + layer_loss / (1 + layer_idx) / len(layer_indices) * self.prior_layers_weight
 
                 # and KL-divergence loss between the current layer and the final layer
                 # Note: we use "batchmean" reduction as that aligns with the mathematical definition
