@@ -247,8 +247,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
                 "name": "Dot-Product",
                 "greater_is_better": True,
             },
-            # The pairwise_*_sim functions return negative distances (i.e. similarities), so negate
-            # them back into positive distances to match "greater_is_better": False (#3702).
+            # pairwise_*_sim returns negative distances, so negate them back into positive distances (#3702)
             SimilarityFunction.MANHATTAN.value: {
                 "score_fn": lambda x, y: -pairwise_manhattan_sim(x, y),
                 "name": "Manhattan-Distance",
