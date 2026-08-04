@@ -183,7 +183,8 @@ def mine_hard_negatives(
             `dataset` will exclusively be used as the negative candidate corpus.
         cross_encoder (CrossEncoder, optional): A CrossEncoder model to use for rescoring the candidates. Defaults to None.
         range_min (int): Minimum rank of the closest matches to consider as negatives. Defaults to 0.
-        range_max (int, optional): Maximum rank of the closest matches to consider as negatives. Defaults to None.
+        range_max (int, optional): Maximum rank of the closest matches to consider as negatives. Must leave at least
+            `num_negatives` candidates after `range_min`. Defaults to None.
         max_score (float, optional): Maximum score to consider as a negative. Defaults to None.
         min_score (float, optional): Minimum score to consider as a negative. Defaults to None.
         absolute_margin (float, optional): Absolute margin for hard negative mining, i.e. the minimum distance between
@@ -339,6 +340,7 @@ def mine_hard_negatives(
     )
     max_positives = max(positives_per_query)
 
+    capped_by_faiss = False
     if range_max is None:
         if absolute_margin is not None or relative_margin is not None or max_score is not None:
             # max_positives + 10 * num_negatives negatives because some might be skipped, and range_min skipped
@@ -349,10 +351,26 @@ def mine_hard_negatives(
         if range_max > 2048 and use_faiss:
             # FAISS on GPU can only retrieve up to 2048 documents per query
             range_max = 2048
+            capped_by_faiss = True
             if verbose:
                 print("Using FAISS, we can only retrieve up to 2048 documents per query. Setting range_max to 2048.")
         if verbose:
             print(f"Setting range_max to {range_max} based on the provided parameters.")
+
+    # Only the candidates ranked between range_min and range_max are kept, so no query can supply more than
+    # range_max - range_min negatives. Requesting more fails later with a shape error that names neither parameter.
+    if num_negatives > range_max - range_min:
+        message = (
+            f"Cannot mine {num_negatives} negatives per query: only {range_max - range_min} candidates remain after "
+            f"skipping the first range_min={range_min} of range_max={range_max}. Consider decreasing num_negatives "
+            f"or range_min, or increasing range_max."
+        )
+        if capped_by_faiss:
+            message += (
+                " Note that range_max was capped to 2048 because FAISS can only retrieve up to 2048 documents"
+                " per query; passing use_faiss=False lifts that cap."
+            )
+        raise ValueError(message)
 
     log_counters = {}
     queries = list(dataset[anchor_column_name])

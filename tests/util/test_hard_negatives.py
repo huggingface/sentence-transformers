@@ -1155,6 +1155,57 @@ def test_empty_dataset(static_retrieval_mrl_en_v1_model: SentenceTransformer) ->
         mine_hard_negatives(dataset=empty_dataset, model=model, verbose=False)
 
 
+@pytest.mark.parametrize("sampling_strategy", ["top", "random"])
+def test_num_negatives_exceeds_range_window(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, sampling_strategy: str
+) -> None:
+    """Requesting more negatives than the range window holds must explain itself, not fail on a tensor shape."""
+    with pytest.raises(ValueError, match="Cannot mine 10 negatives per query: only 3 candidates remain"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            num_negatives=10,
+            range_min=0,
+            range_max=3,
+            sampling_strategy=sampling_strategy,
+            verbose=False,
+        )
+
+
+def test_num_negatives_exceeds_range_window_capped_by_faiss(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+) -> None:
+    """The FAISS cap can shrink an auto-derived range_max below num_negatives, so the error mentions the cap."""
+    pytest.importorskip("faiss")
+
+    with pytest.raises(ValueError, match="range_max was capped to 2048"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            num_negatives=10,
+            range_min=2040,
+            use_faiss=True,
+            verbose=False,
+        )
+
+
+def test_num_negatives_matching_range_window_is_allowed(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+) -> None:
+    """A window exactly the size of num_negatives is still satisfiable and must not raise."""
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=static_retrieval_mrl_en_v1_model,
+        num_negatives=3,
+        range_min=0,
+        range_max=3,
+        output_format="n-tuple",
+        verbose=False,
+    )
+
+    assert len(result.column_names) == 2 + 3
+
+
 def test_larger_dataset_with_combinations(
     queries: list[str], passages: list[str], static_retrieval_mrl_en_v1_model: SentenceTransformer
 ) -> None:
