@@ -327,6 +327,7 @@ class BaseTrainer(Trainer, ABC):
             self.train_dataset = self.preprocess_dataset(train_dataset, dataset_name="train")
         if self.eval_dataset is not None:
             self.eval_dataset = self.preprocess_dataset(eval_dataset, dataset_name="eval")
+        self._eval_dataloaders: dict[str, DataLoader] = {}
         self.add_model_card_callback(default_args_dict)
 
     def get_data_collator(
@@ -623,10 +624,7 @@ class BaseTrainer(Trainer, ABC):
         ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
     ) -> dict[str, float]:
-        # If eval_dataset is None, we keep it as None: with a dict `self.eval_dataset` (already preprocessed
-        # in __init__), the superclass then recurses per dataset with its *name*, so `get_eval_dataloader`
-        # can cache eval DataLoaders per dataset name when `dataloader_persistent_workers` is used.
-        # A str eval_dataset comes from that recursion and is resolved in `get_eval_dataloader`.
+        # None and str pass through: the superclass recurses over a dict self.eval_dataset by name
         if eval_dataset is not None and not isinstance(eval_dataset, str):
             eval_dataset = self.preprocess_dataset(eval_dataset, dataset_name="eval")
         return super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
@@ -947,21 +945,18 @@ class BaseTrainer(Trainer, ABC):
                 return DataLoader([])
             raise ValueError(f"Evaluation requires specifying an eval_dataset to the {self.__class__.__name__}.")
 
-        # If we have persistent workers, don't do a fork bomb especially as eval datasets
-        # don't change during training. Mirrors the transformers Trainer behaviour, see
-        # https://github.com/huggingface/transformers/pull/30627 and
-        # https://github.com/huggingface/transformers/pull/39717
+        # With persistent workers, reuse prepared dataloaders so repeated evaluations don't leak
+        # workers, see https://github.com/huggingface/transformers/pull/39717
         dataloader_key = eval_dataset if isinstance(eval_dataset, str) else "eval"
-        if (
-            hasattr(self, "_eval_dataloaders")
-            and dataloader_key in self._eval_dataloaders
-            and self.args.dataloader_persistent_workers
-        ):
+        # Explicitly passed datasets all share the "eval" key, so never cache those
+        cacheable = isinstance(eval_dataset, str) or eval_dataset is None or eval_dataset is self.eval_dataset
+        if cacheable and self.args.dataloader_persistent_workers and dataloader_key in self._eval_dataloaders:
             return self._eval_dataloaders[dataloader_key]
 
         if isinstance(eval_dataset, str):
             eval_dataset = self.eval_dataset[eval_dataset]
-        eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
+        elif eval_dataset is None:
+            eval_dataset = self.eval_dataset
 
         # If 'even_batches' is True, it will use the initial few samples to pad out the last sample. This can
         # cause issues with multi-dataset training, so we want to set this to False during training.
@@ -971,12 +966,8 @@ class BaseTrainer(Trainer, ABC):
             self._build_dataloader(eval_dataset, self.args.eval_batch_size, dataset_kind="eval")
         )
 
-        # Store the prepared dataloader for subsequent evaluations if using persistent workers.
-        if self.args.dataloader_persistent_workers:
-            if hasattr(self, "_eval_dataloaders"):
-                self._eval_dataloaders[dataloader_key] = dataloader
-            else:
-                self._eval_dataloaders = {dataloader_key: dataloader}
+        if cacheable and self.args.dataloader_persistent_workers:
+            self._eval_dataloaders[dataloader_key] = dataloader
 
         return dataloader
 

@@ -8,8 +8,11 @@ from pathlib import Path
 
 import pytest
 import torch
+from packaging.version import parse as parse_version
 from tokenizers.processors import TemplateProcessing
 from torch.utils.data import ConcatDataset
+from transformers import __version__ as transformers_version
+from transformers.trainer_utils import EvalLoopOutput
 
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
 from sentence_transformers.base.sampler import (
@@ -1034,6 +1037,7 @@ def test_trainer_get_eval_dataloader_with_persistent_workers(
     stsb_dataset_dict: DatasetDict,
     persistent_workers: bool,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # With `dataloader_persistent_workers=True`, eval dataloaders must be reused across evaluations,
     # cached per dataset name. Otherwise, every evaluation of every dataset leaks its persistent
@@ -1060,7 +1064,7 @@ def test_trainer_get_eval_dataloader_with_persistent_workers(
         loss=loss,
     )
     # Mocking the prepare method to avoid the dataloader changing with each call to get_eval_dataloader
-    trainer.accelerator.prepare = lambda x: x
+    monkeypatch.setattr(trainer.accelerator, "prepare", lambda x: x)
 
     first_dataloader = trainer.get_eval_dataloader("first")
     first_dataloader_repeated = trainer.get_eval_dataloader("first")
@@ -1078,3 +1082,87 @@ def test_trainer_get_eval_dataloader_with_persistent_workers(
     else:
         assert first_dataloader is not first_dataloader_repeated
         assert second_dataloader is not second_dataloader_repeated
+
+    # Datasets passed explicitly (like the per-dataset recursion of `evaluate(eval_dataset=some_dict)`)
+    # all share the "eval" cache key, so they must never be cached in place of one another
+    explicit_first = trainer.get_eval_dataloader(eval_dataset["first"])
+    explicit_second = trainer.get_eval_dataloader(eval_dataset["second"])
+    assert len(explicit_first.dataset) == 8
+    assert len(explicit_second.dataset) == 12
+    if persistent_workers:
+        assert sorted(trainer._eval_dataloaders) == ["first", "second"]
+    else:
+        assert trainer._eval_dataloaders == {}
+
+
+@pytest.mark.skipif(
+    parse_version(transformers_version) < parse_version("4.42.0"),
+    reason="transformers only recurses over dict eval datasets by name since v4.42.0",
+)
+@pytest.mark.parametrize("persistent_workers", [True, False])
+def test_trainer_evaluate_caches_eval_dataloaders_per_dataset(
+    stsb_bert_tiny_model: SentenceTransformer,
+    stsb_dataset_dict: DatasetDict,
+    persistent_workers: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # End to end variant of the test above: evaluate() must reach get_eval_dataloader with dataset
+    # names via the superclass dict recursion, otherwise the per-name caching never engages
+    model = stsb_bert_tiny_model
+    train_dataset = stsb_dataset_dict["train"].select(range(8))
+    eval_dataset = DatasetDict(
+        {
+            "first": stsb_dataset_dict["validation"].select(range(8)),
+            "second": stsb_dataset_dict["validation"].select(range(12)),
+        }
+    )
+    loss = CosineSimilarityLoss(model=model)
+    args = SentenceTransformerTrainingArguments(
+        output_dir=tmp_path,
+        dataloader_persistent_workers=persistent_workers,
+        dataloader_num_workers=1,
+    )
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        loss=loss,
+    )
+
+    # Stub the evaluation loop: dataloaders are still built, prepared, and cached for real, but
+    # nothing is iterated, so no worker processes are spawned
+    seen = {}
+
+    def evaluation_loop_stub(dataloader, *loop_args, metric_key_prefix="eval", **loop_kwargs):
+        seen.setdefault(metric_key_prefix, []).append(dataloader)
+        return EvalLoopOutput(
+            predictions=None,
+            label_ids=None,
+            metrics={f"{metric_key_prefix}_loss": 0.0},
+            num_samples=len(dataloader.dataset),
+        )
+
+    monkeypatch.setattr(trainer, "evaluation_loop", evaluation_loop_stub)
+
+    metrics = trainer.evaluate()
+    trainer.evaluate()
+
+    # Each dataset must be evaluated under its own name, on its own data, in both evaluations
+    assert {prefix: [len(dl.dataset) for dl in dls] for prefix, dls in seen.items()} == {
+        "eval_first": [8, 8],
+        "eval_second": [12, 12],
+    }
+    assert "eval_first_loss" in metrics
+    assert "eval_second_loss" in metrics
+
+    if persistent_workers:
+        # The second evaluate() must consume the same prepared dataloaders, not rebuild or re-prepare
+        assert seen["eval_first"][0] is seen["eval_first"][1]
+        assert seen["eval_second"][0] is seen["eval_second"][1]
+        assert sorted(trainer._eval_dataloaders) == ["first", "second"]
+    else:
+        assert seen["eval_first"][0] is not seen["eval_first"][1]
+        assert seen["eval_second"][0] is not seen["eval_second"][1]
+        assert trainer._eval_dataloaders == {}
