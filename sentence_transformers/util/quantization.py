@@ -140,20 +140,14 @@ def semantic_search_faiss(
             "Rescoring is enabled but the query embeddings are quantized. Either pass `rescore=False` or don't quantize the query embeddings."
         )
 
-    # Perform the search using the usearch index
+    # Perform the search using the FAISS index
     start_t = time.time()
     scores, indices = corpus_index.search(query_embeddings, k)
 
-    # FAISS pads `indices` with -1 when the index holds fewer vectors than requested. These are
-    # not corpus ids: `reconstruct(-1)` returns a garbage vector instead of raising, and a caller
-    # indexing their corpus with -1 silently gets the *last* document. Track them so they are
-    # neither rescored nor returned.
-    padded = indices == -1
-
     # If rescoring is enabled, we need to rescore the results using the rescore_embeddings
     if rescore_embeddings is not None:
-        # Padded slots get a zero placeholder rather than a `reconstruct` call: `reconstruct(-1)`
-        # reads out of bounds, and on an empty index it segfaults outright.
+        # FAISS pads short result sets with index -1, and reconstruct(-1) reads out of bounds
+        # (or segfaults on an empty index), so the padding slots get a zero placeholder instead
         if corpus_precision == "ubinary":
             zero_embedding = np.zeros(corpus_index.d // 8, dtype=np.uint8)
         else:
@@ -176,21 +170,21 @@ def semantic_search_faiss(
         # We use einsum to calculate the dot product between the query and the top_k embeddings, equivalent to looping
         # over the queries and calculating 'rescore_embeddings[i] @ top_k_embeddings[i].T'
         rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings)
-        # A padded slot must never outrank a real hit, whatever its garbage vector scored.
-        rescored_scores = np.where(padded, -np.inf, rescored_scores)
+        # Disqualify the padding slots so their placeholder scores cannot outrank real candidates
+        rescored_scores[indices == -1] = -np.inf
         rescored_indices = np.argsort(-rescored_scores)[:, :top_k]
         indices = indices[np.arange(len(query_embeddings))[:, None], rescored_indices]
         scores = rescored_scores[np.arange(len(query_embeddings))[:, None], rescored_indices]
-        padded = indices == -1
 
     delta_t = time.time() - start_t
 
+    # FAISS pads short result sets with index -1, which would otherwise resolve to the last corpus entry
     outputs = (
         [
             [
                 {"corpus_id": int(neighbor), "score": float(score)}
-                for score, neighbor, is_padded in zip(scores[query_id], indices[query_id], padded[query_id])
-                if not is_padded
+                for score, neighbor in zip(scores[query_id], indices[query_id])
+                if neighbor != -1
             ]
             for query_id in range(len(query_embeddings))
         ],

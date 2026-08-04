@@ -14,7 +14,7 @@ import importlib.util
 import numpy as np
 import pytest
 
-from sentence_transformers.util.quantization import quantize_embeddings
+from sentence_transformers.util.quantization import quantize_embeddings, semantic_search_faiss
 
 
 @pytest.mark.parametrize("precision", ["binary", "ubinary"])
@@ -109,12 +109,12 @@ def test_quantize_clips_out_of_range_values(precision: str) -> None:
 
 skip_without_faiss = pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
 
-QUERIES = np.random.default_rng(seed=1).random((2, 16), dtype=np.float32)
-CALIBRATION = np.random.default_rng(seed=2).random((100, 16), dtype=np.float32)
+QUERIES = np.random.default_rng(seed=1).standard_normal((2, 16), dtype=np.float32)
+CALIBRATION = np.random.default_rng(seed=2).standard_normal((100, 16), dtype=np.float32)
 
 
 def _corpus(n_docs: int, precision: str, seed: int = 0) -> np.ndarray:
-    embeddings = np.random.default_rng(seed=seed).random((n_docs, 16), dtype=np.float32)
+    embeddings = np.random.default_rng(seed=seed).standard_normal((n_docs, 16), dtype=np.float32)
     return quantize_embeddings(embeddings, precision=precision, calibration_embeddings=CALIBRATION)
 
 
@@ -122,15 +122,11 @@ def _corpus(n_docs: int, precision: str, seed: int = 0) -> np.ndarray:
 @pytest.mark.parametrize("corpus_precision", ["ubinary", "uint8"])
 @pytest.mark.parametrize("rescore", [True, False])
 def test_semantic_search_faiss_drops_padded_indices(corpus_precision: str, rescore: bool) -> None:
-    """A corpus smaller than ``top_k`` must not produce ``corpus_id=-1`` entries.
+    """A corpus smaller than ``top_k`` must not produce ``corpus_id: -1`` entries.
 
-    FAISS pads its ``indices`` array with -1 when the index holds fewer vectors than
-    were requested. Those are not corpus ids: ``reconstruct(-1)`` reads out of bounds
-    rather than raising, and a caller doing ``corpus[corpus_id]`` with -1 silently gets
-    the *last* document back instead of an error.
+    FAISS pads short result sets with index -1, which would resolve to the last corpus
+    entry when used to index the corpus.
     """
-    from sentence_transformers.util.quantization import semantic_search_faiss
-
     results, _ = semantic_search_faiss(
         QUERIES,
         corpus_embeddings=_corpus(3, corpus_precision),
@@ -152,8 +148,6 @@ def test_semantic_search_faiss_drops_padded_indices(corpus_precision: str, resco
 @pytest.mark.parametrize("rescore", [True, False])
 def test_semantic_search_faiss_empty_corpus(rescore: bool) -> None:
     """An empty corpus yields empty result lists rather than phantom hits."""
-    from sentence_transformers.util.quantization import semantic_search_faiss
-
     results, _ = semantic_search_faiss(
         QUERIES,
         corpus_embeddings=np.empty((0, 2), dtype=np.uint8),
@@ -170,8 +164,6 @@ def test_semantic_search_faiss_empty_corpus(rescore: bool) -> None:
 @pytest.mark.parametrize("corpus_precision", ["ubinary", "uint8"])
 def test_semantic_search_faiss_returns_top_k_when_corpus_is_large_enough(corpus_precision: str) -> None:
     """The padding check must not shorten results for a corpus larger than ``top_k``."""
-    from sentence_transformers.util.quantization import semantic_search_faiss
-
     results, _ = semantic_search_faiss(
         QUERIES,
         corpus_embeddings=_corpus(50, corpus_precision, seed=3),
