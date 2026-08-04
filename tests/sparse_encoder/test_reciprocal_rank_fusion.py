@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from sentence_transformers.sparse_encoder.evaluation import ReciprocalRankFusionEvaluator
 
 
@@ -73,4 +71,4 @@ def test_rrf_only_scores_retrievers_that_returned_a_document(tmp_path):
         prediction = json.loads(prediction_file.readline())
 
     assert prediction["documents"][0] == "shared"
-    assert results["mrr@3"] == pytest.approx(1.0)  # approx instead of plain 1.0 to avoid brittle test
+    assert results["mrr@3"] == 1.0

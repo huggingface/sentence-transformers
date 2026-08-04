@@ -202,6 +202,7 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
                 if doc in sparse_ranks:
                     score += 1 / (self.rrf_k + sparse_ranks[doc])
                 rrf_scores[doc] = score
+
             # Sort documents by RRF scores in descending order
             fused_docs = sorted(rrf_scores.keys(), key=lambda doc: rrf_scores[doc], reverse=True)
 
