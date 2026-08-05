@@ -4,8 +4,9 @@ import sys
 import types
 
 import pytest
+import torch
 
-from sentence_transformers.sparse_encoder.search_engines import semantic_search_seismic
+from sentence_transformers.sparse_encoder.search_engines import semantic_search_qdrant, semantic_search_seismic
 
 
 class StubSeismicIndex:
@@ -67,3 +68,92 @@ def test_seismic_all_queries_without_matches(stub_seismic_module) -> None:
     results, _ = semantic_search_seismic(queries, corpus_index=StubSeismicIndex([[], []]), top_k=3)
 
     assert results == [[], []]
+
+
+VOCAB_SIZE = 100
+
+
+class StubSparseVector:
+    """Stands in for the Qdrant sparse vector, so a test can read back what was searched for."""
+
+    def __init__(self, indices=None, values=None):
+        self.indices = indices
+        self.values = values
+
+
+class StubHit:
+    def __init__(self, corpus_id, score):
+        self.id = corpus_id
+        self.score = score
+
+
+class StubResponse:
+    def __init__(self, points):
+        self.points = points
+
+
+class StubQdrantClient:
+    """Records the query vector of every search, and answers each one with the same single hit."""
+
+    def __init__(self, *args, **kwargs):
+        self.searched = []
+
+    def query_points(self, query, **kwargs):
+        self.searched.append((query.indices, query.values))
+        return StubResponse([StubHit(0, 1.0)])
+
+
+@pytest.fixture
+def stub_qdrant_module(monkeypatch):
+    """Qdrant is not a test dependency, so stand in for the imports that the function performs."""
+    module = types.ModuleType("qdrant_client")
+    module.QdrantClient = StubQdrantClient
+    http = types.ModuleType("qdrant_client.http")
+    models = types.ModuleType("qdrant_client.http.models")
+    models.SparseVector = StubSparseVector
+    http.models = models
+    module.http = http
+    monkeypatch.setitem(sys.modules, "qdrant_client", module)
+    monkeypatch.setitem(sys.modules, "qdrant_client.http", http)
+    monkeypatch.setitem(sys.modules, "qdrant_client.http.models", models)
+
+
+def test_qdrant_single_query_embedding(stub_qdrant_module) -> None:
+    """Encoding a single query gives a 1-dimensional tensor, whose size(0) is the vocabulary."""
+    query = torch.sparse_coo_tensor(torch.tensor([[3, 8]]), torch.tensor([0.5, 0.25]), (VOCAB_SIZE,)).coalesce()
+    client = StubQdrantClient()
+
+    results, _ = semantic_search_qdrant(query, corpus_index=(client, "collection"), top_k=1)
+
+    assert results == [[{"corpus_id": 0, "score": 1.0}]]
+    assert client.searched == [([3, 8], [0.5, 0.25])]
+
+
+def test_qdrant_batch_of_queries(stub_qdrant_module) -> None:
+    """A batch is searched once per query, each with only the tokens of that query."""
+    query = torch.sparse_coo_tensor(
+        torch.tensor([[0, 0, 1], [3, 8, 5]]), torch.tensor([0.5, 0.25, 0.75]), (2, VOCAB_SIZE)
+    ).coalesce()
+    client = StubQdrantClient()
+
+    results, _ = semantic_search_qdrant(query, corpus_index=(client, "collection"), top_k=1)
+
+    assert results == [[{"corpus_id": 0, "score": 1.0}], [{"corpus_id": 0, "score": 1.0}]]
+    assert client.searched == [([3, 8], [0.5, 0.25]), ([5], [0.75])]
+
+
+def test_qdrant_single_query_searches_same_vector_as_batch_of_one(stub_qdrant_module) -> None:
+    """The promoted 1-dimensional tensor must search for the same vector as an explicit batch of one."""
+    indices = torch.tensor([3, 8])
+    values = torch.tensor([0.5, 0.25])
+    single = torch.sparse_coo_tensor(indices.unsqueeze(0), values, (VOCAB_SIZE,)).coalesce()
+    batched = torch.sparse_coo_tensor(
+        torch.stack([torch.zeros_like(indices), indices]), values, (1, VOCAB_SIZE)
+    ).coalesce()
+
+    single_client = StubQdrantClient()
+    batched_client = StubQdrantClient()
+    semantic_search_qdrant(single, corpus_index=(single_client, "collection"), top_k=1)
+    semantic_search_qdrant(batched, corpus_index=(batched_client, "collection"), top_k=1)
+
+    assert single_client.searched == batched_client.searched
