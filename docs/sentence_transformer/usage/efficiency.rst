@@ -31,6 +31,10 @@ Sentence Transformers supports 3 backends for computing embeddings, each with it
             <div class="header">User Interface</div>
             GUI to export, optimize, and quantize models.
         </a>
+        <a href="#deploying-behind-an-async-server-fastapi-uvicorn" class="box">
+            <div class="header">Serving</div>
+            Deploying behind FastAPI / uvicorn without blocking the event loop.
+        </a>
     </div>
     <br>
 
@@ -692,3 +696,73 @@ User Interface
 This Hugging Face Space provides a user interface for exporting, optimizing, and quantizing models for either ONNX or OpenVINO:
 
 - `sentence-transformers/backend-export <https://huggingface.co/spaces/sentence-transformers/backend-export>`_
+
+Deploying Behind an Async Server (FastAPI / uvicorn)
+-----------------------------------------------------
+
+A common way to serve Sentence Transformer models is behind a web framework like `FastAPI <https://fastapi.tiangolo.com/>`_ running on an ASGI server such as `uvicorn <https://www.uvicorn.org/>`_. This section covers the most common pitfall when doing so, and how to avoid it.
+
+The problem: encode() blocks the event loop
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:meth:`SentenceTransformer.encode() <sentence_transformers.SentenceTransformer.encode>` is a synchronous, CPU- (or GPU-) bound call. FastAPI's ``async def`` endpoints run on a single-threaded ``asyncio`` event loop. If you call ``model.encode()`` directly inside an ``async def`` endpoint, the encode call blocks that event loop for its full duration. Under concurrent load, every other incoming request queues up behind it, since nothing else can run on the loop until the blocking call returns. This is often mistaken for a deadlock or a hang, but it is ordinary event-loop starvation caused by a blocking call in the wrong place — it is not specific to Sentence Transformers, PyTorch, or OpenMP.
+
+.. code-block:: python
+
+   # Don't do this — blocks the event loop under concurrent load
+   @app.post("/embed")
+   async def embed(sentences: list[str]):
+       return model.encode(sentences).tolist()
+
+The fix: keep encode() off the event loop
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+There are two straightforward ways to avoid blocking the loop:
+
+.. tab:: Plain def endpoint
+
+   FastAPI automatically runs synchronous ``def`` route functions in a thread pool rather than on the event loop, so a plain ``def`` endpoint calling ``model.encode()`` will not block other requests:
+
+   .. code-block:: python
+
+      # FastAPI runs this in a thread pool automatically
+      @app.post("/embed")
+      def embed(sentences: list[str]):
+          return model.encode(sentences).tolist()
+
+.. tab:: Explicit threadpool offload
+
+   Inside an ``async def`` endpoint, offload explicitly using Starlette's ``run_in_threadpool``:
+
+   .. code-block:: python
+
+      from starlette.concurrency import run_in_threadpool
+
+      @app.post("/embed")
+      async def embed(sentences: list[str]):
+          embeddings = await run_in_threadpool(model.encode, sentences)
+          return embeddings.tolist()
+
+Where possible, batch multiple texts into a single ``encode()`` call rather than issuing one call per request; this reduces the number of blocking calls competing for the thread pool and takes advantage of Sentence Transformers' internal batching.
+
+This guidance applies equally to :meth:`CrossEncoder.predict() <sentence_transformers.cross_encoder.CrossEncoder.predict>` and :meth:`SparseEncoder.encode() <sentence_transformers.sparse_encoder.SparseEncoder.encode>`, both of which are also synchronous, blocking calls.
+
+Thread-count tuning (a separate concern)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you run multiple worker processes (e.g. multiple uvicorn/gunicorn workers), each process will otherwise spawn its own full set of native (OpenMP/MKL) threads, which can lead to CPU oversubscription when many workers run on the same machine. Capping each library's internal thread pool avoids this:
+
+.. code-block:: python
+
+   import os
+   os.environ["OMP_NUM_THREADS"] = "1"
+   os.environ["MKL_NUM_THREADS"] = "1"
+   os.environ["OPENBLAS_NUM_THREADS"] = "1"
+   os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+   os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+Set these **before** importing ``torch`` or ``sentence_transformers``. Note that these variables address thread-oversubscription across worker processes, and tokenizer fork-safety — they are not a fix for the event-loop-blocking issue described above, and will not resolve it on their own.
+
+.. note::
+
+   ``KMP_DUPLICATE_LIB_OK=TRUE`` is sometimes suggested as a workaround for an OpenMP library conflict on macOS. It is not recommended here: per `Intel's documentation <https://www.intel.com/content/www/us/en/developer/articles/technical/threading-openmp-thread-pool-libiomp-intel-openmp-library-compatibility.html>`_, setting it can mask a real installation conflict and may lead to crashes or silently incorrect results rather than resolving the underlying issue.
