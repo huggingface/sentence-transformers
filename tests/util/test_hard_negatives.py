@@ -1155,10 +1155,16 @@ def test_empty_dataset(static_retrieval_mrl_en_v1_model: SentenceTransformer) ->
         mine_hard_negatives(dataset=empty_dataset, model=model, verbose=False)
 
 
+@pytest.mark.parametrize("sampling_strategy", ["top", "random"])
 def test_num_negatives_exceeds_range_window(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, sampling_strategy: str
 ) -> None:
-    """Requesting more negatives than the range window holds must explain itself, not fail on a tensor shape."""
+    """Requesting more negatives than the range window holds must explain itself, not fail on a tensor shape.
+
+    Both strategies reach the same invalid window by a different route: "top" slices the candidate matrix to
+    range_max - range_min columns while the anchor index matrix keeps num_negatives columns, and "random" clamps
+    its number of options to num_negatives and then samples past the width of that same matrix.
+    """
     with pytest.raises(ValueError, match="Cannot mine 10 negatives per query: only 3 candidates remain"):
         mine_hard_negatives(
             dataset=dataset,
@@ -1166,6 +1172,25 @@ def test_num_negatives_exceeds_range_window(
             num_negatives=10,
             range_min=0,
             range_max=3,
+            sampling_strategy=sampling_strategy,
+            verbose=False,
+        )
+
+
+@pytest.mark.parametrize("num_negatives", [0, -1, -5])
+def test_num_negatives_must_be_positive(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, num_negatives: int
+) -> None:
+    """range_max is derived from num_negatives, so a non-positive value must be named rather than mined around.
+
+    Without the check, 0 quietly returns the dataset with no negative columns at all, and a negative value
+    derives a range_max at or below range_min, reporting a range problem the caller never configured.
+    """
+    with pytest.raises(ValueError, match=f"num_negatives must be at least 1, got num_negatives={num_negatives}"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            num_negatives=num_negatives,
             verbose=False,
         )
 
@@ -1185,16 +1210,18 @@ def test_num_negatives_exceeds_range_window_capped_by_faiss(
         )
 
 
+@pytest.mark.parametrize("sampling_strategy", ["top", "random"])
 def test_num_negatives_matching_range_window_is_allowed(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, sampling_strategy: str
 ) -> None:
-    """A window exactly the size of num_negatives is still satisfiable and must not raise."""
+    """A window exactly the size of num_negatives is still satisfiable, under either strategy, and must not raise."""
     result = mine_hard_negatives(
         dataset=dataset,
         model=static_retrieval_mrl_en_v1_model,
         num_negatives=3,
         range_min=0,
         range_max=3,
+        sampling_strategy=sampling_strategy,
         output_format="n-tuple",
         verbose=False,
     )

@@ -194,7 +194,8 @@ def mine_hard_negatives(
             the positive similarity and the negative similarity as a fraction of the positive score magnitude. A value
             of 0.05 discards negatives whose similarity is greater than ``positive_score - abs(positive_score) * 0.05``.
             Defaults to None.
-        num_negatives (int): Number of negatives to sample. Defaults to 3.
+        num_negatives (int): Number of negatives to sample. Must be at least 1, and must fit in the candidate
+            window left by `range_min` and `range_max`. Defaults to 3.
         sampling_strategy (Literal["random", "top"]): Sampling strategy for negatives: "top" or "random". Defaults to "top".
         query_prompt_name (Optional[str], optional): The name of a predefined prompt to use when encoding the first/anchor dataset column.
             It must match a key in the ``model.prompts`` dictionary, which can be set during model initialization
@@ -340,6 +341,11 @@ def mine_hard_negatives(
         dataset.to_pandas().groupby(anchor_column_name).count().to_dict()[positive_column_name].values()
     )
     max_positives = max(positives_per_query)
+
+    # range_max is derived from num_negatives below, so a non-positive value has to be rejected first: it would
+    # otherwise surface as a confusing range_min/range_max error, or mine nothing at all without saying so.
+    if num_negatives < 1:
+        raise ValueError(f"num_negatives must be at least 1, got num_negatives={num_negatives}.")
 
     faiss_cap_note = ""
     if range_max is None:
