@@ -353,7 +353,7 @@ def mine_hard_negatives(
             # FAISS on GPU can only retrieve up to 2048 documents per query
             range_max = 2048
             faiss_cap_note = (
-                " Note that range_max was capped to 2048 because FAISS can only retrieve up to 2048 documents"
+                " Note that range_max was capped to 2048 because FAISS on GPU can only retrieve up to 2048 documents"
                 " per query. Passing use_faiss=False lifts that cap, although it can cost a lot more memory."
             )
             if verbose:
