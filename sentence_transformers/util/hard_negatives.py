@@ -239,7 +239,9 @@ def mine_hard_negatives(
         faiss_batch_size (int): Batch size of queries for the top-k similarity search, both with FAISS and without
             (``use_faiss=False``), where it bounds the size of the intermediate similarity matrix to
             ``faiss_batch_size * len(corpus)``. Defaults to 16384.
-        use_faiss (bool): Whether to use FAISS for similarity search. May be recommended for large datasets. Defaults to False.
+        use_faiss (bool): Whether to use FAISS for similarity search. May be recommended for large datasets. Requires
+            the ``faiss-cpu`` or ``faiss-gpu`` package. On GPU, FAISS can retrieve at most 2048 documents per query,
+            so an automatically derived ``range_max`` is capped to fit. Defaults to False.
         use_multi_process (bool | List[str], optional): Whether to use multi-GPU/CPU processing. If True, uses all GPUs if CUDA
             is available, and 4 CPU processes if it's not available. You can also pass a list of PyTorch devices like
             ["cuda:0", "cuda:1", ...] or ["cpu", "cpu", "cpu", "cpu"].
@@ -276,6 +278,15 @@ def mine_hard_negatives(
 
     if faiss_batch_size <= 0:
         raise ValueError(f"faiss_batch_size must be a positive integer, got {faiss_batch_size}.")
+
+    if use_faiss:
+        try:
+            import faiss
+        except ImportError as exc:
+            raise ImportError(
+                "Please install `faiss` to use this function with `use_faiss=True`: "
+                "`pip install faiss-cpu` (or `faiss-gpu`)."
+            ) from exc
 
     from datasets import Dataset
 
@@ -355,15 +366,21 @@ def mine_hard_negatives(
         else:
             # max_positives, num_negatives negatives, and range_min skipped
             range_max = range_min + num_negatives + max_positives
-        if range_max > 2048 and use_faiss:
-            # FAISS on GPU can only retrieve up to 2048 documents per query
-            range_max = 2048
-            faiss_cap_note = (
-                " Note that range_max was capped to 2048 because FAISS on GPU can only retrieve up to 2048 documents"
-                " per query. Passing use_faiss=False lifts that cap, although it can cost a lot more memory."
-            )
-            if verbose:
-                print("Using FAISS, we can only retrieve up to 2048 documents per query. Setting range_max to 2048.")
+        if use_faiss and range_max + max_positives > 2048:
+            # FAISS on GPU raises if asked to retrieve more than 2048 documents per query, and the search
+            # retrieves range_max + max_positives of them. FAISS on CPU has no such limit.
+            if getattr(faiss, "get_num_gpus", lambda: 0)() > 0:
+                range_max = 2048 - max_positives
+                faiss_cap_note = (
+                    f" Note that range_max was capped to {range_max} because FAISS on GPU can only retrieve up to"
+                    " 2048 documents per query, some of which are reserved for the positives. Passing use_faiss=False"
+                    " lifts that cap, although it can cost a lot more memory."
+                )
+                if verbose:
+                    print(
+                        "Using FAISS on GPU, we can only retrieve up to 2048 documents per query, some of which "
+                        f"are reserved for the positives. Setting range_max to {range_max}."
+                    )
         if verbose:
             print(f"Setting range_max to {range_max} based on the provided parameters.")
 
@@ -488,8 +505,6 @@ def mine_hard_negatives(
                 print(f"[Cache] Saved corpus embeddings to {corpus_cache_file}")
 
     if use_faiss:
-        import faiss
-
         index = faiss.IndexFlatIP(model.get_embedding_dimension())
         # Move the index to the GPU if available
         try:

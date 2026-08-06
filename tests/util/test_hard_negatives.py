@@ -1196,10 +1196,13 @@ def test_num_negatives_must_be_positive(
 
 
 def test_num_negatives_exceeds_range_window_capped_by_faiss(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The FAISS cap can shrink an auto-derived range_max below num_negatives, so the error mentions the cap."""
-    with pytest.raises(ValueError, match="range_max was capped to 2048"):
+    """The FAISS GPU cap can shrink an auto-derived range_max below num_negatives, so the error mentions the cap."""
+    faiss = pytest.importorskip("faiss")
+    monkeypatch.setattr(faiss, "get_num_gpus", lambda: 1)
+
+    with pytest.raises(ValueError, match="range_max was capped to 2047 because FAISS on GPU"):
         mine_hard_negatives(
             dataset=dataset,
             model=static_retrieval_mrl_en_v1_model,
@@ -1208,6 +1211,26 @@ def test_num_negatives_exceeds_range_window_capped_by_faiss(
             use_faiss=True,
             verbose=False,
         )
+
+
+def test_use_faiss_on_cpu_is_not_capped(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAISS on CPU has no 2048-document limit, so the same arguments must mine instead of raising."""
+    faiss = pytest.importorskip("faiss")
+    monkeypatch.setattr(faiss, "get_num_gpus", lambda: 0)
+    monkeypatch.delattr(faiss, "GpuMultipleClonerOptions", raising=False)
+
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=static_retrieval_mrl_en_v1_model,
+        num_negatives=10,
+        range_min=2040,
+        use_faiss=True,
+        verbose=False,
+    )
+
+    assert len(result) == 0
 
 
 @pytest.mark.parametrize("sampling_strategy", ["top", "random"])
@@ -1260,10 +1283,13 @@ def test_range_min_must_be_below_range_max(
 
 
 def test_range_min_above_faiss_capped_range_max(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The FAISS cap can push an auto-derived range_max below range_min, so the error mentions the cap."""
-    with pytest.raises(ValueError, match="range_min must be smaller than range_max.*range_max was capped to 2048"):
+    """The FAISS GPU cap can push an auto-derived range_max below range_min, so the error mentions the cap."""
+    faiss = pytest.importorskip("faiss")
+    monkeypatch.setattr(faiss, "get_num_gpus", lambda: 1)
+
+    with pytest.raises(ValueError, match="range_min must be smaller than range_max.*range_max was capped to 2047"):
         mine_hard_negatives(
             dataset=dataset,
             model=static_retrieval_mrl_en_v1_model,
