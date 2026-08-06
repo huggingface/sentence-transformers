@@ -275,6 +275,21 @@ def test_similarity_mixed_sparse_dense(sparse_tensors, similarity_fn, pairwise_s
     assert torch.allclose(pairwise_mixed, pairwise_dense, rtol=1e-5, atol=1e-5)
 
 
+@pytest.mark.parametrize("sparse_first", [True, False])
+def test_pairwise_angle_sim_mixed_sparse_dense(sparse_tensors, sparse_first) -> None:
+    """Test that mixing a sparse and a dense operand matches the all-dense result."""
+    tensor1, tensor2 = sparse_tensors
+
+    dense1 = tensor1.to_dense()
+    dense2 = tensor2.to_dense()
+
+    x, y = (tensor1, dense2) if sparse_first else (dense1, tensor2)
+
+    sim_mixed = pairwise_angle_sim(x, y)
+    sim_dense = pairwise_angle_sim(dense1, dense2)
+    assert torch.allclose(sim_mixed, sim_dense, rtol=1e-5, atol=1e-5)
+
+
 def test_pairwise_angle_sim_even_and_odd_sparse_embeddings(splade_bert_tiny_model: SparseEncoder) -> None:
     """Ensure pairwise_angle_sim works for even and artificially odd dims."""
 
