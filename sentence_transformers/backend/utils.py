@@ -87,6 +87,9 @@ def backend_should_export(
         Path(subfolder, backend, file_name).as_posix() if subfolder else Path(backend, file_name).as_posix()
     )
     glob_pattern = f"{subfolder}/**/{target_file_glob}" if subfolder else f"**/{target_file_glob}"
+    # fnmatch knows no '**' and its '*' already crosses directories, so '**/' has to be matched as
+    # either no directory at all or one starting anywhere, to mean the same zero or more as glob does.
+    fnmatch_patterns = [glob_pattern.replace("**/", "", 1), glob_pattern.replace("**/", "*/", 1)]
 
     # Get the list of files in the model directory that match the target file name
     if is_local:
@@ -98,7 +101,9 @@ def backend_should_export(
             revision=model_kwargs.get("revision", None),
             token=model_kwargs.get("token", None),
         )
-        model_file_names = [fname for fname in all_files if fnmatch(fname, glob_pattern)]
+        model_file_names = [
+            fname for fname in all_files if any(fnmatch(fname, pattern) for pattern in fnmatch_patterns)
+        ]
 
     # First check if the expected file exists in the root of the model directory
     # If it doesn't, check if it exists in the backend subfolder.
