@@ -30,38 +30,44 @@ def pytorch_cos_sim(a: Tensor, b: Tensor) -> Tensor:
     return cos_sim(a, b)
 
 
-def cos_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:
+def cos_sim(
+    a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor, device: torch.device | str | None = None
+) -> Tensor:
     """
     Computes the cosine similarity between two tensors.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
         b (Union[list, np.ndarray, Tensor]): The second tensor.
+        device (Union[torch.device, str, optional]): The device to perform the computation on, e.g. "cpu", "cuda",
+            or "mps". Defaults to None, i.e. the device of `a` is used.
 
     Returns:
         Tensor: Matrix with res[i][j] = cos_sim(a[i], b[j])
     """
-    a = _convert_to_batch_tensor(a)
-    b = _convert_to_batch_tensor(b)
+    a = _convert_to_batch_tensor(a, device=device)
+    b = _convert_to_batch_tensor(b, device=device or a.device)
 
     a_norm = normalize_embeddings(a)
     b_norm = normalize_embeddings(b)
     return torch.mm(a_norm, b_norm.transpose(0, 1)).to_dense()
 
 
-def pairwise_cos_sim(a: Tensor, b: Tensor) -> Tensor:
+def pairwise_cos_sim(a: Tensor, b: Tensor, device: torch.device | str | None = None) -> Tensor:
     """
     Computes the pairwise cosine similarity cos_sim(a[i], b[i]).
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
         b (Union[list, np.ndarray, Tensor]): The second tensor.
+        device (Union[torch.device, str, optional]): The device to perform the computation on, e.g. "cpu", "cuda",
+            or "mps". Defaults to None, i.e. the device of `a` is used.
 
     Returns:
         Tensor: Vector with res[i] = cos_sim(a[i], b[i])
     """
-    a = _convert_to_tensor(a)
-    b = _convert_to_tensor(b)
+    a = _convert_to_tensor(a, device=device)
+    b = _convert_to_tensor(b, device=device or a.device)
 
     # Handle sparse tensors
     if a.is_sparse or b.is_sparse:
@@ -72,41 +78,49 @@ def pairwise_cos_sim(a: Tensor, b: Tensor) -> Tensor:
         return pairwise_dot_score(normalize_embeddings(a), normalize_embeddings(b)).to_dense()
 
 
-def dot_score(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:
+def dot_score(
+    a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor, device: torch.device | str | None = None
+) -> Tensor:
     """
     Computes the dot-product dot_prod(a[i], b[j]) for all i and j.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
         b (Union[list, np.ndarray, Tensor]): The second tensor.
+        device (Union[torch.device, str, optional]): The device to perform the computation on, e.g. "cpu", "cuda",
+            or "mps". Defaults to None, i.e. the device of `a` is used.
 
     Returns:
         Tensor: Matrix with res[i][j] = dot_prod(a[i], b[j])
     """
-    a = _convert_to_batch_tensor(a)
-    b = _convert_to_batch_tensor(b)
+    a = _convert_to_batch_tensor(a, device=device)
+    b = _convert_to_batch_tensor(b, device=device or a.device)
 
     return torch.mm(a, b.transpose(0, 1)).to_dense()
 
 
-def pairwise_dot_score(a: Tensor, b: Tensor) -> Tensor:
+def pairwise_dot_score(a: Tensor, b: Tensor, device: torch.device | str | None = None) -> Tensor:
     """
     Computes the pairwise dot-product dot_prod(a[i], b[i]).
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
         b (Union[list, np.ndarray, Tensor]): The second tensor.
+        device (Union[torch.device, str, optional]): The device to perform the computation on, e.g. "cpu", "cuda",
+            or "mps". Defaults to None, i.e. the device of `a` is used.
 
     Returns:
         Tensor: Vector with res[i] = dot_prod(a[i], b[i])
     """
-    a = _convert_to_tensor(a)
-    b = _convert_to_tensor(b)
+    a = _convert_to_tensor(a, device=device)
+    b = _convert_to_tensor(b, device=device or a.device)
 
     return (a * b).sum(dim=-1).to_dense()
 
 
-def manhattan_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:
+def manhattan_sim(
+    a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor, device: torch.device | str | None = None
+) -> Tensor:
     """
     Computes the manhattan similarity (i.e., negative distance) between two tensors.
     Handles sparse tensors without converting to dense when possible.
@@ -114,12 +128,14 @@ def manhattan_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
         b (Union[list, np.ndarray, Tensor]): The second tensor.
+        device (Union[torch.device, str, optional]): The device to perform the computation on, e.g. "cpu", "cuda",
+            or "mps". Defaults to None, i.e. the device of `a` is used.
 
     Returns:
         Tensor: Matrix with res[i][j] = -manhattan_distance(a[i], b[j])
     """
-    a = _convert_to_batch_tensor(a)
-    b = _convert_to_batch_tensor(b)
+    a = _convert_to_batch_tensor(a, device=device)
+    b = _convert_to_batch_tensor(b, device=device or a.device)
 
     if a.is_sparse or b.is_sparse:
         logger.warning_once("Using scipy for sparse Manhattan similarity computation.")
@@ -133,24 +149,30 @@ def manhattan_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) 
         return -torch.cdist(a, b, p=1.0).to_dense()
 
 
-def pairwise_manhattan_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:
+def pairwise_manhattan_sim(
+    a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor, device: torch.device | str | None = None
+) -> Tensor:
     """
     Computes the manhattan similarity (i.e., negative distance) between pairs of tensors.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
         b (Union[list, np.ndarray, Tensor]): The second tensor.
+        device (Union[torch.device, str, optional]): The device to perform the computation on, e.g. "cpu", "cuda",
+            or "mps". Defaults to None, i.e. the device of `a` is used.
 
     Returns:
         Tensor: Vector with res[i] = -manhattan_distance(a[i], b[i])
     """
-    a = _convert_to_tensor(a)
-    b = _convert_to_tensor(b)
+    a = _convert_to_tensor(a, device=device)
+    b = _convert_to_tensor(b, device=device or a.device)
 
     return -torch.sum(torch.abs(a - b), dim=-1).to_dense()
 
 
-def euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:
+def euclidean_sim(
+    a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor, device: torch.device | str | None = None
+) -> Tensor:
     """
     Computes the euclidean similarity (i.e., negative distance) between two tensors.
     Handles sparse tensors without converting to dense when possible.
@@ -158,12 +180,14 @@ def euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
         b (Union[list, np.ndarray, Tensor]): The second tensor.
+        device (Union[torch.device, str, optional]): The device to perform the computation on, e.g. "cpu", "cuda",
+            or "mps". Defaults to None, i.e. the device of `a` is used.
 
     Returns:
         Tensor: Matrix with res[i][j] = -euclidean_distance(a[i], b[j])
     """
-    a = _convert_to_batch_tensor(a)
-    b = _convert_to_batch_tensor(b)
+    a = _convert_to_batch_tensor(a, device=device)
+    b = _convert_to_batch_tensor(b, device=device or a.device)
 
     if a.is_sparse:
         a_norm_sq = torch.sparse.sum(a * a, dim=1).to_dense().unsqueeze(1)  # Shape (N, 1)
@@ -181,19 +205,23 @@ def euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) 
         return -torch.cdist(a, b, p=2.0)
 
 
-def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:
+def pairwise_euclidean_sim(
+    a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor, device: torch.device | str | None = None
+) -> Tensor:
     """
     Computes the euclidean distance (i.e., negative distance) between pairs of tensors.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
         b (Union[list, np.ndarray, Tensor]): The second tensor.
+        device (Union[torch.device, str, optional]): The device to perform the computation on, e.g. "cpu", "cuda",
+            or "mps". Defaults to None, i.e. the device of `a` is used.
 
     Returns:
         Tensor: Vector with res[i] = -euclidean_distance(a[i], b[i])
     """
-    a = _convert_to_tensor(a)
-    b = _convert_to_tensor(b)
+    a = _convert_to_tensor(a, device=device)
+    b = _convert_to_tensor(b, device=device or a.device)
 
     return -torch.sqrt(torch.sum((a - b) ** 2, dim=-1)).to_dense()
 
