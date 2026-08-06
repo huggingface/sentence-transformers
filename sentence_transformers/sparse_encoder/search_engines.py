@@ -70,6 +70,8 @@ def semantic_search_qdrant(
 
     if query_embeddings.ndim == 1:
         query_embeddings = query_embeddings.unsqueeze(0)
+    elif query_embeddings.ndim != 2:
+        raise ValueError(f"Query embeddings must be a 1D or 2D sparse tensor, got {query_embeddings.ndim}D")
 
     if corpus_index is None:
         if corpus_embeddings is None:

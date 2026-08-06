@@ -142,6 +142,15 @@ def test_qdrant_batch_of_queries(stub_qdrant_module) -> None:
     assert client.searched == [([3, 8], [0.5, 0.25]), ([5], [0.75])]
 
 
+def test_qdrant_rejects_3d_query_embeddings(stub_qdrant_module) -> None:
+    """A 3D tensor, like two stacked batches, must fail loudly rather than search with row ids as token ids."""
+    batch = torch.sparse_coo_tensor(torch.tensor([[0, 1], [3, 8]]), torch.tensor([0.5, 0.25]), (2, VOCAB_SIZE))
+    query = torch.stack([batch, batch])
+
+    with pytest.raises(ValueError, match="must be a 1D or 2D sparse tensor"):
+        semantic_search_qdrant(query, corpus_index=(StubQdrantClient(), "collection"), top_k=1)
+
+
 def test_qdrant_single_query_searches_same_vector_as_batch_of_one(stub_qdrant_module) -> None:
     """The promoted 1-dimensional tensor must search for the same vector as an explicit batch of one."""
     indices = torch.tensor([3, 8])
