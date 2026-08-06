@@ -68,8 +68,6 @@ def semantic_search_qdrant(
     if not query_embeddings.is_sparse or query_embeddings.layout != torch.sparse_coo:
         raise ValueError("Query embeddings must be a sparse COO tensor")
 
-    # Encoding a single query returns a 1-dimensional tensor, whose size(0) is the vocabulary rather
-    # than the number of queries. Promoting it to a batch of one keeps the loop below over queries.
     if query_embeddings.ndim == 1:
         query_embeddings = query_embeddings.unsqueeze(0)
 
@@ -132,11 +130,14 @@ def semantic_search_qdrant(
     search_start_time = time.time()
 
     # Process each query
+    query_embeddings = query_embeddings.coalesce()
+    query_indices = query_embeddings.indices().cpu().numpy()
+    query_values = query_embeddings.values().cpu().numpy()
     for q_idx in range(query_embeddings.size(0)):
         # Extract query vector
-        mask = query_embeddings.coalesce().indices()[0].cpu().numpy() == q_idx
-        q_indices = query_embeddings.coalesce().indices()[1][mask].cpu().numpy().tolist()
-        q_values = query_embeddings.coalesce().values()[mask].cpu().numpy().tolist()
+        mask = query_indices[0] == q_idx
+        q_indices = query_indices[1][mask].tolist()
+        q_values = query_values[mask].tolist()
 
         # Perform search
         search_results = client.query_points(
