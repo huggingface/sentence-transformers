@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import huggingface_hub
 import numpy as np
 import pytest
 
@@ -119,6 +120,29 @@ def export_to(destination: Path, export_function) -> set[str]:
     return {path.relative_to(onnx_dir).as_posix() for path in onnx_dir.rglob("*") if path.is_file()}
 
 
+def push_to_hub(destination: Path, export_function, monkeypatch) -> set[str]:
+    """Run save_or_push_to_hub_model with push_to_hub=True and return the files it hands to the Hub.
+
+    The folder is uploaded whole and then discarded, so it is copied aside to be looked at.
+    """
+
+    def upload_folder(folder_path, **kwargs):
+        shutil.copytree(folder_path, destination, dirs_exist_ok=True)
+
+    monkeypatch.setattr(huggingface_hub, "upload_folder", upload_folder)
+    save_or_push_to_hub_model(
+        export_function=export_function,
+        export_function_name="export_optimized_onnx_model",
+        config="O1",
+        model_name_or_path="sentence-transformers-testing/some-model",
+        push_to_hub=True,
+        file_suffix="O1",
+        backend="onnx",
+        model=None,
+    )
+    return {path.relative_to(destination).as_posix() for path in destination.rglob("*") if path.is_file()}
+
+
 def assert_runs(model_path: Path, **inputs) -> None:
     """A model is only usable if the files holding its weights came along, so load it and run it."""
     onnx.load(model_path.as_posix())
@@ -133,7 +157,7 @@ def test_onnx_export_keeps_external_data(tmp_path: Path) -> None:
     def export_function(save_dir):
         save_model(Path(save_dir, FILE_NAME), location=f"{FILE_NAME}.data")
 
-    assert export_to(tmp_path, export_function) == {FILE_NAME, f"{FILE_NAME}.data"}
+    assert export_to(tmp_path, export_function) == {FILE_NAME, f"{FILE_NAME}_data"}
     assert_runs(tmp_path / "onnx" / FILE_NAME)
 
 
@@ -228,3 +252,46 @@ def test_onnx_export_warns_about_missing_external_data(tmp_path: Path, caplog: p
 
     assert export_to(tmp_path, export_function) == {FILE_NAME}
     assert "weights.bin" in caplog.text
+
+
+def test_onnx_export_renames_external_data_for_the_hub(tmp_path: Path) -> None:
+    """ONNX Runtime writes `<model>.onnx.data`, but only `<model>.onnx_data` is fetched from the Hub."""
+
+    def export_function(save_dir):
+        save_model(Path(save_dir, FILE_NAME), location=f"{FILE_NAME}.data")
+
+    assert export_to(tmp_path, export_function) == {FILE_NAME, f"{FILE_NAME}_data"}
+    assert get_locations(tmp_path / "onnx" / FILE_NAME) == {f"{FILE_NAME}_data"}
+    assert_runs(tmp_path / "onnx" / FILE_NAME)
+
+
+def test_onnx_export_keeps_the_hub_external_data_name(tmp_path: Path) -> None:
+    """Optimum already writes the name the Hub needs when exporting, so that model is left alone."""
+
+    def export_function(save_dir):
+        save_model(Path(save_dir, FILE_NAME), location=f"{FILE_NAME}_data")
+
+    assert export_to(tmp_path, export_function) == {FILE_NAME, f"{FILE_NAME}_data"}
+    assert get_locations(tmp_path / "onnx" / FILE_NAME) == {f"{FILE_NAME}_data"}
+    assert_runs(tmp_path / "onnx" / FILE_NAME)
+
+
+def test_onnx_push_to_hub_uploads_external_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A model whose weights are left behind is uploaded broken, which is what the Hub then serves."""
+
+    def export_function(save_dir):
+        save_model(Path(save_dir, FILE_NAME), location=f"{FILE_NAME}.data")
+
+    assert push_to_hub(tmp_path, export_function, monkeypatch) == {FILE_NAME, f"{FILE_NAME}_data"}
+    assert get_locations(tmp_path / FILE_NAME) == {f"{FILE_NAME}_data"}
+    assert_runs(tmp_path / FILE_NAME)
+
+
+def test_onnx_push_to_hub_uploads_external_data_of_subgraphs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Weights spread over several files keep their names, since no single one is the one to fetch."""
+
+    def export_function(save_dir):
+        save_model(Path(save_dir, FILE_NAME), make_model(in_subgraph=True), all_tensors_to_one_file=False)
+
+    assert push_to_hub(tmp_path, export_function, monkeypatch) == {FILE_NAME, "then", "else"}
+    assert_runs(tmp_path / FILE_NAME, cond=np.array(True))
