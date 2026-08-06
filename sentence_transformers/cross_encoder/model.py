@@ -671,7 +671,7 @@ class CrossEncoder(BaseModel, FitMixin):
         if device is None:
             device = str(self.device)
 
-        self.to(device)
+        self._to_device(device)
 
         self.eval()
         activation_fn = activation_fn or self.activation_fn
