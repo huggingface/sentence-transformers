@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -889,6 +890,89 @@ def test_device_map_controls_placement(model_class: type, model_id: str) -> None
     model = model_class(model_id, model_kwargs={"device_map": {"": "cpu"}})
     assert model.transformers_model.device.type == "cpu"
     assert all(param.device.type == "cpu" for param in model.parameters())
+
+
+@pytest.mark.parametrize(
+    ["model_fixture", "encode_method", "inputs"],
+    [
+        ("stsb_bert_tiny_model", "encode", ["hello"]),
+        ("splade_bert_tiny_model", "encode", ["hello"]),
+        ("reranker_bert_tiny_model", "predict", [("query", "passage")]),
+        ("static_embedding_model", "encode", ["hello"]),
+    ],
+    ids=["sentence_transformer", "sparse_encoder", "cross_encoder", "static_embedding"],
+)
+@pytest.mark.parametrize("device", [None, "cpu", "cpu:0", torch.device("cpu")], ids=str)
+def test_encode_does_not_move_a_model_that_is_already_in_place(
+    request: pytest.FixtureRequest,
+    model_fixture: str,
+    encode_method: str,
+    inputs: list,
+    device: str | torch.device | None,
+) -> None:
+    """Encoding must not move a model that is already on the requested device.
+
+    The device defaults to the one the model is already on, and the move that followed was a no-op
+    for an ordinary tensor. It is not a no-op for every tensor: ``nn.Module._apply`` rebuilds each
+    parameter, which fails for a torchao quantized weight with ``_apply(): Couldn't swap
+    Linear.weight``. See #3908.
+
+    ``"cpu:0"`` must count as the device a ``cpu`` parameter is on, else naming the device the way
+    the documentation does moves the model on every call.
+    """
+    model = request.getfixturevalue(model_fixture)
+    moves = []
+    model.to = lambda *args, **kwargs: moves.append(args[0] if args else kwargs.get("device"))
+
+    getattr(model, encode_method)(inputs, **({} if device is None else {"device": device}))
+    assert moves == [], f"a model already on {model.device} was moved to {moves}"
+
+
+@pytest.mark.parametrize(
+    ["model_fixture", "encode_method", "inputs"],
+    [
+        ("stsb_bert_tiny_model", "encode", ["hello"]),
+        ("splade_bert_tiny_model", "encode", ["hello"]),
+        ("reranker_bert_tiny_model", "predict", [("query", "passage")]),
+    ],
+    ids=["sentence_transformer", "sparse_encoder", "cross_encoder"],
+)
+@pytest.mark.parametrize("device", [None, "cpu:0"], ids=str)
+def test_encode_moves_a_model_that_is_not_in_place(
+    request: pytest.FixtureRequest, model_fixture: str, encode_method: str, inputs: list, device: str | None
+) -> None:
+    """A model that spans two devices must still be moved to the requested one.
+
+    ``model.device`` reports the underlying transformers model, so a separately loaded module or a
+    buffer can sit elsewhere without showing up there. ``to()`` moves buffers as well as parameters,
+    so both have to be considered, and it has to be given the device that was asked for.
+    """
+    model = request.getfixturevalue(model_fixture)
+    moves = []
+    model.to = lambda *args, **kwargs: moves.append(args[0] if args else kwargs.get("device"))
+    expected = model.device if device is None else device
+
+    name, buffer = next(iter(model.named_buffers()))
+    owner = model.get_submodule(name.rsplit(".", 1)[0])
+    attribute = name.rsplit(".", 1)[1]
+    for stranded in (buffer.to("meta"), buffer):
+        setattr(owner, attribute, None)
+        owner.register_buffer(attribute, stranded)
+        with contextlib.suppress(RuntimeError):  # the stub above swallows the move we asked for
+            getattr(model, encode_method)(inputs, **({} if device is None else {"device": device}))
+        if stranded.device.type == "meta":
+            assert [torch.device(move) for move in moves] == [torch.device(expected)], (
+                f"a model with {name!r} elsewhere was moved to {moves}"
+            )
+            moves.clear()
+
+    module = [child for child in model.modules() if next(child.parameters(recurse=False), None) is not None][-1]
+    module.to("meta")
+    with contextlib.suppress(RuntimeError):
+        getattr(model, encode_method)(inputs, **({} if device is None else {"device": device}))
+    assert [torch.device(move) for move in moves] == [torch.device(expected)], (
+        f"a model with a module elsewhere was moved to {moves}"
+    )
 
 
 def test_device_argument_warns_when_device_map_present(caplog: pytest.LogCaptureFixture) -> None:
