@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import sklearn
 import torch
+from packaging.version import Version
 
 from sentence_transformers.sparse_encoder import SparseEncoder
 from sentence_transformers.util.similarity import (
@@ -320,3 +321,85 @@ def test_pairwise_angle_sim_even_and_odd_sparse_embeddings(splade_bert_tiny_mode
 
     assert sim_even.shape == sim_odd.shape
     assert torch.allclose(sim_even, sim_odd, rtol=1e-5, atol=1e-5)
+
+
+# --- High-Precision Scoring (HPS): similarity must be computed in float32 even for
+# --- low-precision (float16/bfloat16) embeddings, so that reduced precision does not
+# --- collapse distinct scores into spurious ties.
+
+LOW_PRECISION_DTYPES = [torch.float16, torch.bfloat16]
+
+
+@pytest.fixture
+def low_precision_embeddings() -> tuple[torch.Tensor, torch.Tensor]:
+    generator = torch.Generator().manual_seed(0)
+    a = torch.randn(4, 32, generator=generator)
+    b = torch.randn(50, 32, generator=generator)
+    return a, b
+
+
+@pytest.mark.parametrize("fn", [cos_sim, dot_score])
+@pytest.mark.parametrize("dtype", LOW_PRECISION_DTYPES)
+def test_scores_are_float32_for_low_precision_inputs(fn, dtype, low_precision_embeddings) -> None:
+    """Low-precision embeddings must still yield float32 scores (HPS)."""
+    a, b = low_precision_embeddings
+    scores = fn(a.to(dtype), b.to(dtype))
+    assert scores.dtype == torch.float32
+
+
+@pytest.mark.parametrize("fn", [pairwise_cos_sim, pairwise_dot_score])
+@pytest.mark.parametrize("dtype", LOW_PRECISION_DTYPES)
+def test_pairwise_scores_are_float32_for_low_precision_inputs(fn, dtype) -> None:
+    generator = torch.Generator().manual_seed(0)
+    a = torch.randn(16, 32, generator=generator).to(dtype)
+    b = torch.randn(16, 32, generator=generator).to(dtype)
+    scores = fn(a, b)
+    assert scores.dtype == torch.float32
+
+
+@pytest.mark.parametrize("dtype", LOW_PRECISION_DTYPES)
+def test_hps_collapses_spurious_ties(dtype, low_precision_embeddings) -> None:
+    """Upcasting the scoring step recovers the tie structure of float32.
+
+    A naive low-precision matmul buckets scores coarsely and produces spurious
+    ties; HPS (upcast-then-score) should recover essentially all of the unique
+    scores that full float32 scoring produces.
+    """
+    if Version(torch.__version__) <= Version("2.5.0"):
+        pytest.xfail('Torch will raise "clamp_min_scalar_cpu" not implemented for Half')
+
+    a, b = low_precision_embeddings
+    reference = cos_sim(a, b)  # float32 reference
+    hps = cos_sim(a.to(dtype), b.to(dtype))  # low-precision inputs, HPS scoring
+
+    # Naive low-precision scoring (no upcast) for comparison.
+    a_norm = torch.nn.functional.normalize(a.to(dtype), p=2, dim=1)
+    b_norm = torch.nn.functional.normalize(b.to(dtype), p=2, dim=1)
+    naive = a_norm @ b_norm.transpose(0, 1)
+
+    n_ref = torch.unique(reference).numel()
+    n_hps = torch.unique(hps).numel()
+    n_naive = torch.unique(naive).numel()
+
+    assert n_naive < n_ref, "expected the naive low-precision matmul to create ties"
+    assert n_hps >= n_naive, "HPS must not introduce more ties than naive scoring"
+    # HPS recovers the vast majority of the distinct float32 scores.
+    assert n_hps >= n_ref - 1
+
+
+@pytest.mark.parametrize("fn", [cos_sim, dot_score])
+def test_float32_inputs_are_unchanged(fn, low_precision_embeddings) -> None:
+    """HPS is a no-op for embeddings that are already float32."""
+    a, b = low_precision_embeddings
+    scores = fn(a, b)
+    assert scores.dtype == torch.float32
+    assert torch.equal(scores, fn(a.clone(), b.clone()))
+
+
+@pytest.mark.parametrize("dtype", LOW_PRECISION_DTYPES)
+def test_low_precision_scores_match_float32_reference(dtype, low_precision_embeddings) -> None:
+    """Scores from upcast low-precision embeddings stay close to the float32 reference."""
+    a, b = low_precision_embeddings
+    reference = cos_sim(a, b)
+    hps = cos_sim(a.to(dtype), b.to(dtype))
+    assert torch.allclose(reference, hps, atol=1e-2)

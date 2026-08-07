@@ -30,6 +30,9 @@ def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
         a = torch.tensor(a)
     if a.is_sparse:
         return a.to(dtype=torch.float32)
+    if torch.is_floating_point(a) and torch.finfo(a.dtype).bits < 32:
+        # upcast sub-float32 floats (fp8/float16/bfloat16) to break ties
+        a = a.to(torch.float32)
     return a
 
 
