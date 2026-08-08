@@ -885,6 +885,13 @@ class SentenceTransformer(BaseModel, FitMixin):
                 key=lambda x: x[0],
             )
 
+            # A worker reports a chunk it failed to encode as an exception instead of embeddings
+            # (see _multi_process_worker) so that a single bad chunk surfaces as an error here
+            # rather than leaving this method waiting forever for a result that will never arrive.
+            for _, result in output_list:
+                if isinstance(result, Exception):
+                    raise result
+
             # Handle the various output formats
             embeddings = [output[1] for output in output_list]
             if embeddings:
@@ -915,7 +922,15 @@ class SentenceTransformer(BaseModel, FitMixin):
         while True:
             try:
                 chunk_id, inputs, kwargs = input_queue.get()
-                embeddings = model.encode(inputs, device=target_device, **kwargs)
+                try:
+                    embeddings = model.encode(inputs, device=target_device, **kwargs)
+                except Exception as exc:
+                    # Report the failure instead of letting it kill this worker process silently:
+                    # the caller in _multi_process is waiting for exactly one result per submitted
+                    # chunk, so an unreported crash here would make it block forever.
+                    logger.exception(f"Chunk {chunk_id} failed to encode in a multi-process worker")
+                    results_queue.put([chunk_id, exc])
+                    continue
                 # Move embeddings to CPU if needed
                 if isinstance(embeddings, torch.Tensor) and embeddings.device.type != "cpu":
                     embeddings = embeddings.cpu()
