@@ -138,6 +138,30 @@ def test_predict_softmax(nli_minilm_model: CrossEncoder):
     assert not torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
 
 
+def test_predict_low_precision_logits_upcast_to_float32(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """The activation over cross-encoder logits must run in float32 for low-precision models (HPS).
+
+    Applying sigmoid/softmax to float16/bfloat16 logits buckets the (0, 1) probability range
+    coarsely, collapsing distinct relevance scores into spurious ties.
+    """
+    if Version(torch.__version__) <= Version("2.5.0"):
+        pytest.xfail("bfloat16 CPU inference is unreliable on older torch")
+
+    model = reranker_bert_tiny_model
+    pairs = [
+        ("A man is eating pasta.", "A man is eating food."),
+        ("A man is eating pasta.", "The girl is carrying a baby."),
+    ]
+    reference = model.predict(pairs, convert_to_tensor=True)
+    assert reference.dtype == torch.float32
+
+    model.model.to(torch.bfloat16)
+    scores = model.predict(pairs, convert_to_tensor=True)
+
+    assert scores.dtype == torch.float32
+    assert torch.allclose(scores, reference, atol=1e-2)
+
+
 @pytest.mark.parametrize("model_fixture", ["reranker_bert_tiny_model", "nli_minilm_model"])
 def test_predict_single_input(model_fixture: str, request: FixtureRequest):
     model = request.getfixturevalue(model_fixture)

@@ -690,6 +690,10 @@ class CrossEncoder(BaseModel, FitMixin):
             out_features = self(features, **kwargs)
             scores = out_features["scores"]
 
+            if torch.is_floating_point(scores) and torch.finfo(scores.dtype).bits < 32:
+                # upcast sub-float32 floats (fp8/float16/bfloat16) to break ties
+                scores = scores.float()
+
             if activation_fn is not None:
                 scores = activation_fn(scores)
 
