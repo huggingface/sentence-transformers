@@ -185,6 +185,13 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         sim_matrix.fill_diagonal_(0.0)
         num_off_diagonal = batch_size * (batch_size - 1)
 
+        if num_off_diagonal == 0:
+            # A single input has no pairs to spread apart, so both terms would divide by zero and
+            # poison the reported loss with nan. sim_matrix is already all zeros here and still
+            # carries the graph, so this is a differentiable zero rather than a detached constant.
+            no_pairs = sim_matrix.sum()
+            return no_pairs, no_pairs
+
         # Mean term: M_1^2 where M_1 = mean of off-diagonal similarities
         # Penalizes high similarities across inputs from the same column (e.g., queries vs other queries)
         mean_term = (sim_matrix.sum() / num_off_diagonal).pow(2)
