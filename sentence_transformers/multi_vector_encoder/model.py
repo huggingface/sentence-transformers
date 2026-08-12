@@ -6,7 +6,7 @@ import math
 import queue
 import string
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from multiprocessing import Queue
 from typing import Any, ClassVar, Literal, overload
@@ -141,6 +141,10 @@ class MultiVectorEncoder(BaseModel):
         SimilarityFunction.MAXSIM.value,
         SimilarityFunction.MEAN_MAXSIM.value,
     )
+    # Wider than the resolver's return type: the resolved MaxSim family takes extra scoring
+    # kwargs, which similarity() and similarity_pairwise() forward.
+    _similarity: Callable[..., Tensor]
+    _similarity_pairwise: Callable[..., Tensor]
 
     def __init__(
         self,
@@ -1098,6 +1102,7 @@ class MultiVectorEncoder(BaseModel):
         self,
         embeddings1: Tensor | np.ndarray | list[Tensor] | list[np.ndarray],
         embeddings2: Tensor | np.ndarray | list[Tensor] | list[np.ndarray],
+        **kwargs: Any,
     ) -> Tensor:
         """Compute the all-pairs score matrix between two collections of multi-vector embeddings, using
         this model's :attr:`similarity_fn_name`.
@@ -1108,6 +1113,14 @@ class MultiVectorEncoder(BaseModel):
                 [num_embeddings_1, num_tokens, embedding_dim]-shaped tensor, or a single
                 [num_tokens, embedding_dim]-shaped tensor scored as a batch of one.
             embeddings2 (Union[Tensor, ndarray, list]): Document embeddings, in the same forms.
+            **kwargs: Forwarded to the scoring function, :func:`~sentence_transformers.util.maxsim`
+                or :func:`~sentence_transformers.util.mean_maxsim`. Particularly useful options include:
+
+                - ``device``: Run the scoring on this device. The returned scores stay on the
+                  documents' device either way.
+                - ``document_chunk_elements``: Cap how much of the corpus is scored at once.
+                - ``length_normalize``: Divide each score by the number of real query tokens
+                  (True scores MeanMaxSim, False plain MaxSim).
 
         Returns:
             Tensor: A [num_embeddings_1, num_embeddings_2]-shaped torch tensor with scores, on the
@@ -1122,12 +1135,13 @@ class MultiVectorEncoder(BaseModel):
             tensor([[..., ...]])
         """
         self.similarity_fn_name  # noqa: B018 (trigger lazy init)
-        return self._similarity(embeddings1, embeddings2)
+        return self._similarity(embeddings1, embeddings2, **kwargs)
 
     def similarity_pairwise(
         self,
         embeddings1: Tensor | np.ndarray | list[Tensor] | list[np.ndarray],
         embeddings2: Tensor | np.ndarray | list[Tensor] | list[np.ndarray],
+        **kwargs: Any,
     ) -> Tensor:
         """Compute the pairwise score vector between matched query / document pairs, using this
         model's :attr:`similarity_fn_name`.
@@ -1138,13 +1152,22 @@ class MultiVectorEncoder(BaseModel):
                 [num_embeddings, num_tokens, embedding_dim]-shaped tensor, or a single
                 [num_tokens, embedding_dim]-shaped tensor scored as a batch of one.
             embeddings2 (Union[Tensor, ndarray, list]): Document embeddings, in the same forms.
+            **kwargs: Forwarded to the scoring function,
+                :func:`~sentence_transformers.util.maxsim_pairwise` or
+                :func:`~sentence_transformers.util.mean_maxsim_pairwise`. Particularly useful options include:
+
+                - ``device``: Run the scoring on this device. The returned scores stay on the
+                  documents' device either way.
+                - ``pair_chunk_elements``: Cap how many pairs are scored at once.
+                - ``length_normalize``: Divide each score by the number of real query tokens
+                  (True scores MeanMaxSim, False plain MaxSim).
 
         Returns:
             Tensor: A [num_embeddings]-shaped torch tensor with pairwise scores, on the documents'
             device.
         """
         self.similarity_fn_name  # noqa: B018 (trigger lazy init)
-        return self._similarity_pairwise(embeddings1, embeddings2)
+        return self._similarity_pairwise(embeddings1, embeddings2, **kwargs)
 
     def _get_model_config(self) -> dict[str, Any]:
         config = super()._get_model_config()

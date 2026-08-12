@@ -376,7 +376,7 @@ def _sample_value_str(value: Any) -> str:
 
 def _xxhash_int64(value: str) -> int:
     # Convert uint64 -> int64 to keep values compatible with Arrow int64 storage.
-    hashed = xxhash.xxh64_intdigest(value)
+    hashed = xxhash.xxh64_intdigest(value.encode("utf-8"))
     if hashed >= _XXHASH_INT64_MAX:
         hashed -= _XXHASH_UINT64_MAX
     return hashed

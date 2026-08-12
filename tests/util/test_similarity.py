@@ -1115,7 +1115,8 @@ def test_maxsim_length_normalize_divides_by_real_query_tokens() -> None:
 
 def test_mean_maxsim_matches_length_normalized_maxsim() -> None:
     """The named MeanMaxSim functions are the length_normalize=True form of their MaxSim
-    counterparts, and SimilarityFunction resolves "meanmaxsim" to them."""
+    counterparts (with length_normalize=False recovering the plain form, so the family accepts one
+    keyword set), and SimilarityFunction resolves "meanmaxsim" to them."""
     from sentence_transformers.util import SimilarityFunction, mean_maxsim, mean_maxsim_pairwise
 
     generator = torch.Generator().manual_seed(3)
@@ -1125,6 +1126,10 @@ def test_mean_maxsim_matches_length_normalized_maxsim() -> None:
     assert torch.allclose(mean_maxsim(queries, documents), maxsim(queries, documents, length_normalize=True))
     assert torch.allclose(
         mean_maxsim_pairwise(queries, documents), maxsim_pairwise(queries, documents, length_normalize=True)
+    )
+    assert torch.allclose(mean_maxsim(queries, documents, length_normalize=False), maxsim(queries, documents))
+    assert torch.allclose(
+        mean_maxsim_pairwise(queries, documents, length_normalize=False), maxsim_pairwise(queries, documents)
     )
     assert SimilarityFunction.to_similarity_fn("meanmaxsim") is mean_maxsim
     assert SimilarityFunction.to_similarity_pairwise_fn("meanmaxsim") is mean_maxsim_pairwise
@@ -1150,3 +1155,48 @@ def test_mean_maxsim_denominator_follows_the_scoring_mask() -> None:
 
     all_real = torch.ones(1, 5, dtype=torch.bool)
     assert maxsim(query[None], documents, a_mask=all_real, length_normalize=True).item() == pytest.approx(as_list)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA for the device override")
+def test_maxsim_device_is_a_pure_compute_knob() -> None:
+    """maxsim's device override moves the arithmetic only: scores still return on the documents'
+    device, identically for the plain and length-normalized forms."""
+    from sentence_transformers.util import mean_maxsim, mean_maxsim_pairwise
+
+    generator = torch.Generator().manual_seed(15)
+    queries = [torch.randn(4, 16, generator=generator), torch.randn(7, 16, generator=generator)]
+    documents = [torch.randn(5, 16, generator=generator) for _ in range(6)]
+    plain = maxsim(queries, documents)
+    on_device = maxsim(queries, documents, device="cuda", document_chunk_elements=200)
+    assert on_device.device.type == "cpu"
+    assert torch.allclose(on_device, plain, atol=1e-5)
+
+    assert torch.allclose(mean_maxsim(queries, documents, device="cuda"), mean_maxsim(queries, documents), atol=1e-5)
+    pairs = documents[:2]
+    assert torch.allclose(
+        mean_maxsim_pairwise(queries, pairs, device="cuda", pair_chunk_elements=200),
+        mean_maxsim_pairwise(queries, pairs),
+        atol=1e-5,
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA to measure VRAM residency")
+def test_maxsim_device_bounds_residency_by_element_budget() -> None:
+    """With a device override, only one element-budget chunk of documents occupies the device at a
+    time, so a corpus far larger than the budget never has to fit on it."""
+    generator = torch.Generator().manual_seed(16)
+    queries = [torch.randn(4, 64, generator=generator)]
+    documents = [torch.randn(100, 64, generator=generator) for _ in range(4_000)]  # ~102 MB in fp32
+    # The first CUDA matmul in a process allocates the cuBLAS workspace inside the measured window
+    # (about 8 MiB on Ampere, 32 MiB on Hopper). Allocate it before the baseline.
+    torch.zeros(1, 1, device="cuda") @ torch.zeros(1, 1, device="cuda")
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    # Measured as a delta: in a shared test session, other tests' live allocations (e.g. a model
+    # fixture on CUDA) sit under the peak.
+    baseline = torch.cuda.memory_allocated()
+    scores = maxsim(queries, documents, device="cuda", document_chunk_elements=1_000_000)
+    peak = torch.cuda.max_memory_allocated() - baseline
+    assert scores.shape == (1, 4_000)
+    assert scores.device.type == "cpu"
+    assert peak < 30 * 1024 * 1024, f"peak VRAM {peak / 1e6:.1f} MB suggests the whole corpus moved"
