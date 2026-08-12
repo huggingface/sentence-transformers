@@ -145,10 +145,9 @@ def test_predict_low_precision_logits_upcast_to_float32(reranker_bert_tiny_model
     Applying sigmoid/softmax to float16/bfloat16 logits buckets the (0, 1) probability range
     coarsely, collapsing distinct relevance scores into spurious ties.
     """
-    if Version(torch.__version__) <= Version("2.5.0"):
-        pytest.xfail("bfloat16 CPU inference is unreliable on older torch")
-
     model = reranker_bert_tiny_model
+    if model.device.type == "cpu" and Version(torch.__version__) <= Version("2.5.0"):
+        pytest.xfail("bfloat16 CPU inference is unreliable on older torch")
     pairs = [
         ("A man is eating pasta.", "A man is eating food."),
         ("A man is eating pasta.", "The girl is carrying a baby."),
