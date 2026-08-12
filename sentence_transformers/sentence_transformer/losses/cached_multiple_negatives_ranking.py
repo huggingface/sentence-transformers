@@ -7,8 +7,6 @@ import torch
 import tqdm
 from torch import Tensor, nn
 
-from sentence_transformers import util
-
 # RandContext and the mini-batching helpers historically lived in this module, so keep them importable.
 from sentence_transformers.base.losses.gradcache import (  # noqa: F401
     CachedLossMixin,
@@ -22,7 +20,7 @@ from sentence_transformers.sentence_transformer.losses.multiple_negatives_rankin
     MultipleNegativesRankingLoss,
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
+from sentence_transformers.util import all_gather_with_grad, cos_sim, get_rank, similarity_fct_name
 
 
 class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
@@ -30,7 +28,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
         self,
         model: SentenceTransformer,
         scale: float = 20.0,
-        similarity_fct: Callable[[Tensor, Tensor], Tensor] = util.cos_sim,
+        similarity_fct: Callable[[Tensor, Tensor], Tensor] = cos_sim,
         mini_batch_size: int = 32,
         mini_batch_num_tokens: int | None = None,
         gather_across_devices: bool = False,
@@ -54,8 +52,8 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
 
         In detail:
 
-            (1) It first does a quick embedding step without gradients/computation graphs to get all the embeddings;
-            (2) Calculate the loss, backward up to the embeddings and cache the gradients wrt. to the embeddings;
+            (1) It first does a quick embedding step without gradients/computation graphs to get all the embeddings.
+            (2) Calculate the loss, backward up to the embeddings and cache the gradients wrt. to the embeddings.
             (3) A 2nd embedding step with gradients/computation graphs and connect the cached gradients into the backward chain.
 
         Notes: All steps are done with mini-batches. In the original implementation of GradCache, (2) is not done in mini-batches and
@@ -262,10 +260,9 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
             docs = [all_gather_with_grad(doc) for doc in docs]
             # (1 + num_negatives) tensors of shape (batch_size * world_size, embedding_dim)
 
-            # Adjust the offset to account for the gathered candidates, so that each device computes the correct local indices.
-            if is_dist_initialized():
-                rank = torch.distributed.get_rank()
-                offset = rank * batch_size
+            # Adjust the offset to account for the gathered candidates, so that each device computes the correct
+            # local indices. get_rank() returns 0 when not running distributed, so offset stays 0 in that case.
+            offset = get_rank() * batch_size
 
         world_batch_size = queries.size(0)
         docs_all = torch.cat(docs, dim=0)
@@ -383,7 +380,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
     def get_config_dict(self) -> dict[str, Any]:
         return {
             "scale": self.scale,
-            "similarity_fct": getattr(self.similarity_fct, "__name__", str(self.similarity_fct)),
+            "similarity_fct": similarity_fct_name(self.similarity_fct),
             "mini_batch_size": self.mini_batch_size,
             "mini_batch_num_tokens": self.mini_batch_num_tokens,
             "gather_across_devices": self.gather_across_devices,

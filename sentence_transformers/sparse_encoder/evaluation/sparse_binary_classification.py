@@ -79,27 +79,27 @@ class SparseBinaryClassificationEvaluator(BinaryClassificationEvaluator):
             Matthews Correlation with Cosine-Similarity: 49.56
 
             Accuracy with Dot-Product:             76.50    (Threshold: 23.4236)
-            F1 with Dot-Product:                   67.00    (Threshold: 19.0095)
+            F1 with Dot-Product:                   67.00    (Threshold: 19.0094)
             Precision with Dot-Product:            55.93
             Recall with Dot-Product:               83.54
             Average Precision with Dot-Product:    65.89
             Matthews Correlation with Dot-Product: 48.88
 
-            Accuracy with Euclidean-Distance:             67.70     (Threshold: -10.0041)
-            F1 with Euclidean-Distance:                   48.60     (Threshold: -0.1876)
-            Precision with Euclidean-Distance:            32.13
-            Recall with Euclidean-Distance:               99.69
-            Average Precision with Euclidean-Distance:    20.52
-            Matthews Correlation with Euclidean-Distance: -4.59
+            Accuracy with Euclidean-Distance:             74.40     (Threshold: 2.5143)
+            F1 with Euclidean-Distance:                   63.38     (Threshold: 5.2380)
+            Precision with Euclidean-Distance:            48.98
+            Recall with Euclidean-Distance:               89.75
+            Average Precision with Euclidean-Distance:    65.34
+            Matthews Correlation with Euclidean-Distance: 43.09
 
-            Accuracy with Manhattan-Distance:             67.70     (Threshold: -103.0263)
-            F1 with Manhattan-Distance:                   48.60     (Threshold: -0.8532)
-            Precision with Manhattan-Distance:            32.13
-            Recall with Manhattan-Distance:               99.69
-            Average Precision with Manhattan-Distance:    21.05
-            Matthews Correlation with Manhattan-Distance: -4.59
+            Accuracy with Manhattan-Distance:             72.40     (Threshold: 11.8888)
+            F1 with Manhattan-Distance:                   62.62     (Threshold: 31.5751)
+            Precision with Manhattan-Distance:            48.09
+            Recall with Manhattan-Distance:               89.75
+            Average Precision with Manhattan-Distance:    60.15
+            Matthews Correlation with Manhattan-Distance: 41.73
 
-            Model Sparsity: Active Dimensions: 61.2, Sparsity Ratio: 0.9980
+            Model Sparsity: Active Dimensions: 61.3, Sparsity Ratio: 0.9980
             '''
             # Print the results
             print(f"Primary metric: {binary_acc_evaluator.primary_metric}")

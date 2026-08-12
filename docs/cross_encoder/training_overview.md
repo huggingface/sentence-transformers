@@ -127,7 +127,7 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         # Use a text-generation checkpoint as a reranker
         model = CrossEncoder("google/gemma-2-2b-it")
 
-    This causal-LM setup always behaves like a single-label scorer (effectively ``num_labels=1``): it is designed for scoring and reranking tasks (e.g. query–document relevance), **not** for multi-class classification where you need one logit per class. For classification problems with more than one label, you should prefer the encoder / sequence-classification checkpoints instead.
+    This causal-LM setup always behaves like a single-label scorer (effectively ``num_labels=1``): it is designed for scoring and reranking tasks (e.g. query-document relevance), **not** for multi-class classification where you need one logit per class. For classification problems with more than one label, you should prefer the encoder / sequence-classification checkpoints instead.
 ```
 
 ## Dataset
@@ -284,7 +284,7 @@ You can also train bidirectionally (e.g. image-to-text *and* text-to-image) by c
         loss=loss,
     )
 
-The data collator automatically handles multimodal preprocessing via the model's ``preprocess`` method, so no manual tokenization or image processing is needed. The dataset format is the same regardless of whether the underlying model is an encoder or a causal LM; only the model architecture differs. See `Training Examples > Multimodal <../../examples/cross_encoder/training/multimodal/README.html>`_ for complete training scripts.
+The data collator automatically handles multimodal preprocessing via the model's ``preprocess`` method, so no manual tokenization or image processing is needed. The dataset format is the same regardless of whether the underlying model is an encoder or a causal LM. Only the model architecture differs. See `Training Examples > Multimodal <../../examples/cross_encoder/training/multimodal/README.html>`_ for complete training scripts.
 ```
 
 ### Hard Negatives Mining
@@ -438,6 +438,7 @@ The :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrain
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.eval_accumulation_steps"><code>eval_accumulation_steps</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.optim"><code>optim</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.dataloader_num_workers"><code>dataloader_num_workers</code></a>
+        <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.dataloader_persistent_workers"><code>dataloader_persistent_workers</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.dataloader_prefetch_factor"><code>dataloader_prefetch_factor</code></a>
         <a href="../package_reference/cross_encoder/training_args.html#sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments"><code>batch_sampler</code></a>
         <a href="../package_reference/cross_encoder/training_args.html#sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments"><code>multi_dataset_batch_sampler</code></a>
@@ -486,11 +487,11 @@ args = CrossEncoderTrainingArguments(
     batch_sampler=BatchSamplers.NO_DUPLICATES,  # losses that use "in-batch negatives" benefit from no duplicates
     # Optional tracking/debugging parameters:
     eval_strategy="steps",
-    eval_steps=100,
+    eval_steps=0.1,
     save_strategy="steps",
-    save_steps=100,
+    save_steps=0.1,
     save_total_limit=2,
-    logging_steps=100,
+    logging_steps=0.01,
     run_name="reranker-MiniLM-msmarco-v1",  # Will be used in W&B if `wandb` is installed
 )
 ```
@@ -830,11 +831,11 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
             bf16=True,  # Set to True if you have a GPU that supports BF16
             # Optional tracking/debugging parameters:
             eval_strategy="steps",
-            eval_steps=100,
+            eval_steps=0.1,
             save_strategy="steps",
-            save_steps=100,
+            save_steps=0.1,
             save_total_limit=2,
-            logging_steps=50,
+            logging_steps=0.01,
             logging_first_step=True,
             run_name=run_name,  # Will be used in W&B if `wandb` is installed
             seed=12,
@@ -1030,16 +1031,17 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
                 warmup_steps=0.1,
                 fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
                 bf16=True,  # Set to True if you have a GPU that supports BF16
-                dataloader_num_workers=4,
+                dataloader_num_workers=2,
+                dataloader_persistent_workers=True,  # Recommended on Windows/macOS, can be False on Linux
                 load_best_model_at_end=True,
                 metric_for_best_model="eval_gooaq-dev_ndcg@10",
                 # Optional tracking/debugging parameters:
                 eval_strategy="steps",
-                eval_steps=1000,
+                eval_steps=0.1,
                 save_strategy="steps",
-                save_steps=1000,
+                save_steps=0.1,
                 save_total_limit=2,
-                logging_steps=200,
+                logging_steps=0.01,
                 logging_first_step=True,
                 run_name=run_name,  # Will be used in W&B if `wandb` is installed
                 seed=12,

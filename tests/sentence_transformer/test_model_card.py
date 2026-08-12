@@ -159,6 +159,27 @@ def test_model_card_base(
     assert "\n\n\n" not in model_card
 
 
+def test_model_card_renders_query_and_document_lengths(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    # Per-task caps are rare outside ColBERT-style models but they apply here too, so the card must
+    # not present the tokenizer's model_max_length as the effective cap.
+    model = stsb_bert_tiny_model
+    model.model_card_data.local_files_only = True
+
+    assert "Maximum Query Length" not in generate_model_card(model)
+
+    model[0].query_length = 32
+    model[0].document_length = 180
+    model_card = generate_model_card(model)
+
+    assert (
+        f"- **Maximum Sequence Length:** {model.max_seq_length} tokens"
+        "\n    - **Maximum Query Length:** 32 tokens"
+        "\n    - **Maximum Document Length:** 180 tokens"
+        "\n- **Output Dimensionality:**"
+    ) in model_card
+    assert "\n\n\n" not in model_card
+
+
 def _reset_for_snippet(model: SentenceTransformer) -> None:
     """Reset model_card_data fields to ensure a clean snippet test."""
     model.model_card_data.usage_examples = None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import multiprocessing
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Union
@@ -214,6 +215,38 @@ class BaseTrainingArguments(TransformersTrainingArguments):
                     "Setting `dataloader_drop_last=True`."
                 )
             self.dataloader_drop_last = True
+
+        # If output_dir is "unused", then this instance is created to compare training arguments vs the
+        # defaults, so we don't have to warn.
+        if (
+            self.output_dir != "unused"
+            and self.dataloader_num_workers > 0
+            and not self.dataloader_persistent_workers
+            and self._workers_are_spawned()
+        ):
+            logger.warning(
+                "When using `dataloader_num_workers > 0` with spawned worker processes, it is recommended to "
+                "also set `dataloader_persistent_workers=True`. Every spawned worker imports Sentence "
+                "Transformers before it can produce a batch, which takes several seconds per worker, and "
+                "without persistent workers that cost is paid again on every epoch and every evaluation. "
+                "This commonly makes training slower than `dataloader_num_workers=0`."
+            )
+
+    @staticmethod
+    def _workers_are_spawned() -> bool:
+        """Whether dataloader workers start via ``spawn`` rather than ``fork``/``forkserver``.
+
+        Only ``spawn`` pays the import cost per worker. A ``forkserver`` worker is forked from a server
+        process that preloads ``__main__``, so it inherits the already imported modules like ``fork`` does.
+
+        Both reads are non-locking, so merely constructing training arguments never fixes the start method,
+        which would break a later ``set_start_method`` call.
+        """
+        start_method = multiprocessing.get_start_method(allow_none=True)
+        if start_method is None:
+            # get_all_start_methods() returns the platform default first, without locking it in
+            start_method = multiprocessing.get_all_start_methods()[0]
+        return start_method == "spawn"
 
     def to_dict(self):
         training_args_dict = super().to_dict()

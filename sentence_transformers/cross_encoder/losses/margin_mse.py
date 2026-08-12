@@ -141,7 +141,7 @@ class MarginMSELoss(nn.Module):
             negative_logits_list.append(self.logits_from_pairs(negative_pairs, prompt=prompt, task=task))
 
         margin_logits = positive_logits.unsqueeze(1) - torch.stack(negative_logits_list, dim=1)
-        loss = self.loss_fct(margin_logits, labels.float())
+        loss = self.loss_fct(margin_logits, labels.detach().float())
         return loss
 
     def logits_from_pairs(

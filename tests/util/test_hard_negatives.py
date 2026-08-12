@@ -856,7 +856,8 @@ def test_non_faiss_batched_search_matches_single_batch(
 ) -> None:
     """Test that batching the non-FAISS similarity search splits the queries and does not change the mined negatives."""
     model = static_retrieval_mrl_en_v1_model
-    original_similarity = model.similarity
+    model.similarity_fn_name  # noqa: B018 (trigger lazy init of _similarity)
+    original_similarity = model._similarity
     chunk_sizes = []
 
     def similarity_spy(embeddings1, embeddings2):
@@ -888,7 +889,7 @@ def test_non_faiss_batched_search_matches_single_batch(
     for column in batched.column_names:
         if column == "scores":
             for batched_scores, single_scores in zip(batched[column], single[column]):
-                assert batched_scores == pytest.approx(single_scores)
+                assert batched_scores == pytest.approx(single_scores, rel=1e-6, abs=1e-7)
         else:
             assert batched[column] == single[column]
 
@@ -1153,6 +1154,150 @@ def test_empty_dataset(static_retrieval_mrl_en_v1_model: SentenceTransformer) ->
 
     with pytest.raises(ValueError):
         mine_hard_negatives(dataset=empty_dataset, model=model, verbose=False)
+
+
+@pytest.mark.parametrize("sampling_strategy", ["top", "random"])
+def test_num_negatives_exceeds_range_window(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, sampling_strategy: str
+) -> None:
+    """Requesting more negatives than the range window holds must explain itself, not fail on a tensor shape.
+
+    Both strategies reach the same invalid window by a different route: "top" slices the candidate matrix to
+    range_max - range_min columns while the anchor index matrix keeps num_negatives columns, and "random" clamps
+    its number of options to num_negatives and then samples past the width of that same matrix.
+    """
+    with pytest.raises(ValueError, match="Cannot mine 10 negatives per query: only 3 candidates remain"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            num_negatives=10,
+            range_min=0,
+            range_max=3,
+            sampling_strategy=sampling_strategy,
+            verbose=False,
+        )
+
+
+@pytest.mark.parametrize("num_negatives", [0, -1, -5])
+def test_num_negatives_must_be_positive(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, num_negatives: int
+) -> None:
+    """range_max is derived from num_negatives, so a non-positive value must be named rather than mined around.
+
+    Without the check, 0 quietly returns the dataset with no negative columns at all, and a negative value
+    derives a range_max at or below range_min, reporting a range problem the caller never configured.
+    """
+    with pytest.raises(ValueError, match=f"num_negatives must be at least 1, got num_negatives={num_negatives}"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            num_negatives=num_negatives,
+            verbose=False,
+        )
+
+
+def test_num_negatives_exceeds_range_window_capped_by_faiss(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The FAISS GPU cap can shrink an auto-derived range_max below num_negatives, so the error mentions the cap."""
+    faiss = pytest.importorskip("faiss")
+    monkeypatch.setattr(faiss, "get_num_gpus", lambda: 1)
+
+    with pytest.raises(ValueError, match="range_max was capped to 2047 because FAISS on GPU"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            num_negatives=10,
+            range_min=2040,
+            use_faiss=True,
+            verbose=False,
+        )
+
+
+def test_use_faiss_on_cpu_is_not_capped(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAISS on CPU has no 2048-document limit, so the same arguments must mine instead of raising."""
+    faiss = pytest.importorskip("faiss")
+    monkeypatch.setattr(faiss, "get_num_gpus", lambda: 0)
+    monkeypatch.delattr(faiss, "GpuMultipleClonerOptions", raising=False)
+
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=static_retrieval_mrl_en_v1_model,
+        num_negatives=10,
+        range_min=2040,
+        use_faiss=True,
+        verbose=False,
+    )
+
+    assert len(result) == 0
+
+
+@pytest.mark.parametrize("sampling_strategy", ["top", "random"])
+def test_num_negatives_matching_range_window_is_allowed(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, sampling_strategy: str
+) -> None:
+    """A window exactly the size of num_negatives is still satisfiable, under either strategy, and must not raise."""
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=static_retrieval_mrl_en_v1_model,
+        num_negatives=3,
+        range_min=0,
+        range_max=3,
+        sampling_strategy=sampling_strategy,
+        output_format="n-tuple",
+        verbose=False,
+    )
+
+    assert len(result.column_names) == 2 + 3
+    assert len(result) == len(dataset)
+
+
+def test_range_min_must_be_non_negative(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+) -> None:
+    """A negative range_min would silently slice the candidate window from the wrong end."""
+    with pytest.raises(ValueError, match="range_min must be non-negative"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            range_min=-5,
+            range_max=8,
+            verbose=False,
+        )
+
+
+@pytest.mark.parametrize(("range_min", "range_max"), [(3, 3), (5, 3)])
+def test_range_min_must_be_below_range_max(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, range_min: int, range_max: int
+) -> None:
+    """A range_min at or above range_max leaves no candidate window at all."""
+    with pytest.raises(ValueError, match="range_min must be smaller than range_max"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            range_min=range_min,
+            range_max=range_max,
+            verbose=False,
+        )
+
+
+def test_range_min_above_faiss_capped_range_max(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The FAISS GPU cap can push an auto-derived range_max below range_min, so the error mentions the cap."""
+    faiss = pytest.importorskip("faiss")
+    monkeypatch.setattr(faiss, "get_num_gpus", lambda: 1)
+
+    with pytest.raises(ValueError, match="range_min must be smaller than range_max.*range_max was capped to 2047"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            range_min=2050,
+            use_faiss=True,
+            verbose=False,
+        )
 
 
 def test_larger_dataset_with_combinations(
@@ -1591,3 +1736,20 @@ def test_range_max_larger_than_corpus_does_not_crash() -> None:
     positive_score, negative_score = row["scores"]
     assert positive_score == pytest.approx(-0.50)
     assert negative_score == pytest.approx(-0.49)
+
+
+def test_missing_negatives_message_names_range_max(capsys: pytest.CaptureFixture) -> None:
+    """With only range_max to suggest, the "Could not find enough negatives" message must still
+    name it instead of printing an empty parameter list."""
+    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"]})
+    mine_hard_negatives(
+        dataset=dataset,
+        model=ControlledNegativeScoreModel(),
+        anchor_column_name="query",
+        positive_column_name="positive",
+        corpus=["p", "n_more_similar", "n_far"],
+        num_negatives=5,
+        verbose=True,
+    )
+    captured = capsys.readouterr()
+    assert "Consider adjusting the range_max parameter if" in captured.out

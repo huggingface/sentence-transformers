@@ -39,10 +39,10 @@ Common failures in sentence-transformers training, with root causes and fixes. O
 
 1. **Re-run dataset inspector** with `--loss <your-loss>`. Most likely cause: column order wrong, label column not detected, or loss expects a different shape.
 2. For retrieval: **your negatives are too easy**. Mine hard negatives (`scripts/mine_hard_negatives.py`).
-3. Check `metric_for_best_model` — if the key doesn't match what the evaluator writes, the trainer silently uses the final checkpoint (not the best).
+3. Check `metric_for_best_model`. If the key doesn't match what the evaluator writes, the trainer silently uses the final checkpoint (not the best).
 4. Confirm `BatchSamplers.NO_DUPLICATES` is set for MNRL-style losses. Without it, the in-batch negative signal is corrupted.
 5. Base model is wrong for the task (e.g. decoder-only LLM for short-text STS). Try a different base.
-6. Learning rate too low. Default `2e-5` works for encoders; LoRA wants `1e-4+`; static embeddings want about `2e-1` (much higher than transformers).
+6. Learning rate too low. Default `2e-5` works for encoders. LoRA wants `1e-4+`. Static embeddings want about `2e-1` (much higher than transformers).
 7. Dataset too small for the chosen loss. Contrastive losses need >10k pairs to be meaningful.
 
 ## Training hangs at the first eval
@@ -66,7 +66,7 @@ Common failures in sentence-transformers training, with root causes and fixes. O
 
 **Symptom:** error like "element 0 of tensors does not require grad", or a cryptic autograd error.
 
-**Fix:** you have `gradient_checkpointing=True`. The cached losses do their own forward/backward orchestration; gradient checkpointing conflicts with it. Disable `gradient_checkpointing`.
+**Fix:** you have `gradient_checkpointing=True`. The cached losses do their own forward/backward orchestration. Gradient checkpointing conflicts with it. Disable `gradient_checkpointing`.
 
 Same applies to `CachedSpladeLoss`, `CachedGISTEmbedLoss`, and any other `Cached*` loss.
 
@@ -87,10 +87,10 @@ Same applies to `CachedSpladeLoss`, `CachedGISTEmbedLoss`, and any other `Cached
 
 **Fixes:**
 
-- Trackio: confirm `pip install trackio` succeeded. No login step — trackio uses your `HF_TOKEN` (set by `hf auth login` or the `HF_TOKEN` env var). On HF Jobs, `HF_TOKEN` must be in `secrets`.
+- Trackio: confirm `pip install trackio` succeeded. No login step. Trackio uses your `HF_TOKEN` (set by `hf auth login` or the `HF_TOKEN` env var). On HF Jobs, `HF_TOKEN` must be in `secrets`.
 - W&B: confirm `wandb login` succeeded, or `WANDB_API_KEY` env var is set. On HF Jobs, `WANDB_API_KEY` must be in `secrets`.
 - `report_to` not set to the right tracker: `report_to="trackio"` (or `"wandb"`, or a list like `["trackio", "tensorboard"]`).
-- TensorBoard: check `logging_dir` (defaults to `output_dir/runs/<timestamp>`); point TB at the parent.
+- TensorBoard: check `logging_dir` (defaults to `output_dir/runs/<timestamp>`). Point TB at the parent.
 
 ## Base model loads but `encode` produces garbage
 
@@ -121,13 +121,13 @@ Same applies to `CachedSpladeLoss`, `CachedGISTEmbedLoss`, and any other `Cached
 
 **Symptom:** `BinaryCrossEntropyLoss` raises about mismatched dims, or `CrossEntropyLoss` complains.
 
-**Fix:** `num_labels=1` goes with `BinaryCrossEntropyLoss`; `num_labels>=2` goes with `CrossEntropyLoss`. Set `CrossEncoder("...", num_labels=1)` for BCE.
+**Fix:** `num_labels=1` goes with `BinaryCrossEntropyLoss`. `num_labels>=2` goes with `CrossEntropyLoss`. Set `CrossEncoder("...", num_labels=1)` for BCE.
 
 ## CrossEncoder eval nDCG crashes after distillation / listwise / pairwise training
 
 **Symptom:** training loss looks healthy, baseline eval looked fine, but post-training eval nDCG drops a lot (e.g. 0.59 → 0.14). Every checkpoint after the first eval is below baseline.
 
-**Root cause:** the default `Sigmoid` activation function on `CrossEncoder(num_labels=1, ...)` saturates raw logits >5 to ~1.0. Distillation/listwise/pairwise losses (`MSELoss`, `MarginMSELoss`, `LambdaLoss`, `RankNetLoss`, `ListNetLoss`, `ListMLELoss`, `PListMLELoss`, `ADRMSELoss`) operate on raw logits — once the model learns to push positives past the saturation point, ranking information is lost.
+**Root cause:** the default `Sigmoid` activation function on `CrossEncoder(num_labels=1, ...)` saturates raw logits >5 to ~1.0. Distillation/listwise/pairwise losses (`MSELoss`, `MarginMSELoss`, `LambdaLoss`, `RankNetLoss`, `ListNetLoss`, `ListMLELoss`, `PListMLELoss`, `ADRMSELoss`) operate on raw logits. Once the model learns to push positives past the saturation point, ranking information is lost.
 
 **Fix:** construct the model with an `Identity` activation:
 
@@ -144,7 +144,7 @@ Keep the default `Sigmoid` only for `BinaryCrossEntropyLoss` (which uses BCE-wit
 
 **Root cause:** `NDCGLoss2PPScheme` normalizes by the discount-weighted pair count, which scales roughly with K. The numeric magnitude of the loss isn't the signal you should track.
 
-**Fix:** ignore training loss for LambdaLoss; watch the eval metric (`eval_NanoBEIR_R100_mean_ndcg@10` or your `metric_for_best_model`) instead. If eval is moving in the right direction and loss is "too small", that's expected.
+**Fix:** ignore training loss for LambdaLoss. Watch the eval metric (`eval_NanoBEIR_R100_mean_ndcg@10` or your `metric_for_best_model`) instead. If eval is moving in the right direction and loss is "too small", that's expected.
 
 ## LambdaLoss OOM: what to drop first
 
@@ -152,26 +152,26 @@ Keep the default `Sigmoid` only for `BinaryCrossEntropyLoss` (which uses BCE-wit
 
 **Recovery order:**
 
-1. **Lower `mini_batch_size`** on the loss first. The internal forward chunking preserves the K-list semantic — this is the cheapest knob and doesn't change the experiment.
+1. **Lower `mini_batch_size`** on the loss first. The internal forward chunking preserves the K-list semantic. This is the cheapest knob and doesn't change the experiment.
 2. Lower `per_device_train_batch_size` and compensate with `gradient_accumulation_steps` to keep total batch fixed.
-3. **Reduce K (the candidate-list length per query) only as a last resort.** Lowering K changes what the loss is computing; this is an experimental change, not a memory tweak.
+3. **Reduce K (the candidate-list length per query) only as a last resort.** Lowering K changes what the loss is computing. This is an experimental change, not a memory tweak.
 
-For very large K (>=128), `NDCGLoss2PPScheme` materializes O(K²) weight buffers per query that aren't covered by the forward chunking, so even small `mini_batch_size` may not be enough — at that point K is the right knob.
+For very large K (>=128), `NDCGLoss2PPScheme` materializes O(K²) weight buffers per query that aren't covered by the forward chunking, so even small `mini_batch_size` may not be enough. At that point K is the right knob.
 
 ## Loading a model with a custom inline `nn.Module` raises `ImportError`
 
-**Symptom:** training and saving via `train.py` works fine; loading the saved model from any other script (`predict.py`, a notebook, or another package) fails with:
+**Symptom:** training and saving via `train.py` works fine. Loading the saved model from any other script (`predict.py`, a notebook, or another package) fails with:
 
 ```
 ImportError: Module "__main__" does not define a "ClassifierHead" attribute
 ```
 
-**Root cause:** when a custom `nn.Module` is defined inline in a script, Python records its qualname as `__main__.ClassifierHead`. ST writes that qualname into `modules.json` at save time. Loading from a different entry point can't resolve `__main__.ClassifierHead` — the class doesn't exist in the loader's `__main__`.
+**Root cause:** when a custom `nn.Module` is defined inline in a script, Python records its qualname as `__main__.ClassifierHead`. ST writes that qualname into `modules.json` at save time. Loading from a different entry point can't resolve `__main__.ClassifierHead`. The class doesn't exist in the loader's `__main__`.
 
 **Fixes (any one):**
 
 1. Move the class to an importable module: `from my_pkg.heads import ClassifierHead`. Save again so `modules.json` records `my_pkg.heads.ClassifierHead`.
-2. Build the same shape using stock ST modules (`Dense + LayerNorm + Dense`) instead of a custom class — those are always loadable.
+2. Build the same shape using stock ST modules (`Dense + LayerNorm + Dense`) instead of a custom class. Those are always loadable.
 3. Document that the model is only loadable from the same script (acceptable for one-off experiments, not for shipping models).
 
 ## SPLADE embeddings are dense (not sparse)
@@ -182,11 +182,11 @@ ImportError: Module "__main__" does not define a "ClassifierHead" attribute
 
 1. You're missing the `SpladeLoss` wrapper. `SparseMultipleNegativesRankingLoss` alone doesn't add FLOPS regularization. Wrap: `SpladeLoss(model, loss=inner_loss, query_regularizer_weight=5e-5, document_regularizer_weight=3e-5)`.
 2. Regularizer weights too low. Increase to 1e-4 or higher.
-3. Scheduler wiped out early. `SpladeRegularizerWeightSchedulerCallback` ramps weights from 0 to target over the first ~33% of training (`warmup_ratio=1/3` by default; configurable). On very short runs this never reaches target. Either train longer or set `query_regularizer_weight` / `document_regularizer_weight` higher to compensate.
+3. Scheduler wiped out early. `SpladeRegularizerWeightSchedulerCallback` ramps weights from 0 to target over the first ~33% of training (`warmup_ratio=1/3` by default, configurable). On very short runs this never reaches target. Either train longer or set `query_regularizer_weight` / `document_regularizer_weight` higher to compensate.
 
 ## `ValueError: The dataset has ... columns but the loss expects N`
 
-**Fix:** column count mismatch. Drop extra columns (`dataset.remove_columns([...])`) or reorder with `select_columns`. Names don't matter; count and order do.
+**Fix:** column count mismatch. Drop extra columns (`dataset.remove_columns([...])`) or reorder with `select_columns`. Names don't matter. Count and order do.
 
 ## Encoding on CPU is painfully slow
 
@@ -195,7 +195,7 @@ ImportError: Module "__main__" does not define a "ClassifierHead" attribute
 **Fixes:**
 
 - Ensure the model is on GPU: `model.to("cuda")` (or `device_map="auto"` when loading).
-- For genuine CPU inference (no GPU available), consider switching to a `StaticEmbedding`-based model — ~1000x faster on CPU than a transformer.
+- For genuine CPU inference (no GPU available), consider switching to a `StaticEmbedding`-based model, ~1000x faster on CPU than a transformer.
 
 ## Hub model loads, but `model.encode(prompt_name="query")` acts like no prompt was applied
 
@@ -219,7 +219,7 @@ This ensures gradient flow through the frozen base + trainable adapter.
 
 ## Related reference docs
 
-- `training_args.md` (shared) — the args that affect all of the above.
-- `hardware_guide.md` (shared) — VRAM sizing and multi-GPU.
-- `dataset_formats.md` (shared) — column/loss validation.
-- `losses_sentence_transformer.md` / `losses_cross_encoder.md` / `losses_sparse_encoder.md` (per-model-type catalogs) — loss-specific quirks.
+- `training_args.md` (shared): the args that affect all of the above.
+- `hardware_guide.md` (shared): VRAM sizing and multi-GPU.
+- `dataset_formats.md` (shared): column/loss validation.
+- `losses_sentence_transformer.md` / `losses_cross_encoder.md` / `losses_sparse_encoder.md` (per-model-type catalogs): loss-specific quirks.

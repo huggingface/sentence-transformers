@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import logging
 import os
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
@@ -18,6 +19,7 @@ from sentence_transformers.util.similarity import SimilarityFunction
 if TYPE_CHECKING:
     import numpy as np
 
+    from sentence_transformers.base.modality_types import SingleInput
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,13 @@ class TripletEvaluator(BaseEvaluator):
     Evaluate a model based on a triplet: (sentence, positive_example, negative_example).
     Checks if ``similarity(sentence, positive_example) > similarity(sentence, negative_example) + margin``.
 
+    Anchors are embedded with the model's ``encode_query`` and positives / negatives with
+    ``encode_document``, so an asymmetric model's ``query`` / ``document`` prompts are applied during
+    evaluation (a no-op when those prompts are unset). This assumes retrieval-style triplets
+    (anchor = query, positive / negative = document). For a symmetric model, either leave the
+    ``query`` / ``document`` prompts unset so all three inputs are embedded identically, or set both
+    to the same prompt to apply one prefix uniformly.
+
     Args:
         anchors (List[str]): Sentences to check similarity to. (e.g. a query)
         positives (List[str]): List of positive sentences
@@ -37,7 +46,7 @@ class TripletEvaluator(BaseEvaluator):
             dot product, Euclidean, and Manhattan similarity. Defaults to None.
         margin (Union[float, Dict[str, float]], optional): Margins for various similarity metrics.
             If a float is provided, it will be used as the margin for all similarity metrics.
-            If a dictionary is provided, the keys should be 'cosine', 'dot', 'manhattan', and 'euclidean'.
+            If a dictionary is provided, the keys must be 'cosine', 'dot', 'manhattan', and 'euclidean'.
             The value specifies the minimum margin by which the negative sample should be further from
             the anchor than the positive sample. Defaults to None.
         name (str): Name for the output. Defaults to "".
@@ -83,9 +92,9 @@ class TripletEvaluator(BaseEvaluator):
 
     def __init__(
         self,
-        anchors: list[str],
-        positives: list[str],
-        negatives: list[str],
+        anchors: Sequence[SingleInput],
+        positives: Sequence[SingleInput],
+        negatives: Sequence[SingleInput],
         main_similarity_function: str | SimilarityFunction | None = None,
         margin: float | dict[str, float] | None = None,
         name: str = "",
@@ -118,19 +127,21 @@ class TripletEvaluator(BaseEvaluator):
         )
         self.similarity_fn_names = similarity_fn_names or []
 
-        if margin is None:
-            self.margin = {"cosine": 0, "dot": 0, "manhattan": 0, "euclidean": 0}
-        elif isinstance(margin, (float, int)):
-            self.margin = {"cosine": margin, "dot": margin, "manhattan": margin, "euclidean": margin}
-        elif isinstance(margin, dict):
-            self.margin = {
-                **{"cosine": 0, "dot": 0, "manhattan": 0, "euclidean": 0},
-                **margin,
-            }
-        else:
+        fn_keys = list(self._get_similarity_functions().keys())
+        if unknown_names := sorted(set(self.similarity_fn_names) - set(fn_keys)):
             raise ValueError(
-                "`margin` should be a float or a dictionary with keys 'cosine', 'dot', 'manhattan', and 'euclidean'"
+                f"`similarity_fn_names` got unexpected names {unknown_names}, expected names in {fn_keys}."
             )
+        if margin is None:
+            self.margin = {k: 0 for k in fn_keys}
+        elif isinstance(margin, (float, int)):
+            self.margin = {k: margin for k in fn_keys}
+        elif isinstance(margin, dict):
+            if unknown_keys := sorted(set(margin) - set(fn_keys)):
+                raise ValueError(f"`margin` got unexpected keys {unknown_keys}, expected keys in {fn_keys}.")
+            self.margin = {**{k: 0 for k in fn_keys}, **margin}
+        else:
+            raise ValueError(f"`margin` should be a float or a dictionary with keys in {fn_keys}.")
 
         self.batch_size = batch_size
         if show_progress_bar is None:
@@ -176,32 +187,15 @@ class TripletEvaluator(BaseEvaluator):
 
         logger.info(f"TripletEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
-        embeddings_anchors = self.embed_inputs(model, self.anchors)
-        embeddings_positives = self.embed_inputs(model, self.positives)
-        embeddings_negatives = self.embed_inputs(model, self.negatives)
+        embeddings_anchors = self.embed_inputs(model, self.anchors, encode_fn_name="query")
+        embeddings_positives = self.embed_inputs(model, self.positives, encode_fn_name="document")
+        embeddings_negatives = self.embed_inputs(model, self.negatives, encode_fn_name="document")
 
         if not self.similarity_fn_names:
             self.similarity_fn_names = [model.similarity_fn_name]
             self._append_csv_headers(self.similarity_fn_names)
 
-        similarity_functions = {
-            "cosine": lambda anchors, positives, negatives: (
-                pairwise_cos_sim(anchors, positives),
-                pairwise_cos_sim(anchors, negatives),
-            ),
-            "dot": lambda anchors, positives, negatives: (
-                pairwise_dot_score(anchors, positives),
-                pairwise_dot_score(anchors, negatives),
-            ),
-            "manhattan": lambda anchors, positives, negatives: (
-                pairwise_manhattan_sim(anchors, positives),
-                pairwise_manhattan_sim(anchors, negatives),
-            ),
-            "euclidean": lambda anchors, positives, negatives: (
-                pairwise_euclidean_sim(anchors, positives),
-                pairwise_euclidean_sim(anchors, negatives),
-            ),
-        }
+        similarity_functions = self._get_similarity_functions()
 
         metrics = {}
         for fn_name in self.similarity_fn_names:
@@ -231,12 +225,7 @@ class TripletEvaluator(BaseEvaluator):
             metrics["max_accuracy"] = max(metrics.values())
 
         if self.main_similarity_function:
-            self.primary_metric = {
-                SimilarityFunction.COSINE: "cosine_accuracy",
-                SimilarityFunction.DOT_PRODUCT: "dot_accuracy",
-                SimilarityFunction.EUCLIDEAN: "euclidean_accuracy",
-                SimilarityFunction.MANHATTAN: "manhattan_accuracy",
-            }.get(self.main_similarity_function)
+            self.primary_metric = f"{self.main_similarity_function.value}_accuracy"
         else:
             if len(self.similarity_fn_names) > 1:
                 self.primary_metric = "max_accuracy"
@@ -250,10 +239,17 @@ class TripletEvaluator(BaseEvaluator):
     def embed_inputs(
         self,
         model: SentenceTransformer,
-        sentences: str | list[str] | np.ndarray,
+        sentences: SingleInput | Sequence[SingleInput] | np.ndarray,
+        encode_fn_name: str | None = None,
         **kwargs,
     ) -> np.ndarray:
-        return model.encode(
+        if encode_fn_name == "query":
+            encode_fn = model.encode_query
+        elif encode_fn_name == "document":
+            encode_fn = model.encode_document
+        else:
+            encode_fn = model.encode
+        return encode_fn(
             sentences,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
@@ -262,9 +258,17 @@ class TripletEvaluator(BaseEvaluator):
             **kwargs,
         )
 
+    def _get_similarity_functions(self) -> dict:
+        return {
+            "cosine": lambda a, p, n: (pairwise_cos_sim(a, p), pairwise_cos_sim(a, n)),
+            "dot": lambda a, p, n: (pairwise_dot_score(a, p), pairwise_dot_score(a, n)),
+            "manhattan": lambda a, p, n: (pairwise_manhattan_sim(a, p), pairwise_manhattan_sim(a, n)),
+            "euclidean": lambda a, p, n: (pairwise_euclidean_sim(a, p), pairwise_euclidean_sim(a, n)),
+        }
+
     def get_config_dict(self):
         config_dict = {}
-        if self.margin != {"cosine": 0, "dot": 0, "manhattan": 0, "euclidean": 0}:
+        if self.margin != {key: 0 for key in self._get_similarity_functions()}:
             config_dict["margin"] = self.margin
         if self.truncate_dim is not None:
             config_dict["truncate_dim"] = self.truncate_dim

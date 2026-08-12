@@ -18,12 +18,12 @@ on GPU and ~80x faster on CPU than a small encoder, with surprisingly competitiv
 quality on retrieval benchmarks when trained on >=1M contrastive pairs.
 
 Two init paths via `WARMSTART` constant:
-- `WARMSTART=False` (default): random init. Use with >=1M contrastive pairs;
-  reaches a higher ceiling than warm-start when given enough data. The default
+- `WARMSTART=False` (default): random init. Use with >=1M contrastive pairs.
+  Reaches a higher ceiling than warm-start when given enough data. The default
   dataset below (GooAQ, ~3M pairs) is comfortably in this regime.
-- `WARMSTART=True`: `StaticEmbedding.from_model2vec(...)` — distil from a
-  model2vec checkpoint. Flip to True if you swap in a smaller dataset (<1M
-  pairs); converges faster and reaches better quality at lower data scales.
+- `WARMSTART=True`: `StaticEmbedding.from_model2vec(...)` (distil from a
+  model2vec checkpoint). Flip to True if you swap in a smaller dataset (<1M
+  pairs). Converges faster and reaches better quality at lower data scales.
 
 Demonstrates:
 - MultipleNegativesRankingLoss wrapped in MatryoshkaLoss for nested embedding dims
@@ -102,7 +102,7 @@ TOKENIZER_NAME = "google-bert/bert-base-uncased"
 EMBEDDING_DIM = 1024
 MATRYOSHKA_DIMS = [1024, 512, 256, 128, 64, 32]  # ordered largest-first per MatryoshkaLoss
 
-# False: random init (recommended for >=1M pairs; reaches a higher ceiling).
+# False: random init (recommended for >=1M pairs, reaches a higher ceiling).
 # True: warm-start from a model2vec checkpoint (recommended for <1M pairs).
 # Default False because the example dataset (GooAQ, ~3M pairs) is well above the threshold.
 WARMSTART = False
@@ -166,7 +166,7 @@ def main() -> None:
     if WARMSTART:
         logging.info(f"Warm-starting StaticEmbedding from model2vec: {WARMSTART_MODEL2VEC}")
         # `StaticEmbedding.from_distillation("<bi-encoder>", vocabulary=...)` is the
-        # alternative warm-start path (distil from a stronger teacher's vectors); pick
+        # alternative warm-start path (distil from a stronger teacher's vectors). Pick
         # one. model2vec is faster to load and converges quickly on smaller datasets.
         static_embedding = StaticEmbedding.from_model2vec(WARMSTART_MODEL2VEC)
     else:
@@ -212,7 +212,7 @@ def main() -> None:
         per_device_eval_batch_size=2048,
         learning_rate=5e-2
         if WARMSTART
-        else 2e-1,  # warm-start needs less LR; both far higher than encoder fine-tuning
+        else 2e-1,  # warm-start needs less LR. Both far higher than encoder fine-tuning
         weight_decay=0.0,  # weight decay on a token-bag is usually harmful
         warmup_steps=0.1,
         lr_scheduler_type="linear",

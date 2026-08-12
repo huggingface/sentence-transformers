@@ -182,8 +182,10 @@ def mine_hard_negatives(
             in addition to the second column in `dataset`. Defaults to None, in which case the second column in
             `dataset` will exclusively be used as the negative candidate corpus.
         cross_encoder (CrossEncoder, optional): A CrossEncoder model to use for rescoring the candidates. Defaults to None.
-        range_min (int): Minimum rank of the closest matches to consider as negatives. Defaults to 0.
-        range_max (int, optional): Maximum rank of the closest matches to consider as negatives. Defaults to None.
+        range_min (int): Minimum rank of the closest matches to consider as negatives. Must be non-negative.
+            Defaults to 0.
+        range_max (int, optional): Maximum rank of the closest matches to consider as negatives. Must leave at least
+            `num_negatives` candidates after `range_min`. Defaults to None.
         max_score (float, optional): Maximum score to consider as a negative. Defaults to None.
         min_score (float, optional): Minimum score to consider as a negative. Defaults to None.
         absolute_margin (float, optional): Absolute margin for hard negative mining, i.e. the minimum distance between
@@ -192,7 +194,8 @@ def mine_hard_negatives(
             the positive similarity and the negative similarity as a fraction of the positive score magnitude. A value
             of 0.05 discards negatives whose similarity is greater than ``positive_score - abs(positive_score) * 0.05``.
             Defaults to None.
-        num_negatives (int): Number of negatives to sample. Defaults to 3.
+        num_negatives (int): Number of negatives to sample. Must be at least 1, and must fit in the candidate
+            window left by `range_min` and `range_max`. Defaults to 3.
         sampling_strategy (Literal["random", "top"]): Sampling strategy for negatives: "top" or "random". Defaults to "top".
         query_prompt_name (Optional[str], optional): The name of a predefined prompt to use when encoding the first/anchor dataset column.
             It must match a key in the ``model.prompts`` dictionary, which can be set during model initialization
@@ -236,7 +239,9 @@ def mine_hard_negatives(
         faiss_batch_size (int): Batch size of queries for the top-k similarity search, both with FAISS and without
             (``use_faiss=False``), where it bounds the size of the intermediate similarity matrix to
             ``faiss_batch_size * len(corpus)``. Defaults to 16384.
-        use_faiss (bool): Whether to use FAISS for similarity search. May be recommended for large datasets. Defaults to False.
+        use_faiss (bool): Whether to use FAISS for similarity search. May be recommended for large datasets. Requires
+            the ``faiss-cpu`` or ``faiss-gpu`` package. On GPU, FAISS can retrieve at most 2048 documents per query,
+            so an automatically derived ``range_max`` is capped to fit. Defaults to False.
         use_multi_process (bool | List[str], optional): Whether to use multi-GPU/CPU processing. If True, uses all GPUs if CUDA
             is available, and 4 CPU processes if it's not available. You can also pass a list of PyTorch devices like
             ["cuda:0", "cuda:1", ...] or ["cpu", "cpu", "cpu", "cpu"].
@@ -273,6 +278,15 @@ def mine_hard_negatives(
 
     if faiss_batch_size <= 0:
         raise ValueError(f"faiss_batch_size must be a positive integer, got {faiss_batch_size}.")
+
+    if use_faiss:
+        try:
+            import faiss
+        except ImportError as exc:
+            raise ImportError(
+                "Please install `faiss` to use this function with `use_faiss=True`: "
+                "`pip install faiss-cpu` (or `faiss-gpu`)."
+            ) from exc
 
     from datasets import Dataset
 
@@ -339,6 +353,12 @@ def mine_hard_negatives(
     )
     max_positives = max(positives_per_query)
 
+    # range_max is derived from num_negatives below, so a non-positive value has to be rejected first: it would
+    # otherwise surface as a confusing range_min/range_max error, or mine nothing at all without saying so.
+    if num_negatives < 1:
+        raise ValueError(f"num_negatives must be at least 1, got num_negatives={num_negatives}.")
+
+    faiss_cap_note = ""
     if range_max is None:
         if absolute_margin is not None or relative_margin is not None or max_score is not None:
             # max_positives + 10 * num_negatives negatives because some might be skipped, and range_min skipped
@@ -346,13 +366,39 @@ def mine_hard_negatives(
         else:
             # max_positives, num_negatives negatives, and range_min skipped
             range_max = range_min + num_negatives + max_positives
-        if range_max > 2048 and use_faiss:
-            # FAISS on GPU can only retrieve up to 2048 documents per query
-            range_max = 2048
-            if verbose:
-                print("Using FAISS, we can only retrieve up to 2048 documents per query. Setting range_max to 2048.")
+        if use_faiss and range_max + max_positives > 2048:
+            # FAISS on GPU raises if asked to retrieve more than 2048 documents per query, and the search
+            # retrieves range_max + max_positives of them. FAISS on CPU has no such limit.
+            if getattr(faiss, "get_num_gpus", lambda: 0)() > 0:
+                range_max = 2048 - max_positives
+                faiss_cap_note = (
+                    f" Note that range_max was capped to {range_max} because FAISS on GPU can only retrieve up to"
+                    " 2048 documents per query, some of which are reserved for the positives. Passing use_faiss=False"
+                    " lifts that cap, although it can cost a lot more memory."
+                )
+                if verbose:
+                    print(
+                        "Using FAISS on GPU, we can only retrieve up to 2048 documents per query, some of which "
+                        f"are reserved for the positives. Setting range_max to {range_max}."
+                    )
         if verbose:
             print(f"Setting range_max to {range_max} based on the provided parameters.")
+
+    if range_min < 0:
+        raise ValueError(f"range_min must be non-negative, got range_min={range_min}.")
+
+    if range_min >= range_max:
+        raise ValueError(
+            f"range_min must be smaller than range_max, "
+            f"got range_min={range_min} and range_max={range_max}.{faiss_cap_note}"
+        )
+
+    if num_negatives > range_max - range_min:
+        raise ValueError(
+            f"Cannot mine {num_negatives} negatives per query: only {range_max - range_min} candidates remain after "
+            f"skipping the first range_min={range_min} of range_max={range_max}. Consider decreasing num_negatives "
+            f"or range_min, or increasing range_max.{faiss_cap_note}"
+        )
 
     log_counters = {}
     queries = list(dataset[anchor_column_name])
@@ -459,8 +505,6 @@ def mine_hard_negatives(
                 print(f"[Cache] Saved corpus embeddings to {corpus_cache_file}")
 
     if use_faiss:
-        import faiss
-
         index = faiss.IndexFlatIP(model.get_embedding_dimension())
         # Move the index to the GPU if available
         try:
@@ -879,9 +923,10 @@ def mine_hard_negatives(
                 solutions.append("relative_margin")
             if max_score is not None:
                 solutions.append("max_score")
-            considerations = ", ".join(solutions[:-1])
             if len(solutions) > 1:
-                considerations += " and " + solutions[-1]
+                considerations = ", ".join(solutions[:-1]) + " and " + solutions[-1]
+            else:
+                considerations = solutions[0]
             missing_samples_ratio = missing_samples / maximum_possible_samples
             print(
                 f"Could not find enough negatives for {missing_samples} samples ({missing_samples_ratio:.2%})."

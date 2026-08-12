@@ -4,7 +4,7 @@ import logging
 import math
 import queue
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from multiprocessing import Queue
 from typing import Any, Literal, overload
 
@@ -14,7 +14,7 @@ from torch import nn
 from tqdm.autonotebook import trange
 from transformers import AutoConfig, PretrainedConfig, PreTrainedModel, is_datasets_available
 from transformers.utils import logging as transformers_logging
-from typing_extensions import deprecated
+from typing_extensions import TypeIs, deprecated
 
 from sentence_transformers.base.modality_types import PairableInput, PairInput
 from sentence_transformers.base.model import BaseModel
@@ -282,7 +282,7 @@ class CrossEncoder(BaseModel, FitMixin):
 
     def _multi_process(
         self,
-        inputs: list[PairInput],
+        inputs: Sequence[PairInput],
         show_progress_bar: bool | None = True,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         device: str | list[str | torch.device] | None = None,
@@ -467,6 +467,45 @@ class CrossEncoder(BaseModel, FitMixin):
     def default_activation_function(self) -> Callable:
         return self.activation_fn
 
+    # Ordered overloads: the first match wins, so the all-defaults signatures come first and each
+    # deviation pins its deviating flag as a required keyword. Singular pairs precede Sequence ones.
+    @overload
+    def predict(
+        self,
+        inputs: Sequence[PairInput] | PairInput,
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
+        batch_size: int = ...,
+        show_progress_bar: bool | None = ...,
+        activation_fn: Callable | None = ...,
+        apply_softmax: bool | None = ...,
+        convert_to_numpy: Literal[True] = ...,
+        convert_to_tensor: Literal[False] = ...,
+        device: str | list[str | torch.device] | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
+        **kwargs,
+    ) -> np.ndarray: ...
+
+    @overload
+    def predict(
+        self,
+        inputs: Sequence[PairInput] | PairInput,
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
+        batch_size: int = ...,
+        show_progress_bar: bool | None = ...,
+        activation_fn: Callable | None = ...,
+        apply_softmax: bool | None = ...,
+        convert_to_numpy: bool = ...,
+        *,
+        convert_to_tensor: Literal[True],
+        device: str | list[str | torch.device] | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
+        **kwargs,
+    ) -> torch.Tensor: ...
+
     @overload
     def predict(
         self,
@@ -477,36 +516,39 @@ class CrossEncoder(BaseModel, FitMixin):
         show_progress_bar: bool | None = ...,
         activation_fn: Callable | None = ...,
         apply_softmax: bool | None = ...,
-        convert_to_numpy: Literal[False] = ...,
+        *,
+        convert_to_numpy: Literal[False],
         convert_to_tensor: Literal[False] = ...,
-        device: str | list[str | torch.device] | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
-        chunk_size: int | None = None,
+        device: str | list[str | torch.device] | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
         **kwargs,
     ) -> torch.Tensor: ...
 
     @overload
     def predict(
         self,
-        inputs: list[PairInput] | PairInput,
+        inputs: Sequence[PairInput],
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         activation_fn: Callable | None = ...,
         apply_softmax: bool | None = ...,
-        convert_to_numpy: Literal[True] = True,
-        convert_to_tensor: Literal[False] = False,
-        device: str | list[str | torch.device] | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
-        chunk_size: int | None = None,
+        *,
+        convert_to_numpy: Literal[False],
+        convert_to_tensor: Literal[False] = ...,
+        device: str | list[str | torch.device] | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
         **kwargs,
-    ) -> np.ndarray: ...
+    ) -> list[torch.Tensor]: ...
 
+    # Catch-all so forwarding calls with union-typed arguments (e.g. from rank) still resolve.
     @overload
     def predict(
         self,
-        inputs: list[PairInput] | PairInput,
+        inputs: Sequence[PairInput] | PairInput,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -514,36 +556,18 @@ class CrossEncoder(BaseModel, FitMixin):
         activation_fn: Callable | None = ...,
         apply_softmax: bool | None = ...,
         convert_to_numpy: bool = ...,
-        convert_to_tensor: Literal[True] = ...,
-        device: str | list[str | torch.device] | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
-        chunk_size: int | None = None,
+        convert_to_tensor: bool = ...,
+        device: str | list[str | torch.device] | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
         **kwargs,
-    ) -> torch.Tensor: ...
-
-    @overload
-    def predict(
-        self,
-        inputs: list[PairInput],
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        activation_fn: Callable | None = ...,
-        apply_softmax: bool | None = ...,
-        convert_to_numpy: Literal[False] = ...,
-        convert_to_tensor: Literal[False] = ...,
-        device: str | list[str | torch.device] | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
-        chunk_size: int | None = None,
-        **kwargs,
-    ) -> list[torch.Tensor]: ...
+    ) -> list[torch.Tensor] | np.ndarray | torch.Tensor: ...
 
     @torch.inference_mode()
     @cross_encoder_predict_rank_args_decorator
     def predict(
         self,
-        inputs: list[PairInput] | PairInput,
+        inputs: Sequence[PairInput] | PairInput,
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
@@ -633,13 +657,16 @@ class CrossEncoder(BaseModel, FitMixin):
         # Cast an individual pair to a list with length 1
         is_singular_input = self.is_singular_input(inputs)
         if is_singular_input:
-            # A 1D numpy string array is a single pair; convert to a list so downstream sees ["q", "d"].
             if isinstance(inputs, np.ndarray):
-                inputs = inputs.tolist()
+                # A 1D numpy string array is a single pair. Convert to a list so downstream sees ["q", "d"].
+                pair: PairInput = inputs.tolist()
+                inputs = pair
             inputs = [inputs]
         elif not isinstance(inputs, list):
-            # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
-            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index.
+            # The annotation pins ndarray.tolist()'s Any so checkers keep the narrowed input type.
+            materialized: list[PairInput] = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            inputs = materialized
 
         # If pool or a list of devices is provided, use multi-process prediction
         if pool is not None or (isinstance(device, list) and len(device) > 0):
@@ -721,7 +748,7 @@ class CrossEncoder(BaseModel, FitMixin):
     def rank(
         self,
         query: PairableInput,
-        documents: list[PairableInput],
+        documents: Sequence[PairableInput],
         top_k: int | None = None,
         return_documents: bool = False,
         prompt_name: str | None = None,
@@ -837,9 +864,11 @@ class CrossEncoder(BaseModel, FitMixin):
         results = sorted(results, key=lambda x: x["score"], reverse=True)
         return results[:top_k]
 
-    def is_singular_input(self, inputs: PairInput | list[PairInput]) -> bool:
+    def is_singular_input(self, inputs: PairInput | Sequence[PairInput]) -> TypeIs[PairInput]:
         """
         Check if the input represents a single example or a batch of examples.
+        Declared with :class:`~typing_extensions.TypeIs` so type checkers narrow the
+        branches in :meth:`predict`.
 
         Args:
             inputs: The input to check.

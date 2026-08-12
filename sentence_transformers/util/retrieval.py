@@ -330,7 +330,7 @@ def community_detection(
                     top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 
                     # Check if we need to increase sort_max_size
-                    while top_val_large[-1] > threshold and sort_max_size < len(embeddings):
+                    while top_val_large[-1] >= threshold and sort_max_size < len(embeddings):
                         sort_max_size = min(2 * sort_max_size, len(embeddings))
                         top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 

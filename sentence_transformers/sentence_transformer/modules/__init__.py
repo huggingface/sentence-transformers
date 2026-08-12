@@ -5,6 +5,7 @@ from __future__ import annotations
 from ...base.modules.dense import Dense
 from ...base.modules.input_module import InputModule
 from ...base.modules.module import Module
+from ...base.modules.normalize import Normalize
 from ...base.modules.router import Asym, Router
 from ...base.modules.transformer import Transformer
 from .bow import BoW
@@ -13,7 +14,6 @@ from .cnn import CNN
 from .dropout import Dropout
 from .layer_norm import LayerNorm
 from .lstm import LSTM
-from .normalize import Normalize
 from .pooling import Pooling
 from .static_embedding import StaticEmbedding
 from .weighted_layer_pooling import WeightedLayerPooling
