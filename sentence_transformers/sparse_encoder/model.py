@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 import itertools
 import logging
 import math
@@ -613,15 +612,10 @@ class SparseEncoder(BaseModel):
                 break
 
     @overload
-    def similarity(self, embeddings1: Tensor, embeddings2: Tensor, device: torch.device | str | None = ...) -> Tensor: ...
+    def similarity(self, embeddings1: Tensor, embeddings2: Tensor) -> Tensor: ...
 
     @overload
-    def similarity(
-        self,
-        embeddings1: npt.NDArray[np.float32],
-        embeddings2: npt.NDArray[np.float32],
-        device: torch.device | str | None = ...,
-    ) -> Tensor: ...
+    def similarity(self, embeddings1: npt.NDArray[np.float32], embeddings2: npt.NDArray[np.float32]) -> Tensor: ...
 
     @property
     def similarity(self) -> Callable[[Tensor | npt.NDArray[np.float32], Tensor | npt.NDArray[np.float32]], Tensor]:
@@ -630,9 +624,6 @@ class SparseEncoder(BaseModel):
         scores between all embeddings from the first parameter and all embeddings from the second parameter. This
         differs from `similarity_pairwise` which computes the similarity between each pair of embeddings.
         This method supports only embeddings with fp32 precision and does not accommodate quantized embeddings.
-
-        The returned function accepts an optional ``device`` keyword argument (e.g. ``"cpu"``, ``"cuda"``, ``"mps"``)
-        to control where the similarity computation is performed; it defaults to the model's device.
 
         Args:
             embeddings1 (Union[Tensor, ndarray]): [num_embeddings_1, embedding_dim] or [embedding_dim]-shaped numpy array or torch tensor.
@@ -668,19 +659,14 @@ class SparseEncoder(BaseModel):
         """
         # Access the property to trigger lazy initialization if needed
         self.similarity_fn_name  # noqa: B018
-        return functools.partial(self._similarity, device=self.device)
+        return self._similarity
+
+    @overload
+    def similarity_pairwise(self, embeddings1: Tensor, embeddings2: Tensor) -> Tensor: ...
 
     @overload
     def similarity_pairwise(
-        self, embeddings1: Tensor, embeddings2: Tensor, device: torch.device | str | None = ...
-    ) -> Tensor: ...
-
-    @overload
-    def similarity_pairwise(
-        self,
-        embeddings1: npt.NDArray[np.float32],
-        embeddings2: npt.NDArray[np.float32],
-        device: torch.device | str | None = ...,
+        self, embeddings1: npt.NDArray[np.float32], embeddings2: npt.NDArray[np.float32]
     ) -> Tensor: ...
 
     @property
@@ -691,9 +677,6 @@ class SparseEncoder(BaseModel):
         Compute the similarity between two collections of embeddings. The output will be a vector with the similarity
         scores between each pair of embeddings.
         This method supports only embeddings with fp32 precision and does not accommodate quantized embeddings.
-
-        The returned function accepts an optional ``device`` keyword argument (e.g. ``"cpu"``, ``"cuda"``, ``"mps"``)
-        to control where the similarity computation is performed; it defaults to the model's device.
 
         Args:
             embeddings1 (Union[Tensor, ndarray]): [num_embeddings, embedding_dim] or [embedding_dim]-shaped numpy array or torch tensor.
@@ -723,7 +706,7 @@ class SparseEncoder(BaseModel):
         """
         # Access the property to trigger lazy initialization if needed
         self.similarity_fn_name  # noqa: B018
-        return functools.partial(self._similarity_pairwise, device=self.device)
+        return self._similarity_pairwise
 
     def _multi_process(
         self,

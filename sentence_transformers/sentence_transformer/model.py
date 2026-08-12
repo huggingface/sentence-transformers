@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import functools
 import itertools
 import logging
 import math
@@ -768,15 +767,10 @@ class SentenceTransformer(BaseModel, FitMixin):
         self._similarity_fn_name = value
 
     @overload
-    def similarity(self, embeddings1: Tensor, embeddings2: Tensor, device: torch.device | str | None = ...) -> Tensor: ...
+    def similarity(self, embeddings1: Tensor, embeddings2: Tensor) -> Tensor: ...
 
     @overload
-    def similarity(
-        self,
-        embeddings1: npt.NDArray[np.float32],
-        embeddings2: npt.NDArray[np.float32],
-        device: torch.device | str | None = ...,
-    ) -> Tensor: ...
+    def similarity(self, embeddings1: npt.NDArray[np.float32], embeddings2: npt.NDArray[np.float32]) -> Tensor: ...
 
     @property
     def similarity(self) -> Callable[[Tensor | npt.NDArray[np.float32], Tensor | npt.NDArray[np.float32]], Tensor]:
@@ -784,26 +778,17 @@ class SentenceTransformer(BaseModel, FitMixin):
         Return a function that computes the similarity between two collections of embeddings. The output will be a
         matrix with the similarity scores between all embeddings from the first parameter and all embeddings from the
         second parameter.
-
-        The returned function accepts an optional ``device`` keyword argument (e.g. ``"cpu"``, ``"cuda"``, ``"mps"``)
-        to control where the similarity computation is performed; it defaults to the model's device, so embeddings
-        that were moved to numpy/CPU (e.g. via ``convert_to_numpy=True``) are still compared on the model's device.
         """
         # Access similarity_fn_name to trigger lazy initialization of _similarity
         self.similarity_fn_name  # noqa: B018
-        return functools.partial(self._similarity, device=self.device)
+        return self._similarity
+
+    @overload
+    def similarity_pairwise(self, embeddings1: Tensor, embeddings2: Tensor) -> Tensor: ...
 
     @overload
     def similarity_pairwise(
-        self, embeddings1: Tensor, embeddings2: Tensor, device: torch.device | str | None = ...
-    ) -> Tensor: ...
-
-    @overload
-    def similarity_pairwise(
-        self,
-        embeddings1: npt.NDArray[np.float32],
-        embeddings2: npt.NDArray[np.float32],
-        device: torch.device | str | None = ...,
+        self, embeddings1: npt.NDArray[np.float32], embeddings2: npt.NDArray[np.float32]
     ) -> Tensor: ...
 
     @property
@@ -812,13 +797,10 @@ class SentenceTransformer(BaseModel, FitMixin):
     ) -> Callable[[Tensor | npt.NDArray[np.float32], Tensor | npt.NDArray[np.float32]], Tensor]:
         """
         Return a function that computes the pairwise similarity between two collections of embeddings.
-
-        The returned function accepts an optional ``device`` keyword argument (e.g. ``"cpu"``, ``"cuda"``, ``"mps"``)
-        to control where the similarity computation is performed; it defaults to the model's device.
         """
         # Access similarity_fn_name to trigger lazy initialization of _similarity_pairwise
         self.similarity_fn_name  # noqa: B018
-        return functools.partial(self._similarity_pairwise, device=self.device)
+        return self._similarity_pairwise
 
     @deprecated(
         "The `encode_multi_process` method has been deprecated, and its functionality has been integrated into `encode`. "
