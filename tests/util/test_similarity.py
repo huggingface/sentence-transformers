@@ -1033,7 +1033,8 @@ def test_maxsim_length_normalize_divides_by_real_query_tokens() -> None:
 
 def test_mean_maxsim_matches_length_normalized_maxsim() -> None:
     """The named MeanMaxSim functions are the length_normalize=True form of their MaxSim
-    counterparts, and SimilarityFunction resolves "meanmaxsim" to them."""
+    counterparts (with length_normalize=False recovering the plain form, so the family accepts one
+    keyword set), and SimilarityFunction resolves "meanmaxsim" to them."""
     from sentence_transformers.util import SimilarityFunction, mean_maxsim, mean_maxsim_pairwise
 
     generator = torch.Generator().manual_seed(3)
@@ -1043,6 +1044,10 @@ def test_mean_maxsim_matches_length_normalized_maxsim() -> None:
     assert torch.allclose(mean_maxsim(queries, documents), maxsim(queries, documents, length_normalize=True))
     assert torch.allclose(
         mean_maxsim_pairwise(queries, documents), maxsim_pairwise(queries, documents, length_normalize=True)
+    )
+    assert torch.allclose(mean_maxsim(queries, documents, length_normalize=False), maxsim(queries, documents))
+    assert torch.allclose(
+        mean_maxsim_pairwise(queries, documents, length_normalize=False), maxsim_pairwise(queries, documents)
     )
     assert SimilarityFunction.to_similarity_fn("meanmaxsim") is mean_maxsim
     assert SimilarityFunction.to_similarity_pairwise_fn("meanmaxsim") is mean_maxsim_pairwise

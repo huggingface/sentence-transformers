@@ -608,6 +608,7 @@ def mean_maxsim(
     a_mask: Tensor | None = None,
     b_mask: Tensor | None = None,
     document_chunk_elements: int | None = None,
+    length_normalize: bool = True,
     device: str | torch.device | None = None,
 ) -> Tensor:
     """
@@ -618,6 +619,9 @@ def mean_maxsim(
     not comparable across queries. MeanMaxSim averages instead, landing in the per-token similarity
     range (about ``[-1, 1]`` for normalized embeddings). Rankings within a query are unchanged, since
     the divisor is constant per row.
+
+    ``length_normalize`` defaults to True here (the Mean in the name): False recovers plain
+    :func:`maxsim`, so the whole MaxSim family accepts the same keywords.
     """
     return maxsim(
         a,
@@ -625,7 +629,7 @@ def mean_maxsim(
         a_mask=a_mask,
         b_mask=b_mask,
         document_chunk_elements=document_chunk_elements,
-        length_normalize=True,
+        length_normalize=length_normalize,
         device=device,
     )
 
@@ -636,12 +640,14 @@ def mean_maxsim_pairwise(
     a_mask: Tensor | None = None,
     b_mask: Tensor | None = None,
     pair_chunk_elements: int | None = None,
+    length_normalize: bool = True,
     device: str | torch.device | None = None,
 ) -> Tensor:
     """
     Computes the pairwise MeanMaxSim score for each query-document pair: :func:`maxsim_pairwise`
     divided by each query's real token count, with its arguments and return shape. See
-    :func:`mean_maxsim` for why.
+    :func:`mean_maxsim` for why. ``length_normalize`` defaults to True here, and False recovers
+    plain :func:`maxsim_pairwise`.
     """
     return maxsim_pairwise(
         a,
@@ -649,7 +655,7 @@ def mean_maxsim_pairwise(
         a_mask=a_mask,
         b_mask=b_mask,
         pair_chunk_elements=pair_chunk_elements,
-        length_normalize=True,
+        length_normalize=length_normalize,
         device=device,
     )
 
