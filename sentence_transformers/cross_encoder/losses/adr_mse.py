@@ -122,7 +122,7 @@ class ADRMSELoss(nn.Module):
         """
         score_diffs = scores.unsqueeze(1) - scores.unsqueeze(2)
         pairwise = torch.sigmoid(self.alpha * score_diffs) * mask.unsqueeze(1).float()
-        # Each valid diagonal contributes sigmoid(0) = 0.5; subtract it to exclude the self-term
+        # Each valid diagonal contributes sigmoid(0) = 0.5. Subtract it to exclude the self-term
         return 1.0 + pairwise.sum(dim=2) - 0.5 * mask.float()
 
     def forward(

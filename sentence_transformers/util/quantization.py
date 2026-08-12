@@ -43,23 +43,23 @@ def semantic_search_faiss(
             quantized to allow for rescoring.
         corpus_embeddings: Embeddings of the corpus sentences. Either
             `corpus_embeddings` or `corpus_index` should be used, not
-            both. The embeddings can be quantized to "int8" or "binary"
-            for more efficient search.
+            both. The embeddings can be quantized to "uint8" or
+            "ubinary" for more efficient search.
         corpus_index: FAISS index for the corpus sentences. Either
             `corpus_embeddings` or `corpus_index` should be used, not
             both.
         corpus_precision: Precision of the corpus embeddings. The
-            options are "float32", "int8", or "binary". Default is
+            options are "float32", "uint8", or "ubinary". Default is
             "float32".
         top_k: Number of top results to retrieve. Default is 10.
         ranges: Ranges for quantization of embeddings. This is only used
-            for int8 quantization, where the ranges refers to the
+            for uint8 quantization, where the ranges refer to the
             minimum and maximum values for each dimension. So, it's a 2D
             array with shape (2, embedding_dim). Default is None, which
             means that the ranges will be calculated from the
             calibration embeddings.
         calibration_embeddings: Embeddings used for calibration during
-            quantization. This is only used for int8 quantization, where
+            quantization. This is only used for uint8 quantization, where
             the calibration embeddings can be used to compute ranges,
             i.e. the minimum and maximum values for each dimension.
             Default is None, which means that the ranges will be
@@ -85,6 +85,8 @@ def semantic_search_faiss(
     Raises:
         ValueError: If both `corpus_embeddings` and `corpus_index` are
             provided or if neither is provided.
+        ValueError: If `corpus_precision` is not "float32", "uint8", or
+            "ubinary".
 
     The list of search results is in the format: [[{"corpus_id": int, "score": float}, ...], ...]
     The time taken for the search is a float value.
@@ -95,6 +97,8 @@ def semantic_search_faiss(
         raise ValueError("Only corpus_embeddings or corpus_index should be used, not both.")
     if corpus_embeddings is None and corpus_index is None:
         raise ValueError("Either corpus_embeddings or corpus_index should be used.")
+    if corpus_precision not in ["float32", "uint8", "ubinary"]:
+        raise ValueError('corpus_precision must be "float32", "uint8", or "ubinary" for faiss')
 
     # If corpus_index is not provided, create a new index
     if corpus_index is None:
@@ -140,14 +144,23 @@ def semantic_search_faiss(
             "Rescoring is enabled but the query embeddings are quantized. Either pass `rescore=False` or don't quantize the query embeddings."
         )
 
-    # Perform the search using the usearch index
+    # Perform the search using the FAISS index
     start_t = time.time()
     scores, indices = corpus_index.search(query_embeddings, k)
 
     # If rescoring is enabled, we need to rescore the results using the rescore_embeddings
     if rescore_embeddings is not None:
+        # FAISS pads short result sets with index -1, and reconstruct(-1) reads out of bounds
+        # (or segfaults on an empty index), so the padding slots get a zero placeholder instead
+        if corpus_precision == "ubinary":
+            zero_embedding = np.zeros(corpus_index.d // 8, dtype=np.uint8)
+        else:
+            zero_embedding = np.zeros(corpus_index.d, dtype=np.float32)
         top_k_embeddings = np.array(
-            [[corpus_index.reconstruct(idx.item()) for idx in query_indices] for query_indices in indices]
+            [
+                [corpus_index.reconstruct(idx.item()) if idx != -1 else zero_embedding for idx in query_indices]
+                for query_indices in indices
+            ]
         )
         # If the corpus precision is binary, we need to unpack the bits
         if corpus_precision == "ubinary":
@@ -161,17 +174,21 @@ def semantic_search_faiss(
         # We use einsum to calculate the dot product between the query and the top_k embeddings, equivalent to looping
         # over the queries and calculating 'rescore_embeddings[i] @ top_k_embeddings[i].T'
         rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings)
+        # Disqualify the padding slots so their placeholder scores cannot outrank real candidates
+        rescored_scores[indices == -1] = -np.inf
         rescored_indices = np.argsort(-rescored_scores)[:, :top_k]
         indices = indices[np.arange(len(query_embeddings))[:, None], rescored_indices]
         scores = rescored_scores[np.arange(len(query_embeddings))[:, None], rescored_indices]
 
     delta_t = time.time() - start_t
 
+    # FAISS pads short result sets with index -1, which would otherwise resolve to the last corpus entry
     outputs = (
         [
             [
                 {"corpus_id": int(neighbor), "score": float(score)}
                 for score, neighbor in zip(scores[query_id], indices[query_id])
+                if neighbor != -1
             ]
             for query_id in range(len(query_embeddings))
         ],
@@ -186,7 +203,7 @@ def semantic_search_usearch(
     query_embeddings: np.ndarray,
     corpus_embeddings: np.ndarray | None = None,
     corpus_index: usearch.index.Index | None = None,
-    corpus_precision: Literal["float32", "int8", "binary"] = "float32",
+    corpus_precision: Literal["float32", "int8", "ubinary", "binary"] = "float32",
     top_k: int = 10,
     ranges: np.ndarray | None = None,
     calibration_embeddings: np.ndarray | None = None,
@@ -210,17 +227,17 @@ def semantic_search_usearch(
             quantized to allow for rescoring.
         corpus_embeddings: Embeddings of the corpus sentences. Either
             `corpus_embeddings` or `corpus_index` should be used, not
-            both. The embeddings can be quantized to "int8" or "binary"
-            for more efficient search.
+            both. The embeddings can be quantized to "int8", "ubinary",
+            or "binary" for more efficient search.
         corpus_index: usearch index for the corpus sentences. Either
             `corpus_embeddings` or `corpus_index` should be used, not
             both.
         corpus_precision: Precision of the corpus embeddings. The
-            options are "float32", "int8", "ubinary" or "binary". Default
-            is "float32".
+            options are "float32", "int8", "ubinary", or "binary".
+            Default is "float32".
         top_k: Number of top results to retrieve. Default is 10.
         ranges: Ranges for quantization of embeddings. This is only used
-            for int8 quantization, where the ranges refers to the
+            for int8 quantization, where the ranges refer to the
             minimum and maximum values for each dimension. So, it's a 2D
             array with shape (2, embedding_dim). Default is None, which
             means that the ranges will be calculated from the
@@ -252,6 +269,8 @@ def semantic_search_usearch(
     Raises:
         ValueError: If both `corpus_embeddings` and `corpus_index` are
             provided or if neither is provided.
+        ValueError: If `corpus_precision` is not "float32", "int8",
+            "ubinary", or "binary".
 
     The list of search results is in the format: [[{"corpus_id": int, "score": float}, ...], ...]
     The time taken for the search is a float value.
@@ -264,7 +283,7 @@ def semantic_search_usearch(
     if corpus_embeddings is None and corpus_index is None:
         raise ValueError("Either corpus_embeddings or corpus_index should be used.")
     if corpus_precision not in ["float32", "int8", "ubinary", "binary"]:
-        raise ValueError('corpus_precision must be "float32", "int8", "ubinary", "binary" for usearch')
+        raise ValueError('corpus_precision must be "float32", "int8", "ubinary", or "binary" for usearch')
 
     # If corpus_index is not provided, create a new index
     if corpus_index is None:
@@ -369,11 +388,11 @@ def semantic_search_usearch(
 
 
 def quantize_embeddings(
-    embeddings: Tensor | np.ndarray,
+    embeddings: Tensor | np.ndarray | list[Tensor] | list[np.ndarray],
     precision: Literal["float32", "int8", "uint8", "binary", "ubinary"],
     ranges: np.ndarray | None = None,
     calibration_embeddings: np.ndarray | None = None,
-) -> np.ndarray:
+) -> np.ndarray | list[np.ndarray]:
     """
     Quantizes embeddings to a lower precision. This can be used to reduce the memory footprint and increase the
     speed of similarity search. The supported precisions are "float32", "int8", "uint8", "binary", and "ubinary".
@@ -384,30 +403,56 @@ def quantize_embeddings(
         precision: The precision to convert to. Options are "float32",
             "int8", "uint8", "binary", "ubinary".
         ranges (Optional[np.ndarray]): Ranges for quantization of
-            embeddings. This is only used for int8 quantization, where
-            the ranges refers to the minimum and maximum values for each
+            embeddings. This is only used for int8 and uint8 quantization,
+            where the ranges refer to the minimum and maximum values for each
             dimension. So, it's a 2D array with shape (2,
             embedding_dim). Default is None, which means that the ranges
             will be calculated from the calibration embeddings.
         calibration_embeddings (Optional[np.ndarray]): Embeddings used
             for calibration during quantization. This is only used for
-            int8 quantization, where the calibration embeddings can be
-            used to compute ranges, i.e. the minimum and maximum values
-            for each dimension. Default is None, which means that the
-            ranges will be calculated from the query embeddings. This is
+            int8 and uint8 quantization, where the calibration embeddings
+            can be used to compute ranges, i.e. the minimum and maximum
+            values for each dimension. Default is None, which means that
+            the ranges will be calculated from the embeddings. This is
             not recommended.
 
     Returns:
-        Quantized embeddings with the specified precision
+        Quantized embeddings with the specified precision. For a list of multi-vector matrices (variable-length
+        ``(num_tokens, dim)`` arrays), returns a list of quantized matrices with shared per-dimension buckets.
     """
     if isinstance(embeddings, Tensor):
         embeddings = embeddings.cpu().numpy()
     elif isinstance(embeddings, list):
+        if not embeddings:
+            # Nothing to quantize: preserve the (empty) list shape.
+            return []
         if isinstance(embeddings[0], Tensor):
             embeddings = [embedding.cpu().numpy() for embedding in embeddings]
+        # Multi-vector input: a list of (num_tokens, dim) matrices (possibly ragged, one per text). Quantize
+        # each matrix separately to preserve the variable-length structure, but share the per-dimension
+        # buckets across all matrices (from `ranges` / `calibration_embeddings`, else all tokens together) so
+        # values quantize consistently across matrices.
+        if isinstance(embeddings[0], np.ndarray) and embeddings[0].ndim == 2:
+            if precision.endswith("int8") and ranges is None and calibration_embeddings is None:
+                calibration_embeddings = np.concatenate(embeddings, axis=0)
+            return [
+                quantize_embeddings(
+                    matrix, precision=precision, ranges=ranges, calibration_embeddings=calibration_embeddings
+                )
+                for matrix in embeddings
+            ]
         embeddings = np.array(embeddings)
     if embeddings.dtype in (np.uint8, np.int8):
         raise Exception("Embeddings to quantize must be float rather than int8 or uint8.")
+
+    if embeddings.ndim == 2 and embeddings.shape[0] == 0:
+        # A (0, dim) matrix (e.g. a fully-masked multi-vector document) has nothing to calibrate or
+        # pack: return the correctly-shaped empty output for the precision.
+        dim = embeddings.shape[1]
+        if precision.endswith("int8"):
+            return np.zeros((0, dim), dtype=np.int8 if precision == "int8" else np.uint8)
+        if precision.endswith("binary"):
+            return np.zeros((0, (dim + 7) // 8), dtype=np.int8 if precision == "binary" else np.uint8)
 
     if precision == "float32":
         return embeddings.astype(np.float32)

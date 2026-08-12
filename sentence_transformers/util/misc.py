@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import csv
+import functools
 import importlib
 import logging
 import os
 import warnings
+from collections.abc import Callable
 from contextlib import contextmanager
 from inspect import isclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from torch import Tensor
+
+logger = logging.getLogger(__name__)
 
 
 def fullname(obj) -> str:
@@ -35,6 +43,77 @@ def fullname(obj) -> str:
     if module is None or module == str.__class__.__module__:
         return obj.__name__  # Avoid reporting __builtin__
     return module + "." + obj.__name__
+
+
+def similarity_fct_name(similarity_fct: Callable) -> str:
+    """Readable config-dict rendering of a loss's scoring callable: objects exposing
+    ``get_config_dict`` (e.g. configured metric classes) and :func:`functools.partial` bindings
+    include their settings."""
+    if isinstance(similarity_fct, functools.partial):
+        name = getattr(similarity_fct.func, "__name__", type(similarity_fct.func).__name__)
+        args = ", ".join(f"{key}={value!r}" for key, value in similarity_fct.keywords.items())
+        return f"{name}({args})" if args else name
+    # ``model.similarity`` / ``model.similarity_pairwise`` are bound methods that dispatch on the
+    # model's similarity_fn_name, so report the function they resolve to rather than "similarity".
+    owner = getattr(similarity_fct, "__self__", None)
+    name = getattr(similarity_fct, "__name__", type(similarity_fct).__name__)
+    if name in ("similarity", "similarity_pairwise") and hasattr(owner, "similarity_fn_name"):
+        from sentence_transformers.util.similarity import SimilarityFunction
+
+        resolve = (
+            SimilarityFunction.to_similarity_fn
+            if name == "similarity"
+            else SimilarityFunction.to_similarity_pairwise_fn
+        )
+        return resolve(owner.similarity_fn_name).__name__
+    metric_config = getattr(similarity_fct, "get_config_dict", None)
+    if metric_config is not None:
+        args = ", ".join(f"{key}={value!r}" for key, value in metric_config().items())
+        return f"{name}({args})"
+    return name
+
+
+def check_teacher_targets(
+    teacher_probabilities: Tensor, teacher_logits: Tensor, teacher_temperature: float, loss_name: str
+) -> None:
+    """Inspect a distillation loss's teacher target once, on its first forward.
+
+    Takes the target the loss itself computed rather than recomputing a softmax, so the two can
+    never disagree. Reading either result off an accelerator costs a device synchronization, hence
+    the once-per-loss contract. That also means only the first batch a loss sees is inspected: with
+    one loss shared across a ``DatasetDict`` whose splits carry differently scaled teacher scores,
+    the splits drawn later go unexamined.
+
+    Args:
+        teacher_probabilities: The softmaxed teacher target the loss will use.
+        teacher_logits: The raw teacher scores, used to report their spread.
+        teacher_temperature: The temperature already applied to ``teacher_logits``.
+        loss_name: Loss class name, to open the message with.
+
+    Raises:
+        ValueError: If the teacher scores contain NaN, which would make the loss and every gradient
+            NaN on the first backward.
+    """
+    scores = teacher_logits.detach().float()
+    if scores.isnan().any():
+        raise ValueError(
+            f"{loss_name}: the teacher scores contain NaN, so the loss and every gradient would be "
+            "NaN after the first backward. Check the column holding your teacher scores."
+        )
+    if scores.isinf().any():
+        # An infinite score marks a candidate the caller excluded on purpose.
+        return
+    collapsed = int((teacher_probabilities == 0).sum())
+    if not collapsed:
+        return
+    spread = (scores.max(dim=-1).values - scores.min(dim=-1).values).max().item()
+    logger.warning(
+        f"{loss_name}: teacher_temperature={teacher_temperature} underflows {collapsed} of "
+        f"{teacher_probabilities.numel()} teacher scores to exactly zero, so those candidates carry "
+        f"no gradient. The widest candidate row spans {spread:.1f}, and a float32 softmax underflows "
+        f"once a row's spread divided by the temperature exceeds about 100. Raise "
+        f"teacher_temperature above {spread / 100:.3g}."
+    )
 
 
 def import_from_string(dotted_path: str) -> type:

@@ -504,11 +504,11 @@ args = SentenceTransformerTrainingArguments(
     batch_sampler=BatchSamplers.NO_DUPLICATES,  # losses that use "in-batch negatives" benefit from no duplicates
     # Optional tracking/debugging parameters:
     eval_strategy="steps",
-    eval_steps=100,
+    eval_steps=0.1,
     save_strategy="steps",
-    save_steps=100,
+    save_steps=0.1,
     save_total_limit=2,
-    logging_steps=100,
+    logging_steps=0.01,
     run_name="mpnet-base-all-nli-triplet",  # Will be used in W&B if `wandb` is installed
 )
 ```
@@ -702,11 +702,11 @@ The :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransfor
         batch_sampler=BatchSamplers.NO_DUPLICATES,  # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch
         # Optional tracking/debugging parameters:
         eval_strategy="steps",
-        eval_steps=100,
+        eval_steps=0.1,
         save_strategy="steps",
-        save_steps=100,
+        save_steps=0.1,
         save_total_limit=2,
-        logging_steps=100,
+        logging_steps=0.01,
         run_name="mpnet-base-all-nli-triplet",  # Will be used in W&B if `wandb` is installed
     )
 

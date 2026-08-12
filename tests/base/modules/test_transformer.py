@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import sys
@@ -209,16 +210,6 @@ class TestTransformerInit:
             assert norm_none is None
         else:
             assert str(norm_default) == str(norm_none)
-
-    @pytest.mark.skipif(
-        parse_version(transformers_version) >= parse_version("5.0.0"),
-        reason="Transformers v5 only has fast tokenizers",
-    )
-    def test_do_lower_case_slow_tokenizer_fallback(self):
-        """For slow tokenizers, do_lower_case should set processor.do_lower_case."""
-        transformer = Transformer(TINY_BERT, do_lower_case=True, processor_kwargs={"use_fast": False})
-        assert transformer.tokenizer.is_fast is False
-        assert transformer.processor.do_lower_case is True
 
     def test_do_lower_case_tokenizer_persisted_after_save_load(self, tmp_path):
         """The Lowercase normalizer added to the tokenizer should persist after save/load."""
@@ -500,12 +491,12 @@ class TestPreprocess:
         assert isinstance(next_result["input_ids"], torch.Tensor)
 
     def test_preprocess_per_call_merges_with_instance_processing_kwargs(self):
-        """Per-call values override matching instance values; non-overridden settings are preserved."""
+        """Per-call values override matching instance values. Non-overridden settings are preserved."""
         transformer = Transformer(
             TINY_BERT,
             processing_kwargs={"text": {"max_length": 5, "truncation": True}},
         )
-        # Per-call only changes max_length; truncation from the instance must still apply
+        # Per-call only changes max_length. Truncation from the instance must still apply
         result = transformer.preprocess(
             ["this is a longer sentence that should get truncated"],
             processing_kwargs={"text": {"max_length": 8}},
@@ -683,6 +674,253 @@ class TestForward:
         embedding = result[model.module_output_name]
         assert embedding.ndim == 3
         assert embedding.shape[-1] == model.config.hidden_size
+
+    def test_model_forward_params_matches_kwargs_support(self, bert_tiny_transformer):
+        """``model_forward_params`` is ``None`` exactly when forward accepts ``**kwargs`` (the denylist
+        path). Otherwise it is an allowlist set seeded with the common safety-net names."""
+        model = bert_tiny_transformer
+        accepts_kwargs = any(
+            param.kind is inspect.Parameter.VAR_KEYWORD
+            for param in inspect.signature(model.model.forward).parameters.values()
+        )
+        if accepts_kwargs:
+            assert model.model_forward_params is None
+        else:
+            assert isinstance(model.model_forward_params, set)
+            assert {"input_ids", "attention_mask"} <= model.model_forward_params
+
+    def test_document_length_applies_to_document_task_only(self, bert_tiny_transformer, monkeypatch):
+        """Tasks are ``"query"`` / ``"document"`` throughout the library: ``document_length`` only
+        truncates ``task="document"`` batches, any other task falls through untouched."""
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "document_length", 6)
+        long_text = "a rather long document with clearly more than six tokens in it"
+        assert transformer.preprocess([long_text], task="document")["input_ids"].shape[1] == 6
+        for task in ("query", None):
+            assert transformer.preprocess([long_text], task=task)["input_ids"].shape[1] > 6
+
+    def test_expansion_pad_contract_survives_processing_kwargs(self, bert_tiny_transformer, monkeypatch):
+        """A processing_kwargs padding/max_length override must not silently break the expansion's
+        fixed width (which would make query embeddings depend on batch composition): the expansion
+        contract is re-applied with a warning."""
+        import sentence_transformers.base.modules.transformer as transformer_module
+
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "query_expansion", {"strategy": "fixed", "token": None, "length": 16})
+        warnings: list[str] = []
+        monkeypatch.setattr(transformer_module.logger, "warning_once", warnings.append)
+
+        features = transformer.preprocess(
+            ["short", "a somewhat longer query"], task="query", processing_kwargs={"text": {"padding": True}}
+        )
+        assert features["input_ids"].shape[1] == 16
+        assert warnings and "fixed width" in warnings[0]
+
+    def test_min_expansion_pads_short_queries_to_floor(self, bert_tiny_transformer, monkeypatch):
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "query_expansion", {"strategy": "min", "token": None, "length": 8})
+        features = transformer.preprocess(["short"], task="query")
+        assert features["input_ids"].shape[1] == 8
+        positions = features["query_expansion_positions"]
+        # bert-tiny tokenizes "short" to [CLS] short [SEP]: 3 real tokens, 5 expansion positions.
+        assert positions.sum().item() == 5
+        assert (features["input_ids"][positions] == transformer.tokenizer.mask_token_id).all()
+        assert features["attention_mask"][positions].eq(0).all()
+
+    def test_min_expansion_leaves_long_queries_untruncated(self, bert_tiny_transformer, monkeypatch):
+        import sentence_transformers.base.modules.transformer as transformer_module
+
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "query_expansion", {"strategy": "min", "token": None, "length": 8})
+        warnings: list[str] = []
+        monkeypatch.setattr(transformer_module.logger, "warning_once", warnings.append)
+        features = transformer.preprocess(
+            ["a very verbose query with clearly more than eight tokens worth of content in it"], task="query"
+        )
+        assert features["input_ids"].shape[1] > 8
+        assert not features["query_expansion_positions"].any()
+        assert not warnings
+
+    def test_min_expansion_mixed_batch_positions_per_row(self, bert_tiny_transformer, monkeypatch):
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "query_expansion", {"strategy": "min", "token": None, "length": 8})
+        features = transformer.preprocess(
+            ["short", "a very verbose query with clearly more than eight tokens worth of content in it"],
+            task="query",
+        )
+        positions = features["query_expansion_positions"]
+        assert features["input_ids"].shape[1] > 8
+        assert positions[0].sum().item() == 5
+        assert positions[0, 8:].eq(False).all()
+        assert not positions[1].any()
+        # The short row's trailing pads beyond the floor stay real pads, excluded from scoring.
+        assert features["attention_mask"][0, 8:].eq(0).all()
+
+    def test_min_expansion_ceiling_via_max_length(self, bert_tiny_transformer, monkeypatch):
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "query_expansion", {"strategy": "min", "token": None, "length": 8})
+        features = transformer.preprocess(
+            ["a very verbose query with clearly more than twelve tokens worth of content in it"],
+            task="query",
+            max_length=12,
+        )
+        assert features["input_ids"].shape[1] == 12
+
+    def test_min_expansion_attend_scopes_to_expansion_positions(self, bert_tiny_transformer, monkeypatch):
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(
+            transformer, "query_expansion", {"strategy": "min", "attend": True, "token": None, "length": 8}
+        )
+        features = transformer.preprocess(
+            ["short", "a very verbose query with clearly more than eight tokens worth of content in it"],
+            task="query",
+        )
+        assert features["attention_mask"][0, :8].eq(1).all()
+        assert features["attention_mask"][0, 8:].eq(0).all()
+
+    def test_fixed_expansion_warns_on_truncated_queries(self, bert_tiny_transformer, monkeypatch):
+        """strategy='fixed' silently loses content past the expansion length (the width is fixed in
+        both directions), so the first such batch must warn. strategy='min' never truncates."""
+        import sentence_transformers.base.modules.transformer as transformer_module
+
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "query_expansion", {"strategy": "fixed", "token": None, "length": 8})
+        warnings: list[str] = []
+        monkeypatch.setattr(transformer_module.logger, "warning_once", warnings.append)
+
+        features = transformer.preprocess(["short query"], task="query")
+        assert features["input_ids"].shape[1] == 8
+        assert not warnings
+
+        features = transformer.preprocess(
+            ["a very verbose query with clearly more than eight tokens worth of content in it"], task="query"
+        )
+        assert features["input_ids"].shape[1] == 8
+        assert warnings and "truncated" in warnings[0]
+
+    def test_retrieval_task_warns_on_text_documents(self, bert_tiny_transformer, monkeypatch):
+        """`*ForRetrieval` processors always render text as a query: asking for document treatment
+        on text inputs must warn instead of silently query-formatting the documents."""
+        import sentence_transformers.base.modules.transformer as transformer_module
+
+        transformer = bert_tiny_transformer
+        monkeypatch.setattr(transformer, "transformer_task", "retrieval")
+        warnings: list[str] = []
+        monkeypatch.setattr(transformer_module.logger, "warning_once", warnings.append)
+
+        transformer.preprocess(["a text document"], task="document")
+        assert warnings and "renders text as a query" in warnings[0]
+
+        warnings.clear()
+        transformer.preprocess(["a query"], task="query")
+        transformer.preprocess(["taskless text"])
+        assert not warnings
+
+    def test_kwargs_forward_excludes_bookkeeping_keys(self, bert_tiny_transformer, monkeypatch):
+        """When forward accepts ``**kwargs`` (``model_forward_params is None``), forward() passes the real
+        model inputs but drops ST bookkeeping and tokenizer-only extras, even though ``**kwargs`` would
+        otherwise swallow them silently."""
+        model = bert_tiny_transformer
+        if model.model_forward_params is not None:
+            pytest.skip("bert-tiny forward does not accept **kwargs in this transformers version")
+
+        features = batch_to_device(model.preprocess(["hello world"]), model.model.device)
+        # Inject every key that must never reach the model, regardless of whether preprocess added it.
+        seq_len = features["input_ids"].shape[1]
+        features.update(
+            {
+                "modality": "text",
+                "num_images_per_sample": torch.zeros(1, dtype=torch.long),
+                "num_videos_per_sample": torch.zeros(1, dtype=torch.long),
+                "prompt_length": 1,
+                "query_expansion_positions": torch.zeros_like(features["input_ids"], dtype=torch.bool),
+                "task": "document",
+                "offset_mapping": torch.zeros(1, seq_len, 2, dtype=torch.long),
+                "overflow_to_sample_mapping": torch.zeros(1, dtype=torch.long),
+                "special_tokens_mask": torch.zeros_like(features["input_ids"]),
+            }
+        )
+
+        captured = {}
+        original_forward = model.model.forward
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return original_forward(**kwargs)
+
+        monkeypatch.setattr(model.model, "forward", spy)
+        with torch.no_grad():
+            model.forward(features)
+
+        assert {"input_ids", "attention_mask"} <= captured.keys()
+        for banned in (
+            "modality",
+            "num_images_per_sample",
+            "num_videos_per_sample",
+            "prompt_length",
+            "query_expansion_positions",
+            "task",
+            "offset_mapping",
+            "overflow_to_sample_mapping",
+            "special_tokens_mask",
+        ):
+            assert banned not in captured, f"{banned} must not be forwarded to the model"
+
+    def test_kwargs_forward_keeps_bookkeeping_keys_the_model_declares(self, monkeypatch):
+        """A custom model whose forward names a bookkeeping key wants it (e.g. task adapters keyed on
+        ``task``), so the denylist must yield to an explicit declaration even though ``**kwargs`` is
+        also present. Keys it does not declare stay blocked."""
+
+        class TaskAwareModel(torch.nn.Module):
+            def __init__(self, inner):
+                super().__init__()
+                self.inner = inner
+                self.config = inner.config
+
+            def forward(self, task=None, modality=None, **kwargs):
+                self.seen = (task, modality)
+                self.blocked = "prompt_length" in kwargs
+                return self.inner(**kwargs)
+
+        original_load = Transformer._load_model
+        monkeypatch.setattr(
+            Transformer,
+            "_load_model",
+            lambda self, *args, **kwargs: TaskAwareModel(original_load(self, *args, **kwargs)),
+        )
+        model = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+        assert model.model_forward_params is None, "declaring **kwargs must select the denylist branch"
+
+        features = batch_to_device(model.preprocess(["hello world"]), next(model.model.parameters()).device)
+        features.update({"task": "document", "prompt_length": 1})
+        with torch.no_grad():
+            model.forward(features)
+
+        assert model.model.seen == ("document", "text")
+        assert not model.model.blocked, "prompt_length is undeclared, so it stays denied"
+
+    def test_allowlist_forward_filters_unknown_kwargs(self, bert_tiny_transformer, monkeypatch):
+        """When forward does not accept ``**kwargs`` (``model_forward_params`` is a set), forward() drops
+        any feature key outside the allowlist."""
+        model = bert_tiny_transformer
+        model.model_forward_params = {"input_ids", "attention_mask", "token_type_ids", "return_dict"}
+
+        features = batch_to_device(model.preprocess(["hello world"]), model.model.device)
+        features["pixel_values"] = torch.zeros(1, 3, 4, 4)  # not in the allowlist, must be dropped
+
+        captured = {}
+        original_forward = model.model.forward
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return original_forward(**kwargs)
+
+        monkeypatch.setattr(model.model, "forward", spy)
+        with torch.no_grad():
+            model.forward(features)
+
+        assert "input_ids" in captured
+        assert "pixel_values" not in captured
 
 
 class TestGetEmbeddingDimension:
@@ -1086,7 +1324,7 @@ class TestProcessChatMessages:
         model = bert_tiny_transformer
         monkeypatch.setattr(model.processor, "apply_chat_template", make_char_chat_template_mock([99]))
         suffix = model._chat_template_suffix_ids([{"role": "user", "content": "x"}], {"tools": [{"name": "f"}]}, {})
-        assert suffix == [99]  # no crash from the unhashable kwarg; the fixed marker is the derived suffix
+        assert suffix == [99]  # no crash from the unhashable kwarg. The fixed marker is the derived suffix
 
     def test_chat_template_suffix_ids_skips_uninspectable_messages(self, bert_tiny_transformer, monkeypatch):
         # Some templates accept shapes the text-only check can't inspect (a non-dict message, or a content
@@ -1228,7 +1466,7 @@ class TestModelLoading:
             Transformer(TINY_BERT, backend="invalid_backend")
 
     def test_peft_seq_classification_no_architectures(self, monkeypatch):
-        """PeftConfig has no 'architectures' attr; sequence-classification init should not crash."""
+        """PeftConfig has no 'architectures' attr. Sequence-classification init should not crash."""
 
         class FakePeftConfig:
             """Minimal stand-in for PeftConfig that intentionally lacks 'architectures'."""
@@ -1702,10 +1940,16 @@ class TestCanFlattenInputs:
         except ImportError:
             pytest.skip("kernels library not available")
 
-        transformer = Transformer(
-            TINY_BERT,
-            model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": torch.bfloat16},
-        )
+        try:
+            transformer = Transformer(
+                TINY_BERT,
+                model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": torch.bfloat16},
+            )
+        except (ValueError, FileNotFoundError, ImportError) as exc:
+            # The kernels hub ships no build variant for every platform (e.g. Windows).
+            if "flash" in str(exc).lower() or "build variant" in str(exc).lower():
+                pytest.skip(f"no flash-attn2 kernel build for this platform: {exc}")
+            raise
         assert transformer._can_flatten_inputs() is True
         assert transformer.can_flatten_inputs is True
         assert transformer.data_collator is not None
@@ -1826,15 +2070,6 @@ class TestConditionalFlattening:
 
         transformer.preprocess(["dummy"])
         transformer.data_collator.assert_called_once()
-
-
-@pytest.mark.skipif(
-    Version(transformers_version) >= Version("5.0.0"),
-    reason="Test only applies to transformers v4",
-)
-def test_any_to_any_requires_transformers_v5():
-    with pytest.raises(ImportError, match="transformers v5"):
-        Transformer("hf-internal-testing/tiny-random-LlamaForCausalLM", transformer_task="any-to-any")
 
 
 class TestCountMediaPerSample:

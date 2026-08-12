@@ -16,7 +16,8 @@ For example, the popular `sentence-transformers/all-MiniLM-L6-v2 <https://huggin
 .. code-block:: python
 
    from sentence_transformers import SentenceTransformer
-   from sentence_transformers.sentence_transformer.modules import Transformer, Pooling, Normalize
+   from sentence_transformers.base.modules import Normalize, Transformer
+   from sentence_transformers.sentence_transformer.modules import Pooling
 
    transformer = Transformer("sentence-transformers/all-MiniLM-L6-v2", max_seq_length=256)
    pooling = Pooling(transformer.get_embedding_dimension(), pooling_mode="mean")
@@ -80,7 +81,7 @@ This contains a ``modules.json`` with these contents:
        "idx": 2,
        "name": "2",
        "path": "2_Normalize",
-       "type": "sentence_transformers.sentence_transformer.modules.normalize.Normalize"
+       "type": "sentence_transformers.base.modules.normalize.Normalize"
      }
    ]
 
@@ -299,7 +300,8 @@ For example, we can create a custom pooling method by implementing a custom Modu
 This can now be used as a module in a Sentence Transformer model::
    
    from sentence_transformers import SentenceTransformer
-   from sentence_transformers.sentence_transformer.modules import Transformer, Pooling, Normalize
+   from sentence_transformers.base.modules import Normalize, Transformer
+   from sentence_transformers.sentence_transformer.modules import Pooling
    from decay_pooling import DecayMeanPooling
 
    transformer = Transformer("google-bert/bert-base-uncased", max_seq_length=256)
@@ -346,7 +348,7 @@ You can save this model with :meth:`SentenceTransformer.save_pretrained <sentenc
        "idx": 2,
        "name": "2",
        "path": "2_Normalize",
-       "type": "sentence_transformers.sentence_transformer.modules.normalize.Normalize"
+       "type": "sentence_transformers.base.modules.normalize.Normalize"
      }
    ]
 
@@ -375,7 +377,7 @@ If you have your models and custom modelling code on the Hugging Face Hub, then 
        "idx": 2,
        "name": "2",
        "path": "2_Normalize",
-       "type": "sentence_transformers.sentence_transformer.modules.normalize.Normalize"
+       "type": "sentence_transformers.base.modules.normalize.Normalize"
      }
    ]
 
@@ -402,7 +404,7 @@ If you want your users to be able to specify custom keyword arguments via the :m
        "idx": 2,
        "name": "2",
        "path": "2_Normalize",
-       "type": "sentence_transformers.sentence_transformer.modules.normalize.Normalize"
+       "type": "sentence_transformers.base.modules.normalize.Normalize"
      }
    ]
 

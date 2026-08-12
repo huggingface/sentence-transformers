@@ -31,8 +31,8 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
         """
         .. warning::
 
-            This class has been merged into :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss` and
-            is now deprecated. Please use :class:`~sentence_transformers.losses.CachedMultipleNegativesRankingLoss` with
+            This class has been merged into :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss` and
+            is now deprecated. Please use :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss` with
             ``directions=("query_to_doc", "doc_to_query")`` and ``partition_mode="per_direction"`` for identical
             performance instead::
 

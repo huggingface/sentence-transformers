@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Literal
 
 from torch.nn import Module
 
@@ -23,6 +24,7 @@ class Matryoshka2dLoss(AdaptiveLayerLoss):
         prior_layers_weight: float = 1.0,
         kl_div_weight: float = 1.0,
         kl_temperature: float = 0.3,
+        layer_weighting: Literal["uniform", "log", "linear"] | Callable[[int], float] = "uniform",
     ) -> None:
         """
         The Matryoshka2dLoss can be seen as a loss *modifier* that combines the :class:`AdaptiveLayerLoss` and the
@@ -51,11 +53,11 @@ class Matryoshka2dLoss(AdaptiveLayerLoss):
                 -1, then all layers are used. If > 0, then a random
                 sample of n_layers_per_step layers are used per step.
                 The 2DMSE paper uses `n_layers_per_step=1`. The default
-                value is -1.
+                value is 1.
             n_dims_per_step: The number of dimensions to use per step.
                 If -1, then all dimensions are used. If > 0, then a
                 random sample of n_dims_per_step dimensions are used per
-                step. The default value is -1.
+                step. The default value is 1.
             last_layer_weight: The weight to use for the loss of the
                 final layer. Increase this to focus more on the
                 performance when using all layers. The default value is
@@ -71,7 +73,12 @@ class Matryoshka2dLoss(AdaptiveLayerLoss):
                 is 1.0.
             kl_temperature: The temperature to use for the KL-divergence
                 loss. If 0, then the KL-divergence loss is not used. The
-                default value is 1.0.
+                default value is 0.3.
+            layer_weighting: The weighting scheme for the prior layer
+                losses. One of "uniform", "log", "linear", or a callable
+                that maps a layer index to a weight. See
+                :class:`AdaptiveLayerLoss` for details. The default
+                value is "uniform".
 
         References:
             - See the 2D Matryoshka Sentence Embeddings (2DMSE) paper: https://huggingface.co/papers/2402.14776
@@ -129,6 +136,7 @@ class Matryoshka2dLoss(AdaptiveLayerLoss):
             prior_layers_weight=prior_layers_weight,
             kl_div_weight=kl_div_weight,
             kl_temperature=kl_temperature,
+            layer_weighting=layer_weighting,
         )
 
     def get_config_dict(self) -> dict[str, Any]:
