@@ -15,6 +15,7 @@ import pytest
 from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
+    cross_encoder_rank_args_decorator,
     deprecated_kwargs,
     save_to_hub_args_decorator,
     transformer_kwargs_decorator,
@@ -319,6 +320,33 @@ class TestCrossEncoderPredictRankArgsDecorator:
 
         assert result == {"inputs": [["a", "b"]], "activation_fn": "sigmoid"}
         assert "num_workers" in caplog.text
+
+
+class TestCrossEncoderRankArgsDecorator:
+    def test_convert_kwargs_removed(self, caplog):
+        """convert_to_numpy and convert_to_tensor are removed as no-ops, on top of the shared predict/rank renames."""
+
+        @cross_encoder_rank_args_decorator
+        def func(self, **kwargs):
+            return kwargs
+
+        with caplog.at_level(logging.WARNING):
+            result = func(None, activation_fct="sigmoid", convert_to_numpy=False, convert_to_tensor=True)
+
+        assert result == {"activation_fn": "sigmoid"}
+        assert "convert_to_numpy" in caplog.text
+        assert "convert_to_tensor" in caplog.text
+
+    def test_no_warning_without_convert_kwargs(self, caplog):
+        @cross_encoder_rank_args_decorator
+        def func(self, **kwargs):
+            return kwargs
+
+        with caplog.at_level(logging.WARNING):
+            result = func(None, top_k=3)
+
+        assert result == {"top_k": 3}
+        assert caplog.text == ""
 
 
 class TestSaveToHubArgsDecorator:

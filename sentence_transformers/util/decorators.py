@@ -70,7 +70,7 @@ def transformer_kwargs_decorator(func):
         for old_name, new_name in _RENAMED_KWARGS.items():
             if old_name in kwargs:
                 kwarg_value = kwargs.pop(old_name)
-                logger.warning(
+                logger.warning_once(
                     f"The Transformer `{old_name}` argument was renamed and is now deprecated, "
                     f"please use `{new_name}` instead."
                 )
@@ -80,7 +80,7 @@ def transformer_kwargs_decorator(func):
         if "cache_dir" in kwargs:
             cache_dir = kwargs.pop("cache_dir")
             if cache_dir is not None:
-                logger.warning(
+                logger.warning_once(
                     "The Transformer `cache_dir` argument is deprecated. "
                     "Please pass `cache_dir` via `model_kwargs`, `processor_kwargs`, and/or `config_kwargs` instead."
                 )
@@ -145,7 +145,7 @@ def cross_encoder_init_args_decorator(func):
         for old_name, new_name in kwargs_renamed_mapping.items():
             if old_name in kwargs:
                 kwarg_value = kwargs.pop(old_name)
-                logger.warning(
+                logger.warning_once(
                     f"The CrossEncoder `{old_name}` argument was renamed and is now deprecated. Please use `{new_name}` instead."
                 )
                 if new_name not in kwargs:
@@ -181,10 +181,35 @@ def cross_encoder_predict_rank_args_decorator(func: F) -> F:
     def wrapper(self, *args, **kwargs):
         if "num_workers" in kwargs:
             kwargs.pop("num_workers")
-            logger.warning(
+            logger.warning_once(
                 "The CrossEncoder.predict `num_workers` argument is deprecated and has no effect. "
                 "It will be removed in a future version."
             )
+
+        return func(self, *args, **kwargs)
+
+    return cast("F", wrapper)
+
+
+def cross_encoder_rank_args_decorator(func: F) -> F:
+    """Decorator for :class:`CrossEncoder.rank` that handles deprecated keyword arguments.
+
+    Applies everything from :func:`cross_encoder_predict_rank_args_decorator`, plus:
+
+    * ``convert_to_numpy`` -> removed (no-op)
+    * ``convert_to_tensor`` -> removed (no-op)
+    """
+
+    @cross_encoder_predict_rank_args_decorator
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        for name in ("convert_to_numpy", "convert_to_tensor"):
+            if name in kwargs:
+                kwargs.pop(name)
+                logger.warning_once(
+                    f"The CrossEncoder.rank `{name}` argument is deprecated and has no effect, as `rank` always "
+                    "returns Python floats. It will be removed in a future version."
+                )
 
         return func(self, *args, **kwargs)
 
@@ -203,7 +228,7 @@ def save_to_hub_args_decorator(func):
         # If repo_id not already set, use repo_name
         repo_name = kwargs.pop("repo_name", None)
         if repo_name and "repo_id" not in kwargs:
-            logger.warning(
+            logger.warning_once(
                 "Providing a `repo_name` keyword argument to `save_to_hub` is deprecated. Please use `repo_id` instead."
             )
             kwargs["repo_id"] = repo_name

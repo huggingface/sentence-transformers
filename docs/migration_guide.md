@@ -13,6 +13,7 @@ v6.0 requires `transformers` v5.x (up from 4.41+), `torch` 2.2+ (up from 1.11+),
 #### Changed outputs and artifacts
 
 ```{eval-rst}
+- :class:`~sentence_transformers.CrossEncoder`'s ``rank`` now returns Python floats as its ``"score"`` values, where it previously returned ``numpy.float32`` scalars, or 0-dimensional tensors with ``convert_to_tensor=True``. The results are directly JSON serializable, which matches what :func:`~sentence_transformers.util.retrieval.semantic_search` already returned. The ``convert_to_numpy`` and ``convert_to_tensor`` arguments on ``rank`` are now deprecated no-ops that will be removed in a future version: call ``predict`` directly if you want the scores as an array or a tensor.
 - :func:`~sentence_transformers.util.quantization.quantize_embeddings` returns a list of per-input matrices when given a list of 2D arrays, where it previously stacked them into one 3D array: update callers that indexed the stacked array.
 - Multi-process ``encode(pool=..., precision="int8")`` (and ``"uint8"``) now quantizes once after merging the worker results, so the calibration ranges match single-process encoding. Quantized indexes built with v5.x multi-process encoding are not bit-compatible: regenerate them. Peak memory is higher because the full ``float32`` matrix is materialized before quantization.
 ```

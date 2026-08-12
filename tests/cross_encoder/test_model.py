@@ -6,6 +6,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -100,6 +101,23 @@ def test_rank(return_documents: bool, request: FixtureRequest) -> None:
 
     pred_ranking = [rank["corpus_id"] for rank in ranks]
     assert pred_ranking == expected_ranking
+
+
+def test_rank_scores_are_floats(reranker_bert_tiny_model: CrossEncoder) -> None:
+    ranks = reranker_bert_tiny_model.rank("A man is eating pasta.", ["A man is eating food.", "A monkey is playing."])
+    assert [type(rank["score"]) for rank in ranks] == [float, float]
+    json.dumps(ranks)
+
+
+@pytest.mark.parametrize("kwarg", ["convert_to_numpy", "convert_to_tensor"])
+def test_rank_convert_kwargs_deprecated(reranker_bert_tiny_model: CrossEncoder, kwarg: str, caplog) -> None:
+    # Annotated as Any so type checkers don't match the removed kwarg against every remaining parameter
+    deprecated_kwargs: dict[str, Any] = {kwarg: True}
+    with caplog.at_level(logging.WARNING):
+        ranks = reranker_bert_tiny_model.rank("A man is eating pasta.", ["A man is eating food."], **deprecated_kwargs)
+
+    assert kwarg in caplog.text
+    assert type(ranks[0]["score"]) is float
 
 
 def test_rank_multiple_labels(nli_minilm_model: CrossEncoder):
