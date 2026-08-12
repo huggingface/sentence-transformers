@@ -10,7 +10,13 @@ from sklearn.metrics import pairwise_distances
 from torch import Tensor
 from transformers.utils import is_torchdynamo_compiling, logging
 
-from .tensor import _convert_to_batch_tensor, _convert_to_tensor, normalize_embeddings, to_scipy_coo
+from .tensor import (
+    _convert_to_batch_tensor,
+    _convert_to_float_tensor,
+    _convert_to_tensor,
+    normalize_embeddings,
+    to_scipy_coo,
+)
 
 # NOTE: transformers wraps the regular logging module for e.g. warning_once
 logger = logging.get_logger(__name__)
@@ -81,8 +87,8 @@ def pairwise_cos_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tenso
     Returns:
         Tensor: Vector with res[i] = cos_sim(a[i], b[i])
     """
-    a = _convert_to_tensor(a)
-    b = _convert_to_tensor(b)
+    a = _convert_to_float_tensor(a)
+    b = _convert_to_float_tensor(b)
 
     # Handle sparse tensors
     if a.is_sparse or b.is_sparse:
@@ -121,8 +127,8 @@ def pairwise_dot_score(a: list | np.ndarray | Tensor, b: list | np.ndarray | Ten
     Returns:
         Tensor: Vector with res[i] = dot_prod(a[i], b[i])
     """
-    a = _convert_to_tensor(a)
-    b = _convert_to_tensor(b)
+    a = _convert_to_float_tensor(a)
+    b = _convert_to_float_tensor(b)
 
     return (a * b).sum(dim=-1).to_dense()
 
@@ -166,8 +172,8 @@ def pairwise_manhattan_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray |
     Returns:
         Tensor: Vector with res[i] = -manhattan_distance(a[i], b[i])
     """
-    a = _convert_to_tensor(a)
-    b = _convert_to_tensor(b)
+    a = _convert_to_float_tensor(a)
+    b = _convert_to_float_tensor(b)
     a, b = _match_layouts(a, b)
 
     return -torch.sum(torch.abs(a - b), dim=-1).to_dense()
@@ -216,8 +222,8 @@ def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray |
     Returns:
         Tensor: Vector with res[i] = -euclidean_distance(a[i], b[i])
     """
-    a = _convert_to_tensor(a)
-    b = _convert_to_tensor(b)
+    a = _convert_to_float_tensor(a)
+    b = _convert_to_float_tensor(b)
     a, b = _match_layouts(a, b)
 
     return -torch.sqrt(torch.sum((a - b) ** 2, dim=-1)).to_dense()
@@ -728,8 +734,8 @@ def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:
         if y.is_sparse:
             y = y.to_dense()
 
-    x = _convert_to_tensor(x)
-    y = _convert_to_tensor(y)
+    x = _convert_to_float_tensor(x)
+    y = _convert_to_float_tensor(y)
 
     # Pad tensors if the embedding dimension is odd, as torch.chunk requires even dimensions
     if x.shape[1] % 2 != 0:
