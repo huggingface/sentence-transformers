@@ -1119,8 +1119,8 @@ class MultiVectorEncoder(BaseModel):
                 - ``device``: Run the scoring on this device. The returned scores stay on the
                   documents' device either way.
                 - ``document_chunk_elements``: Cap how much of the corpus is scored at once.
-                - ``length_normalize``: Divide each score by the number of real query tokens,
-                  yielding MeanMaxSim scores from a MaxSim model.
+                - ``length_normalize``: Divide each score by the number of real query tokens
+                  (True scores MeanMaxSim, False plain MaxSim).
 
         Returns:
             Tensor: A [num_embeddings_1, num_embeddings_2]-shaped torch tensor with scores, on the
@@ -1159,8 +1159,8 @@ class MultiVectorEncoder(BaseModel):
                 - ``device``: Run the scoring on this device. The returned scores stay on the
                   documents' device either way.
                 - ``pair_chunk_elements``: Cap how many pairs are scored at once.
-                - ``length_normalize``: Divide each score by the number of real query tokens,
-                  yielding MeanMaxSim scores from a MaxSim model.
+                - ``length_normalize``: Divide each score by the number of real query tokens
+                  (True scores MeanMaxSim, False plain MaxSim).
 
         Returns:
             Tensor: A [num_embeddings]-shaped torch tensor with pairwise scores, on the documents'
