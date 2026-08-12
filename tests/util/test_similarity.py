@@ -440,7 +440,10 @@ def test_pairwise_scores_are_float32_for_low_precision_inputs(fn, dtype) -> None
     assert scores.dtype == torch.float32
 
 
-@pytest.mark.parametrize("dtype", LOW_PRECISION_DTYPES)
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float16, pytest.param(torch.bfloat16, marks=skip_bfloat16_cpu_crash)],
+)
 def test_hps_collapses_spurious_ties(dtype, low_precision_embeddings) -> None:
     """Upcasting the scoring step recovers the tie structure of float32.
 
