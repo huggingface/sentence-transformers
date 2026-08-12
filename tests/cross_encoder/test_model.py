@@ -23,7 +23,7 @@ from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
-from tests.utils import GENERIC_INSTRUCT_TEMPLATE, RERANKER_TEMPLATE
+from tests.utils import GENERIC_INSTRUCT_TEMPLATE, RERANKER_TEMPLATE, skip_bfloat16_cpu_crash
 
 
 def test_classifier_dropout_is_set() -> None:
@@ -138,6 +138,7 @@ def test_predict_softmax(nli_minilm_model: CrossEncoder):
     assert not torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
 
 
+@skip_bfloat16_cpu_crash
 def test_predict_low_precision_logits_upcast_to_float32(reranker_bert_tiny_model: CrossEncoder) -> None:
     """The activation over cross-encoder logits must run in float32 for low-precision models (HPS).
 
