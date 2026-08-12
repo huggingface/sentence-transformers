@@ -1317,6 +1317,24 @@ def test_encode_empty_list(model: MultiVectorEncoder) -> None:
     assert model.encode([]) == []
 
 
+def test_similarity_forwards_scoring_kwargs(model: MultiVectorEncoder) -> None:
+    """Extra similarity kwargs reach the scoring function: a tiny element budget reproduces the
+    plain scores, an unknown kwarg fails loudly, and a device override still returns CPU scores."""
+    queries = model.encode_query(["What is the capital of France?", "Who painted the Mona Lisa?"])
+    documents = model.encode_document(["Paris is big.", "Da Vinci painted.", "Berlin here.", "More text."])
+    plain = model.similarity(queries, documents)
+    assert torch.allclose(model.similarity(queries, documents, document_chunk_elements=1_000), plain, atol=1e-5)
+    plain_pairwise = model.similarity_pairwise(queries, documents[:2])
+    chunked_pairwise = model.similarity_pairwise(queries, documents[:2], pair_chunk_elements=1_000)
+    assert torch.allclose(chunked_pairwise, plain_pairwise, atol=1e-5)
+    with pytest.raises(TypeError):
+        model.similarity(queries, documents, chunk_size=2)
+    if torch.cuda.is_available():
+        scores = model.similarity(queries, documents, device="cuda")
+        assert scores.device.type == "cpu"
+        assert torch.allclose(scores, plain, atol=1e-4)
+
+
 def test_similarity_singular_query(model: MultiVectorEncoder) -> None:
     # Mirrors SentenceTransformer.similarity, which auto-batches a singular embedding: similarity
     # on a singular encode output must score as a batch of one instead of crashing in einsum.

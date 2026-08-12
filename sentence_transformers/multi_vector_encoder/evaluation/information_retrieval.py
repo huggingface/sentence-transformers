@@ -181,7 +181,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         # bare model.similarity. Without an explicit document_chunk_elements, maxsim's default
         # element budget bounds the scoring intermediate on its own.
         if self.score_functions is None:
-            scoring_fn = SimilarityFunction.to_similarity_fn(model.similarity_fn_name)
+            scoring_fn: Callable[..., Tensor] = SimilarityFunction.to_similarity_fn(model.similarity_fn_name)
             if self.document_chunk_elements is not None:
                 scoring_fn = partial(scoring_fn, document_chunk_elements=self.document_chunk_elements)
             self.score_functions = {model.similarity_fn_name: scoring_fn}

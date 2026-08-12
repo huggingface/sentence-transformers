@@ -5,7 +5,6 @@ from enum import Enum
 
 import numpy as np
 import torch
-from numpy import ndarray
 from sklearn.metrics import pairwise_distances
 from torch import Tensor
 from transformers.utils import is_torchdynamo_compiling, logging
@@ -371,6 +370,7 @@ def maxsim(
     b_mask: Tensor | None = None,
     document_chunk_elements: int | None = None,
     length_normalize: bool = False,
+    device: str | torch.device | None = None,
 ) -> Tensor:
     """
     Computes the MaxSim (late-interaction) score between two collections of multi-vector embeddings.
@@ -404,6 +404,9 @@ def maxsim(
         length_normalize (bool, optional): Divide each score by the number of real (unmasked) query
             tokens, yielding MeanMaxSim: scores land in the per-token similarity range (about
             ``[-1, 1]`` for normalized embeddings) independent of the query length. Defaults to False.
+        device (str, torch.device, optional): Device to run the scoring on, moving each budget-sized
+            document chunk there rather than the whole corpus. The returned scores stay on the
+            documents' device either way. Defaults to None (the documents' device).
 
     Returns:
         Tensor: Matrix with ``res[i][j]`` = MaxSim(a[i], b[j]), shape ``(batch_a, batch_b)``, always
@@ -414,8 +417,8 @@ def maxsim(
     b, b_mask = _canonicalize_side(b, b_mask, "b_mask")
     if len(a) == 0 or len(b) == 0:
         # An empty query or document set: nothing to score, and pad_sequence rejects an empty list.
-        device = _embeddings_device(b) or _embeddings_device(a)
-        return torch.zeros(len(a), len(b), dtype=torch.float32, device=device)
+        result_device = _embeddings_device(b) or _embeddings_device(a)
+        return torch.zeros(len(a), len(b), dtype=torch.float32, device=result_device)
     query_token_counts = _query_token_counts(a, a_mask) if length_normalize else None
     a, a_mask_padded = _pad_multi_vector_inputs(a, a_mask)
     if a_mask_padded is not None:
@@ -431,9 +434,11 @@ def maxsim(
         b_mask = _fit_mask_width(b_mask, max(document_widths), "b_mask")
 
     # Scoring runs on the documents' device: they are the big side, and the queries are cheap to move.
-    # numpy documents carry no device of their own, so those follow the queries.
-    device = _embeddings_device(b) or a.device
-    a, a_mask_padded = _to_device(a, a_mask_padded, device)
+    # numpy documents carry no device of their own, so those follow the queries. An explicit
+    # ``device`` overrides the scoring device only: each chunk's scores come home right below.
+    result_device = _embeddings_device(b) or a.device
+    scoring_device = torch.device(device) if device is not None else result_device
+    a, a_mask_padded = _to_device(a, a_mask_padded, scoring_device)
 
     # The budget covers the padded documents (width x dim) as well as the (batch_a, q_tokens, width)
     # score intermediate: with a small query side the padding, not the score matrix, is the bigger half.
@@ -441,8 +446,8 @@ def maxsim(
 
     score_chunks = []
     for d_start, d_end in ranges:
-        chunk_b, chunk_b_mask = _pad_chunk(b, b_mask, d_start, d_end, device, "b_mask")
-        score_chunks.append(_maxsim_score_documents(a, chunk_b, a_mask_padded, chunk_b_mask))
+        chunk_b, chunk_b_mask = _pad_chunk(b, b_mask, d_start, d_end, scoring_device, "b_mask")
+        score_chunks.append(_maxsim_score_documents(a, chunk_b, a_mask_padded, chunk_b_mask).to(result_device))
     # cat copies even a single chunk, which is the common case of a batch that fits the budget.
     scores = score_chunks[0] if len(score_chunks) == 1 else torch.cat(score_chunks, dim=1)
     if query_token_counts is not None:
@@ -514,6 +519,7 @@ def maxsim_pairwise(
     b_mask: Tensor | None = None,
     pair_chunk_elements: int | None = None,
     length_normalize: bool = False,
+    device: str | torch.device | None = None,
 ) -> Tensor:
     """
     Computes the pairwise MaxSim (late-interaction) score between each query-document pair.
@@ -545,6 +551,9 @@ def maxsim_pairwise(
         length_normalize (bool, optional): Divide each score by the number of real (unmasked) query
             tokens, yielding MeanMaxSim: scores land in the per-token similarity range (about
             ``[-1, 1]`` for normalized embeddings) independent of the query length. Defaults to False.
+        device (str, torch.device, optional): Device to run the scoring on, moving each budget-sized
+            chunk of pairs there rather than everything. The returned scores stay on the documents'
+            device either way. Defaults to None (the documents' device).
 
     Returns:
         Tensor: Vector with ``res[i]`` = MaxSim(a[i], b[i]), shape ``(batch,)``, always float32
@@ -559,8 +568,8 @@ def maxsim_pairwise(
         )
     if len(a) == 0:
         # No pairs to score, and pad_sequence rejects an empty list.
-        device = _embeddings_device(b) or _embeddings_device(a)
-        return torch.zeros(0, dtype=torch.float32, device=device)
+        result_device = _embeddings_device(b) or _embeddings_device(a)
+        return torch.zeros(0, dtype=torch.float32, device=result_device)
     query_token_counts = _query_token_counts(a, a_mask) if length_normalize else None
 
     budget = pair_chunk_elements if pair_chunk_elements is not None else _MAXSIM_CHUNK_ELEMENT_BUDGET
@@ -571,7 +580,9 @@ def maxsim_pairwise(
     if b_mask is not None:
         b_mask = _fit_mask_width(b_mask, max(document_widths), "b_mask")
     # Scoring runs on the documents' device, or the queries' when the documents carry none (numpy).
-    device = _embeddings_device(b) or _embeddings_device(a) or torch.device("cpu")
+    # An explicit ``device`` overrides the scoring device only: each chunk's scores come home below.
+    result_device = _embeddings_device(b) or _embeddings_device(a) or torch.device("cpu")
+    scoring_device = torch.device(device) if device is not None else result_device
     # The budget covers the padded queries and documents (width x dim each) as well as the
     # (q_tokens x width) score intermediate: with a single query per pair the padding, not the score
     # matrix, is the bigger half. The query padding grows with the chunk size but not with the
@@ -582,9 +593,9 @@ def maxsim_pairwise(
 
     score_chunks = []
     for start, end in ranges:
-        chunk_a, chunk_a_mask = _pad_chunk(a, a_mask, start, end, device, "a_mask")
-        chunk_b, chunk_b_mask = _pad_chunk(b, b_mask, start, end, device, "b_mask")
-        score_chunks.append(_maxsim_score_pairs(chunk_a, chunk_b, chunk_a_mask, chunk_b_mask))
+        chunk_a, chunk_a_mask = _pad_chunk(a, a_mask, start, end, scoring_device, "a_mask")
+        chunk_b, chunk_b_mask = _pad_chunk(b, b_mask, start, end, scoring_device, "b_mask")
+        score_chunks.append(_maxsim_score_pairs(chunk_a, chunk_b, chunk_a_mask, chunk_b_mask).to(result_device))
     scores = score_chunks[0] if len(score_chunks) == 1 else torch.cat(score_chunks, dim=0)
     if query_token_counts is not None:
         scores = scores / query_token_counts.to(device=scores.device, dtype=scores.dtype)
@@ -597,6 +608,7 @@ def mean_maxsim(
     a_mask: Tensor | None = None,
     b_mask: Tensor | None = None,
     document_chunk_elements: int | None = None,
+    device: str | torch.device | None = None,
 ) -> Tensor:
     """
     Computes the MeanMaxSim score between two collections of multi-vector embeddings: :func:`maxsim`
@@ -614,6 +626,7 @@ def mean_maxsim(
         b_mask=b_mask,
         document_chunk_elements=document_chunk_elements,
         length_normalize=True,
+        device=device,
     )
 
 
@@ -623,6 +636,7 @@ def mean_maxsim_pairwise(
     a_mask: Tensor | None = None,
     b_mask: Tensor | None = None,
     pair_chunk_elements: int | None = None,
+    device: str | torch.device | None = None,
 ) -> Tensor:
     """
     Computes the pairwise MeanMaxSim score for each query-document pair: :func:`maxsim_pairwise`
@@ -636,6 +650,7 @@ def mean_maxsim_pairwise(
         b_mask=b_mask,
         pair_chunk_elements=pair_chunk_elements,
         length_normalize=True,
+        device=device,
     )
 
 
@@ -779,7 +794,7 @@ class SimilarityFunction(Enum):
     @staticmethod
     def to_similarity_fn(
         similarity_function: str | SimilarityFunction,
-    ) -> Callable[[list | ndarray | Tensor, list | ndarray | Tensor], Tensor]:
+    ) -> Callable[[list | np.ndarray | Tensor, list | np.ndarray | Tensor], Tensor]:
         """
         Converts a similarity function name or enum value to the corresponding similarity function.
 
@@ -787,7 +802,7 @@ class SimilarityFunction(Enum):
             similarity_function (Union[str, SimilarityFunction]): The name or enum value of the similarity function.
 
         Returns:
-            Callable[[Union[list, ndarray, Tensor], Union[list, ndarray, Tensor]], Tensor]: The corresponding similarity function.
+            Callable[[Union[list, np.ndarray, Tensor], Union[list, np.ndarray, Tensor]], Tensor]: The corresponding similarity function. The MaxSim family also accepts further keyword arguments, see :func:`maxsim`.
 
         Raises:
             ValueError: If the provided function is not supported.
@@ -821,7 +836,7 @@ class SimilarityFunction(Enum):
     @staticmethod
     def to_similarity_pairwise_fn(
         similarity_function: str | SimilarityFunction,
-    ) -> Callable[[list | ndarray | Tensor, list | ndarray | Tensor], Tensor]:
+    ) -> Callable[[list | np.ndarray | Tensor, list | np.ndarray | Tensor], Tensor]:
         """
         Converts a similarity function into a pairwise similarity function.
 
@@ -833,7 +848,7 @@ class SimilarityFunction(Enum):
             similarity_function (Union[str, SimilarityFunction]): The name or enum value of the similarity function.
 
         Returns:
-            Callable[[Union[list, ndarray, Tensor], Union[list, ndarray, Tensor]], Tensor]: The pairwise similarity function.
+            Callable[[Union[list, np.ndarray, Tensor], Union[list, np.ndarray, Tensor]], Tensor]: The pairwise similarity function. The MaxSim family also accepts further keyword arguments, see :func:`maxsim_pairwise`.
 
         Raises:
             ValueError: If the provided similarity function is not supported.
