@@ -2,8 +2,8 @@
 
 A "cached" loss trades compute for memory in three steps:
 
-    (1) a quick embedding step without gradients/computation graphs, to get all the embeddings;
-    (2) calculate the loss, backward up to the embeddings, and cache the gradients wrt. the embeddings;
+    (1) a quick embedding step without gradients/computation graphs, to get all the embeddings.
+    (2) calculate the loss, backward up to the embeddings, and cache the gradients wrt. the embeddings.
     (3) a 2nd embedding step with gradients/computation graphs, connecting the cached gradients into
         the backward chain.
 
@@ -94,7 +94,7 @@ def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) ->
     (e.g. ``pixel_values`` shape ``(total_visual_tokens, hidden_dim)``) with a grid tensor
     (e.g. ``image_grid_thw`` shape ``(num_items, 3)``) whose per-row product gives the token
     count per item.  ``num_images_per_sample`` / ``num_videos_per_sample`` (precomputed by
-    ``Transformer.preprocess``) map grid rows to samples; when unavailable we fall back to
+    ``Transformer.preprocess``) map grid rows to samples. When unavailable we fall back to
     assuming one grid row per sample when ``grid.shape[0] == batch_size``.
     """
     if "cu_seq_lens_q" not in sentence_feature:
@@ -138,7 +138,12 @@ def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) ->
         attention_mask = sentence_feature.get("attention_mask")
         if isinstance(attention_mask, torch.Tensor) and attention_mask.ndim == 2:
             seq_width = attention_mask.shape[1]
-            active_columns = attention_mask[begin:end].any(dim=0)
+            active = attention_mask[begin:end].bool()
+            # ColBERT expansion positions carry attention_mask 0 but are scored, so they must survive.
+            expansion_positions = sentence_feature.get("query_expansion_positions")
+            if isinstance(expansion_positions, torch.Tensor):
+                active = active | expansion_positions[begin:end].bool()
+            active_columns = active.any(dim=0)
             if active_columns.any():
                 last_active = int(active_columns.nonzero().max().item())
                 if last_active + 1 < seq_width:

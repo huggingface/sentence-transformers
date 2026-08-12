@@ -35,8 +35,8 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
 
         In detail:
 
-            (1) It first does a quick prediction step without gradients/computation graphs to get all the logits;
-            (2) Calculate the loss, backward up to the logits and cache the gradients wrt. to the logits;
+            (1) It first does a quick prediction step without gradients/computation graphs to get all the logits.
+            (2) Calculate the loss, backward up to the logits and cache the gradients wrt. to the logits.
             (3) A 2nd prediction step with gradients/computation graphs and connect the cached gradients into the backward chain.
 
         Notes: All steps are done with mini-batches. In the original implementation of GradCache, (2) is not done in

@@ -146,7 +146,7 @@ def test_minority_labels_participate() -> None:
     all_indices = set()
     for batch in sampler:
         all_indices.update(batch)
-    # Label 2 has 3 samples (indices 1500-1502); trimmed to 2 (even), so at least 2 should appear
+    # Label 2 has 3 samples (indices 1500-1502), trimmed to 2 (even), so at least 2 should appear
     minority_in_output = all_indices & set(range(1500, 1503))
     assert len(minority_in_output) >= 2, "Minority label samples should participate in batches"
 
@@ -200,7 +200,7 @@ def test_batch_guarantees(drop_last: bool) -> None:
 
     1. Contains >= 2 distinct labels.
     2. Every label in the batch appears >= 2 times.
-    3. Non-last batches are exactly batch_size; the last may be smaller only when drop_last=False.
+    3. Non-last batches are exactly batch_size. The last may be smaller only when drop_last=False.
     """
     # Use several dataset shapes to stress-test the guarantees.
     datasets = {

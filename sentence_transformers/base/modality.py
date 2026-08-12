@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Any, Literal, NoReturn
 from urllib.parse import urlparse
 
 import numpy as np
 import torch
+from typing_extensions import TypeIs
 
 from sentence_transformers.base.modality_types import (
     MULTIMODAL_DICT_KEYS,
     AudioInput,
+    MessageDict,
     MessageFormat,
     Modality,
     PairInput,
@@ -28,7 +32,7 @@ except ImportError:
 
 try:
     from torchcodec.decoders import AudioDecoder, VideoDecoder
-except (ImportError, OSError):
+except (ImportError, OSError, RuntimeError):
     AudioDecoder = None  # type: ignore[assignment,misc]
     VideoDecoder = None  # type: ignore[assignment,misc]
 
@@ -42,6 +46,13 @@ KNOWN_MODEL_TYPES_MESSAGE_FORMATS = {
     "gpt_oss": "flat",
     "seed_oss": "flat",
 }
+
+
+# The roles pair_to_messages assigns to the two halves of a pair.
+PAIR_ROLES = ("query", "document")
+# A baseline pair, then one probe per role varying only that role's content. Varied values differ from
+# their baseline in first character and in length, so even a render that truncates hard still moves.
+PAIR_ROLE_PROBES = (("alpha", "bravo"), ("charlie", "bravo"), ("alpha", "foxtrot"))
 
 
 def _looks_like_url(text: str) -> bool:
@@ -91,6 +102,11 @@ def is_audio_url_or_path(text: str) -> bool:
     return _is_media_url_or_path(text, (".mp3", ".wav", ".ogg", ".flac", ".aac"))
 
 
+def is_message_dict(value: Any) -> TypeIs[MessageDict]:
+    """Check if a value is a single chat message: a dict with ``"role"`` and ``"content"`` keys."""
+    return isinstance(value, dict) and "role" in value and "content" in value
+
+
 def _is_non_text_pair(sample: Any) -> bool:
     """Check if a sample is a non-text pair (2-element tuple/list with at least one non-string element).
 
@@ -103,13 +119,29 @@ def _is_non_text_pair(sample: Any) -> bool:
     # Text pairs are handled by infer_modality as "text"
     if isinstance(sample[0], str) and isinstance(sample[1], str):
         return False
-    # Exclude message dicts (role+content) and list-of-message-dicts
+    # Exclude message dicts and list-of-message-dicts
     for elem in sample:
-        if isinstance(elem, dict) and "role" in elem and "content" in elem:
+        if is_message_dict(elem):
             return False
         if isinstance(elem, list) and elem and isinstance(elem[0], dict):
             return False
     return True
+
+
+def _record_sampling_rate(sampling_rate: int, extra_modality_kwargs: dict[str, dict[str, Any]]) -> None:
+    """Record the batch-level ``sampling_rate``, raising if samples disagree.
+
+    Feature extractors accept a single ``sampling_rate`` for the whole batch, so conflicting
+    per-sample rates cannot be honored and would silently process some audio at the wrong rate.
+    """
+    existing = extra_modality_kwargs["audio"].get("sampling_rate")
+    if existing is not None and existing != sampling_rate:
+        raise ValueError(
+            f"This batch mixes audio with different sampling rates ({existing} and {sampling_rate}), but the "
+            "processor accepts a single sampling rate per batch. Resample the audio to a common rate, or "
+            "encode each sampling rate in a separate call."
+        )
+    extra_modality_kwargs["audio"]["sampling_rate"] = sampling_rate
 
 
 def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict[str, Any]]) -> Any:
@@ -119,12 +151,12 @@ def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict
     """
     if isinstance(audio_value, dict):
         if "sampling_rate" in audio_value:
-            extra_modality_kwargs["audio"]["sampling_rate"] = audio_value["sampling_rate"]
+            _record_sampling_rate(audio_value["sampling_rate"], extra_modality_kwargs)
         return audio_value["array"]
     if AudioDecoder is not None and isinstance(audio_value, AudioDecoder):
         samples = audio_value.get_all_samples()
-        # AudioDecoder returns (channels, samples); mean over channels to get 1D numpy
-        extra_modality_kwargs["audio"]["sampling_rate"] = samples.sample_rate
+        # AudioDecoder returns (channels, samples): mean over channels to get 1D numpy
+        _record_sampling_rate(samples.sample_rate, extra_modality_kwargs)
         return samples.data.mean(dim=0).numpy()
     return audio_value
 
@@ -132,15 +164,18 @@ def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict
 def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict[str, Any]]) -> Any:
     """Unwrap dict-wrapped video or a ``VideoDecoder`` into a raw array, collecting ``video_metadata``.
 
-    Passes through unchanged if ``video_value`` is already a raw array/tensor/URL/path.
+    Passes through unchanged if ``video_value`` is already a raw array/tensor/URL/path. Appends one
+    metadata entry per video (``None`` when the sample carries none) so the batch-level list stays
+    index-aligned with the videos. :func:`_reconcile_video_metadata` resolves the ``None`` entries
+    once the whole batch has been parsed.
     """
+    metadata_list = extra_modality_kwargs["video"].setdefault("video_metadata", [])
     if isinstance(video_value, dict):
-        if "video_metadata" in video_value:
-            extra_modality_kwargs["video"].setdefault("video_metadata", []).append(video_value["video_metadata"])
+        metadata_list.append(video_value.get("video_metadata"))
         return video_value["array"]
     if VideoDecoder is not None and isinstance(video_value, VideoDecoder):
         frame_batch = video_value.get_frames_in_range(0, len(video_value))
-        extra_modality_kwargs["video"].setdefault("video_metadata", []).append(
+        metadata_list.append(
             {
                 "fps": video_value.metadata.average_fps,
                 "total_num_frames": video_value.metadata.num_frames,
@@ -149,7 +184,52 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
             }
         )
         return frame_batch.data
+    metadata_list.append(None)
     return video_value
+
+
+def _reconcile_video_metadata(
+    typed_inputs: list[tuple[Modality | Literal["pair"], Any]],
+    extra_modality_kwargs: dict[str, dict[str, Any]],
+) -> None:
+    """Resolve the per-sample video metadata entries collected by :func:`_unwrap_video`.
+
+    If no video in the batch carried metadata, the key is dropped so the processor infers defaults
+    itself. Otherwise every ``None`` entry is filled with the frame count of that video, matching what
+    transformers infers for a metadata-less video. This requires the video to be in memory, so
+    path/URL videos without metadata raise instead, as passing a partial list would attach metadata
+    to the wrong videos.
+    """
+    video_kwargs = extra_modality_kwargs.get("video")
+    if not video_kwargs or "video_metadata" not in video_kwargs:
+        return
+    metadata_list = video_kwargs["video_metadata"]
+    if all(entry is None for entry in metadata_list):
+        del video_kwargs["video_metadata"]
+        if not video_kwargs:
+            del extra_modality_kwargs["video"]
+        return
+    videos = [
+        value["video"] if isinstance(mod, tuple) else value
+        for mod, value in typed_inputs
+        if mod == "video" or (isinstance(mod, tuple) and "video" in mod)
+    ]
+    for index, (entry, video) in enumerate(zip(metadata_list, videos, strict=True)):
+        if entry is not None:
+            continue
+        if isinstance(video, str) or not hasattr(video, "__len__"):
+            raise ValueError(
+                "This batch mixes videos that carry per-sample 'video_metadata' with videos that do not. "
+                "Default metadata can only be inferred for in-memory videos (frame arrays or lists), so "
+                "either pass 'video_metadata' for every video in the batch or for none of them."
+            )
+        num_frames = len(video)
+        metadata_list[index] = {
+            "total_num_frames": num_frames,
+            "fps": None,
+            "duration": None,
+            "frames_indices": list(range(num_frames)),
+        }
 
 
 class InputFormatter:
@@ -190,6 +270,7 @@ class InputFormatter:
         self.model_type = model_type
         self.processor = processor
         self.supported_modalities = supported_modalities
+        self._pair_role_probe: tuple[tuple[Any, dict[str, Any]], str | None] | None = None
         if message_format == "auto":
             self.message_format = self._infer_format(processor) if processor else "structured"
         else:
@@ -231,7 +312,7 @@ class InputFormatter:
 
     def parse_inputs(
         self,
-        inputs: list[SingleInput | PairInput],
+        inputs: Sequence[SingleInput | PairInput],
     ) -> tuple[Modality, dict[str, list], defaultdict[str, dict[str, Any]]]:
         """Parse inputs and group by modality.
 
@@ -299,6 +380,8 @@ class InputFormatter:
 
             typed_inputs.append((modality, value))
 
+        _reconcile_video_metadata(typed_inputs, extra_modality_kwargs)
+
         # Non-text pairs require conversion to message format. When the batch contains any
         # non-text pairs, ALL items must be converted to messages for consistency. Text pairs
         # (str, str) must also go through pair_to_messages so they get query/document roles.
@@ -307,7 +390,7 @@ class InputFormatter:
             for mod, value in typed_inputs:
                 if mod == "pair":
                     messages.append(self.pair_to_messages(value))
-                elif mod == "text" and isinstance(value, (tuple, list)) and len(value) == 2:
+                elif mod == "text" and self.is_text_pair(value):
                     messages.append(self.pair_to_messages(value))
                 elif mod == "message":
                     messages.append(value)
@@ -340,6 +423,59 @@ class InputFormatter:
 
         return modality, processed_inputs, extra_modality_kwargs
 
+    def pair_roles_failure(self, chat_template_kwargs: dict[str, Any] | None = None) -> str | None:
+        """Why the chat template cannot carry a ``query``/``document`` pair, or None when it can.
+
+        Decided by rendering probe pairs and diffing the outputs, never by reading the template source:
+        templates can pass roles through without naming them (ChatML) or name them in branches a pair
+        never reaches, and may transform content beyond recognition, so only a render that fails to move
+        with its input proves the content goes nowhere. A template that raises is reported with the
+        exception instead. The verdict is cached against a snapshot of the template and kwargs, so
+        fixing either on a loaded model takes effect, which is the documented remedy.
+
+        Args:
+            chat_template_kwargs: The ``apply_chat_template`` kwargs the real render passes. These can
+                select between named templates, so the probe must render with them.
+        """
+        template = getattr(self.processor, "chat_template", None)
+        if template is None:
+            return "the model has no chat template"
+        chat_template_kwargs = chat_template_kwargs or {}
+        key = (template, chat_template_kwargs)
+        if self._pair_role_probe is not None and self._pair_role_probe[0] == key:
+            return self._pair_role_probe[1]
+
+        try:
+            base, *varied = [
+                str(
+                    self.processor.apply_chat_template(
+                        self.pair_to_messages(pair), tokenize=False, **chat_template_kwargs
+                    )
+                )
+                for pair in PAIR_ROLE_PROBES
+            ]
+        except Exception as exc:
+            failure = f"it raised {type(exc).__name__}: {exc}"
+        else:
+            dropped = [role for role, render in zip(PAIR_ROLES, varied) if render == base]
+            if dropped:
+                roles = " and ".join(repr(role) for role in dropped)
+                failure = f"the {roles} content does not reach the rendered prompt"
+            else:
+                failure = None
+        logger.debug(f"Pair-role probe for the chat template: {failure or 'pair content survives'}")
+        self._pair_role_probe = (copy.deepcopy(key), failure)
+        return failure
+
+    def has_pair_roles(self, messages_batch: list[list[dict[str, Any]]]) -> bool:
+        """Whether any conversation in a batch carries both of the ``query``/``document`` pair roles.
+
+        Anchored on produced messages so both routes into :meth:`pair_to_messages` are covered, and
+        requiring both roles keeps hand-written single-role messages outside a check about pairs.
+        """
+        pair_roles = set(PAIR_ROLES)
+        return any(pair_roles <= {message.get("role") for message in messages} for messages in messages_batch)
+
     def pair_to_messages(self, pair: tuple | list) -> list[dict[str, Any]]:
         """Convert a pair of inputs to query/document message format.
 
@@ -353,14 +489,15 @@ class InputFormatter:
         Returns:
             List of two message dictionaries with ``"query"`` and ``"document"`` roles.
         """
+        query_role, doc_role = PAIR_ROLES
         query_item, doc_item = pair
         query_modality = infer_modality(query_item)
         doc_modality = infer_modality(doc_item)
 
         if self.message_format == "flat":
             return [
-                {"role": "query", "content": query_item},
-                {"role": "document", "content": doc_item},
+                {"role": query_role, "content": query_item},
+                {"role": doc_role, "content": doc_item},
             ]
 
         def _to_content(modality, item):
@@ -374,8 +511,8 @@ class InputFormatter:
             return [{"type": modality, modality: item}]
 
         return [
-            {"role": "query", "content": _to_content(query_modality, query_item)},
-            {"role": "document", "content": _to_content(doc_modality, doc_item)},
+            {"role": query_role, "content": _to_content(query_modality, query_item)},
+            {"role": doc_role, "content": _to_content(doc_modality, doc_item)},
         ]
 
     def to_message(self, typed_input: dict[Modality, Any], role: str = "user") -> list[dict[str, Any]]:
@@ -431,16 +568,16 @@ class InputFormatter:
             # Text pairs (e.g. ("query", "document")) are routed to pair_to_messages instead
             if len(typed_input) == 1:
                 mod, value = next(iter(typed_input.items()))
-                if (
-                    mod == "text"
-                    and isinstance(value, (tuple, list))
-                    and len(value) == 2
-                    and all(isinstance(v, str) for v in value)
-                ):
+                if mod == "text" and self.is_text_pair(value):
                     messages.append(self.pair_to_messages(value))
                     continue
             messages.append(self.to_message(typed_input))  # type: ignore[arg-type]
         return "message", {"message": messages}
+
+    @staticmethod
+    def is_text_pair(value: Any) -> bool:
+        """Whether a single input is a text pair, i.e. cross-encoder ``(query, document)`` input."""
+        return isinstance(value, (tuple, list)) and len(value) == 2 and all(isinstance(part, str) for part in value)
 
     @staticmethod
     def is_text_only_messages(messages_batch: list[list[dict[str, Any]]]) -> bool:
@@ -596,9 +733,9 @@ def infer_modality(
             return "audio"
         case str() | (str(), str()) | [str(), str()]:
             return "text"
-        case dict() if "role" in sample and "content" in sample:
+        case dict() if is_message_dict(sample):
             return "message"
-        case list() if sample and isinstance(sample[0], dict) and "role" in sample[0] and "content" in sample[0]:
+        case list() if sample and is_message_dict(sample[0]):
             return "message"
         case dict() if "array" in sample and "sampling_rate" in sample:
             return "audio"
@@ -662,7 +799,7 @@ def infer_modality(
 
 
 def infer_batch_modality(
-    samples: list[SingleInput | PairInput],
+    samples: Sequence[SingleInput | PairInput],
     supported_modalities: list[Modality] | None = None,
 ) -> Modality:
     """Infer the modality of a batch of input samples.
@@ -693,7 +830,7 @@ def format_modality(modality: Modality) -> str:
 
 
 def raise_unsupported_modality_error(
-    inputs: list[SingleInput | PairInput],
+    inputs: Sequence[SingleInput | PairInput],
     modality: Modality,
     supported_modalities: list[Modality],
     source: str,
@@ -735,7 +872,7 @@ def raise_unsupported_modality_error(
             )
         if "message" in sample_modalities:
             # Chat-style inputs are mixed with other inputs. Since this source does not support the
-            # message format, the chat-style inputs are the blocking issue; report that rather than
+            # message format, the chat-style inputs are the blocking issue. Report that rather than
             # listing "message" as if it were a content modality alongside text/image/audio.
             raise ValueError(
                 f"This {source} does not support chat-style 'message' inputs (dicts or lists of dicts with 'role' and "

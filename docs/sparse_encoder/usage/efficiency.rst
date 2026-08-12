@@ -79,6 +79,28 @@ If you're using a GPU, then you can use the following options to speed up your i
       sentences = ["This is an example sentence", "Each sentence is converted"]
       embeddings = model.encode(sentences)
 
+.. tab:: Flash Attention
+
+   `Flash Attention <https://github.com/Dao-AILab/flash-attention>`_ can be enabled by specifying
+   ``attn_implementation="flash_attention_2"`` in ``model_kwargs`` (installable via ``pip install kernels`` or
+   ``pip install flash-attn``). Sparse Encoders support automatic input unpadding: text batches are concatenated
+   into a single sequence, the masked language modelling head runs on it without padding waste, and
+   :class:`~sentence_transformers.sparse_encoder.modules.SpladePooling` pools each sequence's segment directly
+   from the flat logits.
+
+   .. code-block:: python
+
+      from sentence_transformers import SparseEncoder
+
+      model = SparseEncoder(
+          "naver/splade-v3",
+          model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": "float16"},
+      )
+
+   In our benchmarks below, Flash Attention with unpadding comes close to plain fp16 (2.3 to 2.4x over fp32
+   against 2.5x, comparing each backend at its best batch size) and wins in some mid-batch regimes on
+   variable-length data, but plain fp16 remains the simplest and overall fastest option for Sparse Encoders.
+
 .. tab:: torch.compile
 
    :meth:`model.compile() <sentence_transformers.base.model.BaseModel.compile>` wraps the model's forward pass with
@@ -461,7 +483,7 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
 Benchmarks
 ----------
 
-The following images show the benchmark results for the different backends on GPUs and CPUs. The results are averaged across 3 datasets and numerous batch sizes.
+The following images show the benchmark results for the different backends on GPUs and CPUs. Each backend runs at its best batch size per model and dataset, and the bars show the median speedup over PyTorch fp32 across those combinations.
 
 .. raw:: html
 
@@ -472,7 +494,10 @@ The following images show the benchmark results for the different backends on GP
    Speedup ratio:
    <ul>
       <li>
-         <b>Hardware: </b>RTX 3090 GPU, i7-17300K CPU
+         <b>Batch sizes: </b>each backend is measured at increasing batch sizes until its throughput declines or memory is exceeded, and the ratios compare peak against peak. Columns still climbing at the largest measured batch size (mainly the Flash Attention ones) are shown conservatively.
+      </li>
+      <li>
+         <b>Hardware: </b>RTX 3090 GPU, i7-13700K CPU. The GPU results were re-measured in July 2026 under WSL2 (Linux) with torch 2.12 to add the Flash Attention backends. The CPU results are from the original benchmark. Ratios are only comparable within one figure: the Linux re-measurement made the fp32 baseline itself faster for small models, which compresses their speedup ratios relative to the original figures.
       </li>
       <li>
          <b>Datasets: </b> 2000 samples for GPU tests, 1000 samples for CPU tests.
@@ -492,7 +517,7 @@ The following images show the benchmark results for the different backends on GP
          <b>Model: </b>
          <ul>
             <li>
-               <a href="https://huggingface.co/naver/splade-v3">naver/splade-v3</a>: 110M parameters; batch sizes of 8, 16, 32, and 64.
+               <a href="https://huggingface.co/naver/splade-v3">naver/splade-v3</a>: 110M parameters. Batch sizes of 8, 16, 32, and 64.
             </li>
          </ul>
       </li>
@@ -525,6 +550,9 @@ The following images show the benchmark results for the different backends on GP
                <code>torch-bf16</code>: PyTorch with bfloat16 precision, via <code>model_kwargs={"torch_dtype": "bfloat16"}</code>.
             </li>
             <li>
+               <code>torch-fp16-fa2</code> and <code>torch-bf16-fa2</code>: half precision with FlashAttention-2 and automatic input unpadding, via <code>model_kwargs={"torch_dtype": ..., "attn_implementation": "flash_attention_2"}</code>.
+            </li>
+            <li>
                <code>onnx</code>: ONNX with float32 precision, via <code>backend="onnx"</code>.
             </li>
             <li>
@@ -552,7 +580,7 @@ The following images show the benchmark results for the different backends on GP
       </li>
    </ul>
 
-   Note that the aggressive averaging across models, datasets, and batch sizes prevents some more intricate patterns from being visible. For example, for both GPUs and CPUs, the <a href="https://huggingface.co/ibm-granite/granite-embedding-30m-sparse">ibm-granite/granite-embedding-30m-sparse</a> model benefits less from various backends than larger models. For example, fp16 and bf16 on GPUs only results in a 1.4x speedup on average.
+   Note that the aggressive averaging across models, datasets, and batch sizes prevents some more intricate patterns from being visible. For example, for both GPUs and CPUs, the <a href="https://huggingface.co/ibm-granite/granite-embedding-30m-sparse">ibm-granite/granite-embedding-30m-sparse</a> model benefits less from various backends than larger models: on the Linux re-measurement it is bound by tokenization and dispatch overhead, so fp16 and bf16 provide no speedup on it at all. The Flash Attention backends with input unpadding come close to plain fp16 but do not beat it overall, so fp16 remains the recommended GPU option for Sparse Encoders. On CPU, half precision must be avoided altogether: torch-fp16 and torch-bf16 run at 0.16x to 0.20x.
 
    </details>
    <br>
@@ -580,20 +608,12 @@ Based on the benchmarks, this flowchart should help you decide which backend to 
       }
    }}%%
    graph TD
-   A(What is your hardware?) -->|GPU| B("Are you using a<br>batch size of <= 4?")
+   A("What is your hardware?") -->|GPU| F[float16]
    A -->|CPU| C("Are minor performance<br>degradations acceptable?")
-   B -->|yes| D[onnx-O4]
-   B -->|no| F[bfloat16]
    C -->|yes| G[openvino-qint8]
-   C -->|no| H(Do you have an Intel CPU?)
-   H -->|yes| I[openvino]
-   I -->|or| J[onnx-O3]
-   H -->|no| K[onnx-O3]
-   click D "#optimizing-onnx-models"
+   C -->|no| K[onnx-O3]
    click F "#pytorch"
    click G "#quantizing-openvino-models"
-   click I "#openvino"
-   click J "#optimizing-onnx-models"
    click K "#optimizing-onnx-models"
 
 .. note::

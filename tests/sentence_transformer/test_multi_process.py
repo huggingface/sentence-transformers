@@ -109,6 +109,29 @@ def test_multi_process_with_args(stsb_bert_tiny_model: SentenceTransformer):
 
 
 @pytest.mark.slow
+def test_multi_process_int8_matches_single_process(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """int8/uint8 calibration ranges are computed from the batch: quantizing per worker chunk would
+    give different buckets, so the pool path must quantize once after merging."""
+    model = stsb_bert_tiny_model
+    texts = [f"This is sentence number {i}, about topic {i % 3}." for i in range(16)]
+
+    direct = model.encode(texts, precision="int8")
+    # chunk_size=4 forces multiple chunks per worker, so per-chunk calibration would show up.
+    pooled = model.encode(texts, precision="int8", device=["cpu"] * 2, chunk_size=4)
+
+    assert isinstance(pooled, np.ndarray)
+    assert pooled.dtype == direct.dtype
+    # Chunking changes batch composition, so values on a bucket edge can flip by 1 from float
+    # rounding. Per-chunk calibration (the bug this guards against) is off by many buckets.
+    assert np.abs(direct.astype(np.int64) - pooled.astype(np.int64)).max() <= 1
+
+    # quantize_embeddings returns numpy: the requested tensor output must be restored.
+    pooled_tensor = model.encode(texts, precision="int8", device=["cpu"] * 2, chunk_size=4, convert_to_tensor=True)
+    assert isinstance(pooled_tensor, torch.Tensor)
+    assert pooled_tensor.dtype == torch.int8
+
+
+@pytest.mark.slow
 def test_multi_process_output_values(stsb_bert_tiny_model: SentenceTransformer):
     # Test that different output_value options work with multi-process
     model = stsb_bert_tiny_model

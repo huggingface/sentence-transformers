@@ -20,7 +20,7 @@ To train on NLI, see the following example files:
    ```
 1. **[training_nli_angle.py](training_nli_angle.py)**
    ```{eval-rst}
-   This example uses :class:`~sentence_transformers.losses.AnglELoss` on the `triplet subset of AllNLI <https://huggingface.co/datasets/sentence-transformers/all-nli/viewer/triplet>`_. Each example consists of (premise, entailment, contradiction), where the entailment sentence is treated as a positive and the contradiction sentence as a hard negative. Internally, :class:`~sentence_transformers.losses.AnglELoss` converts these triplets (and more generally, n-tuples of the form (anchor, positive, negative_1, ..., negative_n)) into pairwise comparisons so that the anchor–positive pairs are ranked above the anchor–negative pairs.
+   This example uses :class:`~sentence_transformers.sentence_transformer.losses.AnglELoss` on the `triplet subset of AllNLI <https://huggingface.co/datasets/sentence-transformers/all-nli/viewer/triplet>`_. Each example consists of (premise, entailment, contradiction), where the entailment sentence is treated as a positive and the contradiction sentence as a hard negative. Internally, :class:`~sentence_transformers.sentence_transformer.losses.AnglELoss` converts these triplets (and more generally, n-tuples of the form (anchor, positive, negative_1, ..., negative_n)) into pairwise comparisons so that the anchor–positive pairs are ranked above the anchor–negative pairs.
    ```
 
 ```{eval-rst}

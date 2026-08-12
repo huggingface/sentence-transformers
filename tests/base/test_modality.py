@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from jinja2 import Environment
 from PIL import Image
 
 from sentence_transformers.base.modality import (
@@ -15,6 +16,7 @@ from sentence_transformers.base.modality import (
     is_video_url_or_path,
 )
 from sentence_transformers.base.modality_types import MODALITY_TO_PROCESSOR_ARG
+from tests.utils import GENERIC_INSTRUCT_TEMPLATE, RERANKER_TEMPLATE
 
 
 class TestIsImageUrlOrPath:
@@ -605,6 +607,64 @@ class TestParseInputs:
         assert modality == "video"
         assert len(inputs["video"]) == 2
         assert extra["video"]["video_metadata"] == [{"fps": 30}, {"fps": 24}]
+
+    def test_video_metadata_stays_aligned_when_mixing_wrapped_and_raw(self):
+        """A raw video before a dict-wrapped one must not shift the metadata onto the wrong video.
+
+        https://github.com/huggingface/sentence-transformers/issues/3874
+        """
+        raw = np.zeros((4, 3, 8, 8))
+        wrapped = {"array": np.ones((6, 3, 8, 8)), "video_metadata": {"fps": 15, "total_num_frames": 6}}
+        modality, inputs, extra = self.fmt.parse_inputs([raw, wrapped])
+        assert modality == "video"
+        assert len(inputs["video"]) == 2
+        metadata = extra["video"]["video_metadata"]
+        assert len(metadata) == 2
+        # The raw video gets inferred defaults, mirroring what transformers builds without metadata
+        assert metadata[0]["total_num_frames"] == 4
+        assert metadata[0]["fps"] is None
+        assert metadata[0]["frames_indices"] == [0, 1, 2, 3]
+        # The explicit metadata stays with the video it was attached to
+        assert metadata[1] == {"fps": 15, "total_num_frames": 6}
+
+    def test_video_metadata_filled_for_frame_list_video(self):
+        frames = [np.zeros((3, 8, 8)) for _ in range(4)]
+        wrapped = {"array": np.ones((6, 3, 8, 8)), "video_metadata": {"fps": 15, "total_num_frames": 6}}
+        modality, inputs, extra = self.fmt.parse_inputs([{"video": frames}, wrapped])
+        assert modality == "video"
+        metadata = extra["video"]["video_metadata"]
+        assert metadata[0]["total_num_frames"] == 4
+        assert metadata[0]["frames_indices"] == [0, 1, 2, 3]
+        assert metadata[1] == {"fps": 15, "total_num_frames": 6}
+
+    def test_video_metadata_key_dropped_when_no_sample_carries_it(self):
+        samples = [np.zeros((8, 3, 224, 224)), np.zeros((8, 3, 224, 224))]
+        modality, inputs, extra = self.fmt.parse_inputs(samples)
+        assert modality == "video"
+        assert dict(extra) == {}
+
+    def test_video_metadata_with_metadata_less_path_raises(self):
+        wrapped = {"array": np.ones((4, 3, 8, 8)), "video_metadata": {"fps": 15, "total_num_frames": 4}}
+        with pytest.raises(ValueError, match="every video"):
+            self.fmt.parse_inputs(["https://example.com/a.mp4", wrapped])
+
+    def test_conflicting_sampling_rates_raise(self):
+        """https://github.com/huggingface/sentence-transformers/issues/3874"""
+        audio_dicts = [
+            {"array": np.zeros(1600), "sampling_rate": 16000},
+            {"array": np.zeros(4410), "sampling_rate": 44100},
+        ]
+        with pytest.raises(ValueError, match="sampling rates"):
+            self.fmt.parse_inputs(audio_dicts)
+
+    def test_matching_sampling_rates_do_not_raise(self):
+        audio_dicts = [
+            {"array": np.zeros(1600), "sampling_rate": 16000},
+            {"array": np.zeros(3200), "sampling_rate": 16000},
+        ]
+        modality, inputs, extra = self.fmt.parse_inputs(audio_dicts)
+        assert modality == "audio"
+        assert extra["audio"]["sampling_rate"] == 16000
 
     def test_message_dict_inputs(self):
         messages = [
@@ -1231,3 +1291,157 @@ class TestIsTextOnlyMessages:
             ]
         ]
         assert InputFormatter.is_text_only_messages(batch) is True
+
+
+class FakeProcessor:
+    """Minimal stand-in exposing the two attributes the pair-role probe touches."""
+
+    def __init__(self, chat_template):
+        self.chat_template = chat_template
+
+    def apply_chat_template(self, messages, tokenize=False, chat_template=None, **kwargs):
+        template = self.chat_template
+        if isinstance(template, dict):
+            template = template[chat_template or "default"]
+        return Environment().from_string(template).render(messages=messages, **kwargs)
+
+
+class TestPairRolesFailure:
+    @pytest.mark.parametrize(
+        ("template", "supported"),
+        [
+            # Reranker templates select on both roles, either via a filter or a branch
+            (RERANKER_TEMPLATE, True),
+            (
+                "{% for m in messages %}{% if m.role == 'query' %}Q{{ m.content }}"
+                "{% elif m.role == 'document' %}D{{ m.content }}{% endif %}{% endfor %}",
+                True,
+            ),
+            # Never mentions the roles yet passes both through, as ChatML templates do
+            ("{% for m in messages %}{{ m.role }}: {{ m.content }}{% endfor %}", True),
+            # Addresses the pair positionally rather than by role name
+            ("Q: {{ messages[0].content }}\nD: {{ messages[1].content }}", True),
+            ("{% for m in messages %}{{ m.content }}\n{% endfor %}", True),
+            # Mentions both roles, but only in a branch a pair never reaches
+            (
+                "{% for m in messages %}{% if m.role == 'user' %}{{ m.content }}"
+                "{% elif m.role == 'query' or m.role == 'document' %}{% endif %}{% endfor %}",
+                False,
+            ),
+            # Half a pair is no better than none, the other side is still dropped
+            ("{% for m in messages %}{% if m.role == 'query' %}{{ m.content }}{% endif %}{% endfor %}", False),
+            (GENERIC_INSTRUCT_TEMPLATE, False),
+            # Anything unrenderable is treated as unable to carry a pair
+            ("{% for m in messages %}{{ m.content }}", False),
+            ("{{ nope.missing.attribute }}", False),
+            (None, False),
+        ],
+    )
+    def test_detection(self, template, supported):
+        assert (InputFormatter("bert", processor=FakeProcessor(template)).pair_roles_failure() is None) is supported
+
+    @pytest.mark.parametrize(
+        "filter_expression",
+        ["| upper", "| capitalize", "| truncate(10)", "| wordwrap(4)", "| replace('a', 'z')", "| trim", "[:8]"],
+    )
+    def test_transformed_content_still_counts_as_rendered(self, filter_expression):
+        """A template may reshape what it renders, and the content still reaches the model."""
+        template = "{% for m in messages %}{{ m.content " + filter_expression + " }}\n{% endfor %}"
+        assert InputFormatter("bert", processor=FakeProcessor(template)).pair_roles_failure() is None
+
+    def test_probe_covers_structured_message_format(self):
+        """Structured-format processors probe through typed content items rather than plain strings."""
+        pass_through = "{% for m in messages %}{{ m.content[0].text }}\n{% endfor %}"
+        formatter = InputFormatter("bert", processor=FakeProcessor(pass_through))
+        assert formatter.message_format == "structured"
+        assert formatter.pair_roles_failure() is None
+
+        user_only = "{% for m in messages %}{% if m.role == 'user' %}{{ m.content[0].text }}{% endif %}{% endfor %}"
+        formatter = InputFormatter("bert", processor=FakeProcessor(user_only))
+        assert formatter.message_format == "structured"
+        assert formatter.pair_roles_failure() is not None
+
+    def test_probe_uses_the_render_kwargs(self):
+        """Kwargs can select a named template, so the probe must measure the one the render uses.
+
+        Qwen3-VL-Reranker ships a ``reranker`` template next to a ``default`` that drops the pair
+        roles, selected through its configured ``processing_kwargs``.
+        """
+        processor = FakeProcessor({"default": GENERIC_INSTRUCT_TEMPLATE, "reranker": RERANKER_TEMPLATE})
+        formatter = InputFormatter("bert", processor=processor)
+        assert formatter.pair_roles_failure() is not None
+        assert formatter.pair_roles_failure({"chat_template": "reranker"}) is None
+        # Verdicts for different kwargs must not serve each other from the cache
+        assert formatter.pair_roles_failure() is not None
+
+    def test_failure_names_the_half_that_is_dropped(self):
+        query_only = "{% for m in messages %}{% if m.role == 'query' %}{{ m.content }}{% endif %}{% endfor %}"
+        assert "'document' content" in InputFormatter("bert", processor=FakeProcessor(query_only)).pair_roles_failure()
+
+        both = InputFormatter("bert", processor=FakeProcessor(GENERIC_INSTRUCT_TEMPLATE))
+        assert "'query' and 'document' content" in both.pair_roles_failure()
+
+    def test_probe_is_rendered_lazily(self):
+        """A template assigned after construction must still be picked up."""
+        processor = FakeProcessor(GENERIC_INSTRUCT_TEMPLATE)
+        formatter = InputFormatter("bert", processor=processor)
+        processor.chat_template = "{% for m in messages %}{{ m.content }}{% endfor %}"
+        assert formatter.pair_roles_failure() is None
+
+    def test_probe_reruns_after_a_rejected_template_is_replaced(self):
+        """Replacing a rejected template is the documented remedy, so a stale verdict must not pin it."""
+        processor = FakeProcessor(GENERIC_INSTRUCT_TEMPLATE)
+        formatter = InputFormatter("bert", processor=processor)
+        assert formatter.pair_roles_failure() is not None
+
+        processor.chat_template = "{% for m in messages %}{{ m.content }}{% endfor %}"
+        assert formatter.pair_roles_failure() is None
+
+    def test_probe_reruns_after_a_named_template_is_edited_in_place(self):
+        """Fixing one entry of a named-template dict edits it in place, and must not hit a stale verdict."""
+        processor = FakeProcessor({"default": GENERIC_INSTRUCT_TEMPLATE})
+        formatter = InputFormatter("bert", processor=processor)
+        assert formatter.pair_roles_failure() is not None
+
+        processor.chat_template["default"] = "{% for m in messages %}{{ m.content }}{% endfor %}"
+        assert formatter.pair_roles_failure() is None
+
+    def test_failure_distinguishes_an_empty_render_from_a_raise(self):
+        dropped = InputFormatter("bert", processor=FakeProcessor(GENERIC_INSTRUCT_TEMPLATE))
+        assert "does not reach the rendered prompt" in dropped.pair_roles_failure()
+
+        raised = InputFormatter("bert", processor=FakeProcessor("{{ nope() }}"))
+        assert "it raised" in raised.pair_roles_failure()
+
+        assert InputFormatter("bert").pair_roles_failure() == "the model has no chat template"
+        assert InputFormatter("bert", processor=FakeProcessor(RERANKER_TEMPLATE)).pair_roles_failure() is None
+
+
+class TestHasPairRoles:
+    @pytest.mark.parametrize(
+        ("messages_batch", "expected"),
+        [
+            ([[{"role": "query", "content": "q"}, {"role": "document", "content": "d"}]], True),
+            # One pair anywhere in the batch is enough, its content would be dropped just the same
+            (
+                [
+                    [{"role": "user", "content": "hi"}],
+                    [{"role": "query", "content": "q"}, {"role": "document", "content": "d"}],
+                ],
+                True,
+            ),
+            # One pair role alone is not a pair, e.g. a hand-written query message with no document
+            ([[{"role": "query", "content": "q"}]], False),
+            ([[{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}]], False),
+            ([[{"content": "no role at all"}]], False),
+            ([], False),
+        ],
+    )
+    def test_batches(self, messages_batch, expected):
+        assert InputFormatter("bert").has_pair_roles(messages_batch) is expected
+
+    def test_covers_non_text_pairs(self):
+        """Non-text pairs reach pair_to_messages by a different route, but take the same roles."""
+        formatter = InputFormatter("bert")
+        messages = formatter.pair_to_messages((Image.new("RGB", (4, 4)), "a document"))
+        assert formatter.has_pair_roles([messages]) is True

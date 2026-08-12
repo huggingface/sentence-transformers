@@ -1,15 +1,15 @@
 
 .. tip::
 
-   Sentence Transformers v5.5 recently released, introducing the `train-sentence-transformers <https://github.com/huggingface/sentence-transformers/tree/main/skills>`_ Agent Skill. Using an AI coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...)? Install it via ``hf skills add train-sentence-transformers [--global] [--claude]`` and ask your agent to train or finetune an embedding, reranker, or sparse encoder model on your data. See the `v5.5.0 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.5.0>`_ for more details.
+   Sentence Transformers v5.5 recently released, introducing the `train-sentence-transformers <https://github.com/huggingface/sentence-transformers/tree/main/skills>`_ Agent Skill. Using an AI coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...)? Install it via ``hf skills add train-sentence-transformers [--global] [--claude]`` and ask your agent to train or finetune an embedding, reranker, sparse encoder, or multi-vector encoder model on your data. See the `v5.5.0 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.5.0>`_ for more details.
 
 SentenceTransformers Documentation
 ==================================
 
 Sentence Transformers (a.k.a. SBERT) is the go-to Python module for using and training state-of-the-art embedding and reranker models.
-It can be used to compute embeddings from text, images, audio, or video using Sentence Transformer models (`quickstart <docs/quickstart.html#sentence-transformer>`__), to calculate similarity scores using Cross-Encoder (a.k.a. reranker) models (`quickstart <docs/quickstart.html#cross-encoder>`__), or to generate sparse embeddings using Sparse Encoder models (`quickstart <docs/quickstart.html#sparse-encoder>`__). This unlocks a wide range of applications, including `semantic search <examples/sentence_transformer/applications/semantic-search/README.html>`_, `semantic textual similarity <docs/sentence_transformer/usage/semantic_textual_similarity.html>`_, and `paraphrase mining <examples/sentence_transformer/applications/paraphrase-mining/README.html>`_.
+It can be used to compute embeddings from text, images, audio, or video using Sentence Transformer models (`quickstart <docs/quickstart.html#sentence-transformer>`__), to calculate similarity scores using Cross-Encoder (a.k.a. reranker) models (`quickstart <docs/quickstart.html#cross-encoder>`__), to generate sparse embeddings using Sparse Encoder models (`quickstart <docs/quickstart.html#sparse-encoder>`__), or to compute token-level embeddings for ColBERT-style late-interaction retrieval using Multi-Vector Encoder models (`quickstart <docs/quickstart.html#multi-vector-encoder>`__). This unlocks a wide range of applications, including `semantic search <examples/sentence_transformer/applications/semantic-search/README.html>`_, `semantic textual similarity <docs/sentence_transformer/usage/semantic_textual_similarity.html>`_, and `paraphrase mining <examples/sentence_transformer/applications/paraphrase-mining/README.html>`_.
 
-A wide selection of over `10,000 pre-trained Sentence Transformers models <https://huggingface.co/models?library=sentence-transformers>`_ are available for immediate use on 🤗 Hugging Face, including many of the state-of-the-art models from the `Massive Text Embeddings Benchmark (MTEB) leaderboard <https://huggingface.co/spaces/mteb/leaderboard>`_. Additionally, it is easy to train or finetune your own `embedding models <docs/sentence_transformer/training_overview.html>`_, `reranker models <docs/cross_encoder/training_overview.html>`_, or `sparse encoder models <docs/sparse_encoder/training_overview.html>`_ using Sentence Transformers, enabling you to create custom models for your specific use cases.
+A wide selection of over `25,000 pre-trained Sentence Transformers models <https://huggingface.co/models?library=sentence-transformers>`_ are available for immediate use on 🤗 Hugging Face, including many of the state-of-the-art models from the `Massive Text Embeddings Benchmark (MTEB) leaderboard <https://huggingface.co/spaces/mteb/leaderboard>`_. Additionally, it is easy to train or finetune your own `embedding models <docs/sentence_transformer/training_overview.html>`_, `reranker models <docs/cross_encoder/training_overview.html>`_, `sparse encoder models <docs/sparse_encoder/training_overview.html>`_, or `multi-vector encoder models <docs/multi_vector_encoder/training_overview.html>`_ using Sentence Transformers, enabling you to create custom models for your specific use cases.
 
 Sentence Transformers was created by `UKP Lab <http://www.ukp.tu-darmstadt.de/>`_ and is being maintained by `🤗 Hugging Face <https://huggingface.co>`_. Don't hesitate to open an issue on the `Sentence Transformers repository <https://github.com/huggingface/sentence-transformers>`_ if something is broken or if you have further questions.
 
@@ -196,7 +196,34 @@ Working with Sentence Transformer models is straightforward:
       stats = SparseEncoder.sparsity(embeddings)
       print(f"Sparsity: {stats['sparsity_ratio']:.2%}")
       # Sparsity: 99.84%
-   
+
+.. tab:: Multi-Vector Encoder Models
+
+   .. code-block:: python
+
+      from sentence_transformers import MultiVectorEncoder
+
+      # 1. Load a pretrained MultiVectorEncoder model
+      model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+
+      queries = ["What is the capital of France?"]
+      documents = [
+          "Paris is the capital of France.",
+          "Berlin is the capital of Germany.",
+      ]
+
+      # 2. Encode queries and documents (note the asymmetric encode_query / encode_document split)
+      query_embeddings = model.encode_query(queries)
+      document_embeddings = model.encode_document(documents)
+
+      # Each entry is a 2D array of shape (num_tokens_i, embedding_dim), variable-length per input.
+      print(query_embeddings[0].shape)  # e.g. (32, 128)
+
+      # 3. Score with MaxSim
+      scores = model.similarity(query_embeddings, document_embeddings)
+      print(scores)
+      # tensor([[16.6394, 13.3328]])
+
 What Next?
 ==========
 
@@ -218,6 +245,11 @@ Consider reading one of the following sections to answer the related questions:
    * How do I make Sparse Encoder models **faster**? `Sparse Encoder > Usage > Speeding up Inference <docs/sparse_encoder/usage/efficiency.html>`_
    * How do I **train/finetune** a Sparse Encoder model? `Sparse Encoder > Training Overview <docs/sparse_encoder/training_overview.html>`_
    * How do I **integrate** Sparse Encoder models with search engines? `Sparse Encoder > Vector Database Integration <examples/sparse_encoder/applications/semantic_search/README.html#vector-database-search>`_
+* Multi-Vector Encoder Models:
+   * How to **use** Multi-Vector Encoder models? `Multi-Vector Encoder > Usage <docs/multi_vector_encoder/usage/usage.html>`_
+   * What Multi-Vector Encoder **models** can I use? `Multi-Vector Encoder > Pretrained Models <docs/multi_vector_encoder/pretrained_models.html>`_
+   * How do I make Multi-Vector Encoder models **faster**? `Multi-Vector Encoder > Usage > Speeding up Inference <docs/multi_vector_encoder/usage/efficiency.html>`_
+   * How do I **train/finetune** a Multi-Vector Encoder model? `Multi-Vector Encoder > Training Overview <docs/multi_vector_encoder/training_overview.html>`_
 
 Companion Blog Posts
 ====================
@@ -340,6 +372,18 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/sparse_encoder/training/examples
 
 .. toctree::
+   :maxdepth: 2
+   :caption: Multi-Vector Encoder
+   :hidden:
+
+   docs/multi_vector_encoder/usage/usage
+   docs/multi_vector_encoder/pretrained_models
+   docs/multi_vector_encoder/training_overview
+   docs/sentence_transformer/dataset_overview
+   docs/multi_vector_encoder/loss_overview
+   docs/multi_vector_encoder/training/examples
+
+.. toctree::
    :maxdepth: 3
    :caption: Package Reference
    :glob:
@@ -348,5 +392,6 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/package_reference/sentence_transformer/index
    docs/package_reference/cross_encoder/index
    docs/package_reference/sparse_encoder/index
+   docs/package_reference/multi_vector_encoder/index
    docs/package_reference/base/index
    docs/package_reference/util/index

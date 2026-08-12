@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import pickle
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from collections.abc import Iterator
@@ -282,7 +284,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         for sample_idx, label in enumerate(labels):
             groups[label].append(sample_idx)
 
-        # Keep labels with >= 2 samples; trim each to an even count so every
+        # Keep labels with >= 2 samples. Trim each to an even count so every
         # label contributes complete pairs in the interleaving.
         self.groups = {
             label: indices[: len(indices) // 2 * 2] for label, indices in groups.items() if len(indices) >= 2
@@ -318,7 +320,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
             perm = torch.randperm(len(indices), generator=self.generator)
             queues[label] = deque(indices[i] for i in perm)
 
-        # Round-robin: each label emits 2 samples per round; stop when < 2 labels remain.
+        # Round-robin: each label emits 2 samples per round. Stop when < 2 labels remain.
         # The label visit order is reshuffled every round for diverse batches.
         remaining_labels = list(queues)
         batch: list[int] = []
@@ -345,6 +347,33 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         return n
 
 
+_PLAIN_VALUE_TYPES = (str, int, float, bool, bytes, type(None), np.integer, np.floating, np.bool_)
+
+
+def _sample_value_str(value: Any) -> str:
+    # Plain python values keep their exact str(), the historical dedup key. Other objects (PIL
+    # images, audio arrays, media decoders) often embed a memory address in str(), fresh on every
+    # dataset access, so their pickled content is digested instead. Values that fail to pickle
+    # fall back to str() and simply never match, as before.
+    if isinstance(value, _PLAIN_VALUE_TYPES):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        if all(isinstance(item, _PLAIN_VALUE_TYPES) for item in value):
+            return str(value)
+        return "[" + ", ".join(_sample_value_str(item) for item in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{key!r}: {_sample_value_str(item)}" for key, item in value.items()) + "}"
+    # Audio / Video decoders pickle a torch storage key taken from the object address, fresh on
+    # every access. They carry the encoded source datasets itself re-encodes from, so digest that.
+    encoded = getattr(value, "_hf_encoded", None)
+    if encoded is not None:
+        value = encoded
+    try:
+        return hashlib.sha256(pickle.dumps(value)).hexdigest()
+    except Exception:
+        return str(value)
+
+
 def _xxhash_int64(value: str) -> int:
     # Convert uint64 -> int64 to keep values compatible with Arrow int64 storage.
     hashed = xxhash.xxh64_intdigest(value)
@@ -369,7 +398,7 @@ def _hash_batch(
             value = batch[column][row_idx]
             # Keep semantics aligned with the non-hash path, which compares
             # stringified per-column values (including list values as a whole).
-            row_hashes.append(_xxhash_int64(str(value)))
+            row_hashes.append(_xxhash_int64(_sample_value_str(value)))
         hashes.append(row_hashes)
     return {"__hashes": hashes}
 
@@ -416,7 +445,10 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 fields using ``datasets.map`` to speed up duplicate checks. Requires ``xxhash`` to
                 be installed and uses additional memory: in theory roughly
                 ``len(dataset) * num_columns * 8`` bytes for the dense int64 hash matrix,
-                although actual memory usage may therefore differ in practice. Defaults to False.
+                although actual memory usage may therefore differ in practice. Especially
+                recommended for media (image / audio) datasets: without precomputation, every
+                duplicate check re-reads its row from the dataset, which re-decodes the media.
+                Defaults to False.
             precompute_num_proc (int, optional): Number of processes for hashing with ``datasets.map``.
                 If set to ``None``, defaults to ``min(8, cpu_count - 1)`` when ``precompute_hashes``
                 is True.
@@ -516,7 +548,9 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
 
             def get_sample_values(index: int) -> set[str] | np.ndarray:
                 return {
-                    str(value) for key, value in self.dataset[index].items() if key not in _EXCLUDE_DATASET_COLUMNS
+                    _sample_value_str(value)
+                    for key, value in self.dataset[index].items()
+                    if key not in _EXCLUDE_DATASET_COLUMNS
                 }
 
         def _has_overlap(sample_values: set[str] | np.ndarray, batch_values: set[str | np.int64]) -> bool:

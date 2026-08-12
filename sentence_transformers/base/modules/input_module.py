@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import torch
@@ -78,7 +79,7 @@ class InputModule(Module):
 
     def preprocess(
         self,
-        inputs: list[SingleInput | PairInput],
+        inputs: Sequence[SingleInput | PairInput],
         prompt: str | None = None,
         **kwargs,
     ) -> dict[str, torch.Tensor | Any]:
@@ -86,7 +87,7 @@ class InputModule(Module):
         Preprocesses the input texts and returns a dictionary of preprocessed features.
 
         Args:
-            inputs (list[SingleInput | PairInput]): List of inputs to preprocess.
+            inputs (Sequence[SingleInput | PairInput]): List of inputs to preprocess.
             prompt (str | None): Optional prompt to prepend to text inputs.
             **kwargs: Additional keyword arguments for preprocessing, e.g. ``task``.
 

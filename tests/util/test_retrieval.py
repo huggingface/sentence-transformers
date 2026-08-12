@@ -163,6 +163,25 @@ def test_community_detection_large_batch_size():
     assert all(len(community) >= 10 for community in result)
 
 
+@pytest.mark.parametrize("min_community_size", [5, 10, 30])
+def test_community_detection_similarities_equal_to_threshold(min_community_size: int):
+    """Members whose similarity equals the threshold exactly must not be truncated.
+
+    The candidate window grew only while the smallest candidate was strictly greater than
+    the threshold, while membership used >=. Similarities landing exactly on the threshold
+    were therefore eligible but never triggered an expansion, capping the community at
+    sort_max_size.
+    """
+    num_embeddings = 200
+    # Identical rows give a cosine similarity of exactly 1.0.
+    embeddings = torch.ones(num_embeddings, 16)
+
+    result = community_detection(embeddings, threshold=1.0, min_community_size=min_community_size)
+
+    assert len(result) == 1
+    assert len(result[0]) == num_embeddings
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available")
 def test_community_detection_gpu_support():
     """Test case for GPU support (if available)."""

@@ -9,7 +9,7 @@ from sentence_transformers.util import disable_datasets_caching, is_datasets_ava
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
+    from sentence_transformers import CrossEncoder, MultiVectorEncoder, SentenceTransformer, SparseEncoder
 
     try:
         from optimum.intel import OVQuantizationConfig
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 def export_dynamic_quantized_onnx_model(
-    model: SentenceTransformer | SparseEncoder | CrossEncoder,
+    model: SentenceTransformer | SparseEncoder | CrossEncoder | MultiVectorEncoder,
     quantization_config: QuantizationConfig | Literal["arm64", "avx2", "avx512", "avx512_vnni"],
     model_name_or_path: str,
     push_to_hub: bool = False,
@@ -30,7 +30,8 @@ def export_dynamic_quantized_onnx_model(
     file_suffix: str | None = None,
 ) -> None:
     """
-    Export a quantized ONNX model from a SentenceTransformer, SparseEncoder, or CrossEncoder model.
+    Export a quantized ONNX model from a SentenceTransformer, SparseEncoder, CrossEncoder,
+    or MultiVectorEncoder model.
 
     This function applies dynamic quantization, i.e. without a calibration dataset.
     Each of the default quantization configurations quantize the model to int8, allowing
@@ -42,8 +43,8 @@ def export_dynamic_quantized_onnx_model(
     - `Cross Encoder > Usage > Speeding up Inference <https://sbert.net/docs/cross_encoder/usage/efficiency.html>`_
 
     Args:
-        model (SentenceTransformer | SparseEncoder | CrossEncoder): The SentenceTransformer, SparseEncoder,
-            or CrossEncoder model to be quantized. Must be loaded with `backend="onnx"`.
+        model (SentenceTransformer | SparseEncoder | CrossEncoder | MultiVectorEncoder): The SentenceTransformer,
+            SparseEncoder, CrossEncoder, or MultiVectorEncoder model to be quantized. Must be loaded with `backend="onnx"`.
         quantization_config (QuantizationConfig): The quantization configuration.
         model_name_or_path (str): The path or Hugging Face Hub repository name where the quantized model will be saved.
         push_to_hub (bool, optional): Whether to push the quantized model to the Hugging Face Hub. Defaults to False.
@@ -52,8 +53,8 @@ def export_dynamic_quantized_onnx_model(
 
     Raises:
         ImportError: If the required packages `optimum` and `onnxruntime` are not installed.
-        ValueError: If the provided model is not a valid SentenceTransformer, SparseEncoder, or CrossEncoder
-            model loaded with `backend="onnx"`.
+        ValueError: If the provided model is not a valid SentenceTransformer, SparseEncoder, CrossEncoder,
+            or MultiVectorEncoder model loaded with `backend="onnx"`.
         ValueError: If the provided quantization_config is not valid.
 
     Returns:
@@ -73,7 +74,8 @@ def export_dynamic_quantized_onnx_model(
     ort_model = model.transformers_model
     if not isinstance(ort_model, ORTModel):
         raise ValueError(
-            'The model must be a Transformer-based SentenceTransformer, SparseEncoder, or CrossEncoder model loaded with `backend="onnx"`.'
+            "The model must be a Transformer-based SentenceTransformer, SparseEncoder, CrossEncoder, "
+            'or MultiVectorEncoder model loaded with `backend="onnx"`.'
         )
 
     quantizer = ORTQuantizer.from_pretrained(ort_model)
@@ -105,7 +107,7 @@ def export_dynamic_quantized_onnx_model(
 
 
 def export_static_quantized_openvino_model(
-    model: SentenceTransformer | SparseEncoder | CrossEncoder,
+    model: SentenceTransformer | SparseEncoder | CrossEncoder | MultiVectorEncoder,
     quantization_config: OVQuantizationConfig | dict | None,
     model_name_or_path: str,
     dataset_name: str | None = None,
@@ -117,7 +119,8 @@ def export_static_quantized_openvino_model(
     file_suffix: str = "qint8_quantized",
 ) -> None:
     """
-    Export a quantized OpenVINO model from a SentenceTransformer, SparseEncoder, or CrossEncoder model.
+    Export a quantized OpenVINO model from a SentenceTransformer, SparseEncoder, CrossEncoder,
+    or MultiVectorEncoder model.
 
     This function applies Post-Training Static Quantization (PTQ) using a calibration dataset, which calibrates
     quantization constants without requiring model retraining. Each default quantization configuration converts
@@ -129,8 +132,8 @@ def export_static_quantized_openvino_model(
     - `Cross Encoder > Usage > Speeding up Inference <https://sbert.net/docs/cross_encoder/usage/efficiency.html>`_
 
     Args:
-        model (SentenceTransformer | SparseEncoder | CrossEncoder): The SentenceTransformer, SparseEncoder,
-            or CrossEncoder model to be quantized. Must be loaded with `backend="openvino"`.
+        model (SentenceTransformer | SparseEncoder | CrossEncoder | MultiVectorEncoder): The SentenceTransformer,
+            SparseEncoder, CrossEncoder, or MultiVectorEncoder model to be quantized. Must be loaded with `backend="openvino"`.
         quantization_config (OVQuantizationConfig | dict | None): The quantization configuration. If None, default values are used.
         model_name_or_path (str): The path or Hugging Face Hub repository name where the quantized model will be saved.
         dataset_name(str, optional): The name of the dataset to load for calibration.
@@ -144,8 +147,8 @@ def export_static_quantized_openvino_model(
 
     Raises:
         ImportError: If the required packages `optimum` and `openvino` are not installed.
-        ValueError: If the provided model is not a valid SentenceTransformer, SparseEncoder, or CrossEncoder model
-            loaded with `backend="openvino"`.
+        ValueError: If the provided model is not a valid SentenceTransformer, SparseEncoder, CrossEncoder,
+            or MultiVectorEncoder model loaded with `backend="openvino"`.
         ValueError: If the provided quantization_config is not valid.
 
     Returns:
@@ -171,7 +174,8 @@ def export_static_quantized_openvino_model(
     ov_model = model.transformers_model
     if not isinstance(ov_model, OVModel):
         raise ValueError(
-            'The model must be a Transformer-based SentenceTransformer, SparseEncoder, or CrossEncoder model loaded with `backend="openvino"`.'
+            "The model must be a Transformer-based SentenceTransformer, SparseEncoder, CrossEncoder, "
+            'or MultiVectorEncoder model loaded with `backend="openvino"`.'
         )
 
     if quantization_config is None:

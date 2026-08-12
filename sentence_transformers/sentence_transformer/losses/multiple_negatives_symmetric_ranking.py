@@ -26,8 +26,8 @@ class MultipleNegativesSymmetricRankingLoss(MultipleNegativesRankingLoss):
         """
         .. warning::
 
-            This class has been merged into :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` and
-            is now deprecated. Please use :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` with
+            This class has been merged into :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` and
+            is now deprecated. Please use :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` with
             ``directions=("query_to_doc", "doc_to_query")`` and ``partition_mode="per_direction"`` for identical
             performance instead::
 

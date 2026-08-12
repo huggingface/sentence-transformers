@@ -219,3 +219,41 @@ def test_append_to_last_row(tmp_path, content, additional_data, expected_return,
 
     assert append_to_last_row(str(csv_path), additional_data) is expected_return
     assert csv_path.read_bytes() == expected_content
+
+
+class TestSimilarityFctName:
+    """``similarity_fct_name`` is what puts a loss's scoring callable into the model card. Every
+    other test reaches it through a loss's ``get_config_dict``, so the fallbacks are unpinned."""
+
+    def test_renders_plain_functions_configured_objects_and_partials(self) -> None:
+        from functools import partial
+
+        from sentence_transformers.multi_vector_encoder.scoring import XTRScores, colbert_scores
+        from sentence_transformers.util import similarity_fct_name
+
+        assert similarity_fct_name(colbert_scores) == "colbert_scores"
+        # Objects exposing get_config_dict carry their settings into the name.
+        assert similarity_fct_name(XTRScores(top_k=8)) == "XTRScores(top_k=8, document_chunk_elements=None)"
+        # A keyword-bound partial reads as a call, and a bare one collapses to the function name.
+        assert similarity_fct_name(partial(colbert_scores, length_normalize=True)) == (
+            "colbert_scores(length_normalize=True)"
+        )
+        assert similarity_fct_name(partial(colbert_scores)) == "colbert_scores"
+
+    def test_positionally_bound_partials_lose_their_settings(self) -> None:
+        """Known limitation: only ``keywords`` are rendered, so a positional binding is invisible in
+        the model card. Harmless for the scoring signature, where the leading positionals are the
+        embeddings, but pinned so a change is deliberate."""
+        from functools import partial
+
+        from sentence_transformers.util import maxsim, similarity_fct_name
+
+        assert similarity_fct_name(partial(maxsim, "queries")) == "maxsim"
+
+    def test_falls_back_to_the_type_name(self) -> None:
+        from sentence_transformers.util import similarity_fct_name
+
+        class _Scorer:
+            def __call__(self, a, b): ...
+
+        assert similarity_fct_name(_Scorer()) == "_Scorer"

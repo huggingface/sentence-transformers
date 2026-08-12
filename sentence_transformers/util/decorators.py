@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import functools
+from collections.abc import Callable
+from typing import Any, TypeVar, cast
 
 from transformers.utils import logging as transformers_logging
 
 # NOTE: transformers wraps the regular logging module for e.g. warning_once
 logger = transformers_logging.get_logger(__name__)
 
+F = TypeVar("F", bound=Callable[..., Any])
 
-def deprecated_kwargs(**renames: str):
+
+def deprecated_kwargs(**renames: str) -> Callable[[F], F]:
     """Decorator factory that transparently renames deprecated keyword arguments.
 
     Emits a deprecation warning when a caller uses the old name. If both old and
@@ -25,7 +29,7 @@ def deprecated_kwargs(**renames: str):
     decorator is for warning users who explicitly pass the old keyword argument.
     """
 
-    def decorator(func):
+    def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             for old_name, new_name in renames.items():
@@ -40,7 +44,7 @@ def deprecated_kwargs(**renames: str):
                         kwargs.pop(old_name)
             return func(*args, **kwargs)
 
-        return wrapper
+        return cast("F", wrapper)
 
     return decorator
 
@@ -162,7 +166,7 @@ def cross_encoder_init_args_decorator(func):
     return wrapper
 
 
-def cross_encoder_predict_rank_args_decorator(func):
+def cross_encoder_predict_rank_args_decorator(func: F) -> F:
     """Decorator for :class:`CrossEncoder.predict` / :class:`CrossEncoder.rank` that handles deprecated keyword arguments.
 
     Handles the following legacy kwargs:
@@ -184,7 +188,7 @@ def cross_encoder_predict_rank_args_decorator(func):
 
         return func(self, *args, **kwargs)
 
-    return wrapper
+    return cast("F", wrapper)
 
 
 def save_to_hub_args_decorator(func):

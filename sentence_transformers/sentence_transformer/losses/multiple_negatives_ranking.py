@@ -7,9 +7,8 @@ from typing import Any, Literal
 import torch
 from torch import Tensor, nn
 
-from sentence_transformers import util
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
+from sentence_transformers.util import all_gather_with_grad, cos_sim, get_rank, similarity_fct_name
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,7 @@ class MultipleNegativesRankingLoss(nn.Module):
         self,
         model: SentenceTransformer,
         scale: float = 20.0,
-        similarity_fct: Callable[[Tensor, Tensor], Tensor] = util.cos_sim,
+        similarity_fct: Callable[[Tensor, Tensor], Tensor] = cos_sim,
         gather_across_devices: bool = False,
         directions: tuple[
             Literal["query_to_doc", "query_to_query", "doc_to_query", "doc_to_doc"],
@@ -187,7 +186,7 @@ class MultipleNegativesRankingLoss(nn.Module):
         super().__init__()
         self.model = model
         self.scale = scale
-        if scale <= 0:
+        if not scale > 0:
             raise ValueError("Scale must be a positive value.")
         self.similarity_fct = similarity_fct
         self.gather_across_devices = gather_across_devices
@@ -249,9 +248,8 @@ class MultipleNegativesRankingLoss(nn.Module):
             # We do this in such a way that the backward pass on the embeddings can flow back to the original devices.
             queries = all_gather_with_grad(queries)
             docs = [all_gather_with_grad(doc) for doc in docs]
-            if is_dist_initialized():
-                rank = torch.distributed.get_rank()
-                offset = rank * batch_size
+            # get_rank() returns 0 when not running distributed, so offset stays 0 in that case.
+            offset = get_rank() * batch_size
 
         world_batch_size = queries.size(0)
         docs_all = torch.cat(docs, dim=0)
@@ -341,7 +339,7 @@ class MultipleNegativesRankingLoss(nn.Module):
     def get_config_dict(self) -> dict[str, Any]:
         return {
             "scale": self.scale,
-            "similarity_fct": getattr(self.similarity_fct, "__name__", str(self.similarity_fct)),
+            "similarity_fct": similarity_fct_name(self.similarity_fct),
             "gather_across_devices": self.gather_across_devices,
             "directions": self.directions,
             "partition_mode": self.partition_mode,

@@ -115,3 +115,58 @@ def test_dense_save_load_custom_keys(static_embedding: StaticEmbedding, tmp_path
     output = loaded_dense.forward(features)
     assert "custom_output" in output
     assert output["custom_output"].shape == (2, 256)
+
+
+def test_dense_load_ignores_unknown_config_keys(tmp_path: Path, caplog) -> None:
+    """A newer or foreign save (e.g. a future PyLate ``Dense``) may record a config key this class's
+    constructor does not accept. ``Dense.load`` should drop such keys with a warning rather than crash in
+    ``cls(**config)``."""
+    import json
+    import logging
+
+    dense = Dense(768, 256, bias=False, activation_function=nn.Identity())
+    model_dir = tmp_path / "dense_extra_key"
+    model_dir.mkdir()
+    dense.save(str(model_dir))
+
+    # Inject a config key that ``Dense.__init__`` does not accept.
+    config_path = model_dir / "config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["future_pylate_param"] = 42
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="sentence_transformers.base.modules.dense"):
+        loaded = Dense.load(str(model_dir))
+
+    # Loaded successfully. The unknown key was dropped and the module is otherwise intact.
+    assert isinstance(loaded, Dense)
+    assert not hasattr(loaded, "future_pylate_param")
+    assert loaded.in_features == 768
+    assert loaded.out_features == 256
+    # A warning names the dropped key.
+    assert any("future_pylate_param" in record.message for record in caplog.records)
+
+    # The reloaded module still runs a forward pass.
+    output = loaded.forward({"sentence_embedding": torch.randn(2, 768)})
+    assert output["sentence_embedding"].shape == (2, 256)
+
+
+def test_dense_config_omits_default_use_residual(tmp_path: Path) -> None:
+    """``use_residual`` at its default (False) must not be written to config.json: released
+    5.4-5.6 ``Dense.load`` does ``cls(**config)`` without unknown-key dropping, so any new key at
+    default would make fresh saves unloadable there. A non-default value must still round-trip."""
+    import json
+
+    default_dir = tmp_path / "dense_default"
+    default_dir.mkdir()
+    Dense(16, 8, bias=False, activation_function=nn.Identity()).save(str(default_dir))
+    config = json.loads((default_dir / "config.json").read_text(encoding="utf-8"))
+    assert "use_residual" not in config
+
+    residual_dir = tmp_path / "dense_residual"
+    residual_dir.mkdir()
+    Dense(16, 8, bias=False, activation_function=nn.Identity(), use_residual=True).save(str(residual_dir))
+    config = json.loads((residual_dir / "config.json").read_text(encoding="utf-8"))
+    assert config["use_residual"] is True
+    loaded = Dense.load(str(residual_dir))
+    assert loaded.use_residual is True

@@ -12,7 +12,7 @@ from sentence_transformers.sentence_transformer.losses import GISTEmbedLoss
 def _make_loss(margin: float) -> GISTEmbedLoss:
     """Build a GISTEmbedLoss without loading real models.
 
-    ``forward`` encodes via ``self.model`` / ``self.guide``; we replace both with a fake
+    ``forward`` encodes via ``self.model`` / ``self.guide``. We replace both with a fake
     that returns precomputed embeddings carried on the feature dict, so no model is needed.
     """
     obj = GISTEmbedLoss.__new__(GISTEmbedLoss)
@@ -46,9 +46,7 @@ def simulate_rank1_world2(monkeypatch):
         return torch.cat([rank0_block, tensor], dim=0)
 
     monkeypatch.setattr(ge, "all_gather_with_grad", fake_gather)
-    monkeypatch.setattr(ge, "is_dist_initialized", lambda: True)
-    # get_rank may be absent on CPU-only/ROCm builds (torch.distributed.is_available() is False).
-    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 1, raising=False)
+    monkeypatch.setattr(ge, "get_rank", lambda: 1)
     return per
 
 
@@ -134,7 +132,7 @@ def _make_relative_loss(margin: float) -> GISTEmbedLoss:
 
 
 def _negative_score_features():
-    """anchor0's positive has a negative cosine (-0.50); a non-paired candidate (column 1) is
+    """anchor0's positive has a negative cosine (-0.50). A non-paired candidate (column 1) is
     *more* similar (-0.49). anchor1 is paired with that candidate (diagonal cosine 1.0)."""
     a0 = [1.0, 0.0, 0.0]
     p0 = [-0.50, math.sqrt(1 - 0.50**2), 0.0]  # cos(a0, p0) = -0.50

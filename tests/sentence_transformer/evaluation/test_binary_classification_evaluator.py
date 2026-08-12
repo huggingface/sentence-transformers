@@ -46,6 +46,50 @@ def test_BinaryClassificationEvaluator_find_best_accuracy_and_threshold() -> Non
     assert np.abs(max_acc - sklearn_acc) < 1e-6
 
 
+@pytest.mark.parametrize("similarity_fn_name", ["euclidean", "manhattan"])
+def test_BinaryClassificationEvaluator_distance_metrics_direction(similarity_fn_name: str) -> None:
+    """The euclidean/manhattan metrics must treat smaller distances as more similar.
+
+    ``pairwise_euclidean_sim``/``pairwise_manhattan_sim`` return negative distances (i.e.
+    similarities), but were passed unnegated to the ``greater_is_better=False`` metric
+    computations, which expect positive distances. That inverted the ranking, so accuracy,
+    F1, precision, recall, AP and MCC were all computed for the opposite classifier
+    ("larger distance means similar") and the reported thresholds were negative.
+    """
+    embeddings = {
+        "a1": [0.0, 0.0],
+        "a2": [1.0, 0.0],  # distance 1 to a1, similar pair (label 1)
+        "b1": [0.0, 10.0],
+        "b2": [0.0, 12.0],  # distance 2 to b1, similar pair (label 1)
+        "c1": [0.0, 0.0],
+        "c2": [10.0, 0.0],  # distance 10 to c1, dissimilar pair (label 0)
+        "d1": [5.0, 5.0],
+        "d2": [5.0, 25.0],  # distance 20 to d1, dissimilar pair (label 0)
+    }
+
+    class MockEncoder:
+        def encode(self, sentences, **kwargs):
+            return np.array([embeddings[sentence] for sentence in sentences], dtype=np.float32)
+
+    evaluator = evaluation.BinaryClassificationEvaluator(
+        sentences1=["a1", "b1", "c1", "d1"],
+        sentences2=["a2", "b2", "c2", "d2"],
+        labels=[1, 1, 0, 0],
+        similarity_fn_names=[similarity_fn_name],
+    )
+    scores = evaluator.compute_metrics(MockEncoder())[similarity_fn_name]
+
+    # The similar pairs (distances 1 and 2) are perfectly separable from the
+    # dissimilar pairs (distances 10 and 20), so every metric should be perfect.
+    for metric in ["accuracy", "f1", "precision", "recall", "ap", "mcc"]:
+        assert scores[metric] == pytest.approx(1.0), f"{metric}: {scores[metric]}"
+
+    # The thresholds should be positive distances separating the similar from the
+    # dissimilar pairs: (2 + 10) / 2 = 6 for both euclidean and manhattan.
+    assert scores["accuracy_threshold"] == pytest.approx(6.0)
+    assert scores["f1_threshold"] == pytest.approx(6.0)
+
+
 @pytest.mark.parametrize(
     "similarity_fn_names",
     [["dot", "euclidean"], ["cosine", "dot"], ["cosine", "dot", "euclidean", "manhattan"]],
