@@ -611,7 +611,7 @@ The following images show the benchmark results for the different backends on GP
    Notable observations:
    <ul>
       <li>
-         bfloat16 costs a little retrieval quality with plain attention (99.0% on average: 98.8% and 99.3%, model-specific), while fp16 is indistinguishable from fp32. bf16 with FlashAttention-2 also matches fp32 (100.0%), likely thanks to its fp32 softmax accumulation. Note that multi-vector scoring sums the MaxSim token maxima in float32: with bf16 accumulation instead, this quality drop used to be five times larger.
+         bf16 costs a little retrieval quality with the default SDPA attention (99.0% on average: 98.8% and 99.3%, model-specific), while fp16 is indistinguishable from fp32. bf16 with FlashAttention-2 also matches fp32 (100.0%), likely thanks to its fp32 softmax accumulation. Note that multi-vector scoring sums the MaxSim token maxima in float32: with bf16 accumulation instead, this quality drop used to be five times larger.
       </li>
       <li>
          fp16 with FlashAttention-2 is the best of both worlds: the highest speedup measured (2.44x) with no quality loss, making it the recommended GPU configuration when the model supports FlashAttention-2.
