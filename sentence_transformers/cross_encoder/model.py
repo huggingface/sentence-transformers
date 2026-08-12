@@ -26,7 +26,6 @@ from sentence_transformers.util import batch_to_device, fullname, import_from_st
 from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
-    cross_encoder_rank_args_decorator,
 )
 
 # NOTE: transformers wraps the regular logging module for e.g. warning_once
@@ -749,7 +748,7 @@ class CrossEncoder(BaseModel, FitMixin):
 
         return pred_scores
 
-    @cross_encoder_rank_args_decorator
+    @cross_encoder_predict_rank_args_decorator
     def rank(
         self,
         query: PairableInput,

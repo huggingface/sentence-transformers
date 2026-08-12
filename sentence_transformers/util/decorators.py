@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 from collections.abc import Callable
 from typing import Any, TypeVar, cast
 
@@ -174,7 +175,12 @@ def cross_encoder_predict_rank_args_decorator(func: F) -> F:
     * ``sentences`` -> ``inputs`` (via :func:`deprecated_kwargs`)
     * ``activation_fct`` -> ``activation_fn``
     * ``num_workers`` -> removed (no-op)
+    * ``convert_to_numpy`` / ``convert_to_tensor`` -> removed (no-op) on methods that no longer
+      declare them, which is ``rank`` but not ``predict``
     """
+    method = func.__name__
+    parameters = inspect.signature(func).parameters
+    dropped_convert_kwargs = [name for name in ("convert_to_numpy", "convert_to_tensor") if name not in parameters]
 
     @deprecated_kwargs(sentences="inputs", activation_fct="activation_fn")
     @functools.wraps(func)
@@ -182,33 +188,16 @@ def cross_encoder_predict_rank_args_decorator(func: F) -> F:
         if "num_workers" in kwargs:
             kwargs.pop("num_workers")
             logger.warning_once(
-                "The CrossEncoder.predict `num_workers` argument is deprecated and has no effect. "
+                f"The CrossEncoder.{method} `num_workers` argument is deprecated and has no effect. "
                 "It will be removed in a future version."
             )
 
-        return func(self, *args, **kwargs)
-
-    return cast("F", wrapper)
-
-
-def cross_encoder_rank_args_decorator(func: F) -> F:
-    """Decorator for :class:`CrossEncoder.rank` that handles deprecated keyword arguments.
-
-    Applies everything from :func:`cross_encoder_predict_rank_args_decorator`, plus:
-
-    * ``convert_to_numpy`` -> removed (no-op)
-    * ``convert_to_tensor`` -> removed (no-op)
-    """
-
-    @cross_encoder_predict_rank_args_decorator
-    @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
-        for name in ("convert_to_numpy", "convert_to_tensor"):
+        for name in dropped_convert_kwargs:
             if name in kwargs:
                 kwargs.pop(name)
                 logger.warning_once(
-                    f"The CrossEncoder.rank `{name}` argument is deprecated and has no effect, as `rank` always "
-                    "returns Python floats. It will be removed in a future version."
+                    f"The CrossEncoder.{method} `{name}` argument is deprecated and has no effect, as "
+                    f"`{method}` always returns Python floats. It will be removed in a future version."
                 )
 
         return func(self, *args, **kwargs)
