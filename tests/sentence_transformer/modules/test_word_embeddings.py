@@ -82,3 +82,18 @@ def test_word_embeddings_save_load_round_trip_does_not_warn(tmp_path):
     assert isinstance(loaded, WordEmbeddings)
     assert isinstance(loaded.tokenizer, WhitespaceTokenizer)
     assert list(loaded.tokenizer.get_vocab()) == vocab
+
+
+def test_from_text_file_creates_independent_default_tokenizers(tmp_path):
+    """Loading another embedding file must not replace an earlier model's vocabulary."""
+    first_path = tmp_path / "first.txt"
+    first_path.write_text("apple 1 0\nbanana 0 1\n", encoding="utf-8")
+    second_path = tmp_path / "second.txt"
+    second_path.write_text("carrot 1 0\ndate 0 1\n", encoding="utf-8")
+
+    first_model = WordEmbeddings.from_text_file(str(first_path))
+    second_model = WordEmbeddings.from_text_file(str(second_path))
+
+    assert first_model.tokenizer is not second_model.tokenizer
+    assert list(first_model.tokenizer.get_vocab()) == ["PADDING_TOKEN", "apple", "banana"]
+    assert list(second_model.tokenizer.get_vocab()) == ["PADDING_TOKEN", "carrot", "date"]
