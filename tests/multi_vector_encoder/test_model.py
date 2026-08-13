@@ -1323,9 +1323,9 @@ def test_similarity_forwards_scoring_kwargs(model: MultiVectorEncoder) -> None:
     queries = model.encode_query(["What is the capital of France?", "Who painted the Mona Lisa?"])
     documents = model.encode_document(["Paris is big.", "Da Vinci painted.", "Berlin here.", "More text."])
     plain = model.similarity(queries, documents)
-    assert torch.allclose(model.similarity(queries, documents, document_chunk_elements=1_000), plain, atol=1e-5)
+    assert torch.allclose(model.similarity(queries, documents, chunk_elements=1_000), plain, atol=1e-5)
     plain_pairwise = model.similarity_pairwise(queries, documents[:2])
-    chunked_pairwise = model.similarity_pairwise(queries, documents[:2], pair_chunk_elements=1_000)
+    chunked_pairwise = model.similarity_pairwise(queries, documents[:2], chunk_elements=1_000)
     assert torch.allclose(chunked_pairwise, plain_pairwise, atol=1e-5)
     with pytest.raises(TypeError):
         model.similarity(queries, documents, chunk_size=2)
@@ -1386,7 +1386,7 @@ def test_maxsim_padded_tensor_without_mask_excludes_zero_rows() -> None:
 
 
 def test_maxsim_document_chunking_matches_unchunked() -> None:
-    """``maxsim(document_chunk_elements=N)`` chunks the document-axis einsum to bound the 4D scoring
+    """``maxsim(chunk_elements=N)`` chunks the document-axis einsum to bound the 4D scoring
     intermediate, but must return the same scores as the single-chunk path. Covers budgets that
     split the corpus at several granularities, plus one large enough for the single-chunk branch.
     """
@@ -1395,7 +1395,7 @@ def test_maxsim_document_chunking_matches_unchunked() -> None:
     documents = [torch.randn(n, 8, generator=g) for n in (2, 6, 4, 7, 3)]  # 5 documents
     full = maxsim(queries, documents)
     for budget in (1, 100, 300, 10**12):
-        chunked = maxsim(queries, documents, document_chunk_elements=budget)
+        chunked = maxsim(queries, documents, chunk_elements=budget)
         assert torch.allclose(chunked, full, atol=1e-5), f"budget={budget} diverged from single-chunk"
 
 
@@ -1585,7 +1585,7 @@ def test_xtr_kd_scores_gathers_own_document_groups() -> None:
 
 
 def test_xtr_scores_chunk_budget_matches_single_matmul() -> None:
-    """document_chunk_elements is a pure memory knob: any budget reproduces the single matmul."""
+    """chunk_elements is a pure memory knob: any budget reproduces the single matmul."""
     from sentence_transformers.multi_vector_encoder.scoring import xtr_scores
 
     generator = torch.Generator().manual_seed(7)
@@ -1593,5 +1593,5 @@ def test_xtr_scores_chunk_budget_matches_single_matmul() -> None:
     documents = torch.randn(2, 2, 5, 8, generator=generator)
     unchunked = xtr_scores(queries, documents, top_k=6)
     for budget in (1, 200, 10**9):
-        chunked = xtr_scores(queries, documents, top_k=6, document_chunk_elements=budget)
+        chunked = xtr_scores(queries, documents, top_k=6, chunk_elements=budget)
         assert torch.allclose(unchunked, chunked, atol=1e-6), f"budget={budget}"

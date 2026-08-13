@@ -374,7 +374,7 @@ def maxsim(
     b: list | np.ndarray | Tensor,
     a_mask: Tensor | None = None,
     b_mask: Tensor | None = None,
-    document_chunk_elements: int | None = None,
+    chunk_elements: int | None = None,
     length_normalize: bool = False,
     device: str | torch.device | None = None,
 ) -> Tensor:
@@ -400,7 +400,7 @@ def maxsim(
         b_mask (Tensor, optional): Boolean or float mask for document tokens, shape ``(batch_b, num_doc_tokens)``,
             ``(num_doc_tokens,)`` alongside a single 2D ``b``, or a list of per-item 1D masks. Tokens with a
             0 / False entry are excluded from the max. Defaults to None (use all tokens).
-        document_chunk_elements (int, optional): Element budget for the padded ``(chunk, d_tokens, dim)``
+        chunk_elements (int, optional): Element budget for the padded ``(chunk, d_tokens, dim)``
             documents plus the 4D ``(batch_a, chunk, q_tokens, d_tokens)`` scoring intermediate. Documents
             are greedily packed into chunks (padded per chunk, so a long outlier only sizes its own chunk)
             that stay under the budget, with a floor of one document per chunk. Defaults to None, which
@@ -431,7 +431,7 @@ def maxsim(
         a_mask_padded = _fit_mask_width(a_mask_padded, a.shape[1], "a_mask")
 
     num_documents = len(b)
-    budget = document_chunk_elements if document_chunk_elements is not None else _MAXSIM_CHUNK_ELEMENT_BUDGET
+    budget = chunk_elements if chunk_elements is not None else _MAXSIM_CHUNK_ELEMENT_BUDGET
     if isinstance(b, list):
         document_widths = [len(document) for document in b]
     else:
@@ -523,7 +523,7 @@ def maxsim_pairwise(
     b: list | np.ndarray | Tensor,
     a_mask: Tensor | None = None,
     b_mask: Tensor | None = None,
-    pair_chunk_elements: int | None = None,
+    chunk_elements: int | None = None,
     length_normalize: bool = False,
     device: str | torch.device | None = None,
 ) -> Tensor:
@@ -548,7 +548,7 @@ def maxsim_pairwise(
         b_mask (Tensor, optional): Boolean or float mask for document tokens, shape ``(batch, num_doc_tokens)``,
             ``(num_doc_tokens,)`` alongside a single 2D ``b``, or a list of per-item 1D masks. Tokens with a
             0 / False entry are excluded from the max. Defaults to None (use all tokens).
-        pair_chunk_elements (int, optional): Element budget for the padded ``(chunk, q_tokens, dim)``
+        chunk_elements (int, optional): Element budget for the padded ``(chunk, q_tokens, dim)``
             queries and ``(chunk, d_tokens, dim)`` documents plus the ``(chunk, q_tokens, d_tokens)``
             scoring intermediate. Pairs are greedily packed into chunks (padded per chunk, so a long
             outlier only sizes its own chunk) that stay under the budget, with a floor of one pair per
@@ -578,7 +578,7 @@ def maxsim_pairwise(
         return torch.zeros(0, dtype=torch.float32, device=result_device)
     query_token_counts = _query_token_counts(a, a_mask) if length_normalize else None
 
-    budget = pair_chunk_elements if pair_chunk_elements is not None else _MAXSIM_CHUNK_ELEMENT_BUDGET
+    budget = chunk_elements if chunk_elements is not None else _MAXSIM_CHUNK_ELEMENT_BUDGET
     query_widths = [len(query) for query in a] if isinstance(a, list) else [a.shape[1]] * len(a)
     document_widths = [len(document) for document in b] if isinstance(b, list) else [b.shape[1]] * len(b)
     if a_mask is not None:
@@ -613,7 +613,7 @@ def mean_maxsim(
     b: list | np.ndarray | Tensor,
     a_mask: Tensor | None = None,
     b_mask: Tensor | None = None,
-    document_chunk_elements: int | None = None,
+    chunk_elements: int | None = None,
     length_normalize: bool = True,
     device: str | torch.device | None = None,
 ) -> Tensor:
@@ -634,7 +634,7 @@ def mean_maxsim(
         b,
         a_mask=a_mask,
         b_mask=b_mask,
-        document_chunk_elements=document_chunk_elements,
+        chunk_elements=chunk_elements,
         length_normalize=length_normalize,
         device=device,
     )
@@ -645,7 +645,7 @@ def mean_maxsim_pairwise(
     b: list | np.ndarray | Tensor,
     a_mask: Tensor | None = None,
     b_mask: Tensor | None = None,
-    pair_chunk_elements: int | None = None,
+    chunk_elements: int | None = None,
     length_normalize: bool = True,
     device: str | torch.device | None = None,
 ) -> Tensor:
@@ -660,7 +660,7 @@ def mean_maxsim_pairwise(
         b,
         a_mask=a_mask,
         b_mask=b_mask,
-        pair_chunk_elements=pair_chunk_elements,
+        chunk_elements=chunk_elements,
         length_normalize=length_normalize,
         device=device,
     )

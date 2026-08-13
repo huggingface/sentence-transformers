@@ -32,7 +32,7 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         corpus_chunk_size (int): How many documents to encode + score per round-trip. Larger values
             mean more encoded doc embeddings live in memory at once but fewer encode-pass round-trips.
             Defaults to 5000.
-        document_chunk_elements (int, optional): Element budget for the 4D
+        chunk_elements (int, optional): Element budget for the 4D
             ``(batch_q, chunk, q_tokens, d_tokens)`` MaxSim scoring intermediate, forwarded to
             :func:`~sentence_transformers.util.maxsim`, which packs document chunks under it,
             adapting to the query count and document lengths. Defaults to None (maxsim's 100M-element
@@ -83,7 +83,7 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         self,
         *args,
         corpus_chunk_size: int = 5000,
-        document_chunk_elements: int | None = None,
+        chunk_elements: int | None = None,
         **kwargs,
     ) -> None:
         if kwargs.get("truncate_dim") is not None:
@@ -96,7 +96,7 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         # construct per-subset IR evaluators, and that needs the extra kwargs.
         self._ir_extra_kwargs: dict[str, Any] = {
             "corpus_chunk_size": corpus_chunk_size,
-            "document_chunk_elements": document_chunk_elements,
+            "chunk_elements": chunk_elements,
         }
         super().__init__(*args, **kwargs)
 

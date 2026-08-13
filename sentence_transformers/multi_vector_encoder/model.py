@@ -1118,7 +1118,7 @@ class MultiVectorEncoder(BaseModel):
 
                 - ``device``: Run the scoring on this device. The returned scores stay on the
                   documents' device either way.
-                - ``document_chunk_elements``: Cap how much of the corpus is scored at once.
+                - ``chunk_elements``: Cap how much of the corpus is scored at once.
                 - ``length_normalize``: Divide each score by the number of real query tokens
                   (True scores MeanMaxSim, False plain MaxSim).
 
@@ -1158,7 +1158,7 @@ class MultiVectorEncoder(BaseModel):
 
                 - ``device``: Run the scoring on this device. The returned scores stay on the
                   documents' device either way.
-                - ``pair_chunk_elements``: Cap how many pairs are scored at once.
+                - ``chunk_elements``: Cap how many pairs are scored at once.
                 - ``length_normalize``: Divide each score by the number of real query tokens
                   (True scores MeanMaxSim, False plain MaxSim).
 

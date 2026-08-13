@@ -59,7 +59,7 @@ evaluator = MultiVectorInformationRetrievalEvaluator(
 
 - `main_score_function` overrides the score used in `primary_metric` if you set a non-default. Default is `None`, which resolves to `maxsim` from the model's `similarity_fn_name` at call time. For MVE just leave it as `None`.
 - Reports MRR@k, nDCG@k, Recall@k, Precision@k, MAP@k for the k-values you pass (`mrr_at_k`, `ndcg_at_k`, etc.).
-- `document_chunk_elements` (default `None`) is the element budget for the `(num_queries, chunk, q_tokens, d_tokens)` MaxSim scoring intermediate. Leave it as `None`: `maxsim` packs documents into chunks under a 100M-element budget (at most ~400 MB, half that in bf16 / fp16), adapting to the query count and document lengths. Lower it to cut evaluation memory further.
+- `chunk_elements` (default `None`) is the element budget for the `(num_queries, chunk, q_tokens, d_tokens)` MaxSim scoring intermediate. Leave it as `None`: `maxsim` packs documents into chunks under a 100M-element budget (at most ~400 MB, half that in bf16 / fp16), adapting to the query count and document lengths. Lower it to cut evaluation memory further.
 
 ## `MultiVectorDistillationEvaluator`
 
@@ -96,6 +96,6 @@ If you don't pass `name`, the key is just `eval_{primary_metric}`. The trainer's
 ## Gotchas
 
 - **Metric key mismatch on `metric_for_best_model`**: silent failure. Training runs to completion and `load_best_model_at_end` picks a stale checkpoint. Always print `evaluator(model)` output once before starting the trainer and confirm the key format.
-- **Eval-time OOM**: MaxSim scoring builds `(num_queries, chunk, q_tokens, d_tokens)` intermediates, which `maxsim` bounds by default under its 100M-element budget. If you still OOM, lower `document_chunk_elements`, then drop `batch_size`. NanoBEIR corpora can be small enough that oversized `batch_size` bites before you'd expect.
+- **Eval-time OOM**: MaxSim scoring builds `(num_queries, chunk, q_tokens, d_tokens)` intermediates, which `maxsim` bounds by default under its 100M-element budget. If you still OOM, lower `chunk_elements`, then drop `batch_size`. NanoBEIR corpora can be small enough that oversized `batch_size` bites before you'd expect.
 - **`MultiVectorNanoBEIREvaluator` with a Non-English base**: it's English-only. You'll get zero or garbage scores. Use `MultiVectorInformationRetrievalEvaluator` with an in-domain corpus.
 - **Distillation eval on the same data as training**: measures memorization, not generalization. Hold out a separate `(query, doc, teacher_score)` split.

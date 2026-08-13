@@ -233,7 +233,7 @@ class TestSimilarityFctName:
 
         assert similarity_fct_name(colbert_scores) == "colbert_scores"
         # Objects exposing get_config_dict carry their settings into the name.
-        assert similarity_fct_name(XTRScores(top_k=8)) == "XTRScores(top_k=8, document_chunk_elements=None)"
+        assert similarity_fct_name(XTRScores(top_k=8)) == "XTRScores(top_k=8, chunk_elements=None)"
         # A keyword-bound partial reads as a call, and a bare one collapses to the function name.
         assert similarity_fct_name(partial(colbert_scores, length_normalize=True)) == (
             "colbert_scores(length_normalize=True)"

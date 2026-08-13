@@ -52,7 +52,7 @@ def test_information_retrieval_evaluator_rejects_xtr_scoring() -> None:
     queries = {"q0": "What is the capital of France?"}
     corpus = {"d0": "Paris is the capital of France."}
     qrels = {"q0": {"d0"}}
-    for scorer in (xtr_scores, XTRScores(top_k=2), partial(xtr_scores, document_chunk_elements=4)):
+    for scorer in (xtr_scores, XTRScores(top_k=2), partial(xtr_scores, chunk_elements=4)):
         with pytest.raises(ValueError, match="XTR"):
             MultiVectorInformationRetrievalEvaluator(
                 queries=queries,
@@ -135,24 +135,24 @@ def test_ir_evaluator_warns_when_explicit_prompt_replaces_model_prompt(caplog, c
     assert "replaces the model's registered" not in caplog.text
 
 
-def test_ir_evaluator_rejects_document_chunk_elements_with_score_functions() -> None:
-    """document_chunk_elements only configures the default model-resolved scoring, so pairing it
+def test_ir_evaluator_rejects_chunk_elements_with_score_functions() -> None:
+    """chunk_elements only configures the default model-resolved scoring, so pairing it
     with score_functions raises instead of being silently ignored."""
     from sentence_transformers.util import maxsim
 
     queries = {"q0": "What is the capital of France?"}
     corpus = {"d0": "Paris is the capital of France."}
     qrels = {"q0": {"d0"}}
-    with pytest.raises(ValueError, match="document_chunk_elements"):
+    with pytest.raises(ValueError, match="chunk_elements"):
         MultiVectorInformationRetrievalEvaluator(
             queries=queries,
             corpus=corpus,
             relevant_docs=qrels,
             score_functions={"maxsim": maxsim},
-            document_chunk_elements=1_000_000,
+            chunk_elements=1_000_000,
         )
     MultiVectorInformationRetrievalEvaluator(
-        queries=queries, corpus=corpus, relevant_docs=qrels, document_chunk_elements=1_000_000
+        queries=queries, corpus=corpus, relevant_docs=qrels, chunk_elements=1_000_000
     )
     MultiVectorInformationRetrievalEvaluator(
         queries=queries, corpus=corpus, relevant_docs=qrels, score_functions={"maxsim": maxsim}

@@ -13,7 +13,7 @@ def xtr_scores(
     queries_mask: torch.Tensor | None = None,
     documents_mask: torch.Tensor | None = None,
     top_k: int = 256,
-    document_chunk_elements: int | None = None,
+    chunk_elements: int | None = None,
 ) -> torch.Tensor:
     """XTR (eXtendable Token Retrieval) contrastive scoring with global top-k token retrieval.
 
@@ -34,7 +34,7 @@ def xtr_scores(
         documents_mask: optional ``(Q, N, d_tokens)`` mask. If None, one is derived by treating
             all-zero document rows as padding (like :func:`~sentence_transformers.util.similarity.maxsim`).
         top_k: Number of top token matches to retain per query token across all Q*N documents.
-        document_chunk_elements: Element budget for the matmul + ``masked_fill`` phase, matching
+        chunk_elements: Element budget for the matmul + ``masked_fill`` phase, matching
             :func:`~sentence_transformers.util.similarity.maxsim`'s parameter of the same name:
             documents are scored in chunks packed to stay under the budget. The chunks are
             concatenated before the global top-k, so scoring semantics are unchanged and the full
@@ -61,7 +61,7 @@ def xtr_scores(
         # max over genuinely negative real similarities.
         docs_mask_flat = _zero_row_mask(docs_flat)
 
-    if document_chunk_elements is None:
+    if chunk_elements is None:
         D_flat = docs_flat.reshape(Db * Dt, H).T
         scores = (Q_flat @ D_flat).view(Qb, Qt, Db, Dt)
         scores.masked_fill_(
@@ -72,7 +72,7 @@ def xtr_scores(
         # Same per-document-token cost accounting as maxsim: the (Qb, Qt) score column plus the
         # embedding row.
         score_chunks = []
-        for d_start, d_end in _document_chunk_ranges([Dt] * Db, Qb * Qt + H, document_chunk_elements):
+        for d_start, d_end in _document_chunk_ranges([Dt] * Db, Qb * Qt + H, chunk_elements):
             db = d_end - d_start
             chunk_D_flat = docs_flat[d_start:d_end].reshape(db * Dt, H).T
             chunk_scores = (Q_flat @ chunk_D_flat).view(Qb, Qt, db, Dt)
@@ -121,7 +121,7 @@ def xtr_kd_scores(
     queries_mask: torch.Tensor | None = None,
     documents_mask: torch.Tensor | None = None,
     top_k: int = 256,
-    document_chunk_elements: int | None = None,
+    chunk_elements: int | None = None,
 ) -> torch.Tensor:
     """XTR scoring for knowledge distillation.
 
@@ -137,7 +137,7 @@ def xtr_kd_scores(
         queries_mask=queries_mask,
         documents_mask=documents_mask,
         top_k=top_k,
-        document_chunk_elements=document_chunk_elements,
+        chunk_elements=chunk_elements,
     )
     idx = torch.arange(Q, device=all_scores.device).unsqueeze(1) * N + torch.arange(N, device=all_scores.device)
     return all_scores.gather(1, idx)
@@ -149,7 +149,7 @@ def xtr_scores_pairwise(
     queries_mask: torch.Tensor | None = None,
     documents_mask: torch.Tensor | None = None,
     top_k: int = 256,
-    document_chunk_elements: int | None = None,
+    chunk_elements: int | None = None,
 ) -> torch.Tensor:
     """Pairwise XTR scoring: compute the XTR score for matched ``(query_i, document_i)`` pairs.
 
@@ -169,7 +169,7 @@ def xtr_scores_pairwise(
         queries_mask=queries_mask,
         documents_mask=documents_mask,
         top_k=top_k,
-        document_chunk_elements=document_chunk_elements,
+        chunk_elements=chunk_elements,
     )
     return scores.squeeze(-1)
 
@@ -177,21 +177,21 @@ def xtr_scores_pairwise(
 class XTRScores:
     """Configured, reusable :func:`xtr_scores` callable for use as a loss ``similarity_fct``.
 
-    Stores ``top_k`` / ``document_chunk_elements`` so they don't have to be re-passed on every call (the bare
+    Stores ``top_k`` / ``chunk_elements`` so they don't have to be re-passed on every call (the bare
     function would otherwise need :func:`functools.partial`). See :func:`xtr_scores` for the scoring math
     and shapes.
 
     Args:
         top_k: Number of top token matches to retain per query token across all Q*N documents.
-        document_chunk_elements: Element budget for the chunked matmul phase, see :func:`xtr_scores`.
+        chunk_elements: Element budget for the chunked matmul phase, see :func:`xtr_scores`.
     """
 
-    def __init__(self, top_k: int = 256, *, document_chunk_elements: int | None = None) -> None:
+    def __init__(self, top_k: int = 256, *, chunk_elements: int | None = None) -> None:
         self.top_k = top_k
-        self.document_chunk_elements = document_chunk_elements
+        self.chunk_elements = chunk_elements
 
     def get_config_dict(self) -> dict[str, int | None]:
-        return {"top_k": self.top_k, "document_chunk_elements": self.document_chunk_elements}
+        return {"top_k": self.top_k, "chunk_elements": self.chunk_elements}
 
     def __call__(
         self,
@@ -206,7 +206,7 @@ class XTRScores:
             queries_mask=queries_mask,
             documents_mask=documents_mask,
             top_k=self.top_k,
-            document_chunk_elements=self.document_chunk_elements,
+            chunk_elements=self.chunk_elements,
         )
 
 
@@ -226,5 +226,5 @@ class XTRKDScores(XTRScores):
             queries_mask=queries_mask,
             documents_mask=documents_mask,
             top_k=self.top_k,
-            document_chunk_elements=self.document_chunk_elements,
+            chunk_elements=self.chunk_elements,
         )
