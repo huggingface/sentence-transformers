@@ -28,9 +28,12 @@ def colbert_kd_scores(
         documents_embeddings: ``(batch_size, n_ways, d_tokens, dim)``.
         queries_mask: optional ``(batch_size, q_tokens)`` mask.
         documents_mask: optional ``(batch_size, n_ways, d_tokens)`` mask.
-        chunk_elements: element budget for the scoring intermediate, forwarded to
-            :func:`~sentence_transformers.util.similarity.maxsim_pairwise`. Lower it to cut training
-            memory. Defaults to None (maxsim_pairwise's 100M-element budget).
+        chunk_elements: element budget for the padded ``(chunk, q_tokens, dim)`` queries and
+            ``(chunk, d_tokens, dim)`` documents plus the ``(chunk, q_tokens, d_tokens)`` scoring
+            intermediate, forwarded to :func:`~sentence_transformers.util.similarity.maxsim_pairwise`
+            per n_ways column. The padding is the bigger half whenever the query side is small, so
+            budgeting for the intermediate alone under-provisions. Lower it to cut training memory.
+            Defaults to None (maxsim_pairwise's 100M-element budget).
         length_normalize: divide each score by the real query token count (MeanMaxSim). Defaults to False.
 
     Returns:
@@ -76,8 +79,10 @@ def colbert_scores_pairwise(
     :func:`~sentence_transformers.multi_vector_encoder.scoring.xtr_scores_pairwise` as the
     ``similarity_fct`` of :class:`~sentence_transformers.multi_vector_encoder.losses.MultiVectorMarginMSELoss`.
     ``length_normalize=True`` divides each score by the real query token count (MeanMaxSim), and
-    ``chunk_elements`` caps the scoring intermediate's element count (both as in
-    :func:`~sentence_transformers.util.similarity.maxsim_pairwise`).
+    ``chunk_elements`` budgets the padded queries and documents plus the scoring intermediate (both
+    as in :func:`~sentence_transformers.util.similarity.maxsim_pairwise`, whose docstring gives the
+    exact shapes). Counting only the intermediate under-provisions, since the padding dominates
+    whenever the query side is small.
     """
     return maxsim_pairwise(
         queries_embeddings,
@@ -110,9 +115,11 @@ def colbert_scores(
     :mod:`~sentence_transformers.multi_vector_encoder.losses` loss (the default), or
     :func:`~sentence_transformers.multi_vector_encoder.scoring.xtr_scores` for XTR-style scoring.
     ``length_normalize=True`` divides each score by the real query token count (MeanMaxSim), removing
-    the query-length dependence of the score scale. ``chunk_elements`` caps the per-group
-    intermediate's element count as in :func:`~sentence_transformers.util.similarity.maxsim`: lower
-    it to cut training memory (the groups are scored one at a time, so it bounds the peak).
+    the query-length dependence of the score scale. ``chunk_elements`` budgets the padded documents
+    plus the 4D scoring intermediate of one group, as in
+    :func:`~sentence_transformers.util.similarity.maxsim` (whose docstring gives the exact shapes):
+    lower it to cut training memory. The groups are scored one at a time, so a per-group budget
+    bounds the peak, and counting only the intermediate under-provisions when the query side is small.
     """
     queries_embeddings = _convert_to_tensor(queries_embeddings)
     documents_embeddings = _convert_to_tensor(documents_embeddings)
