@@ -167,6 +167,25 @@ def test_check_version_requirements_reports_all_unmet() -> None:
     assert "this-package-does-not-exist>=1.0, but it is not installed" in message
 
 
+def test_check_version_requirements_unmet_python_omits_pip_install() -> None:
+    """`pip install "python>=99.0"` isn't a command anyone can run."""
+    with pytest.raises(ImportError) as exc_info:
+        check_version_requirements({"python": ">=99.0"}, source="test/model")
+
+    message = str(exc_info.value)
+    assert f"python>=99.0, but python=={platform.python_version()} is installed" in message
+    assert "pip install" not in message
+
+
+def test_check_version_requirements_unmet_python_excluded_but_others_listed() -> None:
+    with pytest.raises(ImportError) as exc_info:
+        check_version_requirements({"python": ">=99.0", "transformers": ">=999"})
+
+    message = str(exc_info.value)
+    assert 'pip install -U "transformers>=999"' in message
+    assert '"python' not in message
+
+
 def test_check_version_requirements_includes_reason() -> None:
     requirements = {"transformers": {"specifier": ">=999", "reason": "Otherwise the adapter is randomly initialized."}}
 
@@ -189,19 +208,24 @@ def test_check_version_requirements_ignores_local_version(monkeypatch: pytest.Mo
 
 
 @pytest.mark.parametrize(
-    "requirements",
+    "package_name", ["transformers", "this-package-does-not-exist"], ids=["installed", "not_installed"]
+)
+@pytest.mark.parametrize(
+    "specifier",
     [
-        {"transformers": "5.15"},
-        {"transformers": {"specifier": "@ git+https://github.com/huggingface/transformers"}},
-        {"transformers": 5.15},
+        "5.15",
+        {"specifier": "@ git+https://github.com/huggingface/transformers"},
+        5.15,
+        [">=5.15"],
     ],
-    ids=["missing_operator", "not_a_specifier", "not_a_string"],
+    ids=["missing_operator", "not_a_specifier", "not_a_string", "list_of_specifiers"],
 )
 def test_check_version_requirements_invalid_specifier_warns(
-    requirements: dict[str, Any], caplog: pytest.LogCaptureFixture
+    package_name: str, specifier: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """Specifiers are validated before the installed version, so a typo can't raise for anyone."""
     with caplog.at_level(logging.WARNING):
-        check_version_requirements(requirements, source="test/model")
+        check_version_requirements({package_name: specifier}, source="test/model")
 
     assert "Could not verify" in caplog.text
 

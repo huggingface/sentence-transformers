@@ -11,8 +11,8 @@ from importlib.metadata import PackageNotFoundError, metadata, version
 from typing import Any
 
 import torch
-from packaging.specifiers import InvalidSpecifier, SpecifierSet
-from packaging.version import InvalidVersion
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 from transformers import is_torch_npu_available
 
 logger = logging.getLogger(__name__)
@@ -177,25 +177,29 @@ def check_version_requirements(requirements: dict[str, Any] | None, source: str 
         specifier = requirement.get("specifier", "") if is_dict else requirement
         reason = requirement.get("reason", "") if is_dict else ""
 
+        if not isinstance(specifier, str):
+            logger.warning(
+                f"Could not verify the {specifier!r} requirement of {source!r}: expected a version specifier string."
+            )
+            continue
+
         installed_version = get_installed_version(package_name)
+        # Parse both sides up front: anything unparsable must warn rather than raise.
         try:
-            if installed_version is not None and SpecifierSet(specifier, prereleases=True).contains(installed_version):
+            specifier_set = SpecifierSet(specifier, prereleases=True)
+            if installed_version is not None and specifier_set.contains(Version(installed_version)):
                 continue
-        except (InvalidSpecifier, InvalidVersion, TypeError) as e:
+        except Exception as e:
             logger.warning(f"Could not verify the {specifier!r} requirement of {source!r}: {e}")
             continue
 
         found = f"{package_name}=={installed_version} is installed" if installed_version else "it is not installed"
         unmet.append(f"- {package_name}{specifier}, but {found}. {reason}".rstrip())
-        install_specs.append(f'"{package_name}{specifier}"')
+        if package_name != "python":
+            install_specs.append(f'"{package_name}{specifier}"')
 
     if unmet:
-        raise ImportError(
-            "\n".join(
-                [
-                    f"The model {source!r} requires:" if source else "This model requires:",
-                    *unmet,
-                    f"Install compatible versions with:\n    pip install -U {' '.join(install_specs)}",
-                ]
-            )
-        )
+        lines = [f"The model {source!r} requires:" if source else "This model requires:", *unmet]
+        if install_specs:
+            lines.append(f"Install compatible versions with:\n    pip install -U {' '.join(install_specs)}")
+        raise ImportError("\n".join(lines))
