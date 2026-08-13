@@ -193,7 +193,8 @@ def import_module_class(
             modeling files. Required for dynamic loading.
         trust_remote_code: Whether to trust and import code selected by the model configuration. Required
             to import any non-``sentence_transformers.*`` class when ``model_name_or_path`` is set, and
-            permits dynamic loading of repository-hosted modeling files.
+            permits dynamic loading of repository-hosted modeling files. Any falsy value, an explicit
+            None included, is treated as False.
         revision: Hub revision to fetch the modeling file from.
         code_revision: Optional separate revision pinning for the modeling code (overrides
             ``revision`` when set).
