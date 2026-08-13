@@ -20,7 +20,7 @@ from sentence_transformers.multi_vector_encoder.modules import HierarchicalToken
 
 
 def main() -> None:
-    model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+    model = MultiVectorEncoder("perplexity-ai/pplx-embed-v1-late-0.6b", trust_remote_code=True)
     query = "What is the capital of France?"
     documents = [
         "Paris is the capital of France and its largest city.",

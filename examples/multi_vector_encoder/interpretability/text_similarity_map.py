@@ -97,7 +97,7 @@ def main() -> None:
     dataset = load_dataset("sentence-transformers/natural-questions", split="train[:5000]")
     corpus = list(dict.fromkeys(dataset["answer"]))
 
-    model = MultiVectorEncoder("mixedbread-ai/mxbai-edge-colbert-v0-32m")
+    model = MultiVectorEncoder("lightonai/LateOn")
     corpus_embeddings = model.encode_document(corpus, convert_to_tensor=True, show_progress_bar=True)
 
     def search(query: str) -> None:

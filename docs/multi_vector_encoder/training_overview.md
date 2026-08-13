@@ -54,68 +54,130 @@ Training MultiVectorEncoder models involves between 4 to 6 components:
 ## Model
 
 ```{eval-rst}
-Multi-vector models consist of a sequence of `Modules <../package_reference/sentence_transformer/modules.html>`_, `Multi-Vector Encoder specific Modules <../package_reference/multi_vector_encoder/modules.html>`_ or `Custom Modules <usage/custom_models.html>`_, allowing for a lot of flexibility. If you want to further finetune an existing multi-vector model (e.g. it has a `modules.json file <https://huggingface.co/lightonai/GTE-ModernColBERT-v1/tree/main/modules.json>`_), then you don't have to worry about which modules are used::
+Multi-vector models consist of a sequence of `Modules <../package_reference/sentence_transformer/modules.html>`_, `Multi-Vector Encoder specific Modules <../package_reference/multi_vector_encoder/modules.html>`_ or `Custom Modules <usage/custom_models.html>`_, allowing for a lot of flexibility. If you want to further finetune an existing multi-vector model (e.g. it has a `modules.json file <https://huggingface.co/lightonai/LateOn/tree/main/modules.json>`_), then you don't have to worry about which modules are used::
 
     from sentence_transformers import MultiVectorEncoder
 
-    model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+    model = MultiVectorEncoder("lightonai/LateOn")
 
-But if instead you want to train from a base transformer model, the classic ColBERT architecture is the default: a :class:`~sentence_transformers.base.modules.Transformer` producing contextualized token embeddings, a token-level :class:`~sentence_transformers.base.modules.Dense` projecting each token down to the multi-vector dimension (classically 128), a :class:`~sentence_transformers.multi_vector_encoder.modules.MultiVectorMask` computing the per-token scoring mask, and a token-level :class:`~sentence_transformers.sentence_transformer.modules.Normalize`:
+But if instead you want to train from another checkpoint, or from scratch, then these are the most common architectures you can use:
 
-.. sidebar:: Documentation
+.. tab:: Text Late Interaction (ColBERT)
 
-    - :class:`sentence_transformers.base.modules.Transformer`
-    - :class:`sentence_transformers.base.modules.Dense`
-    - :class:`sentence_transformers.multi_vector_encoder.modules.MultiVectorMask`
-    - :class:`sentence_transformers.sentence_transformer.modules.Normalize`
+    When you train from a base transformer model, the classic ColBERT architecture is the default: a :class:`~sentence_transformers.base.modules.Transformer` producing contextualized token embeddings, a token-level :class:`~sentence_transformers.base.modules.Dense` projecting each token down to the multi-vector dimension (classically 128), a :class:`~sentence_transformers.multi_vector_encoder.modules.MultiVectorMask` computing the per-token scoring mask, and a token-level :class:`~sentence_transformers.sentence_transformer.modules.Normalize`.
 
-::
+    .. raw:: html
 
-    from sentence_transformers import MultiVectorEncoder
+        <div class="sidebar">
+            <p class="sidebar-title">Documentation</p>
+            <ul class="simple">
+                <li><a class="reference internal" href="../package_reference/base/modules.html"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/modules.html"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Dense</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/multi_vector_encoder/modules.html"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.multi_vector_encoder.modules.MultiVectorMask</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.Normalize</span></code></a></li>
+            </ul>
+        </div>
 
-    # Loading in fp32 is preferred for training if your memory can handle it
-    model = MultiVectorEncoder("answerdotai/ModernBERT-base", model_kwargs={"torch_dtype": "float32"})
-    # MultiVectorEncoder(
-    #   (0): Transformer({'transformer_task': 'feature-extraction', 'modality_config': {'text': {'method': 'forward', 'method_output_name': 'last_hidden_state'}}, 'module_output_name': 'token_embeddings', 'architecture': 'ModernBertModel'})
-    #   (1): Dense({'in_features': 768, 'out_features': 128, 'bias': False, 'activation_function': 'torch.nn.modules.linear.Identity', 'module_input_name': 'token_embeddings', 'module_output_name': 'token_embeddings'})
-    #   (2): MultiVectorMask({'skiplist_words': [], 'skiplist_tasks': ['document'], 'keep_only_token_ids': None})
-    #   (3): Normalize({'module_input_name': 'token_embeddings', 'module_output_name': 'token_embeddings'})
-    # )
+    ::
 
-The fresh projection is randomly initialized, so training is required before this model is useful.
+        from sentence_transformers import MultiVectorEncoder
 
-The classic ColBERT tokenization tricks are all left off by default: no ``[MASK]`` query expansion, no ``[Q]`` / ``[D]`` prefix tokens, no document length cap, and no punctuation skiplist. To reproduce the full classic ColBERT recipe, configure them explicitly::
+        # Loading in fp32 is preferred for training if your memory can handle it
+        model = MultiVectorEncoder("answerdotai/ModernBERT-base", model_kwargs={"torch_dtype": "float32"})
+        # MultiVectorEncoder(
+        #   (0): Transformer({'transformer_task': 'feature-extraction', 'modality_config': {'text': {'method': 'forward', 'method_output_name': 'last_hidden_state'}}, 'module_output_name': 'token_embeddings', 'architecture': 'ModernBertModel'})
+        #   (1): Dense({'in_features': 768, 'out_features': 128, 'bias': False, 'activation_function': 'torch.nn.modules.linear.Identity', 'module_input_name': 'token_embeddings', 'module_output_name': 'token_embeddings'})
+        #   (2): MultiVectorMask({'skiplist_words': [], 'skiplist_tasks': ['document'], 'keep_only_token_ids': None})
+        #   (3): Normalize({'module_input_name': 'token_embeddings', 'module_output_name': 'token_embeddings'})
+        # )
 
-    from torch import nn
+    The fresh projection is randomly initialized, so training is required before this model is useful.
 
-    from sentence_transformers import MultiVectorEncoder
-    from sentence_transformers.base.modules import Dense, Transformer
-    from sentence_transformers.multi_vector_encoder.modules import MultiVectorMask
-    from sentence_transformers.base.modules import Normalize
-    import string
+    The classic ColBERT tokenization tricks are all left off by default: no ``[MASK]`` query expansion, no ``[Q]`` / ``[D]`` prefix tokens, no document length cap, and no punctuation skiplist. To reproduce the full classic ColBERT recipe, configure them explicitly::
 
-    transformer = Transformer(
-        "answerdotai/ModernBERT-base",
-        query_expansion={"strategy": "fixed", "length": 32},  # pad queries to 32 tokens with [MASK], truncate longer ones
-        document_length=300,  # also truncate (not pad) documents to 300 tokens
-        model_kwargs={"torch_dtype": "float32"},
-    )
-    dense = Dense(
-        in_features=transformer.get_embedding_dimension(),
-        out_features=128,
-        bias=False,
-        activation_function=nn.Identity(),
-        module_input_name="token_embeddings",
-    )
-    mask = MultiVectorMask(skiplist_words=list(string.punctuation))  # exclude punctuation from document scoring
-    normalize = Normalize(module_input_name="token_embeddings")
+        from torch import nn
 
-    model = MultiVectorEncoder(
-        modules=[transformer, dense, mask, normalize],
-        prompts={"query": "[Q] ", "document": "[D] "},
-    )
+        from sentence_transformers import MultiVectorEncoder
+        from sentence_transformers.base.modules import Dense, Transformer
+        from sentence_transformers.multi_vector_encoder.modules import MultiVectorMask
+        from sentence_transformers.base.modules import Normalize
+        import string
 
-See `Creating Custom Models <usage/custom_models.html>`_ for more details on the module pipeline, including how to add extra per-token feature channels.
+        transformer = Transformer(
+            "answerdotai/ModernBERT-base",
+            query_expansion={"strategy": "fixed", "length": 32},  # pad queries to 32 tokens with [MASK], truncate longer ones
+            document_length=300,  # also truncate (not pad) documents to 300 tokens
+            model_kwargs={"torch_dtype": "float32"},
+        )
+        dense = Dense(
+            in_features=transformer.get_embedding_dimension(),
+            out_features=128,
+            bias=False,
+            activation_function=nn.Identity(),
+            module_input_name="token_embeddings",
+        )
+        mask = MultiVectorMask(skiplist_words=list(string.punctuation))  # exclude punctuation from document scoring
+        normalize = Normalize(module_input_name="token_embeddings")
+
+        model = MultiVectorEncoder(
+            modules=[transformer, dense, mask, normalize],
+            prompts={"query": "[Q] ", "document": "[D] "},
+        )
+
+    See `Creating Custom Models <usage/custom_models.html>`_ for more details on the module pipeline, including how to add extra per-token feature channels.
+
+.. tab:: Visual Document Retrieval
+
+    .. tip::
+
+        Multimodal models require additional dependencies. Install them with e.g. ``pip install -U "sentence-transformers[image]"`` for image support. See `Installation <../installation.html>`_ for all options.
+
+    ColPali-style models match text queries against page *images*, so retrieval skips OCR, layout parsing, and chunking entirely. Building one works exactly like building a text model: point :class:`~sentence_transformers.MultiVectorEncoder` at a multimodal embedding backbone and a freshly initialized token-level projection is appended, which is the construction that turned VLMs into ColPali and ColQwen in the first place.
+
+    .. raw:: html
+
+        <div class="sidebar">
+            <p class="sidebar-title">Documentation</p>
+            <ul class="simple">
+                <li><a class="reference external" href="https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B">Qwen/Qwen3-VL-Embedding-2B</a></li>
+                <li><a class="reference internal" href="../package_reference/base/modules.html"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/modules.html"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Dense</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/multi_vector_encoder/modules.html"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.multi_vector_encoder.modules.MultiVectorMask</span></code></a></li>
+                <li><a class="reference internal" href="pretrained_models.html#visual-document-retrieval-models">Visual Document Retrieval Models</a></li>
+            </ul>
+        </div>
+
+    ::
+
+        from sentence_transformers import MultiVectorEncoder
+
+        model = MultiVectorEncoder(
+            "Qwen/Qwen3-VL-Embedding-2B",
+            model_kwargs={"torch_dtype": "bfloat16"},
+            processor_kwargs={"min_pixels": 28 * 28, "max_pixels": 600 * 600},
+        )
+
+        print([type(module).__name__ for module in model])
+        # ['Transformer', 'Dense', 'MultiVectorMask', 'Normalize']
+        print(model.modalities)
+        # ['text', 'image', 'video', 'message']
+
+    This is the same four-module stack a text backbone produces, so every multi-vector knob behaves identically. The projection is randomly initialized, so training is required before the model is useful. Image documents (PIL images, file paths, or URLs) go through the same ``encode_document`` path as text documents do, and the ``processor_kwargs`` above cap the patch budget per page, which is the main lever on both memory and index size.
+
+    An omnimodal backbone takes the identical route and additionally covers audio::
+
+        model = MultiVectorEncoder(
+            "LCO-Embedding/LCO-Embedding-Omni-3B-2605",
+            model_kwargs={"torch_dtype": "bfloat16"},
+            trust_remote_code=True,
+        )
+
+        print(model.modalities)
+        # ['text', 'image', 'audio', 'video', 'message']
+
+    Already published transformers-native ``*ForRetrieval`` checkpoints (ColPali, ColQwen2, ColModernVBert) also load, detected from the architecture in their ``config.json``, as a :class:`~sentence_transformers.base.modules.Transformer` with ``transformer_task="retrieval"`` followed by a :class:`~sentence_transformers.multi_vector_encoder.modules.MultiVectorMask`. Their projection and normalization live inside the transformers model, so no :class:`~sentence_transformers.base.modules.Dense` and no :class:`~sentence_transformers.sentence_transformer.modules.Normalize` are added, and their processor bakes in the query prefix and the visual prompt. That route exists to keep the existing checkpoints working, so prefer a multimodal backbone for anything new. See `Transformers-native retrievers <usage/custom_models.html#transformers-native-retrievers-colpali-family>`_ for those loading details.
+
+    See `Training Examples > Multimodal <../../examples/multi_vector_encoder/training/multimodal/README.html>`_ for scripts covering both routes.
 ```
 
 ## Dataset
@@ -229,6 +291,37 @@ There are two multi-vector specific conventions on top of this:
 
 - **Knowledge distillation format**: one column per candidate document, i.e. ``(query, document_1, ..., document_N, scores)`` where ``scores`` is a list of N teacher scores per row. This is the same multi-column convention as ``(query, positive, negative_1, ...)``, read positionally by :class:`~sentence_transformers.multi_vector_encoder.losses.MultiVectorDistillKLDivLoss`. For KD datasets that store query / document *IDs* alongside separate text datasets (e.g. `lightonai/ms-marco-en-bge <https://huggingface.co/datasets/lightonai/ms-marco-en-bge>`_), you can use :func:`~sentence_transformers.util.dataset.resolve_ids` to resolve the IDs on the fly: it expands the stored ID list into the numbered document columns.
 - **Positional query / document assignment**: the first column is embedded as the *query* and all following columns as *documents*. This default can be overridden per column via the standard ``router_mapping`` training argument, mapping column names to ``"query"`` or ``"document"``.
+```
+
+### Multimodal Datasets
+
+```{eval-rst}
+
+.. tip::
+
+   Multimodal models require additional dependencies. Install them with e.g. ``pip install -U "sentence-transformers[image]"`` for image support. See `Installation <../installation.html>`_ for all options.
+
+MultiVectorEncoder datasets are not limited to text columns. With a ColPali-style retriever or a multimodal backbone (see the `Model <#model>`_ section), document columns can hold images as PIL images, file paths, or URLs. The rules from `Dataset Format <#dataset-format>`_ still apply, including the positional assignment: the first column is embedded as the query and every following column as a document, so image columns need no special handling.
+
+A visual document retrieval dataset is therefore just a text query column plus one or more page image columns::
+
+    from datasets import load_dataset
+
+    train_dataset = load_dataset("tomaarsen/llamaindex-vdr-en-train-preprocessed", "train", split="train")
+    print(train_dataset)
+    """
+    Dataset({
+        features: ['query', 'image', 'negative_0', 'negative_1', 'negative_2', 'negative_3'],
+        num_rows: 10000
+    })
+    """
+
+    # Keep the query, the positive page and one hard negative page
+    train_dataset = train_dataset.select_columns(["query", "image", "negative_0"])
+
+Query-page pairs work just as well: `training/multimodal/finetuning_colqwen2.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/multi_vector_encoder/training/multimodal/finetuning_colqwen2.py>`_ finetunes a pretrained ColQwen2 on a two-column ``(query, image)`` dataset with :class:`~sentence_transformers.multi_vector_encoder.losses.MultiVectorMultipleNegativesRankingLoss`, relying on the other pages in the batch as in-batch negatives.
+
+The data collator automatically handles multimodal preprocessing via the model's ``preprocess`` method, so no manual tokenization or image processing is needed. Note that MaxSim scores every query token against every image patch embedding, so a page image contributes many more vectors than a sentence of text does: :class:`~sentence_transformers.multi_vector_encoder.losses.CachedMultiVectorMultipleNegativesRankingLoss` is useful here to keep the effective batch large while only a few samples are encoded at a time. See `Training Examples > Multimodal <../../examples/multi_vector_encoder/training/multimodal/README.html>`_ for complete training scripts.
 ```
 
 ## Loss Function
@@ -671,3 +764,22 @@ Multi-Vector Encoder models have a few quirks that you should be aware of when t
 4. A fresh model from a base transformer starts without the classic ColBERT tokenization tricks (``[MASK]`` query expansion, ``[Q]`` / ``[D]`` prefixes, a document length cap, a punctuation skiplist). They are worth configuring explicitly: query expansion and the prefix tokens in particular are part of the classic recipe that most released checkpoints use. See `Creating Custom Models <usage/custom_models.html>`_ for the full set of defaults and how to change each one.
 5. Multi-vector models are evaluated (and scored during training) with MaxSim, and the per-query-token score contributions are inspectable: see the `interpretability utilities <../package_reference/multi_vector_encoder/interpretability.html>`_ for similarity maps and heatmaps on image documents.
 ```
+
+## Comparisons with SentenceTransformer Training
+
+```{eval-rst}
+Training :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models is very similar as training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models, with some key differences:
+
+- In :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` training, a column is only encoded under a specific task if you say so with the ``router_mapping`` training argument. For :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` training, the assignment is positional by default: the first column is encoded as the ``"query"`` and every following column as a ``"document"``, regardless of the column names. ``router_mapping`` still overrides this per column.
+- :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models produce one embedding per input, whereas :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models produce one embedding per token. Pairs are therefore scored with MaxSim rather than cosine similarity, which is why the contrastive losses default to ``scale=1.0`` instead of ``scale=20.0``. See `Training Tips <#training-tips>`_.
+- Multi-vector models carry tokenization knobs that have no dense equivalent: ``[MASK]`` query expansion, ``[Q]`` / ``[D]`` prefix tokens, a separate document length cap, and a punctuation skiplist. See `Creating Custom Models <usage/custom_models.html>`_.
+
+See the `Sentence Transformer > Training Overview <../sentence_transformer/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models.
+```
+
+<!--
+## End-to-End Example
+
+For a complete end-to-end training example, see the [Training and Finetuning Multi-Vector Embedding Models](https://huggingface.co/blog/train-multi-vector-encoder) blogpost. It applies the components described on this page to a real training task.
+-->
+
