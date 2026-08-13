@@ -51,7 +51,9 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
             ``None`` runs the merged batch in one forward.
         score_mini_batch_size: If set, queries are processed in chunks of this size during the scoring
             phase. Useful to bound transient scoring memory for large effective batch sizes. Gradients
-            still flow through a single backward.
+            still flow through a single backward. It chunks the query axis: to chunk the document axis
+            as well, bind a budget into the scorer with
+            ``similarity_fct=partial(colbert_scores, chunk_elements=...)``.
         gather_across_devices: If True, AllGather document embeddings (and masks) across DDP ranks so that
             every rank's queries see the global batch of documents. Useful for very large effective batches.
 

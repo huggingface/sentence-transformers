@@ -1595,3 +1595,51 @@ def test_xtr_scores_chunk_budget_matches_single_matmul() -> None:
     for budget in (1, 200, 10**9):
         chunked = xtr_scores(queries, documents, top_k=6, chunk_elements=budget)
         assert torch.allclose(unchunked, chunked, atol=1e-6), f"budget={budget}"
+
+
+def test_colbert_scorers_match_the_maxsim_keyword_surface() -> None:
+    """Every colbert scorer takes and forwards chunk_elements and length_normalize, so one kwargs
+    dict works across the family and the default training path can bound its own memory."""
+    import inspect
+
+    from sentence_transformers.multi_vector_encoder.scoring import (
+        colbert_kd_scores,
+        colbert_scores,
+        colbert_scores_pairwise,
+        mean_colbert_kd_scores,
+        mean_colbert_scores,
+        mean_colbert_scores_pairwise,
+    )
+
+    generator = torch.Generator().manual_seed(7)
+    queries = torch.randn(2, 3, 8, generator=generator)
+    documents = torch.randn(2, 2, 5, 8, generator=generator)
+    pairwise_documents = torch.randn(2, 5, 8, generator=generator)
+    plain = (colbert_scores, colbert_kd_scores, colbert_scores_pairwise)
+    for scorer, inputs in (
+        (colbert_scores, (queries, documents)),
+        (colbert_kd_scores, (queries, documents)),
+        (colbert_scores_pairwise, (queries, pairwise_documents)),
+        (mean_colbert_scores, (queries, documents)),
+        (mean_colbert_kd_scores, (queries, documents)),
+        (mean_colbert_scores_pairwise, (queries, pairwise_documents)),
+    ):
+        parameters = inspect.signature(scorer).parameters
+        assert list(parameters)[-2:] == ["chunk_elements", "length_normalize"], scorer.__name__
+        # The mean_ wrappers only differ from their plain counterpart by this default.
+        assert parameters["length_normalize"].default == (scorer not in plain), scorer.__name__
+        with pytest.raises(TypeError, match="device"):
+            scorer(*inputs, device="cpu")
+
+        # chunk_elements is a pure memory knob: the scores must not move.
+        baseline = scorer(*inputs)
+        assert torch.allclose(baseline, scorer(*inputs, chunk_elements=1), atol=1e-6), scorer.__name__
+
+    # length_normalize=False on a mean_ wrapper recovers its plain counterpart, as for mean_maxsim.
+    for mean_scorer, plain_scorer, inputs in (
+        (mean_colbert_scores, colbert_scores, (queries, documents)),
+        (mean_colbert_kd_scores, colbert_kd_scores, (queries, documents)),
+        (mean_colbert_scores_pairwise, colbert_scores_pairwise, (queries, pairwise_documents)),
+    ):
+        recovered = mean_scorer(*inputs, length_normalize=False)
+        assert torch.allclose(recovered, plain_scorer(*inputs), atol=1e-6), mean_scorer.__name__
