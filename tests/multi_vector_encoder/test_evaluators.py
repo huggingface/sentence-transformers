@@ -81,6 +81,23 @@ def test_ir_evaluator_defers_scoring_resolution_to_call_time(model: MultiVectorE
     assert f"late_binding_{model.similarity_fn_name}_ndcg@10" in results
 
 
+def test_ir_evaluator_chunk_elements_reaches_scoring(model: MultiVectorEncoder) -> None:
+    """The budget is bound onto the model-resolved scorer and actually invoked: a one-document-per-
+    chunk budget must score identically to the default."""
+    kwargs = {
+        "queries": {"q0": "What is the capital of France?"},
+        "corpus": {"d0": "Paris is the capital of France.", "d1": "Berlin is the capital of Germany."},
+        "relevant_docs": {"q0": {"d0"}},
+        "name": "budget",
+        "write_csv": False,
+    }
+    chunked = MultiVectorInformationRetrievalEvaluator(**kwargs, chunk_elements=1)
+    assert chunked.score_functions is None
+    chunked_results = chunked(model)
+    assert chunked.score_functions[model.similarity_fn_name].keywords == {"chunk_elements": 1}
+    assert chunked_results == MultiVectorInformationRetrievalEvaluator(**kwargs)(model)
+
+
 def test_ir_evaluator_warns_when_explicit_prompt_replaces_model_prompt(caplog, clear_warning_once_cache) -> None:
     """An explicit query_prompt replaces the model's registered marker prompt instead of composing
     with it, so the evaluator warns once."""
@@ -143,7 +160,8 @@ def test_ir_evaluator_rejects_chunk_elements_with_score_functions() -> None:
     queries = {"q0": "What is the capital of France?"}
     corpus = {"d0": "Paris is the capital of France."}
     qrels = {"q0": {"d0"}}
-    with pytest.raises(ValueError, match="chunk_elements"):
+    # Anchored: an unanchored "chunk_elements" also matches a stale document_chunk_elements message.
+    with pytest.raises(ValueError, match=r"^chunk_elements only configures"):
         MultiVectorInformationRetrievalEvaluator(
             queries=queries,
             corpus=corpus,

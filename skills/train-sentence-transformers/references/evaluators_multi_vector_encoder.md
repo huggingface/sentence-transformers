@@ -59,7 +59,7 @@ evaluator = MultiVectorInformationRetrievalEvaluator(
 
 - `main_score_function` overrides the score used in `primary_metric` if you set a non-default. Default is `None`, which resolves to `maxsim` from the model's `similarity_fn_name` at call time. For MVE just leave it as `None`.
 - Reports MRR@k, nDCG@k, Recall@k, Precision@k, MAP@k for the k-values you pass (`mrr_at_k`, `ndcg_at_k`, etc.).
-- `chunk_elements` (default `None`) is the element budget for the `(num_queries, chunk, q_tokens, d_tokens)` MaxSim scoring intermediate. Leave it as `None`: `maxsim` packs documents into chunks under a 100M-element budget (at most ~400 MB, half that in bf16 / fp16), adapting to the query count and document lengths. Lower it to cut evaluation memory further.
+- `chunk_elements` (default `None`) is the element budget for the padded `(chunk, d_tokens, dim)` documents plus the `(num_queries, chunk, q_tokens, d_tokens)` MaxSim scoring intermediate. Leave it as `None`: `maxsim` packs documents into chunks under a 100M-element budget (at most ~400 MB, half that in bf16 / fp16), adapting to the query count and document lengths. Lower it to cut evaluation memory further. It is a separate axis from `corpus_chunk_size`, which caps how many encoded documents are held at a time.
 
 ## `MultiVectorDistillationEvaluator`
 
