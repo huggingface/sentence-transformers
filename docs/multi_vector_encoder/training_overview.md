@@ -768,7 +768,7 @@ Multi-Vector Encoder models have a few quirks that you should be aware of when t
 ## Comparisons with SentenceTransformer Training
 
 ```{eval-rst}
-Training :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models is very similar as training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models, with some key differences:
+Training :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models is very similar to training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models, with some key differences:
 
 - In :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` training, a column is only encoded under a specific task if you say so with the ``router_mapping`` training argument. For :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` training, the assignment is positional by default: the first column is encoded as the ``"query"`` and every following column as a ``"document"``, regardless of the column names. ``router_mapping`` still overrides this per column.
 - :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models produce one embedding per input, whereas :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models produce one embedding per token. Pairs are therefore scored with MaxSim rather than cosine similarity, which is why the contrastive losses default to ``scale=1.0`` instead of ``scale=20.0``. See `Training Tips <#training-tips>`_.
