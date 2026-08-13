@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from sentence_transformers.util.similarity import _document_chunk_ranges, _fill_empty_document_scores, _zero_row_mask
+from sentence_transformers.util.similarity import _chunk_ranges, _fill_empty_document_scores, _zero_row_mask
 from sentence_transformers.util.tensor import _convert_to_tensor
 
 
@@ -72,7 +72,7 @@ def xtr_scores(
         # Same per-document-token cost accounting as maxsim: the (Qb, Qt) score column plus the
         # embedding row.
         score_chunks = []
-        for d_start, d_end in _document_chunk_ranges([Dt] * Db, Qb * Qt + H, chunk_elements):
+        for d_start, d_end in _chunk_ranges([Dt] * Db, Qb * Qt + H, chunk_elements):
             db = d_end - d_start
             chunk_D_flat = docs_flat[d_start:d_end].reshape(db * Dt, H).T
             chunk_scores = (Q_flat @ chunk_D_flat).view(Qb, Qt, db, Dt)

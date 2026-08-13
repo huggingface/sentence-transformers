@@ -236,34 +236,38 @@ _MAXSIM_CHUNK_ELEMENT_BUDGET = 100_000_000
 _EMPTY_DOCUMENT_SCORE = -1e9
 
 
-def _document_chunk_ranges(
-    document_widths: list[int], per_document_token: int, element_budget: int, per_document_fixed: int = 0
+def _chunk_ranges(
+    item_widths: list[int], per_item_token: int, element_budget: int, per_item_fixed: int = 0
 ) -> list[tuple[int, int]]:
-    """Greedily pack documents into ``(start, end)`` chunks whose padded cost of
-    ``(per_document_token * chunk_width + per_document_fixed) * chunk_size`` elements stays under
-    ``element_budget``, with a floor of one document per chunk. The cost uses each chunk's local max
-    width, matching the per-chunk padding in :func:`maxsim`, so one long outlier document only sizes
-    its own chunk.
+    """Greedily pack items into ``(start, end)`` chunks whose padded cost of
+    ``(per_item_token * chunk_width + per_item_fixed) * chunk_size`` elements stays under
+    ``element_budget``, with a floor of one item per chunk. The cost uses each chunk's local max
+    width, matching the per-chunk padding in :func:`maxsim`, so one long outlier only sizes its own
+    chunk.
 
-    ``per_document_token`` must count every allocation that scales with a document's padded width: the
-    scoring intermediate and the padded embeddings themselves. Omitting the embeddings overshoots the
-    budget several-fold whenever the query side is small, since the padding then dominates.
-    ``per_document_fixed`` covers what grows with the chunk size but not with the document width, such
-    as the padded queries in :func:`maxsim_pairwise`.
+    The item is a document in :func:`maxsim` and in
+    :func:`~sentence_transformers.multi_vector_encoder.scoring.xtr_scores` (which packs the flattened
+    ``Q * N`` document axis), and a query-document pair in :func:`maxsim_pairwise`.
+
+    ``per_item_token`` must count every allocation that scales with an item's padded width: the
+    scoring intermediate and, where the caller materializes them, the padded embeddings themselves.
+    Omitting the embeddings overshoots the budget several-fold whenever the query side is small, since
+    the padding then dominates. ``per_item_fixed`` covers what grows with the chunk size but not with
+    the item width, such as the padded queries in :func:`maxsim_pairwise`.
     """
     ranges: list[tuple[int, int]] = []
     start = 0
     width = 0
-    for index, document_width in enumerate(document_widths):
-        candidate_width = max(width, document_width)
+    for index, item_width in enumerate(item_widths):
+        candidate_width = max(width, item_width)
         count = index - start + 1
-        if count > 1 and (per_document_token * candidate_width + per_document_fixed) * count > element_budget:
+        if count > 1 and (per_item_token * candidate_width + per_item_fixed) * count > element_budget:
             ranges.append((start, index))
             start = index
-            width = document_width
+            width = item_width
         else:
             width = candidate_width
-    ranges.append((start, len(document_widths)))
+    ranges.append((start, len(item_widths)))
     return ranges
 
 
@@ -448,7 +452,7 @@ def maxsim(
 
     # The budget covers the padded documents (width x dim) as well as the (batch_a, q_tokens, width)
     # score intermediate: with a small query side the padding, not the score matrix, is the bigger half.
-    ranges = _document_chunk_ranges(document_widths, a.shape[0] * a.shape[1] + _embedding_dim(b), budget)
+    ranges = _chunk_ranges(document_widths, a.shape[0] * a.shape[1] + _embedding_dim(b), budget)
 
     score_chunks = []
     for d_start, d_end in ranges:
@@ -595,7 +599,7 @@ def maxsim_pairwise(
     # document width, so it goes in as a fixed per-pair cost.
     query_width = max(query_widths)
     dim = _embedding_dim(b)
-    ranges = _document_chunk_ranges(document_widths, query_width + dim, budget, per_document_fixed=query_width * dim)
+    ranges = _chunk_ranges(document_widths, query_width + dim, budget, per_item_fixed=query_width * dim)
 
     score_chunks = []
     for start, end in ranges:

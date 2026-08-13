@@ -9,7 +9,7 @@ from packaging.version import Version
 from sentence_transformers.sparse_encoder import SparseEncoder
 from sentence_transformers.util import similarity
 from sentence_transformers.util.similarity import (
-    _document_chunk_ranges,
+    _chunk_ranges,
     cos_sim,
     dot_score,
     euclidean_sim,
@@ -614,26 +614,26 @@ def test_maxsim_integer_embeddings_upcast() -> None:
     assert torch.allclose(pairwise_padded, torch.diagonal(expected))
 
 
-def test_document_chunk_ranges_budget_packing() -> None:
-    """Greedy packing keeps each chunk's per_document_token * width * count under the budget,
+def test_chunk_ranges_budget_packing() -> None:
+    """Greedy packing keeps each chunk's per_item_token * width * count under the budget,
     isolates a long outlier in its own chunk, and never emits an empty chunk."""
-    # Budget 256 at 16 elements per document token allows width * count <= 16.
-    ranges = _document_chunk_ranges([4, 4, 100, 4], per_document_token=16, element_budget=256)
+    # Budget 256 at 16 elements per item token allows width * count <= 16.
+    ranges = _chunk_ranges([4, 4, 100, 4], per_item_token=16, element_budget=256)
     assert ranges == [(0, 2), (2, 3), (3, 4)]
 
     # A huge budget packs everything into one chunk, the unchunked-equivalent case.
-    assert _document_chunk_ranges([4, 4, 100, 4], 16, 10**12) == [(0, 4)]
+    assert _chunk_ranges([4, 4, 100, 4], 16, 10**12) == [(0, 4)]
 
-    # The one-document floor: a single document over budget still gets a chunk.
-    assert _document_chunk_ranges([1000], 16, 256) == [(0, 1)]
+    # The one-item floor: a single item over budget still gets a chunk.
+    assert _chunk_ranges([1000], 16, 256) == [(0, 1)]
 
-    # Uniform widths degrade to fixed-size-style chunks: each 2-document chunk costs exactly 200.
-    assert _document_chunk_ranges([10] * 6, 10, 200) == [(0, 2), (2, 4), (4, 6)]
+    # Uniform widths degrade to fixed-size-style chunks: each 2-item chunk costs exactly 200.
+    assert _chunk_ranges([10] * 6, 10, 200) == [(0, 2), (2, 4), (4, 6)]
 
-    # per_document_fixed adds a width-independent cost per document: 10 * 10 + 100 = 200 each.
-    assert _document_chunk_ranges([10] * 6, 10, 400, per_document_fixed=100) == [(0, 2), (2, 4), (4, 6)]
-    # It counts against the budget even when the documents are zero-width.
-    assert _document_chunk_ranges([0] * 4, 10, 400, per_document_fixed=100) == [(0, 4)]
+    # per_item_fixed adds a width-independent cost per item: 10 * 10 + 100 = 200 each.
+    assert _chunk_ranges([10] * 6, 10, 400, per_item_fixed=100) == [(0, 2), (2, 4), (4, 6)]
+    # It counts against the budget even when the items are zero-width.
+    assert _chunk_ranges([0] * 4, 10, 400, per_item_fixed=100) == [(0, 4)]
 
 
 def test_maxsim_element_budget_matches_single_chunk() -> None:
