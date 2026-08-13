@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import logging
+import platform
+from importlib.metadata import version
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from transformers import AutoProcessor
 
 from sentence_transformers.util.environment import (
+    check_version_requirements,
     get_device_name,
+    get_installed_version,
     is_dist_initialized,
     suggest_extra_on_exception,
 )
@@ -100,3 +106,121 @@ def test_suggest_extra_monkeypatch_missing_torchcodec(monkeypatch: pytest.Monkey
     with pytest.raises(AttributeError, match=r"pip install -U torchcodec"):
         with suggest_extra_on_exception():
             AutoProcessor.from_pretrained("some-model")
+
+
+def test_get_installed_version_python() -> None:
+    assert get_installed_version("python") == platform.python_version()
+
+
+def test_get_installed_version_missing_package() -> None:
+    assert get_installed_version("this-package-does-not-exist") is None
+
+
+def test_check_version_requirements_resolves_pytorch_alias() -> None:
+    """Model authors copying the "pytorch" spelling from the `__version__` block should still work."""
+    check_version_requirements({"pytorch": ">=2.0"})
+
+    # `pip install pytorch` installs a stub package, so the error must name torch instead
+    with pytest.raises(ImportError, match=r'pip install -U "torch>=99\.0"'):
+        check_version_requirements({"pytorch": ">=99.0"})
+
+
+def test_get_installed_version_prefers_imported_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Editable installs report stale distribution metadata, so the imported module wins."""
+    monkeypatch.setattr("sentence_transformers.__version__", "99.0.0.dev0")
+
+    assert get_installed_version("sentence-transformers") == "99.0.0.dev0"
+
+
+def test_get_installed_version_falls_back_to_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Modules without a usable __version__ resolve via the distribution metadata."""
+    monkeypatch.setattr("pytest.__version__", None)
+
+    assert get_installed_version("pytest") == version("pytest")
+
+
+@pytest.mark.parametrize(
+    "requirements",
+    [None, {}, {"transformers": ">=1.0"}, {"python": f">={platform.python_version()}"}, {"transformers": ""}],
+    ids=["none", "empty", "satisfied", "python", "installed_only"],
+)
+def test_check_version_requirements_satisfied(requirements: dict[str, Any] | None) -> None:
+    check_version_requirements(requirements, source="test/model")
+
+
+def test_check_version_requirements_unmet() -> None:
+    with pytest.raises(ImportError) as exc_info:
+        check_version_requirements({"transformers": ">=999"}, source="test/model")
+
+    message = str(exc_info.value)
+    assert "test/model" in message
+    assert "transformers>=999" in message
+    assert 'pip install -U "transformers>=999"' in message
+
+
+def test_check_version_requirements_reports_all_unmet() -> None:
+    with pytest.raises(ImportError) as exc_info:
+        check_version_requirements({"transformers": ">=999", "this-package-does-not-exist": ">=1.0"})
+
+    message = str(exc_info.value)
+    assert "transformers>=999" in message
+    assert "this-package-does-not-exist>=1.0, but it is not installed" in message
+
+
+def test_check_version_requirements_includes_reason() -> None:
+    requirements = {"transformers": {"specifier": ">=999", "reason": "Otherwise the adapter is randomly initialized."}}
+
+    with pytest.raises(ImportError, match="Otherwise the adapter is randomly initialized."):
+        check_version_requirements(requirements)
+
+
+def test_check_version_requirements_allows_prereleases(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Development installs and torch nightlies must not trip the check."""
+    monkeypatch.setattr("sentence_transformers.__version__", "6.0.0.dev0")
+
+    check_version_requirements({"sentence_transformers": ">=5.0,<7"})
+
+
+def test_check_version_requirements_ignores_local_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CUDA builds report versions like 2.13.0+cu126."""
+    monkeypatch.setattr("torch.__version__", "2.13.0+cu126")
+
+    check_version_requirements({"torch": ">=2.13"})
+
+
+@pytest.mark.parametrize(
+    "requirements",
+    [
+        {"transformers": "5.15"},
+        {"transformers": {"specifier": "@ git+https://github.com/huggingface/transformers"}},
+        {"transformers": 5.15},
+    ],
+    ids=["missing_operator", "not_a_specifier", "not_a_string"],
+)
+def test_check_version_requirements_invalid_specifier_warns(
+    requirements: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.WARNING):
+        check_version_requirements(requirements, source="test/model")
+
+    assert "Could not verify" in caplog.text
+
+
+def test_check_version_requirements_invalid_installed_version_warns(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr("torch.__version__", "2.13.0.unknown")
+
+    with caplog.at_level(logging.WARNING):
+        check_version_requirements({"torch": ">=2.13"})
+
+    assert "Could not verify" in caplog.text
+
+
+def test_check_version_requirements_non_dict_warns(caplog: pytest.LogCaptureFixture) -> None:
+    requirements: Any = ["transformers>=999"]
+
+    with caplog.at_level(logging.WARNING):
+        check_version_requirements(requirements, source="test/model")
+
+    assert "expected a dictionary" in caplog.text

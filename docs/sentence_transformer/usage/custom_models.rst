@@ -133,6 +133,36 @@ Loading Sentence Transformer Models
 
 To load a Sentence Transformer model from a saved model directory, the ``modules.json`` is read to determine the modules that make up the model. Each module is initialized with the configuration stored in the corresponding module directory, after which the SentenceTransformer class is instantiated with the loaded modules.
 
+Declaring Version Requirements
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Some models only behave correctly with certain versions of their dependencies. For example, an option that a model relies on may be silently ignored by older ``transformers`` versions, resulting in a model that quietly differs from the one that the author trained. Model authors can guard against this by declaring version requirements in ``config_sentence_transformers.json``:
+
+.. code-block:: json
+
+   {
+     "model_type": "SentenceTransformer",
+     "requirements": {
+       "transformers": ">=5.15",
+       "peft": {
+         "specifier": ">=0.18,<0.20",
+         "reason": "Older versions ignore the key_mapping, which silently randomizes the adapter weights."
+       }
+     }
+   }
+
+Each key is the name of a Python package, or ``"python"`` for the Python version itself, and each value is a `PEP 440 version specifier <https://peps.python.org/pep-0440/#version-specifiers>`_. To explain what goes wrong when a requirement isn't met, the specifier can be wrapped in a dictionary with a ``"reason"``. An empty specifier (``""``) only requires that the package is installed at all.
+
+These requirements are verified whenever the model is loaded, before any weights are read, and an ``ImportError`` is raised if the environment doesn't satisfy them::
+
+   ImportError: The model 'tomaarsen/my-model' requires:
+   - transformers>=5.15, but transformers==5.4.0 is installed.
+   - peft>=0.18,<0.20, but peft==0.17.0 is installed. Older versions ignore the key_mapping, which silently randomizes the adapter weights.
+   Install compatible versions with:
+       pip install -U "transformers>=5.15" "peft>=0.18,<0.20"
+
+Requirements are only ever read from the configuration file, they are not written by ``save_pretrained``. If you save or finetune a model that declares requirements, add them to the configuration file of your own model if they still apply.
+
 Sentence Transformer Model from a Transformers Model
 ----------------------------------------------------
 

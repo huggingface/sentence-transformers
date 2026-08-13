@@ -226,6 +226,8 @@ To load a :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` model
 
 If no ``modules.json`` is found (e.g., loading a pure ``transformers`` model), the :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder._load_default_modules` method automatically determines the module chain based on the model architecture: ``ForCausalLM`` models get ``[Transformer, LogitScore]``, while all other models get ``[Transformer]`` with ``transformer_task="sequence-classification"``.
 
+Like Sentence Transformer models, CrossEncoder models can declare which dependency versions they need to load correctly, see `Declaring Version Requirements <../../sentence_transformer/usage/custom_models.html#declaring-version-requirements>`_.
+
 Multimodal CrossEncoder Models
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

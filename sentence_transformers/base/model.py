@@ -34,6 +34,7 @@ from sentence_transformers.base.model_card import BaseModelCardData, generate_mo
 from sentence_transformers.base.modules import Module, Router, Transformer
 from sentence_transformers.base.peft_mixin import PeftAdapterMixin
 from sentence_transformers.util import (
+    check_version_requirements,
     get_device_name,
     import_module_class,
     load_dir_path,
@@ -1119,6 +1120,9 @@ This pull request has been automatically generated to add {self.__class__.__name
         if config_sentence_transformers_json_path is not None:
             with open(config_sentence_transformers_json_path, encoding="utf8") as fIn:
                 model_config = json.load(fIn)
+
+            # Fail before any modules are loaded if the environment doesn't meet the author's requirements
+            check_version_requirements(model_config.get("requirements"), source=model_name_or_path)
 
             if (
                 "__version__" in model_config

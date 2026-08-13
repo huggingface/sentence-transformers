@@ -1150,6 +1150,29 @@ def test_get_model_type_reads_model_type(stsb_bert_tiny_model: SentenceTransform
     assert result == "SparseEncoder"
 
 
+def save_with_model_config(model: SentenceTransformer, path: Path, **config_updates: Any) -> None:
+    """Save a model, then update its config_sentence_transformers.json, e.g. to add requirements."""
+    model.save_pretrained(str(path))
+    config_path = path / "config_sentence_transformers.json"
+    config = json.loads(config_path.read_text(encoding="utf8"))
+    config.update(config_updates)
+    config_path.write_text(json.dumps(config), encoding="utf8")
+
+
+def test_met_requirements_load_normally(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+    save_with_model_config(stsb_bert_tiny_model, tmp_path, requirements={"transformers": ">=1.0"})
+
+    model = SentenceTransformer(str(tmp_path))
+    assert len(model) == len(stsb_bert_tiny_model)
+
+
+def test_unmet_requirements_raise_when_loading(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+    save_with_model_config(stsb_bert_tiny_model, tmp_path, requirements={"transformers": ">=999"})
+
+    with pytest.raises(ImportError, match="transformers>=999"):
+        SentenceTransformer(str(tmp_path))
+
+
 class StrictLoadModule(Module):
     """Third-party-style module: load() pins an exact keyword list with no **kwargs catch-all."""
 
