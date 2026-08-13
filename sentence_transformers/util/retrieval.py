@@ -139,7 +139,7 @@ def paraphrase_mining_embeddings(
                         pairs.put((scores_top_k_values[query_itr][top_k_idx], i, j))
                         num_added += 1
 
-                        if num_added >= max_pairs:
+                        if num_added > max_pairs:
                             entry = pairs.get()
                             min_score = entry[0]
 
