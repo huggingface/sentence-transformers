@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from unittest.mock import patch
 
 import pytest
@@ -58,60 +57,47 @@ def test_import_module_class_sentence_transformers_namespace_skips_dynamic_loadi
     assert cls is Pooling
 
 
-def test_import_module_class_local_path_without_trust_warns_about_v6(tmp_path):
-    """Loading a non-ST custom class from a local path currently succeeds without
-    `trust_remote_code=True` via the `os.path.exists` short-circuit. That implicit trust is being
-    removed in v6.0, so a FutureWarning must telegraph the change and point at `trust_remote_code=True`.
+@pytest.mark.parametrize("trust_remote_code", [False, None])
+def test_import_module_class_local_path_without_trust_raises(tmp_path, monkeypatch, trust_remote_code):
+    """A local model directory is no longer implicitly trusted (#3801): a non-ST custom class requires
+    `trust_remote_code=True` regardless of where the model lives, and dynamic loading is never attempted
+    without it. A forwarded None stays falsy rather than triggering transformers' interactive prompt.
     """
-    fake_class = type("FakeClass", (), {})
-    with patch("transformers.dynamic_module_utils.get_class_from_dynamic_module", return_value=fake_class):
-        with pytest.warns(FutureWarning, match="trust_remote_code"):
-            cls = import_module_class(
-                "modeling_custom.CustomTransformer",
-                model_name_or_path=str(tmp_path),
-                trust_remote_code=False,
-            )
 
-    assert cls is fake_class
+    def fail_get_class(*args, **kwargs):
+        raise AssertionError("dynamic loading must not be attempted without trust_remote_code=True")
+
+    monkeypatch.setattr("transformers.dynamic_module_utils.get_class_from_dynamic_module", fail_get_class)
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        import_module_class(
+            "modeling_custom.CustomTransformer",
+            model_name_or_path=str(tmp_path),
+            trust_remote_code=trust_remote_code,
+        )
 
 
-def test_import_module_class_untrusted_hub_ref_warns_about_v6(monkeypatch):
-    """A non-ST class ref for a Hub repo (not a local dir) without `trust_remote_code` still imports for
-    now, but must emit a FutureWarning that v6.0 will require `trust_remote_code=True`. Until then this is
-    the (deprecated) path that resolves an arbitrary dotted path from a model's `modules.json` `type`.
+def test_import_module_class_untrusted_hub_ref_raises(monkeypatch):
+    """A non-ST class ref without `trust_remote_code=True` is refused outright: no dynamic loading, and
+    no direct-import fallback that would resolve an arbitrary dotted path from a model's `modules.json`
+    `type`. The refusal also keeps the test hermetic (no Hub request).
     """
-    dynamic_loading_attempted = False
 
-    def spy_get_class(*args, **kwargs):
-        nonlocal dynamic_loading_attempted
-        dynamic_loading_attempted = True
-        raise OSError("get_class_from_dynamic_module must not be reached for an untrusted, non-local ref")
+    def fail_get_class(*args, **kwargs):
+        raise AssertionError("dynamic loading must not be attempted without trust_remote_code=True")
 
-    monkeypatch.setattr("transformers.dynamic_module_utils.get_class_from_dynamic_module", spy_get_class)
-    with pytest.warns(FutureWarning, match="trust_remote_code"):
-        cls = import_module_class(
+    monkeypatch.setattr("transformers.dynamic_module_utils.get_class_from_dynamic_module", fail_get_class)
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        import_module_class(
             "collections.OrderedDict",
             model_name_or_path="attacker/evil-embeddings",
             trust_remote_code=False,
         )
 
-    # An untrusted, non-local ref must resolve via the direct-import fallback without ever attempting remote
-    # (dynamic) loading. Asserting this pins the security guard and keeps the test hermetic (no Hub request).
-    assert not dynamic_loading_attempted
 
-    from collections import OrderedDict
-
-    assert cls is OrderedDict
-
-
-@pytest.mark.parametrize(
-    ("use_local_path", "trust_remote_code"),
-    [(True, False), (False, True)],
-)
-def test_import_module_class_trusted_fallback_does_not_warn(tmp_path, monkeypatch, use_local_path, trust_remote_code):
-    """A trusted source whose dynamic load fails falls through to the direct import without emitting the
-    untrusted-ref FutureWarning. Covers both trust sources: a local dir (implicitly trusted until v6.0) and
-    an explicit `trust_remote_code=True`.
+@pytest.mark.parametrize("use_local_path", [True, False])
+def test_import_module_class_trusted_fallback_imports_directly(tmp_path, monkeypatch, use_local_path):
+    """A trusted ref whose dynamic load fails falls through to the direct import, for local directories
+    and Hub repos alike.
     """
 
     def raise_oserror(*args, **kwargs):
@@ -119,69 +105,39 @@ def test_import_module_class_trusted_fallback_does_not_warn(tmp_path, monkeypatc
 
     monkeypatch.setattr("transformers.dynamic_module_utils.get_class_from_dynamic_module", raise_oserror)
     model_name_or_path = str(tmp_path) if use_local_path else "some/repo"
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", FutureWarning)
-        cls = import_module_class(
-            "collections.OrderedDict",
-            model_name_or_path=model_name_or_path,
-            trust_remote_code=trust_remote_code,
-        )
+    cls = import_module_class(
+        "collections.OrderedDict",
+        model_name_or_path=model_name_or_path,
+        trust_remote_code=True,
+    )
 
     from collections import OrderedDict
 
     assert cls is OrderedDict
 
 
-def test_import_module_class_local_file_collision_is_not_trusted(tmp_path, monkeypatch):
-    """The local-trust carve-out requires a directory (`os.path.isdir`), not merely an existing path. A file
-    whose name collides with a Hub repo id must not be treated as a trusted local model, otherwise the
-    untrusted-ref gate is bypassed while `modules.json` is still fetched from the Hub.
+def test_import_module_class_without_model_name_needs_no_trust():
+    """The trust gate only applies when a model is involved: a bare programmatic import
+    (`model_name_or_path=None`) is the caller's own code choosing a class, so it needs no flag.
     """
-    collision = tmp_path / "repo"
-    collision.write_text("not a model")
-
-    def fail_get_class(*args, **kwargs):
-        raise AssertionError("dynamic loading must not be attempted for a non-directory path")
-
-    monkeypatch.setattr("transformers.dynamic_module_utils.get_class_from_dynamic_module", fail_get_class)
-    with pytest.warns(FutureWarning, match="trust_remote_code"):
-        cls = import_module_class(
-            "collections.OrderedDict",
-            model_name_or_path=str(collision),
-            trust_remote_code=False,
-        )
+    cls = import_module_class("collections.OrderedDict")
 
     from collections import OrderedDict
 
     assert cls is OrderedDict
 
 
-def test_import_module_class_without_model_name_does_not_warn():
-    """With no model involved (`model_name_or_path=None`), the untrusted-ref warning must not fire: Path B
-    already skips a None path, and the warning text would otherwise reference a nonexistent model.
-    """
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", FutureWarning)
-        cls = import_module_class("collections.OrderedDict")
-
-    from collections import OrderedDict
-
-    assert cls is OrderedDict
-
-
-def test_import_module_class_local_path_with_trust_does_not_warn(tmp_path):
-    """Passing `trust_remote_code=True` is the explicit opt-in that stays valid in v6.0, so the
-    local-path deprecation warning must not fire.
+def test_import_module_class_local_path_with_trust_loads(tmp_path):
+    """Passing `trust_remote_code=True` is the explicit opt-in that v6.0 requires, so the dynamic
+    load runs and its class is returned.
     """
     fake_class = type("FakeClass", (), {})
     with patch("transformers.dynamic_module_utils.get_class_from_dynamic_module", return_value=fake_class):
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", FutureWarning)
-            cls = import_module_class(
-                "modeling_custom.CustomTransformer",
-                model_name_or_path=str(tmp_path),
-                trust_remote_code=True,
-            )
+        cls = import_module_class(
+            "modeling_custom.CustomTransformer",
+            model_name_or_path=str(tmp_path),
+            trust_remote_code=True,
+        )
 
     assert cls is fake_class
 

@@ -581,35 +581,33 @@ def test_load_module_class_from_ref_sentence_transformers(stsb_bert_tiny_model: 
     assert cls is Pooling
 
 
-def test_load_module_class_from_ref_untrusted_ref_warns_about_v6(
+def test_load_module_class_from_ref_untrusted_ref_raises(
     stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A non-sentence_transformers class ref from an untrusted, non-local model still resolves for now, but
-    must emit a FutureWarning that v6.0 will require `trust_remote_code=True` (the import runs
-    repository-chosen code)."""
+    """A non-sentence_transformers class ref without `trust_remote_code=True` is refused: the import
+    would run repository-chosen code."""
     dynamic_loading_attempted = False
 
     def mock_get_class(class_ref, model_name_or_path, **kwargs):
         nonlocal dynamic_loading_attempted
         dynamic_loading_attempted = True
-        raise OSError("must not be reached for an untrusted, non-local ref")
+        raise OSError("must not be reached for an untrusted ref")
 
     monkeypatch.setattr(
         "transformers.dynamic_module_utils.get_class_from_dynamic_module",
         mock_get_class,
     )
 
-    with pytest.warns(FutureWarning, match="trust_remote_code"):
-        cls = stsb_bert_tiny_model._load_module_class_from_ref(
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        stsb_bert_tiny_model._load_module_class_from_ref(
             "torch.nn.Linear",
             model_name_or_path="nonexistent_path_12345",
             trust_remote_code=False,
             revision=None,
             model_kwargs=None,
         )
-    # Untrusted + non-local must not attempt remote (dynamic) loading. The ref resolves via direct import.
+    # The refusal must come from the gate, before any remote (dynamic) loading is attempted.
     assert not dynamic_loading_attempted
-    assert cls is nn.Linear
 
 
 def test_load_module_class_from_ref_trust_remote_code_fallback(

@@ -782,8 +782,9 @@ def test_router_as_middle_module(static_embedding: StaticEmbedding, tmp_path: Pa
     model_path = os.path.join(tmp_path, "test_model")
     model.save(model_path)
 
-    # Load the model
-    loaded_model = SentenceTransformer(model_path)
+    # Load the model. The saved Router references the test-local InvertMockModule class, a
+    # non-ST module class that requires opting in since v6.0.
+    loaded_model = SentenceTransformer(model_path, trust_remote_code=True)
 
     # Verify loaded model structure
     assert len(list(loaded_model.children())) == 3

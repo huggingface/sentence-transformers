@@ -435,7 +435,7 @@ To ensure that ``temperature_logit_score.TemperatureLogitScore`` can be imported
 
 .. note::
 
-   Using a custom module with remote code stored on the Hugging Face Hub requires that your users specify ``trust_remote_code`` as ``True`` when loading the model. This is a security measure to prevent remote code execution attacks.
+   Using a custom module requires that your users specify ``trust_remote_code`` as ``True`` when loading the model, whether it is loaded from the Hugging Face Hub or from a local path. This is a security measure to prevent remote code execution attacks.
 
 .. note::
 

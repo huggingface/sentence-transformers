@@ -20,6 +20,10 @@ v6.0 requires `transformers` v5.x (up from 4.41+), `torch` 2.2+ (up from 1.11+),
 - :class:`~sentence_transformers.CrossEncoder`'s ``predict`` (and ``rank``) now upcasts the scores to ``float32`` before applying the optional activation function, so ``float16`` and ``bfloat16`` rerankers return different and far better ordered scores: a sigmoid in half precision saturates and ties the top candidates together. The returned dtype changes only for ``predict`` with ``convert_to_tensor=True`` or ``convert_to_numpy=False``, as the default numpy output was already ``float32``.
 ```
 
+#### Custom module classes require `trust_remote_code=True`
+
+Loading a model whose `modules.json` references a module class outside of Sentence Transformers now always requires `trust_remote_code=True`, also when the model is stored in a local directory or when the class comes from a locally installed package. Previously, local models were implicitly trusted, and other untrusted references only emitted a `FutureWarning`.
+
 Behavioral changes that need no code updates (loss bug fixes that change training results, seed reproducibility, model card regeneration differences, compatibility of new saves with older library versions) and a handful of niche API changes are covered in the release notes instead.
 
 ### Migrating from PyLate
