@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -12,10 +12,6 @@ from transformers.utils import logging
 
 from sentence_transformers.base.losses.gradcache import _create_minibatch, _get_batch_size, _minibatch_ranges
 from sentence_transformers.util import cat_padded_token_embeddings
-
-# TODO(v6): only the MultiVectorEncoder losses use this so far. Extend it to the SentenceTransformer
-# losses (SparseEncoder inherits those) before v6 so the archetypes do not diverge. Measured at 1.15x
-# to 2x end-to-end there, scaling with how many columns share a forward pass.
 
 logger = logging.get_logger(__name__)
 
@@ -78,9 +74,10 @@ def merge_feature_batches(features_list: list[dict[str, Any]]) -> dict[str, Any]
     # (cu_seq_lens_q, max_length_q), which concatenation would interleave into meaningless offsets.
     if "cu_seq_lens_q" in first:
         return _separate_forwards("the inputs are flattened for flash attention")
-    # Without a text batch axis there is nothing to validate the remaining tensors against.
-    if not any(isinstance(first.get(key), Tensor) for key in ("input_ids", "attention_mask")):
-        return _separate_forwards("the features carry no 'input_ids' or 'attention_mask' to align rows by")
+    # Without a batched text tensor there is nothing to validate the remaining tensors against, and a
+    # 1D ``input_ids`` is a flattened token stream (StaticEmbedding) that concatenation would misalign.
+    if not any(isinstance(first.get(key), Tensor) and first[key].ndim >= 2 for key in ("input_ids", "attention_mask")):
+        return _separate_forwards("the features carry no batched 'input_ids' or 'attention_mask' to align rows by")
     rows = _get_batch_size(first)
     merged: dict[str, Any] = {}
     for key, first_value in first.items():
@@ -160,6 +157,34 @@ def chunked_padded_forward(
         [output["token_embeddings"] for output in outputs],
         [output["attention_mask"] for output in outputs],
     )
+
+
+def embed_columns(
+    model: nn.Module, features_list: Iterable[dict[str, Any]], separate_first: bool = False
+) -> list[Tensor]:
+    """Embed each input column, sharing one merged forward pass across columns when possible.
+
+    Returns one ``sentence_embedding`` tensor per column. When :func:`merge_feature_batches`
+    refuses, falls back to one forward per column, which fills each per-column dict exactly like
+    the classic ``model(features)`` loss pattern it replaces.
+
+    Only merge columns that share a width profile. The merged batch pads every column to the
+    cross-column max width, and that padding costs real compute: merging a narrow query column in
+    with long document columns can end up slower than per-column forwards. The anchor-based losses
+    therefore pass ``separate_first``, which keeps the first (anchor) column on its own forward
+    pass and merges only the candidate columns, mirroring the MultiVectorEncoder losses.
+    """
+    features_list = list(features_list)
+    if separate_first:
+        return [
+            model(features_list[0])["sentence_embedding"],
+            *embed_columns(model, features_list[1:]),
+        ]
+    merged = merge_feature_batches(features_list) if len(features_list) > 1 else None
+    if merged is None:
+        return [model(features)["sentence_embedding"] for features in features_list]
+    embeddings = model(merged)["sentence_embedding"]
+    return list(embeddings.reshape(len(features_list), -1, *embeddings.shape[1:]).unbind(0))
 
 
 def embed_columns_padded(

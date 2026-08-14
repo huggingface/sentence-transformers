@@ -13,6 +13,7 @@ from sentence_transformers.base.losses.gradcache import (
     _validate_mini_batch_num_tokens,
     has_static_embedding_input,
 )
+from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
@@ -196,7 +197,7 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
     def forward_non_mini_batched(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         sentence_features = list(sentence_features)
         self._validate_input(sentence_features)
-        reps = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        reps = embed_columns(self.model, sentence_features)
         return self.calculate_loss([[rep] for rep in reps])
 
     def get_config_dict(self) -> dict[str, Any]:

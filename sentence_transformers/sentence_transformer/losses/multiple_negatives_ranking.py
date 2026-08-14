@@ -7,6 +7,7 @@ from typing import Any, Literal
 import torch
 from torch import Tensor, nn
 
+from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.util import all_gather_with_grad, cos_sim, get_rank, similarity_fct_name
 
@@ -230,7 +231,7 @@ class MultipleNegativesRankingLoss(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         # Compute the embeddings and distribute them to anchor and candidates (positive and optionally negatives)
-        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        embeddings = embed_columns(self.model, sentence_features, separate_first=True)
         return self.compute_loss_from_embeddings(embeddings, labels)
 
     def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
