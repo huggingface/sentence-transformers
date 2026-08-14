@@ -127,17 +127,19 @@ def test_import_module_class_without_model_name_needs_no_trust():
     assert cls is OrderedDict
 
 
-def test_import_module_class_local_path_with_trust_loads(tmp_path):
+def test_import_module_class_local_path_with_trust_loads(tmp_path, monkeypatch):
     """Passing `trust_remote_code=True` is the explicit opt-in that v6.0 requires, so the dynamic
     load runs and its class is returned.
     """
     fake_class = type("FakeClass", (), {})
-    with patch("transformers.dynamic_module_utils.get_class_from_dynamic_module", return_value=fake_class):
-        cls = import_module_class(
-            "modeling_custom.CustomTransformer",
-            model_name_or_path=str(tmp_path),
-            trust_remote_code=True,
-        )
+    monkeypatch.setattr(
+        "transformers.dynamic_module_utils.get_class_from_dynamic_module", lambda *args, **kwargs: fake_class
+    )
+    cls = import_module_class(
+        "modeling_custom.CustomTransformer",
+        model_name_or_path=str(tmp_path),
+        trust_remote_code=True,
+    )
 
     assert cls is fake_class
 

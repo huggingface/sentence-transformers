@@ -4,6 +4,7 @@ import csv
 import functools
 import importlib
 import logging
+import os
 import warnings
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -214,21 +215,22 @@ def import_module_class(
         return import_from_string(class_ref)
 
     if model_name_or_path is not None:
-        from transformers.dynamic_module_utils import get_class_from_dynamic_module, resolve_trust_remote_code
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
-        # Transformers' standard trust gate: raises unless the user opted in, since importing a class
-        # outside the sentence_transformers namespace executes third-party code (#3801).
-        resolve_trust_remote_code(
-            bool(trust_remote_code),
-            model_name_or_path,
-            has_local_code=False,
-            has_remote_code=True,
-            error_message=(
-                f"The model {model_name_or_path!r} references the module class {class_ref!r}, which is not "
-                f"part of Sentence Transformers. Importing it executes third-party code, so inspect "
-                f"{model_name_or_path!r} and pass `trust_remote_code=True` if you trust it."
-            ),
-        )
+        # Importing a class outside the sentence_transformers namespace executes third-party code (#3801).
+        # Not `resolve_trust_remote_code`: it appends a https://hf.co/<path> URL that is bogus for local models.
+        if not trust_remote_code:
+            location = (
+                os.path.abspath(model_name_or_path)
+                if os.path.isdir(model_name_or_path)
+                else f"https://hf.co/{model_name_or_path}"
+            )
+            raise ValueError(
+                f"The model {model_name_or_path} references the module class {class_ref!r}, which is not "
+                f"part of Sentence Transformers. Importing it executes third-party code. You can inspect the "
+                f"repository content at {location}.\n"
+                f"Please pass the argument `trust_remote_code=True` to allow custom code to be run."
+            )
         try:
             return get_class_from_dynamic_module(
                 class_ref,
