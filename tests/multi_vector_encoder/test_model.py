@@ -865,6 +865,46 @@ def test_xtr_scores_clamps_topk_to_token_pool() -> None:
     assert torch.isfinite(scores).all()
 
 
+@pytest.mark.parametrize("top_k", [True, 0, -1])
+def test_xtr_scores_rejects_non_positive_topk(top_k: int) -> None:
+    """Non-positive top-k values fail at the public scoring boundary with a clear error."""
+    from sentence_transformers.multi_vector_encoder.scoring import xtr_scores
+
+    queries = torch.ones(1, 2, 4)
+    documents = torch.ones(1, 1, 2, 4)
+    with pytest.raises(ValueError, match="top_k must be a positive integer"):
+        xtr_scores(queries, documents, top_k=top_k)
+
+
+def test_xtr_scores_upcasts_integer_embeddings() -> None:
+    """Integer embeddings follow the floating-point scoring path and match float inputs."""
+    from sentence_transformers.multi_vector_encoder.scoring import xtr_scores
+
+    queries = torch.tensor([[[1.0, 0.0], [0.0, 1.0]]])
+    documents = torch.tensor([[[[1.0, 0.0], [0.0, 1.0]]]])
+    expected = xtr_scores(queries, documents, top_k=2)
+    # Integer inputs must be upcast before matmul so finfo/top-k use floating-point scores.
+    actual = xtr_scores(queries.to(torch.int8), documents.to(torch.int8), top_k=2)
+    assert actual.dtype == torch.float32
+    assert torch.equal(actual, expected)
+
+
+def test_xtr_scores_derives_query_padding_mask() -> None:
+    """Implicit query padding behaves like an explicit mask and does not affect XTR scores."""
+    from sentence_transformers.multi_vector_encoder.scoring import xtr_scores
+
+    queries = torch.tensor([[[1.0, 0.0], [2.0, 0.0], [0.0, 0.0]]])
+    documents = torch.tensor([[[[1.0, 0.0], [0.5, 0.0]]]])
+    query_mask = torch.tensor([[True, True, False]])
+
+    unpadded = xtr_scores(queries[:, :2], documents, top_k=2)
+    # The final all-zero query row represents padding, not a real query token.
+    padded = xtr_scores(queries, documents, top_k=2)
+    explicitly_masked = xtr_scores(queries, documents, queries_mask=query_mask, top_k=2)
+    assert torch.equal(padded, unpadded)
+    assert torch.equal(padded, explicitly_masked)
+
+
 def test_xtr_scores_keeps_retrieved_negative_similarities() -> None:
     """Non-retrieved tokens are held at the dtype minimum, not 0: a zero placeholder wins the
     per-document max over a genuinely retrieved negative similarity and discards it. Here document 1
