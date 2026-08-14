@@ -175,7 +175,7 @@ def embed_columns(
     pass and merges only the candidate columns, mirroring the MultiVectorEncoder losses.
     """
     features_list = list(features_list)
-    if separate_first:
+    if separate_first and features_list:
         return [
             model(features_list[0])["sentence_embedding"],
             *embed_columns(model, features_list[1:]),
