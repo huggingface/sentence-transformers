@@ -16,6 +16,8 @@ from sentence_transformers import (
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
 )
+from sentence_transformers.base.modules import Normalize, Router
+from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util import is_training_available
 
 if not is_training_available():
@@ -126,6 +128,61 @@ def test_push_from_checkpoint_skips_when_end_strategy(
     # hub_strategy="end" pushes only at the end of training, not mid-training. No copy, no upload.
     assert not mock_upload.called
     assert not (output_dir / "modules.json").exists()
+
+
+class CustomNormalize(Normalize):
+    """A module class outside the ``sentence_transformers.*`` namespace, like a user's own custom module."""
+
+
+@pytest.mark.parametrize("behind_router", [False, True])
+def test_load_from_checkpoint_reloads_custom_module_classes(
+    static_embedding: StaticEmbedding, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, behind_router: bool
+) -> None:
+    """Since v6.0, a module class outside Sentence Transformers requires ``trust_remote_code=True``, which a
+    programmatically built model never carries. The trainer must still be able to reload its own checkpoint:
+    otherwise ``load_best_model_at_end`` quietly keeps the final weights instead of the best ones, and
+    ``resume_from_checkpoint`` raises. Handing over the classes it is already running is what gets it there,
+    so the flag itself stays untouched and stale-remote-code backbones keep their native path. ``Router``
+    resolves its own routes, so a custom class nested behind one has to be covered too."""
+    custom = CustomNormalize()
+    tail = Router({"query": [custom], "document": [custom]}) if behind_router else custom
+    model = SentenceTransformer(modules=[static_embedding, tail])
+    model.model_card_data.generate_widget_examples = False
+    assert model.trust_remote_code is False
+
+    args = SentenceTransformerTrainingArguments(
+        output_dir=str(tmp_path / "out"),
+        report_to=[],
+        router_mapping={"text": "query"} if behind_router else None,
+    )
+    trainer = SentenceTransformerTrainer(model=model, args=args)
+
+    checkpoint_folder = tmp_path / "checkpoint-1"
+    trainer._save(output_dir=str(checkpoint_folder))
+    if behind_router:
+        router_config = json.loads((checkpoint_folder / "1_Router" / "router_config.json").read_text())
+        saved_type = list(router_config["types"].values())[-1]
+    else:
+        saved_type = json.loads((checkpoint_folder / "modules.json").read_text())[-1]["type"]
+    assert not saved_type.startswith("sentence_transformers."), "the premise needs a non-ST module class"
+
+    weights = next(parameter for parameter in model.parameters() if parameter.numel())
+    original = weights.detach().clone()
+    with torch.no_grad():
+        weights.zero_()
+
+    reload_kwargs = {}
+    original_init = SentenceTransformer.__init__
+
+    def recording_init(self, *args, **kwargs):
+        reload_kwargs.update(kwargs)
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(SentenceTransformer, "__init__", recording_init)
+    trainer._load_from_checkpoint(str(checkpoint_folder))
+
+    assert torch.equal(weights, original)
+    assert reload_kwargs["trust_remote_code"] is False
 
 
 def test_track_loss_components_detaches_the_accumulated_values() -> None:

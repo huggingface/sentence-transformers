@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -643,6 +643,7 @@ class Router(InputModule):
         cache_folder: str | None = None,
         revision: str | None = None,
         local_files_only: bool = False,
+        module_classes: Mapping[str, type[nn.Module]] | None = None,
         **kwargs,
     ) -> Self:
         hub_kwargs = {
@@ -652,6 +653,7 @@ class Router(InputModule):
             "local_files_only": local_files_only,
         }
         trust_remote_code = kwargs.get("trust_remote_code", False)
+        module_classes = module_classes or {}
         # Try the official config file first, then fall back to the legacy config file
         config = cls.load_config(model_name_or_path=model_name_or_path, subfolder=subfolder, **hub_kwargs)
         if not config:
@@ -660,7 +662,7 @@ class Router(InputModule):
             )
         modules = {}
         for model_id, model_type in config["types"].items():
-            module_class: Module = import_module_class(
+            module_class: type[Module] = module_classes.get(model_type) or import_module_class(
                 model_type,
                 model_name_or_path=model_name_or_path,
                 trust_remote_code=trust_remote_code,

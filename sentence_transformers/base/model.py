@@ -10,10 +10,15 @@ import tempfile
 import traceback
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from multiprocessing import Queue
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 
 import numpy as np
 import torch
@@ -78,6 +83,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     # discriminate which loader path runs (see `_load_modules`). Subclasses inherit the
     # archetype value by default. Override on a subclass to opt out of that identity.
     model_type: str
+    # Set per instance by `_load_with_module_classes` before `__init__` runs the loading, never mutated.
+    _module_classes: Mapping[str, type[nn.Module]] = {}
 
     def __init__(
         self,
@@ -274,6 +281,33 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self.model_card_data.register_model(self)
 
         self._post_init()
+
+    @classmethod
+    def _load_with_module_classes(
+        cls, model_name_or_path: str, module_classes: Mapping[str, type[nn.Module]], **kwargs: Any
+    ) -> Self:
+        """
+        Load a saved model, resolving the ``modules.json`` types listed in ``module_classes`` to those
+        classes rather than importing them. Types left out resolve as usual, ``trust_remote_code`` gate
+        included.
+
+        Private on purpose: for models the normal path cannot reload (one that is already in memory, or a
+        repository whose stale custom code would break a ``trust_remote_code=True`` reload now that
+        ``transformers`` integrates the architecture natively), not as a way around the flag.
+
+        Args:
+            model_name_or_path: Hub repo id or local directory to load the model from.
+            module_classes: Maps a ``modules.json`` ``type`` to an already imported class.
+            **kwargs: Passed on to the model's ``__init__``.
+
+        Returns:
+            The loaded model.
+        """
+        model = cls.__new__(cls)
+        # Must precede __init__, which is what reads modules.json and resolves the class refs.
+        model._module_classes = module_classes
+        model.__init__(model_name_or_path, **kwargs)
+        return model
 
     def _post_init(self) -> None:
         """Final construction step, called at the end of ``__init__``: fires every module's
@@ -1172,7 +1206,7 @@ This pull request has been automatically generated to add {self.__class__.__name
         module_kwargs = OrderedDict()
         for module_config in modules_config:
             class_ref = module_config["type"]
-            module_class: Module = self._load_module_class_from_ref(
+            module_class: type[Module] = self._load_module_class_from_ref(
                 class_ref,
                 model_name_or_path,
                 trust_remote_code,
@@ -1248,9 +1282,12 @@ This pull request has been automatically generated to add {self.__class__.__name
 
             else:
                 # Only pass a non-empty init_defaults: third-party load() overrides without **kwargs would fail
-                extra_load_kwargs = {}
+                extra_load_kwargs: dict[str, Any] = {}
                 if init_defaults := self._get_module_init_defaults(class_ref):
                     extra_load_kwargs["init_defaults"] = init_defaults
+                # Modules that resolve class refs of their own (Router) opt in by declaring the parameter
+                if self._module_classes and "module_classes" in load_signature.parameters:
+                    extra_load_kwargs["module_classes"] = self._module_classes
 
                 # Newer modules that support the new loading method are loaded with the new style
                 # i.e. with many keyword arguments that can optionally be used by the modules
@@ -1401,9 +1438,9 @@ This pull request has been automatically generated to add {self.__class__.__name
         token: bool | str | None = None,
         cache_folder: str | None = None,
         local_files_only: bool = False,
-    ) -> nn.Module:
+    ) -> type:
         """
-        Load a module class from a class reference string.
+        Load a module class from a class reference string, preferring a class supplied via ``module_classes``.
 
         Args:
             class_ref: The class reference string (e.g., "sentence_transformers.sentence_transformer.modules.Pooling")
@@ -1418,6 +1455,9 @@ This pull request has been automatically generated to add {self.__class__.__name
         Returns:
             The module class
         """
+        if module_class := self._module_classes.get(class_ref):
+            return module_class
+
         code_revision = model_kwargs.pop("code_revision", None) if model_kwargs else None
         return import_module_class(
             class_ref,

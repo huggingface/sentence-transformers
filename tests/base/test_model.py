@@ -1210,8 +1210,35 @@ def test_third_party_module_with_strict_load_signature_round_trips(tmp_path: Pat
     model = SentenceTransformer(modules=[transformer, pooling, StrictLoadModule(scale=2.0)])
     model.save_pretrained(str(tmp_path))
 
-    reloaded = SentenceTransformer(str(tmp_path))
+    reloaded = SentenceTransformer(str(tmp_path), trust_remote_code=True)
     strict = reloaded[2]
     assert isinstance(strict, StrictLoadModule)
     assert strict.scale == 2.0
+    reloaded.encode(["round trip"])
+
+
+def test_private_load_with_module_classes_loads_without_trust_remote_code(tmp_path: Path) -> None:
+    """A module class outside Sentence Transformers needs ``trust_remote_code=True``, which also permits
+    remote code for the backbone. Supplying the class this process already imported loads it without the
+    flag. A strict ``load()`` signature must survive that too, so it never sees the extra keyword."""
+    from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+    from sentence_transformers.util import fullname
+
+    transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    pooling = Pooling(transformer.get_embedding_dimension(), "mean")
+    SentenceTransformer(modules=[transformer, pooling, StrictLoadModule(scale=2.0)]).save_pretrained(str(tmp_path))
+
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        SentenceTransformer(str(tmp_path))
+
+    # The mapping exempts only what it names: a ref it does not cover is still refused.
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        SentenceTransformer._load_with_module_classes(str(tmp_path), {"other.pkg.Thing": StrictLoadModule})
+
+    reloaded = SentenceTransformer._load_with_module_classes(
+        str(tmp_path), {fullname(StrictLoadModule): StrictLoadModule}
+    )
+    assert isinstance(reloaded[2], StrictLoadModule)
+    assert reloaded[2].scale == 2.0
+    assert reloaded.trust_remote_code is False
     reloaded.encode(["round trip"])
