@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from sentence_transformers.util.similarity import _chunk_ranges, _fill_empty_document_scores, _zero_row_mask
-from sentence_transformers.util.tensor import _convert_to_float_tensor, _convert_to_tensor
+from sentence_transformers.util.tensor import _convert_to_tensor
 
 
 def xtr_scores(
@@ -21,7 +21,8 @@ def xtr_scores(
     (simulating retrieval from an index). Returns the full ``(Q, Q*N)`` cross-product score matrix with
     query-major ordering: ``scores[i, j*N + n]`` is query ``i`` against query ``j``'s ``n``-th document.
     The positive for query ``i`` sits at column ``i*N``. As in :func:`~sentence_transformers.util.similarity.maxsim`,
-    the matmul runs in floating point and the per-query-token accumulation and returned scores are float32.
+    the matmul runs in the input dtype (integer embeddings are upcast to float32 first) and the
+    per-query-token accumulation and returned scores are float32.
 
     Each score is the sum of the query's retrieved per-token maxima divided by ``Z``, the number of
     query tokens that retrieved at least one of the document's tokens (Lee et al. 2023, eq. 5). This
@@ -47,13 +48,13 @@ def xtr_scores(
         to switch from ColBERT-style MaxSim scoring to XTR-style top-k scoring. To compile the hot path,
         wrap it: ``similarity_fct=torch.compile(xtr_scores)``.
     """
-    if isinstance(top_k, bool) or not isinstance(top_k, int) or top_k <= 0:
+    if isinstance(top_k, bool) or top_k <= 0:
         raise ValueError(f"top_k must be a positive integer, got {top_k!r}.")
 
-    # Match MaxSim's public input contract: quantized/integer embeddings are upcast before matmul and
-    # masking so the scorer always returns floating-point scores.
-    queries_embeddings = _convert_to_float_tensor(queries_embeddings)
-    documents_embeddings = _convert_to_float_tensor(documents_embeddings)
+    # Integer (quantized) embeddings would carry through to an integer score grid, which the
+    # dtype-min masked_fill below cannot express: torch.finfo rejects it.
+    queries_embeddings = _convert_to_tensor(queries_embeddings)
+    documents_embeddings = _convert_to_tensor(documents_embeddings)
     if not queries_embeddings.is_floating_point():
         queries_embeddings = queries_embeddings.float()
     if not documents_embeddings.is_floating_point():
@@ -193,7 +194,7 @@ class XTRScores:
     and shapes.
 
     Args:
-        top_k: Number of top token matches to retain per query token across all Q*N documents.
+        top_k: Positive number of top token matches to retain per query token across all Q*N documents.
         chunk_elements: Element budget for the chunked matmul phase, see :func:`xtr_scores`.
     """
 
