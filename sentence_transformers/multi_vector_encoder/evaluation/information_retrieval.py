@@ -143,6 +143,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         # When score_functions is None, scoring resolves from the model at call time (see __call__),
         # so models carrying a different multi-vector similarity are scored and labeled with it.
         self.chunk_elements = chunk_elements
+        self._score_functions_user_supplied = score_functions is not None
         super().__init__(
             queries=queries,
             corpus=corpus,
@@ -178,15 +179,29 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
                     f"marker prompt in {param_name} if the trained prompt should be kept."
                 )
         # Resolve the default scoring from the model here instead of letting the parent fall back to
-        # bare model.similarity. Without an explicit chunk_elements, maxsim's default
-        # element budget bounds the scoring intermediate on its own.
-        if self.score_functions is None:
+        # bare model.similarity. Keep this model-derived configuration temporary: an evaluator can be
+        # reused for models carrying different multi-vector similarities.
+        if not self._score_functions_user_supplied:
             scoring_fn: Callable[..., Tensor] = SimilarityFunction.to_similarity_fn(model.similarity_fn_name)
             if self.chunk_elements is not None:
                 scoring_fn = partial(scoring_fn, chunk_elements=self.chunk_elements)
+            previous_score_functions = self.score_functions
+            previous_score_function_names = self.score_function_names
+            previous_primary_metric = self.primary_metric
             self.score_functions = {model.similarity_fn_name: scoring_fn}
             self.score_function_names = [model.similarity_fn_name]
-            self._append_csv_headers(self.score_function_names)
+            self.primary_metric = None
+            if not any(header.startswith(f"{model.similarity_fn_name}-") for header in self.csv_headers):
+                self._append_csv_headers(self.score_function_names)
+            try:
+                metrics = super().__call__(model, output_path, epoch, steps, *args, **kwargs)
+            finally:
+                self.score_functions = previous_score_functions
+                self.score_function_names = previous_score_function_names
+                # Keep the metric selected for this call, while restoring only the scorer configuration.
+                if self.primary_metric is None:
+                    self.primary_metric = previous_primary_metric
+            return metrics
         return super().__call__(model, output_path, epoch, steps, *args, **kwargs)
 
     def embed_inputs(
