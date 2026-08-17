@@ -142,10 +142,8 @@ class Pooling(Module):
                 )
 
             if prompt_length is not None:
+                # Not written back into features: the wrapper losses re-embed the dicts they get.
                 attention_mask = self._exclude_prompt_from_mask(attention_mask, prompt_length)
-                # Expose the effective pooling mask by replacing the key, not by mutating the
-                # input tensor, which the gradient-cached losses re-embed in their backward pass.
-                features["attention_mask"] = attention_mask
 
             output_vectors = self._forward_padded(token_embeddings, attention_mask, features)
 

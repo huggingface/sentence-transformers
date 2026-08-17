@@ -139,13 +139,10 @@ class GISTEmbedLoss(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         sentence_features = list(sentence_features)
-        # Shallow copies taken before the training model runs, for two reasons: the guide writes its
-        # outputs into the features it is given while loss decorators like MatryoshkaLoss reuse the
-        # dicts the model filled, and the model can rewrite entries in its own input dicts (e.g. the
-        # prompt-excluded attention mask), which the guide should not inherit.
+        # Run the guide on shallow copies: it writes its outputs into the features it is given, and
+        # loss decorators like MatryoshkaLoss reuse the dicts the model filled.
         guide_features = [dict(sentence_feature) for sentence_feature in sentence_features]
-        original_masks = [sentence_feature.get("attention_mask") for sentence_feature in sentence_features]
-        embeddings = embed_columns(self.model, sentence_features, separate_first=True)
+        embeddings = embed_columns(self.model, sentence_features)
         with torch.no_grad():
             if self.must_retokenize:
                 decoded = [
@@ -161,13 +158,7 @@ class GISTEmbedLoss(nn.Module):
                     for guide_feature in guide_features
                 ]
 
-            guide_embeddings = embed_columns(self.guide, guide_features, separate_first=True)
-
-        # Pooling swaps prompt-excluded attention masks into the dicts it embeds, which is not
-        # idempotent, and wrapper losses call this forward again with the same dicts. Restore.
-        for sentence_feature, mask in zip(sentence_features, original_masks):
-            if mask is not None:
-                sentence_feature["attention_mask"] = mask
+            guide_embeddings = embed_columns(self.guide, guide_features)
 
         negative = None
         negative_guide = None

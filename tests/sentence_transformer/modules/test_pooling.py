@@ -21,62 +21,78 @@ requires_transformers_v5 = pytest.mark.skipif(
 
 @pytest.mark.parametrize("padding_side", ["right", "left"])
 @pytest.mark.parametrize("prompt", ["", "query: ", "Summarize the following information: "])
-def test_pooling_prompt_attention_mask_respects_include_prompt(
+def test_pooling_respects_include_prompt(
     stsb_bert_tiny_model: SentenceTransformer, padding_side: str, prompt: str
 ) -> None:
+    """``include_prompt=False`` drops the prompt tokens from the pooling average and nothing else:
+    the encoder still attends over them and the reported mask still describes them. So the contract
+    is on the pooled vector, which must be the mean over the real tokens that follow the prompt."""
     model = stsb_bert_tiny_model
     model.tokenizer.padding_side = padding_side
+    assert model[1].pooling_mode == "mean", "the premise recomputes a mean pool by hand"
 
     sentences = ["Text one", "Text two is a bit longer"]
 
     # First run with include_prompt=True (default behavior)
     model.set_pooling_include_prompt(True)
-    outputs_with_prompt = model.encode(
-        sentences,
-        prompt=prompt,
-        output_value=None,
-    )
+    outputs_with_prompt = model.encode(sentences, prompt=prompt, output_value=None)
 
     # Then run with include_prompt=False (new behavior)
     model.set_pooling_include_prompt(False)
-    outputs_without_prompt = model.encode(
-        sentences,
-        prompt=prompt,
-        output_value=None,
-    )
+    outputs_without_prompt = model.encode(sentences, prompt=prompt, output_value=None)
 
     assert len(outputs_with_prompt) == len(outputs_without_prompt) == len(sentences)
 
-    for i, (out_with, out_without) in enumerate(zip(outputs_with_prompt, outputs_without_prompt)):
-        attn_with = torch.as_tensor(out_with["attention_mask"])
-        attn_without = torch.as_tensor(out_without["attention_mask"])
+    for out_with, out_without in zip(outputs_with_prompt, outputs_without_prompt):
+        attention_mask = torch.as_tensor(out_without["attention_mask"])
+        # Both settings attend over the same tokens, so both report the same mask.
+        assert torch.equal(attention_mask, torch.as_tensor(out_with["attention_mask"]))
 
-        # We never want to turn padding tokens back on
-        assert torch.all(attn_without <= attn_with)
-
+        embedding = torch.as_tensor(out_without["sentence_embedding"])
         if prompt == "":
             assert "prompt_length" not in out_without
-            prompt_length = 0
-        else:
-            prompt_length = out_without["prompt_length"]
+            assert torch.allclose(embedding, torch.as_tensor(out_with["sentence_embedding"]), atol=1e-6)
+            continue
+
+        prompt_length = out_without["prompt_length"]
         if isinstance(prompt_length, torch.Tensor):
-            prompt_length = int(prompt_length.item())
-        else:
-            prompt_length = int(prompt_length)
+            prompt_length = int(prompt_length.flatten()[0].item())
+        prompt_length = int(prompt_length)
 
-        # Positions that changed from 1 -> 0 correspond exactly to the prompt tokens
-        removed = (attn_with == 1) & (attn_without == 0)
-        assert int(removed.sum().item()) == prompt_length
+        # The prompt tokens are the first `prompt_length` real ones, after any left padding.
+        pooled_mask = attention_mask.clone()
+        pooled_mask[: int(attention_mask.to(torch.int32).argmax().item()) + prompt_length] = 0
+        assert pooled_mask.sum() > 0, "the premise needs a token left to pool over"
 
-        # If this is the short text, we should always see some 0's at the start for left padding
-        # and at the end for right padding
-        if i == 0:
-            if padding_side == "left":
-                assert attn_without[0] == 0
-                assert attn_with[0] == 0
-            else:
-                assert attn_without[-1] == 0
-                assert attn_with[-1] == 0
+        token_embeddings = torch.as_tensor(out_without["token_embeddings"])
+        expected = (token_embeddings * pooled_mask.unsqueeze(-1)).sum(dim=0) / pooled_mask.sum()
+        assert torch.allclose(embedding, expected, atol=1e-5)
+        assert not torch.allclose(embedding, torch.as_tensor(out_with["sentence_embedding"]), atol=1e-5)
+
+
+@pytest.mark.parametrize("padding_side", ["right", "left"])
+def test_pooling_prompt_exclusion_is_idempotent(stsb_bert_tiny_model: SentenceTransformer, padding_side: str) -> None:
+    """The wrapper losses re-embed the dicts they were given, e.g. once per layer in
+    AdaptiveLayerLoss. Narrowing ``attention_mask`` in place would hide the prompt from the encoder
+    on the second pass and put the prompt boundary a prompt further in, so embedding a dict Pooling
+    already wrote to must reproduce the first result."""
+    model = stsb_bert_tiny_model
+    model.tokenizer.padding_side = padding_side
+    model.set_pooling_include_prompt(False)
+
+    features = {
+        key: value.to(model.device) if isinstance(value, torch.Tensor) else value
+        for key, value in model.preprocess(["Text one", "Text two is a bit longer"], prompt="query: ").items()
+    }
+    assert "prompt_length" in features, "the premise needs a prompt to exclude"
+
+    with torch.no_grad():
+        first = model(features)["sentence_embedding"].clone()
+        first_mask = features["attention_mask"].clone()
+        second = model(features)["sentence_embedding"].clone()
+
+    assert torch.equal(features["attention_mask"], first_mask)
+    assert torch.allclose(first, second, atol=1e-6)
 
 
 @pytest.mark.parametrize("pooling_mode", Pooling.POOLING_MODES)
@@ -372,8 +388,9 @@ def test_pooling_excludes_prompt_tokens_directly(padding_side: str, prompt_lengt
             dtype=torch.int64,
         )
 
-    # Pooling must replace the features' "attention_mask" key with a pruned copy, leaving
-    # the caller's tensor pristine for the gradient-cached losses' backward re-embedding.
+    # The narrowed mask never leaves the module, so the exclusion is checked on the pooled vector.
+    # Both the caller's tensor and its key must come back untouched: the gradient-cached losses
+    # re-embed the tensor in their backward pass, and the wrapper losses re-embed the dict.
     original_attention_mask = attention_mask.clone()
 
     features = {
@@ -382,29 +399,26 @@ def test_pooling_excludes_prompt_tokens_directly(padding_side: str, prompt_lengt
         "prompt_length": prompt_length_value,
     }
 
-    pooling(features)
+    outputs = pooling(features)
 
-    # For right padding, we expect the first `prompt_length` positions
-    # to be set to 0. For left padding, we expect all padding tokens
-    # plus the next `prompt_length` tokens to be set to 0.
+    assert torch.equal(attention_mask, original_attention_mask)
+    assert features["attention_mask"] is attention_mask
+
+    # For right padding, the first `prompt_length` positions drop out of the average. For left
+    # padding, all padding tokens plus the next `prompt_length` tokens do.
     if isinstance(prompt_length_value, torch.Tensor):
         prompt_length_scalar = int(prompt_length_value[0].item())
     else:
         prompt_length_scalar = int(prompt_length_value)
 
     pad_lengths = original_attention_mask.to(torch.int32).argmax(dim=1)
-    expected_zero_upto = pad_lengths + prompt_length_scalar
-
-    # The input tensor must be untouched. The pruned mask is exposed via the features dict.
-    assert torch.equal(attention_mask, original_attention_mask)
-    effective_mask = features["attention_mask"]
-    assert effective_mask is not attention_mask
-
+    pooled_mask = original_attention_mask.clone()
     for i in range(batch_size):
-        # All positions strictly before expected_zero_upto[i] must be 0
-        assert torch.all(effective_mask[i, : expected_zero_upto[i]] == 0)
-        # All original padding positions must still be 0
-        assert torch.all(effective_mask[i, original_attention_mask[i] == 0] == 0)
+        pooled_mask[i, : pad_lengths[i] + prompt_length_scalar] = 0
+    assert torch.all(pooled_mask.sum(dim=1) > 0), "the premise needs a token left to pool over"
+
+    expected = (token_embeddings * pooled_mask.unsqueeze(-1)).sum(dim=1) / pooled_mask.sum(dim=1, keepdim=True)
+    assert torch.allclose(outputs["sentence_embedding"], expected, atol=1e-6)
 
 
 # Shared test fixtures: two sequences with different lengths and a mix of padding.

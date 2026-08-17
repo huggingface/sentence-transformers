@@ -72,7 +72,7 @@ def test_embed_columns_shares_one_forward_pass(
 
     monkeypatch.setattr(model, "forward", counting_forward)
     with torch.no_grad():
-        embeddings = embed_columns(model, _columns(model, _COLUMNS))
+        embeddings = embed_columns(model, _columns(model, _COLUMNS), separate_first=False)
     assert batch_sizes == [6], "three homogeneous columns of two rows must share one forward"
     assert len(embeddings) == 3
     assert all(embedding.shape[0] == 2 for embedding in embeddings)
@@ -83,27 +83,16 @@ def test_embed_columns_shares_one_forward_pass(
         assert torch.allclose(merged_column, separate_column, atol=1e-5, rtol=1e-4)
 
 
-@pytest.mark.parametrize(
-    ("build_loss", "num_columns", "merged_from", "build_labels"),
-    [
-        # Anchor-based losses keep column 0 on its own forward, so only columns 1+ merge.
-        (MultipleNegativesRankingLoss, 3, 1, lambda device: None),
-        (TripletLoss, 3, 1, lambda device: None),
-        (CoSENTLoss, 2, 0, lambda device: torch.tensor([0.25, 0.75], device=device)),
-        (ContrastiveLoss, 2, 0, lambda device: torch.tensor([1, 0], device=device)),
-    ],
-    ids=["mnrl", "triplet", "cosent", "contrastive"],
-)
-def test_losses_merged_forward_matches_per_column(
-    stsb_bert_tiny_model: SentenceTransformer, build_loss, num_columns: int, merged_from: int, build_labels
-) -> None:
+@pytest.mark.parametrize("build_loss", [MultipleNegativesRankingLoss, TripletLoss], ids=["mnrl", "triplet"])
+def test_losses_merged_forward_matches_per_column(stsb_bert_tiny_model: SentenceTransformer, build_loss) -> None:
+    """Anchor-based losses keep column 0 on its own forward, so only columns 1+ merge."""
     model = stsb_bert_tiny_model
-    assert merge_feature_batches(_columns(model, _COLUMNS[:num_columns])[merged_from:]) is not None
+    assert merge_feature_batches(_columns(model, _COLUMNS)[1:]) is not None
     loss = build_loss(model)
     with torch.no_grad():
-        merged_value = loss(_columns(model, _COLUMNS[:num_columns]), build_labels(model.device))
+        merged_value = loss(_columns(model, _COLUMNS), None)
         with column_merging_disabled():
-            separate_value = loss(_columns(model, _COLUMNS[:num_columns]), build_labels(model.device))
+            separate_value = loss(_columns(model, _COLUMNS), None)
     assert merged_value.item() == pytest.approx(separate_value.item(), rel=1e-4, abs=1e-5)
 
 
@@ -242,7 +231,8 @@ def test_merge_carries_a_shared_prompt_and_refuses_per_column_prompts() -> None:
 def test_merge_treats_tensor_prompt_lengths_as_metadata() -> None:
     """Pooling also supports tensor-valued prompt lengths and reads one value for the whole batch,
     so concatenating per-column tensors would silently apply column 0's prompt length everywhere.
-    Per-row tensors cannot be shown equal cheaply and refuse, equal shape-1 tensors still merge."""
+    Equal tensors carry over as metadata instead, in the per-row shape an IterableDataset yields as
+    well as the shape-1 shape a Dataset yields."""
     per_row = [
         {**_text_column(5, seed=1), "prompt_length": torch.tensor([3, 3])},
         {**_text_column(7, seed=2), "prompt_length": torch.tensor([9, 9])},
@@ -253,7 +243,9 @@ def test_merge_treats_tensor_prompt_lengths_as_metadata() -> None:
         {**_text_column(5, seed=1), "prompt_length": torch.tensor([3, 3])},
         {**_text_column(7, seed=2), "prompt_length": torch.tensor([3, 3])},
     ]
-    assert merge_feature_batches(equal_per_row) is None
+    merged = merge_feature_batches(equal_per_row)
+    assert merged is not None
+    assert int(merged["prompt_length"][0]) == 3
 
     shape_one = [
         {**_text_column(5, seed=1), "prompt_length": torch.tensor([3])},
@@ -262,6 +254,38 @@ def test_merge_treats_tensor_prompt_lengths_as_metadata() -> None:
     merged = merge_feature_batches(shape_one)
     assert merged is not None
     assert int(merged["prompt_length"][0]) == 3
+
+
+@pytest.mark.parametrize(
+    ("build_loss", "build_labels"),
+    [
+        (CoSENTLoss, lambda device: torch.tensor([0.25, 0.75], device=device)),
+        (ContrastiveLoss, lambda device: torch.tensor([1, 0], device=device)),
+    ],
+    ids=["cosent", "contrastive"],
+)
+def test_pair_losses_embed_each_column_separately(
+    stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch, build_loss, build_labels
+) -> None:
+    """A two-column loss splits its anchor off and has no second candidate left to merge it with,
+    which is deliberate: these losses are trained on a query and a document as often as on two
+    sentences of the same kind, and merging the narrow column into the wide one costs more padding
+    than the shared launch saves. The premise is that the columns would otherwise merge."""
+    model = stsb_bert_tiny_model
+    columns = _COLUMNS[:2]
+    assert merge_feature_batches(_columns(model, columns)) is not None, "the columns are mergeable"
+
+    batch_sizes = []
+    original_forward = model.forward
+
+    def counting_forward(features: dict[str, Tensor], **kwargs) -> dict[str, Tensor]:
+        batch_sizes.append(features["input_ids"].shape[0])
+        return original_forward(features, **kwargs)
+
+    monkeypatch.setattr(model, "forward", counting_forward)
+    with torch.no_grad():
+        build_loss(model)(_columns(model, columns), build_labels(model.device))
+    assert batch_sizes == [2, 2]
 
 
 def test_merge_refuses_mixed_router_tasks_and_carries_a_shared_task() -> None:

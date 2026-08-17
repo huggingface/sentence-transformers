@@ -83,6 +83,7 @@ def merge_feature_batches(features_list: list[dict[str, Any]]) -> dict[str, Any]
         values = [features[key] for features in features_list]
         # prompt_length is batch metadata in every form Pooling supports (int, shape-1 tensor, or
         # per-row tensor read as one value), so it must compare equal rather than concatenate.
+        # The per-row form is what an IterableDataset yields, so it has to merge, not just refuse.
         if isinstance(first_value, Tensor) and key != "prompt_length":
             if any(not isinstance(value, Tensor) or value.ndim != first_value.ndim for value in values):
                 return _separate_forwards(f"the columns give {key!r} a different shape each")
@@ -105,12 +106,19 @@ def merge_feature_batches(features_list: list[dict[str, Any]]) -> dict[str, Any]
             merged[key] = torch.cat(values, dim=0)
         else:
             try:
-                if any(bool(value != first_value) for value in values[1:]):
-                    return _separate_forwards(f"the columns disagree on {key!r}")
+                if isinstance(first_value, Tensor):
+                    # Elementwise ``!=`` does not reduce to a plain bool for the per-row shape.
+                    unequal = any(
+                        not isinstance(value, Tensor) or not torch.equal(value, first_value) for value in values[1:]
+                    )
+                else:
+                    unequal = any(bool(value != first_value) for value in values[1:])
             except (RuntimeError, ValueError):
-                # A value whose ``!=`` does not reduce to a plain bool (numpy arrays and the like,
-                # reachable through a custom ``preprocess_fn``) cannot be shown equal, so refuse.
+                # A value that cannot be compared (numpy arrays and the like, reachable through a
+                # custom ``preprocess_fn``, or tensors on different devices) cannot be shown equal.
                 return _separate_forwards(f"the columns cannot be compared on {key!r}")
+            if unequal:
+                return _separate_forwards(f"the columns disagree on {key!r}")
             merged[key] = first_value
     return merged
 
@@ -161,7 +169,7 @@ def chunked_padded_forward(
 
 
 def embed_columns(
-    model: nn.Module, features_list: Iterable[dict[str, Any]], separate_first: bool = False
+    model: nn.Module, features_list: Iterable[dict[str, Any]], separate_first: bool = True
 ) -> list[Tensor]:
     """Embed each input column, sharing one merged forward pass across columns when possible.
 
@@ -172,16 +180,18 @@ def embed_columns(
     Only merge columns that share a width profile. The merged batch pads every column to the
     cross-column max width, and that padding costs real compute and peak activation memory: merging
     a narrow query column in with long document columns can end up slower than per-column forwards.
-    The anchor-based losses therefore pass ``separate_first``, which keeps the first (anchor)
-    column on its own forward pass and merges only the candidate columns, mirroring the
-    MultiVectorEncoder losses. With two columns that leaves nothing to merge. To force per-column
+    So by default the first (anchor) column keeps its own forward pass and only the like-width
+    candidate columns merge, mirroring the MultiVectorEncoder losses. With two columns that leaves
+    nothing to merge, which is deliberate: a two-column loss is as often trained on a query and a
+    document as on two sentences of the same kind, and it cannot tell which it has. Pass
+    ``separate_first=False`` where every column is known to be a candidate. To force per-column
     forwards regardless, wrap the loss call in :func:`column_merging_disabled`.
     """
     features_list = list(features_list)
     if separate_first and features_list:
         return [
             model(features_list[0])["sentence_embedding"],
-            *embed_columns(model, features_list[1:]),
+            *embed_columns(model, features_list[1:], separate_first=False),
         ]
     merged = merge_feature_batches(features_list) if len(features_list) > 1 else None
     if merged is None:
