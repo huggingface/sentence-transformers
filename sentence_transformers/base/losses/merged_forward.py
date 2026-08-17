@@ -209,6 +209,8 @@ def embed_columns_padded(
     """The multi-vector counterpart of :func:`embed_columns`.
 
     Returns per-column ``(batch_size, tokens, dim)`` embeddings and their boolean scoring masks.
+    There is no ``separate_first`` here: the multi-vector losses peel the anchor column off at the
+    call site and pass only the candidates, so everything handed to this function merges.
     """
     merged = merge_feature_batches(features_list) if len(features_list) > 1 else None
     if merged is not None:

@@ -59,10 +59,10 @@ def _features_and_labels(model: SentenceTransformer) -> tuple[list[dict], torch.
 
 
 def test_adaptive_layer_loss_prior_layers_see_the_collated_mask(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """Each prior-layer pass re-runs the pooling half over the same feature dicts. With
-    ``include_prompt`` disabled those dicts already hold the prompt-excluded mask from the
-    final-layer pass, so pooling has to exclude off the mask as collated rather than narrowing it
-    once per layer. Pinned as loss equality across repeated calls, which only holds if it does."""
+    """Each prior-layer pass re-runs the pooling half over the same feature dicts. If pooling wrote
+    its prompt-excluded mask back into them, every pass after the first would narrow an already
+    narrowed mask, so with ``include_prompt`` disabled the dicts have to keep the mask as collated.
+    Pinned as loss equality across repeated calls, which only holds if they do."""
     model = stsb_bert_tiny_model
     model.set_pooling_include_prompt(False)
     features = [
