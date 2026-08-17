@@ -725,9 +725,7 @@ def _pad_tensor_list(tensors: list[Tensor], lengths: Tensor) -> Tensor:
     max_len = int(lengths.max())
     if int(lengths.min()) == max_len:
         return torch.stack(tensors)
-    # One cat of the ragged rows, then one scatter into the padded grid: index arithmetic maps each
-    # flattened token to ``item * max_len + position_within_item``. Both repeats are told their
-    # ``output_size``, or each one reduces ``lengths`` on the device and blocks to read it back.
+    # ``output_size`` looks redundant, but without it each repeat blocks to read the total back.
     flat = torch.cat(tensors, dim=0)
     total = len(flat)
     lengths = lengths.to(flat.device)
