@@ -6,7 +6,7 @@ import os
 import pickle
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from itertools import accumulate, cycle
 from typing import Any
 
@@ -533,6 +533,12 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         Iterate over the remaining non-yielded indices. For each index, check if the sample values are already in the
         batch. If not, add the sample values to the batch keep going until the batch is full. If the batch is full, yield
         the batch indices and continue with the next batch.
+
+        When a full pass over the dataset yields fewer batches than :meth:`__len__` (common with
+        ``drop_last=True`` and many duplicate values), the remaining indices are reshuffled and
+        sampling continues until the advertised length is reached. This keeps
+        :class:`~torch.utils.data.DataLoader` / Trainer step counts in sync and avoids DDP hangs
+        when ranks wait for batches that would never arrive. See #3348.
         """
         if self.generator and self.seed is not None:
             self.generator.manual_seed(self.seed + self.epoch)
@@ -564,6 +570,34 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         if num_rows == 0:
             return
 
+        expected_num_batches = len(self)
+        num_yielded = 0
+        first_pass = True
+
+        while True:
+            pass_yielded = 0
+            for batch_indices in self._iter_one_pass(get_sample_values, _has_overlap):
+                # The first pass may yield more batches than ``__len__`` (e.g. drop_last=False
+                # with many collisions producing smaller leftover batches). Later passes only
+                # fill the shortfall so we never truncate the historical first-pass stream.
+                if not first_pass and num_yielded >= expected_num_batches:
+                    return
+                yield batch_indices
+                num_yielded += 1
+                pass_yielded += 1
+
+            first_pass = False
+            if num_yielded >= expected_num_batches or pass_yielded == 0:
+                return
+
+    def _iter_one_pass(
+        self,
+        get_sample_values: Callable[[int], set[str] | np.ndarray],
+        has_overlap: Callable[[set[str] | np.ndarray, set[str | np.int64]], bool],
+    ) -> Iterator[list[int]]:
+        """Yield batches from a single shuffle of the dataset without resampling."""
+        num_rows = len(self.dataset)
+
         # Create a random numpy permutation using int32 (or int64 if necessary)
         index_dtype = torch.int32 if num_rows <= np.iinfo(np.int32).max else torch.int64
         remaining_indices = torch.randperm(num_rows, generator=self.generator, dtype=index_dtype).numpy()
@@ -585,7 +619,7 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 next_position = int(next_positions[current_position])
                 index = int(remaining_indices[current_position])
                 sample_values = get_sample_values(index)
-                if _has_overlap(sample_values, batch_values):
+                if has_overlap(sample_values, batch_values):
                     # Defer conflicting samples to later batches instead of reordering them.
                     previous_position = current_position
                     current_position = next_position
@@ -611,14 +645,16 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                     yield batch_indices
 
     def __len__(self) -> int:
-        """Return the approximate number of batches.
+        """Return the number of batches advertised to DataLoader / Trainer.
 
-        .. note::
+        This remains a cheap upper-bound estimate (``ceil`` / ``floor`` of
+        ``len(dataset) / batch_size``). Computing the exact count would require
+        running the full no-duplicates pass before training.
 
-            This is an upper-bound estimate. The actual number of batches
-            yielded by :meth:`__iter__` may be smaller when the dataset
-            contains many duplicate values, because those samples are
-            deferred or skipped rather than placed into a batch.
+        When a single pass cannot fill this many batches, :meth:`__iter__`
+        reshuffles and continues sampling until this length is reached (or until
+        a pass produces no further batches). That keeps step counts aligned
+        under DDP without the expensive precomputation discussed in #3348.
         """
         if self.drop_last:
             return len(self.dataset) // self.batch_size
