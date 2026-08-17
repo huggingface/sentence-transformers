@@ -62,6 +62,37 @@ def test_splade_loss_merged_forward_matches_per_column(splade_bert_tiny_model: S
         assert merged_value.item() == pytest.approx(separate_values[key].item(), rel=1e-4, abs=1e-6), key
 
 
+def test_splade_loss_document_only_mode_merges_every_column(
+    splade_bert_tiny_model: SparseEncoder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With use_document_regularizer_only every column is a document under one regularizer, so
+    there is no query column to keep on its own forward and all columns merge."""
+    model = splade_bert_tiny_model
+    loss = SpladeLoss(
+        model=model,
+        loss=SparseMultipleNegativesRankingLoss(model=model),
+        document_regularizer_weight=3e-5,
+        use_document_regularizer_only=True,
+    )
+    assert merge_feature_batches(_columns(model, [_DOCUMENTS, _NEGATIVES])) is not None
+    batch_sizes = []
+    original_forward = model.forward
+
+    def counting_forward(features, **kwargs):
+        batch_sizes.append(features["input_ids"].shape[0])
+        return original_forward(features, **kwargs)
+
+    monkeypatch.setattr(model, "forward", counting_forward)
+    with torch.no_grad():
+        merged_values = loss(_columns(model, [_DOCUMENTS, _NEGATIVES]), None)
+    assert batch_sizes == [4], "two document columns of two rows must share one forward"
+
+    with torch.no_grad(), column_merging_disabled():
+        separate_values = loss(_columns(model, [_DOCUMENTS, _NEGATIVES]), None)
+    for key, merged_value in merged_values.items():
+        assert merged_value.item() == pytest.approx(separate_values[key].item(), rel=1e-4, abs=1e-6), key
+
+
 def test_router_task_document_columns_still_merge(inference_free_splade_bert_tiny_model: SparseEncoder) -> None:
     """On an inference-free model the query routes through a different module than the documents,
     so the query column could never share their forward. The document columns share the

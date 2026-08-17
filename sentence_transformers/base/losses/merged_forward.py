@@ -22,12 +22,13 @@ def _separate_forwards(reason: str) -> None:
     """Note why the columns are embedded separately, then return None so the caller falls back.
 
     Speed only: the per-column path produces the same loss and gradients. Worth surfacing because
-    otherwise a setup that never qualifies looks identical to one that always does.
+    otherwise a setup that never qualifies looks identical to one that always does. Reserved for
+    reasons with a call-site fix: guards that a model architecture can never pass refuse silently.
     """
     logger.warning_once(
         f"Note: embedding each input column in its own forward pass, because {reason}. Columns that "
         "preprocess identically are combined into one forward pass instead, which is faster. The loss "
-        "and gradients are the same either way."
+        "and gradients are the same either way, up to dropout sampling."
     )
     return None
 
@@ -70,19 +71,19 @@ def merge_feature_batches(features_list: list[dict[str, Any]]) -> dict[str, Any]
     first = features_list[0]
     if any(set(features) != set(first) for features in features_list[1:]):
         return _separate_forwards("the columns preprocess to different sets of features")
-    # A flattened batch packs its rows into one sequence described by its own bookkeeping
-    # (cu_seq_lens_q, max_length_q), which concatenation would interleave into meaningless offsets.
+    # A flattened batch packs its rows into one sequence whose cu_seq_lens_q offsets concatenation would scramble.
     if "cu_seq_lens_q" in first:
-        return _separate_forwards("the inputs are flattened for flash attention")
-    # Without a batched text tensor there is nothing to validate the remaining tensors against, and a
-    # 1D ``input_ids`` is a flattened token stream (StaticEmbedding) that concatenation would misalign.
+        return None
+    # No batched text tensor to align rows by, e.g. StaticEmbedding's flattened 1D token stream.
     if not any(isinstance(first.get(key), Tensor) and first[key].ndim >= 2 for key in ("input_ids", "attention_mask")):
-        return _separate_forwards("the features carry no batched 'input_ids' or 'attention_mask' to align rows by")
+        return None
     rows = _get_batch_size(first)
     merged: dict[str, Any] = {}
     for key, first_value in first.items():
         values = [features[key] for features in features_list]
-        if isinstance(first_value, Tensor):
+        # prompt_length is batch metadata in every form Pooling supports (int, shape-1 tensor, or
+        # per-row tensor read as one value), so it must compare equal rather than concatenate.
+        if isinstance(first_value, Tensor) and key != "prompt_length":
             if any(not isinstance(value, Tensor) or value.ndim != first_value.ndim for value in values):
                 return _separate_forwards(f"the columns give {key!r} a different shape each")
             # Tensors whose row axis is not the batch axis (flattened VLM grids and friends) would
@@ -169,10 +170,12 @@ def embed_columns(
     the classic ``model(features)`` loss pattern it replaces.
 
     Only merge columns that share a width profile. The merged batch pads every column to the
-    cross-column max width, and that padding costs real compute: merging a narrow query column in
-    with long document columns can end up slower than per-column forwards. The anchor-based losses
-    therefore pass ``separate_first``, which keeps the first (anchor) column on its own forward
-    pass and merges only the candidate columns, mirroring the MultiVectorEncoder losses.
+    cross-column max width, and that padding costs real compute and peak activation memory: merging
+    a narrow query column in with long document columns can end up slower than per-column forwards.
+    The anchor-based losses therefore pass ``separate_first``, which keeps the first (anchor)
+    column on its own forward pass and merges only the candidate columns, mirroring the
+    MultiVectorEncoder losses. With two columns that leaves nothing to merge. To force per-column
+    forwards regardless, wrap the loss call in :func:`column_merging_disabled`.
     """
     features_list = list(features_list)
     if separate_first and features_list:

@@ -192,6 +192,38 @@ def test_gist_embed_guide_embeds_the_original_features(stsb_bert_tiny_model: Sen
     assert merged_value.item() == pytest.approx(separate_value.item(), rel=1e-4, abs=1e-5)
 
 
+def test_gist_embed_repeated_calls_with_the_same_dicts_match(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Wrapper losses like MatryoshkaLoss call the inner loss repeatedly with the same feature
+    dicts. Pooling's prompt-excluded mask replacement is not idempotent, so the loss restores the
+    masks it started from: a second call must reproduce the first call's value."""
+    model = stsb_bert_tiny_model
+    model.set_pooling_include_prompt(False)
+    features = _columns(model, _COLUMNS, prompt="query: ")
+    loss = GISTEmbedLoss(model=model, guide=model)
+    with torch.no_grad():
+        first = loss(features, None).item()
+        second = loss(features, None).item()
+    assert second == pytest.approx(first, rel=1e-4, abs=1e-6)
+
+
+def test_losses_match_in_train_mode_with_dropout_zeroed(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """One merged forward draws a different dropout mask sequence than per-column forwards, so the
+    equivalence is exact only up to dropout sampling. With dropout zeroed the contract must hold in
+    training mode too, pinning that dropout is the only train-mode divergence."""
+    model = stsb_bert_tiny_model
+    model.train()
+    assert model.transformers_model.training, "the premise needs actual train mode"
+    for module in model.modules():
+        if isinstance(module, torch.nn.Dropout):
+            module.p = 0.0
+    loss = MultipleNegativesRankingLoss(model)
+    with torch.no_grad():
+        merged_value = loss(_columns(model, _COLUMNS), None)
+        with column_merging_disabled():
+            separate_value = loss(_columns(model, _COLUMNS), None)
+    assert merged_value.item() == pytest.approx(separate_value.item(), rel=1e-4, abs=1e-5)
+
+
 def test_merge_carries_a_shared_prompt_and_refuses_per_column_prompts() -> None:
     """Pooling with ``include_prompt`` disabled applies one prompt length to the whole batch, so
     only columns sharing the prompt length may share a forward."""
@@ -205,6 +237,31 @@ def test_merge_carries_a_shared_prompt_and_refuses_per_column_prompts() -> None:
 
     partial = [{**_text_column(5, seed=1), "prompt_length": 3}, _text_column(7, seed=2)]
     assert merge_feature_batches(partial) is None
+
+
+def test_merge_treats_tensor_prompt_lengths_as_metadata() -> None:
+    """Pooling also supports tensor-valued prompt lengths and reads one value for the whole batch,
+    so concatenating per-column tensors would silently apply column 0's prompt length everywhere.
+    Per-row tensors cannot be shown equal cheaply and refuse, equal shape-1 tensors still merge."""
+    per_row = [
+        {**_text_column(5, seed=1), "prompt_length": torch.tensor([3, 3])},
+        {**_text_column(7, seed=2), "prompt_length": torch.tensor([9, 9])},
+    ]
+    assert merge_feature_batches(per_row) is None
+
+    equal_per_row = [
+        {**_text_column(5, seed=1), "prompt_length": torch.tensor([3, 3])},
+        {**_text_column(7, seed=2), "prompt_length": torch.tensor([3, 3])},
+    ]
+    assert merge_feature_batches(equal_per_row) is None
+
+    shape_one = [
+        {**_text_column(5, seed=1), "prompt_length": torch.tensor([3])},
+        {**_text_column(7, seed=2), "prompt_length": torch.tensor([3])},
+    ]
+    merged = merge_feature_batches(shape_one)
+    assert merged is not None
+    assert int(merged["prompt_length"][0]) == 3
 
 
 def test_merge_refuses_mixed_router_tasks_and_carries_a_shared_task() -> None:

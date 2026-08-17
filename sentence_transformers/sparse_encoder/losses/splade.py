@@ -138,8 +138,11 @@ class SpladeLoss(nn.Module):
     def forward(
         self, sentence_features: Iterable[dict[str, torch.Tensor]], labels: torch.Tensor | None = None
     ) -> dict[str, torch.Tensor]:
-        # Compute embeddings using the model
-        embeddings = embed_columns(self.model, sentence_features, separate_first=True)
+        # Compute embeddings using the model. With use_document_regularizer_only every column is a
+        # document, so there is no narrow query column to keep on its own forward.
+        embeddings = embed_columns(
+            self.model, sentence_features, separate_first=not self.use_document_regularizer_only
+        )
 
         losses = {}
         base_loss = self.loss.compute_loss_from_embeddings(embeddings, labels)

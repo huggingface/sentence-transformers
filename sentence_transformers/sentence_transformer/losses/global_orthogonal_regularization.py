@@ -134,7 +134,7 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
     def forward(
         self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None
     ) -> dict[str, Tensor]:
-        embeddings = embed_columns(self.model, sentence_features, separate_first=True)
+        embeddings = embed_columns(self.model, sentence_features)
         return self.compute_loss_from_embeddings(embeddings)
 
     def compute_loss_from_embeddings(
