@@ -750,6 +750,8 @@ class MultiVectorEncoder(BaseModel):
                 each batch to the CPU as it is encoded. Defaults to False, so embeddings stay on
                 ``device``: scoring them with :meth:`similarity` then needs no transfer, which is worth
                 multiples on an accelerator. Set it for corpora too large to keep in device memory.
+                Multi-process encoding (a ``pool``, or a list of ``device``s) always returns on the CPU,
+                since embeddings are moved there to cross the process boundary.
             device (str, torch.device, list, or None): Device(s) for computation. Defaults to None.
             normalize_embeddings (bool, optional): If True, L2-normalize each per-token embedding before
                 returning. Use this when the loaded pipeline does not include a :class:`Normalize` module
