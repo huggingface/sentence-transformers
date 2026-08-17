@@ -426,7 +426,7 @@ def maxsim(
     a, a_mask = _canonicalize_side(a, a_mask, "a_mask")
     b, b_mask = _canonicalize_side(b, b_mask, "b_mask")
     if len(a) == 0 or len(b) == 0:
-        # An empty query or document set: nothing to score, and pad_sequence rejects an empty list.
+        # An empty query or document set: nothing to score, and padding rejects an empty list.
         result_device = _embeddings_device(b) or _embeddings_device(a)
         return torch.zeros(len(a), len(b), dtype=torch.float32, device=result_device)
     query_token_counts = _query_token_counts(a, a_mask) if length_normalize else None
@@ -577,7 +577,7 @@ def maxsim_pairwise(
             f"`a` and `b` must hold the same number of items to score as pairs, got {len(a)} and {len(b)}."
         )
     if len(a) == 0:
-        # No pairs to score, and pad_sequence rejects an empty list.
+        # No pairs to score, and padding rejects an empty list.
         result_device = _embeddings_device(b) or _embeddings_device(a)
         return torch.zeros(0, dtype=torch.float32, device=result_device)
     query_token_counts = _query_token_counts(a, a_mask) if length_normalize else None
@@ -700,7 +700,7 @@ def _zero_row_mask(padded: Tensor) -> Tensor:
 
     Real token embeddings normally carry information in at least one dim, so a fully-zero row is the
     all-but-impossible-except-by-pad signal. This matches the zero padding of
-    :func:`torch.nn.utils.rnn.pad_sequence`. Returned in the input dtype (1.0 for real tokens, 0.0 for pad).
+    :func:`_pad_tensor_list`. Returned in the input dtype (1.0 for real tokens, 0.0 for pad).
 
     Boundary: a real all-zero row is indistinguishable from padding here and is masked out of
     scoring. L2-normalized pipelines cannot produce one, but token pooling can (a cluster mean of
@@ -710,6 +710,31 @@ def _zero_row_mask(padded: Tensor) -> Tensor:
     emits zero rows (e.g. learned pruning) must pass explicit masks instead of relying on this detection.
     """
     return padded.any(dim=-1).to(padded.dtype)
+
+
+def _pad_tensor_list(tensors: list[Tensor], lengths: Tensor) -> Tensor:
+    """Stack per-item ``(tokens_i, dim)`` embeddings into a padded ``(batch, max_tokens, dim)``.
+
+    ``pad_sequence`` copies item by item, which on an accelerator is one kernel launch per item: for
+    a 10k document corpus that padding can outweigh the MaxSim that follows it by two orders of
+    magnitude. Both alternatives here launch a constant number of kernels instead. On CPU there are
+    no launches to amortize and ``pad_sequence`` is the fastest of the three, so it keeps that side.
+    """
+    if tensors[0].device.type == "cpu":
+        return torch.nn.utils.rnn.pad_sequence(tensors, batch_first=True, padding_value=0)
+    max_len = int(lengths.max())
+    if int(lengths.min()) == max_len:
+        return torch.stack(tensors)
+    # One cat of the ragged rows, then one scatter into the padded grid: index arithmetic maps each
+    # flattened token to ``item * max_len + position_within_item``.
+    flat = torch.cat(tensors, dim=0)
+    lengths = lengths.to(flat.device)
+    starts = torch.cumsum(lengths, 0) - lengths
+    positions = torch.arange(len(flat), device=flat.device) - torch.repeat_interleave(starts, lengths)
+    rows = torch.repeat_interleave(torch.arange(len(tensors), device=flat.device), lengths)
+    padded = flat.new_zeros(len(tensors) * max_len, flat.shape[-1])
+    padded.index_copy_(0, rows * max_len + positions, flat)
+    return padded.view(len(tensors), max_len, flat.shape[-1])
 
 
 def _pad_multi_vector_inputs(
@@ -727,10 +752,11 @@ def _pad_multi_vector_inputs(
         tensors = [_convert_to_tensor(t) for t in inputs]
         tensors = [t if t.is_floating_point() else t.float() for t in tensors]
         lengths = torch.tensor([t.shape[0] for t in tensors])
-        padded = torch.nn.utils.rnn.pad_sequence(tensors, batch_first=True, padding_value=0)
+        padded = _pad_tensor_list(tensors, lengths)
         if mask is None:
-            max_len = padded.shape[1]
-            mask = (torch.arange(max_len).unsqueeze(0) < lengths.unsqueeze(1)).to(padded.device, dtype=padded.dtype)
+            # Built on the embeddings' device: the lengths are a vector, the mask a full grid.
+            positions = torch.arange(padded.shape[1], device=padded.device)
+            mask = (positions.unsqueeze(0) < lengths.to(padded.device).unsqueeze(1)).to(padded.dtype)
         return padded, mask
     padded = _convert_to_tensor(inputs)
     if not padded.is_floating_point():

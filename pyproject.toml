@@ -172,6 +172,7 @@ Ein = "Ein"
 ein = "ein"
 ist = "ist"
 arange = "arange"
+writeable = "writeable"
 
 
 [tool.typos.files]

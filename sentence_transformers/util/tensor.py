@@ -8,10 +8,26 @@ from scipy.sparse import coo_matrix
 from torch import Tensor, device
 
 
+def _wrap_numpy(a: np.ndarray) -> Tensor:
+    """View a numpy array as a tensor without copying its buffer, which on a corpus of embeddings
+    costs as much as the scoring it feeds. Read-only buffers (memmaps, broadcast views) and dtypes
+    torch has no equivalent for fall back to the copying :func:`torch.tensor`.
+
+    The returned tensor aliases the caller's array, so consumers must write only into fresh outputs.
+    """
+    if a.flags.writeable:
+        try:
+            return torch.from_numpy(a)
+        except TypeError:
+            pass
+    return torch.tensor(a)
+
+
 def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
     """
-    Converts the input `a` to a PyTorch tensor if it is not already a tensor.
-    Handles lists of sparse tensors by stacking them.
+    Converts the input `a` to a PyTorch tensor if it is not already a tensor. Lists are stacked into
+    one tensor: a list of sparse tensors keeps its sparsity, and a list of numpy arrays is viewed
+    rather than read element by element (see :func:`_wrap_numpy`).
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The input array or tensor.
@@ -24,8 +40,14 @@ def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
         if all(isinstance(x, Tensor) and x.is_sparse for x in a):
             # Stack sparse tensors while preserving sparsity
             return torch.stack([x.coalesce().to(dtype=torch.float32) for x in a])
+        elif a and all(isinstance(x, np.ndarray) for x in a):
+            # torch.tensor reads a list of arrays one element at a time, two orders of magnitude
+            # slower than viewing each and stacking once. Ragged lists fail either way.
+            a = torch.stack([_wrap_numpy(x) for x in a])
         else:
             a = torch.tensor(a)
+    elif isinstance(a, np.ndarray):
+        a = _wrap_numpy(a)
     elif not isinstance(a, Tensor):
         a = torch.tensor(a)
     if a.is_sparse:
@@ -69,8 +91,8 @@ def _convert_to_batch(a: Tensor) -> Tensor:
 
 def _convert_to_batch_tensor(a: list | np.ndarray | Tensor) -> Tensor:
     """
-    Converts the input data to a tensor with a batch dimension.
-    Handles lists of sparse tensors by stacking them.
+    Converts the input data to a tensor with a batch dimension, stacking lists as
+    :func:`_convert_to_tensor` does.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The input data to be converted.
