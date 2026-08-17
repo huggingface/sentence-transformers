@@ -94,8 +94,9 @@ def test_convert_to_tensor_stacks_a_list_of_arrays_without_reading_elementwise()
 
 
 def test_convert_to_tensor_negative_stride_still_rejected() -> None:
-    """Negative strides were never convertible and still are not: the view falls back to
-    `torch.tensor`, which rejects them exactly as it did before the view was introduced."""
+    """Negative strides were never convertible and still are not. `torch.from_numpy` rejects them
+    with the same error `torch.tensor` raised before the view was introduced, so this is not a
+    fallback case: the error propagates straight out."""
     with pytest.raises(ValueError, match="stride"):
         _convert_to_tensor(np.zeros((4, 6), dtype=np.float32)[::-1])
 

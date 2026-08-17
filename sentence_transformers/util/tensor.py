@@ -10,8 +10,9 @@ from torch import Tensor, device
 
 def _wrap_numpy(a: np.ndarray) -> Tensor:
     """View a numpy array as a tensor without copying its buffer, which on a corpus of embeddings
-    costs as much as the scoring it feeds. Read-only buffers (memmaps, broadcast views) and dtypes
-    torch has no equivalent for fall back to the copying :func:`torch.tensor`.
+    costs as much as the scoring it feeds. Two kinds of array cannot be viewed and are copied with
+    :func:`torch.tensor` instead: read-only buffers (memmaps, broadcast views), and dtypes with no
+    torch equivalent. Arrays with a negative stride are rejected outright by both routes.
 
     The returned tensor aliases the caller's array, so consumers must write only into fresh outputs.
     """
