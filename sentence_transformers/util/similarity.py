@@ -726,12 +726,14 @@ def _pad_tensor_list(tensors: list[Tensor], lengths: Tensor) -> Tensor:
     if int(lengths.min()) == max_len:
         return torch.stack(tensors)
     # One cat of the ragged rows, then one scatter into the padded grid: index arithmetic maps each
-    # flattened token to ``item * max_len + position_within_item``.
+    # flattened token to ``item * max_len + position_within_item``. Both repeats are told their
+    # ``output_size``, or each one reduces ``lengths`` on the device and blocks to read it back.
     flat = torch.cat(tensors, dim=0)
+    total = len(flat)
     lengths = lengths.to(flat.device)
     starts = torch.cumsum(lengths, 0) - lengths
-    positions = torch.arange(len(flat), device=flat.device) - torch.repeat_interleave(starts, lengths)
-    rows = torch.repeat_interleave(torch.arange(len(tensors), device=flat.device), lengths)
+    positions = torch.arange(total, device=flat.device) - torch.repeat_interleave(starts, lengths, output_size=total)
+    rows = torch.repeat_interleave(torch.arange(len(tensors), device=flat.device), lengths, output_size=total)
     padded = flat.new_zeros(len(tensors) * max_len, flat.shape[-1])
     padded.index_copy_(0, rows * max_len + positions, flat)
     return padded.view(len(tensors), max_len, flat.shape[-1])
