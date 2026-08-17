@@ -212,7 +212,6 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             prompt=prompt,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
-            convert_to_tensor=True,
             **kwargs,
         )
         if encode_fn_name == "query":

@@ -205,8 +205,8 @@ def test_pretrained_image_document_maxsim(model_name: str, expected_scores: list
         trust_remote_code=model_name in MODELS_NEEDING_REMOTE_CODE,
         model_kwargs={"dtype": torch.float32},
     )
-    query_embeddings = model.encode_query(IMAGE_QUERIES, convert_to_tensor=True)
-    document_embeddings = model.encode_document(IMAGE_DOCUMENTS, convert_to_tensor=True)
+    query_embeddings = model.encode_query(IMAGE_QUERIES)
+    document_embeddings = model.encode_document(IMAGE_DOCUMENTS)
     similarities = model.similarity(query_embeddings, document_embeddings).float().cpu()
 
     assert tuple(similarities.shape) == (len(IMAGE_QUERIES), len(IMAGE_DOCUMENTS))
@@ -270,8 +270,8 @@ def test_pretrained_colpali_multimodal() -> None:
         "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc4.jpg",
     ]
 
-    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
-    document_embeddings = model.encode_document(images, convert_to_tensor=True)
+    query_embeddings = model.encode_query(queries)
+    document_embeddings = model.encode_document(images)
 
     dim = model.get_embedding_dimension()
     assert dim == 128
@@ -330,8 +330,8 @@ def test_pretrained_colqwen2_hf_for_retrieval(tmp_path) -> None:
     st_query_ids = model[0].preprocess(queries, task="query")["input_ids"].cpu()
     assert torch.equal(st_query_ids, processor.process_queries(queries)["input_ids"])
 
-    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
-    document_embeddings = model.encode_document(images, convert_to_tensor=True)
+    query_embeddings = model.encode_query(queries)
+    document_embeddings = model.encode_document(images)
 
     assert len(query_embeddings) == len(queries)
     assert all(q.ndim == 2 and q.shape[0] > 0 and q.shape[1] == dim for q in query_embeddings)
@@ -358,7 +358,7 @@ def test_pretrained_colqwen2_hf_for_retrieval(tmp_path) -> None:
     assert [type(module).__name__ for module in reloaded] == ["Transformer", "MultiVectorMask"]
     assert reloaded[0].transformer_task == "retrieval"
     assert reloaded.get_embedding_dimension() == dim
-    reloaded_query = reloaded.encode_query([queries[0]], convert_to_tensor=True)[0]
+    reloaded_query = reloaded.encode_query([queries[0]])[0]
     assert reloaded_query.shape == query_embeddings[0].shape
     # bf16 kernel selection varies between loads (elementwise drift ~2e-3): compare per-token
     # direction instead of raw values. Both are unit-norm, so the dot product is the cosine.

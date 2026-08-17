@@ -117,6 +117,5 @@ class MultiVectorRerankingEvaluator(RerankingEvaluator):
             sentences,
             batch_size=self.batch_size,
             show_progress_bar=show_progress_bar,
-            convert_to_tensor=True,
             **kwargs,
         )

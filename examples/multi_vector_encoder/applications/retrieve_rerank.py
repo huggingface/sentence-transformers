@@ -24,7 +24,7 @@ def main() -> None:
     # 2. First stage: embed the corpus once with a fast bi-encoder.
     retriever = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
     start = time.perf_counter()
-    corpus_embeddings = retriever.encode_document(corpus, convert_to_tensor=True, show_progress_bar=True)
+    corpus_embeddings = retriever.encode_document(corpus, show_progress_bar=True)
     print(
         f"Encoded {len(corpus)} documents with the bi-encoder in {time.perf_counter() - start:.2f}s "
         "(one-time indexing cost)"
@@ -36,7 +36,7 @@ def main() -> None:
 
     def search(query: str) -> None:
         start = time.perf_counter()
-        query_embedding = retriever.encode_query([query], convert_to_tensor=True)
+        query_embedding = retriever.encode_query([query])
         hits = semantic_search(query_embedding, corpus_embeddings, top_k=50)[0]
         retrieval_time = (time.perf_counter() - start) * 1000
 

@@ -56,7 +56,7 @@ def real_query_token_slice(model: MultiVectorEncoder, query: str) -> slice:
     .. code-block:: python
 
         s = real_query_token_slice(model, query)
-        query_embedding = model.encode_query([query], convert_to_tensor=True)[0][s]
+        query_embedding = model.encode_query([query])[0][s]
 
     Works for both right-padded (PaliGemma) and left-padded (ColQwen2 / ColModernVBert)
     backbones by comparing the encoded sequences of an empty and the actual query.

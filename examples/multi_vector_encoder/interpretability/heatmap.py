@@ -57,7 +57,7 @@ def main() -> None:
     # Encode the query with output_value=None to get the raw per-input features: both the token
     # embeddings and the input ids that produced them, for labeling the per-token heatmaps below.
     query_outputs = model.encode_query([query], output_value=None)[0]
-    document_embeddings = model.encode_document([image], convert_to_tensor=True)
+    document_embeddings = model.encode_document([image])
 
     # Drop the bos prefix and trailing expansion tokens (both carry strong attention-sink signals).
     query_slice = real_query_token_slice(model, query)

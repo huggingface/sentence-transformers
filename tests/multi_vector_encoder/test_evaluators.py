@@ -301,8 +301,8 @@ def test_distillation_evaluator_per_query_candidate_sets(model: MultiVectorEncod
 def _student_kd_scores(model: MultiVectorEncoder, queries: list[str], documents: list[list[str]]) -> torch.Tensor:
     """Mirror the evaluator's student MaxSim scoring so teacher scores can be built from it."""
     n_ways = len(documents[0])
-    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
-    doc_embeddings = model.encode_document([document for row in documents for document in row], convert_to_tensor=True)
+    query_embeddings = model.encode_query(queries)
+    doc_embeddings = model.encode_document([document for row in documents for document in row])
     return torch.stack(
         [model.similarity_pairwise(query_embeddings, doc_embeddings[way::n_ways]).cpu() for way in range(n_ways)],
         dim=1,
@@ -425,8 +425,8 @@ def test_distillation_evaluator_flat_kl_is_full_sum(model: MultiVectorEncoder) -
     documents = ["Paris is the capital of France.", "Leonardo da Vinci painted the Mona Lisa."]
     scores = [0.0, 10.0]
 
-    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
-    doc_embeddings = model.encode_document(documents, convert_to_tensor=True)
+    query_embeddings = model.encode_query(queries)
+    doc_embeddings = model.encode_document(documents)
     student_scores = model.similarity_pairwise(query_embeddings, doc_embeddings).cpu()
     expected = torch.nn.functional.kl_div(
         torch.log_softmax(student_scores, dim=-1),

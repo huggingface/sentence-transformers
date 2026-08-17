@@ -185,7 +185,6 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
             self.queries,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
-            convert_to_tensor=True,
         )
         if self.nested_documents:
             n_ways = len(self.documents[0])
@@ -194,7 +193,6 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
                 flat_documents,
                 batch_size=self.batch_size,
                 show_progress_bar=self.show_progress_bar,
-                convert_to_tensor=True,
             )
             # Regroup per way and score pairwise with the model's own similarity, giving the same
             # (num_queries, n_ways) student scores as the KD loss computes at training time.
@@ -210,7 +208,6 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
                 self.documents,
                 batch_size=self.batch_size,
                 show_progress_bar=self.show_progress_bar,
-                convert_to_tensor=True,
             )
             pairwise = self.similarity_fct if self.similarity_fct is not None else model.similarity_pairwise
             student_scores = pairwise(query_embeddings, doc_embeddings).cpu()

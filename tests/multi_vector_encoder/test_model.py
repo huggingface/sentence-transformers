@@ -618,26 +618,20 @@ def test_stanford_colbert_archetype_without_metadata_uses_defaults(
 
 
 @pytest.mark.parametrize(
-    ("convert_to_tensor", "convert_to_numpy", "element_type"),
+    ("convert_to_numpy", "element_type"),
     [
-        (False, True, np.ndarray),  # default: variable-length list of arrays
-        (True, False, torch.Tensor),  # variable-length list of tensors
-        (False, False, torch.Tensor),  # variable-length list of raw (unconverted) tensors
+        (False, torch.Tensor),  # default: variable-length list of tensors
+        (True, np.ndarray),  # opt-out: variable-length list of arrays
     ],
 )
 def test_encode_output_formats(
     model: MultiVectorEncoder,
-    convert_to_tensor: bool,
     convert_to_numpy: bool,
     element_type: type,
 ) -> None:
     docs = ["short doc", "a considerably longer document with many more distinct tokens than the first one"]
     dim = model.get_embedding_dimension()
-    out = model.encode_document(
-        docs,
-        convert_to_tensor=convert_to_tensor,
-        convert_to_numpy=convert_to_numpy,
-    )
+    out = model.encode_document(docs, convert_to_numpy=convert_to_numpy)
 
     # A variable-length list with one 2D entry per document.
     assert isinstance(out, list)
@@ -648,8 +642,27 @@ def test_encode_output_formats(
 
 def test_singular_input_unwraps(model: MultiVectorEncoder) -> None:
     emb = model.encode_document("a single doc string")
-    assert isinstance(emb, np.ndarray)
+    assert isinstance(emb, torch.Tensor)
     assert emb.ndim == 2
+    array = model.encode_document("a single doc string", convert_to_numpy=True)
+    assert isinstance(array, np.ndarray)
+    assert array.ndim == 2
+
+
+def test_encode_defaults_to_tensors_on_model_device(model: MultiVectorEncoder) -> None:
+    """The default output feeds similarity without a host round trip, so it stays on the model's
+    device as tensors. ``convert_to_numpy=True`` remains the opt-out for corpora that outgrow it."""
+    embeddings = model.encode_document(["one doc", "another doc"])
+    assert all(isinstance(emb, torch.Tensor) and emb.device == model.device for emb in embeddings)
+    assert all(isinstance(emb, np.ndarray) for emb in model.encode_document(["a", "b"], convert_to_numpy=True))
+
+
+def test_convert_to_tensor_is_rejected_by_name(model: MultiVectorEncoder) -> None:
+    """Variable-length embeddings cannot stack, so unlike every other model type there is no
+    `convert_to_tensor` here. Copied-over calls are common enough that the error says so rather than
+    falling through to the generic unused-kwarg message."""
+    with pytest.raises(ValueError, match="has no `convert_to_tensor`"):
+        model.encode_document(["a doc"], convert_to_tensor=True)
 
 
 def test_similarity_returns_maxsim(model: MultiVectorEncoder) -> None:
@@ -675,8 +688,8 @@ def test_save_and_load_round_trip(model: MultiVectorEncoder) -> None:
     assert new_t.query_expansion == orig_t.query_expansion
     assert reloaded[2].skiplist_words == model[2].skiplist_words
     # Embeddings should match within numerical tolerance.
-    q_orig = model.encode_query(["test"], convert_to_tensor=True)
-    q_new = reloaded.encode_query(["test"], convert_to_tensor=True)
+    q_orig = model.encode_query(["test"])
+    q_new = reloaded.encode_query(["test"])
     assert torch.allclose(q_orig[0], q_new[0], atol=1e-5)
 
 
@@ -722,7 +735,7 @@ def test_convert_dense_st_with_dense_head_redirects_to_token_level(tmp_path) -> 
     assert converted_dense.module_input_name == "token_embeddings"
     assert converted_dense.module_output_name == "token_embeddings"
     assert torch.equal(converted_dense.linear.weight.cpu(), dense.linear.weight.cpu())
-    embeddings = model.encode_query(["hello world"], convert_to_tensor=True)
+    embeddings = model.encode_query(["hello world"])
     assert embeddings[0].shape[1] == 64
 
 
@@ -802,7 +815,7 @@ def test_encode_output_value_none_with_prompt(model: MultiVectorEncoder) -> None
 def test_encode_output_value_none_ignores_convert_flags(model: MultiVectorEncoder) -> None:
     """The convert_to_* options do not apply to raw feature dicts."""
     for outputs in (
-        model.encode(["x", "y"], output_value=None, convert_to_tensor=True),
+        model.encode(["x", "y"], output_value=None),
         model.encode(["x", "y"], output_value=None, convert_to_numpy=True),
     ):
         assert isinstance(outputs, list)
@@ -1166,8 +1179,8 @@ def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
         prompts={"query": "[unused0] ", "document": "[unused1] "},
     )
 
-    q_before = model.encode_query(["a short query"], convert_to_tensor=True)
-    d_before = model.encode_document(["a document to embed"], convert_to_tensor=True)
+    q_before = model.encode_query(["a short query"])
+    d_before = model.encode_document(["a document to embed"])
 
     with tempfile.TemporaryDirectory() as tmpdir:
         model.save_pretrained(tmpdir)
@@ -1175,8 +1188,8 @@ def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
 
     # Prompts (and the tokenizer) carry over, so embeddings are byte-identical after a round-trip.
     assert reloaded.prompts.get("query") == "[unused0] "
-    q_after = reloaded.encode_query(["a short query"], convert_to_tensor=True)
-    d_after = reloaded.encode_document(["a document to embed"], convert_to_tensor=True)
+    q_after = reloaded.encode_query(["a short query"])
+    d_after = reloaded.encode_document(["a document to embed"])
     assert torch.allclose(q_before[0], q_after[0], atol=1e-5)
     assert torch.allclose(d_before[0], d_after[0], atol=1e-5)
 
@@ -1224,7 +1237,7 @@ def test_pylate_shape_save_round_trips_to_new_query_expansion(tmp_path) -> None:
 
     native = MultiVectorEncoder(base)
     native[0].query_expansion = {"strategy": "fixed", "attend": True, "length": 24}
-    q_native = native.encode_query(["some query text"], convert_to_tensor=True)[0]
+    q_native = native.encode_query(["some query text"])[0]
 
     native.save_pretrained(str(tmp_path))
     # Rewrite: drop the new-shape key, add the legacy PyLate keys with equivalent semantics.
@@ -1244,7 +1257,7 @@ def test_pylate_shape_save_round_trips_to_new_query_expansion(tmp_path) -> None:
     # ``query_length`` moved into the expansion config, no longer at top level.
     assert reloaded[0].query_length is None
 
-    q_reloaded = reloaded.encode_query(["some query text"], convert_to_tensor=True)[0]
+    q_reloaded = reloaded.encode_query(["some query text"])[0]
     # Same saved weights + equivalent config through the translation path -> byte-identical embeddings.
     assert q_reloaded.shape == q_native.shape == (24, native.get_embedding_dimension())
     assert torch.allclose(q_reloaded, q_native, atol=1e-5)
@@ -1330,7 +1343,7 @@ def test_encode_pooling_applies_to_raw_output(model: MultiVectorEncoder) -> None
         "medium length document with several tokens",
     ]
     pooling = HierarchicalTokenPooling(pool_factor=2)
-    normal = model.encode_document(texts, token_pooling=pooling, convert_to_tensor=True)
+    normal = model.encode_document(texts, token_pooling=pooling)
     raw = model.encode_document(texts, output_value=None, token_pooling=pooling)
     assert isinstance(raw, list)
     # The ragged batch must actually contain padded rows for this test to mean anything.
@@ -1359,7 +1372,8 @@ def test_encode_empty_list(model: MultiVectorEncoder) -> None:
 
 def test_similarity_forwards_scoring_kwargs(model: MultiVectorEncoder) -> None:
     """Extra similarity kwargs reach the scoring function: a tiny element budget reproduces the
-    plain scores, an unknown kwarg fails loudly, and a device override still returns CPU scores."""
+    plain scores, an unknown kwarg fails loudly, and a device override leaves the scores on the
+    embeddings' own device."""
     queries = model.encode_query(["What is the capital of France?", "Who painted the Mona Lisa?"])
     documents = model.encode_document(["Paris is big.", "Da Vinci painted.", "Berlin here.", "More text."])
     plain = model.similarity(queries, documents)
@@ -1370,9 +1384,16 @@ def test_similarity_forwards_scoring_kwargs(model: MultiVectorEncoder) -> None:
     with pytest.raises(TypeError):
         model.similarity(queries, documents, chunk_size=2)
     if torch.cuda.is_available():
-        scores = model.similarity(queries, documents, device="cuda")
+        # Scoring numpy embeddings on the GPU still hands the scores back on the CPU.
+        cpu_queries = model.encode_query(
+            ["What is the capital of France?", "Who painted the Mona Lisa?"], convert_to_numpy=True
+        )
+        cpu_documents = model.encode_document(
+            ["Paris is big.", "Da Vinci painted.", "Berlin here.", "More text."], convert_to_numpy=True
+        )
+        scores = model.similarity(cpu_queries, cpu_documents, device="cuda")
         assert scores.device.type == "cpu"
-        assert torch.allclose(scores, plain, atol=1e-4)
+        assert torch.allclose(scores, plain.cpu(), atol=1e-4)
 
 
 def test_similarity_singular_query(model: MultiVectorEncoder) -> None:
@@ -1502,8 +1523,8 @@ def test_multimodal_smoke_image_document_through_mve() -> None:
         {"text": "", "image": _make_random_image(seed=3)},
     ]
 
-    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
-    document_embeddings = model.encode_document(documents, convert_to_tensor=True)
+    query_embeddings = model.encode_query(queries)
+    document_embeddings = model.encode_document(documents)
 
     dim = model.get_embedding_dimension()
     assert dim == 128
