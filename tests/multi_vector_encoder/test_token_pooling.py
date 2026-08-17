@@ -103,8 +103,8 @@ class TestHierarchicalTokenPooling:
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
     def test_pooling_supports_low_precision_dtypes(self, dtype: torch.dtype) -> None:
-        # The ColPali/ColQwen2 family runs bf16 by default, and numpy has no bfloat16: the scipy
-        # distance step must run in fp32 while the pooled output keeps the input dtype.
+        # The ColPali/ColQwen2 family runs bf16 by default, and numpy has no bfloat16: the
+        # distance/linkage step must run in fp32 while the pooled output keeps the input dtype.
         emb = _normed((15, 8)).to(dtype)
         out = HierarchicalTokenPooling(pool_factor=2, num_protected_tokens=1).pool([emb])[0]
         assert out.dtype == dtype
