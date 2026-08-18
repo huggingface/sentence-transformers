@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from sentence_transformers import SparseEncoder
+from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder
 
 
 # Create a wrapper to measure outputs of the forward method
@@ -72,3 +73,20 @@ def test_csr_outputs(csr_bert_tiny_model: SparseEncoder, is_inference: bool, exp
     # Check that the model was called in the correct mode, and that the outputs contain the expected keys
     assert set(wrapper.outputs[0].keys()) == expected_keys
     # We don't have to restore the original forward method, as the model will not be reused
+
+
+def test_csr_inference_does_not_update_dead_feature_stats() -> None:
+    module = SparseAutoEncoder(input_dim=2, hidden_dim=8, k=1, k_aux=1)
+    features = {"sentence_embedding": torch.tensor([[1.0, 0.0]])}
+
+    with torch.inference_mode():
+        module({key: value.clone() for key, value in features.items()})
+
+    # sanity check: the stats_last_nonzero should be all zeros before the forward pass
+    assert torch.equal(module.stats_last_nonzero, torch.zeros_like(module.stats_last_nonzero))
+
+    # Run the forward pass (inference mode)
+    module(features)
+
+    # Check that the stats_last_nonzero has been updated correctly
+    assert torch.any(module.stats_last_nonzero > 0)
