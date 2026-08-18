@@ -117,7 +117,8 @@ class MultiVectorEncoder(BaseModel):
 
             from sentence_transformers import MultiVectorEncoder
 
-            model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+            # 1. Load a pretrained MultiVectorEncoder model
+            model = MultiVectorEncoder("lightonai/LateOn")
 
             queries = ["What is the capital of France?"]
             documents = [
@@ -125,11 +126,18 @@ class MultiVectorEncoder(BaseModel):
                 "Berlin is the capital of Germany.",
             ]
 
+            # 2. Encode queries and documents (note the asymmetric encode_query / encode_document split)
             query_embeddings = model.encode_query(queries)
             document_embeddings = model.encode_document(documents)
 
+            # Each entry is a 2D tensor of shape (num_tokens_i, embedding_dim), variable-length per input.
+            print(query_embeddings[0].shape)
+            # torch.Size([10, 128])
+
+            # 3. Score with MaxSim
             scores = model.similarity(query_embeddings, document_embeddings)
             print(scores)
+            # tensor([[9.1129, 8.8769]], device='cuda:0')
     """
 
     model_card_data_class = MultiVectorEncoderModelCardData

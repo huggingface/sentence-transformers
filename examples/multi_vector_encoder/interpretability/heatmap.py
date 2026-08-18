@@ -37,7 +37,7 @@ from sentence_transformers.multi_vector_encoder.modules import MultiVectorMask
 
 def main() -> None:
     # Any PaliGemma-based ColPali checkpoint.
-    model = MultiVectorEncoder("tomaarsen/colpali-v1.3-merged-st", trust_remote_code=True)
+    model = MultiVectorEncoder("vidore/colpali-v1.3")
 
     # Restrict the document mask to image-patch tokens so the doc embedding lines up 1:1 with
     # the n_patches grid (no text-prefix tokens to filter out via image_mask later).

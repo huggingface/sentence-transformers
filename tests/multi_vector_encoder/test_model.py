@@ -1498,7 +1498,7 @@ def _make_random_image(seed: int, size: int = 32) -> Image.Image:
 def test_multimodal_smoke_image_document_through_mve() -> None:
     """Image-document path through the default MVE module sequence with a tiny PaliGemma backbone.
 
-    The real ColPali checkpoint (``tomaarsen/colpali-v1.3-merged-st``) is exercised by the slow
+    The real ColPali checkpoint (``vidore/colpali-v1.3-merged``) is exercised by the slow
     ``test_pretrained_colpali_multimodal`` test in ``test_pretrained.py`` but it downloads a 3B
     model and needs CUDA. This smoke test fills the gap: a tiny random PaliGemma reaches every
     module in the chain (Transformer multimodal preprocess + token-Dense projection + MultiVectorMask

@@ -42,7 +42,8 @@ IMAGE_QUERIES = [
 ]
 # Image URLs as strings: ST's loader fetches and RGB-converts them (doc2.jpg is grayscale).
 IMAGE_DOCUMENTS = [
-    f"https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc{i}.jpg" for i in range(1, 5)
+    f"https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc{i}.jpg"
+    for i in range(1, 5)
 ]
 
 # Image-document counterpart of MODELS_TO_MAXSIM: reference scores from each checkpoint's own
@@ -57,31 +58,31 @@ IMAGE_DOCUMENTS = [
 # token_type_ids, without which transformers 5.x PaliGemma materializes no attention mask and
 # batched short queries attend to their own padding.
 IMAGE_MODELS_TO_MAXSIM: dict[str, list[list[float]]] = {
-    "tomaarsen/colpali-v1.2-merged-st": [
+    "vidore/colpali-v1.2-merged": [
         [11.12544, 10.70494, 8.33699, 5.55528],
         [5.43893, 9.22282, 4.77620, 6.18975],
     ],
-    "tomaarsen/colpali-v1.2-hf-st": [
+    "vidore/colpali-v1.2-hf": [
         [11.12544, 10.70494, 8.33699, 5.55528],
         [5.43893, 9.22282, 4.77620, 6.18975],
     ],
-    "tomaarsen/colpali-v1.3-merged-st": [
+    "vidore/colpali-v1.3-merged": [
         [22.31612, 19.89108, 19.68853, 19.08340],
         [5.86997, 13.53104, 6.14273, 6.66346],
     ],
-    "tomaarsen/colpali-v1.3-st": [
+    "vidore/colpali-v1.3": [
         [22.31328, 19.88509, 19.67547, 19.07253],
         [5.86399, 13.52503, 6.13950, 6.65664],
     ],
-    "tomaarsen/colpali-v1.3-hf-st": [
+    "vidore/colpali-v1.3-hf": [
         [22.31612, 19.89108, 19.68853, 19.08340],
         [5.86997, 13.53104, 6.14273, 6.66346],
     ],
-    "tomaarsen/colqwen2-v1.0-merged-st": [
+    "vidore/colqwen2-v1.0-merged": [
         [13.71122, 11.32144, 11.24476, 10.29570],
         [7.23860, 15.97721, 6.80682, 6.33582],
     ],
-    "tomaarsen/colqwen2-v1.0-st": [
+    "vidore/colqwen2-v1.0": [
         [13.70652, 11.32664, 11.24544, 10.29281],
         [7.23405, 15.98250, 6.80532, 6.33567],
     ],
@@ -89,39 +90,39 @@ IMAGE_MODELS_TO_MAXSIM: dict[str, list[list[float]]] = {
         [14.30825, 11.39804, 11.71452, 11.11929],
         [8.06244, 15.51341, 7.69973, 6.81685],
     ],
-    "tomaarsen/colqwen2.5-v0.1-st": [
+    "vidore/colqwen2.5-v0.1": [
         [14.41530, 13.65989, 12.64034, 12.21288],
         [6.72662, 12.85824, 6.38309, 6.51216],
     ],
-    "tomaarsen/colqwen2.5-v0.2-st": [
+    "vidore/colqwen2.5-v0.2": [
         [13.92257, 12.42018, 12.16155, 11.21492],
         [7.20985, 14.49691, 6.98430, 6.85667],
     ],
-    "tomaarsen/colsmolvlm-v0.1-st": [
+    "vidore/colsmolvlm-v0.1": [
         [19.24759, 14.70667, 13.41699, 13.06858],
         [11.33126, 16.25809, 10.10841, 10.38294],
     ],
-    "tomaarsen/colSmol-256M-st": [
+    "vidore/colSmol-256M": [
         [18.10806, 15.99803, 11.76210, 9.80238],
         [9.24236, 15.09791, 10.53463, 8.08666],
     ],
-    "tomaarsen/colSmol-500M-st": [
+    "vidore/colSmol-500M": [
         [16.85453, 13.74751, 11.73707, 11.53643],
         [7.77525, 14.95062, 8.11365, 9.26005],
     ],
-    "tomaarsen/tomoro-colqwen3-embed-4b-st": [
+    "TomoroAI/tomoro-colqwen3-embed-4b": [
         [12.77696, 8.82909, 6.06170, 5.93094],
         [4.57132, 10.81090, 4.18670, 5.13091],
     ],
-    "tomaarsen/colqwen-omni-v0.1-st": [
+    "vidore/colqwen-omni-v0.1": [
         [53.52898, 48.61031, 46.56916, 45.45226],
         [45.56886, 53.15039, 45.12549, 45.34389],
     ],
-    "tomaarsen/colmodernvbert-merged-st": [
+    "ModernVBERT/colmodernvbert-merged": [
         [16.76402, 10.43273, 11.82670, 9.02781],
         [7.38520, 12.01467, 8.11896, 7.95296],
     ],
-    "tomaarsen/colmodernvbert-st": [
+    "ModernVBERT/colmodernvbert": [
         [16.76402, 10.43273, 11.82670, 9.02781],
         [7.38520, 12.01467, 8.11896, 7.95296],
     ],
@@ -133,15 +134,7 @@ IMAGE_MODELS_TO_MAXSIM: dict[str, list[list[float]]] = {
 MODELS_NEEDING_REMOTE_CODE: frozenset[str] = frozenset(
     {
         "perplexity-ai/pplx-embed-v1-late-0.6b",
-        "tomaarsen/colpali-v1.3-st",
-        "tomaarsen/colqwen2-v1.0-st",
-        "tomaarsen/colsmolvlm-v0.1-st",
-        "tomaarsen/colSmol-256M-st",
-        "tomaarsen/colSmol-500M-st",
-        "tomaarsen/colmodernvbert-st",
-        "tomaarsen/colqwen2.5-v0.1-st",
-        "tomaarsen/colqwen2.5-v0.2-st",
-        "tomaarsen/tomoro-colqwen3-embed-4b-st",
+        "TomoroAI/tomoro-colqwen3-embed-4b",
     }
 )
 
@@ -264,10 +257,10 @@ def test_pretrained_colpali_multimodal() -> None:
         "Total outlay is maximum in which year?",
     ]
     images = [
-        "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc1.jpg",
-        "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc2.jpg",
-        "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc3.jpg",
-        "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc4.jpg",
+        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc1.jpg",
+        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc2.jpg",
+        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc3.jpg",
+        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc4.jpg",
     ]
 
     query_embeddings = model.encode_query(queries)
@@ -321,7 +314,8 @@ def test_pretrained_colqwen2_hf_for_retrieval(tmp_path) -> None:
         "Total outlay is maximum in which year?",
     ]
     images = [
-        f"https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc{i}.jpg" for i in range(1, 5)
+        f"https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc{i}.jpg"
+        for i in range(1, 5)
     ]
 
     # The processor bakes in the trained prefix and the augmentation buffer, so matching its ids is

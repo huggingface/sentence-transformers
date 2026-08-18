@@ -329,7 +329,7 @@ The usage for Multi-Vector Encoder models follows a similar pattern to Sentence 
       from sentence_transformers import MultiVectorEncoder
 
       # 1. Load a pretrained MultiVectorEncoder model
-      model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+      model = MultiVectorEncoder("lightonai/LateOn")
 
       queries = ["What is the capital of France?"]
       documents = [
@@ -341,14 +341,14 @@ The usage for Multi-Vector Encoder models follows a similar pattern to Sentence 
       query_embeddings = model.encode_query(queries)
       document_embeddings = model.encode_document(documents)
 
-      # Each entry is a 2D array of shape (num_tokens_i, embedding_dim), variable-length per input.
-      print(query_embeddings[0].shape)  # e.g. (10, 128)
-      print(document_embeddings[0].shape)  # e.g. (9, 128) and (10, 128)
+      # Each entry is a 2D tensor of shape (num_tokens_i, embedding_dim), variable-length per input.
+      print(query_embeddings[0].shape)
+      # torch.Size([10, 128])
 
       # 3. Score with MaxSim
       scores = model.similarity(query_embeddings, document_embeddings)
       print(scores)
-      # tensor([[9.6037, 9.4055]])
+      # tensor([[9.1129, 8.8769]], device='cuda:0')
 
 .. tab:: Multimodal
 
@@ -356,24 +356,36 @@ The usage for Multi-Vector Encoder models follows a similar pattern to Sentence 
 
       from sentence_transformers import MultiVectorEncoder
 
-      # 1. Load a pretrained visual document retrieval model
-      model = MultiVectorEncoder("vidore/colqwen2-v1.0-hf")
+      # 1. Load a model that matches text queries against page images, no OCR step
+      model = MultiVectorEncoder("vidore/colqwen2.5-v0.2")
 
-      # 2. Encode text queries and page images (URLs, local paths, or PIL images)
-      queries = ["Total outlay is maximum in which year?"]
-      images = [
-          "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc1.jpg",
-          "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc2.jpg",
+      queries = [
+          "What is the variable represented on the y-axis of the graph?",
+          "Total outlay is maximum in which year?",
       ]
+      # Image documents are passed as URLs, local paths, or PIL images
+      images = [
+          "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc1.jpg",
+          "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc2.jpg",
+          "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc3.jpg",
+          "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc4.jpg",
+      ]
+
+      # 2. Encode with the same two calls as for text
       query_embeddings = model.encode_query(queries)
       document_embeddings = model.encode_document(images)
 
-      # 3. Score with MaxSim: each image patch acts as a document "token"
-      scores = model.similarity(query_embeddings, document_embeddings)
-      print(scores.shape)
-      # [1, 2]
+      # A page yields far more vectors than a query: one per image patch
+      print(query_embeddings[0].shape, document_embeddings[0].shape)
+      # torch.Size([25, 128]) torch.Size([755, 128])
 
-With ``MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")`` we pick a pretrained late-interaction model. Late-interaction models are particularly strong for **retrieval** tasks where token-level matching matters (named entities, exact-phrase queries, sub-document relevance). ColPali-style variants extend this to image document retrieval over scanned pages, slides, and figures.
+      # 3. Score query text tokens against document image patches with MaxSim
+      scores = model.similarity(query_embeddings, document_embeddings)
+      print(scores)
+      # tensor([[13.8672, 12.3115, 12.1670, 11.0293],
+      #         [ 7.2012, 14.7207,  6.9414,  6.9746]])
+
+With ``MultiVectorEncoder("lightonai/LateOn")`` we pick a pretrained late-interaction model. Late-interaction models are particularly strong for **retrieval** tasks where token-level matching matters (named entities, exact-phrase queries, sub-document relevance). ColPali-style variants extend this to image document retrieval over scanned pages, slides, and figures.
 
 Finetuning Multi-Vector Encoder models is easy and requires only a few lines of code. For more information, see the `Training Overview <./multi_vector_encoder/training_overview.html>`__ section.
 

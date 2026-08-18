@@ -53,7 +53,7 @@ Some Multi-Vector Encoder models support inputs beyond text, most notably page i
 - **Multimodal dicts**: a dict mapping modality names to values, e.g. ``{"text": ..., "image": ...}``. The keys must be ``"text"``, ``"image"``, ``"audio"``, or ``"video"``, although released late-interaction checkpoints only accept text and images.
 - **Chat messages**: a list of dicts with ``"role"`` and ``"content"`` keys for multimodal models that use an uncommon chat template to combine text and non-text inputs.
 
-The following example loads a ColQwen2 model and scores a text query against two page images directly, skipping OCR entirely:
+The following example loads a ColQwen2.5 model and scores text queries against page images directly, skipping OCR entirely:
 
 .. sidebar:: Modality Support
 
@@ -61,7 +61,7 @@ The following example loads a ColQwen2 model and scores a text query against two
 
       from sentence_transformers import MultiVectorEncoder
 
-      model = MultiVectorEncoder("vidore/colqwen2-v1.0-hf")
+      model = MultiVectorEncoder("vidore/colqwen2.5-v0.2")
 
       # List all supported modalities
       print(model.modalities)
@@ -78,13 +78,18 @@ The following example loads a ColQwen2 model and scores a text query against two
    from sentence_transformers import MultiVectorEncoder
 
    # 1. Load a model that supports both text and images
-   model = MultiVectorEncoder("vidore/colqwen2-v1.0-hf")
+   model = MultiVectorEncoder("vidore/colqwen2.5-v0.2")
 
-   queries = ["Total outlay is maximum in which year?"]
+   queries = [
+       "What is the variable represented on the y-axis of the graph?",
+       "Total outlay is maximum in which year?",
+   ]
    # 2. Image documents are passed as URLs, local paths, or PIL images
    images = [
-       "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc1.jpg",
-       "https://huggingface.co/tomaarsen/colpali-v1.3-merged-st/resolve/main/assets/doc2.jpg",
+       "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc1.jpg",
+       "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc2.jpg",
+       "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc3.jpg",
+       "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc4.jpg",
    ]
 
    # 3. Image documents encode the same way as text ones
@@ -94,7 +99,8 @@ The following example loads a ColQwen2 model and scores a text query against two
    # 4. Compute cross-modal MaxSim scores
    scores = model.similarity(query_embeddings, document_embeddings)
    print(scores)
-   # tensor([[ 8.2655, 16.5034]])
+   # tensor([[13.8672, 12.3115, 12.1670, 11.0293],
+   #         [ 7.2012, 14.7207,  6.9414,  6.9746]])
 
 Use :meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode_query` and :meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode_document` for retrieval. These set the right prefix token (``[Q]`` / ``[D]``), max length, and apply any document-side skiplist configured on the model (empty by default, though legacy ColBERT / PyLate checkpoints pre-seed it with punctuation tokens). When query expansion is enabled, queries additionally expand to the configured length.
 

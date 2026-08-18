@@ -1,7 +1,7 @@
 
 .. tip::
 
-   Sentence Transformers v5.5 recently released, introducing the `train-sentence-transformers <https://github.com/huggingface/sentence-transformers/tree/main/skills>`_ Agent Skill. Using an AI coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...)? Install it via ``hf skills add train-sentence-transformers [--global] [--claude]`` and ask your agent to train or finetune an embedding, reranker, sparse encoder, or multi-vector encoder model on your data. See the `v5.5.0 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.5.0>`_ for more details.
+   Sentence Transformers v6.0 recently released, introducing the :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`, a fourth model family for ColBERT-style late-interaction retrieval using token-level (multi-vector) embeddings, covering both text retrieval and ColPali-style visual document retrieval. Existing ColBERT, PyLate, and ColPali models load out of the box, with full training and evaluation support. Read the `Multi-Vector Encoder quickstart <docs/quickstart.html#multi-vector-encoder>`_, the `v6.0 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v6.0.0>`_, or the `migration guide <docs/migration_guide.html>`_ for more details.
 
 SentenceTransformers Documentation
 ==================================
@@ -199,30 +199,68 @@ Working with Sentence Transformer models is straightforward:
 
 .. tab:: Multi-Vector Encoder Models
 
-   .. code-block:: python
+   .. tab:: Text
 
-      from sentence_transformers import MultiVectorEncoder
+      .. code-block:: python
 
-      # 1. Load a pretrained MultiVectorEncoder model
-      model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+         from sentence_transformers import MultiVectorEncoder
 
-      queries = ["What is the capital of France?"]
-      documents = [
-          "Paris is the capital of France.",
-          "Berlin is the capital of Germany.",
-      ]
+         # 1. Load a pretrained MultiVectorEncoder model
+         model = MultiVectorEncoder("lightonai/LateOn")
 
-      # 2. Encode queries and documents (note the asymmetric encode_query / encode_document split)
-      query_embeddings = model.encode_query(queries)
-      document_embeddings = model.encode_document(documents)
+         queries = ["What is the capital of France?"]
+         documents = [
+             "Paris is the capital of France.",
+             "Berlin is the capital of Germany.",
+         ]
 
-      # Each entry is a 2D array of shape (num_tokens_i, embedding_dim), variable-length per input.
-      print(query_embeddings[0].shape)  # e.g. (32, 128)
+         # 2. Encode queries and documents (note the asymmetric encode_query / encode_document split)
+         query_embeddings = model.encode_query(queries)
+         document_embeddings = model.encode_document(documents)
 
-      # 3. Score with MaxSim
-      scores = model.similarity(query_embeddings, document_embeddings)
-      print(scores)
-      # tensor([[16.6394, 13.3328]])
+         # Each entry is a 2D tensor of shape (num_tokens_i, embedding_dim), variable-length per input.
+         print(query_embeddings[0].shape)
+         # torch.Size([10, 128])
+
+         # 3. Score with MaxSim
+         scores = model.similarity(query_embeddings, document_embeddings)
+         print(scores)
+         # tensor([[9.1129, 8.8769]], device='cuda:0')
+
+   .. tab:: Multimodal
+
+      .. code-block:: python
+
+         from sentence_transformers import MultiVectorEncoder
+
+         # 1. Load a model that matches text queries against page images, no OCR step
+         model = MultiVectorEncoder("vidore/colqwen2.5-v0.2")
+
+         queries = [
+             "What is the variable represented on the y-axis of the graph?",
+             "Total outlay is maximum in which year?",
+         ]
+         # Image documents are passed as URLs, local paths, or PIL images
+         images = [
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc1.jpg",
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc2.jpg",
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc3.jpg",
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc4.jpg",
+         ]
+
+         # 2. Encode with the same two calls as for text
+         query_embeddings = model.encode_query(queries)
+         document_embeddings = model.encode_document(images)
+
+         # A page yields far more vectors than a query: one per image patch
+         print(query_embeddings[0].shape, document_embeddings[0].shape)
+         # torch.Size([25, 128]) torch.Size([755, 128])
+
+         # 3. Score query text tokens against document image patches with MaxSim
+         scores = model.similarity(query_embeddings, document_embeddings)
+         print(scores)
+         # tensor([[13.8672, 12.3115, 12.1670, 11.0293],
+         #         [ 7.2012, 14.7207,  6.9414,  6.9746]])
 
 What Next?
 ==========
