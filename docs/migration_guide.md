@@ -311,11 +311,11 @@ If you relied on mean pooling for a CausalLM model, you can explicitly set the p
 
 ```{eval-rst}
 
-The following changes are only relevant if you write custom :class:`~sentence_transformers.base.modules.input_module.InputModule` subclasses or custom :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` losses.
+The following changes are only relevant if you write custom :class:`~sentence_transformers.base.modules.InputModule` subclasses or custom :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` losses.
 
 **tokenize replaced by preprocess**
 
-The :meth:`tokenize` method on :class:`~sentence_transformers.base.modules.input_module.InputModule` subclasses (including :class:`~sentence_transformers.base.modules.transformer.Transformer`) has been replaced by :meth:`~sentence_transformers.base.modules.input_module.InputModule.preprocess`, which has a broader signature supporting prompts and multimodal inputs. The old ``tokenize`` method still works but is deprecated and will be removed in a future version. If you have custom :class:`~sentence_transformers.base.modules.input_module.InputModule` subclasses, implement :meth:`~sentence_transformers.base.modules.input_module.InputModule.preprocess` instead of ``tokenize``. If you're not calling ``tokenize`` directly (e.g. in a custom loss), then you are not affected.
+The :meth:`tokenize` method on :class:`~sentence_transformers.base.modules.InputModule` subclasses (including :class:`~sentence_transformers.base.modules.Transformer`) has been replaced by :meth:`~sentence_transformers.base.modules.InputModule.preprocess`, which has a broader signature supporting prompts and multimodal inputs. The old ``tokenize`` method still works but is deprecated and will be removed in a future version. If you have custom :class:`~sentence_transformers.base.modules.InputModule` subclasses, implement :meth:`~sentence_transformers.base.modules.InputModule.preprocess` instead of ``tokenize``. If you're not calling ``tokenize`` directly (e.g. in a custom loss), then you are not affected.
 
 **CrossEncoder.forward() return type**
 
