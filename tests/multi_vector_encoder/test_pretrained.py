@@ -18,8 +18,10 @@ DOCUMENTS = [
     "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
 ]
 
-# Cross-library parity guard, one entry per load path, with scores from PyLate. LFM2 alone covers
-# the EOS query-expansion fallback, the Perplexity entry alone attends to its expansion tokens.
+# Cross-library parity guard, one entry per load path, with scores from PyLate. LFM2 is the one
+# exception: it pins our own output, as PyLate sums MaxSim in the checkpoint's bfloat16 while we
+# upcast to float32. LFM2 alone covers the EOS query-expansion fallback, the Perplexity entry alone
+# attends to its expansion tokens.
 MODELS_TO_MAXSIM: dict[str, list[float]] = {
     "lightonai/Reason-ModernColBERT": [9.05118, 10.18419, 9.12381, 9.39101],
     "answerdotai/answerai-colbert-small-v1": [30.56916, 31.48954, 31.30291, 31.30716],

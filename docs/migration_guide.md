@@ -75,7 +75,7 @@ list columns (e.g. from CSV loads) are not parsed either: convert them to native
 
 ```{eval-rst}
 transformers-native ``*ForRetrieval`` checkpoints (the ``-hf`` variants of the ``vidore`` models, e.g.
-``vidore/colqwen2-v1.0``) are auto-detected: the projection and normalisation run inside the model,
+``vidore/colqwen2-v1.0-hf``) are auto-detected: the projection and normalisation run inside the model,
 and the processor formats queries and image documents.
 ```
 
