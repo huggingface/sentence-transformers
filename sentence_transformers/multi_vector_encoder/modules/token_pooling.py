@@ -2,12 +2,12 @@
 
 Reduce each document's per-token embedding count to lower storage cost. Three ways to apply:
 
-1. As a module in a :class:`~sentence_transformers.MultiVectorEncoder` pipeline: model authors
+1. As a module in a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` pipeline: model authors
    put a :class:`HierarchicalTokenPooling` (or any :class:`BaseTokenPooling` subclass) at the end of
    the modules list to bake pooling into the checkpoint. Every consumer of the saved model gets
    the pooled output.
 2. Per-call at encode time: users pass ``token_pooling=`` to
-   :meth:`~sentence_transformers.MultiVectorEncoder.encode` / ``encode_query`` / ``encode_document``
+   :meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode` / ``encode_query`` / ``encode_document``
    to opt in to pooling for a specific call.
 3. Standalone: users call :meth:`BaseTokenPooling.pool` on already-encoded embeddings to compress
    before storage.
@@ -146,7 +146,7 @@ class BaseTokenPooling(Module, ABC):
             task: Task the embeddings were encoded for. If it is not in :attr:`tasks`, the input
                 is returned unchanged. ``None`` (default) counts as ``"document"``, so standalone
                 document compression needs no extra argument.
-                :meth:`~sentence_transformers.MultiVectorEncoder.encode` forwards its ``task``
+                :meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode` forwards its ``task``
                 here for per-call pooling.
             attention_mask: Optional ``(B, T)`` boolean mask for the 3D case. Required unless
                 the padding is zero-valued (in which case the input boundary is detected by

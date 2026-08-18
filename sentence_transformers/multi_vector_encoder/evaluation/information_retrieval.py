@@ -24,7 +24,7 @@ logger = transformers_logging.get_logger(__name__)
 
 
 class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
-    """Evaluates a :class:`~sentence_transformers.MultiVectorEncoder` model on an information-retrieval
+    """Evaluates a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` model on an information-retrieval
     (IR) task. For each query, the model retrieves the top-k closest documents from the corpus using
     ColBERT-style MaxSim scoring, then reports the standard IR metrics (MRR@k, NDCG@k, Recall@k,
     Precision@k, Accuracy@k, MAP@k) against the supplied relevance judgements.
@@ -38,7 +38,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             Defaults to 5000.
         chunk_elements (int, optional): Element budget for the 4D
             ``(batch_q, chunk, q_tokens, d_tokens)`` MaxSim scoring intermediate, forwarded to
-            :func:`~sentence_transformers.util.maxsim`, which packs document chunks under it,
+            :func:`~sentence_transformers.util.similarity.maxsim`, which packs document chunks under it,
             adapting to the query count and document lengths. Defaults to None (maxsim's 100M-element
             budget, at most ~400 MB, half that in bf16 / fp16). Lower it to cut evaluation memory.
         score_functions (Dict[str, Callable], optional): Override the default scoring, which resolves

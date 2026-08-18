@@ -66,7 +66,7 @@ class MultiVectorEncoder(BaseModel):
     """
     Loads or creates a multi-vector / late-interaction (ColBERT-style) embedding model.
 
-    Unlike :class:`~sentence_transformers.SentenceTransformer` which produces a single vector per input,
+    Unlike :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` which produces a single vector per input,
     :class:`MultiVectorEncoder` produces a *sequence* of vectors per input, one per token. Scoring between
     queries and documents is done with the MaxSim late-interaction operator: for each query token, take the
     max similarity to any document token, then sum across query tokens.
@@ -981,8 +981,8 @@ class MultiVectorEncoder(BaseModel):
                 [num_embeddings_1, num_tokens, embedding_dim]-shaped tensor, or a single
                 [num_tokens, embedding_dim]-shaped tensor scored as a batch of one.
             embeddings2 (Union[Tensor, ndarray, list]): Document embeddings, in the same forms.
-            **kwargs: Forwarded to the scoring function, :func:`~sentence_transformers.util.maxsim`
-                or :func:`~sentence_transformers.util.mean_maxsim`. Particularly useful options include:
+            **kwargs: Forwarded to the scoring function, :func:`~sentence_transformers.util.similarity.maxsim`
+                or :func:`~sentence_transformers.util.similarity.mean_maxsim`. Particularly useful options include:
 
                 - ``device``: Run the scoring on this device. The returned scores stay on the
                   documents' device either way.
@@ -1023,8 +1023,8 @@ class MultiVectorEncoder(BaseModel):
                 [num_tokens, embedding_dim]-shaped tensor scored as a batch of one.
             embeddings2 (Union[Tensor, ndarray, list]): Document embeddings, in the same forms.
             **kwargs: Forwarded to the scoring function,
-                :func:`~sentence_transformers.util.maxsim_pairwise` or
-                :func:`~sentence_transformers.util.mean_maxsim_pairwise`. Particularly useful options include:
+                :func:`~sentence_transformers.util.similarity.maxsim_pairwise` or
+                :func:`~sentence_transformers.util.similarity.mean_maxsim_pairwise`. Particularly useful options include:
 
                 - ``device``: Run the scoring on this device. The returned scores stay on the
                   documents' device either way.

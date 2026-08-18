@@ -3,7 +3,7 @@
 ```{eval-rst}
 The `sentence-transformers tag <https://huggingface.co/models?library=sentence-transformers&other=multi-vector>`_
 on the Hugging Face Hub is the list that stays current, and we are working to get it onto every model that works
-with :class:`~sentence_transformers.MultiVectorEncoder`. The tables below are what we test against directly, so
+with :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`. The tables below are what we test against directly, so
 treat them as a starting point rather than the full set. For text retrieval in particular, any PyLate or
 Stanford-NLP ColBERT checkpoint loads whether or not it carries the tag yet.
 

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 class MultiVectorRerankingEvaluator(RerankingEvaluator):
-    """Reranking evaluator for :class:`~sentence_transformers.MultiVectorEncoder` models.
+    """Reranking evaluator for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models.
 
     Scores each query's candidate documents with the model's multi-vector similarity (MaxSim by
     default) and reports MAP, MRR@k, and NDCG@k, treating the ``positive`` documents as the relevance

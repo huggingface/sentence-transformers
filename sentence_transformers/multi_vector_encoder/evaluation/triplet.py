@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class MultiVectorTripletEvaluator(TripletEvaluator):
-    """Triplet evaluator for :class:`~sentence_transformers.MultiVectorEncoder` models.
+    """Triplet evaluator for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models.
 
     Given ``(anchor, positive, negative)`` triplets, checks how often
     ``MaxSim(anchor, positive) > MaxSim(anchor, negative) + margin``. The anchors are encoded via

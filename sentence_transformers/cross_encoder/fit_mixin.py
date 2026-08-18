@@ -199,8 +199,8 @@ class FitMixin:
     ) -> None:
         """
         Deprecated training method from before Sentence Transformers v4.0, it is recommended to use
-        :class:`~sentence_transformers.sentence_transformer.trainer.CrossEncoderTrainer` instead. This method uses
-        :class:`~sentence_transformers.sentence_transformer.trainer.CrossEncoderTrainer` behind the scenes, but does
+        :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` instead. This method uses
+        :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` behind the scenes, but does
         not provide as much flexibility as the Trainer itself.
 
         This training approach uses a DataLoader and Loss function to train the model.
@@ -426,7 +426,7 @@ class FitMixin:
     ) -> None:
         """
         Deprecated training method from before Sentence Transformers v4.0, it is recommended to use
-        :class:`~sentence_transformers.sentence_transformer.trainer.CrossEncoderTrainer` instead. This method should
+        :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` instead. This method should
         only be used if you encounter issues with your existing training scripts after upgrading to v4.0.
 
         This training approach uses a DataLoader and Loss function to train the model.

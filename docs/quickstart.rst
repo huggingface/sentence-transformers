@@ -117,9 +117,9 @@ The usage for Cross Encoder (a.k.a. reranker) models is similar to Sentence Tran
 
 .. sidebar:: Documentation
 
-   1. :class:`CrossEncoder <sentence_transformers.CrossEncoder>`
-   2. :meth:`CrossEncoder.rank <sentence_transformers.CrossEncoder.rank>`
-   3. :meth:`CrossEncoder.predict <sentence_transformers.CrossEncoder.predict>`
+   1. :class:`CrossEncoder <sentence_transformers.cross_encoder.model.CrossEncoder>`
+   2. :meth:`CrossEncoder.rank <sentence_transformers.cross_encoder.model.CrossEncoder.rank>`
+   3. :meth:`CrossEncoder.predict <sentence_transformers.cross_encoder.model.CrossEncoder.predict>`
 
    **Other useful methods and links:**
 
@@ -244,10 +244,10 @@ The usage for Sparse Encoder models follows a similar pattern to Sentence Transf
 
 .. sidebar:: Documentation
 
-   1. :class:`SparseEncoder <sentence_transformers.SparseEncoder>`
-   2. :meth:`SparseEncoder.encode <sentence_transformers.SparseEncoder.encode>`
-   3. :meth:`SparseEncoder.similarity <sentence_transformers.SparseEncoder.similarity>`
-   4. :meth:`SparseEncoder.sparsity <sentence_transformers.SparseEncoder.sparsity>`
+   1. :class:`SparseEncoder <sentence_transformers.sparse_encoder.model.SparseEncoder>`
+   2. :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.model.SparseEncoder.encode>`
+   3. :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity>`
+   4. :meth:`SparseEncoder.sparsity <sentence_transformers.sparse_encoder.model.SparseEncoder.sparsity>`
 
    **Other useful methods and links:**
 

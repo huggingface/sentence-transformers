@@ -22,7 +22,7 @@ class MultiVectorEncoderModelCardCallback(BaseModelCardCallback):
 
 @dataclass
 class MultiVectorEncoderModelCardData(BaseModelCardData):
-    """A dataclass storing data used in the model card for :class:`~sentence_transformers.MultiVectorEncoder` models.
+    """A dataclass storing data used in the model card for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models.
 
     Args:
         language (`Optional[Union[str, List[str]]]`): The model language, either a string or a list,

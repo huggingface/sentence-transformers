@@ -132,7 +132,7 @@ But if instead you want to train from another checkpoint, or from scratch, then 
 
         Multimodal models require additional dependencies. Install them with e.g. ``pip install -U "sentence-transformers[image]"`` for image support. See `Installation <../installation.html>`_ for all options.
 
-    ColPali-style models match text queries against page *images*, so retrieval skips OCR, layout parsing, and chunking entirely. Building one works exactly like building a text model: point :class:`~sentence_transformers.MultiVectorEncoder` at a multimodal embedding backbone and a freshly initialized token-level projection is appended, which is the construction that turned VLMs into ColPali and ColQwen in the first place.
+    ColPali-style models match text queries against page *images*, so retrieval skips OCR, layout parsing, and chunking entirely. Building one works exactly like building a text model: point :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` at a multimodal embedding backbone and a freshly initialized token-level projection is appended, which is the construction that turned VLMs into ColPali and ColQwen in the first place.
 
     .. raw:: html
 
@@ -331,7 +331,7 @@ Loss functions quantify how well a model performs for a given batch of data, all
 Sadly, there is no single loss function that works best for all use-cases. Instead, which loss function to use greatly depends on your available data and on your target task. See [Dataset Format](#dataset-format) to learn what datasets are valid for which loss functions. Additionally, the [Loss Overview](loss_overview) will be your best friend to learn about the options.
 
 ```{eval-rst}
-Most loss functions can be initialized with just the :class:`~sentence_transformers.MultiVectorEncoder` that you're training, alongside some optional parameters, e.g.:
+Most loss functions can be initialized with just the :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` that you're training, alongside some optional parameters, e.g.:
 
 .. sidebar:: Documentation
 
@@ -366,7 +366,7 @@ Most loss functions can be initialized with just the :class:`~sentence_transform
 ## Training Arguments
 
 ```{eval-rst}
-The :class:`~sentence_transformers.MultiVectorEncoderTrainingArguments` class can be used to specify parameters for influencing training performance as well as defining the tracking/debugging parameters. Although it is optional, it is heavily recommended to experiment with the various useful arguments.
+The :class:`~sentence_transformers.multi_vector_encoder.training_args.MultiVectorEncoderTrainingArguments` class can be used to specify parameters for influencing training performance as well as defining the tracking/debugging parameters. Although it is optional, it is heavily recommended to experiment with the various useful arguments.
 ```
 
 <div class="training-arguments">
@@ -416,7 +416,7 @@ The :class:`~sentence_transformers.MultiVectorEncoderTrainingArguments` class ca
 <br>
 
 ```{eval-rst}
-Here is an example of how :class:`~sentence_transformers.MultiVectorEncoderTrainingArguments` can be initialized:
+Here is an example of how :class:`~sentence_transformers.multi_vector_encoder.training_args.MultiVectorEncoderTrainingArguments` can be initialized:
 ```
 
 ```python
@@ -460,7 +460,7 @@ Evaluator                                                                       
 :class:`~sentence_transformers.multi_vector_encoder.evaluation.MultiVectorDistillationEvaluator`          Queries with candidate documents and teacher scores.
 ========================================================================================================  ===========================================================================================================================
 
-Additionally, :class:`~sentence_transformers.sentence_transformer.evaluation.SequentialEvaluator` should be used to combine multiple evaluators into one Evaluator that can be passed to the :class:`~sentence_transformers.multi_vector_encoder.trainer.MultiVectorEncoderTrainer`.
+Additionally, :class:`~sentence_transformers.base.evaluation.SequentialEvaluator` should be used to combine multiple evaluators into one Evaluator that can be passed to the :class:`~sentence_transformers.multi_vector_encoder.trainer.MultiVectorEncoderTrainer`.
 
 Sometimes you don't have the required evaluation data to prepare one of these evaluators on your own, but you still want to track how well the model performs on some common benchmarks. In that case, you can use these evaluators with data from Hugging Face.
 
@@ -530,7 +530,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
 ## Trainer
 
 ```{eval-rst}
-The :class:`~sentence_transformers.MultiVectorEncoderTrainer` is where all previous components come together. We only have to specify the trainer with the model, training arguments (optional), training dataset, evaluation dataset (optional), loss function, evaluator (optional) and we can start training. Let's have a look at a script where all of these components come together:
+The :class:`~sentence_transformers.multi_vector_encoder.trainer.MultiVectorEncoderTrainer` is where all previous components come together. We only have to specify the trainer with the model, training arguments (optional), training dataset, evaluation dataset (optional), loss function, evaluator (optional) and we can start training. Let's have a look at a script where all of these components come together:
 
 .. tab:: Contrastive (in-batch negatives)
 
@@ -742,12 +742,12 @@ documentation for more information on the integrated callbacks and how to write 
 ## Multi-Dataset Training
 
 ```{eval-rst}
-The top performing models are trained using many datasets at once. Normally, this is rather tricky, as each dataset has a different format. However, :class:`~sentence_transformers.MultiVectorEncoderTrainer` can train with multiple datasets without having to convert each dataset to the same format. It can even apply different loss functions to each of the datasets. The steps to train with multiple datasets are:
+The top performing models are trained using many datasets at once. Normally, this is rather tricky, as each dataset has a different format. However, :class:`~sentence_transformers.multi_vector_encoder.trainer.MultiVectorEncoderTrainer` can train with multiple datasets without having to convert each dataset to the same format. It can even apply different loss functions to each of the datasets. The steps to train with multiple datasets are:
 
 - Use a dictionary of :class:`~datasets.Dataset` instances (or a :class:`~datasets.DatasetDict`) as the ``train_dataset`` (and optionally also ``eval_dataset``).
 - (Optional) Use a dictionary of loss functions mapping dataset names to losses. Only required if you wish to use different loss function for different datasets.
 
-Each training/evaluation batch will only contain samples from one of the datasets. The order in which batches are samples from the multiple datasets is defined by the :class:`~sentence_transformers.sentence_transformer.training_args.MultiDatasetBatchSamplers` enum, which can be passed to the :class:`~sentence_transformers.MultiVectorEncoderTrainingArguments` via ``multi_dataset_batch_sampler``. Valid options are:
+Each training/evaluation batch will only contain samples from one of the datasets. The order in which batches are samples from the multiple datasets is defined by the :class:`~sentence_transformers.base.sampler.MultiDatasetBatchSamplers` enum, which can be passed to the :class:`~sentence_transformers.multi_vector_encoder.training_args.MultiVectorEncoderTrainingArguments` via ``multi_dataset_batch_sampler``. Valid options are:
 
 - ``MultiDatasetBatchSamplers.ROUND_ROBIN``: Round-robin sampling from each dataset until one is exhausted. With this strategy, it's likely that not all samples from each dataset are used, but each dataset is sampled from equally.
 - ``MultiDatasetBatchSamplers.PROPORTIONAL`` (default): Sample from each dataset in proportion to its size. With this strategy, all samples from each dataset are used and larger datasets are sampled from more frequently.

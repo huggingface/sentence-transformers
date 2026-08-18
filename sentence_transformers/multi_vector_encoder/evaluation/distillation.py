@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class MultiVectorDistillationEvaluator(BaseEvaluator):
-    """Distillation evaluator for :class:`~sentence_transformers.MultiVectorEncoder` models.
+    """Distillation evaluator for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models.
 
     Two data shapes are supported:
 

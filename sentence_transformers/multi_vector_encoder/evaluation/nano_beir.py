@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
-    """Evaluates a :class:`~sentence_transformers.MultiVectorEncoder` model on the
+    """Evaluates a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` model on the
     `NanoBEIR collection <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_.
 
     NanoBEIR is a downsized version of `BEIR <https://github.com/beir-cellar/beir>`_ (around 50 queries
@@ -34,7 +34,7 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
             Defaults to 5000.
         chunk_elements (int, optional): Element budget for the 4D
             ``(batch_q, chunk, q_tokens, d_tokens)`` MaxSim scoring intermediate, forwarded to
-            :func:`~sentence_transformers.util.maxsim`, which packs document chunks under it,
+            :func:`~sentence_transformers.util.similarity.maxsim`, which packs document chunks under it,
             adapting to the query count and document lengths. Defaults to None (maxsim's 100M-element
             budget, at most ~400 MB, half that in bf16 / fp16). Lower it to cut evaluation memory.
         mrr_at_k (List[int]): k-values for MRR. Defaults to ``[10]``.

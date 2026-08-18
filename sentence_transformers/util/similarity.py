@@ -820,7 +820,7 @@ class SimilarityFunction(Enum):
     - ``SimilarityFunction.EUCLIDEAN`` (``"euclidean"``): Euclidean distance
     - ``SimilarityFunction.MANHATTAN`` (``"manhattan"``): Manhattan distance
     - ``SimilarityFunction.MAXSIM`` (``"maxsim"``): Late-interaction MaxSim, used by
-      :class:`~sentence_transformers.MultiVectorEncoder` (ColBERT-style) models.
+      :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` (ColBERT-style) models.
     - ``SimilarityFunction.MEAN_MAXSIM`` (``"meanmaxsim"``): MaxSim divided by the query's token
       count, so scores are comparable across query lengths. Same rankings within a query.
     """
