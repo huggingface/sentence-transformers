@@ -5,7 +5,12 @@ import pytest
 import torch
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.util.retrieval import community_detection, paraphrase_mining, semantic_search
+from sentence_transformers.util.retrieval import (
+    community_detection,
+    paraphrase_mining,
+    paraphrase_mining_embeddings,
+    semantic_search,
+)
 from sentence_transformers.util.similarity import pytorch_cos_sim
 
 
@@ -50,6 +55,33 @@ def test_paraphrase_mining() -> None:
     for score, a, b in duplicates:
         if score > 0.5:
             assert (a, b) in [(0, 1), (2, 3), (2, 4), (3, 4), (5, 6), (5, 7), (6, 7)]
+
+
+@pytest.mark.parametrize(("max_pairs", "expected_count"), [(0, 0), (1, 1), (2, 2)])
+def test_paraphrase_mining_embeddings_respects_max_pairs_capacity(max_pairs: int, expected_count: int) -> None:
+    embeddings = torch.zeros(3, 2)
+    scores = torch.tensor(
+        [
+            [10.0, 9.0, 8.0],
+            [7.0, 10.0, 6.0],
+            [5.0, 4.0, 10.0],
+        ]
+    )
+
+    def score_function(query_embeddings: torch.Tensor, corpus_embeddings: torch.Tensor) -> torch.Tensor:
+        assert len(query_embeddings) == len(corpus_embeddings) == len(embeddings)
+        return scores
+
+    pairs = paraphrase_mining_embeddings(
+        embeddings,
+        query_chunk_size=len(embeddings),
+        corpus_chunk_size=len(embeddings),
+        max_pairs=max_pairs,
+        top_k=2,
+        score_function=score_function,
+    )
+
+    assert len(pairs) == expected_count
 
 
 def test_community_detection_two_clear_communities():
