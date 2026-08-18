@@ -5,7 +5,11 @@ import importlib.util
 import numpy as np
 import pytest
 
-from sentence_transformers.util.quantization import quantize_embeddings, semantic_search_faiss
+from sentence_transformers.util.quantization import (
+    quantize_embeddings,
+    semantic_search_faiss,
+    semantic_search_usearch,
+)
 
 
 @pytest.mark.parametrize("precision", ["binary", "ubinary"])
@@ -126,6 +130,7 @@ def test_quantize_empty_list_returns_empty_list() -> None:
 
 
 skip_without_faiss = pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
+skip_without_usearch = pytest.mark.skipif(importlib.util.find_spec("usearch") is None, reason="usearch not installed")
 
 QUERIES = np.random.default_rng(seed=1).standard_normal((2, 16), dtype=np.float32)
 CALIBRATION = np.random.default_rng(seed=2).standard_normal((100, 16), dtype=np.float32)
@@ -134,6 +139,49 @@ CALIBRATION = np.random.default_rng(seed=2).standard_normal((100, 16), dtype=np.
 def _corpus(n_docs: int, precision: str, seed: int = 0) -> np.ndarray:
     embeddings = np.random.default_rng(seed=seed).standard_normal((n_docs, 16), dtype=np.float32)
     return quantize_embeddings(embeddings, precision=precision, calibration_embeddings=CALIBRATION)
+
+
+@skip_without_usearch
+def test_semantic_search_usearch_signed_binary_rescoring_preserves_ranking() -> None:
+    query = np.array([[10.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]], dtype=np.float32)
+    corpus = np.array(
+        [
+            [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            [-1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
+
+    results, _ = semantic_search_usearch(
+        query,
+        corpus_embeddings=quantize_embeddings(corpus, precision="binary"),
+        corpus_precision="binary",
+        top_k=1,
+        rescore=True,
+        rescore_multiplier=2,
+        exact=True,
+    )
+
+    assert results[0] == [{"corpus_id": 0, "score": 17.0}]
+
+
+@skip_without_usearch
+@pytest.mark.parametrize("corpus_precision", ["binary", "ubinary"])
+def test_semantic_search_usearch_rescores_non_byte_aligned_embeddings(corpus_precision: str) -> None:
+    query = np.arange(1, 11, dtype=np.float32)[None, :]
+    corpus = np.ones((1, 10), dtype=np.float32)
+
+    results, _ = semantic_search_usearch(
+        query,
+        corpus_embeddings=quantize_embeddings(corpus, precision=corpus_precision),
+        corpus_precision=corpus_precision,
+        top_k=1,
+        rescore=True,
+        rescore_multiplier=1,
+        exact=True,
+    )
+
+    assert results[0] == [{"corpus_id": 0, "score": 55.0}]
 
 
 @skip_without_faiss
