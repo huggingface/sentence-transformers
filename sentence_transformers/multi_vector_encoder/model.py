@@ -1079,9 +1079,9 @@ class MultiVectorEncoder(BaseModel):
 
         Call only with the prefixes of an existing token-prepended checkpoint (the caller guards on
         ``self._legacy.prefixes``). Needed for checkpoints (Stanford ColBERTv2, answerai-colbert,
-        mxbai-edge-colbert, ...) whose prefix is a known token like ``[unused0]`` or ``[Q] `` applied
+        mxbai-edge-colbert, ...) whose prefix is a known token like ``[unused0]`` or "[Q] " applied
         via token insertion at training time. Prepending it as text would shatter it
-        (``[unused0]`` -> ``['[','unused','##0',']']``, and an added ``[Q] `` stored with
+        (``[unused0]`` -> ``['[','unused','##0',']']``, and an added "[Q] " stored with
         ``normalized=True`` never matches input text on a lowercasing tokenizer) and diverge from
         training. Registering it as a non-normalized special token restores single-piece
         tokenization, making text-prepending byte-identical to token insertion.
@@ -1089,7 +1089,7 @@ class MultiVectorEncoder(BaseModel):
         Two gates keep this a no-op when no fix is required:
 
         1. Skip prefixes the tokenizer doesn't know: neither the full prompt value (PyLate saves
-           ``[Q] `` with its trailing space as one token) nor its first whitespace-delimited token
+           "[Q] " with its trailing space as one token) nor its first whitespace-delimited token
            has an id. Such prefixes (``[Q]`` on a plain BERT, or a text prompt like ``query:``) are
            left as ordinary text rather than growing the embedding table.
         2. Skip prefixes the tokenizer already emits as a single piece, no fix needed.

@@ -48,7 +48,7 @@ _MAKO_LUT = _build_mako_lut()
 def real_query_token_slice(model: MultiVectorEncoder, query: str) -> slice:
     """Return the slice into ``encode_query``'s output that selects the real content tokens.
 
-    Chat-template prefixes (e.g. ``<bos>``), ColBERT query markers (e.g. ``[Q] ``), suffixes (e.g.
+    Chat-template prefixes (e.g. ``<bos>``), ColBERT query markers (e.g. "[Q] "), suffixes (e.g.
     ``<|im_end|>``), and ``MultiVectorEncoder``'s query-expansion tokens (``<mask>`` / ``<pad>``) wrap
     the actual query and carry attention-sink signals that distort heatmap visualisations. Slicing
     them out keeps only the real tokens:
