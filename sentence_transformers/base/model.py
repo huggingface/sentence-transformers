@@ -800,6 +800,93 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             safe_serialization=safe_serialization,
         )
 
+    @classmethod
+    def merge(
+        cls,
+        models: Sequence[str],
+        weights: Sequence[float] | None = None,
+        method: str = "linear",
+        base_model: str | None = None,
+        output_path: str | None = None,
+        dtype: str = "float16",
+        device: str = "cpu",
+        densities: Sequence[float] | None = None,
+        seed: int = 0,
+        **load_kwargs: Any,
+    ) -> Self:
+        """Merge multiple models of this class into a new one.
+
+        The transformer body and every weight-bearing Sentence Transformers module
+        (``Dense``, ``LayerNorm``, ...) are merged via ``state_dict`` arithmetic with
+        the chosen ``method``; stateless modules (``Pooling``, ``Normalize``, ...) are
+        copied from the first model after a config equality check. No external
+        dependencies are required.
+
+        All inputs must share the same ``modules.json`` structure: same module classes
+        in the same order, same pooling mode, same embedding dimension, etc.
+
+        Args:
+            models: Two or more model paths or Hugging Face IDs. ``slerp`` requires two
+                distinct entries.
+            weights: Per-model weights. If ``None``, defaults to ``[1/n]*n`` for blend
+                methods (``linear``, ``slerp``) and ``[1.0]*n`` for delta-based methods
+                (``task_arithmetic``, ``ties``, ``dare_ties``, ``dare_linear``). For
+                ``slerp``, ``weights[1]`` is the interpolation factor ``t``.
+            method: One of ``linear``, ``slerp``, ``task_arithmetic``, ``ties``,
+                ``dare_ties``, ``dare_linear``. See
+                :data:`sentence_transformers.base.merging.SUPPORTED_METHODS`.
+            base_model: Required for delta-based methods; deltas are computed relative
+                to this model.
+            output_path: Output directory for the merged model.
+            dtype: Output dtype: ``"float16"``, ``"bfloat16"``, or ``"float32"``.
+                Merging is computed in float32 and cast to this dtype on save. Delta
+                methods (``ties``/``dare_*``/``task_arithmetic``) can produce small
+                per-tensor deltas; use ``"float32"`` if you need to preserve them
+                exactly, since any 16-bit format may round them away.
+            device: ``"cpu"`` or ``"cuda"`` for the merge arithmetic.
+            densities: Per-model density for ``ties``/``dare_*`` (fraction of each delta
+                kept). Defaults to ``1.0`` each.
+            seed: Seed for the random dropout in ``dare_*`` methods.
+            **load_kwargs: Forwarded to ``cls(...)`` when reloading the result.
+
+        Returns:
+            A new instance of ``cls`` loaded from ``output_path``.
+
+        Example:
+            ::
+
+                from sentence_transformers import SentenceTransformer
+
+                merged = SentenceTransformer.merge(
+                    models=[
+                        "sentence-transformers/all-MiniLM-L6-v2",
+                        "sentence-transformers/paraphrase-MiniLM-L6-v2",
+                    ],
+                    weights=[0.6, 0.4],
+                    method="linear",
+                    output_path="merged-minilm/",
+                )
+                emb = merged.encode(["Hello, world!"])
+        """
+        from sentence_transformers.base.merging import merge_models
+
+        if output_path is None:
+            raise ValueError("`output_path` is required for `merge`.")
+
+        return merge_models(
+            cls=cls,
+            models=models,
+            weights=weights,
+            method=method,
+            base_model=base_model,
+            output_path=output_path,
+            dtype=dtype,
+            device=device,
+            densities=densities,
+            seed=seed,
+            **load_kwargs,
+        )
+
     def _update_default_model_id(self, model_card: str) -> str:
         """Update the default model ID in the model card."""
         if self.model_card_data.model_id:
