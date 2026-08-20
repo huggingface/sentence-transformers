@@ -5,7 +5,7 @@ import importlib.util
 import numpy as np
 import pytest
 
-from sentence_transformers.util.quantization import quantize_embeddings, semantic_search_faiss
+from sentence_transformers.util.quantization import quantize_embeddings, semantic_search_faiss, semantic_search_usearch
 
 
 @pytest.mark.parametrize("precision", ["binary", "ubinary"])
@@ -126,6 +126,7 @@ def test_quantize_empty_list_returns_empty_list() -> None:
 
 
 skip_without_faiss = pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
+skip_without_usearch = pytest.mark.skipif(importlib.util.find_spec("usearch") is None, reason="usearch not installed")
 
 QUERIES = np.random.default_rng(seed=1).standard_normal((2, 16), dtype=np.float32)
 CALIBRATION = np.random.default_rng(seed=2).standard_normal((100, 16), dtype=np.float32)
@@ -200,6 +201,52 @@ def test_semantic_search_faiss_empty_corpus(rescore: bool) -> None:
 def test_semantic_search_faiss_returns_top_k_when_corpus_is_large_enough(corpus_precision: str) -> None:
     """The padding check must not shorten results for a corpus larger than ``top_k``."""
     results, _ = semantic_search_faiss(
+        QUERIES,
+        corpus_embeddings=_corpus(50, corpus_precision, seed=3),
+        corpus_precision=corpus_precision,
+        top_k=5,
+        rescore=True,
+        rescore_multiplier=2,
+        calibration_embeddings=CALIBRATION,
+    )
+
+    for query_results in results:
+        assert len(query_results) == 5
+        assert all(0 <= entry["corpus_id"] < 50 for entry in query_results)
+
+
+@skip_without_usearch
+@pytest.mark.parametrize("corpus_precision", ["float32", "int8"])
+@pytest.mark.parametrize("rescore", [True, False])
+def test_semantic_search_usearch_drops_padded_indices(corpus_precision: str, rescore: bool) -> None:
+    """A corpus smaller than ``top_k`` must not produce duplicated/phantom entries.
+
+    Unlike FAISS, usearch pads a short result set by repeating a match with a NaN distance
+    instead of using a sentinel index, so the padding must be dropped using ``matches.counts``
+    rather than by checking for a -1 corpus_id.
+    """
+    results, _ = semantic_search_usearch(
+        QUERIES,
+        corpus_embeddings=_corpus(3, corpus_precision),
+        corpus_precision=corpus_precision,
+        top_k=5,  # deliberately larger than the 3-document corpus
+        rescore=rescore,
+        rescore_multiplier=2,
+        calibration_embeddings=CALIBRATION,
+    )
+
+    for query_results in results:
+        corpus_ids = [entry["corpus_id"] for entry in query_results]
+        assert all(not np.isnan(entry["score"]) for entry in query_results)
+        # Every existing document is returned exactly once, and nothing else is.
+        assert sorted(corpus_ids) == [0, 1, 2]
+
+
+@skip_without_usearch
+@pytest.mark.parametrize("corpus_precision", ["float32", "int8"])
+def test_semantic_search_usearch_returns_top_k_when_corpus_is_large_enough(corpus_precision: str) -> None:
+    """The padding check must not shorten results for a corpus larger than ``top_k``."""
+    results, _ = semantic_search_usearch(
         QUERIES,
         corpus_embeddings=_corpus(50, corpus_precision, seed=3),
         corpus_precision=corpus_precision,

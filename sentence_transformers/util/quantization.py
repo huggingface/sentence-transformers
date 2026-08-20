@@ -352,9 +352,21 @@ def semantic_search_usearch(
     if indices.ndim < 2:
         indices = np.atleast_2d(indices)
 
+    # Unlike FAISS, usearch does not pad short result sets with a sentinel index: when a query has fewer
+    # than `k` valid matches (e.g. the corpus itself has fewer than `k` entries), the remaining slots repeat
+    # an arbitrary key with a NaN distance. `matches.counts` holds the number of real matches per query, so
+    # anything at or beyond that count is padding. Keys are unsigned (uint64), so a -1 sentinel can't be used
+    # to mark them (it wraps around to a huge positive value instead); track validity in a parallel boolean
+    # array instead, threading it through the rescoring reorder below the same way as indices/scores.
+    counts = np.atleast_1d(matches.counts)
+    valid = np.arange(indices.shape[1])[None, :] < counts[:, None]
+
     # If rescoring is enabled, we need to rescore the results using the rescore_embeddings
     if rescore_embeddings is not None:
-        top_k_embeddings = np.array([corpus_index.get(query_indices) for query_indices in indices])
+        # corpus_index.get errors on a key beyond what was added, so look up a placeholder (any valid key)
+        # for padding slots and disqualify their scores below instead.
+        safe_indices = np.where(valid, indices, 0)
+        top_k_embeddings = np.array([corpus_index.get(query_indices) for query_indices in safe_indices])
         # If the corpus precision is binary, we need to unpack the bits
         if corpus_precision in ("ubinary", "binary"):
             top_k_embeddings = np.unpackbits(top_k_embeddings.astype(np.uint8), axis=-1)
@@ -366,17 +378,24 @@ def semantic_search_usearch(
         # We use einsum to calculate the dot product between the query and the top_k embeddings, equivalent to looping
         # over the queries and calculating 'rescore_embeddings[i] @ top_k_embeddings[i].T'
         rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings)
+        # Disqualify the padding slots so their placeholder scores cannot outrank real candidates
+        rescored_scores[~valid] = -np.inf
         rescored_indices = np.argsort(-rescored_scores)[:, :top_k]
-        indices = indices[np.arange(len(query_embeddings))[:, None], rescored_indices]
-        scores = rescored_scores[np.arange(len(query_embeddings))[:, None], rescored_indices]
+        query_arange = np.arange(len(query_embeddings))[:, None]
+        indices = indices[query_arange, rescored_indices]
+        scores = rescored_scores[query_arange, rescored_indices]
+        valid = valid[query_arange, rescored_indices]
 
     delta_t = time.time() - start_t
 
+    # Drop the padding slots (marked invalid above) so short result sets don't surface duplicated corpus
+    # entries with meaningless (NaN or -inf) scores.
     outputs = (
         [
             [
                 {"corpus_id": int(neighbor), "score": float(score)}
-                for score, neighbor in zip(scores[query_id], indices[query_id])
+                for score, neighbor, is_valid in zip(scores[query_id], indices[query_id], valid[query_id])
+                if is_valid
             ]
             for query_id in range(len(query_embeddings))
         ],
