@@ -9,7 +9,12 @@ import torch
 
 from sentence_transformers.base.model_card import BaseModelCardCallback, BaseModelCardData
 from sentence_transformers.base.modules import Module, Router
-from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SparseStaticEmbedding, SpladePooling
+from sentence_transformers.sparse_encoder.modules import (
+    SparseAutoEncoder,
+    SparseAutoEncoderTokenEncoder,
+    SparseStaticEmbedding,
+    SpladePooling,
+)
 
 if TYPE_CHECKING:
     from sentence_transformers.sparse_encoder.model import SparseEncoder
@@ -107,6 +112,9 @@ class SparseEncoderModelCardData(BaseModelCardData):
 
         if SpladePooling in all_modules:
             model_type += ["SPLADE"]
+
+        if SparseAutoEncoderTokenEncoder in all_modules:
+            model_type += ["Token SAE"]
 
         if SparseAutoEncoder in all_modules:
             model_type += ["CSR"]

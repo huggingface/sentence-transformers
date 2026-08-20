@@ -9,7 +9,9 @@ from ...base.modules.router import Asym, Router
 from ...base.modules.transformer import Transformer
 from .mlm_transformer import MLMTransformer
 from .sparse_auto_encoder import SparseAutoEncoder
+from .sparse_auto_encoder_token_encoder import SparseAutoEncoderTokenEncoder
 from .sparse_static_embedding import SparseStaticEmbedding
+from .sparse_token_pooling import SparseTokenPooling
 from .splade_pooling import SpladePooling
 
 __all__ = [
@@ -21,6 +23,8 @@ __all__ = [
     "Transformer",
     "MLMTransformer",
     "SparseAutoEncoder",
+    "SparseAutoEncoderTokenEncoder",
     "SparseStaticEmbedding",
+    "SparseTokenPooling",
     "SpladePooling",
 ]
