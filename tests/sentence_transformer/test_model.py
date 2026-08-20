@@ -954,6 +954,93 @@ def test_multiple_adapters(
         model.add_adapter(peft_config)
 
 
+@pytest.mark.skipif(not is_peft_available(), reason="PEFT must be available to test adapter methods.")
+def test_adapter_methods_on_peft_wrapped_model(
+    stsb_bert_tiny_model: SentenceTransformer, avg_word_embeddings_levy: SentenceTransformer, tmp_path: Path
+) -> None:
+    """Adapter methods must also work when the underlying module is already a ``peft.PeftModel``."""
+    from peft import LoraConfig, PeftModel, TaskType, get_peft_model
+
+    model = stsb_bert_tiny_model
+    # A plain transformers model is PEFT compatible through the transformers PEFT mixin
+    assert model.has_peft_compatible_model()
+
+    peft_config = LoraConfig(
+        target_modules=["query", "value"],
+        task_type=TaskType.FEATURE_EXTRACTION,
+        inference_mode=False,
+        r=8,
+        lora_alpha=32,
+        init_lora_weights=False,  # Random initialization to test the adapter
+    )
+    model[0].model = get_peft_model(model[0].model, peft_config)
+    assert isinstance(model.transformers_model, PeftModel)
+    assert model.has_peft_compatible_model()
+
+    # ``active_adapters`` and ``active_adapter`` are properties on PeftModel, not methods
+    assert model.active_adapters() == ["default"]
+    assert model.active_adapter() == "default"
+
+    # PeftModel.add_adapter takes the name before the config
+    second_config = LoraConfig(
+        target_modules=["key"],
+        task_type=TaskType.FEATURE_EXTRACTION,
+        inference_mode=False,
+        r=2,
+        lora_alpha=16,
+        init_lora_weights=False,
+    )
+    model.add_adapter(second_config, "my_adapter")
+    model.set_adapter("my_adapter")
+    assert model.active_adapters() == ["my_adapter"]
+    vec_my_adapter = model.encode(text := "Hello, World!")
+
+    # PeftModel has no get_adapter_state_dict; peft exposes it as a free function
+    state_dict = model.get_adapter_state_dict()
+    assert state_dict
+    assert all("lora_" in key for key in state_dict)
+
+    # PeftModel toggles the adapter layers on the tuner rather than on the model
+    model.disable_adapters()
+    vec_no_adapter = model.encode(text)
+    model.enable_adapters()
+    assert np.allclose(vec_my_adapter, model.encode(text))
+    assert not np.allclose(vec_my_adapter, vec_no_adapter)
+
+    # PeftModel.load_adapter takes the adapter name as a positional argument
+    adapter_path = tmp_path / "adapter"
+    model.transformers_model.save_pretrained(str(adapter_path), selected_adapters=["my_adapter"])
+    model.load_adapter(str(adapter_path / "my_adapter"), "from_disk")
+    model.set_adapter("from_disk")
+    assert model.active_adapters() == ["from_disk"]
+    assert np.allclose(vec_my_adapter, model.encode(text))
+
+    model.delete_adapter("from_disk")
+    assert "from_disk" not in model.transformers_model.peft_config
+
+    # Models without an underlying transformers model are still rejected
+    with pytest.raises(ValueError, match="PEFT methods are only supported"):
+        avg_word_embeddings_levy.add_adapter(peft_config)
+
+
+@pytest.mark.skipif(not is_peft_available(), reason="PEFT must be available to test adapter methods.")
+def test_adapter_methods_on_prompt_learning_model(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Prompt learning methods can only be attached through ``get_peft_model``, never ``add_adapter``."""
+    from peft import PromptTuningConfig, TaskType, get_peft_model
+
+    model = stsb_bert_tiny_model
+    peft_config = PromptTuningConfig(task_type=TaskType.FEATURE_EXTRACTION, num_virtual_tokens=4)
+    model[0].model = get_peft_model(model[0].model, peft_config)
+
+    assert model.has_peft_compatible_model()
+    assert model.active_adapters() == ["default"]
+    assert model.get_adapter_state_dict()
+
+    # Prompt learning has no adapter layers to toggle, so this must fail with an explanation
+    with pytest.raises(ValueError, match="cannot be enabled or disabled in place"):
+        model.disable_adapters()
+
+
 @pytest.mark.skipif(not is_peft_available(), reason="PEFT must be available to test loading PEFT models.")
 @pytest.mark.skipif(
     is_ci(), reason="huggingface_hub & PEFT incorrectly set the user agent in the CI, leading to failures."
