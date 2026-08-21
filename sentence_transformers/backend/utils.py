@@ -135,6 +135,100 @@ def backend_should_export(
     return export, model_kwargs
 
 
+def _onnx_external_data_locations(model_path: Path) -> list[str]:
+    """
+    Return the locations of the external data files that an ONNX model refers to.
+
+    A model larger than the 2GB protobuf limit keeps its weights in separate files and records their
+    locations, relative to itself, inside the ONNX file. Those locations differ between tools, so
+    they are read from the model rather than derived from the model file name.
+
+    Args:
+        model_path: The ONNX file to read the references from.
+
+    Returns:
+        list[str]: The locations of the referenced files, relative to the ONNX file. Empty if the
+            weights are stored in the ONNX file itself. A location without a file behind it is
+            skipped with a warning: the model naming it cannot be loaded either way.
+
+    Raises:
+        ValueError: If a location is not relative to the directory holding the model, which ONNX
+            forbids and refuses to load.
+    """
+    import onnx
+    from onnx.external_data_helper import _get_all_tensors, uses_external_data
+
+    # Tensors held by node attributes get externalized alongside the initializers, so every tensor
+    # of the model has to be considered
+    model = onnx.load(model_path.as_posix(), load_external_data=False)
+    locations = {
+        entry.value
+        for tensor in _get_all_tensors(model)
+        if uses_external_data(tensor)
+        for entry in tensor.external_data
+        if entry.key == "location"
+    }
+
+    existing_locations = []
+    for location in sorted(locations):
+        if Path(location).is_absolute() or ".." in Path(location).parts:
+            raise ValueError(
+                f"{model_path.name!r} refers to weights at {location!r}, but ONNX only loads external "
+                f"data from a location relative to the directory of the model."
+            )
+        if not (model_path.parent / location).is_file():
+            logger.warning(
+                f"{model_path.name!r} refers to weights in {location!r}, but that file does not exist, "
+                f"so the model cannot be loaded. Saving it without those weights."
+            )
+            continue
+        existing_locations.append(location)
+    return existing_locations
+
+
+def _onnx_rename_external_data_for_hub(model_path: Path) -> None:
+    """
+    Rename the external data file of an ONNX model to the name that Optimum downloads.
+
+    Optimum writes the weights of an exported model to ``<model>.onnx_data``, but ONNX Runtime writes
+    those of an optimized one to ``<model>.onnx.data``. Only the former is fetched when loading from
+    the Hugging Face Hub, and the request for it fails silently, so a model keeping the latter name
+    loads without its weights. Renaming the file, and the location recorded in the model, avoids that.
+
+    The model is rewritten without its weights being read, so this stays cheap for a large model.
+
+    Args:
+        model_path: The ONNX file whose external data file should be renamed.
+    """
+    import onnx
+    from onnx.external_data_helper import _get_all_tensors, uses_external_data
+
+    model = onnx.load(model_path.as_posix(), load_external_data=False)
+    entries = [
+        entry
+        for tensor in _get_all_tensors(model)
+        if uses_external_data(tensor)
+        for entry in tensor.external_data
+        if entry.key == "location"
+    ]
+    locations = {entry.value for entry in entries}
+    hub_location = f"{model_path.name}_data"
+
+    # Weights spread over several files have no single name to take, and Optimum only fetches one
+    if len(locations) != 1 or hub_location in locations:
+        return
+
+    # Anything but a plain file name beside the model is reported when the model is saved, so leave it
+    location = locations.pop()
+    if Path(location).parent != Path(".") or not (model_path.parent / location).is_file():
+        return
+
+    (model_path.parent / location).rename(model_path.parent / hub_location)
+    for entry in entries:
+        entry.value = hub_location
+    onnx.save(model, model_path.as_posix())
+
+
 def backend_warn_to_save(model_name_or_path: str, is_local: bool, backend_name: str) -> None:
     """
     Warns the user to save the model if they just exported it.
@@ -183,10 +277,18 @@ def save_or_push_to_hub_model(
 
         # Because we upload folders and save_dir now has unnecessary files (tokenizer.json, config.json, etc.),
         # we move the main file to a nested directory
+        external_data_locations = []
         if backend == "onnx":
             dst_dir = Path(save_dir) / backend
             dst_dir.mkdir(parents=True, exist_ok=True)
             source = Path(save_dir) / file_name
+            _onnx_rename_external_data_for_hub(source)
+            # A model over 2GB keeps its weights in files beside the ONNX file, so those travel with it
+            external_data_locations = _onnx_external_data_locations(source)
+            for location in external_data_locations:
+                external_destination = dst_dir / location
+                external_destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(source.parent / location, external_destination)
             destination = dst_dir / file_name
             shutil.move(source, destination)
             save_dir = dst_dir.as_posix()
@@ -368,6 +470,12 @@ print(scores)
             source = Path(save_dir) / file_name
             destination = dst_dir / file_name
             shutil.copy(source, destination)
+
+            # The files that an ONNX model over 2GB keeps its weights in have to be saved as well
+            for location in external_data_locations:
+                external_destination = dst_dir / location
+                external_destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(source.parent / location, external_destination)
 
             # OpenVINO has a second file to save: the .bin file
             if backend == "openvino":
