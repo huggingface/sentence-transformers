@@ -119,6 +119,15 @@ def test_community_detection_min_community_size_filtering():
     assert sorted([sorted(community) for community in result]) == sorted([sorted(community) for community in expected])
 
 
+def test_community_detection_min_community_size_larger_than_input():
+    """A dataset smaller than the minimum community size cannot form a community."""
+    embeddings = torch.ones(3, 4)
+
+    result = community_detection(embeddings, threshold=0.8, min_community_size=4)
+
+    assert result == []
+
+
 def test_community_detection_overlapping_communities():
     """Test case with overlapping communities (resolved by the function)."""
     embeddings = torch.tensor(
