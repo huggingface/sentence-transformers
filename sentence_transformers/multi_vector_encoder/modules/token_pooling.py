@@ -189,6 +189,7 @@ class BaseTokenPooling(Module, ABC):
 
 def _hierarchical_pool_one(embedding: Tensor, pool_factor: int, num_protected_tokens: int) -> Tensor:
     """Ward hierarchical clustering on cosine distance for a single 2D embedding."""
+    import fastcluster  # faster Ward linkage than scipy, and releases the GIL
     from scipy.cluster import hierarchy
 
     device = embedding.device
@@ -205,7 +206,7 @@ def _hierarchical_pool_one(embedding: Tensor, pool_factor: int, num_protected_to
     to_pool_fp32 = to_pool.detach().float()
     cos_sim = torch.mm(to_pool_fp32, to_pool_fp32.t()).numpy()
     condensed = np.clip(1 - cos_sim, 0, 2)[np.triu_indices(num_to_pool, k=1)]
-    linkage = hierarchy.linkage(condensed, method="ward")
+    linkage = fastcluster.linkage(condensed, method="ward")
     labels = hierarchy.fcluster(linkage, t=num_clusters, criterion="maxclust") - 1  # 0-indexed
     # Dense-index the labels so pooled rows line up with valid cluster ids even if fcluster returns
     # fewer than num_clusters distinct labels (possible with ties).
