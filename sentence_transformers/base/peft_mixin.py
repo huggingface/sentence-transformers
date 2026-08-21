@@ -1,8 +1,94 @@
 from __future__ import annotations
 
 from functools import wraps
+from typing import TYPE_CHECKING, Any
 
 from transformers.integrations.peft import PeftAdapterMixin as PeftAdapterMixinTransformers
+from transformers.utils.import_utils import is_peft_available
+
+if TYPE_CHECKING:
+    from peft import PeftModel
+
+
+def as_peft_model(model: Any) -> PeftModel | None:
+    """Return ``model`` if it is a ``peft.PeftModel`` wrapper, and ``None`` otherwise.
+
+    A checkpoint that already carries adapters can end up wrapped by ``peft`` itself, e.g. after
+    ``model[0].model = get_peft_model(model[0].model, peft_config)``, which is the only way to
+    attach a prompt learning method. Such a model is PEFT capable, but it does not subclass the
+    ``transformers`` PEFT mixin.
+    """
+    if model is None or not is_peft_available():
+        return None
+
+    from peft import PeftModel
+
+    return model if isinstance(model, PeftModel) else None
+
+
+def _peft_model_load_adapter(
+    model: PeftModel, peft_model_id: str | None = None, adapter_name: str | None = None, **kwargs
+) -> Any:
+    """``PeftModel.load_adapter`` takes ``adapter_name`` as a required positional argument."""
+    return model.load_adapter(peft_model_id, adapter_name or "default", **kwargs)
+
+
+def _peft_model_add_adapter(model: PeftModel, adapter_config: Any, adapter_name: str | None = None, **kwargs) -> None:
+    """``PeftModel.add_adapter`` takes the name before the config, the reverse of the transformers order."""
+    return model.add_adapter(adapter_name or "default", adapter_config, **kwargs)
+
+
+def _peft_model_active_adapters(model: PeftModel) -> list[str]:
+    """``PeftModel.active_adapters`` is a property rather than a method."""
+    return list(model.active_adapters)
+
+
+def _peft_model_active_adapter(model: PeftModel) -> str:
+    """``PeftModel.active_adapter`` is a property rather than a method."""
+    return model.active_adapter
+
+
+def _peft_model_get_adapter_state_dict(model: PeftModel, adapter_name: str | None = None, **kwargs) -> dict:
+    """``PeftModel`` has no ``get_adapter_state_dict``; ``peft`` exposes it as a free function."""
+    from peft import get_peft_model_state_dict
+
+    return get_peft_model_state_dict(model, adapter_name=adapter_name or model.active_adapter, **kwargs)
+
+
+def _peft_model_toggle_adapters(model: PeftModel, enable: bool) -> None:
+    method_name = "enable_adapter_layers" if enable else "disable_adapter_layers"
+    method = getattr(model.base_model, method_name, None)
+    if method is None:
+        raise ValueError(
+            f"Adapters of type {type(model.active_peft_config).__name__} cannot be enabled or disabled in place. "
+            "Prompt learning methods such as prompt tuning, prefix tuning and P-tuning always run their virtual "
+            "tokens, so there are no adapter layers to toggle."
+        )
+    method()
+
+
+def _peft_model_enable_adapters(model: PeftModel) -> None:
+    """``PeftModel`` toggles adapter layers on the tuner rather than on the model itself."""
+    _peft_model_toggle_adapters(model, enable=True)
+
+
+def _peft_model_disable_adapters(model: PeftModel) -> None:
+    """``PeftModel`` toggles adapter layers on the tuner rather than on the model itself."""
+    _peft_model_toggle_adapters(model, enable=False)
+
+
+# ``peft.PeftModel`` and ``transformers.integrations.peft.PeftAdapterMixin`` expose overlapping but
+# differently shaped APIs. Methods listed here are translated to their ``peft`` equivalent; the rest
+# (``set_adapter``, ``delete_adapter``) match closely enough to be called directly.
+PEFT_MODEL_TRANSLATIONS = {
+    "load_adapter": _peft_model_load_adapter,
+    "add_adapter": _peft_model_add_adapter,
+    "active_adapters": _peft_model_active_adapters,
+    "active_adapter": _peft_model_active_adapter,
+    "get_adapter_state_dict": _peft_model_get_adapter_state_dict,
+    "enable_adapters": _peft_model_enable_adapters,
+    "disable_adapters": _peft_model_disable_adapters,
+}
 
 
 def peft_wrapper(func):
@@ -12,12 +98,19 @@ def peft_wrapper(func):
     def wrapper(self, *args, **kwargs):
         self.check_peft_compatible_model()
         method_name = func.__name__
-        if not hasattr(self.transformers_model, method_name):
+        model = self.transformers_model
+        if (peft_model := as_peft_model(model)) is not None:
+            # ``PeftModel.__getattr__`` forwards unknown attributes down to the wrapped transformers
+            # model, so several of these methods resolve to the transformers PEFT mixin and then fail
+            # because the adapters are registered on the wrapper instead. Translate them explicitly.
+            if (translation := PEFT_MODEL_TRANSLATIONS.get(method_name)) is not None:
+                return translation(peft_model, *args, **kwargs)
+        if not hasattr(model, method_name):
             raise AttributeError(
-                f"The underlying transformers model ({type(self.transformers_model).__name__}) does not have a "
+                f"The underlying transformers model ({type(model).__name__}) does not have a "
                 f"`{method_name}` method. This may indicate an incompatible or outdated version of transformers or peft."
             )
-        method = getattr(self.transformers_model, method_name)
+        method = getattr(model, method_name)
         return method(*args, **kwargs)
 
     return wrapper
@@ -32,10 +125,14 @@ class PeftAdapterMixin:
     Currently supported PEFT methods follow those supported by transformers library,
     you can find more information on:
     https://huggingface.co/docs/transformers/main/en/main_classes/peft#transformers.integrations.PeftAdapterMixin
+
+    Models whose underlying module is already wrapped in a ``peft.PeftModel`` are supported as well,
+    with the arguments translated to the ``peft`` equivalents where the two interfaces differ.
     """
 
     def has_peft_compatible_model(self) -> bool:
-        return isinstance(self.transformers_model, PeftAdapterMixinTransformers)
+        model = self.transformers_model
+        return isinstance(model, PeftAdapterMixinTransformers) or as_peft_model(model) is not None
 
     def check_peft_compatible_model(self) -> None:
         if not self.has_peft_compatible_model():
