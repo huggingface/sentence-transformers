@@ -357,7 +357,13 @@ def semantic_search_usearch(
         top_k_embeddings = np.array([corpus_index.get(query_indices) for query_indices in indices])
         # If the corpus precision is binary, we need to unpack the bits
         if corpus_precision in ("ubinary", "binary"):
-            top_k_embeddings = np.unpackbits(top_k_embeddings.astype(np.uint8), axis=-1)
+            if corpus_precision == "binary":
+                # `quantize_embeddings(..., precision="binary")` stores packed bytes with a -128 offset
+                # so they fit in int8. Restore the original bytes before unpacking their bits.
+                top_k_embeddings = (top_k_embeddings.astype(np.int16) + 128).astype(np.uint8)
+            else:
+                top_k_embeddings = top_k_embeddings.astype(np.uint8)
+            top_k_embeddings = np.unpackbits(top_k_embeddings, axis=-1)[..., : rescore_embeddings.shape[-1]]
         top_k_embeddings = top_k_embeddings.astype(int)
 
         # rescore_embeddings: [num_queries, embedding_dim]
