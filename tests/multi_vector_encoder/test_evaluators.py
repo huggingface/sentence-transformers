@@ -77,8 +77,69 @@ def test_ir_evaluator_defers_scoring_resolution_to_call_time(model: MultiVectorE
     )
     assert evaluator.score_functions is None
     results = evaluator(model)
-    assert evaluator.score_function_names == [model.similarity_fn_name]
+    assert evaluator.score_functions is None
+    assert evaluator.score_function_names == []
     assert f"late_binding_{model.similarity_fn_name}_ndcg@10" in results
+
+
+def test_ir_evaluator_re_resolves_scoring_for_reused_evaluator(model: MultiVectorEncoder) -> None:
+    """A model-derived scorer is temporary, so reuse follows each model's similarity function."""
+    evaluator = MultiVectorInformationRetrievalEvaluator(
+        queries={"q0": "What is the capital of France?"},
+        corpus={"d0": "Paris is the capital of France.", "d1": "Berlin is the capital of Germany."},
+        relevant_docs={"q0": {"d0"}},
+        name="reuse",
+        write_csv=False,
+    )
+    assert evaluator.score_functions is None
+    first = evaluator(model)
+    assert "reuse_maxsim_ndcg@10" in first
+    assert evaluator.score_functions is None
+    assert evaluator.score_function_names == []
+    assert evaluator.primary_metric == "reuse_maxsim_ndcg@10"
+
+    original_similarity = model.similarity_fn_name
+    try:
+        model.similarity_fn_name = "meanmaxsim"
+        second = evaluator(model)
+    finally:
+        model.similarity_fn_name = original_similarity
+    assert "reuse_meanmaxsim_ndcg@10" in second
+    assert "reuse_maxsim_ndcg@10" not in second
+    assert evaluator.score_functions is None
+    assert evaluator.score_function_names == []
+    assert evaluator.primary_metric == "reuse_meanmaxsim_ndcg@10"
+
+
+def test_ir_evaluator_does_not_duplicate_derived_csv_headers(model: MultiVectorEncoder) -> None:
+    """Repeated calls register each model-derived score schema at most once."""
+    evaluator = MultiVectorInformationRetrievalEvaluator(
+        queries={"q0": "What is the capital of France?"},
+        corpus={"d0": "Paris is the capital of France."},
+        relevant_docs={"q0": {"d0"}},
+        write_csv=False,
+    )
+    evaluator(model)
+    headers_after_first = evaluator.csv_headers.copy()
+    evaluator(model)
+    assert evaluator.csv_headers == headers_after_first
+
+
+def test_ir_evaluator_keeps_explicit_score_functions(model: MultiVectorEncoder) -> None:
+    """Explicit scorers remain evaluator configuration and are not replaced by model similarity."""
+    from sentence_transformers.util import maxsim
+
+    scorer = {"custom": maxsim}
+    evaluator = MultiVectorInformationRetrievalEvaluator(
+        queries={"q0": "What is the capital of France?"},
+        corpus={"d0": "Paris is the capital of France."},
+        relevant_docs={"q0": {"d0"}},
+        score_functions=scorer,
+        write_csv=False,
+    )
+    evaluator(model)
+    assert evaluator.score_functions is scorer
+    assert evaluator.score_function_names == ["custom"]
 
 
 def test_ir_evaluator_chunk_elements_reaches_scoring(model: MultiVectorEncoder) -> None:
@@ -94,7 +155,8 @@ def test_ir_evaluator_chunk_elements_reaches_scoring(model: MultiVectorEncoder) 
     chunked = MultiVectorInformationRetrievalEvaluator(**kwargs, chunk_elements=1)
     assert chunked.score_functions is None
     chunked_results = chunked(model)
-    assert chunked.score_functions[model.similarity_fn_name].keywords == {"chunk_elements": 1}
+    assert chunked.score_functions is None
+    assert chunked.score_function_names == []
     assert chunked_results == MultiVectorInformationRetrievalEvaluator(**kwargs)(model)
 
 
