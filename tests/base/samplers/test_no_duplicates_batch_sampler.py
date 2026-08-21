@@ -185,13 +185,13 @@ def test_proportional_no_duplicates(
     batches = list(iter(batch_sampler))
 
     if drop_last:
-        # If we drop the last batch (i.e. incomplete batches), we should have 16 batches out of the 18 possible,
-        # because of the duplicates being skipped by the NoDuplicatesBatchSampler.
-        # Notably, we should not crash like reported in #2816.
-        assert len(batches) == 16
+        # Each NoDuplicatesBatchSampler now resamples until it reaches ``__len__`` (#3348),
+        # so ProportionalBatchSampler can request the full advertised count from both sides
+        # without hitting StopIteration. Notably, we should not crash like reported in #2816.
+        assert len(batches) == 18
         # All batches are the same size: 2
         assert all(len(batch) == batch_size for batch in batches)
-        assert len(sum(batches, [])) == 32
+        assert len(sum(batches, [])) == 36
     else:
         # If we don't drop incomplete batches, we should be able to do 18 batches, and get more data.
         # Note: we don't get all data, because the NoDuplicatesBatchSampler will estimate the number of batches
@@ -237,8 +237,110 @@ def test_no_duplicates_batch_sampler_matches_reference_algorithm(
     )
 
     actual_batches = list(iter(sampler))
-    assert actual_batches == expected_batches
-    assert len(sum(actual_batches, [])) == len(sum(expected_batches, []))
+    # The first pass must match the historical algorithm. Extra batches may be
+    # appended when that pass is shorter than ``__len__`` (#3348 resampling).
+    assert actual_batches[: len(expected_batches)] == expected_batches
+    assert len(actual_batches) >= len(expected_batches)
+    if len(expected_batches) < len(sampler):
+        assert len(actual_batches) == len(sampler)
+
+
+@pytest.mark.parametrize("precompute_hashes", [False, True])
+def test_no_duplicates_batch_sampler_resamples_to_match_len(precompute_hashes: bool) -> None:
+    # 20 rows, only two distinct pairs, batch_size=2, drop_last=True:
+    # a single pass can form at most 8 full [pair_1, pair_2] batches (the leftover
+    # pair_1 copies cannot fill a unique batch). ``__len__`` still advertises 10.
+    # Resampling must fill the 2-batch shortfall so DataLoader/Trainer step counts match.
+    if precompute_hashes:
+        if not is_xxhash_available():
+            pytest.skip("xxhash not installed")
+        sampler_kwargs = {
+            "precompute_hashes": True,
+            "precompute_num_proc": PRECOMPUTE_NUM_PROC,
+            "precompute_batch_size": 10,
+        }
+    else:
+        sampler_kwargs = {}
+
+    dataset = Dataset.from_list(
+        [{"anchor": "anchor_1", "positive": "positive_1"}] * 12
+        + [{"anchor": "anchor_2", "positive": "positive_2"}] * 8
+    )
+    sampler = NoDuplicatesBatchSampler(
+        dataset=dataset,
+        batch_size=2,
+        drop_last=True,
+        generator=torch.Generator(),
+        seed=0,
+        **sampler_kwargs,
+    )
+
+    expected_first_pass = _reference_no_duplicates_batches(
+        dataset=dataset, batch_size=2, drop_last=True, seed=0
+    )
+    batches = list(iter(sampler))
+
+    assert len(expected_first_pass) == 8
+    assert len(sampler) == 10
+    assert len(batches) == len(sampler)
+    assert all(len(batch) == 2 for batch in batches)
+    assert batches[:8] == expected_first_pass
+    for batch in batches:
+        values = {(dataset[i]["anchor"], dataset[i]["positive"]) for i in batch}
+        assert len(values) == len(batch)
+
+
+def test_no_duplicates_batch_sampler_does_not_truncate_when_first_pass_exceeds_len() -> None:
+    # drop_last=False with collisions produces more (smaller) leftover batches than
+    # ``__len__``. Those extra batches must still be yielded; only a shortfall is filled.
+    dataset = Dataset.from_list(
+        [{"anchor": "anchor_1", "positive": "positive_1"}] * 12
+        + [{"anchor": "anchor_2", "positive": "positive_2"}] * 8
+    )
+    sampler = NoDuplicatesBatchSampler(
+        dataset=dataset,
+        batch_size=2,
+        drop_last=False,
+        generator=torch.Generator(),
+        seed=0,
+    )
+    expected_first_pass = _reference_no_duplicates_batches(
+        dataset=dataset, batch_size=2, drop_last=False, seed=0
+    )
+    batches = list(iter(sampler))
+
+    assert len(expected_first_pass) > len(sampler)
+    assert batches == expected_first_pass
+
+
+def test_no_duplicates_batch_sampler_unique_data_matches_len_without_resample() -> None:
+    dataset = Dataset.from_dict({"text": [f"sentence_{i}" for i in range(10)]})
+    sampler = NoDuplicatesBatchSampler(
+        dataset=dataset,
+        batch_size=2,
+        drop_last=True,
+        generator=torch.Generator(),
+        seed=0,
+    )
+    batches = list(iter(sampler))
+    assert len(batches) == len(sampler) == 5
+    assert sorted(sum(batches, [])) == list(range(10))
+
+
+def test_no_duplicates_batch_sampler_cannot_form_batch_does_not_loop_forever() -> None:
+    # Every row is identical, so a unique batch of size 2 can never be formed.
+    # Resampling must stop after a pass that yields nothing, rather than hang.
+    dataset = Dataset.from_list([{"anchor": "same", "positive": "same"}] * 10)
+    sampler = NoDuplicatesBatchSampler(
+        dataset=dataset,
+        batch_size=2,
+        drop_last=True,
+        generator=torch.Generator(),
+        seed=0,
+    )
+    batches = list(iter(sampler))
+    assert batches == []
+    assert len(sampler) == 5
 
 
 @pytest.mark.skipif(not is_xxhash_available(), reason="xxhash not installed")
