@@ -524,7 +524,7 @@ The following images show the benchmark results for the different backends on GP
    </ul>
    I also benchmarked <a href="https://huggingface.co/ibm-granite/granite-embedding-30m-sparse">ibm-granite/granite-embedding-30m-sparse</a>, but it proved too small to effectively show the gains of the different backends, so I excluded it from the results.
    <br>
-   Performance ratio: The same models and hardware was used. We compare the performance against the performance of PyTorch with fp32, i.e. the default backend and precision.
+    Performance ratio (speedup): The same models and hardware were used. The GPU and CPU benchmark images above show the **speedup** (higher = faster, lower = slower) of each backend relative to PyTorch with fp32 (the default backend and precision), measured at each backend's best batch size. They do **not** show model quality. Quality is evaluated separately and reported below: Semantic Textual Similarity via the Spearman rank correlation on the stsb test set, and Information Retrieval via NDCG@10 on the NanoBEIR collection (see the Evaluation details). Across the recommended configurations, this quality loss is negligible (e.g. fp16 with Flash Attention shows no loss).
    <ul>
       <li>
          <b>Evaluation: </b>
