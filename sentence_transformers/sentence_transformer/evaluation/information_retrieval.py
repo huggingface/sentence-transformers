@@ -183,6 +183,10 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         self.write_csv = write_csv
         self.score_functions = score_functions
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
+        # Whether score_functions currently holds a scorer derived from an evaluated model rather
+        # than one supplied by the user. Derived scorers are temporary and reset on the next call
+        # (see __call__), so a reused evaluator follows each model's own similarity function.
+        self._model_derived_score_functions = False
         self.main_score_function = SimilarityFunction(main_score_function) if main_score_function else None
         self.truncate_dim = truncate_dim
 
@@ -236,10 +240,21 @@ class InformationRetrievalEvaluator(BaseEvaluator):
 
         logger.info(f"Information Retrieval Evaluation of the model on the {self.name} dataset{out_txt}:")
 
+        if self._model_derived_score_functions:
+            # The scorer derived from a previously evaluated model is temporary: reset it so this
+            # call resolves and labels the current model's similarity function instead of scoring
+            # every later model with the first model's captured similarity.
+            self.score_functions = None
+            self.score_function_names = []
+            self.primary_metric = None
+            self._model_derived_score_functions = False
+
         if self.score_functions is None:
             self.score_functions = {model.similarity_fn_name: model.similarity}
             self.score_function_names = [model.similarity_fn_name]
-            self._append_csv_headers(self.score_function_names)
+            self._model_derived_score_functions = True
+            if not any(header.startswith(f"{model.similarity_fn_name}-") for header in self.csv_headers):
+                self._append_csv_headers(self.score_function_names)
 
         scores = self.compute_all_metrics(model, output_path=output_path, *args, **kwargs)
 

@@ -67,3 +67,33 @@ def test_nanobeir_evaluator_empty_inputs():
     """Test that NanoBEIREvaluator behaves correctly with empty datasets."""
     with pytest.raises(ValueError, match="dataset_names cannot be empty. Use None to evaluate on all datasets."):
         NanoBEIREvaluator(dataset_names=[])
+
+
+def test_nanobeir_reused_evaluator_follows_each_models_similarity(
+    stsb_bert_tiny_model: SentenceTransformer,
+) -> None:
+    """A reused NanoBEIREvaluator labels and aggregates each model with that model's own
+    similarity function instead of latching the first model's."""
+    from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
+
+    class _StubNanoBEIREvaluator(NanoBEIREvaluator):
+        def _load_dataset(self, dataset_name, **ir_evaluator_kwargs):
+            return InformationRetrievalEvaluator(
+                queries={"q0": "What is the capital of France?"},
+                corpus={"d0": "Paris is the capital of France.", "d1": "Berlin is the capital of Germany."},
+                relevant_docs={"q0": {"d0"}},
+                name=self._get_human_readable_name(dataset_name),
+                **ir_evaluator_kwargs,
+            )
+
+    model = stsb_bert_tiny_model
+    evaluator = _StubNanoBEIREvaluator(dataset_names=["msmarco"], write_csv=False)
+    first = evaluator(model)
+    assert "NanoBEIR_mean_cosine_ndcg@10" in first
+    assert evaluator.primary_metric == "NanoBEIR_mean_cosine_ndcg@10"
+
+    model.similarity_fn_name = "dot"
+    second = evaluator(model)
+    assert "NanoBEIR_mean_dot_ndcg@10" in second
+    assert "NanoBEIR_mean_cosine_ndcg@10" not in second
+    assert evaluator.primary_metric == "NanoBEIR_mean_dot_ndcg@10"

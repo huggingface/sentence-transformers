@@ -7,7 +7,7 @@ import torch
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
-from sentence_transformers.util import cos_sim
+from sentence_transformers.util import cos_sim, dot_score
 
 
 @pytest.fixture
@@ -174,3 +174,64 @@ def test_metrics(test_data, mock_model, tmp_path: Path):
 
     for key, expected_value in expected_results.items():
         assert results[key] == pytest.approx(expected_value, abs=1e-9)
+
+
+def test_reused_evaluator_follows_each_models_similarity(test_data, mock_model):
+    """A model-derived scorer is temporary: a reused evaluator scores and labels each model
+    with that model's own similarity function instead of the first model's."""
+    queries, corpus, relevant_docs = test_data
+    ir_evaluator = InformationRetrievalEvaluator(
+        queries=queries,
+        corpus=corpus,
+        relevant_docs=relevant_docs,
+        name="reuse",
+        ndcg_at_k=[3],
+        write_csv=False,
+    )
+    first = ir_evaluator(mock_model)
+    assert "reuse_cosine_ndcg@3" in first
+    assert ir_evaluator.primary_metric == "reuse_cosine_ndcg@3"
+
+    mock_model.similarity_fn_name = "dot"
+    mock_model.similarity = dot_score
+    second = ir_evaluator(mock_model)
+    assert "reuse_dot_ndcg@3" in second
+    assert not any(key.startswith("reuse_cosine") for key in second)
+    assert ir_evaluator.score_functions == {"dot": dot_score}
+    assert ir_evaluator.primary_metric == "reuse_dot_ndcg@3"
+
+
+def test_reused_evaluator_appends_derived_csv_headers_once(test_data, mock_model):
+    """Repeated calls register each model-derived score schema at most once."""
+    queries, corpus, relevant_docs = test_data
+    ir_evaluator = InformationRetrievalEvaluator(
+        queries=queries,
+        corpus=corpus,
+        relevant_docs=relevant_docs,
+        write_csv=False,
+    )
+    ir_evaluator(mock_model)
+    headers_after_first = ir_evaluator.csv_headers.copy()
+    ir_evaluator(mock_model)
+    assert ir_evaluator.csv_headers == headers_after_first
+
+
+def test_explicit_score_functions_are_kept_across_calls(test_data, mock_model):
+    """Explicit scorers remain evaluator configuration and are not replaced by model similarity."""
+    queries, corpus, relevant_docs = test_data
+    scorer = {"custom": cos_sim}
+    ir_evaluator = InformationRetrievalEvaluator(
+        queries=queries,
+        corpus=corpus,
+        relevant_docs=relevant_docs,
+        name="explicit",
+        ndcg_at_k=[3],
+        score_functions=scorer,
+        write_csv=False,
+    )
+    ir_evaluator(mock_model)
+    mock_model.similarity_fn_name = "dot"
+    second = ir_evaluator(mock_model)
+    assert ir_evaluator.score_functions is scorer
+    assert ir_evaluator.score_function_names == ["custom"]
+    assert "explicit_custom_ndcg@3" in second
