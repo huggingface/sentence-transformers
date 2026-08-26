@@ -1,7 +1,7 @@
 
 .. tip::
 
-   Sentence Transformers v6.0 recently released, introducing the :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`, a fourth model family for ColBERT-style late-interaction retrieval using token-level (multi-vector) embeddings, covering both text retrieval and ColPali-style visual document retrieval. Existing ColBERT, PyLate, and ColPali models load out of the box, with full training and evaluation support. Read the `Multi-Vector Encoder quickstart <docs/quickstart.html#multi-vector-encoder>`_, the `v6.0 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v6.0.0>`_, or the `migration guide <docs/migration_guide.html>`_ for more details.
+   Sentence Transformers v6.0 recently released, introducing the :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`, a fourth model family for ColBERT-style late-interaction retrieval using token-level (multi-vector) embeddings, covering both text retrieval and ColPali-style visual document retrieval. Existing ColBERT, PyLate, and ColPali models load out of the box, with full training and evaluation support. Read the `Multi-Vector Encoder quickstart <docs/quickstart.html#multi-vector-encoder>`_, the `Multi-Vector (Late Interaction) Embedding Models <https://huggingface.co/blog/multi-vector-encoder>`_ blogpost for inference, the `Training and Finetuning Multi-Vector Embedding Models <https://huggingface.co/blog/train-multi-vector-encoder>`_ blogpost for training, the `v6.0 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v6.0.0>`_, or the `migration guide <docs/migration_guide.html>`_ for more details.
 
 SentenceTransformers Documentation
 ==================================
@@ -294,11 +294,16 @@ Companion Blog Posts
 
 The following Hugging Face blog posts complement this documentation with narrative walkthroughs and full training examples:
 
+* Model types:
+
+   * `Multi-Vector (Late Interaction) Embedding Models <https://huggingface.co/blog/multi-vector-encoder>`_: an introduction to late interaction and the Multi-Vector Encoder model family.
+
 * Training guides:
 
    * `Training and Finetuning Embedding Models <https://huggingface.co/blog/train-sentence-transformers>`_: end-to-end training of bi-encoder embedding models.
    * `Training and Finetuning Reranker Models <https://huggingface.co/blog/train-reranker>`_: training Cross Encoder (reranker) models.
    * `Training and Finetuning Sparse Embedding Models <https://huggingface.co/blog/train-sparse-encoder>`_: training SPLADE and other sparse encoders.
+   * `Training and Finetuning Multi-Vector Embedding Models <https://huggingface.co/blog/train-multi-vector-encoder>`_: training ColBERT-style late-interaction models.
 
 * Multimodal:
 
