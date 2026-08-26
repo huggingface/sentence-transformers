@@ -6,6 +6,9 @@ We provide various pre-trained Sentence Transformers models via our Sentence Tra
 * **Original models**: `Sentence Transformers Hugging Face organization <https://huggingface.co/models?library=sentence-transformers&author=sentence-transformers>`_.
 * **Community models**: `All Sentence Transformer models on Hugging Face <https://huggingface.co/models?library=sentence-transformers>`_.
 
+.. note::
+    The ``sentence-transformers`` library tag is shared by all four model types, so the community link above also returns Cross Encoder, Sparse Encoder and Multi-Vector Encoder models. Add the ``cross-encoder``, ``sparse`` or ``multi-vector`` tag to jump to one of those instead.
+
 Each of these models can be easily downloaded and used like so:
 
 .. sidebar:: Original Models

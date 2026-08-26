@@ -1,11 +1,14 @@
 # Pretrained Models
 
 ```{eval-rst}
-The `sentence-transformers tag <https://huggingface.co/models?library=sentence-transformers&other=multi-vector>`_
-on the Hugging Face Hub is the list that stays current, and we are working to get it onto every model that works
-with :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`. The tables below are what we test against directly, so
-treat them as a starting point rather than the full set. For text retrieval in particular, any PyLate or
-Stanford-NLP ColBERT checkpoint loads whether or not it carries the tag yet.
+Several Multi-Vector Encoder models have been publicly released on the Hugging Face Hub:
+
+* **Community models**: `All Multi-Vector Encoder models on Hugging Face <https://huggingface.co/models?library=sentence-transformers&other=multi-vector>`_.
+
+.. note::
+    The ``sentence-transformers`` library tag is shared by all four model types, so pair it with the ``multi-vector`` tag to find only the models that load with :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`. ``cross-encoder`` and ``sparse`` are the equivalents for Cross Encoder and Sparse Encoder models, while dense Sentence Transformer models make up the bulk of what the library tag returns on its own.
+
+That community list is the one that stays current, and we are working to get the ``multi-vector`` tag onto every model that works with :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`. The tables below are what we test against directly, so treat them as a starting point rather than the full set. For text retrieval in particular, any PyLate or Stanford-NLP ColBERT checkpoint loads whether or not it carries the tag yet.
 
 Models integrate seamlessly with this simple interface:
 ```
