@@ -777,9 +777,7 @@ Training :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEn
 See the `Sentence Transformer > Training Overview <../sentence_transformer/training_overview.html>`_ documentation for more details on training :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models.
 ```
 
-<!--
 ## End-to-End Example
 
 For a complete end-to-end training example, see the [Training and Finetuning Multi-Vector Embedding Models](https://huggingface.co/blog/train-multi-vector-encoder) blogpost. It applies the components described on this page to a real training task.
--->
 
