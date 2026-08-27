@@ -631,7 +631,7 @@ class Router(InputModule):
         tokenized = input_module.preprocess(inputs, prompt=prompt, task=task, **kwargs)
         tokenized["task"] = task
         if modality is not None:
-            tokenized.setdefault("modality", modality)
+            tokenized["modality"] = modality
         return tokenized
 
     @classmethod

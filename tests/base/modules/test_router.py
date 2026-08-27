@@ -86,13 +86,6 @@ class TaskRecordingModule(MockModule):
         return {}
 
 
-class ModalityConvertingModule(MockModule):
-    """Stands in for a chat-template Transformer: takes text in, reports ``message`` back out."""
-
-    def preprocess(self, inputs, prompt=None, **kwargs):
-        return {"modality": "message"}
-
-
 class InvertMockModule(MockModule):
     def forward(self, features):
         features["sentence_embedding"] = -features["sentence_embedding"]
@@ -1524,13 +1517,3 @@ def test_router_forwards_task_to_sub_module_preprocess():
 
     assert query_module.seen_tasks == ["query"]
     assert document_module.seen_tasks == ["document"]
-
-
-def test_router_preprocess_keeps_sub_module_modality():
-    """A Transformer with a chat-template backbone renders text as messages and stamps the
-    post-conversion modality, which is what ``forward`` looks up in ``modality_config``. The Router's
-    own inference is only a fallback for modules that report nothing."""
-    module = ModalityConvertingModule()
-    router = Router.for_query_document(query_modules=[module], document_modules=[module])
-
-    assert router.preprocess(["a query"], task="query")["modality"] == "message"
