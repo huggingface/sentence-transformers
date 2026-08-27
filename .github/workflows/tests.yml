@@ -56,7 +56,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d  # v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
 
       # kenlm doesn't compile on Python 3.13, and pyctcdecode pins numpy<2.0.0
       # which conflicts with the rest of the stack. transformers[audio] also pulls
