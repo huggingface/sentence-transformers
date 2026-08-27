@@ -1113,7 +1113,17 @@ class MultiVectorEncoder(BaseModel):
             tokenizer.add_special_tokens({"additional_special_tokens": to_register})
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
-        super()._parse_model_config(model_config)
+        # PyLate <=3 saved [Q]/[D] as top-level query_prefix/document_prefix (inserted as tokens). We route
+        # them through `prompts` as text instead, recording them on the stash for special-token registration.
+        # A save can carry both, and PyLate inserts the prefix ahead of the prompt text. Composing onto the
+        # saved prompts (not self.prompts) leaves the base merge free to keep a caller-supplied prompt.
+        saved_prompts = dict(model_config.get("prompts") or {})
+        for prefix_key, prompt_key in (("query_prefix", "query"), ("document_prefix", "document")):
+            if prefix_key in model_config:
+                prefix = model_config[prefix_key] or ""
+                self._legacy.prefixes[prompt_key] = prefix
+                saved_prompts[prompt_key] = prefix + (saved_prompts.get(prompt_key) or "").removeprefix(prefix)
+        super()._parse_model_config({**model_config, "prompts": saved_prompts})
         # Inherit a supported saved similarity_fn_name unless the user overrode it (legacy cosine/dot fall through).
         saved_similarity = model_config.get("similarity_fn_name")
         if self._similarity_fn_name is None and saved_similarity in self.SUPPORTED_SIMILARITY_FN_NAMES:
@@ -1121,13 +1131,6 @@ class MultiVectorEncoder(BaseModel):
         # PyLate v3 (model_type == "ColBERT") saved a plain Transformer and only [Transformer, Dense]. Flag it
         # so _apply_legacy_fixups appends the missing MultiVectorMask + token-level Normalize.
         self._legacy.is_pylate_v3 = model_config.get("model_type") == "ColBERT"
-        # PyLate <=3 saved [Q]/[D] as top-level query_prefix/document_prefix (inserted as tokens). We route
-        # them through `prompts` as text instead, recording them on the stash for special-token registration.
-        for prefix_key, prompt_key in (("query_prefix", "query"), ("document_prefix", "document")):
-            if prefix_key in model_config:
-                self._legacy.prefixes[prompt_key] = model_config[prefix_key]
-                if not self.prompts.get(prompt_key):
-                    self.prompts[prompt_key] = model_config[prefix_key]
         # Filter ``None`` values so missing/null PyLate knobs fall through to the Transformer's own
         # defaults. ``query_expansion`` is the exception: ``None`` is its "explicitly off" value and
         # must survive the filter, while a missing key still triggers the PyLate fallback below.
@@ -1390,8 +1393,10 @@ class MultiVectorEncoder(BaseModel):
             "query": (metadata.get("query_token_id") or "[unused0]") + " ",
             "document": (metadata.get("doc_token_id") or "[unused1]") + " ",
         }
+        # ``artifact.metadata`` has no prompt field, so unlike the PyLate branch in ``_parse_model_config``
+        # there is no saved prompt to compose the marker onto. A caller-supplied prompt still wins.
         for role, marker in self._legacy.prefixes.items():
-            if not self.prompts.get(role):
+            if self.prompts.get(role) is None:
                 self.prompts[role] = marker
         if metadata.get("doc_maxlen") is not None:
             self._legacy.transformer_config.setdefault("document_length", metadata["doc_maxlen"])
