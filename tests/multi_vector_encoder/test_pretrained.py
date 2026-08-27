@@ -169,6 +169,10 @@ def test_pretrained_prompt_prefix_stays_one_token(model_name: str) -> None:
             f"The {task!r} prompt {prompt!r} of {model_name} must start with the {prefix!r} prefix "
             f"as a single piece, got {pieces}"
         )
+        assert prefix != prompt or len(pieces) == 1, (
+            f"The {task!r} prompt {prompt!r} of {model_name} is the bare prefix and must be "
+            f"a single piece, got {pieces}"
+        )
     del model
     gc.collect()
     torch.cuda.empty_cache()
