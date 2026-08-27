@@ -73,6 +73,26 @@ class MockModuleWithMaxLength(MockModule):
         self.max_seq_length = max_seq_length
 
 
+class TaskRecordingModule(MockModule):
+    """Records the ``task`` its preprocess was called with, so routing and per-task preprocessing
+    can be told apart."""
+
+    def __init__(self):
+        super().__init__()
+        self.seen_tasks = []
+
+    def preprocess(self, inputs, prompt=None, task=None, **kwargs):
+        self.seen_tasks.append(task)
+        return {}
+
+
+class ModalityConvertingModule(MockModule):
+    """Stands in for a chat-template Transformer: takes text in, reports ``message`` back out."""
+
+    def preprocess(self, inputs, prompt=None, **kwargs):
+        return {"modality": "message"}
+
+
 class InvertMockModule(MockModule):
     def forward(self, features):
         features["sentence_embedding"] = -features["sentence_embedding"]
@@ -1489,3 +1509,28 @@ def test_router_forwards_on_model_ready_to_routed_modules():
 
     assert query_hook.ready_model is model
     assert document_hook.ready_model is model
+
+
+def test_router_forwards_task_to_sub_module_preprocess():
+    """The route is resolved from ``task``, but input modules also read it to apply per-task
+    preprocessing (e.g. a Transformer's ``query_length`` / ``document_length``), so it must reach
+    them rather than being consumed by the routing."""
+    query_module = TaskRecordingModule()
+    document_module = TaskRecordingModule()
+    router = Router.for_query_document(query_modules=[query_module], document_modules=[document_module])
+
+    router.preprocess(["a query"], task="query")
+    router.preprocess(["a document"], task="document")
+
+    assert query_module.seen_tasks == ["query"]
+    assert document_module.seen_tasks == ["document"]
+
+
+def test_router_preprocess_keeps_sub_module_modality():
+    """A Transformer with a chat-template backbone renders text as messages and stamps the
+    post-conversion modality, which is what ``forward`` looks up in ``modality_config``. The Router's
+    own inference is only a fallback for modules that report nothing."""
+    module = ModalityConvertingModule()
+    router = Router.for_query_document(query_modules=[module], document_modules=[module])
+
+    assert router.preprocess(["a query"], task="query")["modality"] == "message"

@@ -628,10 +628,10 @@ class Router(InputModule):
         route = self._resolve_route(task=task, modality=modality)
 
         input_module = self.sub_modules[route][0]
-        tokenized = input_module.preprocess(inputs, prompt=prompt, **kwargs)
+        tokenized = input_module.preprocess(inputs, prompt=prompt, task=task, **kwargs)
         tokenized["task"] = task
         if modality is not None:
-            tokenized["modality"] = modality
+            tokenized.setdefault("modality", modality)
         return tokenized
 
     @classmethod
