@@ -1123,11 +1123,13 @@ class MultiVectorEncoder(BaseModel):
         self._legacy.is_pylate_v3 = model_config.get("model_type") == "ColBERT"
         # PyLate <=3 saved [Q]/[D] as top-level query_prefix/document_prefix (inserted as tokens). We route
         # them through `prompts` as text instead, recording them on the stash for special-token registration.
+        # A save can carry a prefix and a prompt, and PyLate inserts the prefix ahead of the prompt text.
         for prefix_key, prompt_key in (("query_prefix", "query"), ("document_prefix", "document")):
             if prefix_key in model_config:
-                self._legacy.prefixes[prompt_key] = model_config[prefix_key]
-                if not self.prompts.get(prompt_key):
-                    self.prompts[prompt_key] = model_config[prefix_key]
+                prefix = model_config[prefix_key] or ""
+                self._legacy.prefixes[prompt_key] = prefix
+                prompt = self.prompts.get(prompt_key) or ""
+                self.prompts[prompt_key] = prompt if prompt.startswith(prefix) else prefix + prompt
         # Filter ``None`` values so missing/null PyLate knobs fall through to the Transformer's own
         # defaults. ``query_expansion`` is the exception: ``None`` is its "explicitly off" value and
         # must survive the filter, while a missing key still triggers the PyLate fallback below.
@@ -1390,6 +1392,10 @@ class MultiVectorEncoder(BaseModel):
             "query": (metadata.get("query_token_id") or "[unused0]") + " ",
             "document": (metadata.get("doc_token_id") or "[unused1]") + " ",
         }
+        # Deliberately unlike the PyLate branch in ``_parse_model_config``, which composes the prefix onto
+        # the prompt: here a caller-supplied prompt wins outright. ``artifact.metadata`` has no prompt field,
+        # so no Stanford checkpoint was ever trained on "[unused0] some prompt: " and composing would invent a
+        # format rather than restore one. Keep the two branches out of sync on purpose.
         for role, marker in self._legacy.prefixes.items():
             if not self.prompts.get(role):
                 self.prompts[role] = marker

@@ -21,7 +21,7 @@ DOCUMENTS = [
 # Cross-library parity guard, one entry per load path, with scores from PyLate. LFM2 is the one
 # exception: it pins our own output, as PyLate sums MaxSim in the checkpoint's bfloat16 while we
 # upcast to float32. LFM2 alone covers the EOS query-expansion fallback, the Perplexity entry alone
-# attends to its expansion tokens.
+# attends to its expansion tokens, ColBERT-Zero alone pairs a [Q] / [D] prefix with a text prompt.
 MODELS_TO_MAXSIM: dict[str, list[float]] = {
     "lightonai/Reason-ModernColBERT": [9.05118, 10.18419, 9.12381, 9.39101],
     "answerdotai/answerai-colbert-small-v1": [30.56916, 31.48954, 31.30291, 31.30716],
@@ -33,6 +33,7 @@ MODELS_TO_MAXSIM: dict[str, list[float]] = {
     "lightonai/LateOn": [10.79417, 11.11042, 10.97427, 11.08107],
     "mixedbread-ai/mxbai-edge-colbert-v0-17m": [11.56932, 11.75844, 11.70989, 11.72288],
     "lightonai/mLateOn": [11.3486, 11.5170, 11.4391, 11.4867],
+    "lightonai/ColBERT-Zero": [11.48635, 12.89087, 12.20023, 12.56686],
 }
 
 # doc{i} is the relevant page for IMAGE_QUERIES[i], so the correct retrieval is the diagonal.
@@ -155,15 +156,18 @@ def test_pretrained_multi_vector_maxsim(model_name: str, expected_score: list[fl
 @pytest.mark.slow
 def test_pretrained_prompt_prefix_stays_one_token(model_name: str) -> None:
     """The checkpoints insert the prefix as a token while we prepend it as text, which only agree
-    while the prefix tokenizes to one piece (with or without its trailing space)."""
+    while the prefix tokenizes to one piece (with or without its trailing space). A save that pairs a
+    prefix with a prompt composes the two, so the prefix must survive as the leading piece."""
     model = MultiVectorEncoder(model_name, trust_remote_code=model_name in MODELS_NEEDING_REMOTE_CODE)
     tokenizer = model.tokenizer
     prompts = {task: prompt for task, prompt in model.prompts.items() if prompt and prompt.strip()}
     assert prompts, f"{model_name} is expected to carry query / document prompts"
     for task, prompt in prompts.items():
+        prefix = model._legacy.prefixes.get(task) or prompt
         pieces = tokenizer.tokenize(prompt)
-        assert pieces == [prompt.strip()] or pieces == [prompt], (
-            f"The {task!r} prompt {prompt!r} of {model_name} must tokenize to a single piece, got {pieces}"
+        assert pieces[:1] == [prefix.strip()] or pieces[:1] == [prefix], (
+            f"The {task!r} prompt {prompt!r} of {model_name} must start with the {prefix!r} prefix "
+            f"as a single piece, got {pieces}"
         )
     del model
     gc.collect()

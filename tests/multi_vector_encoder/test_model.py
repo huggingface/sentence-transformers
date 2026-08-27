@@ -527,6 +527,60 @@ def test_parse_model_config_translates_pylate_expansion(model_config, expected_q
     assert "query_length" not in knobs or knobs["query_length"] is not None
 
 
+@pytest.mark.parametrize(
+    ("model_config", "expected"),
+    [
+        # Prefix only (the common PyLate save): the prefix becomes the prompt.
+        ({"query_prefix": "[Q] ", "document_prefix": "[D] "}, ("[Q] ", "[D] ")),
+        # Prefix plus empty prompts (also common): unchanged, the prefix still wins.
+        (
+            {"query_prefix": "[Q] ", "document_prefix": "[D] ", "prompts": {"query": "", "document": ""}},
+            ("[Q] ", "[D] "),
+        ),
+        # Prefix plus real prompts (ColBERT-Zero): PyLate applies both, so they compose.
+        (
+            {
+                "query_prefix": "[Q] ",
+                "document_prefix": "[D] ",
+                "prompts": {"query": "search_query: ", "document": "search_document: "},
+            },
+            ("[Q] search_query: ", "[D] search_document: "),
+        ),
+        # Composing is idempotent, so a re-save of an already-composed prompt does not stack.
+        (
+            {
+                "query_prefix": "[Q] ",
+                "document_prefix": "[D] ",
+                "prompts": {"query": "[Q] search_query: ", "document": "[D] search_document: "},
+            },
+            ("[Q] search_query: ", "[D] search_document: "),
+        ),
+        # An empty prefix leaves the saved prompt alone, and so does a null one.
+        (
+            {"query_prefix": "", "document_prefix": "", "prompts": {"query": "q: ", "document": "d: "}},
+            ("q: ", "d: "),
+        ),
+        (
+            {"query_prefix": None, "document_prefix": None, "prompts": {"query": "q: ", "document": "d: "}},
+            ("q: ", "d: "),
+        ),
+    ],
+)
+def test_parse_model_config_composes_pylate_prefix_with_prompts(model_config, expected) -> None:
+    """A PyLate save can carry both ``query_prefix`` and ``prompts``. PyLate applies both, so the
+    prefix must compose onto the front of the prompt rather than being dropped when a prompt exists."""
+    from sentence_transformers.multi_vector_encoder.model import _LegacyStash
+
+    fresh = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    fresh._legacy = _LegacyStash()
+    fresh.prompts = dict(model_config.get("prompts", {}))
+    fresh._parse_model_config(model_config)
+
+    assert (fresh.prompts["query"], fresh.prompts["document"]) == expected
+    # The raw prefixes stay on the stash so special-token registration still sees them.
+    assert fresh._legacy.prefixes["query"] == (model_config["query_prefix"] or "")
+
+
 def test_loads_native_retriever_archetype() -> None:
     """transformers-native late-interaction retrievers (``architectures`` ending in ``ForRetrieval``,
     i.e. ColPali / ColQwen2 / ColModernVBert) take a different branch: ``forward`` already projects and
