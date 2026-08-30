@@ -17,7 +17,7 @@ from transformers.utils import logging as transformers_logging
 from typing_extensions import TypeIs, deprecated
 
 from sentence_transformers.base.modality_types import PairableInput, PairInput
-from sentence_transformers.base.model import BaseModel
+from sentence_transformers.base.model import BaseModel, _move_tensors_to_cpu
 from sentence_transformers.base.modules import Dense, Transformer
 from sentence_transformers.cross_encoder.fit_mixin import FitMixin
 from sentence_transformers.cross_encoder.model_card import CrossEncoderModelCardData
@@ -369,18 +369,7 @@ class CrossEncoder(BaseModel, FitMixin):
             try:
                 chunk_id, sentence_pairs, kwargs = input_queue.get()
                 scores = model.predict(sentence_pairs, device=target_device, **kwargs)
-
-                # If multi-process scores are not on CPUs, move them to CPU, so they can all be concatenated later
-                if isinstance(scores, torch.Tensor) and scores.device.type != "cpu":
-                    scores = scores.cpu()
-                elif isinstance(scores, np.ndarray):
-                    scores = np.asarray(scores)
-                elif isinstance(scores, list):
-                    scores = [
-                        score.cpu() if isinstance(score, torch.Tensor) and score.device.type != "cpu" else score
-                        for score in scores
-                    ]
-                results_queue.put([chunk_id, scores])
+                results_queue.put([chunk_id, _move_tensors_to_cpu(scores)])
 
             except queue.Empty:
                 break

@@ -20,7 +20,7 @@ from transformers.utils import logging as transformers_logging
 from typing_extensions import TypeIs, deprecated
 
 from sentence_transformers.base.modality_types import SingleInput
-from sentence_transformers.base.model import BaseModel
+from sentence_transformers.base.model import BaseModel, _move_tensors_to_cpu
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.util import batch_to_device, truncate_embeddings
@@ -1206,15 +1206,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             try:
                 chunk_id, inputs, kwargs = input_queue.get()
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
-                # Move embeddings to CPU if needed
-                if isinstance(embeddings, torch.Tensor) and embeddings.device.type != "cpu":
-                    embeddings = embeddings.cpu()
-                elif isinstance(embeddings, dict):
-                    embeddings = {
-                        key: value.cpu() if isinstance(value, torch.Tensor) and value.device.type != "cpu" else value
-                        for key, value in embeddings.items()
-                    }
-                results_queue.put([chunk_id, embeddings])
+                results_queue.put([chunk_id, _move_tensors_to_cpu(embeddings)])
             except queue.Empty:
                 break
 

@@ -21,6 +21,7 @@ from typing_extensions import TypeIs
 
 from sentence_transformers.base import BaseModel
 from sentence_transformers.base.modality_types import SingleInput
+from sentence_transformers.base.model import _move_tensors_to_cpu
 from sentence_transformers.base.modules import Normalize, Transformer
 from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEncoderModelCardData
@@ -1634,15 +1635,7 @@ class MultiVectorEncoder(BaseModel):
             try:
                 chunk_id, inputs, kwargs = input_queue.get()
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
-                if isinstance(embeddings, list):
-                    # Move to CPU before crossing the process boundary (incl. output_value=None dicts).
-                    embeddings = [
-                        {key: value.cpu() if isinstance(value, Tensor) else value for key, value in emb.items()}
-                        if isinstance(emb, dict)
-                        else (emb.cpu() if isinstance(emb, Tensor) and emb.device.type != "cpu" else emb)
-                        for emb in embeddings
-                    ]
-                results_queue.put([chunk_id, embeddings])
+                results_queue.put([chunk_id, _move_tensors_to_cpu(embeddings)])
             except queue.Empty:
                 break
             except Exception as e:

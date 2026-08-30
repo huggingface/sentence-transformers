@@ -1775,3 +1775,22 @@ model = {class_name}(
 )
 ```
 """
+
+
+def _move_tensors_to_cpu(value: Any) -> Any:
+    """Move every tensor inside ``value`` to CPU, keeping the surrounding structure.
+
+    Multi-process workers hand their results back through a queue. A tensor that is still on an
+    accelerator is sent as a shared handle rather than by value, so it stops being readable once
+    the worker that produced it is torn down by ``stop_multi_process_pool``. Which shape comes
+    back depends on the ``encode`` / ``predict`` arguments: a single tensor, a list of tensors,
+    or a list of feature dicts for ``output_value=None``. All of them have to be walked, so this
+    recurses instead of special-casing the bare-tensor call.
+    """
+    if isinstance(value, Tensor):
+        return value.cpu() if value.device.type != "cpu" else value
+    if isinstance(value, dict):
+        return {key: _move_tensors_to_cpu(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_move_tensors_to_cpu(item) for item in value]
+    return value

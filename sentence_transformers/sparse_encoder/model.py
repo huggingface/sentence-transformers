@@ -19,6 +19,7 @@ from typing_extensions import deprecated
 
 from sentence_transformers.base import BaseModel
 from sentence_transformers.base.modality_types import TextInput
+from sentence_transformers.base.model import _move_tensors_to_cpu
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCardData
@@ -1013,9 +1014,7 @@ class SparseEncoder(BaseModel):
             try:
                 chunk_id, inputs, kwargs = input_queue.get()
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
-                if isinstance(embeddings, torch.Tensor) and embeddings.device.type != "cpu":
-                    embeddings = embeddings.cpu()
-                results_queue.put([chunk_id, embeddings])
+                results_queue.put([chunk_id, _move_tensors_to_cpu(embeddings)])
 
             except queue.Empty:
                 break
