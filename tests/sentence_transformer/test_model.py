@@ -1018,6 +1018,16 @@ def test_adapter_methods_on_peft_wrapped_model(
     model.delete_adapter("from_disk")
     assert "from_disk" not in model.transformers_model.peft_config
 
+    # PeftModel activates and deletes one adapter at a time, unlike the transformers mixin, so a list
+    # of names is only accepted when it is unambiguous
+    model.set_adapter(["my_adapter"])
+    assert model.active_adapters() == ["my_adapter"]
+    with pytest.raises(ValueError, match="addresses a single adapter at a time"):
+        model.set_adapter(["default", "my_adapter"])
+    with pytest.raises(ValueError, match="addresses a single adapter at a time"):
+        model.delete_adapter(["default", "my_adapter"])
+    assert set(model.transformers_model.peft_config) == {"default", "my_adapter"}
+
     # Models without an underlying transformers model are still rejected
     with pytest.raises(ValueError, match="PEFT methods are only supported"):
         avg_word_embeddings_levy.add_adapter(peft_config)
@@ -1039,6 +1049,17 @@ def test_adapter_methods_on_prompt_learning_model(stsb_bert_tiny_model: Sentence
     # Prompt learning has no adapter layers to toggle, so this must fail with an explanation
     with pytest.raises(ValueError, match="cannot be enabled or disabled in place"):
         model.disable_adapters()
+
+    # peft implements no deletion path for prompt learning: PeftModel.delete_adapter forwards to
+    # base_model.delete_adapter(adapter_name=...), which for prompt learning is the raw transformers
+    # model, whose own signature takes adapter_names. Reject it rather than raising that TypeError.
+    with pytest.raises(ValueError, match="cannot be deleted from the underlying"):
+        model.delete_adapter("default")
+    assert "default" in model.transformers_model.peft_config
+
+    # Setting the active adapter is unaffected, prompt learning or not
+    model.set_adapter("default")
+    assert model.active_adapters() == ["default"]
 
 
 @pytest.mark.skipif(not is_peft_available(), reason="PEFT must be available to test loading PEFT models.")

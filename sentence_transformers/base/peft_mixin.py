@@ -77,9 +77,49 @@ def _peft_model_disable_adapters(model: PeftModel) -> None:
     _peft_model_toggle_adapters(model, enable=False)
 
 
+def _single_adapter_name(adapter_name: Any, method_name: str) -> str:
+    """The transformers mixin accepts a list of adapter names, ``PeftModel`` addresses exactly one."""
+    if isinstance(adapter_name, str):
+        return adapter_name
+    if isinstance(adapter_name, (list, tuple)) and len(adapter_name) == 1 and isinstance(adapter_name[0], str):
+        return adapter_name[0]
+    raise ValueError(
+        f"`{method_name}` accepts a list of adapter names on a plain transformers model, but the underlying model "
+        f"is a peft.PeftModel, which addresses a single adapter at a time. Pass one adapter name instead, calling "
+        f"`{method_name}` once per adapter if needed. Got {adapter_name!r}."
+    )
+
+
+def _peft_model_set_adapter(model: PeftModel, adapter_name: str | list[str], **kwargs) -> None:
+    """``PeftModel`` activates exactly one adapter, so a list of several names cannot be applied."""
+    return model.set_adapter(_single_adapter_name(adapter_name, "set_adapter"), **kwargs)
+
+
+def _peft_model_delete_adapter(model: PeftModel, adapter_names: str | list[str] | None = None, **kwargs) -> None:
+    """``PeftModel.delete_adapter`` takes a single ``adapter_name``, not the transformers ``adapter_names``.
+
+    ``PeftModel.delete_adapter`` forwards to ``self.base_model.delete_adapter(adapter_name=...)``. For the tuner
+    based methods ``base_model`` is the tuner, which accepts that keyword, but for prompt learning ``base_model``
+    is the raw transformers model, whose own mixin takes ``adapter_names``, so the forwarded call raises a
+    ``TypeError``. ``peft`` implements no deletion path for prompt learning at all, so reject it with an
+    explanation rather than letting that ``TypeError`` surface.
+    """
+    if adapter_names is None:
+        adapter_names = kwargs.pop("adapter_name", None)
+    adapter_name = _single_adapter_name(adapter_names, "delete_adapter")
+    config = model.peft_config.get(adapter_name)
+    if config is not None and config.is_prompt_learning:
+        raise ValueError(
+            f"Adapters of type {type(config).__name__} cannot be deleted from the underlying peft.PeftModel. "
+            "peft only implements deletion for the tuner based methods; for prompt learning methods such as "
+            "prompt tuning, prefix tuning and P-tuning it forwards the call to the base transformers model, "
+            "which does not hold the prompt adapter."
+        )
+    return model.delete_adapter(adapter_name, **kwargs)
+
+
 # ``peft.PeftModel`` and ``transformers.integrations.peft.PeftAdapterMixin`` expose overlapping but
-# differently shaped APIs. Methods listed here are translated to their ``peft`` equivalent; the rest
-# (``set_adapter``, ``delete_adapter``) match closely enough to be called directly.
+# differently shaped APIs. Methods listed here are translated to their ``peft`` equivalent.
 PEFT_MODEL_TRANSLATIONS = {
     "load_adapter": _peft_model_load_adapter,
     "add_adapter": _peft_model_add_adapter,
@@ -88,6 +128,8 @@ PEFT_MODEL_TRANSLATIONS = {
     "get_adapter_state_dict": _peft_model_get_adapter_state_dict,
     "enable_adapters": _peft_model_enable_adapters,
     "disable_adapters": _peft_model_disable_adapters,
+    "set_adapter": _peft_model_set_adapter,
+    "delete_adapter": _peft_model_delete_adapter,
 }
 
 
