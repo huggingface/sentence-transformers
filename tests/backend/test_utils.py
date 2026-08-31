@@ -69,7 +69,7 @@ def make_model(initializers: int = 1, constants: int = 0, in_subgraph: bool = Fa
 def save_model(path: Path, model: onnx.ModelProto | None = None, **external_data_kwargs) -> None:
     """Save a model, with its weights either inside the ONNX file or in files beside it.
 
-    A model over the 2GB protobuf limit gets that split automatically; `size_threshold=0` asks for it
+    A model over the 2GB protobuf limit gets that split automatically. `size_threshold=0` asks for it
     regardless of size, so the same layout can be tested without a multi-gigabyte model.
     """
     if external_data_kwargs:
