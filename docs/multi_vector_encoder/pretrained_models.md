@@ -102,21 +102,21 @@ The NanoViDoRe column reports the mean NDCG@10 (higher is better) across [NanoVi
 | [nvidia/nemotron-colembed-vl-4b-v2](https://huggingface.co/nvidia/nemotron-colembed-vl-4b-v2) | 4.83B | 2560 | 0.6200 | `revision="refs/pr/7"`, needs `trust_remote_code=True` |
 | [OpenSearch-AI/Ops-Colqwen3-4B](https://huggingface.co/OpenSearch-AI/Ops-Colqwen3-4B) | 4.44B | 2560 | 0.6150 | `revision="refs/pr/5"`, needs `trust_remote_code=True` |
 | [nvidia/llama-nemotron-colembed-vl-3b-v2](https://huggingface.co/nvidia/llama-nemotron-colembed-vl-3b-v2) | 4.41B | 3072 | 0.6112 | `revision="refs/pr/3"`, needs `trust_remote_code=True` |
-| [tsystems/colqwen2.5-3b-multilingual-v1.0](https://huggingface.co/tsystems/colqwen2.5-3b-multilingual-v1.0) | 3.75B | 128 | 0.6039 | `revision="refs/pr/3"` |
-| [tsystems/colqwen2.5-3b-multilingual-v1.0-merged](https://huggingface.co/tsystems/colqwen2.5-3b-multilingual-v1.0-merged) | 3.75B | 128 | 0.6027 | `revision="refs/pr/1"` |
+| [tsystems/colqwen2.5-3b-multilingual-v1.0](https://huggingface.co/tsystems/colqwen2.5-3b-multilingual-v1.0) | 3.75B | 128 | 0.6039 | - |
+| [tsystems/colqwen2.5-3b-multilingual-v1.0-merged](https://huggingface.co/tsystems/colqwen2.5-3b-multilingual-v1.0-merged) | 3.75B | 128 | 0.6027 | - |
 | [TomoroAI/tomoro-colqwen3-embed-4b](https://huggingface.co/TomoroAI/tomoro-colqwen3-embed-4b) | 4.4B | 320 | 0.6019 | needs `trust_remote_code=True` |
 | [nomic-ai/colnomic-embed-multimodal-7b](https://huggingface.co/nomic-ai/colnomic-embed-multimodal-7b) | 8.29B | 128 | 0.5942 | `revision="refs/pr/3"` |
 | [nomic-ai/colnomic-embed-multimodal-3b](https://huggingface.co/nomic-ai/colnomic-embed-multimodal-3b) | 3.75B | 128 | 0.5929 | `revision="refs/pr/6"` |
-| [VAGOsolutions/SauerkrautLM-ColQwen3-8b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-8b-v0.1) | 8.15B | 128 | 0.5819 | `revision="refs/pr/1"` |
+| [VAGOsolutions/SauerkrautLM-ColQwen3-8b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-8b-v0.1) | 8.15B | 128 | 0.5819 | - |
 | [Metric-AI/ColQwen2.5-3b-multilingual-v1.0](https://huggingface.co/Metric-AI/ColQwen2.5-3b-multilingual-v1.0) | 3.75B | 128 | 0.5763 | `revision="refs/pr/2"` |
 | [vultr/VultronRetrieverFlash-Qwen3.5-0.8B](https://huggingface.co/vultr/VultronRetrieverFlash-Qwen3.5-0.8B) | 853M | 320 | 0.5693 | - |
-| [VAGOsolutions/SauerkrautLM-ColQwen3-4b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-4b-v0.1) | 4.44B | 128 | 0.5656 | `revision="refs/pr/1"` |
-| [VAGOsolutions/SauerkrautLM-ColQwen3-2b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-2b-v0.1) | 2.13B | 128 | 0.5530 | `revision="refs/pr/1"` |
+| [VAGOsolutions/SauerkrautLM-ColQwen3-4b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-4b-v0.1) | 4.44B | 128 | 0.5656 | - |
+| [VAGOsolutions/SauerkrautLM-ColQwen3-2b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-2b-v0.1) | 2.13B | 128 | 0.5530 | - |
 | [Verm1ion/ColTurk-VDR-Qwen3VL-4B-v1.0](https://huggingface.co/Verm1ion/ColTurk-VDR-Qwen3VL-4B-v1.0) | 4.44B | 320 | 0.5434 | `revision="refs/pr/1"` |
 | [vidore/colqwen2.5-v0.2](https://huggingface.co/vidore/colqwen2.5-v0.2) | 3.8B | 128 | 0.5402 | - |
 | [vidore/colqwen2.5-v0.1](https://huggingface.co/vidore/colqwen2.5-v0.1) | 3.8B | 128 | 0.5395 | - |
 | [vidore/colqwen-omni-v0.1](https://huggingface.co/vidore/colqwen-omni-v0.1) | 4.4B | 128 | 0.5309 | - |
-| [VAGOsolutions/SauerkrautLM-ColQwen3-1.7b-Turbo-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-1.7b-Turbo-v0.1) | 1.76B | 128 | 0.5035 | `revision="refs/pr/1"` |
+| [VAGOsolutions/SauerkrautLM-ColQwen3-1.7b-Turbo-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-1.7b-Turbo-v0.1) | 1.76B | 128 | 0.5035 | - |
 | [vidore/colpali-v1.3](https://huggingface.co/vidore/colpali-v1.3) | 2.9B | 128 | 0.4802 | - |
 | [vidore/colpali-v1.3-hf](https://huggingface.co/vidore/colpali-v1.3-hf) | 2.9B | 128 | 0.4793 | - |
 | [vidore/colpali-v1.2](https://huggingface.co/vidore/colpali-v1.2) | 2.9B | 128 | 0.4691 | - |
@@ -124,9 +124,9 @@ The NanoViDoRe column reports the mean NDCG@10 (higher is better) across [NanoVi
 | [vidore/colqwen2-v0.1](https://huggingface.co/vidore/colqwen2-v0.1) | 2.2B | 128 | 0.4526 | - |
 | [vidore/colpali](https://huggingface.co/vidore/colpali) | 2.9B | 128 | 0.4516 | - |
 | [vidore/colpali-v1.1](https://huggingface.co/vidore/colpali-v1.1) | 2.9B | 128 | 0.4314 | - |
-| [VAGOsolutions/SauerkrautLM-ColLFM2-450M-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColLFM2-450M-v0.1) | 451M | 128 | 0.4249 | `revision="refs/pr/1"` |
+| [VAGOsolutions/SauerkrautLM-ColLFM2-450M-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColLFM2-450M-v0.1) | 451M | 128 | 0.4249 | - |
 | [vidore/colsmolvlm-v0.1](https://huggingface.co/vidore/colsmolvlm-v0.1) | 2.1B | 128 | 0.4054 | - |
-| [VAGOsolutions/SauerkrautLM-ColMinistral3-3b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColMinistral3-3b-v0.1) | 4.25B | 128 | 0.3978 | `revision="refs/pr/1"` |
+| [VAGOsolutions/SauerkrautLM-ColMinistral3-3b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColMinistral3-3b-v0.1) | 4.25B | 128 | 0.3978 | - |
 | [vidore/colpali-hard-v1.1](https://huggingface.co/vidore/colpali-hard-v1.1) | 2.9B | 128 | 0.3949 | - |
 | [vidore/colSmol-500M](https://huggingface.co/vidore/colSmol-500M) | 507M | 128 | 0.3459 | - |
 | [vidore/colSmol-256M](https://huggingface.co/vidore/colSmol-256M) | 256M | 128 | 0.2673 | - |
