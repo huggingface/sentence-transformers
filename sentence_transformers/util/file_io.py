@@ -5,7 +5,13 @@ import os
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download, snapshot_download
-from huggingface_hub.utils import EntryNotFoundError, HFValidationError, LocalEntryNotFoundError
+from huggingface_hub.utils import (
+    EntryNotFoundError,
+    HFValidationError,
+    LocalEntryNotFoundError,
+    RepositoryNotFoundError,
+    RevisionNotFoundError,
+)
 from tqdm.autonotebook import tqdm
 
 try:
@@ -44,17 +50,31 @@ def _resolve_model_revision(
     cache_folder: str | None = None,
     local_files_only: bool = False,
 ) -> str | None:
-    """Resolve a Hub revision once when supported, while preserving compatibility with older Hub versions."""
-    if _hub_resolve_revision is None or Path(model_name_or_path).exists():
+    """Resolve a Hub revision once when supported.
+
+    Falls back to the requested revision on older Hub versions, and when resolution fails for any reason other
+    than a missing repository or revision (rate limits, an unreachable Hub with a cold cache, ...), so that
+    loading degrades to per-file resolution instead of failing outright.
+    """
+    if _hub_resolve_revision is None:
         return revision
 
-    return _hub_resolve_revision(
-        model_name_or_path,
-        revision=revision,
-        token=token,
-        cache_dir=cache_folder,
-        local_files_only=local_files_only,
-    )
+    try:
+        return _hub_resolve_revision(
+            model_name_or_path,
+            revision=revision,
+            token=token,
+            cache_dir=cache_folder,
+            local_files_only=local_files_only,
+        )
+    except (RepositoryNotFoundError, RevisionNotFoundError):
+        raise
+    except Exception as exc:
+        logger.warning(
+            f"Could not resolve the revision of {model_name_or_path!r} ({exc}). "
+            "Loading without pinning to a single commit."
+        )
+        return revision
 
 
 def is_sentence_transformer_model(

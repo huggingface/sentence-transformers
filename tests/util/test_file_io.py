@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
-from huggingface_hub.utils import EntryNotFoundError, HFValidationError, LocalEntryNotFoundError
+from huggingface_hub.utils import (
+    EntryNotFoundError,
+    HFValidationError,
+    LocalEntryNotFoundError,
+    RepositoryNotFoundError,
+    RevisionNotFoundError,
+)
 
 from sentence_transformers.util.file_io import _resolve_model_revision, load_dir_path, load_file_path
 
@@ -37,12 +45,28 @@ def test_resolve_model_revision_is_noop_with_legacy_hub(monkeypatch: pytest.Monk
     assert _resolve_model_revision("some-org/some-model", "branch") == "branch"
 
 
-def test_resolve_model_revision_is_noop_for_local_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    resolve_mock = MagicMock()
+def test_resolve_model_revision_falls_back_when_resolution_fails(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    resolve_mock = MagicMock(side_effect=RuntimeError("rate limited"))
     monkeypatch.setattr("sentence_transformers.util.file_io._hub_resolve_revision", resolve_mock)
 
-    assert _resolve_model_revision(str(tmp_path), "branch") == "branch"
-    resolve_mock.assert_not_called()
+    with caplog.at_level(logging.WARNING, logger="sentence_transformers.util.file_io"):
+        assert _resolve_model_revision("some-org/some-model", "branch") == "branch"
+
+    assert "Could not resolve the revision of 'some-org/some-model'" in caplog.text
+
+
+@pytest.mark.parametrize("error_cls", [RepositoryNotFoundError, RevisionNotFoundError])
+def test_resolve_model_revision_raises_for_missing_repository_or_revision(
+    error_cls: type[Exception], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = httpx.Response(404, request=httpx.Request("GET", "https://huggingface.co"))
+    resolve_mock = MagicMock(side_effect=error_cls("missing", response=response))
+    monkeypatch.setattr("sentence_transformers.util.file_io._hub_resolve_revision", resolve_mock)
+
+    with pytest.raises(error_cls):
+        _resolve_model_revision("some-org/some-model", "branch")
 
 
 def test_load_file_path_local_missing_short_circuits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

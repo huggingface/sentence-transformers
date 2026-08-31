@@ -7,7 +7,7 @@ import sys
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -1461,69 +1461,53 @@ class TestProcessChatMessages:
 
 
 class TestModelLoading:
-    def test_resolves_revision_before_loading_components(self, monkeypatch):
+    def test_separate_processor_repository_is_not_pinned_to_model_revision(self, monkeypatch):
         class StopLoading(Exception):
             pass
 
         def stop_loading(*args, **kwargs):
             raise StopLoading
 
-        resolve_mock = MagicMock(return_value="resolved-revision")
-        monkeypatch.setattr(transformer_module, "_resolve_model_revision", resolve_mock)
+        class ResolvedRevision(str):
+            initial = "branch"
+            resolved = "0123456789abcdef0123456789abcdef01234567"
+
         monkeypatch.setattr(Transformer, "_load_config", stop_loading)
 
-        with pytest.raises(StopLoading):
-            Transformer(
-                "some-org/some-model",
-                model_kwargs={"revision": "branch", "token": "token", "cache_dir": "/cache"},
-                processor_kwargs={"revision": "branch", "token": "token", "cache_dir": "/cache"},
-                config_kwargs={"revision": "branch", "token": "token", "cache_dir": "/cache"},
-            )
-
-        resolve_mock.assert_called_once_with(
-            "some-org/some-model",
-            "branch",
-            token="token",
-            cache_folder="/cache",
-            local_files_only=False,
-        )
-
-    def test_resolves_separate_processor_repository(self, monkeypatch):
-        class StopLoading(Exception):
-            pass
-
-        def stop_loading(*args, **kwargs):
-            raise StopLoading
-
-        resolve_mock = MagicMock(side_effect=["resolved-model", "resolved-processor"])
-        monkeypatch.setattr(transformer_module, "_resolve_model_revision", resolve_mock)
-        monkeypatch.setattr(Transformer, "_load_config", stop_loading)
-
+        processor_kwargs = {"revision": ResolvedRevision("branch")}
         with pytest.raises(StopLoading):
             Transformer(
                 "some-org/some-model",
                 tokenizer_name_or_path="some-org/some-tokenizer",
-                model_kwargs={"revision": "branch"},
-                processor_kwargs={"revision": "branch"},
-                config_kwargs={"revision": "branch"},
+                model_kwargs={"revision": ResolvedRevision("branch")},
+                processor_kwargs=processor_kwargs,
             )
 
-        assert resolve_mock.call_args_list == [
-            call(
+        assert processor_kwargs["revision"] == "branch"
+        assert not isinstance(processor_kwargs["revision"], ResolvedRevision)
+
+    def test_same_repository_processor_keeps_resolved_revision(self, monkeypatch):
+        class StopLoading(Exception):
+            pass
+
+        def stop_loading(*args, **kwargs):
+            raise StopLoading
+
+        class ResolvedRevision(str):
+            initial = "branch"
+            resolved = "0123456789abcdef0123456789abcdef01234567"
+
+        monkeypatch.setattr(Transformer, "_load_config", stop_loading)
+
+        processor_kwargs = {"revision": ResolvedRevision("branch")}
+        with pytest.raises(StopLoading):
+            Transformer(
                 "some-org/some-model",
-                "branch",
-                token=None,
-                cache_folder=None,
-                local_files_only=False,
-            ),
-            call(
-                "some-org/some-tokenizer",
-                "branch",
-                token=None,
-                cache_folder=None,
-                local_files_only=False,
-            ),
-        ]
+                model_kwargs={"revision": ResolvedRevision("branch")},
+                processor_kwargs=processor_kwargs,
+            )
+
+        assert isinstance(processor_kwargs["revision"], ResolvedRevision)
 
     def test_invalid_backend_error(self):
         with pytest.raises(ValueError, match="Unsupported backend"):

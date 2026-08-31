@@ -1336,7 +1336,7 @@ class BaseModelCardData(CardData):
             return False
         if resolved_revision := getattr(revision, "resolved", None):
             self.base_model = model_id
-            initial_revision = getattr(revision, "initial", revision)
+            initial_revision = revision.initial
             self.base_model_revision = (
                 resolved_revision if initial_revision is None or initial_revision == "main" else initial_revision
             )

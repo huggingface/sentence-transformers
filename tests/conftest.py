@@ -61,7 +61,7 @@ def mock_hub_info():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def cache_hub_revision_resolution() -> None:
+def cache_hub_revision_resolution():
     """Avoid repeatedly resolving the same Hub revision throughout the integration suite."""
     from sentence_transformers.util import file_io
 

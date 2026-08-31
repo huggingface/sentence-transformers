@@ -58,7 +58,6 @@ from sentence_transformers.base.modality_types import (
 from sentence_transformers.base.modules.input_module import InputModule
 from sentence_transformers.util.decorators import transformer_kwargs_decorator
 from sentence_transformers.util.environment import suggest_extra_on_exception
-from sentence_transformers.util.file_io import _resolve_model_revision
 
 try:
     from typing import Self
@@ -810,32 +809,10 @@ class Transformer(InputModule):
         if config_kwargs is None:
             config_kwargs = {}
 
-        requested_model_revisions = (config_kwargs.get("revision"), model_kwargs.get("revision"))
-        resolved_revisions = {}
-        for repo_id, kwargs in (
-            (model_name_or_path, config_kwargs),
-            (model_name_or_path, model_kwargs),
-            (tokenizer_name_or_path or model_name_or_path, processor_kwargs),
-        ):
-            revision = kwargs.get("revision")
-            if repo_id != model_name_or_path and any(revision is item for item in requested_model_revisions):
-                revision = getattr(revision, "initial", revision)
-            key = (
-                repo_id,
-                revision,
-                kwargs.get("token"),
-                kwargs.get("cache_dir"),
-                kwargs.get("local_files_only", False),
-            )
-            if key not in resolved_revisions:
-                resolved_revisions[key] = _resolve_model_revision(
-                    repo_id,
-                    revision,
-                    token=kwargs.get("token"),
-                    cache_folder=kwargs.get("cache_dir"),
-                    local_files_only=kwargs.get("local_files_only", False),
-                )
-            kwargs["revision"] = resolved_revisions[key]
+        # A revision resolved for the model repository must not pin a separate processor repository
+        processor_revision = processor_kwargs.get("revision")
+        if tokenizer_name_or_path not in (None, model_name_or_path) and hasattr(processor_revision, "initial"):
+            processor_kwargs["revision"] = processor_revision.initial
 
         self.processing_kwargs: ProcessingKwargs = processing_kwargs or {}
         unknown_keys = set(self.processing_kwargs) - self._VALID_PROCESSING_KWARGS_KEYS
