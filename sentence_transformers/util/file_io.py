@@ -54,7 +54,8 @@ def _resolve_model_revision(
 
     Falls back to the requested revision on older Hub versions, and when resolution fails for any reason other
     than a missing repository or revision (rate limits, an unreachable Hub with a cold cache, ...), so that
-    loading degrades to per-file resolution instead of failing outright.
+    loading degrades to per-file resolution instead of failing outright. An inaccessible repository (missing,
+    or private or gated without a valid token) is resolved from the local cache when possible.
     """
     if _hub_resolve_revision is None:
         return revision
@@ -67,8 +68,17 @@ def _resolve_model_revision(
             cache_dir=cache_folder,
             local_files_only=local_files_only,
         )
-    except (RepositoryNotFoundError, RevisionNotFoundError):
+    except RevisionNotFoundError:
         raise
+    except RepositoryNotFoundError as not_found:
+        # Like hf_hub_download, fall back to the cache for private or gated repositories
+        # when the token is missing or invalid
+        try:
+            return _hub_resolve_revision(
+                model_name_or_path, revision=revision, cache_dir=cache_folder, local_files_only=True
+            )
+        except Exception:
+            raise not_found from None
     except Exception as exc:
         logger.warning(
             f"Could not resolve the revision of {model_name_or_path!r} ({exc}). "

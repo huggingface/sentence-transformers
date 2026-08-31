@@ -8,6 +8,7 @@ import httpx
 import pytest
 from huggingface_hub.utils import (
     EntryNotFoundError,
+    GatedRepoError,
     HFValidationError,
     LocalEntryNotFoundError,
     RepositoryNotFoundError,
@@ -67,6 +68,18 @@ def test_resolve_model_revision_raises_for_missing_repository_or_revision(
 
     with pytest.raises(error_cls):
         _resolve_model_revision("some-org/some-model", "branch")
+
+
+@pytest.mark.parametrize("error_cls", [RepositoryNotFoundError, GatedRepoError])
+def test_resolve_model_revision_uses_cache_for_inaccessible_repository(
+    error_cls: type[Exception], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = httpx.Response(401, request=httpx.Request("GET", "https://huggingface.co"))
+    resolve_mock = MagicMock(side_effect=[error_cls("no token", response=response), "cached-revision"])
+    monkeypatch.setattr("sentence_transformers.util.file_io._hub_resolve_revision", resolve_mock)
+
+    assert _resolve_model_revision("some-org/some-model", "branch", cache_folder="/cache") == "cached-revision"
+    assert resolve_mock.call_args.kwargs == {"revision": "branch", "cache_dir": "/cache", "local_files_only": True}
 
 
 def test_load_file_path_local_missing_short_circuits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
