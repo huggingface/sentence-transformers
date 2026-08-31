@@ -206,6 +206,27 @@ def test_model_card_base(
     assert "\n\n\n" not in model_card
 
 
+def test_model_card_renders_query_and_document_lengths(splade_bert_tiny_model: SparseEncoder) -> None:
+    # Per-task caps are rare outside ColBERT-style models but they apply here too, so the card must
+    # not present the tokenizer's model_max_length as the effective cap.
+    model = splade_bert_tiny_model
+    model.model_card_data.local_files_only = True
+
+    assert "Maximum Query Length" not in generate_model_card(model)
+
+    model[0].query_length = 32
+    model[0].document_length = 180
+    model_card = generate_model_card(model)
+
+    assert (
+        f"- **Maximum Sequence Length:** {model.max_seq_length} tokens"
+        "\n    - **Maximum Query Length:** 32 tokens"
+        "\n    - **Maximum Document Length:** 180 tokens"
+        "\n- **Output Dimensionality:**"
+    ) in model_card
+    assert "\n\n\n" not in model_card
+
+
 def test_model_card_set_transform(
     splade_bert_tiny_model: SparseEncoder, dummy_dataset: Dataset, tmp_path: Path
 ) -> None:

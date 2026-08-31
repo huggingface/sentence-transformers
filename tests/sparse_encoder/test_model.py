@@ -237,11 +237,11 @@ def test_inference_free_splade_max_active_dims_routing(inference_free_splade_ber
     query = "What is the capital of France?"
     document = "The capital of France is Paris."
 
-    # Encode without max_active_dims — baseline
+    # Encode without max_active_dims: baseline
     query_emb = model.encode_query(query)
     doc_emb = model.encode_document(document)
 
-    # Encode with max_active_dims — should route to the same sub-modules
+    # Encode with max_active_dims: should route to the same sub-modules
     query_emb_mad = model.encode_query(query, max_active_dims=50)
     doc_emb_mad = model.encode_document(document, max_active_dims=50)
 
@@ -605,7 +605,11 @@ def test_get_model_kwargs(splade_bert_tiny_model: SparseEncoder) -> None:
         model.encode("Test sentence", task="document", foo=True, document_arg_1=12)
 
 
-@pytest.mark.parametrize("similarity_fn_name", SimilarityFunction.possible_values())
+# MaxSim is for multi-vector (3D) embeddings. SparseEncoder is single-vector so it's not applicable.
+@pytest.mark.parametrize(
+    "similarity_fn_name",
+    [v for v in SimilarityFunction.possible_values() if v in SparseEncoder.SUPPORTED_SIMILARITY_FN_NAMES],
+)
 def test_similarity_score(splade_bert_tiny_model: SparseEncoder, similarity_fn_name: str) -> None:
     model = splade_bert_tiny_model
     model.similarity_fn_name = similarity_fn_name
@@ -889,3 +893,60 @@ def test_encode_routes_through_module_call(splade_bert_tiny_model: SparseEncoder
     finally:
         handle.remove()
     assert calls, "encode() should invoke the model via __call__, not call forward() directly"
+
+
+def test_similarity_fn_name_rejects_multi_vector_names(splade_bert_tiny_model: SparseEncoder) -> None:
+    """MaxSim scores ragged token embeddings: setting it on a sparse model would produce wrong shapes
+    silently, so it must fail loud with a pointer to MultiVectorEncoder."""
+    with pytest.raises(ValueError, match="MultiVectorEncoder"):
+        splade_bert_tiny_model.similarity_fn_name = "maxsim"
+
+
+def test_parse_model_config_ignores_multi_vector_similarity(splade_bert_tiny_model: SparseEncoder) -> None:
+    """A saved multi-vector similarity falls through to the default instead of raising in the strict
+    setter during config parsing."""
+    model = splade_bert_tiny_model
+    original = model._similarity_fn_name
+    try:
+        model._similarity_fn_name = None
+        model._parse_model_config({"similarity_fn_name": "maxsim"})
+        assert model._similarity_fn_name is None
+    finally:
+        model._similarity_fn_name = original
+
+
+def test_conversion_ignores_source_prompts_and_similarity(tmp_path) -> None:
+    """Converting a MultiVectorEncoder save rebuilds this family's default modules, so the source's
+    prompts, default_prompt_name and similarity_fn_name are not inherited (they would silently apply
+    to every encode call and persist on save). SentenceTransformer saves are the exception: their
+    modules are reused, see SparseEncoder._load_converted_modules."""
+    from sentence_transformers import MultiVectorEncoder
+
+    source = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    source.prompts = {"query": "find: ", "document": "text: "}
+    source.default_prompt_name = "query"
+    source.save_pretrained(str(tmp_path))
+
+    model = SparseEncoder(str(tmp_path))
+    assert model.prompts == {"query": "", "document": ""}
+    assert model.default_prompt_name is None
+    assert model.similarity_fn_name == "dot"
+
+
+def test_conversion_from_sentence_transformer_keeps_prompts_and_similarity(tmp_path) -> None:
+    """The SentenceTransformer branch reuses the saved modules and appends a SparseAutoEncoder
+    (CSR), so the source's prompts and similarity stay meaningful for the kept backbone and survive.
+    Carrying the dense base's "cosine" over is what the CSR recipe wants, rather than the "dot" that
+    a SPLADE-shaped SparseEncoder defaults to."""
+    from sentence_transformers import SentenceTransformer
+
+    source = SentenceTransformer(
+        "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+        prompts={"query": "Represent this sentence: "},
+    )
+    source.save_pretrained(str(tmp_path))
+
+    model = SparseEncoder(str(tmp_path))
+    assert isinstance(model[-1], SparseAutoEncoder)
+    assert model.prompts["query"] == "Represent this sentence: "
+    assert model.similarity_fn_name == "cosine"

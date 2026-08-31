@@ -291,6 +291,33 @@ def test_trainer(
         assert not torch.equal(original_embeddings, new_embeddings)
 
 
+def test_trainer_featureless_iterable_dataset_hint_covers_list_columns(
+    stsb_bert_tiny_model: SentenceTransformer,
+) -> None:
+    # Streaming map without features= loses the schema. The suggested Features snippet must
+    # render KD-style list columns as list features, not the invalid Value('null').
+    train_dataset = Dataset.from_dict(
+        {"sentence1": ["a"], "sentence2": ["b"], "scores": [[1.0, 0.5]]}
+    ).to_iterable_dataset()
+    train_dataset = train_dataset.map(lambda batch: batch, batched=True)
+    assert train_dataset.column_names is None
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        args = SentenceTransformerTrainingArguments(output_dir=str(temp_dir))
+        with pytest.raises(ValueError, match="must have Features") as excinfo:
+            SentenceTransformerTrainer(
+                model=stsb_bert_tiny_model,
+                args=args,
+                train_dataset=train_dataset,
+                loss=CosineSimilarityLoss(model=stsb_bert_tiny_model),
+            )
+
+    message = str(excinfo.value)
+    assert "null" not in message
+    assert "'sentence1': Value('string')" in message or "'sentence1': Value(dtype='string', id=None)" in message
+    assert "'scores': List(Value('float32'))" in message or "'scores': Sequence(" in message
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("train_dict", [False, True])
 @pytest.mark.parametrize("eval_dict", [False, True])
@@ -751,7 +778,9 @@ def test_data_collator(
     only_prompt_length = len(model.tokenizer(["Prompt: "], add_special_tokens=False)["input_ids"][0])
     if has_bos_token:
         only_prompt_length += 1
-    assert model[0]._prompt_length_mapping == {("Prompt: ", ("task", None)): only_prompt_length}
+    # The task is intentionally excluded from the cache key: prompts are measured under plain
+    # tokenization, and caching once per prompt avoids redundant per-task entries.
+    assert model[0]._prompt_length_mapping == {("Prompt: ",): only_prompt_length}
 
 
 def test_trainer_get_batch_sampler_class(

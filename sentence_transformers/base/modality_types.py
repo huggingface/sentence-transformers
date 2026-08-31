@@ -2,21 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypeAlias, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict
 
 import numpy as np
 import torch
 
-try:
+# Type checkers reject possibly-None variables in type expressions, which would leave the aliases
+# below partially unknown. Import cleanly for them here, keeping the None fallbacks runtime-only.
+if TYPE_CHECKING:
     from PIL.Image import Image as PILImage
-except ImportError:
-    PILImage = None
-
-try:
     from torchcodec.decoders import AudioDecoder, VideoDecoder
-except (ImportError, OSError, RuntimeError):
-    AudioDecoder = None
-    VideoDecoder = None
+else:
+    try:
+        from PIL.Image import Image as PILImage
+    except ImportError:
+        PILImage = None
+
+    try:
+        from torchcodec.decoders import AudioDecoder, VideoDecoder
+    except (ImportError, OSError, RuntimeError):
+        AudioDecoder = None
+        VideoDecoder = None
 
 
 # Structured input dicts for audio and video, wrapping raw arrays with metadata

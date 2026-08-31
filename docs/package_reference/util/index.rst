@@ -4,6 +4,7 @@ Utility Functions
 
 .. toctree::
 
+   dataset
    distributed
    environment
    file_io

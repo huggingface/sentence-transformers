@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import torch
 import transformers
-from packaging import version
 from torch import Tensor, nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
@@ -308,12 +307,6 @@ class FitMixin:
                 )
                 steps_per_epoch = None
 
-        # Transformers renamed `evaluation_strategy` to `eval_strategy` in v4.41.0
-        eval_strategy_key = (
-            "eval_strategy"
-            if version.parse(transformers.__version__) >= version.parse("4.41.0")
-            else "evaluation_strategy"
-        )
         args = SentenceTransformerTrainingArguments(
             output_dir=checkpoint_path or _default_checkpoint_dir(),
             batch_sampler=batch_sampler,
@@ -322,9 +315,7 @@ class FitMixin:
             per_device_eval_batch_size=batch_size,
             num_train_epochs=epochs,
             max_steps=max_steps,
-            **{
-                eval_strategy_key: "steps" if evaluation_steps is not None and evaluation_steps > 0 else "no",
-            },
+            eval_strategy="steps" if evaluation_steps is not None and evaluation_steps > 0 else "no",
             eval_steps=evaluation_steps,
             max_grad_norm=max_grad_norm,
             fp16=use_amp,

@@ -530,21 +530,41 @@ class BaseModelCardData(CardData):
 
             # Sample 1000 examples from the dataset, sort them by length, and pick the shortest examples as the core
             # examples for the widget
-            columns = [
-                column
-                for column, feature in dataset[dataset_name].features.items()
-                if isinstance(feature, dict)
-                or (isinstance(feature, Value) and feature.dtype in {"string", "large_string"})
-            ]
-            str_dataset = dataset[dataset_name].select_columns(columns)
-            dataset_size = len(str_dataset)
-            if dataset_size == 0:
-                continue
+            if dataset[dataset_name].format["type"] == "custom":
+                # A custom transform is set (e.g. resolve_ids). dataset.features describes the
+                # pre-transform columns, so select_columns would starve the transform: sample rows
+                # through the transform and keep their string values instead.
+                full_size = len(dataset[dataset_name])
+                try:
+                    materialized = [
+                        {key: value for key, value in row.items() if isinstance(value, str)}
+                        for row in dataset[dataset_name].select(
+                            random.sample(range(full_size), k=min(num_samples_to_check, full_size))
+                        )
+                    ]
+                except Exception:
+                    # A transform that fails on plain row access cannot produce widget examples.
+                    continue
+                sampled_rows = [row for row in materialized if row]
+                if not sampled_rows:
+                    continue
+            else:
+                columns = [
+                    column
+                    for column, feature in dataset[dataset_name].features.items()
+                    if isinstance(feature, dict)
+                    or (isinstance(feature, Value) and feature.dtype in {"string", "large_string"})
+                ]
+                str_dataset = dataset[dataset_name].select_columns(columns)
+                dataset_size = len(str_dataset)
+                if dataset_size == 0:
+                    continue
+                sampled_rows = str_dataset.select(
+                    random.sample(range(dataset_size), k=min(num_samples_to_check, dataset_size))
+                )
 
             lengths = {}
-            for idx, sample in enumerate(
-                str_dataset.select(random.sample(range(dataset_size), k=min(num_samples_to_check, dataset_size)))
-            ):
+            for idx, sample in enumerate(sampled_rows):
                 lengths[idx] = sum(len(value) for key, value in sample.items() if key != "dataset_name")
 
             indices, _ = zip(*sorted(lengths.items(), key=lambda x: x[1]))
@@ -553,11 +573,11 @@ class BaseModelCardData(CardData):
             # We want 4 texts, so we take texts from the backup indices, short texts first
             for idx in target_indices:
                 # This is anywhere between 1 and n texts
-                sentences = [sentence for key, sentence in str_dataset[idx].items() if key != "dataset_name"]
+                sentences = [sentence for key, sentence in sampled_rows[idx].items() if key != "dataset_name"]
                 while len(sentences) < 4 and backup_indices:
                     backup_idx = backup_indices.pop()
                     backup_sample = [
-                        sentence for key, sentence in str_dataset[backup_idx].items() if key != "dataset_name"
+                        sentence for key, sentence in sampled_rows[backup_idx].items() if key != "dataset_name"
                     ]
                     if len(backup_sample) == 1:
                         # If there is only one text in the backup sample, we take it
@@ -769,14 +789,12 @@ class BaseModelCardData(CardData):
 
     @staticmethod
     def _hash_asset(value: Any) -> int | None:
-        """Compute a content hash for an asset value, or None if the type is not supported."""
-        # AudioDecoder supports dict-like access but is not a dict
-        if AudioDecoder is not None and isinstance(value, AudioDecoder):
-            value = {"array": value["array"], "sampling_rate": value["sampling_rate"]}
-        # VideoDecoder: hash based on metadata (source path, duration, resolution)
-        if VideoDecoder is not None and isinstance(value, VideoDecoder):
-            m = value.metadata
-            return hash((getattr(m, "path", None), m.duration_seconds, m.width, m.height, m.num_frames))
+        """Compute an identity hash for an asset value, or None if the type is not supported."""
+        # Audio / Video decoders carry the encoded source datasets re-encodes from. Hashing that
+        # avoids a decode, and beats decoder metadata, which collides across same-shape clips.
+        encoded = getattr(value, "_hf_encoded", None)
+        if isinstance(encoded, dict) and (encoded.get("bytes") or encoded.get("path")):
+            return hash((encoded.get("path"), encoded.get("bytes")))
         if PILImage and isinstance(value, PILImage):
             return hash((value.tobytes(), value.size, value.mode))
         if isinstance(value, dict) and "array" in value:
@@ -987,7 +1005,7 @@ class BaseModelCardData(CardData):
         n_total = min(len(dataset), 100)
         first = dataset[0][column]
 
-        # Columns like int/float/list don't map to a modality; ValueError signals that
+        # Columns like int/float/list don't map to a modality, so infer_modality raises ValueError
         try:
             raw_modality = infer_modality(first, supported_modalities=getattr(self.model, "modalities", None))
         except ValueError:
@@ -1007,8 +1025,11 @@ class BaseModelCardData(CardData):
 
                 stats = _MinMeanMax()
                 suffix = "characters"
+                # `*ForRetrieval` processors render text as queries regardless of task: request the
+                # query treatment directly instead of triggering the text-as-document warning.
+                task = "query" if getattr(self.model[0], "transformer_task", None) == "retrieval" else "document"
                 for chunk in chunks():
-                    tokenized = self.model.preprocess(chunk, task="document")
+                    tokenized = self.model.preprocess(chunk, task=task)
                     if isinstance(tokenized, (dict, UserDict)) and "attention_mask" in tokenized:
                         stats.add_many(tokenized["attention_mask"].sum(dim=1).tolist())
                         suffix = "tokens"
@@ -1873,11 +1894,16 @@ class BaseModelCardData(CardData):
     def get_model_specific_metadata(self) -> dict[str, Any]:
         if self.model is None:
             return {}
+        from sentence_transformers.base.modules import Transformer
+
         supported_modalities = [format_modality(m).title() for m in self.model.modalities]
+        transformer = next((module for module in self.model if isinstance(module, Transformer)), None)
         return {
             "model_max_length": self.model.max_seq_length,
             "model_string": str(self.model),
             "supported_modalities": supported_modalities,
+            "query_length": getattr(transformer, "query_length", None),
+            "document_length": getattr(transformer, "document_length", None),
         }
 
     def get_default_model_name(self) -> str:

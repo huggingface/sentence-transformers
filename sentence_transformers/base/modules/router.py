@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 try:
     from typing import Self
@@ -17,6 +19,9 @@ from sentence_transformers.base.modality_types import MODALITY_TO_PROCESSOR_ARG,
 from sentence_transformers.base.modules.input_module import InputModule
 from sentence_transformers.base.modules.module import Module
 from sentence_transformers.util import import_module_class, load_dir_path
+
+if TYPE_CHECKING:
+    from sentence_transformers.base.model import BaseModel
 
 logger = logging.get_logger(__name__)
 
@@ -67,7 +72,7 @@ class Router(InputModule):
             ::
 
                 from sentence_transformers import SentenceTransformer
-                from sentence_transformers.sentence_transformer.modules import Router, Normalize
+                from sentence_transformers.base.modules import Router, Normalize
 
                 # Use a regular SentenceTransformer for the document embeddings, and a static embedding model for the query embeddings
                 document_embedder = SentenceTransformer("mixedbread-ai/mxbai-embed-large-v1")
@@ -183,7 +188,7 @@ class Router(InputModule):
                 text_embedding = model.encode("A photo of a cat")
                 multimodal_embedding = model.encode({"text": "A photo of a <image>", "image": Image.open("cat.jpg")})
 
-                # Compute the similarity; it'll be poor as the model hasn't yet been trained
+                # Compute the similarity. It'll be poor as the model hasn't yet been trained
                 similarity = model.similarity(text_embedding, multimodal_embedding)
 
             Hybrid Asymmetric + Multimodal Example:
@@ -512,6 +517,14 @@ class Router(InputModule):
             parts.append(f"route_mappings={self.route_mappings}")
         return ", ".join(parts)
 
+    def on_model_ready(self, model: BaseModel) -> None:
+        # The model only sees the Router in its top-level module list, so forward the hook to the
+        # routed modules. Without this, a route's module never resolves its model-dependent state.
+        for sub_modules in self.sub_modules.values():
+            for module in sub_modules:
+                if isinstance(module, Module):
+                    module.on_model_ready(model)
+
     def get_embedding_dimension(self) -> int | None:
         dims = []
         for sub_modules in self.sub_modules.values():
@@ -577,7 +590,7 @@ class Router(InputModule):
 
     def preprocess(
         self,
-        inputs: list[SingleInput | PairInput],
+        inputs: Sequence[SingleInput | PairInput],
         prompt: str | None = None,
         task: str | None = None,
         modality: Modality | None = None,
@@ -615,7 +628,7 @@ class Router(InputModule):
         route = self._resolve_route(task=task, modality=modality)
 
         input_module = self.sub_modules[route][0]
-        tokenized = input_module.preprocess(inputs, prompt=prompt, **kwargs)
+        tokenized = input_module.preprocess(inputs, prompt=prompt, task=task, **kwargs)
         tokenized["task"] = task
         if modality is not None:
             tokenized["modality"] = modality
@@ -630,6 +643,7 @@ class Router(InputModule):
         cache_folder: str | None = None,
         revision: str | None = None,
         local_files_only: bool = False,
+        module_classes: Mapping[str, type[nn.Module]] | None = None,
         **kwargs,
     ) -> Self:
         hub_kwargs = {
@@ -639,6 +653,7 @@ class Router(InputModule):
             "local_files_only": local_files_only,
         }
         trust_remote_code = kwargs.get("trust_remote_code", False)
+        module_classes = module_classes or {}
         # Try the official config file first, then fall back to the legacy config file
         config = cls.load_config(model_name_or_path=model_name_or_path, subfolder=subfolder, **hub_kwargs)
         if not config:
@@ -647,7 +662,7 @@ class Router(InputModule):
             )
         modules = {}
         for model_id, model_type in config["types"].items():
-            module_class: Module = import_module_class(
+            module_class: type[Module] = module_classes.get(model_type) or import_module_class(
                 model_type,
                 model_name_or_path=model_name_or_path,
                 trust_remote_code=trust_remote_code,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import multiprocessing
+
 import pytest
 from packaging.version import parse as parse_version
 from transformers import HfArgumentParser
@@ -10,7 +12,7 @@ from sentence_transformers.sentence_transformer.training_args import SentenceTra
 
 
 def test_hf_argument_parser():
-    # See https://github.com/huggingface/sentence-transformers/issues/3090;
+    # See https://github.com/huggingface/sentence-transformers/issues/3090
     # Ensure that the HfArgumentParser can be used to parse SentenceTransformerTrainingArguments.
     parser = HfArgumentParser((SentenceTransformerTrainingArguments,))
     dataclasses = parser.parse_args_into_dataclasses(
@@ -170,3 +172,50 @@ def test_warmup_arguments_are_compatible_across_transformers_versions(
         assert all(not record.name.startswith("transformers") for record in warmup_logs), (
             "warmup_ratio warnings should not originate from the transformers logger."
         )
+
+
+@pytest.mark.parametrize(
+    ["start_method", "kwargs", "expect_warning"],
+    [
+        ("spawn", {"dataloader_num_workers": 4}, True),
+        ("spawn", {"dataloader_num_workers": 4, "dataloader_persistent_workers": True}, False),
+        ("spawn", {"dataloader_num_workers": 0}, False),
+        ("spawn", {"dataloader_num_workers": 4, "output_dir": "unused"}, False),
+        # fork and forkserver workers both inherit already imported modules, so they pay no import cost.
+        ("fork", {"dataloader_num_workers": 4}, False),
+        ("forkserver", {"dataloader_num_workers": 4}, False),
+    ],
+)
+@pytest.mark.parametrize("explicit_start_method", [True, False])
+def test_warns_about_non_persistent_spawned_dataloader_workers(
+    start_method, kwargs, expect_warning, explicit_start_method, caplog, monkeypatch
+):
+    """The warning must not depend on whether the start method was set explicitly or is the platform
+    default, so both routes through ``_workers_are_spawned`` are exercised with the same expectations."""
+    if explicit_start_method:
+        monkeypatch.setattr(multiprocessing, "get_start_method", lambda allow_none=False: start_method)
+    else:
+        monkeypatch.setattr(multiprocessing, "get_start_method", lambda allow_none=False: None)
+        monkeypatch.setattr(multiprocessing, "get_all_start_methods", lambda: [start_method, "spawn"])
+
+    kwargs = {"output_dir": "test_output_dir", **kwargs}
+    with caplog.at_level("WARNING"):
+        SentenceTransformerTrainingArguments(**kwargs)
+
+    warnings = [record for record in caplog.records if "dataloader_persistent_workers=True" in record.getMessage()]
+    assert bool(warnings) is expect_warning
+
+
+def test_workers_are_spawned_does_not_lock_in_the_start_method(monkeypatch):
+    """Constructing training arguments must never fix the start method, which would make a later
+    ``multiprocessing.set_start_method`` call raise."""
+    calls = []
+
+    def fake_get_start_method(allow_none=False):
+        calls.append(allow_none)
+        return None
+
+    monkeypatch.setattr(multiprocessing, "get_start_method", fake_get_start_method)
+    SentenceTransformerTrainingArguments(output_dir="test_output_dir", dataloader_num_workers=4)
+
+    assert calls == [True]

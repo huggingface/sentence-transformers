@@ -6,12 +6,13 @@ from typing import Any
 import torch
 from torch import Tensor, nn
 
-from sentence_transformers import util
+from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
+from sentence_transformers.util import pairwise_dot_score, similarity_fct_name
 
 
 class MarginMSELoss(nn.Module):
-    def __init__(self, model: SentenceTransformer, similarity_fct=util.pairwise_dot_score) -> None:
+    def __init__(self, model: SentenceTransformer, similarity_fct=pairwise_dot_score) -> None:
         """
         Compute the MSE loss between the ``|sim(Query, Pos) - sim(Query, Neg)|`` and ``|gold_sim(Query, Pos) - gold_sim(Query, Neg)|``.
         By default, sim() is the dot-product. The gold_sim is often the similarity score from a teacher model.
@@ -170,7 +171,7 @@ class MarginMSELoss(nn.Module):
         self.loss_fct = nn.MSELoss()
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
-        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        embeddings = embed_columns(self.model, sentence_features)
 
         return self.compute_loss_from_embeddings(embeddings, labels)
 
@@ -202,6 +203,7 @@ class MarginMSELoss(nn.Module):
             )
 
         # Handle both single and multiple negative cases
+        labels = labels.detach()
         if len(embeddings_negs) == 1:
             scores_neg = self.similarity_fct(embeddings_query, embeddings_negs[0])
             margin_pred = (scores_pos - scores_neg).unsqueeze(1)
@@ -215,7 +217,7 @@ class MarginMSELoss(nn.Module):
 
     def get_config_dict(self) -> dict[str, Any]:
         return {
-            "similarity_fct": getattr(self.similarity_fct, "__name__", str(self.similarity_fct)),
+            "similarity_fct": similarity_fct_name(self.similarity_fct),
         }
 
     @property

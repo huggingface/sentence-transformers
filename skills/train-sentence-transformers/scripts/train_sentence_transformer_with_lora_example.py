@@ -16,30 +16,30 @@ matrices and trains only those (~50-100x fewer trainable params). Works out
 of the box with sentence-transformers via `peft`.
 
 Use LoRA when: the base is a large decoder (Qwen3, Llama, Mistral, Gemma) and
-a full fine-tune is VRAM-prohibitive; you want multiple task-specific adapters
-on one base; you're nudging an existing strong retriever (E5-mistral,
+a full fine-tune is VRAM-prohibitive. You want multiple task-specific adapters
+on one base. You're nudging an existing strong retriever (E5-mistral,
 Qwen3-Embedding) on domain data. Skip LoRA for small encoders (BERT-base,
-MiniLM — full fine-tune is tractable and usually better) or tiny datasets
-(<1k pairs — adapter rank becomes the bottleneck).
+MiniLM: full fine-tune is tractable and usually better) or tiny datasets
+(<1k pairs: adapter rank becomes the bottleneck).
 
 This template defaults to BERT-base for portability. Swap `MODEL_NAME` to a
 decoder backbone for the use case LoRA actually shines on.
 
 Architecture variants:
 - Bi-encoder (this script): `TaskType.FEATURE_EXTRACTION`.
-- Sparse-encoder: same pattern; `SparseEncoder` supports `add_adapter`. See
+- Sparse-encoder: same pattern. `SparseEncoder` supports `add_adapter`. See
   `examples/sparse_encoder/training/peft/train_splade_gooaq_peft.py`.
 - Cross-encoder: use `TaskType.SEQ_CLS` for `num_labels >= 1`. Community
-  examples are sparse; smoke-test with `max_steps=1` first.
+  examples are sparse. Smoke-test with `max_steps=1` first.
 
 Key hyperparameters:
 - `r` (rank): 8-128. Bigger = more capacity + memory. 64 is a strong default.
 - `lora_alpha`: typically 2 x r (some teams use 1 x r for stability).
-- `lora_dropout`: 0.05-0.1; raise to 0.1 for small datasets.
-- `target_modules=None` auto-picks attention modules; pass
+- `lora_dropout`: 0.05-0.1. Raise to 0.1 for small datasets.
+- `target_modules=None` auto-picks attention modules. Pass
   `["q_proj", "k_proj", "v_proj", "o_proj"]` (attention) or
   `["gate_proj", "up_proj", "down_proj"]` (MLP) for explicit control.
-- `modules_to_save=["pooler"]` for CLS-pooled bases — the pooler Dense should
+- `modules_to_save=["pooler"]` for CLS-pooled bases. The pooler Dense should
   be trained too, not adapted.
 - LR is HIGHER than full fine-tune: 1e-4 to 5e-4 for LoRA vs. 2e-5 full.
 
@@ -48,7 +48,7 @@ Rough memory savings on a 0.6B base (bf16, batch 64, seq 128): full fine-tune
 Bigger savings on 7B+ models.
 
 Saving / sharing: `model.save_pretrained("dir")` writes ONLY the adapter (few
-MB) plus a reference to the base model. Loaders call the same one-liner;
+MB) plus a reference to the base model. Loaders call the same one-liner.
 `peft` is invoked and the base downloaded on demand. For a merged model that
 loads without `peft` (needed for vLLM-style servers), call
 `model.transformers_model.merge_and_unload()` then `save_pretrained` /
@@ -74,16 +74,16 @@ Known issues:
 - LoRA PEFT on Qwen2.5-VL / paligemma / gemma3 / internvl / aya_vision under
   transformers v5: `AutoModel.from_pretrained(peft_path)` crashes with
   `KeyError: 'qwen2_vl'`. Pin transformers to 4.x or wait for the upstream fix.
-- `gradient_checkpointing=True` + LoRA: usually works; if you hit "None of
+- `gradient_checkpointing=True` + LoRA: usually works. If you hit "None of
   the inputs have requires_grad=True", call
   `model.transformers_model.enable_input_require_grads()` after `add_adapter`.
 - `add_adapter` before pooling: when building from scratch (not loading a
   pre-assembled checkpoint), call `add_adapter` AFTER
   `SentenceTransformer(modules=[...])` is complete.
 
-Common gotchas: LR still at 2e-5 (LoRA needs higher); forgetting to merge for
-vLLM-style servers (they don't load `peft`); `r=8` too small for retrievers
-trained on millions of pairs (try 32 or 64); `modules_to_save` missing the
+Common gotchas: LR still at 2e-5 (LoRA needs higher). Forgetting to merge for
+vLLM-style servers (they don't load `peft`). `r=8` too small for retrievers
+trained on millions of pairs (try 32 or 64). `modules_to_save` missing the
 pooler on CLS-pooled bases.
 """
 

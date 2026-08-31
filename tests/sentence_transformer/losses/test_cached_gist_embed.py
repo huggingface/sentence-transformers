@@ -45,9 +45,7 @@ def simulate_rank1_world2(monkeypatch):
         return torch.cat([rank0_block, tensor], dim=0)
 
     monkeypatch.setattr(cge, "all_gather_with_grad", fake_gather)
-    monkeypatch.setattr(cge, "is_dist_initialized", lambda: True)
-    # get_rank may be absent on CPU-only/ROCm builds (torch.distributed.is_available() is False).
-    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 1, raising=False)
+    monkeypatch.setattr(cge, "get_rank", lambda: 1)
     return per
 
 
@@ -55,7 +53,7 @@ def _local_reps(per: int, dim: int = 16, seed: int = 7):
     g = torch.Generator().manual_seed(seed)
     anchors = torch.randn(per, dim, generator=g)
     positives = torch.randn(per, dim, generator=g)
-    # reps[0] = anchors, reps[1] = positives; each a list of minibatch tensors.
+    # reps[0] = anchors, reps[1] = positives. Each a list of minibatch tensors.
     reps = [[anchors.clone()], [positives.clone()]]
     reps_guided = [[anchors.clone()], [positives.clone()]]
     return reps, reps_guided
@@ -143,7 +141,7 @@ def _make_relative_loss(margin: float) -> CachedGISTEmbedLoss:
 
 
 def _negative_score_reps():
-    """anchor0's positive has a negative cosine (-0.50); a non-paired candidate (column 1) is
+    """anchor0's positive has a negative cosine (-0.50). A non-paired candidate (column 1) is
     *more* similar (-0.49). anchor1 is paired with that candidate (diagonal cosine 1.0)."""
     a0 = [1.0, 0.0, 0.0]
     p0 = [-0.50, math.sqrt(1 - 0.50**2), 0.0]  # cos(a0, p0) = -0.50

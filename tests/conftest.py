@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from copy import deepcopy
@@ -16,6 +17,24 @@ from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
     from datasets import DatasetDict, load_dataset
+
+
+def _clear_warning_once_cache() -> None:
+    # Nothing to clear when warning_once is not the lru_cache-wrapped transformers version, as then
+    # it does not suppress repeats in the first place.
+    cache_clear = getattr(getattr(logging.Logger, "warning_once", None), "cache_clear", None)
+    if cache_clear is not None:
+        cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def clear_warning_once_cache():
+    """transformers caches ``warning_once`` globally, so without this a warning emitted by one test
+    silences it in every later test. Request the fixture by name to clear the cache again part-way
+    through a test.
+    """
+    _clear_warning_once_cache()
+    return _clear_warning_once_cache
 
 
 def _fake_model_info(model_id: str) -> SimpleNamespace:

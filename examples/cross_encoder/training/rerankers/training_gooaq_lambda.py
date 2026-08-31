@@ -127,7 +127,8 @@ def main():
         warmup_steps=0.1,
         fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
         bf16=True,  # Set to True if you have a GPU that supports BF16
-        dataloader_num_workers=4,
+        dataloader_num_workers=2,
+        dataloader_persistent_workers=True,  # Recommended on Windows/macOS, can be False on Linux
         load_best_model_at_end=True,
         metric_for_best_model="eval_gooaq-dev_ndcg@10",
         # Optional tracking/debugging parameters:

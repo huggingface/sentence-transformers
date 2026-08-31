@@ -129,8 +129,8 @@ def test_load_dir_path_local_entry_not_found_returns_none(monkeypatch: pytest.Mo
 
 
 def test_load_dir_path_hf_validation_error_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`HFValidationError` (malformed repo id) is unambiguously "not on the Hub" —
-    short-circuit to ``None`` rather than retrying.
+    """`HFValidationError` (malformed repo id) is unambiguously "not on the Hub".
+    Short-circuit to ``None`` rather than retrying.
     """
     snapshot_mock = MagicMock(side_effect=HFValidationError("bad repo id"))
     monkeypatch.setattr("sentence_transformers.util.file_io.snapshot_download", snapshot_mock)
@@ -156,7 +156,7 @@ def test_load_dir_path_transient_with_cache_hit(monkeypatch: pytest.MonkeyPatch)
 def test_load_dir_path_transient_with_cache_miss_reraises_original(monkeypatch: pytest.MonkeyPatch) -> None:
     """When the first call fails with a transient error and the cache also lacks the
     model, the original transient error is re-raised (not the cache miss). The cache
-    miss would mask the real cause; users see the rate-limit/auth/network error instead.
+    miss would mask the real cause. Users see the rate-limit/auth/network error instead.
     """
     snapshot_mock = MagicMock(
         side_effect=[RuntimeError("simulated network error"), LocalEntryNotFoundError("not cached")],

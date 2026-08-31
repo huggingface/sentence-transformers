@@ -95,7 +95,8 @@ def main():
         logging_first_step=True,
         run_name=run_name,  # Will be used in W&B if `wandb` is installed
         seed=12,
-        dataloader_num_workers=4,
+        dataloader_num_workers=2,
+        dataloader_persistent_workers=True,  # Recommended on Windows/macOS, can be False on Linux
     )
 
     # 6. Create the trainer & start training

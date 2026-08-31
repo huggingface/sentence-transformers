@@ -26,8 +26,8 @@ class MultipleNegativesSymmetricRankingLoss(MultipleNegativesRankingLoss):
         """
         .. warning::
 
-            This class has been merged into :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` and
-            is now deprecated. Please use :class:`~sentence_transformers.losses.MultipleNegativesRankingLoss` with
+            This class has been merged into :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` and
+            is now deprecated. Please use :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` with
             ``directions=("query_to_doc", "doc_to_query")`` and ``partition_mode="per_direction"`` for identical
             performance instead::
 
@@ -71,7 +71,7 @@ class MultipleNegativesSymmetricRankingLoss(MultipleNegativesRankingLoss):
             +---------------------------------------+--------+
 
         Recommendations:
-            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`) to
+            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
 
         Relations:

@@ -14,10 +14,10 @@ from torch import nn
 
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
 from sentence_transformers.base.modality_types import Modality
-from sentence_transformers.base.modules import Dense, Router
+from sentence_transformers.base.modules import Dense, Module, Normalize, Router
 from sentence_transformers.base.modules.input_module import InputModule
 from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
-from sentence_transformers.sentence_transformer.modules import Normalize, StaticEmbedding
+from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util import is_datasets_available
 
 from sentence_transformers.models import Asym  # isort:skip  Softly deprecated import
@@ -42,6 +42,21 @@ class MockModule(InputModule):
         pass
 
 
+class HookRecordingModule(Module):
+    def __init__(self):
+        super().__init__()
+        self.ready_model = None
+
+    def forward(self, features):
+        return features
+
+    def on_model_ready(self, model) -> None:
+        self.ready_model = model
+
+    def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
+        pass
+
+
 class MockModuleWithModalities(MockModule):
     def __init__(self, modalities: list[Modality]):
         super().__init__()
@@ -56,6 +71,19 @@ class MockModuleWithMaxLength(MockModule):
     def __init__(self, max_seq_length=32):
         super().__init__()
         self.max_seq_length = max_seq_length
+
+
+class TaskRecordingModule(MockModule):
+    """Records the ``task`` its preprocess was called with, so routing and per-task preprocessing
+    can be told apart."""
+
+    def __init__(self):
+        super().__init__()
+        self.seen_tasks = []
+
+    def preprocess(self, inputs, prompt=None, task=None, **kwargs):
+        self.seen_tasks.append(task)
+        return {}
 
 
 class InvertMockModule(MockModule):
@@ -253,6 +281,28 @@ def test_router_encode(static_embedding):
         ),
     ):
         model.encode(doc_texts)
+
+
+def test_router_task_not_forwarded_to_auto_model(stsb_bert_tiny_model, monkeypatch):
+    """Router.preprocess stamps features["task"] for routing, but that bookkeeping key must not
+    reach the wrapped auto_model.forward (ONNX backends warn on every such unexpected kwarg)."""
+    transformer, pooling = stsb_bert_tiny_model[0], stsb_bert_tiny_model[1]
+    router = Router({"query": [transformer, pooling], "document": [transformer, pooling]})
+    model = SentenceTransformer(modules=[router])
+
+    captured = {}
+    original_forward = transformer.model.forward
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return original_forward(**kwargs)
+
+    monkeypatch.setattr(transformer.model, "forward", spy)
+    embeddings = model.encode_query(["What is the capital of France?"])
+
+    assert embeddings.shape == (1, model.get_embedding_dimension())
+    assert "input_ids" in captured
+    assert "task" not in captured
 
 
 def test_router_is_alias_for_asym():
@@ -745,8 +795,9 @@ def test_router_as_middle_module(static_embedding: StaticEmbedding, tmp_path: Pa
     model_path = os.path.join(tmp_path, "test_model")
     model.save(model_path)
 
-    # Load the model
-    loaded_model = SentenceTransformer(model_path)
+    # Load the model. The saved Router references the test-local InvertMockModule class, a
+    # non-ST module class that requires opting in since v6.0.
+    loaded_model = SentenceTransformer(model_path, trust_remote_code=True)
 
     # Verify loaded model structure
     assert len(list(loaded_model.children())) == 3
@@ -1438,3 +1489,31 @@ def test_router_forward_unsorted_tuple_modality_from_features():
     result = router.forward(features)
     # InvertMockModule negates the embedding, confirming multimodal_route was used
     assert torch.equal(result["sentence_embedding"], -embedding)
+
+
+def test_router_forwards_on_model_ready_to_routed_modules():
+    """Routed modules are invisible to the model's top-level module list, so the Router forwards the
+    hook. Without it they never resolve their model-dependent state (e.g. MultiVectorMask's skiplist)."""
+    query_hook = HookRecordingModule()
+    document_hook = HookRecordingModule()
+    router = Router({"query": [MockModule(), query_hook], "document": [MockModule(), document_hook]})
+
+    model = SentenceTransformer(modules=[router])
+
+    assert query_hook.ready_model is model
+    assert document_hook.ready_model is model
+
+
+def test_router_forwards_task_to_sub_module_preprocess():
+    """The route is resolved from ``task``, but input modules also read it to apply per-task
+    preprocessing (e.g. a Transformer's ``query_length`` / ``document_length``), so it must reach
+    them rather than being consumed by the routing."""
+    query_module = TaskRecordingModule()
+    document_module = TaskRecordingModule()
+    router = Router.for_query_document(query_modules=[query_module], document_modules=[document_module])
+
+    router.preprocess(["a query"], task="query")
+    router.preprocess(["a document"], task="document")
+
+    assert query_module.seen_tasks == ["query"]
+    assert document_module.seen_tasks == ["document"]

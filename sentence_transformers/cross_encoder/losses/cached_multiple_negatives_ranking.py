@@ -35,8 +35,8 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
 
         In detail:
 
-            (1) It first does a quick prediction step without gradients/computation graphs to get all the logits;
-            (2) Calculate the loss, backward up to the logits and cache the gradients wrt. to the logits;
+            (1) It first does a quick prediction step without gradients/computation graphs to get all the logits.
+            (2) Calculate the loss, backward up to the logits and cache the gradients wrt. to the logits.
             (3) A 2nd prediction step with gradients/computation graphs and connect the cached gradients into the backward chain.
 
         Notes: All steps are done with mini-batches. In the original implementation of GradCache, (2) is not done in
@@ -92,7 +92,7 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
             +-------------------------------------------------+--------+-------------------------------+
 
         Recommendations:
-            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`) to
+            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
             - Use :class:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` with ``output_format="n-tuple"`` or
               ``output_format="triplet"`` to convert question-answer pairs to triplets with hard negatives.

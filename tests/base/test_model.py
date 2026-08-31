@@ -17,6 +17,7 @@ from torch import Tensor, nn
 
 from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
 from sentence_transformers.base.evaluation import BaseEvaluator
+from sentence_transformers.base.modules.module import Module
 
 
 class BaseModelPreprocessTest:
@@ -95,7 +96,7 @@ class TestSparseEncoderPreprocess(BaseModelPreprocessTest):
         return ["This is a test.", "Another test sentence."]
 
 
-# A 3D array is inferred as the "image" modality, a 1D array as "audio"; values are never read
+# A 3D array is inferred as the "image" modality, a 1D array as "audio". Values are never read
 # because preprocess() raises before processing, so reusing these constants across cases is safe.
 _IMAGE = np.zeros((8, 8, 3), dtype=np.uint8)
 _AUDIO = np.zeros((16000,), dtype=np.float32)
@@ -211,7 +212,7 @@ def test_preprocess_modality_error_messages(
 ) -> None:
     """preprocess() should raise a clear, accurate ValueError for each unsupported-modality scenario.
 
-    The model's supported modalities are simulated via ``modalities``; inputs use real inference
+    The model's supported modalities are simulated via ``modalities``. Inputs use real inference
     (numpy arrays for image/audio, dicts for combined/chat inputs) so the full path is exercised.
     ``forbidden`` guards against misleading wording, e.g. claiming a modality is unsupported when
     every part is actually supported.
@@ -522,10 +523,11 @@ def test_load_logs_no_modules_json(stsb_bert_tiny_model: SentenceTransformer, tm
 
 
 def test_load_logs_converting_model_type(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, caplog) -> None:
-    """Loading a SentenceTransformer model as a SparseEncoder should log the converting message."""
+    """Loading a SentenceTransformer model as a SparseEncoder should log the converting message at
+    warning level, so it is visible at the default verbosity."""
     stsb_bert_tiny_model.save(str(tmp_path))
 
-    with caplog.at_level(logging.INFO, logger="sentence_transformers.base.model"):
+    with caplog.at_level(logging.WARNING, logger="sentence_transformers.base.model"):
         SparseEncoder(str(tmp_path))
 
     assert "Converting SentenceTransformer" in caplog.text
@@ -579,35 +581,33 @@ def test_load_module_class_from_ref_sentence_transformers(stsb_bert_tiny_model: 
     assert cls is Pooling
 
 
-def test_load_module_class_from_ref_untrusted_ref_warns_about_v6(
+def test_load_module_class_from_ref_untrusted_ref_raises(
     stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A non-sentence_transformers class ref from an untrusted, non-local model still resolves for now, but
-    must emit a FutureWarning that v6.0 will require `trust_remote_code=True` (the import runs
-    repository-chosen code)."""
+    """A non-sentence_transformers class ref without `trust_remote_code=True` is refused: the import
+    would run repository-chosen code."""
     dynamic_loading_attempted = False
 
     def mock_get_class(class_ref, model_name_or_path, **kwargs):
         nonlocal dynamic_loading_attempted
         dynamic_loading_attempted = True
-        raise OSError("must not be reached for an untrusted, non-local ref")
+        raise OSError("must not be reached for an untrusted ref")
 
     monkeypatch.setattr(
         "transformers.dynamic_module_utils.get_class_from_dynamic_module",
         mock_get_class,
     )
 
-    with pytest.warns(FutureWarning, match="trust_remote_code"):
-        cls = stsb_bert_tiny_model._load_module_class_from_ref(
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        stsb_bert_tiny_model._load_module_class_from_ref(
             "torch.nn.Linear",
             model_name_or_path="nonexistent_path_12345",
             trust_remote_code=False,
             revision=None,
             model_kwargs=None,
         )
-    # Untrusted + non-local must not attempt remote (dynamic) loading. The ref resolves via direct import.
+    # The refusal must come from the gate, before any remote (dynamic) loading is attempted.
     assert not dynamic_loading_attempted
-    assert cls is nn.Linear
 
 
 def test_load_module_class_from_ref_trust_remote_code_fallback(
@@ -993,6 +993,24 @@ def test_is_singular_input_tuple(stsb_bert_tiny_model: SentenceTransformer) -> N
     assert stsb_bert_tiny_model.is_singular_input(("hello", "world")) is False
 
 
+def test_is_singular_input_conversation(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """A bare conversation (list of role/content message dicts) is one input, not a batch."""
+    conversation = [
+        {"role": "user", "content": "What is the capital of France?"},
+        {"role": "assistant", "content": "Paris."},
+    ]
+    assert stsb_bert_tiny_model.is_singular_input(conversation) is True
+    assert stsb_bert_tiny_model.is_singular_input([{"role": "user", "content": "hi"}]) is True
+
+
+def test_is_singular_input_conversation_batch(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """A list of conversations is a batch, and non-message dicts do not trigger the conversation rule."""
+    conversations = [[{"role": "user", "content": "hi"}], [{"role": "user", "content": "hello"}]]
+    assert stsb_bert_tiny_model.is_singular_input(conversations) is False
+    multimodal_batch = [{"text": "a photo"}, {"text": "a dog"}]
+    assert stsb_bert_tiny_model.is_singular_input(multimodal_batch) is False
+
+
 def test_is_singular_input_numpy(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """A numeric numpy array should be singular (treated as an audio waveform)."""
     assert stsb_bert_tiny_model.is_singular_input(np.array([1, 2, 3])) is True
@@ -1128,3 +1146,122 @@ def test_get_model_type_reads_model_type(stsb_bert_tiny_model: SentenceTransform
 
     result = stsb_bert_tiny_model._get_model_type(str(tmp_path), token=None, cache_folder=None, local_files_only=True)
     assert result == "SparseEncoder"
+
+
+def save_with_model_config(model: SentenceTransformer, path: Path, **config_updates: Any) -> None:
+    """Save a model, then update its config_sentence_transformers.json, e.g. to add requirements."""
+    model.save_pretrained(str(path))
+    config_path = path / "config_sentence_transformers.json"
+    config = json.loads(config_path.read_text(encoding="utf8"))
+    config.update(config_updates)
+    config_path.write_text(json.dumps(config), encoding="utf8")
+
+
+def test_met_requirements_load_normally(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+    save_with_model_config(stsb_bert_tiny_model, tmp_path, requirements={"transformers": ">=1.0"})
+
+    model = SentenceTransformer(str(tmp_path))
+    assert len(model) == len(stsb_bert_tiny_model)
+
+
+def test_unmet_requirements_raise_when_loading(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+    save_with_model_config(stsb_bert_tiny_model, tmp_path, requirements={"transformers": ">=999"})
+
+    with pytest.raises(ImportError, match="transformers>=999"):
+        SentenceTransformer(str(tmp_path))
+
+
+class StrictLoadModule(Module):
+    """Third-party-style module: load() pins an exact keyword list with no **kwargs catch-all."""
+
+    config_keys: list[str] = ["scale"]
+
+    def __init__(self, scale: float = 1.0) -> None:
+        super().__init__()
+        self.scale = scale
+
+    def forward(self, features: dict[str, Tensor], **kwargs) -> dict[str, Tensor]:
+        return features
+
+    def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
+        self.save_config(output_path)
+
+    @classmethod
+    def load(
+        cls,
+        model_name_or_path: str,
+        subfolder: str = "",
+        token: bool | str | None = None,
+        cache_folder: str | None = None,
+        revision: str | None = None,
+        local_files_only: bool = False,
+        trust_remote_code: bool = False,
+        model_kwargs: dict | None = None,
+        processor_kwargs: dict | None = None,
+        config_kwargs: dict | None = None,
+        backend: str = "torch",
+    ) -> StrictLoadModule:
+        config = cls.load_config(
+            model_name_or_path,
+            subfolder=subfolder,
+            token=token,
+            cache_folder=cache_folder,
+            revision=revision,
+            local_files_only=local_files_only,
+        )
+        return cls(**config)
+
+
+def test_modules_and_path_combo_warns_and_loads_from_path(caplog) -> None:
+    """Passing both ``model_name_or_path`` and ``modules`` silently discarded the modules: now it
+    warns, and the checkpoint's own modules win."""
+    from sentence_transformers.base.modules import Normalize
+
+    with caplog.at_level(logging.WARNING):
+        model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors", modules=[Normalize()])
+    assert any("`modules` argument is ignored" in record.message for record in caplog.records)
+    assert len(model) == 2  # the checkpoint's Transformer + Pooling, not the single Normalize
+
+
+def test_third_party_module_with_strict_load_signature_round_trips(tmp_path: Path) -> None:
+    """The loader passes init_defaults to module.load() only when the model provides some: a
+    third-party module pinning the exact keyword list without **kwargs must keep loading."""
+    from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+
+    transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    pooling = Pooling(transformer.get_embedding_dimension(), "mean")
+    model = SentenceTransformer(modules=[transformer, pooling, StrictLoadModule(scale=2.0)])
+    model.save_pretrained(str(tmp_path))
+
+    reloaded = SentenceTransformer(str(tmp_path), trust_remote_code=True)
+    strict = reloaded[2]
+    assert isinstance(strict, StrictLoadModule)
+    assert strict.scale == 2.0
+    reloaded.encode(["round trip"])
+
+
+def test_private_load_with_module_classes_loads_without_trust_remote_code(tmp_path: Path) -> None:
+    """A module class outside Sentence Transformers needs ``trust_remote_code=True``, which also permits
+    remote code for the backbone. Supplying the class this process already imported loads it without the
+    flag. A strict ``load()`` signature must survive that too, so it never sees the extra keyword."""
+    from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+    from sentence_transformers.util import fullname
+
+    transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    pooling = Pooling(transformer.get_embedding_dimension(), "mean")
+    SentenceTransformer(modules=[transformer, pooling, StrictLoadModule(scale=2.0)]).save_pretrained(str(tmp_path))
+
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        SentenceTransformer(str(tmp_path))
+
+    # The mapping exempts only what it names: a ref it does not cover is still refused.
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        SentenceTransformer._load_with_module_classes(str(tmp_path), {"other.pkg.Thing": StrictLoadModule})
+
+    reloaded = SentenceTransformer._load_with_module_classes(
+        str(tmp_path), {fullname(StrictLoadModule): StrictLoadModule}
+    )
+    assert isinstance(reloaded[2], StrictLoadModule)
+    assert reloaded[2].scale == 2.0
+    assert reloaded.trust_remote_code is False
+    reloaded.encode(["round trip"])
