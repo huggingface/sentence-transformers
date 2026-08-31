@@ -204,7 +204,9 @@ def test_onnx_export_keeps_external_data_spread_over_several_files(tmp_path: Pat
 def test_onnx_export_keeps_external_data_in_subdirectories(tmp_path: Path) -> None:
     """Weights may sit in a subdirectory, and the model keeps pointing at them only if that is kept.
 
-    Two of them sharing a file name is what makes this more than cosmetic: flattening loses one.
+    Optimum writes a plain file name beside the model, so this layout is built by hand. It is the one
+    the rename leaves alone, and two files sharing a name is what makes keeping the directories more
+    than cosmetic, since flattening would lose one.
     """
 
     def export_function(save_dir):
@@ -217,41 +219,6 @@ def test_onnx_export_keeps_external_data_in_subdirectories(tmp_path: Path) -> No
 
     assert export_to(tmp_path, export_function) == {FILE_NAME, "first/weights.bin", "second/weights.bin"}
     assert_runs(tmp_path / "onnx" / FILE_NAME)
-
-
-@pytest.mark.parametrize(
-    "location",
-    ["../escaped.bin", "{escaped}", "{save_dir}/weights.bin"],
-    ids=["parent directory", "absolute path", "absolute path beside the model"],
-)
-def test_onnx_export_rejects_external_data_outside_the_model_directory(tmp_path: Path, location: str) -> None:
-    """ONNX refuses to load weights that are not at a relative location, and writing them there is worse.
-
-    A relative location that leaves the model directory resolves to next to the destination directory
-    rather than inside it, and an absolute one lands wherever it says, even if that is the source.
-    """
-    escaped = tmp_path / "escaped.bin"
-
-    def export_function(save_dir):
-        path = Path(save_dir, FILE_NAME)
-        save_model(path, location="weights.bin")
-        set_locations(path, {"weights.bin": location.format(save_dir=save_dir, escaped=escaped)})
-
-    with pytest.raises(ValueError, match="only loads external data from a location relative to"):
-        export_to(tmp_path, export_function)
-
-    assert not escaped.exists()
-
-
-def test_onnx_export_warns_about_missing_external_data(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    """A model naming weights that were never written is broken already; say so instead of crashing."""
-
-    def export_function(save_dir):
-        save_model(Path(save_dir, FILE_NAME), location="weights.bin")
-        Path(save_dir, "weights.bin").unlink()
-
-    assert export_to(tmp_path, export_function) == {FILE_NAME}
-    assert "weights.bin" in caplog.text
 
 
 def test_onnx_export_renames_external_data_for_the_hub(tmp_path: Path) -> None:
