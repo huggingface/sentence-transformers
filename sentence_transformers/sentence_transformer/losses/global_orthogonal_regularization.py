@@ -6,6 +6,7 @@ from typing import Any, Literal
 import torch
 from torch import Tensor, nn
 
+from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer import SentenceTransformer
 from sentence_transformers.util import cos_sim
 
@@ -133,7 +134,7 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
     def forward(
         self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None
     ) -> dict[str, Tensor]:
-        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        embeddings = embed_columns(self.model, sentence_features)
         return self.compute_loss_from_embeddings(embeddings)
 
     def compute_loss_from_embeddings(

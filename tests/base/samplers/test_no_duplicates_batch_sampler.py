@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import random
+import wave
 
 import numpy as np
 import pytest
@@ -10,12 +12,12 @@ from packaging.version import parse as parse_version
 from torch.utils.data import ConcatDataset
 
 import sentence_transformers.base.sampler as sampler_module
-from sentence_transformers.base.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler
+from sentence_transformers.base.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler, _sample_value_str
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
     import datasets
-    from datasets import Dataset
+    from datasets import Audio, Dataset, Features, Value
 
     # datasets < 4.1.0 does not support num_proc=0
     PRECOMPUTE_NUM_PROC = 0 if parse_version(datasets.__version__) >= parse_version("4.1.0") else 1
@@ -24,6 +26,17 @@ else:
         reason='Sentence Transformers was not installed with the `["train"]` extra.',
         allow_module_level=True,
     )
+
+
+def _wav_bytes(frequency: int) -> bytes:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(16000)
+        samples = np.sin(2 * np.pi * frequency * np.linspace(0, 0.1, 1600, endpoint=False))
+        writer.writeframes((samples * 10_000).astype("<i2").tobytes())
+    return buffer.getvalue()
 
 
 @pytest.fixture
@@ -278,6 +291,129 @@ def test_no_duplicates_batch_sampler_list_values_match_between_hash_and_non_hash
     assert hashed_batches == default_batches
     assert len(default_batches) == 1
     assert len(default_batches[0]) == 2
+
+
+@pytest.mark.parametrize("precompute_hashes", [False, True])
+def test_no_duplicates_batch_sampler_deduplicates_images(precompute_hashes: bool) -> None:
+    # PIL images stringify to a fresh object address on every dataset access, so without
+    # content digests every image row looks unique and the dedup silently no-ops.
+    pil_image = pytest.importorskip("PIL.Image")
+    sampler_kwargs = {}
+    if precompute_hashes:
+        if not is_xxhash_available():
+            pytest.skip("xxhash not installed")
+        sampler_kwargs = {
+            "precompute_hashes": True,
+            "precompute_num_proc": PRECOMPUTE_NUM_PROC,
+            "precompute_batch_size": 10,
+        }
+
+    images = [pil_image.new("RGB", (4, 4), color) for color in ("red", "green", "blue", "yellow")]
+    dataset = Dataset.from_dict(
+        {"query": [f"query_{i}" for i in range(16)], "image": [images[i % 4] for i in range(16)]}
+    )
+    sampler = NoDuplicatesBatchSampler(
+        dataset=dataset,
+        batch_size=8,
+        drop_last=False,
+        generator=torch.Generator(),
+        seed=0,
+        **sampler_kwargs,
+    )
+
+    batches = list(iter(sampler))
+
+    assert sum(len(batch) for batch in batches) == 16
+    for batch in batches:
+        # Only 4 unique images exist, so a batch of 8 must stop at 4 distinct rows.
+        assert len(batch) == 4
+        pixels = {dataset[i]["image"].tobytes() for i in batch}
+        assert len(pixels) == len(batch)
+
+
+@pytest.mark.parametrize("precompute_hashes", [False, True])
+def test_no_duplicates_batch_sampler_deduplicates_audio(precompute_hashes: bool) -> None:
+    # Audio / Video features return torchcodec decoders whose pickle embeds a torch storage key
+    # taken from the object address, so digesting the decoder itself is fresh on every access.
+    pytest.importorskip("torchcodec")
+    sampler_kwargs = {}
+    if precompute_hashes:
+        if not is_xxhash_available():
+            pytest.skip("xxhash not installed")
+        sampler_kwargs = {
+            "precompute_hashes": True,
+            "precompute_num_proc": PRECOMPUTE_NUM_PROC,
+            "precompute_batch_size": 10,
+        }
+
+    clips = [_wav_bytes(frequency) for frequency in (440, 660, 880, 1100)]
+    dataset = Dataset.from_dict(
+        {
+            "query": [f"query_{i}" for i in range(16)],
+            "audio": [{"bytes": clips[i % 4], "path": None} for i in range(16)],
+        },
+        features=Features({"query": Value("string"), "audio": Audio()}),
+    )
+    sampler = NoDuplicatesBatchSampler(
+        dataset=dataset,
+        batch_size=8,
+        drop_last=False,
+        generator=torch.Generator(),
+        seed=0,
+        **sampler_kwargs,
+    )
+
+    batches = list(iter(sampler))
+
+    assert sum(len(batch) for batch in batches) == 16
+    for batch in batches:
+        # Only 4 unique clips exist, so a batch of 8 must stop at 4 distinct rows.
+        assert len(batch) == 4
+
+
+def test_sample_value_str_decoder_digest_is_stable_across_accesses() -> None:
+    # The decoder is rebuilt per access, so its digest must come from the encoded source it wraps.
+    pytest.importorskip("torchcodec")
+    dataset = Dataset.from_dict(
+        {"audio": [{"bytes": _wav_bytes(440), "path": None}, {"bytes": _wav_bytes(880), "path": None}]},
+        features=Features({"audio": Audio()}),
+    )
+    assert _sample_value_str(dataset[0]["audio"]) == _sample_value_str(dataset[0]["audio"])
+    assert _sample_value_str(dataset[0]["audio"]) != _sample_value_str(dataset[1]["audio"])
+
+
+def test_sample_value_str_plain_values_keep_str() -> None:
+    # The historical text/number dedup keys must stay byte-identical.
+    assert _sample_value_str("a sentence") == "a sentence"
+    assert _sample_value_str(5) == "5"
+    assert _sample_value_str(["a", "b"]) == str(["a", "b"])
+    assert _sample_value_str([1.0, 0.5]) == str([1.0, 0.5])
+
+
+def test_sample_value_str_numpy_scalars_match_python_scalars() -> None:
+    # Every value went through str() before this function existed, so numpy scalars shared a key
+    # with their python counterparts. Arrays stay on the digest path.
+    assert _sample_value_str(np.int64(5)) == _sample_value_str(5)
+    assert _sample_value_str(np.float64(0.5)) == _sample_value_str(0.5)
+    assert _sample_value_str(np.bool_(True)) == _sample_value_str(True)
+    assert _sample_value_str(np.arange(3)) != str(np.arange(3))
+
+
+def test_sample_value_str_digests_object_content() -> None:
+    # str() of a large array is truncated to its head and tail, so distinct arrays could collide.
+    # Content digests keep equal content equal and distinct content distinct.
+    same_a = np.arange(10_000)
+    same_b = np.arange(10_000)
+    different = np.arange(10_000)
+    different[5_000] = -1
+    assert str(same_a) == str(different)
+    assert _sample_value_str(same_a) == _sample_value_str(same_b)
+    assert _sample_value_str(same_a) != _sample_value_str(different)
+
+
+def test_sample_value_str_unpicklable_falls_back_to_str() -> None:
+    unpicklable = lambda: None  # noqa: E731
+    assert _sample_value_str(unpicklable) == str(unpicklable)
 
 
 def test_no_duplicates_batch_sampler_uses_int64_indices_when_int32_range_is_exceeded(

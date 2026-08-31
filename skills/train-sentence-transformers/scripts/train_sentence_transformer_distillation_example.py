@@ -22,7 +22,7 @@ Three distillation patterns:
   CrossEncoder teacher's score differences. Workhorse of ms-marco distillation.
   See `../references/losses_sentence_transformer.md` (MarginMSELoss section).
 - Pattern 3: `(query, positive, neg_1, ..., neg_n, labels)` + `DistillKLDivLoss`
-  to preserve the full teacher distribution. More data-hungry; natural fit when
+  to preserve the full teacher distribution. More data-hungry. Natural fit when
   distilling from an ensemble of rerankers.
 
 Mismatched dims: if the student's dim is smaller than the teacher's, MSELoss
@@ -45,7 +45,7 @@ or eval ranking collapses silently. Every non-BCE CE loss expects raw logits
 during training, but the model's `activation_fn` runs at eval time inside
 `predict()`. Default `Sigmoid` (when `num_labels=1`) saturates raw logits >5 to
 ~1.0, dropping nDCG from e.g. ~0.59 to ~0.14 with healthy-looking training loss.
-Applies to all CE distillation / listwise / pairwise losses; see SKILL.md
+Applies to all CE distillation / listwise / pairwise losses. See SKILL.md
 Directive 7 ([CE]).
 
 Layer pruning shortcut for Pattern 1: copy the teacher, delete layers (often
@@ -59,10 +59,10 @@ keeps 99%+ of quality at a fraction of the layers), then distill with MSELoss:
     )
     student.transformers_model.config.num_hidden_layers = 4
 
-Tips: pre-compute teacher outputs once and cache (`dataset.save_to_disk`); LR
-1e-4 (higher than the usual 2e-5; the target is dense regression); 1 epoch is
-usually enough; the student inherits the teacher's weaknesses, so pick a
-teacher strong on YOUR task; if the teacher expects an instruction prefix,
+Tips: pre-compute teacher outputs once and cache (`dataset.save_to_disk`). LR
+1e-4 (higher than the usual 2e-5: the target is dense regression). 1 epoch is
+usually enough. The student inherits the teacher's weaknesses, so pick a
+teacher strong on YOUR task. If the teacher expects an instruction prefix,
 include it during teacher encoding so the student's target matches inference.
 
 For multilingual student distillation (extend an English teacher to other

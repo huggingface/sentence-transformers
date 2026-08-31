@@ -180,7 +180,7 @@ def semantic_search(
         query_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the query embeddings. Can be a sparse tensor.
         corpus_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the corpus embeddings. Can be a sparse tensor.
         query_chunk_size (int, optional): Process 100 queries simultaneously. Increasing that value increases the speed, but requires more memory. Defaults to 100.
-        corpus_chunk_size (int, optional): Scans the corpus 100k entries at a time. Increasing that value increases the speed, but requires more memory. Defaults to 500000.
+        corpus_chunk_size (int, optional): Scans the corpus 500k entries at a time. Increasing that value increases the speed, but requires more memory. Defaults to 500000.
         top_k (int, optional): Retrieve top k matching entries. Defaults to 10.
         score_function (Callable[[:class:`~torch.Tensor`, :class:`~torch.Tensor`], :class:`~torch.Tensor`], optional): Function for computing scores. By default, cosine similarity.
 
@@ -330,7 +330,7 @@ def community_detection(
                     top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 
                     # Check if we need to increase sort_max_size
-                    while top_val_large[-1] > threshold and sort_max_size < len(embeddings):
+                    while top_val_large[-1] >= threshold and sort_max_size < len(embeddings):
                         sort_max_size = min(2 * sort_max_size, len(embeddings))
                         top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 

@@ -215,7 +215,7 @@ def main() -> None:
         return
 
     try:
-        commit_url = model.push_to_hub(RUN_NAME)  # public by default; uses your authenticated user
+        commit_url = model.push_to_hub(RUN_NAME)  # public by default. Uses your authenticated user
         logging.info(f"Pushed model to {commit_url.rsplit('/commit/', 1)[0]}")
     except Exception:
         import traceback

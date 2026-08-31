@@ -6,7 +6,7 @@
 
 # {{ model_name if model_name else "Sentence Transformer model" }}
 
-This is a [sentence-transformers](https://www.SBERT.net) model{% if base_model %} finetuned from [{{ base_model }}](https://huggingface.co/{{ base_model }}){% else %} trained{% endif %}{% if train_datasets | selectattr("name") | list %} on {% if train_datasets | selectattr("name") | map(attribute="name") | join(", ") | length > 200 %}{{ train_datasets | length }}{% else %}the {% for dataset in (train_datasets | selectattr("name")) %}{% if dataset.id %}[{{ dataset.name if dataset.name else dataset.id }}](https://huggingface.co/datasets/{{ dataset.id }}){% else %}{{ dataset.name }}{% endif %}{% if not loop.last %}{% if loop.index == (train_datasets | selectattr("name") | list | length - 1) %} and {% else %}, {% endif %}{% endif %}{% endfor %}{% endif %} dataset{{"s" if train_datasets | selectattr("name") | list | length > 1 else ""}}{% endif %}. It maps sentences & paragraphs to a {{ output_dimensionality }}-dimensional dense vector space and can be used for {{ task_name }}.
+This is a [sentence-transformers](https://www.SBERT.net) model{% if base_model %} finetuned from [{{ base_model }}](https://huggingface.co/{{ base_model }}){% else %} trained{% endif %}{% if train_datasets | selectattr("name") | list %} on {% if train_datasets | selectattr("name") | map(attribute="name") | join(", ") | length > 200 %}{{ train_datasets | length }}{% else %}the {% for dataset in (train_datasets | selectattr("name")) %}{% if dataset.id %}[{{ dataset.name if dataset.name else dataset.id }}](https://huggingface.co/datasets/{{ dataset.id }}){% else %}{{ dataset.name }}{% endif %}{% if not loop.last %}{% if loop.index == (train_datasets | selectattr("name") | list | length - 1) %} and {% else %}, {% endif %}{% endif %}{% endfor %}{% endif %} dataset{{"s" if train_datasets | selectattr("name") | list | length > 1 else ""}}{% endif %}. It maps inputs to a {{ output_dimensionality }}-dimensional dense vector space and can be used for {{ task_name }}.
 
 ## Model Details
 
@@ -22,6 +22,12 @@ This is a [sentence-transformers](https://www.SBERT.net) model{% if base_model %
     <!-- - **Base model:** [Unknown](https://huggingface.co/unknown) -->
 {%- endif %}
 - **Maximum Sequence Length:** {{ model_max_length }} tokens
+{%- if query_length %}
+    - **Maximum Query Length:** {{ query_length }} tokens
+{%- endif %}
+{%- if document_length %}
+    - **Maximum Document Length:** {{ document_length }} tokens
+{%- endif %}
 - **Output Dimensionality:** {{ output_dimensionality }} dimensions
 - **Similarity Function:** {{ similarity_fn_name }}
 {% if supported_modalities -%}

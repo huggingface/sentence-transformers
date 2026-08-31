@@ -117,9 +117,9 @@ The usage for Cross Encoder (a.k.a. reranker) models is similar to Sentence Tran
 
 .. sidebar:: Documentation
 
-   1. :class:`CrossEncoder <sentence_transformers.CrossEncoder>`
-   2. :meth:`CrossEncoder.rank <sentence_transformers.CrossEncoder.rank>`
-   3. :meth:`CrossEncoder.predict <sentence_transformers.CrossEncoder.predict>`
+   1. :class:`CrossEncoder <sentence_transformers.cross_encoder.model.CrossEncoder>`
+   2. :meth:`CrossEncoder.rank <sentence_transformers.cross_encoder.model.CrossEncoder.rank>`
+   3. :meth:`CrossEncoder.predict <sentence_transformers.cross_encoder.model.CrossEncoder.predict>`
 
    **Other useful methods and links:**
 
@@ -244,10 +244,10 @@ The usage for Sparse Encoder models follows a similar pattern to Sentence Transf
 
 .. sidebar:: Documentation
 
-   1. :class:`SparseEncoder <sentence_transformers.SparseEncoder>`
-   2. :meth:`SparseEncoder.encode <sentence_transformers.SparseEncoder.encode>`
-   3. :meth:`SparseEncoder.similarity <sentence_transformers.SparseEncoder.similarity>`
-   4. :meth:`SparseEncoder.sparsity <sentence_transformers.SparseEncoder.sparsity>`
+   1. :class:`SparseEncoder <sentence_transformers.sparse_encoder.model.SparseEncoder>`
+   2. :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.model.SparseEncoder.encode>`
+   3. :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity>`
+   4. :meth:`SparseEncoder.sparsity <sentence_transformers.sparse_encoder.model.SparseEncoder.sparsity>`
 
    **Other useful methods and links:**
 
@@ -296,6 +296,103 @@ Finetuning Sparse Encoder models is easy and requires only a few lines of code. 
 
     Read `Sparse Encoder > Usage > Speeding up Inference <sparse_encoder/usage/efficiency.html>`_ for tips on how to speed up inference of models by up to 2x-3x.
 
+Multi-Vector Encoder
+--------------------
+
+Characteristics of Multi-Vector Encoder (a.k.a ColBERT-style or "late-interaction") models:
+
+1. Calculates a **sequence of token-level vectors** per input rather than a single fixed-size embedding.
+2. Scores queries against documents with the **MaxSim** operator: for each query token, take the maximum similarity to any document token, then sum across query tokens.
+3. Preserves **token-level matching information** that single-vector models discard, typically yielding stronger retrieval at the cost of a larger index footprint.
+4. Recent VLM-backed variants (ColPali, ColQwen2, ColModernVBert, ...) extend this to **image documents** (each image patch becomes a "token"), enabling end-to-end OCR-free document retrieval.
+
+The usage for Multi-Vector Encoder models follows a similar pattern to Sentence Transformers:
+
+.. sidebar:: Documentation
+
+   1. :class:`MultiVectorEncoder <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder>`
+   2. :meth:`MultiVectorEncoder.encode_query <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode_query>`
+   3. :meth:`MultiVectorEncoder.encode_document <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode_document>`
+   4. :meth:`MultiVectorEncoder.similarity <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.similarity>`
+
+   **Other useful methods and links:**
+
+   - `MultiVectorEncoder > Usage <./multi_vector_encoder/usage/usage.html>`_
+   - `MultiVectorEncoder > Pretrained Models <./multi_vector_encoder/pretrained_models.html>`_
+   - `MultiVectorEncoder > Training Overview <./multi_vector_encoder/training_overview.html>`_
+   - `MultiVectorEncoder > Loss Overview <./multi_vector_encoder/loss_overview.html>`_
+
+.. tab:: Text
+
+   .. code-block:: python
+
+      from sentence_transformers import MultiVectorEncoder
+
+      # 1. Load a pretrained MultiVectorEncoder model
+      model = MultiVectorEncoder("lightonai/LateOn")
+
+      queries = ["What is the capital of France?"]
+      documents = [
+          "Paris is the capital of France.",
+          "Berlin is the capital of Germany.",
+      ]
+
+      # 2. Encode queries and documents (note the asymmetric encode_query / encode_document split)
+      query_embeddings = model.encode_query(queries)
+      document_embeddings = model.encode_document(documents)
+
+      # Each entry is a 2D tensor of shape (num_tokens_i, embedding_dim), variable-length per input.
+      print(query_embeddings[0].shape)
+      # torch.Size([10, 128])
+
+      # 3. Score with MaxSim
+      scores = model.similarity(query_embeddings, document_embeddings)
+      print(scores)
+      # tensor([[9.1129, 8.8769]], device='cuda:0')
+
+.. tab:: Multimodal
+
+   .. code-block:: python
+
+      from sentence_transformers import MultiVectorEncoder
+
+      # 1. Load a model that matches text queries against page images, no OCR step
+      model = MultiVectorEncoder("vidore/colqwen2.5-v0.2")
+
+      queries = [
+          "What is the variable represented on the y-axis of the graph?",
+          "Total outlay is maximum in which year?",
+      ]
+      # Image documents are passed as URLs, local paths, or PIL images
+      images = [
+          "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc1.jpg",
+          "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc2.jpg",
+          "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc3.jpg",
+          "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc4.jpg",
+      ]
+
+      # 2. Encode with the same two calls as for text
+      query_embeddings = model.encode_query(queries)
+      document_embeddings = model.encode_document(images)
+
+      # A page yields far more vectors than a query: one per image patch
+      print(query_embeddings[0].shape, document_embeddings[0].shape)
+      # torch.Size([25, 128]) torch.Size([755, 128])
+
+      # 3. Score query text tokens against document image patches with MaxSim
+      scores = model.similarity(query_embeddings, document_embeddings)
+      print(scores)
+      # tensor([[13.8672, 12.3115, 12.1670, 11.0293],
+      #         [ 7.2012, 14.7207,  6.9414,  6.9746]])
+
+With ``MultiVectorEncoder("lightonai/LateOn")`` we pick a pretrained late-interaction model. Late-interaction models are particularly strong for **retrieval** tasks where token-level matching matters (named entities, exact-phrase queries, sub-document relevance). ColPali-style variants extend this to image document retrieval over scanned pages, slides, and figures.
+
+Finetuning Multi-Vector Encoder models is easy and requires only a few lines of code. For more information, see the `Training Overview <./multi_vector_encoder/training_overview.html>`__ section.
+
+.. tip::
+
+    Read `Multi-Vector Encoder > Usage > Speeding up Inference <multi_vector_encoder/usage/efficiency.html>`_ for benchmarks and tips on how to speed up inference with the ONNX and OpenVINO backends.
+
 Next Steps
 ----------
 
@@ -312,4 +409,7 @@ Consider reading one of the following sections next:
 * `Sparse Encoder > Usage <./sparse_encoder/usage/usage.html>`_
 * `Sparse Encoder > Pretrained Models <./sparse_encoder/pretrained_models.html>`_
 * `Sparse Encoder > Vector Database Integration <../examples/sparse_encoder/applications/semantic_search/README.html#vector-database-search>`_
+* `Multi-Vector Encoder > Usage <./multi_vector_encoder/usage/usage.html>`_
+* `Multi-Vector Encoder > Pretrained Models <./multi_vector_encoder/pretrained_models.html>`_
+* `Multi-Vector Encoder > Training Overview <./multi_vector_encoder/training_overview.html>`_
 

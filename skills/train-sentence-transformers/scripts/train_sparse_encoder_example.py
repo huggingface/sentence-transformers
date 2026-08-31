@@ -16,7 +16,7 @@ Demonstrates:
 - SparseNanoBEIREvaluator for sparse retrieval metrics
 - load_best_model_at_end on the retrieval metric
 
-Base model must expose a masked-LM head; any `AutoModelForMaskedLM`-compatible
+Base model must expose a masked-LM head. Any `AutoModelForMaskedLM`-compatible
 checkpoint works (DistilBERT, BERT, MiniLM MLM variants, existing SPLADE models).
 
 Run locally:
@@ -208,7 +208,7 @@ def main() -> None:
         score = result[evaluator.primary_metric]
     delta = score - baseline_eval
     verdict = "WIN" if delta >= 0.005 else "MARGINAL" if delta >= 0 else "REGRESSION"
-    # Active-dim keys come back name-prefixed (e.g. "NanoBEIR_..._query_active_dims"); suffix-match for compat.
+    # Active-dim keys come back name-prefixed (e.g. "NanoBEIR_..._query_active_dims"). Suffix-match for compat.
     qad = next((v for k, v in result.items() if k.endswith("query_active_dims")), "n/a")
     cad = next((v for k, v in result.items() if k.endswith("corpus_active_dims")), "n/a")
     logging.info(

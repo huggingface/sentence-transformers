@@ -47,7 +47,7 @@ from sentence_transformers.base.data_collator import BaseDataCollator
 from sentence_transformers.base.evaluation import BaseEvaluator, SequentialEvaluator
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.model_card import BaseModelCardCallback, BaseModelCardData
-from sentence_transformers.base.modules import Router
+from sentence_transformers.base.modules import Module, Router
 from sentence_transformers.base.sampler import (
     DefaultBatchSampler,
     GroupByLabelBatchSampler,
@@ -61,7 +61,7 @@ from sentence_transformers.util import disable_logging, fullname, is_datasets_av
 from sentence_transformers.util.decorators import deprecated_kwargs
 
 if is_datasets_available():
-    from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, Value
+    from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, Sequence, Value
 
 logger = logging.getLogger(__name__)
 
@@ -235,9 +235,13 @@ class BaseTrainer(Trainer, ABC):
             if isinstance(dataset, IterableDataset) and dataset.column_names is None:
                 sample = next(iter(dataset))
                 naive_type_mapping = {str: "string", int: "int64", float: "float32", bool: "bool"}
-                example_features = {
-                    key: Value(naive_type_mapping.get(type(value), "null")) for key, value in sample.items()
-                }
+
+                def naive_feature(value: Any) -> Any:
+                    if isinstance(value, (list, tuple)):
+                        return Sequence(naive_feature(value[0]) if value else Value("string"))
+                    return Value(naive_type_mapping.get(type(value), "null"))
+
+                example_features = {key: naive_feature(value) for key, value in sample.items()}
                 raise ValueError(
                     f"The provided `{dataset_name}_dataset` must have Features. Specify them with e.g.:\n"
                     f"{dataset_name}_dataset = {dataset_name}_dataset.cast(Features({example_features}))\n"
@@ -327,6 +331,7 @@ class BaseTrainer(Trainer, ABC):
             self.train_dataset = self.preprocess_dataset(train_dataset, dataset_name="train")
         if self.eval_dataset is not None:
             self.eval_dataset = self.preprocess_dataset(eval_dataset, dataset_name="eval")
+        self._eval_dataloaders: dict[str, DataLoader] = {}
         self.add_model_card_callback(default_args_dict)
 
     def get_data_collator(
@@ -368,6 +373,8 @@ class BaseTrainer(Trainer, ABC):
             preprocess_fn=model.preprocess,
             router_mapping=args.router_mapping,
             prompts=args.prompts,
+            # Only MultiVectorEncoderTrainingArguments defines max_length so far.
+            max_length=getattr(args, "max_length", None),
         )
 
     def add_model_card_callback(self, default_args_dict: dict[str, Any]) -> None:
@@ -419,7 +426,7 @@ class BaseTrainer(Trainer, ABC):
 
         for name, child in loss.named_children():
             if name == "model" and isinstance(child, BaseModel):
-                # DDP/compile wrappers don't expose BaseModel methods; bind the ones
+                # DDP/compile wrappers don't expose BaseModel methods. Bind the ones
                 # losses call inside `forward` (CE: `preprocess`, MatryoshkaLoss:
                 # `get_embedding_dimension`).
                 for attr in ("preprocess", "get_embedding_dimension"):
@@ -619,14 +626,13 @@ class BaseTrainer(Trainer, ABC):
 
     def evaluate(
         self,
-        eval_dataset: Dataset | dict[str, Dataset] | None = None,
+        eval_dataset: str | Dataset | dict[str, Dataset] | None = None,
         ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
     ) -> dict[str, float]:
-        if eval_dataset is not None:
+        # None and str pass through: the superclass recurses over a dict self.eval_dataset by name
+        if eval_dataset is not None and not isinstance(eval_dataset, str):
             eval_dataset = self.preprocess_dataset(eval_dataset, dataset_name="eval")
-        else:
-            eval_dataset = self.eval_dataset
         return super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
 
     def evaluation_loop(
@@ -925,15 +931,18 @@ class BaseTrainer(Trainer, ABC):
         )
         return self._train_dataloader
 
-    def get_eval_dataloader(self, eval_dataset: Dataset | DatasetDict | IterableDataset | None = None) -> DataLoader:
+    def get_eval_dataloader(
+        self, eval_dataset: str | Dataset | DatasetDict | IterableDataset | None = None
+    ) -> DataLoader:
         """
         Returns the evaluation [`~torch.utils.data.DataLoader`].
 
         Subclass and override this method if you want to inject some custom behavior.
 
         Args:
-            eval_dataset (`torch.utils.data.Dataset`, *optional*):
-                If provided, will override `self.eval_dataset`. If it is a [`~datasets.Dataset`], columns not accepted
+            eval_dataset (`str` or `torch.utils.data.Dataset`, *optional*):
+                If a `str`, will use `self.eval_dataset[eval_dataset]` as the evaluation dataset. If provided
+                otherwise, will override `self.eval_dataset`. If it is a [`~datasets.Dataset`], columns not accepted
                 by the `model.forward()` method are automatically removed. It must implement `__len__`.
         """
         if eval_dataset is None and self.eval_dataset is None:
@@ -942,15 +951,31 @@ class BaseTrainer(Trainer, ABC):
                 return DataLoader([])
             raise ValueError(f"Evaluation requires specifying an eval_dataset to the {self.__class__.__name__}.")
 
-        eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
+        # With persistent workers, reuse prepared dataloaders so repeated evaluations don't leak
+        # workers, see https://github.com/huggingface/transformers/pull/39717
+        dataloader_key = eval_dataset if isinstance(eval_dataset, str) else "eval"
+        # Explicitly passed datasets all share the "eval" key, so never cache those
+        cacheable = isinstance(eval_dataset, str) or eval_dataset is None or eval_dataset is self.eval_dataset
+        if cacheable and self.args.dataloader_persistent_workers and dataloader_key in self._eval_dataloaders:
+            return self._eval_dataloaders[dataloader_key]
+
+        if isinstance(eval_dataset, str):
+            eval_dataset = self.eval_dataset[eval_dataset]
+        elif eval_dataset is None:
+            eval_dataset = self.eval_dataset
 
         # If 'even_batches' is True, it will use the initial few samples to pad out the last sample. This can
         # cause issues with multi-dataset training, so we want to set this to False during training.
         # For evaluation, setting 'even_batches' to False results in hanging, so we keep it as True here.
         self.accelerator.even_batches = True
-        return self.accelerator.prepare(
+        dataloader = self.accelerator.prepare(
             self._build_dataloader(eval_dataset, self.args.eval_batch_size, dataset_kind="eval")
         )
+
+        if cacheable and self.args.dataloader_persistent_workers:
+            self._eval_dataloaders[dataloader_key] = dataloader
+
+        return dataloader
 
     def get_test_dataloader(self, test_dataset: Dataset | DatasetDict | IterableDataset) -> DataLoader:
         """
@@ -1043,8 +1068,15 @@ class BaseTrainer(Trainer, ABC):
         return skip
 
     def _load_from_checkpoint(self, checkpoint_path: str) -> None:
-        model_class = self.model.__class__
-        loaded_model = model_class(checkpoint_path, trust_remote_code=self.model.trust_remote_code)
+        # Our own checkpoint of the model being trained, so its module classes are already imported here,
+        # yet a programmatically built model never carries trust_remote_code (#3801). Handing those classes
+        # over leaves the backbone on the model's own flag, where stale remote code stays unused.
+        module_classes = {
+            fullname(module): type(module) for module in self.model.modules() if isinstance(module, Module)
+        }
+        loaded_model = self.model.__class__._load_with_module_classes(
+            checkpoint_path, module_classes, trust_remote_code=self.model.trust_remote_code
+        )
         self.model.load_state_dict(loaded_model.state_dict())
 
     def preprocess_dataset(

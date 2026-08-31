@@ -7,9 +7,10 @@ import torch
 from torch import Tensor, nn
 from transformers import PreTrainedTokenizerBase
 
+from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import all_gather_with_grad, is_dist_initialized
+from sentence_transformers.util import all_gather_with_grad, get_rank
 
 
 class GISTEmbedLoss(nn.Module):
@@ -70,7 +71,7 @@ class GISTEmbedLoss(nn.Module):
             +---------------------------------------+--------+
 
         Recommendations:
-            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`) to
+            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
 
         Relations:
@@ -137,27 +138,27 @@ class GISTEmbedLoss(nn.Module):
         return self.similarity_fct(embed1.unsqueeze(1), embed2.unsqueeze(0))
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
-        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        sentence_features = list(sentence_features)
+        # Run the guide on shallow copies: it writes its outputs into the features it is given, and
+        # loss decorators like MatryoshkaLoss reuse the dicts the model filled.
+        guide_features = [dict(sentence_feature) for sentence_feature in sentence_features]
+        embeddings = embed_columns(self.model, sentence_features)
         with torch.no_grad():
             if self.must_retokenize:
                 decoded = [
                     self.tokenizer.batch_decode(sentence_feature["input_ids"], skip_special_tokens=True)
                     for sentence_feature in sentence_features
                 ]
-                sentence_features = [self.guide.preprocess(sentences) for sentences in decoded]
-                sentence_features = [
+                guide_features = [self.guide.preprocess(sentences) for sentences in decoded]
+                guide_features = [
                     {
                         key: value.to(self.guide.device) if isinstance(value, Tensor) else value
-                        for key, value in sentence_feature.items()
+                        for key, value in guide_feature.items()
                     }
-                    for sentence_feature in sentence_features
+                    for guide_feature in guide_features
                 ]
 
-            # Run the guide on shallow copies: it writes its outputs into the features it is
-            # given, and loss decorators like MatryoshkaLoss reuse the dicts the model filled.
-            guide_embeddings = [
-                self.guide(dict(sentence_feature))["sentence_embedding"] for sentence_feature in sentence_features
-            ]
+            guide_embeddings = embed_columns(self.guide, guide_features)
 
         negative = None
         negative_guide = None
@@ -184,9 +185,8 @@ class GISTEmbedLoss(nn.Module):
                 negative_guide = all_gather_with_grad(negative_guide)
             # All have this shape: (batch_size * world_size * (1 + num_negatives), embedding_dim)
 
-            if is_dist_initialized():
-                rank = torch.distributed.get_rank()
-                offset = rank * batch_size
+            # get_rank() returns 0 when not running distributed, so offset stays 0 in that case.
+            offset = get_rank() * batch_size
 
         # Compute the similarities given the training and guide embeddings.
         ap_sim = self.sim_matrix(anchor, positive)

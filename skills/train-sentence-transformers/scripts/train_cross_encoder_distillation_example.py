@@ -113,7 +113,7 @@ def setup_logging():
 
 def load_resolved_dataset():
     """Load (query, positive, negative, score) rows. The MSMARCO subset is keyed by
-    passage_id / query_id; resolve to text once and cache to disk so reruns skip the work."""
+    passage_id / query_id. Resolve to text once and cache to disk so reruns skip the work."""
     if os.path.isdir(DATA_CACHE):
         logging.info(f"Loading cached resolved dataset from {DATA_CACHE}")
         return load_from_disk(DATA_CACHE)
@@ -193,7 +193,7 @@ def main() -> None:
         max_steps=1 if SMOKE_TEST else -1,
         per_device_train_batch_size=32,
         per_device_eval_batch_size=32,
-        learning_rate=8e-6,  # Lower than typical 2e-5; distillation regression converges faster
+        learning_rate=8e-6,  # Lower than typical 2e-5. Distillation regression converges faster
         weight_decay=0.01,
         warmup_steps=0.1,
         lr_scheduler_type="linear",

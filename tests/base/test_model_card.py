@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import tempfile
 from contextlib import contextmanager
@@ -67,6 +68,80 @@ class _FakeLoss:
     """Minimal stand-in for a loss object in compute_dataset_metrics calls."""
 
     pass
+
+
+@pytest.mark.skipif(not is_datasets_available(), reason="datasets is not installed")
+class TestSetWidgetExamples:
+    def test_generates_examples_for_custom_transform_dataset(self) -> None:
+        # select_columns would starve a set_transform dataset (features are pre-transform), so rows
+        # are sampled through the transform: widgets come from the transformed string values only.
+        dataset = Dataset.from_dict(
+            {
+                "query_id": [f"q{i}" for i in range(10)],
+                "document_ids": [[f"d{i}a", f"d{i}b"] for i in range(10)],
+                "scores": [[1.0, 0.5]] * 10,
+            }
+        )
+
+        def transform(batch):
+            # Mimics resolve_ids: needs the "scores" column that select_columns would drop.
+            return {
+                "query": [f"query about topic {qid}" for qid in batch["query_id"]],
+                "document_1": [f"first document for {qid}" for qid in batch["query_id"]],
+                "document_2": [f"second document for {qid}" for qid in batch["query_id"]],
+                "scores": batch["scores"],
+            }
+
+        dataset.set_transform(transform)
+
+        data = _make_model_card_data()
+        data.set_widget_examples(dataset)
+        assert data.widget
+        assert data.usage_examples
+        assert all(isinstance(text, str) for text in data.usage_examples)
+        assert not any("d0a" in text for text in data.usage_examples), "raw IDs must not leak into examples"
+
+    def test_widget_examples_skipped_when_transform_fails(self) -> None:
+        # A transform that fails on row access (e.g. a lookup miss) must be skipped, not crash the card.
+        dataset = Dataset.from_dict({"query_id": ["q1", "q2", "q3"]})
+
+        def transform(batch):
+            raise KeyError("lookup miss")
+
+        dataset.set_transform(transform)
+
+        data = _make_model_card_data()
+        data.set_widget_examples(dataset)
+        assert data.widget == []
+
+    def test_widget_examples_prefer_shortest_rows(self) -> None:
+        # lengths are measured on the sampled rows, so the picks must be read back from those same
+        # rows: the 3 longest rows must never surface (regression for the index-space mismatch).
+        dataset = Dataset.from_dict(
+            {f"text{column}": [f"{'x' * (20 * i)} row{i} col{column}" for i in range(8)] for column in range(4)}
+        )
+        data = _make_model_card_data()
+        data.set_widget_examples(dataset)
+        assert data.widget
+        widget_texts = [
+            text
+            for entry in data.widget
+            for text in (entry.get("source_sentence", ""), entry.get("text", ""), *entry.get("sentences", []))
+        ]
+        all_texts = " ".join([*data.usage_examples, *widget_texts])
+        assert not any(f"row{i}" in all_texts for i in (5, 6, 7))
+
+    def test_generates_examples_for_plain_text_dataset(self) -> None:
+        # A plain text dataset (no transform) must still produce widget examples: the skip above is targeted.
+        dataset = Dataset.from_dict(
+            {
+                "anchor": [f"anchor sentence {i}" for i in range(10)],
+                "positive": [f"positive sentence {i}" for i in range(10)],
+            }
+        )
+        data = _make_model_card_data()
+        data.set_widget_examples(dataset)
+        assert data.widget
 
 
 class TestIsTypedMediaDict:
@@ -595,7 +670,7 @@ class TestSetMultimodalPredictExample:
         assert model.model_card_data.usage_examples == ["original"]
 
     def test_duplicate_images_deduplicated(self, stsb_bert_tiny_model: SentenceTransformer) -> None:
-        """Duplicate images in the first rows are skipped; unique images are picked from later rows."""
+        """Duplicate images in the first rows are skipped. Unique images are picked from later rows."""
         model = stsb_bert_tiny_model
 
         # First 3 rows have the same image, rows 3-5 have distinct images
@@ -828,7 +903,7 @@ class TestComputeDatasetMetricsColumns:
         lines = [line.strip() for line in table.splitlines() if line.strip()]
         modality_lines = [line for line in lines if line.startswith("| modality")]
         assert len(modality_lines) == 1, f"Expected one modality row, got: {modality_lines}"
-        # anchor → "text"; score → "" (numeric has no modality)
+        # anchor → "text", score → "" (numeric has no modality)
         assert "text" in modality_lines[0]
 
 
@@ -936,12 +1011,15 @@ class _MockVideoDecoder:
         frames: torch.Tensor | None = None,
         fail_batch: bool = False,
         fail_single: bool = False,
+        hf_encoded: dict | None = None,
     ):
         if metadata is not None:
             self.metadata = metadata
         else:
             path = source if isinstance(source, str) else None
             self.metadata = _MockVideoMetadata(path=path)
+        # datasets' Video feature stamps the encoded source onto every decoder it hands out.
+        self._hf_encoded = hf_encoded if hf_encoded is not None else {"path": self.metadata.path, "bytes": None}
         nf = self.metadata.num_frames
         h, w = self.metadata.height, self.metadata.width
         self._frames = frames if frames is not None else torch.randint(0, 255, (nf, 3, h, w), dtype=torch.uint8)
@@ -983,7 +1061,7 @@ class TestHashAssetVideoDecoder:
     """Test _hash_asset for VideoDecoder inputs."""
 
     def test_consistent_hash(self) -> None:
-        """Same metadata produces the same hash."""
+        """The same encoded source produces the same hash."""
         with _patch_video_decoder():
             kwargs = dict(path="/v.mp4", duration_seconds=2.0, width=64, height=64, num_frames=8)
             dec1 = _make_mock_video_decoder(**kwargs)
@@ -993,11 +1071,27 @@ class TestHashAssetVideoDecoder:
             assert h1 is not None
             assert h1 == h2
 
-    def test_different_metadata_different_hash(self) -> None:
+    def test_different_source_different_hash(self) -> None:
         with _patch_video_decoder():
-            dec1 = _make_mock_video_decoder(width=64)
-            dec2 = _make_mock_video_decoder(width=128)
+            dec1 = _make_mock_video_decoder(path="/one.mp4")
+            dec2 = _make_mock_video_decoder(path="/two.mp4")
             assert BaseModelCardData._hash_asset(dec1) != BaseModelCardData._hash_asset(dec2)
+
+    def test_same_shape_different_bytes_are_distinct(self) -> None:
+        # Decoder metadata (path, duration, resolution, frame count) is identical for any two
+        # in-memory clips of the same shape, so hashing it collapsed them into one asset.
+        with _patch_video_decoder():
+            dec1 = _MockVideoDecoder(hf_encoded={"path": None, "bytes": b"first clip"})
+            dec2 = _MockVideoDecoder(hf_encoded={"path": None, "bytes": b"second clip"})
+            assert dec1.metadata.__dict__ == dec2.metadata.__dict__
+            assert BaseModelCardData._hash_asset(dec1) != BaseModelCardData._hash_asset(dec2)
+
+    def test_unsourced_decoder_is_not_hashable(self) -> None:
+        # Nothing to identify it by, so report None and let the caller keep both examples rather
+        # than collapse every such decoder onto one hash.
+        with _patch_video_decoder():
+            dec = _MockVideoDecoder(hf_encoded={"path": None, "bytes": None})
+            assert BaseModelCardData._hash_asset(dec) is None
 
 
 class TestVideoDecoderToDict:
@@ -1216,6 +1310,33 @@ class TestFormatAndSaveExampleVideoDecoder:
 _can_test_video_dataset = (
     is_datasets_available() and VideoFeature is not None and _av is not None and _torchcodec is not None
 )
+
+
+@pytest.mark.skipif(not _can_test_video_dataset, reason="datasets Video feature or torchcodec encoder not available")
+def test_hash_asset_distinguishes_real_same_shape_videos() -> None:
+    """Two real in-memory clips of identical shape and duration must not collapse to one asset."""
+
+    def encode(seed: int) -> bytes:
+        buffer = io.BytesIO()
+        with _av.open(buffer, mode="w", format="mp4") as container:
+            stream = container.add_stream("h264", rate=10)
+            stream.width, stream.height, stream.pix_fmt = 64, 64, "yuv420p"
+            generator = np.random.default_rng(seed)
+            for _ in range(8):
+                frame_data = generator.integers(0, 255, (64, 64, 3), dtype=np.uint8)
+                for packet in stream.encode(_av.VideoFrame.from_ndarray(frame_data, format="rgb24")):
+                    container.mux(packet)
+            for packet in stream.encode():
+                container.mux(packet)
+        return buffer.getvalue()
+
+    dataset = Dataset.from_dict({"video": [{"bytes": encode(1), "path": None}, {"bytes": encode(2), "path": None}]})
+    dataset = dataset.cast_column("video", VideoFeature())
+    first, second = dataset[0]["video"], dataset[1]["video"]
+    assert (first.metadata.width, first.metadata.num_frames) == (second.metadata.width, second.metadata.num_frames)
+    assert BaseModelCardData._hash_asset(first) != BaseModelCardData._hash_asset(second)
+    # And the decoder is rebuilt per access, so the hash must survive a re-read of the same row.
+    assert BaseModelCardData._hash_asset(first) == BaseModelCardData._hash_asset(dataset[0]["video"])
 
 
 @contextmanager

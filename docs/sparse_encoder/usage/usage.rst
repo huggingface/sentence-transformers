@@ -48,9 +48,6 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    print(f"Sparsity: {stats['sparsity_ratio']:.2%}")  # Typically >99% zeros
    print(f"Avg non-zero dimensions per embedding: {stats['active_dims']:.2f}")
 
-Prompts
--------
-
 Some Sparse Encoder models are trained with specific prompts for different use cases (e.g., queries vs. documents).
 You can use :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.model.SparseEncoder.encode>` with the ``prompt_name`` parameter,
 or the convenience methods :meth:`~sentence_transformers.sparse_encoder.model.SparseEncoder.encode_query` and

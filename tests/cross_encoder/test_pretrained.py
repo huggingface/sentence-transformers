@@ -7,10 +7,12 @@ import numpy as np
 import pytest
 import torch
 import transformers
+from packaging.version import parse as parse_version
 
 from sentence_transformers.cross_encoder import CrossEncoder
 
-IS_TRANSFORMERS_V5 = int(transformers.__version__.split(".")[0]) >= 5
+IS_TRANSFORMERS_V5 = parse_version(transformers.__version__).release >= (5,)
+IS_TRANSFORMERS_V5_6 = parse_version(transformers.__version__).release >= (5, 6)
 
 QUERY = "Which planet is known as the Red Planet?"
 DOCUMENTS = [
@@ -20,6 +22,21 @@ DOCUMENTS = [
     "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
 ]
 PAIRS = [(QUERY, doc) for doc in DOCUMENTS]
+
+
+@pytest.fixture(autouse=True)
+def restore_cross_encoder_class():
+    """trust_remote_code models may patch the CrossEncoder class itself at import time
+    (zeroentropy/zerank-1-small replaces CrossEncoder.to and CrossEncoder.predict),
+    which poisons every CrossEncoder created later in the process."""
+    saved = dict(vars(CrossEncoder))
+    yield
+    for key in set(vars(CrossEncoder)) - set(saved):
+        delattr(CrossEncoder, key)
+    for key, value in saved.items():
+        if vars(CrossEncoder).get(key) is not value:
+            setattr(CrossEncoder, key, value)
+
 
 # Requires these optional dependencies:
 # unidic-lite sentencepiece fugashi accelerate protobuf
@@ -64,10 +81,7 @@ MODELS_TO_PREDICTIONS_BF16_SDPA: dict[str, tuple[list[float], dict[str, Any]]] =
     "cross-encoder/ms-marco-TinyBERT-L2-v2": ([-10.875, 7.0, 5.875, 5.6875], {}),
     "cross-encoder/ms-marco-TinyBERT-L4": ([0.00026, 0.94141, 0.875, 0.89844], {}),
     "cross-encoder/ms-marco-TinyBERT-L6": ([0.00031, 0.89453, 0.63281, 0.24512], {}),
-    "cross-encoder/ms-marco-electra-base": (
-        [0.00071, 0.82812, 0.73828, 0.85938] if IS_TRANSFORMERS_V5 else [3e-05, 0.92969, 0.78906, 0.80469],
-        _BF16_EAGER,
-    ),
+    "cross-encoder/ms-marco-electra-base": ([3e-05, 0.92969, 0.78906, 0.80469], _BF16_EAGER),
     "cross-encoder/msmarco-MiniLM-L12-en-de-v1": ([-3.6875, 10.0625, 7.34375, 8.4375], {}),
     "cross-encoder/msmarco-MiniLM-L6-en-de-v1": ([0.69922, 9.5, 2.67188, 6.5625], {}),
     "cross-encoder/qnli-distilroberta-base": ([0.02197, 0.98828, 0.89062, 0.82422], {}),
@@ -116,8 +130,16 @@ MODELS_TO_PREDICTIONS_BF16_SDPA: dict[str, tuple[list[float], dict[str, Any]]] =
         [0.60156, 0.69531, 0.62109, 0.67969] if IS_TRANSFORMERS_V5 else [0.47852, 0.78516, 0.62109, 0.60547],
         {},
     ),
-    "sdadas/polish-reranker-base-ranknet": ([0.17969, 0.99609, 0.58594, 0.95312], {}),
-    "sdadas/polish-reranker-large-ranknet": ([0.07568, 1.0, 0.95312, 0.99609], {}),
+    # transformers>=5.6 XLMRobertaTokenizer rebuilds its pre_tokenizer from class defaults instead of
+    # tokenizer.json, dropping these models' Metaspace word markers (like huggingface/transformers#45488)
+    **(
+        {}
+        if IS_TRANSFORMERS_V5_6
+        else {
+            "sdadas/polish-reranker-base-ranknet": ([0.17969, 0.99609, 0.58594, 0.95312], {}),
+            "sdadas/polish-reranker-large-ranknet": ([0.07568, 1.0, 0.95312, 0.99609], {}),
+        }
+    ),
     "seroe/bge-reranker-v2-m3-turkish-triplet": ([0.01453, 0.99609, 0.625, 0.96875], {}),
     "tomaarsen/Qwen3-Reranker-0.6B-seq-cls": ([0.55859, 0.98828, 0.88672, 0.91016], {}),
     "zeroentropy/zerank-1-small": ([0.09428, 0.83889, 0.12052, 0.2184], {"trust_remote_code": True}),

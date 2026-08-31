@@ -1,15 +1,15 @@
 
 .. tip::
 
-   Sentence Transformers v5.5 recently released, introducing the `train-sentence-transformers <https://github.com/huggingface/sentence-transformers/tree/main/skills>`_ Agent Skill. Using an AI coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...)? Install it via ``hf skills add train-sentence-transformers [--global] [--claude]`` and ask your agent to train or finetune an embedding, reranker, or sparse encoder model on your data. See the `v5.5.0 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v5.5.0>`_ for more details.
+   Sentence Transformers v6.0 recently released, introducing the :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`, a fourth model family for ColBERT-style late-interaction retrieval using token-level (multi-vector) embeddings, covering both text retrieval and ColPali-style visual document retrieval. Existing ColBERT, PyLate, and ColPali models load out of the box, with full training and evaluation support. Read the `Multi-Vector Encoder quickstart <docs/quickstart.html#multi-vector-encoder>`_, the `Multi-Vector (Late Interaction) Embedding Models <https://huggingface.co/blog/multi-vector-encoder>`_ blogpost for inference, the `Training and Finetuning Multi-Vector Embedding Models <https://huggingface.co/blog/train-multi-vector-encoder>`_ blogpost for training, the `v6.0 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v6.0.0>`_, or the `migration guide <docs/migration_guide.html>`_ for more details.
 
 SentenceTransformers Documentation
 ==================================
 
 Sentence Transformers (a.k.a. SBERT) is the go-to Python module for using and training state-of-the-art embedding and reranker models.
-It can be used to compute embeddings from text, images, audio, or video using Sentence Transformer models (`quickstart <docs/quickstart.html#sentence-transformer>`__), to calculate similarity scores using Cross-Encoder (a.k.a. reranker) models (`quickstart <docs/quickstart.html#cross-encoder>`__), or to generate sparse embeddings using Sparse Encoder models (`quickstart <docs/quickstart.html#sparse-encoder>`__). This unlocks a wide range of applications, including `semantic search <examples/sentence_transformer/applications/semantic-search/README.html>`_, `semantic textual similarity <docs/sentence_transformer/usage/semantic_textual_similarity.html>`_, and `paraphrase mining <examples/sentence_transformer/applications/paraphrase-mining/README.html>`_.
+It can be used to compute embeddings from text, images, audio, or video using Sentence Transformer models (`quickstart <docs/quickstart.html#sentence-transformer>`__), to calculate similarity scores using Cross-Encoder (a.k.a. reranker) models (`quickstart <docs/quickstart.html#cross-encoder>`__), to generate sparse embeddings using Sparse Encoder models (`quickstart <docs/quickstart.html#sparse-encoder>`__), or to compute token-level embeddings for ColBERT-style late-interaction retrieval using Multi-Vector Encoder models (`quickstart <docs/quickstart.html#multi-vector-encoder>`__). This unlocks a wide range of applications, including `semantic search <examples/sentence_transformer/applications/semantic-search/README.html>`_, `semantic textual similarity <docs/sentence_transformer/usage/semantic_textual_similarity.html>`_, and `paraphrase mining <examples/sentence_transformer/applications/paraphrase-mining/README.html>`_.
 
-A wide selection of over `10,000 pre-trained Sentence Transformers models <https://huggingface.co/models?library=sentence-transformers>`_ are available for immediate use on 🤗 Hugging Face, including many of the state-of-the-art models from the `Massive Text Embeddings Benchmark (MTEB) leaderboard <https://huggingface.co/spaces/mteb/leaderboard>`_. Additionally, it is easy to train or finetune your own `embedding models <docs/sentence_transformer/training_overview.html>`_, `reranker models <docs/cross_encoder/training_overview.html>`_, or `sparse encoder models <docs/sparse_encoder/training_overview.html>`_ using Sentence Transformers, enabling you to create custom models for your specific use cases.
+A wide selection of over `25,000 pre-trained Sentence Transformers models <https://huggingface.co/models?library=sentence-transformers>`_ are available for immediate use on 🤗 Hugging Face, including many of the state-of-the-art models from the `Massive Text Embeddings Benchmark (MTEB) leaderboard <https://huggingface.co/spaces/mteb/leaderboard>`_. Additionally, it is easy to train or finetune your own `embedding models <docs/sentence_transformer/training_overview.html>`_, `reranker models <docs/cross_encoder/training_overview.html>`_, `sparse encoder models <docs/sparse_encoder/training_overview.html>`_, or `multi-vector encoder models <docs/multi_vector_encoder/training_overview.html>`_ using Sentence Transformers, enabling you to create custom models for your specific use cases.
 
 Sentence Transformers was created by `UKP Lab <http://www.ukp.tu-darmstadt.de/>`_ and is being maintained by `🤗 Hugging Face <https://huggingface.co>`_. Don't hesitate to open an issue on the `Sentence Transformers repository <https://github.com/huggingface/sentence-transformers>`_ if something is broken or if you have further questions.
 
@@ -196,7 +196,72 @@ Working with Sentence Transformer models is straightforward:
       stats = SparseEncoder.sparsity(embeddings)
       print(f"Sparsity: {stats['sparsity_ratio']:.2%}")
       # Sparsity: 99.84%
-   
+
+.. tab:: Multi-Vector Encoder Models
+
+   .. tab:: Text
+
+      .. code-block:: python
+
+         from sentence_transformers import MultiVectorEncoder
+
+         # 1. Load a pretrained MultiVectorEncoder model
+         model = MultiVectorEncoder("lightonai/LateOn")
+
+         queries = ["What is the capital of France?"]
+         documents = [
+             "Paris is the capital of France.",
+             "Berlin is the capital of Germany.",
+         ]
+
+         # 2. Encode queries and documents (note the asymmetric encode_query / encode_document split)
+         query_embeddings = model.encode_query(queries)
+         document_embeddings = model.encode_document(documents)
+
+         # Each entry is a 2D tensor of shape (num_tokens_i, embedding_dim), variable-length per input.
+         print(query_embeddings[0].shape)
+         # torch.Size([10, 128])
+
+         # 3. Score with MaxSim
+         scores = model.similarity(query_embeddings, document_embeddings)
+         print(scores)
+         # tensor([[9.1129, 8.8769]], device='cuda:0')
+
+   .. tab:: Multimodal
+
+      .. code-block:: python
+
+         from sentence_transformers import MultiVectorEncoder
+
+         # 1. Load a model that matches text queries against page images, no OCR step
+         model = MultiVectorEncoder("vidore/colqwen2.5-v0.2")
+
+         queries = [
+             "What is the variable represented on the y-axis of the graph?",
+             "Total outlay is maximum in which year?",
+         ]
+         # Image documents are passed as URLs, local paths, or PIL images
+         images = [
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc1.jpg",
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc2.jpg",
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc3.jpg",
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc4.jpg",
+         ]
+
+         # 2. Encode with the same two calls as for text
+         query_embeddings = model.encode_query(queries)
+         document_embeddings = model.encode_document(images)
+
+         # A page yields far more vectors than a query: one per image patch
+         print(query_embeddings[0].shape, document_embeddings[0].shape)
+         # torch.Size([25, 128]) torch.Size([755, 128])
+
+         # 3. Score query text tokens against document image patches with MaxSim
+         scores = model.similarity(query_embeddings, document_embeddings)
+         print(scores)
+         # tensor([[13.8672, 12.3115, 12.1670, 11.0293],
+         #         [ 7.2012, 14.7207,  6.9414,  6.9746]])
+
 What Next?
 ==========
 
@@ -218,17 +283,27 @@ Consider reading one of the following sections to answer the related questions:
    * How do I make Sparse Encoder models **faster**? `Sparse Encoder > Usage > Speeding up Inference <docs/sparse_encoder/usage/efficiency.html>`_
    * How do I **train/finetune** a Sparse Encoder model? `Sparse Encoder > Training Overview <docs/sparse_encoder/training_overview.html>`_
    * How do I **integrate** Sparse Encoder models with search engines? `Sparse Encoder > Vector Database Integration <examples/sparse_encoder/applications/semantic_search/README.html#vector-database-search>`_
+* Multi-Vector Encoder Models:
+   * How to **use** Multi-Vector Encoder models? `Multi-Vector Encoder > Usage <docs/multi_vector_encoder/usage/usage.html>`_
+   * What Multi-Vector Encoder **models** can I use? `Multi-Vector Encoder > Pretrained Models <docs/multi_vector_encoder/pretrained_models.html>`_
+   * How do I make Multi-Vector Encoder models **faster**? `Multi-Vector Encoder > Usage > Speeding up Inference <docs/multi_vector_encoder/usage/efficiency.html>`_
+   * How do I **train/finetune** a Multi-Vector Encoder model? `Multi-Vector Encoder > Training Overview <docs/multi_vector_encoder/training_overview.html>`_
 
 Companion Blog Posts
 ====================
 
 The following Hugging Face blog posts complement this documentation with narrative walkthroughs and full training examples:
 
+* Model types:
+
+   * `Multi-Vector (Late Interaction) Embedding Models <https://huggingface.co/blog/multi-vector-encoder>`_: an introduction to late interaction and the Multi-Vector Encoder model family.
+
 * Training guides:
 
    * `Training and Finetuning Embedding Models <https://huggingface.co/blog/train-sentence-transformers>`_: end-to-end training of bi-encoder embedding models.
    * `Training and Finetuning Reranker Models <https://huggingface.co/blog/train-reranker>`_: training Cross Encoder (reranker) models.
    * `Training and Finetuning Sparse Embedding Models <https://huggingface.co/blog/train-sparse-encoder>`_: training SPLADE and other sparse encoders.
+   * `Training and Finetuning Multi-Vector Embedding Models <https://huggingface.co/blog/train-multi-vector-encoder>`_: training ColBERT-style late-interaction models.
 
 * Multimodal:
 
@@ -340,6 +415,18 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/sparse_encoder/training/examples
 
 .. toctree::
+   :maxdepth: 2
+   :caption: Multi-Vector Encoder
+   :hidden:
+
+   docs/multi_vector_encoder/usage/usage
+   docs/multi_vector_encoder/pretrained_models
+   docs/multi_vector_encoder/training_overview
+   docs/sentence_transformer/dataset_overview
+   docs/multi_vector_encoder/loss_overview
+   docs/multi_vector_encoder/training/examples
+
+.. toctree::
    :maxdepth: 3
    :caption: Package Reference
    :glob:
@@ -348,5 +435,6 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/package_reference/sentence_transformer/index
    docs/package_reference/cross_encoder/index
    docs/package_reference/sparse_encoder/index
+   docs/package_reference/multi_vector_encoder/index
    docs/package_reference/base/index
    docs/package_reference/util/index

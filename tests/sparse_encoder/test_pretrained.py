@@ -7,11 +7,13 @@ import numpy as np
 import pytest
 import torch
 import transformers
+from packaging.version import parse as parse_version
 from torch import Tensor
 
 from sentence_transformers import SparseEncoder
 
-IS_TRANSFORMERS_V5 = int(transformers.__version__.split(".")[0]) >= 5
+IS_TRANSFORMERS_V5 = parse_version(transformers.__version__).release >= (5,)
+IS_TRANSFORMERS_V5_6 = parse_version(transformers.__version__).release >= (5, 6)
 
 QUERY = "Which planet is known as the Red Planet?"
 DOCUMENTS = [
@@ -26,7 +28,15 @@ MODELS_TO_SIMILARITIES_BF16_SDPA: dict[
     str, tuple[list[float], dict[str, Any]] | tuple[list[float], dict[str, Any], float]
 ] = {
     "CATIE-AQ/SPLADE_camembert-base_STS": ([0.52231, 0.4428, 0.35997, 0.29591], {}),
-    "CATIE-AQ/SPLADE_camemberta2.0_STS": ([0.52307, 0.61048, 0.53052, 0.47117], _BF16_EAGER),
+    # transformers>=5.6 RobertaTokenizer replaces this model's custom WordPiece pre_tokenizer with
+    # ByteLevel from the class defaults (like huggingface/transformers#45488)
+    **(
+        {}
+        if IS_TRANSFORMERS_V5_6
+        else {
+            "CATIE-AQ/SPLADE_camemberta2.0_STS": ([0.52307, 0.61048, 0.53052, 0.47117], _BF16_EAGER),
+        }
+    ),
     "NeuML/pubmedbert-base-splade": ([0.2794, 0.61665, 0.47218, 0.45467], {}),
     "ibm-granite/granite-embedding-30m-sparse": ([6.00505, 16.71692, 10.86701, 10.55007], {}),
     "naver/efficient-splade-V-large-doc": ([4.89868, 13.9572, 11.87854, 12.6793], {}),

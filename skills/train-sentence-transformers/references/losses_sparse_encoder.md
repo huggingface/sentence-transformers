@@ -2,7 +2,7 @@
 
 All losses live in `sentence_transformers.sparse_encoder.losses`.
 
-This reference targets the **SPLADE** architecture (Transformer + SpladePooling). The sparse-encoder package also exports `CSRLoss` and `CSRReconstructionLoss` for the CSR architecture (Transformer + Pooling + SparseAutoEncoder); those are out of scope here — see the sbert.net docs if you're training a CSR model.
+This reference targets the **SPLADE** architecture (Transformer + SpladePooling). The sparse-encoder package also exports `CSRLoss` and `CSRReconstructionLoss` for the CSR architecture (Transformer + Pooling + SparseAutoEncoder). Those are out of scope here. See the sbert.net docs if you're training a CSR model.
 
 Choosing a loss means (a) pick a base loss (contrastive, regression, distillation) and (b) wrap it in `SpladeLoss` to add FLOPS regularization.
 
@@ -32,8 +32,8 @@ loss = SpladeLoss(
 
 - `query_regularizer_weight`: how much to penalize non-zero terms in query embeddings.
 - `document_regularizer_weight`: same for documents.
-- Typical range: 1e-5 to 1e-4. Higher = sparser embeddings, lower recall; lower = denser, possibly better recall.
-- `SparseEncoderTrainer` automatically registers a `SpladeRegularizerWeightSchedulerCallback` whenever the loss is a `SpladeLoss`. The callback ramps the weights from 0 up to the target over the first ~33% of training; the default shape is `SchedulerType.QUADRATIC` (not linear). The ramp length and shape are configured on the callback (`SpladeRegularizerWeightSchedulerCallback(loss=..., warmup_ratio=..., scheduler_type=...)`), not on `SpladeLoss`; to override, instantiate the callback yourself and pass it via `callbacks=[...]`. This ramp is important; starting with full regularization from step 0 kills learning.
+- Typical range: 1e-5 to 1e-4. Higher = sparser embeddings, lower recall. Lower = denser, possibly better recall.
+- `SparseEncoderTrainer` automatically registers a `SpladeRegularizerWeightSchedulerCallback` whenever the loss is a `SpladeLoss`. The callback ramps the weights from 0 up to the target over the first ~33% of training. The default shape is `SchedulerType.QUADRATIC` (not linear). The ramp length and shape are configured on the callback (`SpladeRegularizerWeightSchedulerCallback(loss=..., warmup_ratio=..., scheduler_type=...)`), not on `SpladeLoss`. To override, instantiate the callback yourself and pass it via `callbacks=[...]`. This ramp is important. Starting with full regularization from step 0 kills learning.
 
 Use `CachedSpladeLoss` for the GradCache variant.
 
@@ -88,7 +88,7 @@ Margin MSE from a cross-encoder teacher.
 
 ### `SparseDistillKLDivLoss`
 
-Listwise KL-div distillation — student's softmax distribution over candidates should match teacher's.
+Listwise KL-div distillation. Student's softmax distribution over candidates should match teacher's.
 
 ## Independent regularizer
 
@@ -102,5 +102,5 @@ For regularizer-weight tuning and dense-output recovery, see `troubleshooting.md
 
 - **`SparseMultipleNegativesRankingLoss` without `SpladeLoss` wrapping on a SPLADE model**: no FLOPS regularization -> dense outputs defeating the purpose of SPLADE. Always wrap.
 - **`CachedSpladeLoss` + `gradient_checkpointing=True`**: crash. Pick one.
-- **Starting training with full FLOPS regularization at step 0**: the model outputs zero everywhere and gets stuck. The built-in scheduler avoids this — don't override it unless you know why.
+- **Starting training with full FLOPS regularization at step 0**: the model outputs zero everywhere and gets stuck. The built-in scheduler avoids this. Don't override it unless you know why.
 - **`query_regularizer_weight` == `document_regularizer_weight`**: usually wrong. Queries should be sparser than documents (fewer terms per query). Since higher regularization drives more zeros, give the query weight the larger value. `query_regularizer_weight=5e-5`, `document_regularizer_weight=3e-5` is a good starting ratio.

@@ -12,7 +12,7 @@ from torch import Tensor, nn
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.readers import InputExample
-from sentence_transformers.util import cos_sim
+from sentence_transformers.util import cos_sim, similarity_fct_name
 
 
 class ContrastiveTensionLoss(nn.Module):
@@ -270,7 +270,7 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
     def get_config_dict(self) -> dict[str, Any]:
         return {
             "scale": self.logit_scale.exp().item(),
-            "similarity_fct": getattr(self.similarity_fct, "__name__", str(self.similarity_fct)),
+            "similarity_fct": similarity_fct_name(self.similarity_fct),
         }
 
     @property

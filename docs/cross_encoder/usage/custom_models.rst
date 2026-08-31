@@ -226,6 +226,8 @@ To load a :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` model
 
 If no ``modules.json`` is found (e.g., loading a pure ``transformers`` model), the :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder._load_default_modules` method automatically determines the module chain based on the model architecture: ``ForCausalLM`` models get ``[Transformer, LogitScore]``, while all other models get ``[Transformer]`` with ``transformer_task="sequence-classification"``.
 
+Like Sentence Transformer models, CrossEncoder models can declare which dependency versions they need to load correctly, see `Declaring Version Requirements <../../sentence_transformer/usage/custom_models.html#declaring-version-requirements>`_.
+
 Multimodal CrossEncoder Models
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -308,7 +310,7 @@ It has two abstract methods that you need to implement, and one method that you 
 
 Optionally, you can also implement or override the following:
 
-* A :attr:`~sentence_transformers.base.modules.InputModule.modalities` property that returns the list of modalities supported by the module. Defaults to ``["text"]``. Each entry can be a single modality string (e.g. ``"text"``) or a tuple for compound modalities (e.g. ``("image", "text")``); tuples should be sorted alphabetically. :meth:`BaseModel.preprocess <sentence_transformers.base.model.BaseModel.preprocess>` validates input modalities against this list before calling the module's ``preprocess()``, so you don't need to handle unsupported modalities yourself.
+* A :attr:`~sentence_transformers.base.modules.InputModule.modalities` property that returns the list of modalities supported by the module. Defaults to ``["text"]``. Each entry can be a single modality string (e.g. ``"text"``) or a tuple for compound modalities (e.g. ``("image", "text")``). Tuples should be sorted alphabetically. :meth:`BaseModel.preprocess <sentence_transformers.base.model.BaseModel.preprocess>` validates input modalities against this list before calling the module's ``preprocess()``, so you don't need to handle unsupported modalities yourself.
 * A :meth:`~sentence_transformers.base.modules.Module.load` class method that loads the module from a saved directory or Hugging Face model.
 * A ``max_seq_length`` property that returns the maximum sequence length the module can process.
 
@@ -435,7 +437,7 @@ To ensure that ``temperature_logit_score.TemperatureLogitScore`` can be imported
 
 .. note::
 
-   Using a custom module with remote code stored on the Hugging Face Hub requires that your users specify ``trust_remote_code`` as ``True`` when loading the model. This is a security measure to prevent remote code execution attacks.
+   Using a custom module requires that your users specify ``trust_remote_code`` as ``True`` when loading the model, whether it is loaded from the Hugging Face Hub or from a local path. This is a security measure to prevent remote code execution attacks.
 
 .. note::
 

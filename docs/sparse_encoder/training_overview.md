@@ -490,11 +490,11 @@ args = SparseEncoderTrainingArguments(
     batch_sampler=BatchSamplers.NO_DUPLICATES,  # losses that use "in-batch negatives" benefit from no duplicates
     # Optional tracking/debugging parameters:
     eval_strategy="steps",
-    eval_steps=100,
+    eval_steps=0.1,
     save_strategy="steps",
-    save_steps=100,
+    save_steps=0.1,
     save_total_limit=2,
-    logging_steps=100,
+    logging_steps=0.01,
     run_name="splade-distilbert-base-uncased-nq",  # Will be used in W&B if `wandb` is installed
 )
 ```
@@ -519,7 +519,7 @@ Evaluator                                                                       
 :class:`~sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator`               (anchor, positive, negative) pairs.
 =============================================================================================  ===========================================================================================================================
 
-Additionally, :class:`~sentence_transformers.sentence_transformer.evaluation.SequentialEvaluator` should be used to combine multiple evaluators into one Evaluator that can be passed to the :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer`.
+Additionally, :class:`~sentence_transformers.base.evaluation.SequentialEvaluator` should be used to combine multiple evaluators into one Evaluator that can be passed to the :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer`.
 
 Sometimes you don't have the required evaluation data to prepare one of these evaluators on your own, but you still want to track how well the model performs on some common benchmarks. In that case, you can use these evaluators with data from Hugging Face.
 
@@ -713,11 +713,11 @@ The :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` 
             batch_sampler=BatchSamplers.NO_DUPLICATES,  # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch
             # Optional tracking/debugging parameters:
             eval_strategy="steps",
-            eval_steps=1000,
+            eval_steps=0.1,
             save_strategy="steps",
-            save_steps=1000,
+            save_steps=0.1,
             save_total_limit=2,
-            logging_steps=200,
+            logging_steps=0.01,
             run_name=run_name,  # Will be used in W&B if `wandb` is installed
         )
     
@@ -850,11 +850,11 @@ The :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` 
             router_mapping={"query": "query", "answer": "document"},  # Map the column names to the routes
             # Optional tracking/debugging parameters:
             eval_strategy="steps",
-            eval_steps=1000,
+            eval_steps=0.1,
             save_strategy="steps",
-            save_steps=1000,
+            save_steps=0.1,
             save_total_limit=2,
-            logging_steps=200,
+            logging_steps=0.01,
             run_name=run_name,  # Will be used in W&B if `wandb` is installed
         )
 
@@ -908,7 +908,7 @@ The top performing models are trained using many datasets at once. Normally, thi
 - Use a dictionary of :class:`~datasets.Dataset` instances (or a :class:`~datasets.DatasetDict`) as the ``train_dataset`` (and optionally also ``eval_dataset``).
 - (Optional) Use a dictionary of loss functions mapping dataset names to losses. Only required if you wish to use different loss function for different datasets.
 
-Each training/evaluation batch will only contain samples from one of the datasets. The order in which batches are samples from the multiple datasets is defined by the :class:`~sentence_transformers.sentence_transformer.training_args.MultiDatasetBatchSamplers` enum, which can be passed to the :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments` via ``multi_dataset_batch_sampler``. Valid options are:
+Each training/evaluation batch will only contain samples from one of the datasets. The order in which batches are samples from the multiple datasets is defined by the :class:`~sentence_transformers.base.sampler.MultiDatasetBatchSamplers` enum, which can be passed to the :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments` via ``multi_dataset_batch_sampler``. Valid options are:
 
 - ``MultiDatasetBatchSamplers.ROUND_ROBIN``: Round-robin sampling from each dataset until one is exhausted. With this strategy, it's likely that not all samples from each dataset are used, but each dataset is sampled from equally.
 - ``MultiDatasetBatchSamplers.PROPORTIONAL`` (default): Sample from each dataset in proportion to its size. With this strategy, all samples from each dataset are used and larger datasets are sampled from more frequently.

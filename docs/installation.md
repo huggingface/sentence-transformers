@@ -1,6 +1,6 @@
 # Installation
 
-We recommend **Python 3.10+**, **[PyTorch 1.11.0+](https://pytorch.org/get-started/locally/)**, and **[transformers v4.41.0+](https://github.com/huggingface/transformers)**. There are several extra options to install Sentence Transformers:
+We recommend **Python 3.10+**, **[PyTorch 2.2+](https://pytorch.org/get-started/locally/)**, and **[transformers v5.0+](https://github.com/huggingface/transformers)**. There are several extra options to install Sentence Transformers:
 
 - **Default:** Allows loading, saving, and inference (i.e., getting embeddings) of text models.
 - **Image:** Adds dependencies for models that process images (e.g., CLIP, VLM-based models).
