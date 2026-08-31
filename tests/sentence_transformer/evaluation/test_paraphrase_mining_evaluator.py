@@ -38,9 +38,7 @@ def test_get_config_dict_reports_add_transitive_closure_flag(add_transitive_clos
         1: "Hello World!",
         2: "The cat is on the table",
     }
-    data_eval = ParaphraseMiningEvaluator(
-        sentences, [(0, 1), (1, 2)], add_transitive_closure=add_transitive_closure
-    )
+    data_eval = ParaphraseMiningEvaluator(sentences, [(0, 1), (1, 2)], add_transitive_closure=add_transitive_closure)
     config = data_eval.get_config_dict()
     assert config["add_transitive_closure"] is add_transitive_closure
     # The model card renders this config with json.dumps, so it must be JSON-serializable
