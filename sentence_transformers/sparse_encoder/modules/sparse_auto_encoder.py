@@ -124,7 +124,6 @@ class SparseAutoEncoder(Module):
         z_topk.scatter_(-1, topk.indices, topk.values)
         latents_k = F.relu(z_topk)
         if self.training and torch.is_grad_enabled():
-            ## set num nonzero stat ##
             tmp = torch.zeros_like(self.stats_last_nonzero)
             tmp.scatter_add_(
                 0,
@@ -133,7 +132,6 @@ class SparseAutoEncoder(Module):
             )
             self.stats_last_nonzero *= 1 - tmp.clamp(max=1)
             self.stats_last_nonzero += 1
-            ## end stats ##
 
         latents_auxk = None
         if self.k_aux and compute_aux:

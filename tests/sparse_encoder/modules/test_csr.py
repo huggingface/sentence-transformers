@@ -75,18 +75,40 @@ def test_csr_outputs(csr_bert_tiny_model: SparseEncoder, is_inference: bool, exp
     # We don't have to restore the original forward method, as the model will not be reused
 
 
-def test_csr_inference_does_not_update_dead_feature_stats() -> None:
-    module = SparseAutoEncoder(input_dim=2, hidden_dim=8, k=1, k_aux=1)
-    features = {"sentence_embedding": torch.tensor([[1.0, 0.0]])}
+@pytest.mark.parametrize("mode", ["inference_mode", "eval", "no_grad"])
+def test_csr_inference_does_not_update_dead_feature_stats(mode: str) -> None:
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=8, k=2, k_aux=2)
+    features = {"sentence_embedding": torch.randn(2, 4)}
 
-    with torch.inference_mode():
-        module({key: value.clone() for key, value in features.items()})
+    if mode == "inference_mode":
+        # forward() writes an inference tensor back into the dict, so the input must not be reused
+        with torch.inference_mode():
+            module({key: value.clone() for key, value in features.items()})
+    elif mode == "eval":
+        module.eval()
+        module(dict(features))
+    else:
+        with torch.no_grad():
+            module(dict(features))
 
-    # sanity check: the stats_last_nonzero should be all zeros before the forward pass
     assert torch.equal(module.stats_last_nonzero, torch.zeros_like(module.stats_last_nonzero))
 
-    # Run the forward pass (inference mode)
-    module(features)
 
-    # Check that the stats_last_nonzero has been updated correctly
-    assert torch.any(module.stats_last_nonzero > 0)
+def test_csr_training_updates_dead_feature_stats() -> None:
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=8, k=2, k_aux=2)
+    module.train()
+
+    module({"sentence_embedding": torch.randn(2, 4)})
+
+    assert torch.all(module.stats_last_nonzero > 0)
+
+
+def test_csr_encode_does_not_update_dead_feature_stats(csr_bert_tiny_model: SparseEncoder) -> None:
+    sparse_auto_encoder = csr_bert_tiny_model[-1]
+    sparse_auto_encoder.stats_last_nonzero.zero_()
+
+    csr_bert_tiny_model.encode(["This is a test sentence."] * 4, batch_size=1)
+
+    assert torch.equal(
+        sparse_auto_encoder.stats_last_nonzero, torch.zeros_like(sparse_auto_encoder.stats_last_nonzero)
+    )
