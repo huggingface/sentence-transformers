@@ -5,7 +5,12 @@ import pytest
 import torch
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.util.retrieval import community_detection, paraphrase_mining, semantic_search
+from sentence_transformers.util.retrieval import (
+    community_detection,
+    paraphrase_mining,
+    paraphrase_mining_embeddings,
+    semantic_search,
+)
 from sentence_transformers.util.similarity import pytorch_cos_sim
 
 
@@ -50,6 +55,34 @@ def test_paraphrase_mining() -> None:
     for score, a, b in duplicates:
         if score > 0.5:
             assert (a, b) in [(0, 1), (2, 3), (2, 4), (3, 4), (5, 6), (5, 7), (6, 7)]
+
+
+def test_paraphrase_mining_embeddings_max_pairs_one_keeps_one_pair() -> None:
+    # Regression test: the eviction boundary in paraphrase_mining_embeddings used to
+    # evict as soon as num_added *equaled* max_pairs, so it retained only max_pairs - 1
+    # candidates. With max_pairs=1 that meant zero pairs were ever returned, even though
+    # a valid pair exists.
+    embeddings = torch.tensor([[1.0, 0.0], [0.9, 0.1]])
+    pairs = paraphrase_mining_embeddings(
+        embeddings,
+        max_pairs=1,
+        top_k=1,
+        query_chunk_size=2,
+        corpus_chunk_size=2,
+    )
+    assert len(pairs) == 1
+
+
+def test_paraphrase_mining_embeddings_max_pairs_zero_keeps_no_pairs() -> None:
+    embeddings = torch.tensor([[1.0, 0.0], [0.9, 0.1]])
+    pairs = paraphrase_mining_embeddings(
+        embeddings,
+        max_pairs=0,
+        top_k=1,
+        query_chunk_size=2,
+        corpus_chunk_size=2,
+    )
+    assert len(pairs) == 0
 
 
 def test_community_detection_two_clear_communities():
