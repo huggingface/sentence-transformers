@@ -15,7 +15,12 @@ from huggingface_hub.utils import (
     RevisionNotFoundError,
 )
 
-from sentence_transformers.util.file_io import _resolve_model_revision, load_dir_path, load_file_path
+from sentence_transformers.util.file_io import (
+    RevisionResolutionError,
+    _resolve_model_revision,
+    load_dir_path,
+    load_file_path,
+)
 
 
 def test_resolve_model_revision_when_supported(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,6 +61,18 @@ def test_resolve_model_revision_falls_back_when_resolution_fails(
         assert _resolve_model_revision("some-org/some-model", "branch") == "branch"
 
     assert "Could not resolve the revision of 'some-org/some-model'" in caplog.text
+
+
+def test_resolve_model_revision_is_quiet_when_nothing_is_cached(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    resolve_mock = MagicMock(side_effect=RevisionResolutionError("nothing cached"))
+    monkeypatch.setattr("sentence_transformers.util.file_io._hub_resolve_revision", resolve_mock)
+
+    with caplog.at_level(logging.WARNING, logger="sentence_transformers.util.file_io"):
+        assert _resolve_model_revision("some-org/some-model", "branch", local_files_only=True) == "branch"
+
+    assert caplog.text == ""
 
 
 @pytest.mark.parametrize("error_cls", [RepositoryNotFoundError, RevisionNotFoundError])

@@ -16,8 +16,13 @@ from tqdm.autonotebook import tqdm
 
 try:
     from huggingface_hub import resolve_revision as _hub_resolve_revision
+    from huggingface_hub.errors import RevisionResolutionError
 except ImportError:
     _hub_resolve_revision = None
+
+    class RevisionResolutionError(Exception):
+        """Placeholder for Hub versions that cannot resolve revisions, and so never raise this."""
+
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +58,9 @@ def _resolve_model_revision(
     """Resolve a Hub revision once when supported.
 
     Falls back to the requested revision on older Hub versions, and when resolution fails for any reason other
-    than a missing repository or revision (rate limits, an unreachable Hub with a cold cache, ...), so that
-    loading degrades to per-file resolution instead of failing outright. An inaccessible repository (missing,
-    or private or gated without a valid token) is resolved from the local cache when possible.
+    than a missing repository or revision (rate limits, an unreachable Hub, ...), so that loading degrades to
+    per-file resolution instead of failing outright. An inaccessible repository (missing, or private or gated
+    without a valid token) is resolved from the local cache when possible.
     """
     if _hub_resolve_revision is None:
         return revision
@@ -79,6 +84,9 @@ def _resolve_model_revision(
             )
         except Exception:
             raise not_found from None
+    except RevisionResolutionError:
+        # The Hub is unreachable or excluded and nothing is cached, so the regular loading path reports the error
+        return revision
     except Exception as exc:
         logger.warning(
             f"Could not resolve the revision of {model_name_or_path!r} ({exc}). "

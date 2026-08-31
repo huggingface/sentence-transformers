@@ -1460,54 +1460,50 @@ class TestProcessChatMessages:
         assert not tokenizer.decode(process(16, restore_suffix=False)).rstrip().endswith("[/INST]")
 
 
+class ResolvedRevisionStub(str):
+    initial = "branch"
+    resolved = "0123456789abcdef0123456789abcdef01234567"
+
+
 class TestModelLoading:
-    def test_separate_processor_repository_is_not_pinned_to_model_revision(self, monkeypatch):
+    @staticmethod
+    def _processor_revision(monkeypatch, **kwargs):
+        """Return the revision that the processor would be loaded with, without loading anything."""
+
         class StopLoading(Exception):
             pass
 
-        def stop_loading(*args, **kwargs):
+        captured = {}
+
+        def capture_processor(model_name_or_path, **processor_kwargs):
+            captured.update(processor_kwargs)
             raise StopLoading
 
-        class ResolvedRevision(str):
-            initial = "branch"
-            resolved = "0123456789abcdef0123456789abcdef01234567"
+        monkeypatch.setattr(Transformer, "_load_config", lambda *args, **kwargs: (SimpleNamespace(), False))
+        monkeypatch.setattr(Transformer, "_load_model", lambda *args, **kwargs: torch.nn.Linear(2, 2))
+        monkeypatch.setattr(transformer_module.AutoProcessor, "from_pretrained", capture_processor)
 
-        monkeypatch.setattr(Transformer, "_load_config", stop_loading)
-
-        processor_kwargs = {"revision": ResolvedRevision("branch")}
         with pytest.raises(StopLoading):
-            Transformer(
-                "some-org/some-model",
-                tokenizer_name_or_path="some-org/some-tokenizer",
-                model_kwargs={"revision": ResolvedRevision("branch")},
-                processor_kwargs=processor_kwargs,
-            )
+            Transformer("some-org/some-model", **kwargs)
+        return captured["revision"]
 
-        assert processor_kwargs["revision"] == "branch"
-        assert not isinstance(processor_kwargs["revision"], ResolvedRevision)
+    def test_separate_processor_repository_is_not_pinned_to_model_revision(self, monkeypatch):
+        processor_kwargs = {"revision": ResolvedRevisionStub("branch")}
+        revision = self._processor_revision(
+            monkeypatch,
+            tokenizer_name_or_path="some-org/some-tokenizer",
+            processor_kwargs=processor_kwargs,
+        )
+
+        assert revision == "branch"
+        assert not isinstance(revision, ResolvedRevisionStub)
+        assert isinstance(processor_kwargs["revision"], ResolvedRevisionStub)
 
     def test_same_repository_processor_keeps_resolved_revision(self, monkeypatch):
-        class StopLoading(Exception):
-            pass
+        processor_kwargs = {"revision": ResolvedRevisionStub("branch")}
+        revision = self._processor_revision(monkeypatch, processor_kwargs=processor_kwargs)
 
-        def stop_loading(*args, **kwargs):
-            raise StopLoading
-
-        class ResolvedRevision(str):
-            initial = "branch"
-            resolved = "0123456789abcdef0123456789abcdef01234567"
-
-        monkeypatch.setattr(Transformer, "_load_config", stop_loading)
-
-        processor_kwargs = {"revision": ResolvedRevision("branch")}
-        with pytest.raises(StopLoading):
-            Transformer(
-                "some-org/some-model",
-                model_kwargs={"revision": ResolvedRevision("branch")},
-                processor_kwargs=processor_kwargs,
-            )
-
-        assert isinstance(processor_kwargs["revision"], ResolvedRevision)
+        assert isinstance(revision, ResolvedRevisionStub)
 
     def test_invalid_backend_error(self):
         with pytest.raises(ValueError, match="Unsupported backend"):
