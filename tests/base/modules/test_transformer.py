@@ -1509,6 +1509,7 @@ class TestModelLoading:
         with pytest.raises(ValueError, match="Unsupported backend"):
             Transformer(TINY_BERT, backend="invalid_backend")
 
+    @pytest.mark.skipif(not is_peft_available(), reason="PEFT must be available to test PEFT support.")
     def test_peft_seq_classification_resolves_base_config(self, monkeypatch):
         """A PeftConfig has no 'architectures', so the base model's config decides `num_labels`."""
 
