@@ -139,7 +139,7 @@ def paraphrase_mining_embeddings(
                         pairs.put((scores_top_k_values[query_itr][top_k_idx], i, j))
                         num_added += 1
 
-                        if num_added >= max_pairs:
+                        if num_added > max_pairs:
                             entry = pairs.get()
                             min_score = entry[0]
 
@@ -180,7 +180,7 @@ def semantic_search(
         query_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the query embeddings. Can be a sparse tensor.
         corpus_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the corpus embeddings. Can be a sparse tensor.
         query_chunk_size (int, optional): Process 100 queries simultaneously. Increasing that value increases the speed, but requires more memory. Defaults to 100.
-        corpus_chunk_size (int, optional): Scans the corpus 100k entries at a time. Increasing that value increases the speed, but requires more memory. Defaults to 500000.
+        corpus_chunk_size (int, optional): Scans the corpus 500k entries at a time. Increasing that value increases the speed, but requires more memory. Defaults to 500000.
         top_k (int, optional): Retrieve top k matching entries. Defaults to 10.
         score_function (Callable[[:class:`~torch.Tensor`, :class:`~torch.Tensor`], :class:`~torch.Tensor`], optional): Function for computing scores. By default, cosine similarity.
 
@@ -282,13 +282,15 @@ def community_detection(
     if not isinstance(embeddings, torch.Tensor):
         embeddings = torch.tensor(embeddings)
 
+    if len(embeddings) < min_community_size:
+        return []
+
     threshold = torch.tensor(threshold, device=embeddings.device)
     embeddings = normalize_embeddings(embeddings)
 
     extracted_communities = []
 
     # Maximum size for community
-    min_community_size = min(min_community_size, len(embeddings))
     sort_max_size = min(max(2 * min_community_size, 50), len(embeddings))
 
     for start_idx in tqdm(

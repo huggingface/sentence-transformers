@@ -4,10 +4,15 @@ import contextlib
 import importlib
 import logging
 import os
+import platform
+import sys
 from collections.abc import Generator
-from importlib.metadata import PackageNotFoundError, metadata
+from importlib.metadata import PackageNotFoundError, metadata, version
+from typing import Any
 
 import torch
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 from transformers import is_torch_npu_available
 
 logger = logging.getLogger(__name__)
@@ -112,3 +117,89 @@ def is_training_available() -> bool:
     Transformers models, i.e. Huggingface datasets and Huggingface accelerate.
     """
     return is_accelerate_available() and is_datasets_available()
+
+
+def get_installed_version(package_name: str) -> str | None:
+    """
+    Returns the version of an installed package, or None if the package can't be found.
+
+    The ``__version__`` of an already imported module takes precedence over the distribution
+    metadata, as the metadata of editable installs lags behind the code that actually runs.
+    """
+    if package_name == "python":
+        return platform.python_version()
+
+    module = sys.modules.get(package_name.replace("-", "_"))
+    if isinstance(module_version := getattr(module, "__version__", None), str):
+        return module_version
+
+    try:
+        return version(package_name)
+    except PackageNotFoundError:
+        return None
+
+
+def check_version_requirements(requirements: dict[str, Any] | None, source: str | None = None) -> None:
+    """
+    Verifies that the installed packages satisfy the version requirements declared by a model.
+
+    Requirements that can't be interpreted (e.g. an invalid specifier) are logged as a warning
+    and skipped, so that a typo in a model configuration doesn't make the model unloadable.
+
+    Args:
+        requirements (dict[str, Any], optional): Mapping of package name to a `PEP 440
+            <https://peps.python.org/pep-0440/#version-specifiers>`_ version specifier, e.g.
+            ``{"transformers": ">=5.15", "peft": ">=0.18,<0.20"}``. Instead of a specifier, a value
+            may also be a dictionary with a ``"specifier"`` and a ``"reason"`` describing what goes
+            wrong if the requirement isn't met. The special ``"python"`` package name is matched
+            against the running Python version.
+        source (str, optional): The model name or path that declared the requirements, used in the
+            error message. Defaults to None.
+
+    Raises:
+        ImportError: If one or more requirements aren't satisfied.
+    """
+    if not requirements:
+        return
+    if not isinstance(requirements, dict):
+        logger.warning(f"Ignoring the `requirements` of {source!r}: expected a dictionary of version specifiers.")
+        return
+
+    # The `__version__` block in config_sentence_transformers.json spells torch as "pytorch",
+    # so model authors are likely to use that name in their requirements too.
+    aliases = {"pytorch": "torch"}
+
+    unmet: list[str] = []
+    install_specs: list[str] = []
+    for package_name, requirement in requirements.items():
+        package_name = aliases.get(package_name, package_name)
+        is_dict = isinstance(requirement, dict)
+        specifier = requirement.get("specifier", "") if is_dict else requirement
+        reason = requirement.get("reason", "") if is_dict else ""
+
+        if not isinstance(specifier, str):
+            logger.warning(
+                f"Could not verify the {specifier!r} requirement of {source!r}: expected a version specifier string."
+            )
+            continue
+
+        installed_version = get_installed_version(package_name)
+        # Parse both sides up front: anything unparsable must warn rather than raise.
+        try:
+            specifier_set = SpecifierSet(specifier, prereleases=True)
+            if installed_version is not None and specifier_set.contains(Version(installed_version)):
+                continue
+        except Exception as e:
+            logger.warning(f"Could not verify the {specifier!r} requirement of {source!r}: {e}")
+            continue
+
+        found = f"{package_name}=={installed_version} is installed" if installed_version else "it is not installed"
+        unmet.append(f"- {package_name}{specifier}, but {found}. {reason}".rstrip())
+        if package_name != "python":
+            install_specs.append(f'"{package_name}{specifier}"')
+
+    if unmet:
+        lines = [f"The model {source!r} requires:" if source else "This model requires:", *unmet]
+        if install_specs:
+            lines.append(f"Install compatible versions with:\n    pip install -U {' '.join(install_specs)}")
+        raise ImportError("\n".join(lines))

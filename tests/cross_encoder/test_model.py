@@ -6,6 +6,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -23,7 +24,7 @@ from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
-from tests.utils import GENERIC_INSTRUCT_TEMPLATE, RERANKER_TEMPLATE
+from tests.utils import GENERIC_INSTRUCT_TEMPLATE, RERANKER_TEMPLATE, skip_bfloat16_cpu_crash
 
 
 def test_classifier_dropout_is_set() -> None:
@@ -102,6 +103,23 @@ def test_rank(return_documents: bool, request: FixtureRequest) -> None:
     assert pred_ranking == expected_ranking
 
 
+def test_rank_scores_are_floats(reranker_bert_tiny_model: CrossEncoder) -> None:
+    ranks = reranker_bert_tiny_model.rank("A man is eating pasta.", ["A man is eating food.", "A monkey is playing."])
+    assert [type(rank["score"]) for rank in ranks] == [float, float]
+    json.dumps(ranks)
+
+
+@pytest.mark.parametrize("kwarg", ["convert_to_numpy", "convert_to_tensor"])
+def test_rank_convert_kwargs_deprecated(reranker_bert_tiny_model: CrossEncoder, kwarg: str, caplog) -> None:
+    # Annotated as Any so type checkers don't match the removed kwarg against every remaining parameter
+    deprecated_kwargs: dict[str, Any] = {kwarg: True}
+    with caplog.at_level(logging.WARNING):
+        ranks = reranker_bert_tiny_model.rank("A man is eating pasta.", ["A man is eating food."], **deprecated_kwargs)
+
+    assert kwarg in caplog.text
+    assert type(ranks[0]["score"]) is float
+
+
 def test_rank_multiple_labels(nli_minilm_model: CrossEncoder):
     model = nli_minilm_model
     with pytest.raises(
@@ -136,6 +154,30 @@ def test_predict_softmax(nli_minilm_model: CrossEncoder):
     assert torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
     scores = model.predict([(query, doc) for doc in corpus], apply_softmax=False, convert_to_tensor=True)
     assert not torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
+
+
+@skip_bfloat16_cpu_crash
+def test_predict_low_precision_logits_upcast_to_float32(reranker_bert_tiny_model: CrossEncoder) -> None:
+    """The activation over cross-encoder logits must run in float32 for low-precision models (HPS).
+
+    Applying sigmoid/softmax to float16/bfloat16 logits buckets the (0, 1) probability range
+    coarsely, collapsing distinct relevance scores into spurious ties.
+    """
+    model = reranker_bert_tiny_model
+    if model.device.type == "cpu" and Version(torch.__version__) <= Version("2.5.0"):
+        pytest.xfail("bfloat16 CPU inference is unreliable on older torch")
+    pairs = [
+        ("A man is eating pasta.", "A man is eating food."),
+        ("A man is eating pasta.", "The girl is carrying a baby."),
+    ]
+    reference = model.predict(pairs, convert_to_tensor=True)
+    assert reference.dtype == torch.float32
+
+    model.model.to(torch.bfloat16)
+    scores = model.predict(pairs, convert_to_tensor=True)
+
+    assert scores.dtype == torch.float32
+    assert torch.allclose(scores, reference, atol=1e-2)
 
 
 @pytest.mark.parametrize("model_fixture", ["reranker_bert_tiny_model", "nli_minilm_model"])

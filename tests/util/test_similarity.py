@@ -4,11 +4,12 @@ import numpy as np
 import pytest
 import sklearn
 import torch
+from packaging.version import Version
 
 from sentence_transformers.sparse_encoder import SparseEncoder
 from sentence_transformers.util import similarity
 from sentence_transformers.util.similarity import (
-    _document_chunk_ranges,
+    _chunk_ranges,
     cos_sim,
     dot_score,
     euclidean_sim,
@@ -409,6 +410,87 @@ def test_pairwise_angle_sim_even_and_odd_sparse_embeddings(splade_bert_tiny_mode
     assert torch.allclose(sim_even, sim_odd, rtol=1e-5, atol=1e-5)
 
 
+LOW_PRECISION_DTYPES = [torch.float16, torch.bfloat16]
+
+
+@pytest.fixture
+def low_precision_embeddings() -> tuple[torch.Tensor, torch.Tensor]:
+    generator = torch.Generator().manual_seed(0)
+    a = torch.randn(4, 32, generator=generator)
+    b = torch.randn(50, 32, generator=generator)
+    return a, b
+
+
+@pytest.mark.parametrize("fn", [cos_sim, dot_score])
+@pytest.mark.parametrize("dtype", LOW_PRECISION_DTYPES)
+def test_scores_are_float32_for_low_precision_inputs(fn, dtype, low_precision_embeddings) -> None:
+    """Low-precision embeddings must still yield float32 scores (HPS)."""
+    a, b = low_precision_embeddings
+    scores = fn(a.to(dtype), b.to(dtype))
+    assert scores.dtype == torch.float32
+
+
+@pytest.mark.parametrize("fn", [pairwise_cos_sim, pairwise_dot_score])
+@pytest.mark.parametrize("dtype", LOW_PRECISION_DTYPES)
+def test_pairwise_scores_are_float32_for_low_precision_inputs(fn, dtype) -> None:
+    generator = torch.Generator().manual_seed(0)
+    a = torch.randn(16, 32, generator=generator).to(dtype)
+    b = torch.randn(16, 32, generator=generator).to(dtype)
+    scores = fn(a, b)
+    assert scores.dtype == torch.float32
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float16, pytest.param(torch.bfloat16, marks=skip_bfloat16_cpu_crash)],
+)
+def test_hps_collapses_spurious_ties(dtype, low_precision_embeddings) -> None:
+    """Upcasting the scoring step recovers the tie structure of float32.
+
+    A naive low-precision matmul buckets scores coarsely and produces spurious
+    ties; HPS (upcast-then-score) should recover essentially all of the unique
+    scores that full float32 scoring produces.
+    """
+    if Version(torch.__version__) <= Version("2.5.0"):
+        pytest.xfail('Torch will raise "clamp_min_scalar_cpu" not implemented for Half')
+
+    a, b = low_precision_embeddings
+    reference = cos_sim(a, b)  # float32 reference
+    hps = cos_sim(a.to(dtype), b.to(dtype))  # low-precision inputs, HPS scoring
+
+    # Naive low-precision scoring (no upcast) for comparison.
+    a_norm = torch.nn.functional.normalize(a.to(dtype), p=2, dim=1)
+    b_norm = torch.nn.functional.normalize(b.to(dtype), p=2, dim=1)
+    naive = a_norm @ b_norm.transpose(0, 1)
+
+    n_ref = torch.unique(reference).numel()
+    n_hps = torch.unique(hps).numel()
+    n_naive = torch.unique(naive).numel()
+
+    assert n_naive < n_ref, "expected the naive low-precision matmul to create ties"
+    assert n_hps >= n_naive, "HPS must not introduce more ties than naive scoring"
+    # HPS recovers the vast majority of the distinct float32 scores.
+    assert n_hps >= n_ref - 1
+
+
+@pytest.mark.parametrize("fn", [cos_sim, dot_score])
+def test_float32_inputs_are_unchanged(fn, low_precision_embeddings) -> None:
+    """HPS is a no-op for embeddings that are already float32."""
+    a, b = low_precision_embeddings
+    scores = fn(a, b)
+    assert scores.dtype == torch.float32
+    assert torch.equal(scores, fn(a.clone(), b.clone()))
+
+
+@pytest.mark.parametrize("dtype", LOW_PRECISION_DTYPES)
+def test_low_precision_scores_match_float32_reference(dtype, low_precision_embeddings) -> None:
+    """Scores from upcast low-precision embeddings stay close to the float32 reference."""
+    a, b = low_precision_embeddings
+    reference = cos_sim(a, b)
+    hps = cos_sim(a.to(dtype), b.to(dtype))
+    assert torch.allclose(reference, hps, atol=1e-2)
+
+
 def test_maxsim_document_chunking_matches_unchunked() -> None:
     """The chunked path masks and sums per chunk (bounding peak memory), which must be numerically
     identical to the single-einsum path, including with query and document masks."""
@@ -423,7 +505,7 @@ def test_maxsim_document_chunking_matches_unchunked() -> None:
     unchunked = maxsim(a, b, a_mask=a_mask, b_mask=b_mask)
     # Budgets picked to yield roughly 1, 4, and 13 documents per chunk (per-document cost 5*9*11).
     for budget in (1, 2000, 6500, 10**12):
-        chunked = maxsim(a, b, a_mask=a_mask, b_mask=b_mask, document_chunk_elements=budget)
+        chunked = maxsim(a, b, a_mask=a_mask, b_mask=b_mask, chunk_elements=budget)
         assert torch.allclose(unchunked, chunked, atol=1e-6), f"budget={budget}"
 
 
@@ -439,7 +521,7 @@ def test_maxsim_list_documents_chunking_pads_per_chunk() -> None:
     unchunked = maxsim(a, b)
     # Budgets small enough to split the ragged corpus into several chunks (per-document cost 3*6*width).
     for budget in (1, 400, 1200):
-        chunked = maxsim(a, b, document_chunk_elements=budget)
+        chunked = maxsim(a, b, chunk_elements=budget)
         assert torch.allclose(unchunked, chunked, atol=1e-6), f"budget={budget}"
 
     # A caller-provided mask spans the global width and gets truncated to each chunk's local width.
@@ -449,7 +531,7 @@ def test_maxsim_list_documents_chunking_pads_per_chunk() -> None:
     b_mask[1, 20:] = False
     unchunked = maxsim(a, b, b_mask=b_mask)
     for budget in (1, 400, 1200):
-        chunked = maxsim(a, b, b_mask=b_mask, document_chunk_elements=budget)
+        chunked = maxsim(a, b, b_mask=b_mask, chunk_elements=budget)
         assert torch.allclose(unchunked, chunked, atol=1e-6), f"budget={budget}"
 
 
@@ -532,26 +614,26 @@ def test_maxsim_integer_embeddings_upcast() -> None:
     assert torch.allclose(pairwise_padded, torch.diagonal(expected))
 
 
-def test_document_chunk_ranges_budget_packing() -> None:
-    """Greedy packing keeps each chunk's per_document_token * width * count under the budget,
+def test_chunk_ranges_budget_packing() -> None:
+    """Greedy packing keeps each chunk's per_item_token * width * count under the budget,
     isolates a long outlier in its own chunk, and never emits an empty chunk."""
-    # Budget 256 at 16 elements per document token allows width * count <= 16.
-    ranges = _document_chunk_ranges([4, 4, 100, 4], per_document_token=16, element_budget=256)
+    # Budget 256 at 16 elements per item token allows width * count <= 16.
+    ranges = _chunk_ranges([4, 4, 100, 4], per_item_token=16, element_budget=256)
     assert ranges == [(0, 2), (2, 3), (3, 4)]
 
     # A huge budget packs everything into one chunk, the unchunked-equivalent case.
-    assert _document_chunk_ranges([4, 4, 100, 4], 16, 10**12) == [(0, 4)]
+    assert _chunk_ranges([4, 4, 100, 4], 16, 10**12) == [(0, 4)]
 
-    # The one-document floor: a single document over budget still gets a chunk.
-    assert _document_chunk_ranges([1000], 16, 256) == [(0, 1)]
+    # The one-item floor: a single item over budget still gets a chunk.
+    assert _chunk_ranges([1000], 16, 256) == [(0, 1)]
 
-    # Uniform widths degrade to fixed-size-style chunks: each 2-document chunk costs exactly 200.
-    assert _document_chunk_ranges([10] * 6, 10, 200) == [(0, 2), (2, 4), (4, 6)]
+    # Uniform widths degrade to fixed-size-style chunks: each 2-item chunk costs exactly 200.
+    assert _chunk_ranges([10] * 6, 10, 200) == [(0, 2), (2, 4), (4, 6)]
 
-    # per_document_fixed adds a width-independent cost per document: 10 * 10 + 100 = 200 each.
-    assert _document_chunk_ranges([10] * 6, 10, 400, per_document_fixed=100) == [(0, 2), (2, 4), (4, 6)]
-    # It counts against the budget even when the documents are zero-width.
-    assert _document_chunk_ranges([0] * 4, 10, 400, per_document_fixed=100) == [(0, 4)]
+    # per_item_fixed adds a width-independent cost per item: 10 * 10 + 100 = 200 each.
+    assert _chunk_ranges([10] * 6, 10, 400, per_item_fixed=100) == [(0, 2), (2, 4), (4, 6)]
+    # It counts against the budget even when the items are zero-width.
+    assert _chunk_ranges([0] * 4, 10, 400, per_item_fixed=100) == [(0, 4)]
 
 
 def test_maxsim_element_budget_matches_single_chunk() -> None:
@@ -562,8 +644,8 @@ def test_maxsim_element_budget_matches_single_chunk() -> None:
     lengths = [3, 40, 5, 9, 2, 12]
     documents = [torch.randn(length, 8, generator=generator) for length in lengths]
 
-    single_chunk = maxsim(queries, documents, document_chunk_elements=10**12)
-    tiny_budget = maxsim(queries, documents, document_chunk_elements=1)
+    single_chunk = maxsim(queries, documents, chunk_elements=10**12)
+    tiny_budget = maxsim(queries, documents, chunk_elements=1)
     assert torch.allclose(single_chunk, tiny_budget, atol=1e-6)
     default_budget = maxsim(queries, documents)
     assert torch.allclose(single_chunk, default_budget, atol=1e-6)
@@ -572,13 +654,13 @@ def test_maxsim_element_budget_matches_single_chunk() -> None:
     for row, length in enumerate(lengths):
         b_mask[row, :length] = True
     b_mask[1, 20:] = False
-    masked_single = maxsim(queries, documents, b_mask=b_mask, document_chunk_elements=10**12)
-    masked_tiny = maxsim(queries, documents, b_mask=b_mask, document_chunk_elements=1)
+    masked_single = maxsim(queries, documents, b_mask=b_mask, chunk_elements=10**12)
+    masked_tiny = maxsim(queries, documents, b_mask=b_mask, chunk_elements=1)
     assert torch.allclose(masked_single, masked_tiny, atol=1e-6)
 
     documents_padded = torch.nn.utils.rnn.pad_sequence(documents, batch_first=True)
-    padded_single = maxsim(queries, documents_padded, b_mask=b_mask, document_chunk_elements=10**12)
-    padded_tiny = maxsim(queries, documents_padded, b_mask=b_mask, document_chunk_elements=1)
+    padded_single = maxsim(queries, documents_padded, b_mask=b_mask, chunk_elements=10**12)
+    padded_tiny = maxsim(queries, documents_padded, b_mask=b_mask, chunk_elements=1)
     assert torch.allclose(padded_single, padded_tiny, atol=1e-6)
     assert torch.allclose(masked_single, padded_single, atol=1e-6)
 
@@ -602,7 +684,7 @@ def test_maxsim_half_precision_accumulates_in_float32() -> None:
     # Far more distinct scores than the bf16 grid can represent for these clustered documents.
     assert scores[0].unique().numel() > 2 * scores[0].bfloat16().unique().numel()
 
-    chunked = maxsim(queries_bf16, documents_bf16, document_chunk_elements=1)
+    chunked = maxsim(queries_bf16, documents_bf16, chunk_elements=1)
     assert chunked.dtype == torch.float32
     assert torch.allclose(chunked, scores, rtol=0, atol=0.05)
 
@@ -647,7 +729,7 @@ def test_maxsim_fully_masked_document_scores_sentinel(caplog) -> None:
     assert list_scores[0, 0].abs() < 100
 
     # The chunked path applies the same sentinel per chunk.
-    chunked = maxsim(queries, documents, b_mask=b_mask, document_chunk_elements=1)
+    chunked = maxsim(queries, documents, b_mask=b_mask, chunk_elements=1)
     assert torch.allclose(chunked, scores, rtol=0, atol=1e-6)
 
 
@@ -781,7 +863,7 @@ def test_maxsim_mismatched_mask_width_raises() -> None:
 
     for chunk_elements in (None, 1):
         with pytest.raises(ValueError, match="b_mask"):
-            maxsim(queries, documents, b_mask=wide_mask, document_chunk_elements=chunk_elements)
+            maxsim(queries, documents, b_mask=wide_mask, chunk_elements=chunk_elements)
     with pytest.raises(ValueError, match="a_mask"):
         maxsim(queries, documents, a_mask=torch.ones(2, 5))
     with pytest.raises(ValueError, match="b_mask"):
@@ -811,7 +893,7 @@ def test_maxsim_narrow_mask_raises_value_error() -> None:
     documents = torch.randn(3, 5, 8)
     for chunk_elements in (None, 1):
         with pytest.raises(ValueError, match="covers 4 tokens"):
-            maxsim(queries, documents, b_mask=torch.ones(3, 4), document_chunk_elements=chunk_elements)
+            maxsim(queries, documents, b_mask=torch.ones(3, 4), chunk_elements=chunk_elements)
     with pytest.raises(ValueError, match="covers 2 tokens"):
         maxsim(queries, documents, a_mask=torch.ones(2, 2))
     with pytest.raises(ValueError, match="covers 4 tokens"):
@@ -839,7 +921,7 @@ def test_maxsim_moves_queries_to_the_documents_device() -> None:
 
     for scores in (
         maxsim(queries.numpy(), cuda_documents),
-        maxsim(queries, cuda_documents, document_chunk_elements=1),
+        maxsim(queries, cuda_documents, chunk_elements=1),
         maxsim(queries, list(cuda_documents.unbind(0))),
     ):
         assert scores.device == cuda_documents.device
@@ -854,7 +936,7 @@ def test_maxsim_moves_queries_to_the_documents_device() -> None:
         assert torch.allclose(pairwise.cpu(), expected_pairwise, atol=1e-5)
 
 
-def test_maxsim_pairwise_scores_are_independent_of_pair_chunk_elements() -> None:
+def test_maxsim_pairwise_scores_are_independent_of_chunk_elements() -> None:
     """Chunking the pair batch is a memory strategy only: every budget scores identically, including
     the one-pair-per-chunk floor and a ragged batch with a long outlier."""
     generator = torch.Generator().manual_seed(11)
@@ -863,9 +945,9 @@ def test_maxsim_pairwise_scores_are_independent_of_pair_chunk_elements() -> None
     b_mask = [torch.ones(width) for width in (2, 40, 3, 1, 5)]
     b_mask[1][20:] = 0
 
-    expected = maxsim_pairwise(queries, documents, b_mask=b_mask, pair_chunk_elements=10**9)
+    expected = maxsim_pairwise(queries, documents, b_mask=b_mask, chunk_elements=10**9)
     for budget in (1, 13, 400, None):
-        scores = maxsim_pairwise(queries, documents, b_mask=b_mask, pair_chunk_elements=budget)
+        scores = maxsim_pairwise(queries, documents, b_mask=b_mask, chunk_elements=budget)
         assert torch.allclose(scores, expected, atol=1e-6)
 
 
@@ -888,7 +970,7 @@ def test_maxsim_pairwise_never_pads_the_batch_to_the_global_width(monkeypatch: p
     documents = [torch.randn(width, 8, generator=generator) for width in widths]
     budget = 2000
 
-    maxsim_pairwise(queries, documents, pair_chunk_elements=budget)
+    maxsim_pairwise(queries, documents, chunk_elements=budget)
 
     assert len(chunk_shapes) > 1
     # Only the outlier's own chunk may exceed the budget, via the one-pair-per-chunk floor.
@@ -933,7 +1015,7 @@ def test_maxsim_budget_bounds_the_live_chunk_elements(monkeypatch: pytest.Monkey
     documents = [torch.randn(width, 128, generator=generator) for width in widths]
     budget = 20_000
 
-    maxsim(queries, documents, document_chunk_elements=budget)
+    maxsim(queries, documents, chunk_elements=budget)
 
     assert len(chunks) > 1
     # Only the outlier may exceed the budget, and only in a chunk of its own (the one-document floor).
@@ -958,7 +1040,7 @@ def test_maxsim_pairwise_budget_counts_the_padded_queries(monkeypatch: pytest.Mo
     documents = [torch.randn(4, 16, generator=generator) for _ in range(200)]
     budget = 100_000
 
-    maxsim_pairwise(queries, documents, pair_chunk_elements=budget)
+    maxsim_pairwise(queries, documents, chunk_elements=budget)
 
     assert len(live_elements) > 1
     assert max(live_elements) <= budget
@@ -975,7 +1057,7 @@ def test_maxsim_numpy_documents_follow_the_queries_device() -> None:
 
     for scores in (
         maxsim(cuda_queries, documents.numpy()),
-        maxsim(cuda_queries, documents.numpy(), document_chunk_elements=1),
+        maxsim(cuda_queries, documents.numpy(), chunk_elements=1),
         maxsim(cuda_queries, [document.numpy() for document in documents]),
     ):
         assert scores.device == cuda_queries.device
@@ -999,9 +1081,7 @@ def test_maxsim_moves_masks_onto_the_scoring_device() -> None:
 
     expected = maxsim(queries, documents, a_mask=a_mask, b_mask=b_mask)
     for chunk_elements in (None, 1):
-        scores = maxsim(
-            queries.cuda(), documents.cuda(), a_mask=a_mask, b_mask=b_mask, document_chunk_elements=chunk_elements
-        )
+        scores = maxsim(queries.cuda(), documents.cuda(), a_mask=a_mask, b_mask=b_mask, chunk_elements=chunk_elements)
         assert scores.device.type == "cuda"
         assert torch.allclose(scores.cpu(), expected, atol=1e-5)
 
@@ -1033,7 +1113,8 @@ def test_maxsim_length_normalize_divides_by_real_query_tokens() -> None:
 
 def test_mean_maxsim_matches_length_normalized_maxsim() -> None:
     """The named MeanMaxSim functions are the length_normalize=True form of their MaxSim
-    counterparts, and SimilarityFunction resolves "meanmaxsim" to them."""
+    counterparts (with length_normalize=False recovering the plain form, so the family accepts one
+    keyword set), and SimilarityFunction resolves "meanmaxsim" to them."""
     from sentence_transformers.util import SimilarityFunction, mean_maxsim, mean_maxsim_pairwise
 
     generator = torch.Generator().manual_seed(3)
@@ -1043,6 +1124,10 @@ def test_mean_maxsim_matches_length_normalized_maxsim() -> None:
     assert torch.allclose(mean_maxsim(queries, documents), maxsim(queries, documents, length_normalize=True))
     assert torch.allclose(
         mean_maxsim_pairwise(queries, documents), maxsim_pairwise(queries, documents, length_normalize=True)
+    )
+    assert torch.allclose(mean_maxsim(queries, documents, length_normalize=False), maxsim(queries, documents))
+    assert torch.allclose(
+        mean_maxsim_pairwise(queries, documents, length_normalize=False), maxsim_pairwise(queries, documents)
     )
     assert SimilarityFunction.to_similarity_fn("meanmaxsim") is mean_maxsim
     assert SimilarityFunction.to_similarity_pairwise_fn("meanmaxsim") is mean_maxsim_pairwise
@@ -1068,3 +1153,48 @@ def test_mean_maxsim_denominator_follows_the_scoring_mask() -> None:
 
     all_real = torch.ones(1, 5, dtype=torch.bool)
     assert maxsim(query[None], documents, a_mask=all_real, length_normalize=True).item() == pytest.approx(as_list)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA for the device override")
+def test_maxsim_device_is_a_pure_compute_knob() -> None:
+    """maxsim's device override moves the arithmetic only: scores still return on the documents'
+    device, identically for the plain and length-normalized forms."""
+    from sentence_transformers.util import mean_maxsim, mean_maxsim_pairwise
+
+    generator = torch.Generator().manual_seed(15)
+    queries = [torch.randn(4, 16, generator=generator), torch.randn(7, 16, generator=generator)]
+    documents = [torch.randn(5, 16, generator=generator) for _ in range(6)]
+    plain = maxsim(queries, documents)
+    on_device = maxsim(queries, documents, device="cuda", chunk_elements=200)
+    assert on_device.device.type == "cpu"
+    assert torch.allclose(on_device, plain, atol=1e-5)
+
+    assert torch.allclose(mean_maxsim(queries, documents, device="cuda"), mean_maxsim(queries, documents), atol=1e-5)
+    pairs = documents[:2]
+    assert torch.allclose(
+        mean_maxsim_pairwise(queries, pairs, device="cuda", chunk_elements=200),
+        mean_maxsim_pairwise(queries, pairs),
+        atol=1e-5,
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA to measure VRAM residency")
+def test_maxsim_device_bounds_residency_by_element_budget() -> None:
+    """With a device override, only one element-budget chunk of documents occupies the device at a
+    time, so a corpus far larger than the budget never has to fit on it."""
+    generator = torch.Generator().manual_seed(16)
+    queries = [torch.randn(4, 64, generator=generator)]
+    documents = [torch.randn(100, 64, generator=generator) for _ in range(4_000)]  # ~102 MB in fp32
+    # The first CUDA matmul in a process allocates the cuBLAS workspace inside the measured window
+    # (about 8 MiB on Ampere, 32 MiB on Hopper). Allocate it before the baseline.
+    torch.zeros(1, 1, device="cuda") @ torch.zeros(1, 1, device="cuda")
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    # Measured as a delta: in a shared test session, other tests' live allocations (e.g. a model
+    # fixture on CUDA) sit under the peak.
+    baseline = torch.cuda.memory_allocated()
+    scores = maxsim(queries, documents, device="cuda", chunk_elements=1_000_000)
+    peak = torch.cuda.max_memory_allocated() - baseline
+    assert scores.shape == (1, 4_000)
+    assert scores.device.type == "cpu"
+    assert peak < 30 * 1024 * 1024, f"peak VRAM {peak / 1e6:.1f} MB suggests the whole corpus moved"

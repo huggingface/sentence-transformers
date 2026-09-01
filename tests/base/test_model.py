@@ -581,35 +581,33 @@ def test_load_module_class_from_ref_sentence_transformers(stsb_bert_tiny_model: 
     assert cls is Pooling
 
 
-def test_load_module_class_from_ref_untrusted_ref_warns_about_v6(
+def test_load_module_class_from_ref_untrusted_ref_raises(
     stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A non-sentence_transformers class ref from an untrusted, non-local model still resolves for now, but
-    must emit a FutureWarning that v6.0 will require `trust_remote_code=True` (the import runs
-    repository-chosen code)."""
+    """A non-sentence_transformers class ref without `trust_remote_code=True` is refused: the import
+    would run repository-chosen code."""
     dynamic_loading_attempted = False
 
     def mock_get_class(class_ref, model_name_or_path, **kwargs):
         nonlocal dynamic_loading_attempted
         dynamic_loading_attempted = True
-        raise OSError("must not be reached for an untrusted, non-local ref")
+        raise OSError("must not be reached for an untrusted ref")
 
     monkeypatch.setattr(
         "transformers.dynamic_module_utils.get_class_from_dynamic_module",
         mock_get_class,
     )
 
-    with pytest.warns(FutureWarning, match="trust_remote_code"):
-        cls = stsb_bert_tiny_model._load_module_class_from_ref(
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        stsb_bert_tiny_model._load_module_class_from_ref(
             "torch.nn.Linear",
             model_name_or_path="nonexistent_path_12345",
             trust_remote_code=False,
             revision=None,
             model_kwargs=None,
         )
-    # Untrusted + non-local must not attempt remote (dynamic) loading. The ref resolves via direct import.
+    # The refusal must come from the gate, before any remote (dynamic) loading is attempted.
     assert not dynamic_loading_attempted
-    assert cls is nn.Linear
 
 
 def test_load_module_class_from_ref_trust_remote_code_fallback(
@@ -1150,6 +1148,29 @@ def test_get_model_type_reads_model_type(stsb_bert_tiny_model: SentenceTransform
     assert result == "SparseEncoder"
 
 
+def save_with_model_config(model: SentenceTransformer, path: Path, **config_updates: Any) -> None:
+    """Save a model, then update its config_sentence_transformers.json, e.g. to add requirements."""
+    model.save_pretrained(str(path))
+    config_path = path / "config_sentence_transformers.json"
+    config = json.loads(config_path.read_text(encoding="utf8"))
+    config.update(config_updates)
+    config_path.write_text(json.dumps(config), encoding="utf8")
+
+
+def test_met_requirements_load_normally(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+    save_with_model_config(stsb_bert_tiny_model, tmp_path, requirements={"transformers": ">=1.0"})
+
+    model = SentenceTransformer(str(tmp_path))
+    assert len(model) == len(stsb_bert_tiny_model)
+
+
+def test_unmet_requirements_raise_when_loading(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+    save_with_model_config(stsb_bert_tiny_model, tmp_path, requirements={"transformers": ">=999"})
+
+    with pytest.raises(ImportError, match="transformers>=999"):
+        SentenceTransformer(str(tmp_path))
+
+
 class StrictLoadModule(Module):
     """Third-party-style module: load() pins an exact keyword list with no **kwargs catch-all."""
 
@@ -1212,8 +1233,35 @@ def test_third_party_module_with_strict_load_signature_round_trips(tmp_path: Pat
     model = SentenceTransformer(modules=[transformer, pooling, StrictLoadModule(scale=2.0)])
     model.save_pretrained(str(tmp_path))
 
-    reloaded = SentenceTransformer(str(tmp_path))
+    reloaded = SentenceTransformer(str(tmp_path), trust_remote_code=True)
     strict = reloaded[2]
     assert isinstance(strict, StrictLoadModule)
     assert strict.scale == 2.0
+    reloaded.encode(["round trip"])
+
+
+def test_private_load_with_module_classes_loads_without_trust_remote_code(tmp_path: Path) -> None:
+    """A module class outside Sentence Transformers needs ``trust_remote_code=True``, which also permits
+    remote code for the backbone. Supplying the class this process already imported loads it without the
+    flag. A strict ``load()`` signature must survive that too, so it never sees the extra keyword."""
+    from sentence_transformers.sentence_transformer.modules import Pooling, Transformer
+    from sentence_transformers.util import fullname
+
+    transformer = Transformer("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    pooling = Pooling(transformer.get_embedding_dimension(), "mean")
+    SentenceTransformer(modules=[transformer, pooling, StrictLoadModule(scale=2.0)]).save_pretrained(str(tmp_path))
+
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        SentenceTransformer(str(tmp_path))
+
+    # The mapping exempts only what it names: a ref it does not cover is still refused.
+    with pytest.raises(ValueError, match="trust_remote_code"):
+        SentenceTransformer._load_with_module_classes(str(tmp_path), {"other.pkg.Thing": StrictLoadModule})
+
+    reloaded = SentenceTransformer._load_with_module_classes(
+        str(tmp_path), {fullname(StrictLoadModule): StrictLoadModule}
+    )
+    assert isinstance(reloaded[2], StrictLoadModule)
+    assert reloaded[2].scale == 2.0
+    assert reloaded.trust_remote_code is False
     reloaded.encode(["round trip"])

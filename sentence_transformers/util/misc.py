@@ -178,30 +178,24 @@ def import_module_class(
 
     Importing a class outside the ``sentence_transformers.*`` namespace runs code selected by the model's
     configuration (repository-hosted modeling code via dynamic loading, or a locally installed package via
-    direct import). Loading such a class is fully trusted only when ``trust_remote_code`` is set, or when
-    ``model_name_or_path`` resolves to a local directory (i.e. the user already has the file on disk and is
-    implicitly trusted).
+    direct import). Loading such a class requires ``trust_remote_code=True``, for local directories just
+    like for Hugging Face Hub repositories.
 
-    .. deprecated:: 5.6
-        The implicit trust of local directories is deprecated and will be removed in v6.0.
-        From v6.0, loading repository-local custom code will require ``trust_remote_code=True``,
-        matching the behavior for models loaded from the Hugging Face Hub. A ``FutureWarning`` is
-        emitted whenever a local model is loaded via this short-circuit without
-        ``trust_remote_code=True``.
-
-    .. deprecated:: 5.7
-        Importing a module class outside the ``sentence_transformers.*`` namespace from an untrusted,
-        non-local model is deprecated. It currently emits a ``FutureWarning`` and will be refused from
-        v6.0, when ``trust_remote_code=True`` becomes required for these imports.
+    .. versionchanged:: 6.0
+        Importing a module class outside the ``sentence_transformers.*`` namespace now requires
+        ``trust_remote_code=True`` whenever ``model_name_or_path`` is set. Previously a local
+        ``model_name_or_path`` was implicitly trusted, and untrusted imports emitted a
+        ``FutureWarning`` while still importing.
 
     Args:
         class_ref: Dotted class path. Either a fully-qualified ``sentence_transformers.*``
             path or a repository-local reference like ``modeling_<name>.<ClassName>``.
         model_name_or_path: Hub repo id or local directory used to source repository-local
             modeling files. Required for dynamic loading.
-        trust_remote_code: Whether to trust and import code selected by the model configuration. Permits
-            dynamic loading from an unverified Hub repo, and (from v6.0) is required to import a
-            non-``sentence_transformers.*`` class.
+        trust_remote_code: Whether to trust and import code selected by the model configuration. Required
+            to import any non-``sentence_transformers.*`` class when ``model_name_or_path`` is set, and
+            permits dynamic loading of repository-hosted modeling files. Any falsy value, an explicit
+            None included, is treated as False.
         revision: Hub revision to fetch the modeling file from.
         code_revision: Optional separate revision pinning for the modeling code (overrides
             ``revision`` when set).
@@ -212,17 +206,33 @@ def import_module_class(
 
     Returns:
         The resolved class.
+
+    Raises:
+        ValueError: If ``class_ref`` is outside the ``sentence_transformers.*`` namespace,
+            ``model_name_or_path`` is set, and ``trust_remote_code`` is not True.
     """
     if class_ref.startswith("sentence_transformers."):
         return import_from_string(class_ref)
 
-    is_local_dir = model_name_or_path is not None and os.path.isdir(model_name_or_path)
-    trusted = trust_remote_code or is_local_dir
-    if model_name_or_path is not None and trusted:
+    if model_name_or_path is not None:
         from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
+        # Importing a class outside the sentence_transformers namespace executes third-party code (#3801).
+        # Not `resolve_trust_remote_code`: it appends a https://hf.co/<path> URL that is bogus for local models.
+        if not trust_remote_code:
+            location = (
+                os.path.abspath(model_name_or_path)
+                if os.path.isdir(model_name_or_path)
+                else f"https://hf.co/{model_name_or_path}"
+            )
+            raise ValueError(
+                f"The model {model_name_or_path} references the module class {class_ref!r}, which is not "
+                f"part of Sentence Transformers. Importing it executes third-party code. You can inspect the "
+                f"repository content at {location}.\n"
+                f"Please pass the argument `trust_remote_code=True` to allow custom code to be run."
+            )
         try:
-            module_class = get_class_from_dynamic_module(
+            return get_class_from_dynamic_module(
                 class_ref,
                 model_name_or_path,
                 revision=revision,
@@ -234,29 +244,7 @@ def import_module_class(
         except (OSError, ValueError):
             # 1) the file does not exist, or 2) the class_ref is not correctly formatted/found
             pass
-        else:
-            # TODO(v6.0): remove the `or is_local_dir` short-circuit above and this warning,
-            # requiring trust_remote_code for local custom code (#3801).
-            if not trust_remote_code:
-                warnings.warn(
-                    f"Loading custom module {class_ref!r} from local path {model_name_or_path!r} without "
-                    f"`trust_remote_code=True` is deprecated. It will require `trust_remote_code=True` from "
-                    f"Sentence Transformers v6.0.",
-                    FutureWarning,
-                    stacklevel=2,
-                )
-            return module_class
 
-    if model_name_or_path is not None and not trusted:
-        # TODO(v6.0): raise here instead of warning, refusing untrusted module-class imports (#3801).
-        warnings.warn(
-            f"The model {model_name_or_path!r} references the module class {class_ref!r}, which is not part "
-            f"of Sentence Transformers. Importing it executes third-party code, and will start requiring "
-            f"`trust_remote_code=True` from Sentence Transformers v6.0. Pass `trust_remote_code=True` if you "
-            f"trust {model_name_or_path!r} to reference a safe class.",
-            FutureWarning,
-            stacklevel=2,
-        )
     return import_from_string(class_ref)
 
 

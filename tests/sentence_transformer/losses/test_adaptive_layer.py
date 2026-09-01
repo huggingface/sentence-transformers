@@ -58,6 +58,29 @@ def _features_and_labels(model: SentenceTransformer) -> tuple[list[dict], torch.
     return features, labels
 
 
+def test_adaptive_layer_loss_prior_layers_see_the_collated_mask(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """Each prior-layer pass re-runs the pooling half over the same feature dicts. If pooling wrote
+    its prompt-excluded mask back into them, every pass after the first would narrow an already
+    narrowed mask, so with ``include_prompt`` disabled the dicts have to keep the mask as collated.
+    Pinned as loss equality across repeated calls, which only holds if they do."""
+    model = stsb_bert_tiny_model
+    model.set_pooling_include_prompt(False)
+    features = [
+        {key: value.to(model.device) if isinstance(value, torch.Tensor) else value for key, value in feats.items()}
+        for feats in [
+            model.preprocess(["It is sunny today.", "He drove to work."], prompt="query: "),
+            model.preprocess(["The weather is lovely.", "He took the car."], prompt="query: "),
+        ]
+    ]
+    assert all("prompt_length" in feature for feature in features), "the premise needs a prompt to exclude"
+
+    adaptive = AdaptiveLayerLoss(model, MultipleNegativesRankingLoss(model), n_layers_per_step=-1)
+    with torch.no_grad():
+        first = adaptive(features, None).item()
+        second = adaptive(features, None).item()
+    assert second == pytest.approx(first, rel=1e-4, abs=1e-6)
+
+
 def test_adaptive_layer_loss_runs_without_wrapper(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """Sanity check for the non-DDP, non-compile path: a bare SentenceTransformer skips
     the unwrap loop entirely."""

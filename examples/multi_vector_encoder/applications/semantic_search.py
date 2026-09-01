@@ -25,12 +25,12 @@ def main() -> None:
     # 2. Embed the corpus once with a small multi-vector model, one token embedding matrix per document.
     model = MultiVectorEncoder("mixedbread-ai/mxbai-edge-colbert-v0-32m")
     start = time.perf_counter()
-    corpus_embeddings = model.encode_document(corpus, convert_to_tensor=True, show_progress_bar=True)
+    corpus_embeddings = model.encode_document(corpus, show_progress_bar=True)
     print(f"Encoded {len(corpus)} documents in {time.perf_counter() - start:.2f}s (one-time indexing cost)")
 
     def search(query: str) -> None:
         start = time.perf_counter()
-        query_embeddings = model.encode_query([query], convert_to_tensor=True)
+        query_embeddings = model.encode_query([query])
         scores = model.similarity(query_embeddings, corpus_embeddings)[0]
         top_scores, top_indices = scores.topk(3)
         search_time = (time.perf_counter() - start) * 1000

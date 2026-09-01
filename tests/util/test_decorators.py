@@ -306,19 +306,63 @@ class TestCrossEncoderInitArgsDecorator:
 
 
 class TestCrossEncoderPredictRankArgsDecorator:
+    """The decorator adapts to the wrapped method: it only drops convert_to_numpy / convert_to_tensor
+    for methods that no longer declare them, and names the method it wrapped in every warning."""
+
+    @staticmethod
+    def _predict(self, inputs=None, convert_to_numpy=True, convert_to_tensor=False, **kwargs):
+        return {
+            "inputs": inputs,
+            "convert_to_numpy": convert_to_numpy,
+            "convert_to_tensor": convert_to_tensor,
+            **kwargs,
+        }
+
+    @staticmethod
+    def _rank(self, query=None, top_k=None, **kwargs):
+        return {"query": query, "top_k": top_k, **kwargs}
+
     def test_all_deprecated_kwargs(self, caplog):
         """Renames (sentences→inputs, activation_fct→activation_fn) are wired via deprecated_kwargs.
         num_workers is removed as a no-op."""
-
-        @cross_encoder_predict_rank_args_decorator
-        def func(self, **kwargs):
-            return kwargs
+        predict = cross_encoder_predict_rank_args_decorator(self._predict)
 
         with caplog.at_level(logging.WARNING):
-            result = func(None, sentences=[["a", "b"]], activation_fct="sigmoid", num_workers=4)
+            result = predict(None, sentences=[["a", "b"]], activation_fct="sigmoid", num_workers=4)
 
-        assert result == {"inputs": [["a", "b"]], "activation_fn": "sigmoid"}
-        assert "num_workers" in caplog.text
+        assert result["inputs"] == [["a", "b"]]
+        assert result["activation_fn"] == "sigmoid"
+        assert "CrossEncoder._predict `num_workers`" in caplog.text
+
+    def test_convert_kwargs_kept_for_predict(self, caplog):
+        """predict still declares both, so they must pass through untouched and unwarned."""
+        predict = cross_encoder_predict_rank_args_decorator(self._predict)
+
+        with caplog.at_level(logging.WARNING):
+            result = predict(None, convert_to_tensor=True)
+
+        assert result["convert_to_tensor"] is True
+        assert caplog.text == ""
+
+    def test_convert_kwargs_dropped_for_rank(self, caplog):
+        """rank no longer declares them, so they are dropped as no-ops and the warning names rank."""
+        rank = cross_encoder_predict_rank_args_decorator(self._rank)
+
+        with caplog.at_level(logging.WARNING):
+            result = rank(None, activation_fct="sigmoid", convert_to_numpy=False, convert_to_tensor=True)
+
+        assert result == {"query": None, "top_k": None, "activation_fn": "sigmoid"}
+        assert "CrossEncoder._rank `convert_to_numpy`" in caplog.text
+        assert "CrossEncoder._rank `convert_to_tensor`" in caplog.text
+
+    def test_no_warning_without_deprecated_kwargs(self, caplog):
+        rank = cross_encoder_predict_rank_args_decorator(self._rank)
+
+        with caplog.at_level(logging.WARNING):
+            result = rank(None, top_k=3)
+
+        assert result == {"query": None, "top_k": 3}
+        assert caplog.text == ""
 
 
 class TestSaveToHubArgsDecorator:

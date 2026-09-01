@@ -5,9 +5,12 @@ Modular Architecture
 --------------------
 
 A MultiVectorEncoder consists of modules that are executed sequentially, just like the other model
-families (see `Sentence Transformers > Creating Custom Models <../../sentence_transformer/usage/custom_models.html>`_
-for the general module API, the saving format, and distributing custom modules via the Hub). The
-default multi-vector pipeline is:
+families. Everything that is shared across families is documented once, on the
+`Sentence Transformers > Creating Custom Models <../../sentence_transformer/usage/custom_models.html>`_
+page: the general module API, the saving format, writing your own
+:class:`~sentence_transformers.base.modules.Module` or :class:`~sentence_transformers.base.modules.InputModule`,
+passing keyword arguments through to custom modules, and distributing them via the Hub. This page
+covers what is specific to multi-vector models. The default multi-vector pipeline is:
 
 * :class:`~sentence_transformers.base.modules.Transformer`: processes the input and produces contextualized
   token embeddings. The multi-vector knobs (``query_length``, ``document_length``, ``query_expansion``) live
@@ -53,7 +56,7 @@ To reproduce the full classic recipe, initialize the modules explicitly::
         activation_function=nn.Identity(),
         module_input_name="token_embeddings",
     )
-    mask = MultiVectorMask(skiplist_words=list(string.punctuation))  # skip punctuation for queries
+    mask = MultiVectorMask(skiplist_words=list(string.punctuation))  # skip punctuation for documents
     normalize = Normalize(module_input_name="token_embeddings")
 
     model = MultiVectorEncoder(
@@ -64,7 +67,7 @@ To reproduce the full classic recipe, initialize the modules explicitly::
 An optional :class:`~sentence_transformers.multi_vector_encoder.modules.HierarchicalTokenPooling`
 module can be appended after ``Normalize`` to bake document token pooling into the checkpoint.
 
-What released checkpoints configure
+What Released Checkpoints Configure
 -----------------------------------
 
 The loadable checkpoint families all end up in the same module system, but they carry different
@@ -86,7 +89,7 @@ family). ``print(model)`` shows the stack with every knob in the module configs,
     print(model.prompts)
     # {'query': '[unused0] ', 'document': '[unused1] '}
 
-Native and PyLate checkpoints
+Native and PyLate Checkpoints
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Checkpoints saved by this library ship a ``modules.json`` that defines the stack directly, so
@@ -101,7 +104,7 @@ Normalize are appended on load. As a concrete example, ``lightonai/GTE-ModernCol
 the four default modules with prompts ``"[Q] "`` / ``"[D] "``, no query expansion (LightOn disables
 it), a query length cap of 48, a document length cap of 300, and a punctuation skiplist.
 
-Stanford-NLP ColBERT checkpoints
+Stanford-NLP ColBERT Checkpoints
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Stanford-NLP ColBERT checkpoints like `colbert-ir/colbertv2.0 <https://huggingface.co/colbert-ir/colbertv2.0>`_ are
@@ -116,7 +119,7 @@ the inspection snippet above shows: queries processed at exactly 32 tokens (the 
 both pads shorter queries with non-attending ``[MASK]`` tokens and truncates longer ones),
 documents truncated at 180 tokens, and punctuation skipped during document scoring.
 
-Transformers-native retrievers (ColPali family)
+Transformers-Native Retrievers (ColPali Family)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 ``*ForRetrieval`` architectures (ColPali, ColQwen2, ColModernVBert) like `vidore/colpali-v1.3-hf <https://huggingface.co/vidore/colpali-v1.3-hf>`_ load as just
@@ -130,8 +133,8 @@ always rendered as queries by the processor, and image documents flow through th
 ColPali heatmap example does), set the mask module's ``keep_only_token_ids`` to ``model.processor.image_token_id``
 or ``[model.processor.tokenizer.convert_tokens_to_ids(model.processor.image_token)]``.
 
-Saving and sharing
-------------------
+Saving Multi-Vector Encoder Models
+----------------------------------
 
 ``save_pretrained`` writes the native format regardless of what was loaded: converted Stanford-NLP
 and PyLate checkpoints save as regular Sentence Transformers checkpoints (``modules.json`` plus a
@@ -154,7 +157,25 @@ A worked example that bakes document token pooling into the shipped model::
 Every consumer of the saved checkpoint now receives pooled document embeddings (queries stay
 unpooled), with the pooling stored as a fifth entry in ``modules.json``.
 
-Extra per-token features
+Loading Multi-Vector Encoder Models
+-----------------------------------
+
+Every checkpoint family loads through the same call, with the format detected from the checkpoint
+itself::
+
+    from sentence_transformers import MultiVectorEncoder
+
+    model = MultiVectorEncoder("lightonai/LateOn")
+
+Checkpoints in the native format ship a ``modules.json`` that defines the stack directly: it is read
+to determine which modules make up the model, and each module is initialized with the configuration
+stored in the corresponding module directory. The other families are recognized from their own
+metadata instead (the ``HF_ColBERT`` marker or a ``*ForRetrieval`` architecture in ``config.json``,
+or PyLate's top-level fields in ``config_sentence_transformers.json``), and the modules they do not
+spell out are appended on load. See `what each checkpoint family configures <#what-released-checkpoints-configure>`_
+above, and `Usage <usage.html>`_ for a loading call per family.
+
+Extra Per-Token Features
 ------------------------
 
 Every consumer in the pipeline (``encode``, the losses, gradient caching, ``model.similarity``, and

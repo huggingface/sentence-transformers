@@ -1,6 +1,6 @@
 [project]
 name = "sentence-transformers"
-version = "6.0.0.dev0"
+version = "6.1.0.dev0"
 description = "Embeddings, Retrieval, and Reranking"
 license = "Apache-2.0"
 readme = "README.md"
@@ -172,6 +172,7 @@ Ein = "Ein"
 ein = "ein"
 ist = "ist"
 arange = "arange"
+writeable = "writeable"
 
 
 [tool.typos.files]

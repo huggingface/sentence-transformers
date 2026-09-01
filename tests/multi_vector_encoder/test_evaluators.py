@@ -52,7 +52,7 @@ def test_information_retrieval_evaluator_rejects_xtr_scoring() -> None:
     queries = {"q0": "What is the capital of France?"}
     corpus = {"d0": "Paris is the capital of France."}
     qrels = {"q0": {"d0"}}
-    for scorer in (xtr_scores, XTRScores(top_k=2), partial(xtr_scores, document_chunk_elements=4)):
+    for scorer in (xtr_scores, XTRScores(top_k=2), partial(xtr_scores, chunk_elements=4)):
         with pytest.raises(ValueError, match="XTR"):
             MultiVectorInformationRetrievalEvaluator(
                 queries=queries,
@@ -79,6 +79,23 @@ def test_ir_evaluator_defers_scoring_resolution_to_call_time(model: MultiVectorE
     results = evaluator(model)
     assert evaluator.score_function_names == [model.similarity_fn_name]
     assert f"late_binding_{model.similarity_fn_name}_ndcg@10" in results
+
+
+def test_ir_evaluator_chunk_elements_reaches_scoring(model: MultiVectorEncoder) -> None:
+    """The budget is bound onto the model-resolved scorer and actually invoked: a one-document-per-
+    chunk budget must score identically to the default."""
+    kwargs = {
+        "queries": {"q0": "What is the capital of France?"},
+        "corpus": {"d0": "Paris is the capital of France.", "d1": "Berlin is the capital of Germany."},
+        "relevant_docs": {"q0": {"d0"}},
+        "name": "budget",
+        "write_csv": False,
+    }
+    chunked = MultiVectorInformationRetrievalEvaluator(**kwargs, chunk_elements=1)
+    assert chunked.score_functions is None
+    chunked_results = chunked(model)
+    assert chunked.score_functions[model.similarity_fn_name].keywords == {"chunk_elements": 1}
+    assert chunked_results == MultiVectorInformationRetrievalEvaluator(**kwargs)(model)
 
 
 def test_ir_evaluator_warns_when_explicit_prompt_replaces_model_prompt(caplog, clear_warning_once_cache) -> None:
@@ -135,24 +152,25 @@ def test_ir_evaluator_warns_when_explicit_prompt_replaces_model_prompt(caplog, c
     assert "replaces the model's registered" not in caplog.text
 
 
-def test_ir_evaluator_rejects_document_chunk_elements_with_score_functions() -> None:
-    """document_chunk_elements only configures the default model-resolved scoring, so pairing it
+def test_ir_evaluator_rejects_chunk_elements_with_score_functions() -> None:
+    """chunk_elements only configures the default model-resolved scoring, so pairing it
     with score_functions raises instead of being silently ignored."""
     from sentence_transformers.util import maxsim
 
     queries = {"q0": "What is the capital of France?"}
     corpus = {"d0": "Paris is the capital of France."}
     qrels = {"q0": {"d0"}}
-    with pytest.raises(ValueError, match="document_chunk_elements"):
+    # Anchored: an unanchored "chunk_elements" also matches a stale document_chunk_elements message.
+    with pytest.raises(ValueError, match=r"^chunk_elements only configures"):
         MultiVectorInformationRetrievalEvaluator(
             queries=queries,
             corpus=corpus,
             relevant_docs=qrels,
             score_functions={"maxsim": maxsim},
-            document_chunk_elements=1_000_000,
+            chunk_elements=1_000_000,
         )
     MultiVectorInformationRetrievalEvaluator(
-        queries=queries, corpus=corpus, relevant_docs=qrels, document_chunk_elements=1_000_000
+        queries=queries, corpus=corpus, relevant_docs=qrels, chunk_elements=1_000_000
     )
     MultiVectorInformationRetrievalEvaluator(
         queries=queries, corpus=corpus, relevant_docs=qrels, score_functions={"maxsim": maxsim}
@@ -283,8 +301,8 @@ def test_distillation_evaluator_per_query_candidate_sets(model: MultiVectorEncod
 def _student_kd_scores(model: MultiVectorEncoder, queries: list[str], documents: list[list[str]]) -> torch.Tensor:
     """Mirror the evaluator's student MaxSim scoring so teacher scores can be built from it."""
     n_ways = len(documents[0])
-    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
-    doc_embeddings = model.encode_document([document for row in documents for document in row], convert_to_tensor=True)
+    query_embeddings = model.encode_query(queries)
+    doc_embeddings = model.encode_document([document for row in documents for document in row])
     return torch.stack(
         [model.similarity_pairwise(query_embeddings, doc_embeddings[way::n_ways]).cpu() for way in range(n_ways)],
         dim=1,
@@ -407,8 +425,8 @@ def test_distillation_evaluator_flat_kl_is_full_sum(model: MultiVectorEncoder) -
     documents = ["Paris is the capital of France.", "Leonardo da Vinci painted the Mona Lisa."]
     scores = [0.0, 10.0]
 
-    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
-    doc_embeddings = model.encode_document(documents, convert_to_tensor=True)
+    query_embeddings = model.encode_query(queries)
+    doc_embeddings = model.encode_document(documents)
     student_scores = model.similarity_pairwise(query_embeddings, doc_embeddings).cpu()
     expected = torch.nn.functional.kl_div(
         torch.log_softmax(student_scores, dim=-1),

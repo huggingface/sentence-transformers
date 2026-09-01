@@ -527,6 +527,65 @@ def test_parse_model_config_translates_pylate_expansion(model_config, expected_q
     assert "query_length" not in knobs or knobs["query_length"] is not None
 
 
+_PYLATE_PREFIX_AND_PROMPTS = {
+    "query_prefix": "[Q] ",
+    "document_prefix": "[D] ",
+    "prompts": {"query": "search_query: ", "document": "search_document: "},
+}
+
+
+@pytest.mark.parametrize(
+    ("model_config", "user_prompts", "expected"),
+    [
+        # Prefix only (the common PyLate save). The prefix becomes the prompt.
+        ({"query_prefix": "[Q] ", "document_prefix": "[D] "}, {}, ("[Q] ", "[D] ")),
+        # A saved empty prompt is no prompt at all, so the prefix alone becomes it.
+        (
+            {"query_prefix": "[Q] ", "document_prefix": "[D] ", "prompts": {"query": "", "document": ""}},
+            {},
+            ("[Q] ", "[D] "),
+        ),
+        # Prefix plus real prompts (ColBERT-Zero). PyLate applies both, so they compose.
+        (_PYLATE_PREFIX_AND_PROMPTS, {}, ("[Q] search_query: ", "[D] search_document: ")),
+        # Composing is idempotent, so an already-composed save does not stack.
+        (
+            {
+                "query_prefix": "[Q] ",
+                "document_prefix": "[D] ",
+                "prompts": {"query": "[Q] search_query: ", "document": "[D] search_document: "},
+            },
+            {},
+            ("[Q] search_query: ", "[D] search_document: "),
+        ),
+        # A null prefix leaves the saved prompt alone rather than raising.
+        (
+            {"query_prefix": None, "document_prefix": None, "prompts": {"query": "q: ", "document": "d: "}},
+            {},
+            ("q: ", "d: "),
+        ),
+        # A caller-supplied prompt takes precedence over the whole saved format, prefix included.
+        (_PYLATE_PREFIX_AND_PROMPTS, {"query": "q: ", "document": "d: "}, ("q: ", "d: ")),
+        # Empty strings are the documented way to switch prompts off, so they survive too.
+        (_PYLATE_PREFIX_AND_PROMPTS, {"query": "", "document": ""}, ("", "")),
+    ],
+)
+def test_parse_model_config_composes_pylate_prefix_with_prompts(model_config, user_prompts, expected) -> None:
+    """A PyLate save can carry both ``query_prefix`` and ``prompts``. PyLate applies both, so the prefix
+    composes onto the front of the saved prompt rather than being dropped when a prompt exists. Composing
+    onto the saved prompt rather than ``self.prompts`` keeps the base class rule that a caller wins."""
+    from sentence_transformers.multi_vector_encoder.model import _LegacyStash
+
+    fresh = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    fresh._legacy = _LegacyStash()
+    fresh.prompts = {**MultiVectorEncoder._default_prompts, **user_prompts}
+    fresh._parse_model_config(model_config)
+
+    assert (fresh.prompts["query"], fresh.prompts["document"]) == expected
+    # The raw prefixes stay on the stash so special-token registration still sees them.
+    assert fresh._legacy.prefixes["query"] == (model_config["query_prefix"] or "")
+    assert fresh._legacy.prefixes["document"] == (model_config["document_prefix"] or "")
+
+
 def test_loads_native_retriever_archetype() -> None:
     """transformers-native late-interaction retrievers (``architectures`` ending in ``ForRetrieval``,
     i.e. ColPali / ColQwen2 / ColModernVBert) take a different branch: ``forward`` already projects and
@@ -618,26 +677,37 @@ def test_stanford_colbert_archetype_without_metadata_uses_defaults(
 
 
 @pytest.mark.parametrize(
-    ("convert_to_tensor", "convert_to_numpy", "element_type"),
+    ("user_prompts", "expected"),
     [
-        (False, True, np.ndarray),  # default: variable-length list of arrays
-        (True, False, torch.Tensor),  # variable-length list of tensors
-        (False, False, torch.Tensor),  # variable-length list of raw (unconverted) tensors
+        ({"query": "custom: "}, {"query": "custom: ", "document": "[unused1] "}),
+        ({"query": "", "document": ""}, {"query": "", "document": ""}),
+    ],
+)
+def test_stanford_colbert_archetype_keeps_caller_prompts(tmp_path, model, user_prompts, expected) -> None:
+    """``artifact.metadata`` carries no prompt, so the marker only fills a slot the caller left alone.
+    An empty string is the documented way to switch a prompt off and must survive, matching how the
+    PyLate branch in ``_parse_model_config`` treats one."""
+    _write_stanford_checkpoint(tmp_path, model, metadata=None)
+    loaded = MultiVectorEncoder(str(tmp_path), prompts=user_prompts)
+
+    assert loaded.prompts == expected
+
+
+@pytest.mark.parametrize(
+    ("convert_to_numpy", "element_type"),
+    [
+        (False, torch.Tensor),  # default: variable-length list of tensors
+        (True, np.ndarray),  # opt-out: variable-length list of arrays
     ],
 )
 def test_encode_output_formats(
     model: MultiVectorEncoder,
-    convert_to_tensor: bool,
     convert_to_numpy: bool,
     element_type: type,
 ) -> None:
     docs = ["short doc", "a considerably longer document with many more distinct tokens than the first one"]
     dim = model.get_embedding_dimension()
-    out = model.encode_document(
-        docs,
-        convert_to_tensor=convert_to_tensor,
-        convert_to_numpy=convert_to_numpy,
-    )
+    out = model.encode_document(docs, convert_to_numpy=convert_to_numpy)
 
     # A variable-length list with one 2D entry per document.
     assert isinstance(out, list)
@@ -648,8 +718,27 @@ def test_encode_output_formats(
 
 def test_singular_input_unwraps(model: MultiVectorEncoder) -> None:
     emb = model.encode_document("a single doc string")
-    assert isinstance(emb, np.ndarray)
+    assert isinstance(emb, torch.Tensor)
     assert emb.ndim == 2
+    array = model.encode_document("a single doc string", convert_to_numpy=True)
+    assert isinstance(array, np.ndarray)
+    assert array.ndim == 2
+
+
+def test_encode_defaults_to_tensors_on_model_device(model: MultiVectorEncoder) -> None:
+    """The default output feeds similarity without a host round trip, so it stays on the model's
+    device as tensors. ``convert_to_numpy=True`` remains the opt-out for corpora that outgrow it."""
+    embeddings = model.encode_document(["one doc", "another doc"])
+    assert all(isinstance(emb, torch.Tensor) and emb.device == model.device for emb in embeddings)
+    assert all(isinstance(emb, np.ndarray) for emb in model.encode_document(["a", "b"], convert_to_numpy=True))
+
+
+def test_convert_to_tensor_is_rejected_by_name(model: MultiVectorEncoder) -> None:
+    """Variable-length embeddings cannot stack, so unlike every other model type there is no
+    `convert_to_tensor` here. Copied-over calls are common enough that the error says so rather than
+    falling through to the generic unused-kwarg message."""
+    with pytest.raises(ValueError, match="has no `convert_to_tensor`"):
+        model.encode_document(["a doc"], convert_to_tensor=True)
 
 
 def test_similarity_returns_maxsim(model: MultiVectorEncoder) -> None:
@@ -675,8 +764,8 @@ def test_save_and_load_round_trip(model: MultiVectorEncoder) -> None:
     assert new_t.query_expansion == orig_t.query_expansion
     assert reloaded[2].skiplist_words == model[2].skiplist_words
     # Embeddings should match within numerical tolerance.
-    q_orig = model.encode_query(["test"], convert_to_tensor=True)
-    q_new = reloaded.encode_query(["test"], convert_to_tensor=True)
+    q_orig = model.encode_query(["test"])
+    q_new = reloaded.encode_query(["test"])
     assert torch.allclose(q_orig[0], q_new[0], atol=1e-5)
 
 
@@ -722,7 +811,7 @@ def test_convert_dense_st_with_dense_head_redirects_to_token_level(tmp_path) -> 
     assert converted_dense.module_input_name == "token_embeddings"
     assert converted_dense.module_output_name == "token_embeddings"
     assert torch.equal(converted_dense.linear.weight.cpu(), dense.linear.weight.cpu())
-    embeddings = model.encode_query(["hello world"], convert_to_tensor=True)
+    embeddings = model.encode_query(["hello world"])
     assert embeddings[0].shape[1] == 64
 
 
@@ -802,7 +891,7 @@ def test_encode_output_value_none_with_prompt(model: MultiVectorEncoder) -> None
 def test_encode_output_value_none_ignores_convert_flags(model: MultiVectorEncoder) -> None:
     """The convert_to_* options do not apply to raw feature dicts."""
     for outputs in (
-        model.encode(["x", "y"], output_value=None, convert_to_tensor=True),
+        model.encode(["x", "y"], output_value=None),
         model.encode(["x", "y"], output_value=None, convert_to_numpy=True),
     ):
         assert isinstance(outputs, list)
@@ -863,6 +952,46 @@ def test_xtr_scores_clamps_topk_to_token_pool() -> None:
     scores = xtr_scores(queries, documents, top_k=256)
     assert scores.shape == (2, 2)
     assert torch.isfinite(scores).all()
+
+
+@pytest.mark.parametrize("top_k", [True, 0, -1])
+def test_xtr_scores_rejects_non_positive_topk(top_k: int) -> None:
+    """Non-positive top-k values fail at the public scoring boundary with a clear error."""
+    from sentence_transformers.multi_vector_encoder.scoring import xtr_scores
+
+    queries = torch.ones(1, 2, 4)
+    documents = torch.ones(1, 1, 2, 4)
+    with pytest.raises(ValueError, match="top_k must be a positive integer"):
+        xtr_scores(queries, documents, top_k=top_k)
+
+
+def test_xtr_scores_upcasts_integer_embeddings() -> None:
+    """Integer embeddings follow the floating-point scoring path and match float inputs."""
+    from sentence_transformers.multi_vector_encoder.scoring import xtr_scores
+
+    queries = torch.tensor([[[1.0, 0.0], [0.0, 1.0]]])
+    documents = torch.tensor([[[[1.0, 0.0], [0.0, 1.0]]]])
+    expected = xtr_scores(queries, documents, top_k=2)
+    # Integer inputs must be upcast before matmul so finfo/top-k use floating-point scores.
+    actual = xtr_scores(queries.to(torch.int8), documents.to(torch.int8), top_k=2)
+    assert actual.dtype == torch.float32
+    assert torch.equal(actual, expected)
+
+
+def test_xtr_scores_derives_query_padding_mask() -> None:
+    """Implicit query padding behaves like an explicit mask and does not affect XTR scores."""
+    from sentence_transformers.multi_vector_encoder.scoring import xtr_scores
+
+    queries = torch.tensor([[[1.0, 0.0], [2.0, 0.0], [0.0, 0.0]]])
+    documents = torch.tensor([[[[1.0, 0.0], [0.5, 0.0]]]])
+    query_mask = torch.tensor([[True, True, False]])
+
+    unpadded = xtr_scores(queries[:, :2], documents, top_k=2)
+    # The final all-zero query row represents padding, not a real query token.
+    padded = xtr_scores(queries, documents, top_k=2)
+    explicitly_masked = xtr_scores(queries, documents, queries_mask=query_mask, top_k=2)
+    assert torch.equal(padded, unpadded)
+    assert torch.equal(padded, explicitly_masked)
 
 
 def test_xtr_scores_keeps_retrieved_negative_similarities() -> None:
@@ -1126,8 +1255,8 @@ def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
         prompts={"query": "[unused0] ", "document": "[unused1] "},
     )
 
-    q_before = model.encode_query(["a short query"], convert_to_tensor=True)
-    d_before = model.encode_document(["a document to embed"], convert_to_tensor=True)
+    q_before = model.encode_query(["a short query"])
+    d_before = model.encode_document(["a document to embed"])
 
     with tempfile.TemporaryDirectory() as tmpdir:
         model.save_pretrained(tmpdir)
@@ -1135,8 +1264,8 @@ def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
 
     # Prompts (and the tokenizer) carry over, so embeddings are byte-identical after a round-trip.
     assert reloaded.prompts.get("query") == "[unused0] "
-    q_after = reloaded.encode_query(["a short query"], convert_to_tensor=True)
-    d_after = reloaded.encode_document(["a document to embed"], convert_to_tensor=True)
+    q_after = reloaded.encode_query(["a short query"])
+    d_after = reloaded.encode_document(["a document to embed"])
     assert torch.allclose(q_before[0], q_after[0], atol=1e-5)
     assert torch.allclose(d_before[0], d_after[0], atol=1e-5)
 
@@ -1184,7 +1313,7 @@ def test_pylate_shape_save_round_trips_to_new_query_expansion(tmp_path) -> None:
 
     native = MultiVectorEncoder(base)
     native[0].query_expansion = {"strategy": "fixed", "attend": True, "length": 24}
-    q_native = native.encode_query(["some query text"], convert_to_tensor=True)[0]
+    q_native = native.encode_query(["some query text"])[0]
 
     native.save_pretrained(str(tmp_path))
     # Rewrite: drop the new-shape key, add the legacy PyLate keys with equivalent semantics.
@@ -1204,7 +1333,7 @@ def test_pylate_shape_save_round_trips_to_new_query_expansion(tmp_path) -> None:
     # ``query_length`` moved into the expansion config, no longer at top level.
     assert reloaded[0].query_length is None
 
-    q_reloaded = reloaded.encode_query(["some query text"], convert_to_tensor=True)[0]
+    q_reloaded = reloaded.encode_query(["some query text"])[0]
     # Same saved weights + equivalent config through the translation path -> byte-identical embeddings.
     assert q_reloaded.shape == q_native.shape == (24, native.get_embedding_dimension())
     assert torch.allclose(q_reloaded, q_native, atol=1e-5)
@@ -1290,7 +1419,7 @@ def test_encode_pooling_applies_to_raw_output(model: MultiVectorEncoder) -> None
         "medium length document with several tokens",
     ]
     pooling = HierarchicalTokenPooling(pool_factor=2)
-    normal = model.encode_document(texts, token_pooling=pooling, convert_to_tensor=True)
+    normal = model.encode_document(texts, token_pooling=pooling)
     raw = model.encode_document(texts, output_value=None, token_pooling=pooling)
     assert isinstance(raw, list)
     # The ragged batch must actually contain padded rows for this test to mean anything.
@@ -1315,6 +1444,32 @@ def test_encode_pooling_skips_queries_on_raw_output(model: MultiVectorEncoder) -
 
 def test_encode_empty_list(model: MultiVectorEncoder) -> None:
     assert model.encode([]) == []
+
+
+def test_similarity_forwards_scoring_kwargs(model: MultiVectorEncoder) -> None:
+    """Extra similarity kwargs reach the scoring function: a tiny element budget reproduces the
+    plain scores, an unknown kwarg fails loudly, and a device override leaves the scores on the
+    embeddings' own device."""
+    queries = model.encode_query(["What is the capital of France?", "Who painted the Mona Lisa?"])
+    documents = model.encode_document(["Paris is big.", "Da Vinci painted.", "Berlin here.", "More text."])
+    plain = model.similarity(queries, documents)
+    assert torch.allclose(model.similarity(queries, documents, chunk_elements=1_000), plain, atol=1e-5)
+    plain_pairwise = model.similarity_pairwise(queries, documents[:2])
+    chunked_pairwise = model.similarity_pairwise(queries, documents[:2], chunk_elements=1_000)
+    assert torch.allclose(chunked_pairwise, plain_pairwise, atol=1e-5)
+    with pytest.raises(TypeError):
+        model.similarity(queries, documents, chunk_size=2)
+    if torch.cuda.is_available():
+        # Scoring numpy embeddings on the GPU still hands the scores back on the CPU.
+        cpu_queries = model.encode_query(
+            ["What is the capital of France?", "Who painted the Mona Lisa?"], convert_to_numpy=True
+        )
+        cpu_documents = model.encode_document(
+            ["Paris is big.", "Da Vinci painted.", "Berlin here.", "More text."], convert_to_numpy=True
+        )
+        scores = model.similarity(cpu_queries, cpu_documents, device="cuda")
+        assert scores.device.type == "cpu"
+        assert torch.allclose(scores, plain.cpu(), atol=1e-4)
 
 
 def test_similarity_singular_query(model: MultiVectorEncoder) -> None:
@@ -1368,7 +1523,7 @@ def test_maxsim_padded_tensor_without_mask_excludes_zero_rows() -> None:
 
 
 def test_maxsim_document_chunking_matches_unchunked() -> None:
-    """``maxsim(document_chunk_elements=N)`` chunks the document-axis einsum to bound the 4D scoring
+    """``maxsim(chunk_elements=N)`` chunks the document-axis einsum to bound the 4D scoring
     intermediate, but must return the same scores as the single-chunk path. Covers budgets that
     split the corpus at several granularities, plus one large enough for the single-chunk branch.
     """
@@ -1377,7 +1532,7 @@ def test_maxsim_document_chunking_matches_unchunked() -> None:
     documents = [torch.randn(n, 8, generator=g) for n in (2, 6, 4, 7, 3)]  # 5 documents
     full = maxsim(queries, documents)
     for budget in (1, 100, 300, 10**12):
-        chunked = maxsim(queries, documents, document_chunk_elements=budget)
+        chunked = maxsim(queries, documents, chunk_elements=budget)
         assert torch.allclose(chunked, full, atol=1e-5), f"budget={budget} diverged from single-chunk"
 
 
@@ -1419,7 +1574,7 @@ def _make_random_image(seed: int, size: int = 32) -> Image.Image:
 def test_multimodal_smoke_image_document_through_mve() -> None:
     """Image-document path through the default MVE module sequence with a tiny PaliGemma backbone.
 
-    The real ColPali checkpoint (``tomaarsen/colpali-v1.3-merged-st``) is exercised by the slow
+    The real ColPali checkpoint (``vidore/colpali-v1.3-merged``) is exercised by the slow
     ``test_pretrained_colpali_multimodal`` test in ``test_pretrained.py`` but it downloads a 3B
     model and needs CUDA. This smoke test fills the gap: a tiny random PaliGemma reaches every
     module in the chain (Transformer multimodal preprocess + token-Dense projection + MultiVectorMask
@@ -1444,8 +1599,8 @@ def test_multimodal_smoke_image_document_through_mve() -> None:
         {"text": "", "image": _make_random_image(seed=3)},
     ]
 
-    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
-    document_embeddings = model.encode_document(documents, convert_to_tensor=True)
+    query_embeddings = model.encode_query(queries)
+    document_embeddings = model.encode_document(documents)
 
     dim = model.get_embedding_dimension()
     assert dim == 128
@@ -1567,7 +1722,7 @@ def test_xtr_kd_scores_gathers_own_document_groups() -> None:
 
 
 def test_xtr_scores_chunk_budget_matches_single_matmul() -> None:
-    """document_chunk_elements is a pure memory knob: any budget reproduces the single matmul."""
+    """chunk_elements is a pure memory knob: any budget reproduces the single matmul."""
     from sentence_transformers.multi_vector_encoder.scoring import xtr_scores
 
     generator = torch.Generator().manual_seed(7)
@@ -1575,5 +1730,53 @@ def test_xtr_scores_chunk_budget_matches_single_matmul() -> None:
     documents = torch.randn(2, 2, 5, 8, generator=generator)
     unchunked = xtr_scores(queries, documents, top_k=6)
     for budget in (1, 200, 10**9):
-        chunked = xtr_scores(queries, documents, top_k=6, document_chunk_elements=budget)
+        chunked = xtr_scores(queries, documents, top_k=6, chunk_elements=budget)
         assert torch.allclose(unchunked, chunked, atol=1e-6), f"budget={budget}"
+
+
+def test_colbert_scorers_match_the_maxsim_keyword_surface() -> None:
+    """Every colbert scorer takes and forwards chunk_elements and length_normalize, so one kwargs
+    dict works across the family and the default training path can bound its own memory."""
+    import inspect
+
+    from sentence_transformers.multi_vector_encoder.scoring import (
+        colbert_kd_scores,
+        colbert_scores,
+        colbert_scores_pairwise,
+        mean_colbert_kd_scores,
+        mean_colbert_scores,
+        mean_colbert_scores_pairwise,
+    )
+
+    generator = torch.Generator().manual_seed(7)
+    queries = torch.randn(2, 3, 8, generator=generator)
+    documents = torch.randn(2, 2, 5, 8, generator=generator)
+    pairwise_documents = torch.randn(2, 5, 8, generator=generator)
+    plain = (colbert_scores, colbert_kd_scores, colbert_scores_pairwise)
+    for scorer, inputs in (
+        (colbert_scores, (queries, documents)),
+        (colbert_kd_scores, (queries, documents)),
+        (colbert_scores_pairwise, (queries, pairwise_documents)),
+        (mean_colbert_scores, (queries, documents)),
+        (mean_colbert_kd_scores, (queries, documents)),
+        (mean_colbert_scores_pairwise, (queries, pairwise_documents)),
+    ):
+        parameters = inspect.signature(scorer).parameters
+        assert list(parameters)[-2:] == ["chunk_elements", "length_normalize"], scorer.__name__
+        # The mean_ wrappers only differ from their plain counterpart by this default.
+        assert parameters["length_normalize"].default == (scorer not in plain), scorer.__name__
+        with pytest.raises(TypeError, match="device"):
+            scorer(*inputs, device="cpu")
+
+        # chunk_elements is a pure memory knob: the scores must not move.
+        baseline = scorer(*inputs)
+        assert torch.allclose(baseline, scorer(*inputs, chunk_elements=1), atol=1e-6), scorer.__name__
+
+    # length_normalize=False on a mean_ wrapper recovers its plain counterpart, as for mean_maxsim.
+    for mean_scorer, plain_scorer, inputs in (
+        (mean_colbert_scores, colbert_scores, (queries, documents)),
+        (mean_colbert_kd_scores, colbert_kd_scores, (queries, documents)),
+        (mean_colbert_scores_pairwise, colbert_scores_pairwise, (queries, pairwise_documents)),
+    ):
+        recovered = mean_scorer(*inputs, length_normalize=False)
+        assert torch.allclose(recovered, plain_scorer(*inputs), atol=1e-6), mean_scorer.__name__

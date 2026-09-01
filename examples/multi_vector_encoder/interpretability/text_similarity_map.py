@@ -97,12 +97,12 @@ def main() -> None:
     dataset = load_dataset("sentence-transformers/natural-questions", split="train[:5000]")
     corpus = list(dict.fromkeys(dataset["answer"]))
 
-    model = MultiVectorEncoder("mixedbread-ai/mxbai-edge-colbert-v0-32m")
-    corpus_embeddings = model.encode_document(corpus, convert_to_tensor=True, show_progress_bar=True)
+    model = MultiVectorEncoder("lightonai/LateOn")
+    corpus_embeddings = model.encode_document(corpus, show_progress_bar=True)
 
     def search(query: str) -> None:
         start = time.perf_counter()
-        query_embeddings = model.encode_query([query], convert_to_tensor=True)
+        query_embeddings = model.encode_query([query])
         scores = model.similarity(query_embeddings, corpus_embeddings)[0]
         top_scores, top_indices = scores.topk(3)
         search_time = (time.perf_counter() - start) * 1000

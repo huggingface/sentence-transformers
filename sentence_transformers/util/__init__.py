@@ -5,6 +5,7 @@ from .decorators import save_to_hub_args_decorator
 from .distributed import all_gather, all_gather_padded, all_gather_with_grad, get_rank, get_world_size
 from .environment import (
     check_package_availability,
+    check_version_requirements,
     get_device_name,
     is_accelerate_available,
     is_datasets_available,
@@ -77,6 +78,7 @@ __all__ = [
     # From environment.py
     "get_device_name",
     "check_package_availability",
+    "check_version_requirements",
     "is_accelerate_available",
     "is_datasets_available",
     "is_dist_initialized",

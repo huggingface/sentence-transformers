@@ -412,15 +412,15 @@ def test_similarity_fct_config_includes_hyperparameters() -> None:
     loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(
         model=_PassthroughModel(), similarity_fct=XTRScores(top_k=16)
     )
-    assert loss.get_config_dict()["similarity_fct"] == "XTRScores(top_k=16, document_chunk_elements=None)"
+    assert loss.get_config_dict()["similarity_fct"] == "XTRScores(top_k=16, chunk_elements=None)"
 
     cached = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
-        model=_PassthroughModel(), similarity_fct=XTRScores(top_k=16, document_chunk_elements=4)
+        model=_PassthroughModel(), similarity_fct=XTRScores(top_k=16, chunk_elements=4)
     )
-    assert cached.get_config_dict()["similarity_fct"] == "XTRScores(top_k=16, document_chunk_elements=4)"
+    assert cached.get_config_dict()["similarity_fct"] == "XTRScores(top_k=16, chunk_elements=4)"
 
     kd = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel(), similarity_fct=XTRKDScores(top_k=8))
-    assert kd.get_config_dict()["similarity_fct"] == "XTRKDScores(top_k=8, document_chunk_elements=None)"
+    assert kd.get_config_dict()["similarity_fct"] == "XTRKDScores(top_k=8, chunk_elements=None)"
 
     default = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
     assert default.get_config_dict()["similarity_fct"] == "colbert_scores"

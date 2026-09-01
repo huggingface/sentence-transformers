@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
-    """Evaluates a :class:`~sentence_transformers.MultiVectorEncoder` model on the
+    """Evaluates a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` model on the
     `NanoBEIR collection <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_.
 
     NanoBEIR is a downsized version of `BEIR <https://github.com/beir-cellar/beir>`_ (around 50 queries
@@ -32,9 +32,9 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         corpus_chunk_size (int): How many documents to encode + score per round-trip. Larger values
             mean more encoded doc embeddings live in memory at once but fewer encode-pass round-trips.
             Defaults to 5000.
-        document_chunk_elements (int, optional): Element budget for the 4D
+        chunk_elements (int, optional): Element budget for the 4D
             ``(batch_q, chunk, q_tokens, d_tokens)`` MaxSim scoring intermediate, forwarded to
-            :func:`~sentence_transformers.util.maxsim`, which packs document chunks under it,
+            :func:`~sentence_transformers.util.similarity.maxsim`, which packs document chunks under it,
             adapting to the query count and document lengths. Defaults to None (maxsim's 100M-element
             budget, at most ~400 MB, half that in bf16 / fp16). Lower it to cut evaluation memory.
         mrr_at_k (List[int]): k-values for MRR. Defaults to ``[10]``.
@@ -83,7 +83,7 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         self,
         *args,
         corpus_chunk_size: int = 5000,
-        document_chunk_elements: int | None = None,
+        chunk_elements: int | None = None,
         **kwargs,
     ) -> None:
         if kwargs.get("truncate_dim") is not None:
@@ -96,7 +96,7 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         # construct per-subset IR evaluators, and that needs the extra kwargs.
         self._ir_extra_kwargs: dict[str, Any] = {
             "corpus_chunk_size": corpus_chunk_size,
-            "document_chunk_elements": document_chunk_elements,
+            "chunk_elements": chunk_elements,
         }
         super().__init__(*args, **kwargs)
 

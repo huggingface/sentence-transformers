@@ -18,14 +18,14 @@ from sentence_transformers.util import (
 
 
 class MultiVectorDistillKLDivLoss(nn.Module):
-    """KL-divergence distillation loss for :class:`~sentence_transformers.MultiVectorEncoder` models.
+    """KL-divergence distillation loss for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models.
 
     For each query, the dataset provides ``N`` candidate documents (a positive plus at least one negative)
     and teacher scores ``(N,)``. This loss computes the model's MaxSim scores against the same documents
     and minimises the KL divergence between the softmaxed teacher and student distributions.
 
     Args:
-        model: A :class:`~sentence_transformers.MultiVectorEncoder`.
+        model: A :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`.
         similarity_fct: Callable that, given queries ``(Q, q_tokens, dim)`` and stacked docs
             ``(Q, N, d_tokens, dim)``, returns ``(Q, N)`` scores. Defaults to
             :func:`~sentence_transformers.multi_vector_encoder.scoring.colbert_kd_scores`. Pass

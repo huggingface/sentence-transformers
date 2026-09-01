@@ -47,6 +47,7 @@ loss = CachedMultiVectorMultipleNegativesRankingLoss(
 - **Incompatible with `gradient_checkpointing=True`** (same as every `Cached*` loss).
 - `mini_batch_num_tokens=N` packs sequences until N real tokens per mini-batch instead of a fixed `mini_batch_size`. Big win on variable-length data with flash-attention / input flattening.
 - `score_mini_batch_size` chunks the SCORING phase (which builds `(Q, Q*N, q_tokens, d_tokens)` intermediates) independently from the embedding phase. Drop it first when hitting OOM in the loss stage.
+- `chunk_elements` is the second lever on that same phase, and it cuts the other axis: `score_mini_batch_size` chunks queries, `chunk_elements` chunks documents inside each MaxSim call. Pass it through the scorer, e.g. `similarity_fct=partial(colbert_scores, chunk_elements=1_000_000)`. Scores and gradients are unchanged (it is a pure memory knob), and it composes with `score_mini_batch_size`.
 - `gather_across_devices=True` gathers document embeddings across DDP ranks. Enables cross-rank in-batch negatives.
 
 ## Distillation losses

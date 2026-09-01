@@ -334,5 +334,5 @@ def test_real_query_token_slice_with_query_expansion() -> None:
         model[0].query_expansion = {"strategy": "fixed", "attend": attend, "length": 32}
         token_slice = real_query_token_slice(model, query)
         assert token_slice.stop - token_slice.start == plain_content, attend
-        query_embedding = model.encode_query([query], convert_to_tensor=True)[0][token_slice]
+        query_embedding = model.encode_query([query])[0][token_slice]
         assert query_embedding.shape[0] == plain_content

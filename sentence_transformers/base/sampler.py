@@ -41,9 +41,9 @@ class BatchSamplers(ExplicitEnum):
 
     - ``BatchSamplers.BATCH_SAMPLER``: **[default]** Uses :class:`~sentence_transformers.base.sampler.DefaultBatchSampler`, the default
       PyTorch batch sampler.
-    - ``BatchSamplers.NO_DUPLICATES``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`,
+    - ``BatchSamplers.NO_DUPLICATES``: Uses :class:`~sentence_transformers.base.sampler.NoDuplicatesBatchSampler`,
       ensuring no duplicate samples in a batch.
-    - ``BatchSamplers.NO_DUPLICATES_HASHED``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`
+    - ``BatchSamplers.NO_DUPLICATES_HASHED``: Uses :class:`~sentence_transformers.base.sampler.NoDuplicatesBatchSampler`
       with ``precompute_hashes=True``, a variant that precomputes hashes for faster duplicate checks at a small memory cost.
       Requires the ``xxhash`` library to be installed.
 
@@ -56,7 +56,7 @@ class BatchSamplers(ExplicitEnum):
         - :class:`~sentence_transformers.sentence_transformer.losses.MegaBatchMarginLoss`
         - :class:`~sentence_transformers.sentence_transformer.losses.GISTEmbedLoss`
         - :class:`~sentence_transformers.sentence_transformer.losses.CachedGISTEmbedLoss`
-    - ``BatchSamplers.GROUP_BY_LABEL``: Uses :class:`~sentence_transformers.sampler.GroupByLabelBatchSampler`,
+    - ``BatchSamplers.GROUP_BY_LABEL``: Uses :class:`~sentence_transformers.base.sampler.GroupByLabelBatchSampler`,
       which constructs each batch by drawing at least 2 samples from each of at least 2 distinct labels.
       This guarantees every batch contains multiple classes, which is required for in-batch triplet mining.
       Recommended for:
@@ -376,7 +376,7 @@ def _sample_value_str(value: Any) -> str:
 
 def _xxhash_int64(value: str) -> int:
     # Convert uint64 -> int64 to keep values compatible with Arrow int64 storage.
-    hashed = xxhash.xxh64_intdigest(value)
+    hashed = xxhash.xxh64_intdigest(value.encode("utf-8"))
     if hashed >= _XXHASH_INT64_MAX:
         hashed -= _XXHASH_UINT64_MAX
     return hashed

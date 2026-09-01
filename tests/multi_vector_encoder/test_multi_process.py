@@ -19,8 +19,8 @@ def model() -> MultiVectorEncoder:
 
 
 def test_multi_process_matches_single_process(model: MultiVectorEncoder) -> None:
-    direct = model.encode_document(TEXTS, convert_to_tensor=True)
-    pooled = model.encode_document(TEXTS, convert_to_tensor=True, device=["cpu", "cpu"])
+    direct = model.encode_document(TEXTS)
+    pooled = model.encode_document(TEXTS, device=["cpu", "cpu"])
     assert len(pooled) == len(direct)
     for direct_emb, pooled_emb in zip(direct, pooled):
         assert torch.allclose(direct_emb, pooled_emb, atol=1e-5)

@@ -226,6 +226,8 @@ To load a :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` model
 
 If no ``modules.json`` is found (e.g., loading a pure ``transformers`` model), the :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder._load_default_modules` method automatically determines the module chain based on the model architecture: ``ForCausalLM`` models get ``[Transformer, LogitScore]``, while all other models get ``[Transformer]`` with ``transformer_task="sequence-classification"``.
 
+Like Sentence Transformer models, CrossEncoder models can declare which dependency versions they need to load correctly, see `Declaring Version Requirements <../../sentence_transformer/usage/custom_models.html#declaring-version-requirements>`_.
+
 Multimodal CrossEncoder Models
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -435,7 +437,7 @@ To ensure that ``temperature_logit_score.TemperatureLogitScore`` can be imported
 
 .. note::
 
-   Using a custom module with remote code stored on the Hugging Face Hub requires that your users specify ``trust_remote_code`` as ``True`` when loading the model. This is a security measure to prevent remote code execution attacks.
+   Using a custom module requires that your users specify ``trust_remote_code`` as ``True`` when loading the model, whether it is loaded from the Hugging Face Hub or from a local path. This is a security measure to prevent remote code execution attacks.
 
 .. note::
 

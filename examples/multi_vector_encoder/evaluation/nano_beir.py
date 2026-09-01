@@ -14,7 +14,7 @@ from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorNan
 
 
 def main() -> None:
-    model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+    model = MultiVectorEncoder("lightonai/LateOn")
     evaluator = MultiVectorNanoBEIREvaluator(batch_size=16)
     results = evaluator(model)
     print(f"Primary metric: {evaluator.primary_metric} = {results[evaluator.primary_metric]:.4f}")

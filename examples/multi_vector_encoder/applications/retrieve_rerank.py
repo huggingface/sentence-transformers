@@ -31,7 +31,7 @@ def main() -> None:
     )
 
     # 3. Second stage: a multi-vector model reranking the candidates with MaxSim scoring.
-    reranker = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+    reranker = MultiVectorEncoder("LiquidAI/LFM2-ColBERT-350M")
     reranker.encode_query(["warmup"])  # the first CUDA call pays one-time initialization costs
 
     def search(query: str) -> None:

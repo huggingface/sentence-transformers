@@ -240,11 +240,10 @@ class TestEncodeWithPooling:
     def test_encode_document_with_pooling_kwarg(self) -> None:
         model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
         text = "a fairly long document with plenty of distinct tokens for clustering here"
-        without = model.encode_document([text], convert_to_tensor=True)[0]
+        without = model.encode_document([text])[0]
         with_pooling = model.encode_document(
             [text],
             token_pooling=HierarchicalTokenPooling(pool_factor=2),
-            convert_to_tensor=True,
         )[0]
         assert with_pooling.shape[0] < without.shape[0]
 
@@ -257,18 +256,16 @@ class TestEncodeWithPooling:
         out = model.encode_document(
             [text],
             token_pooling=LambdaTokenPooling(pool_fn=keep_first_two),
-            convert_to_tensor=True,
         )[0]
         assert out.shape[0] == 2
 
     def test_pooling_skips_queries(self) -> None:
         model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
         text = "a fairly long query text with many tokens"
-        without = model.encode_query([text], convert_to_tensor=True)[0]
+        without = model.encode_query([text])[0]
         with_pooling = model.encode_query(
             [text],
             token_pooling=HierarchicalTokenPooling(pool_factor=2),
-            convert_to_tensor=True,
         )[0]
         # Queries pass through unchanged: shape AND values must match (guards against silent mutation).
         assert with_pooling.shape == without.shape
@@ -277,11 +274,10 @@ class TestEncodeWithPooling:
     def test_pooling_pools_queries_when_opted_in(self) -> None:
         model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
         text = "a fairly long query text with many tokens"
-        without = model.encode_query([text], convert_to_tensor=True)[0]
+        without = model.encode_query([text])[0]
         pooled = model.encode_query(
             [text],
             token_pooling=HierarchicalTokenPooling(pool_factor=2, tasks=["query", "document"]),
-            convert_to_tensor=True,
         )[0]
         assert pooled.shape[0] < without.shape[0]
 
@@ -291,11 +287,10 @@ class TestEncodeWithPooling:
             "a fairly long document with plenty of distinct tokens for clustering here",
             "a much shorter text",
         ]
-        without = model.encode_document(texts, convert_to_tensor=True)
+        without = model.encode_document(texts)
         with_pooling = model.encode_document(
             texts,
             token_pooling=HierarchicalTokenPooling(pool_factor=2),
-            convert_to_tensor=True,
         )
         # Pooled output has strictly fewer tokens per doc than the un-pooled version.
         assert all(pooled.shape[0] < plain.shape[0] for pooled, plain in zip(with_pooling, without))
