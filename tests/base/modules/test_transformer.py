@@ -1465,8 +1465,12 @@ class TestModelLoading:
         with pytest.raises(ValueError, match="Unsupported backend"):
             Transformer(TINY_BERT, backend="invalid_backend")
 
-    def test_peft_seq_classification_no_architectures(self, monkeypatch):
-        """PeftConfig has no 'architectures' attr. Sequence-classification init should not crash."""
+    def test_peft_seq_classification_no_architectures_raises(self, monkeypatch):
+        """A PeftConfig has no 'architectures', so sequence-classification init raises.
+
+        This pins current behavior, not intended behavior. Adapter checkpoints cannot be
+        loaded as sequence-classification models today.
+        """
 
         class FakePeftConfig:
             """Minimal stand-in for PeftConfig that intentionally lacks 'architectures'."""
@@ -1484,8 +1488,6 @@ class TestModelLoading:
 
         monkeypatch.setattr(peft, "PeftConfig", FakePeftConfig)
 
-        # PeftConfig lacks 'architectures', so the sequence-classification guard
-        # (which accesses config.architectures) will raise AttributeError.
         with pytest.raises(AttributeError):
             Transformer(TINY_BERT, transformer_task="sequence-classification")
 
