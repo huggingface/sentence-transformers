@@ -59,7 +59,7 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
         write_csv (bool): Whether to write the evaluation results to a CSV file. Defaults to True.
         max_active_dims (Optional[int], optional): The maximum number of active dimensions to use.
             `None` uses the model's current `max_active_dims`. Defaults to None.
-        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to {SimilarityFunction.COSINE.value: cos_sim, SimilarityFunction.DOT_PRODUCT.value: dot_score}.
+        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to the ``similarity`` function of the model passed to each call, so a reused evaluator follows every model's own similarity.
         main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation. Defaults to None.
         aggregate_fn (Callable[[list[float]], float]): The function to aggregate the scores. Defaults to np.mean.
         aggregate_key (str): The key to use for the aggregated score. Defaults to "mean".

@@ -108,6 +108,66 @@ def test_simple(test_data, stsb_bert_tiny_model: SentenceTransformer, tmp_path: 
     assert set(results.keys()) == set(expected_keys)
 
 
+def test_reused_evaluator_follows_the_model_similarity(
+    test_data, stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, caplog
+):
+    """Without explicit score_functions the scoring is resolved per call, so a reused evaluator
+    labels every model with its own similarity rather than with the first one's."""
+    queries, corpus, relevant_docs = test_data
+    model = stsb_bert_tiny_model
+
+    ir_evaluator = InformationRetrievalEvaluator(
+        queries=queries, corpus=corpus, relevant_docs=relevant_docs, name="test"
+    )
+    ir_evaluator(model, output_path=str(tmp_path))
+    header_count = len(ir_evaluator.csv_headers)
+
+    original = model.similarity_fn_name
+    model.similarity_fn_name = "dot"
+    try:
+        with caplog.at_level("WARNING"):
+            results = ir_evaluator(model, output_path=str(tmp_path))
+    finally:
+        model.similarity_fn_name = original
+
+    assert ir_evaluator.score_function_names == ["dot"]
+    assert ir_evaluator.primary_metric == "test_dot_ndcg@10"
+    assert {key.split("_")[1] for key in results} == {"dot"}
+    assert len(ir_evaluator.csv_headers) == header_count
+    # The CSV keeps the header row of the first call, so the appended row is mislabeled.
+    assert "labeled with the previous score function" in caplog.text
+
+
+def test_explicit_score_functions_survive_reuse(test_data, stsb_bert_tiny_model: SentenceTransformer):
+    """Explicit score_functions are evaluator configuration, so a model carrying a different
+    similarity does not replace them."""
+    queries, corpus, relevant_docs = test_data
+    model = stsb_bert_tiny_model
+    score_functions = {"custom": cos_sim}
+
+    ir_evaluator = InformationRetrievalEvaluator(
+        queries=queries,
+        corpus=corpus,
+        relevant_docs=relevant_docs,
+        name="test",
+        score_functions=score_functions,
+        write_csv=False,
+    )
+    ir_evaluator(model)
+
+    original = model.similarity_fn_name
+    model.similarity_fn_name = "dot"
+    try:
+        results = ir_evaluator(model)
+    finally:
+        model.similarity_fn_name = original
+
+    assert ir_evaluator.score_functions is score_functions
+    assert ir_evaluator.score_function_names == ["custom"]
+    assert ir_evaluator.primary_metric == "test_custom_ndcg@10"
+    assert {key.split("_")[1] for key in results} == {"custom"}
+
+
 def test_metrics_are_independent_of_corpus_chunk_size(stsb_bert_tiny_model: SentenceTransformer):
     """Duplicate documents produce exact score ties: breaking them by corpus_id keeps every metric
     identical across corpus_chunk_size values."""
