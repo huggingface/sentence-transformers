@@ -148,10 +148,13 @@ class WordEmbeddings(InputModule):
         embeddings_file_path: str,
         update_embeddings: bool = False,
         item_separator: str = " ",
-        tokenizer=WhitespaceTokenizer(),
+        tokenizer: WordTokenizer | None = None,
         max_vocab_size: int | None = None,
     ):
         logger.info(f"Read in embeddings file {embeddings_file_path}")
+
+        if tokenizer is None:
+            tokenizer = WhitespaceTokenizer()
 
         if not os.path.exists(embeddings_file_path):
             logger.info(f"{embeddings_file_path} does not exist, try to download from server")

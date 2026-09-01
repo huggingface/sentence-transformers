@@ -808,6 +808,12 @@ class Transformer(InputModule):
             processor_kwargs = {}
         if config_kwargs is None:
             config_kwargs = {}
+
+        # A revision resolved for the model repository must not pin a separate processor repository
+        processor_revision = processor_kwargs.get("revision")
+        if tokenizer_name_or_path not in (None, model_name_or_path) and hasattr(processor_revision, "initial"):
+            processor_kwargs = {**processor_kwargs, "revision": processor_revision.initial}
+
         self.processing_kwargs: ProcessingKwargs = processing_kwargs or {}
         unknown_keys = set(self.processing_kwargs) - self._VALID_PROCESSING_KWARGS_KEYS
         if unknown_keys:

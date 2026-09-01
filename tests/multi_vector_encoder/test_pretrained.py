@@ -18,21 +18,22 @@ DOCUMENTS = [
     "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
 ]
 
-# Cross-library parity guard, one entry per load path. Expected scores come from PyLate (the
-# reference implementation) via `demo_multi_vector_pylate.py`. LFM2 has no mask token, so it alone
-# covers the EOS query-expansion fallback. The Perplexity entry alone attends to its expansion
-# tokens, so it alone covers them reaching the backbone rather than only the scoring mask.
+# Cross-library parity guard, one entry per load path, with scores from PyLate. LFM2 is the one
+# exception: it pins our own output, as PyLate sums MaxSim in the checkpoint's bfloat16 while we
+# upcast to float32. LFM2 alone covers the EOS query-expansion fallback, the Perplexity entry alone
+# attends to its expansion tokens, ColBERT-Zero alone pairs a [Q] / [D] prefix with a text prompt.
 MODELS_TO_MAXSIM: dict[str, list[float]] = {
     "lightonai/Reason-ModernColBERT": [9.05118, 10.18419, 9.12381, 9.39101],
     "answerdotai/answerai-colbert-small-v1": [30.56916, 31.48954, 31.30291, 31.30716],
     "colbert-ir/colbertv2.0": [12.79703, 27.19449, 23.8495, 24.56564],
     "lightonai/colbertv2.0": [12.79703, 27.19449, 23.8495, 24.56564],
-    "LiquidAI/LFM2-ColBERT-350M": [30.3855, 30.63302, 30.43718, 30.55411],
+    "LiquidAI/LFM2-ColBERT-350M": [30.42596, 30.66987, 30.55955, 30.61758],
     "perplexity-ai/pplx-embed-v1-late-0.6b": [31.56128, 31.80504, 31.67393, 31.74072],
     "lightonai/GTE-ModernColBERT-v1": [11.25772, 11.51133, 11.34575, 11.4518],
     "lightonai/LateOn": [10.79417, 11.11042, 10.97427, 11.08107],
     "mixedbread-ai/mxbai-edge-colbert-v0-17m": [11.56932, 11.75844, 11.70989, 11.72288],
     "lightonai/mLateOn": [11.3486, 11.5170, 11.4391, 11.4867],
+    "lightonai/ColBERT-Zero": [11.48635, 12.89087, 12.20023, 12.56686],
 }
 
 # doc{i} is the relevant page for IMAGE_QUERIES[i], so the correct retrieval is the diagonal.
@@ -40,97 +41,91 @@ IMAGE_QUERIES = [
     "What is the variable represented on the y-axis of the graph?",
     "Total outlay is maximum in which year?",
 ]
-# Image URLs as strings: ST's loader fetches and RGB-converts them (doc2.jpg is grayscale).
+# Revision-pinned: the reference scores below are functions of the exact image bytes.
 IMAGE_DOCUMENTS = [
-    f"https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc{i}.jpg"
+    "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve"
+    f"/49f05727417edee37938141fd1dd6ad70cbcc559/doc{i}.jpg"
     for i in range(1, 5)
 ]
 
-# Image-document counterpart of MODELS_TO_MAXSIM: reference scores from each checkpoint's own
-# reference implementation in float32, one entry per load path (merged checkpoints, adapter repos,
-# the transformers-native ``*ForRetrieval`` pipelines, remote-code ColQwen3 via auto_map, the
-# Qwen-Omni any-to-any, and the ColIdefics3 / ColModernVBERT backbone families). Merged/adapter pairs
-# carry separate expected values: the adapter merge happens in float32 at load time and drifts up to ~1e-2.
-#
-# Do not regenerate the ColPali values with a current colpali-engine: it changed the query render
-# twice (0.3.11 dropped the trailing newline, 0.3.13 the query prefix), so the expected token ids
-# come from colpali-engine pinned at each checkpoint's git_hash.txt era. All repos also send
-# token_type_ids, without which transformers 5.x PaliGemma materializes no attention mask and
-# batched short queries attend to their own padding.
+# One entry per load path. Merged/adapter pairs differ: the adapter merge happens in float32 at
+# load time and drifts up to ~1e-2. The values re-pin the pipeline that was verified against each
+# checkpoint's reference implementation (2026-07 images, in git history) onto the current images,
+# except colqwen2-v1.0-hf, which is bit-exact against transformers' ColQwen2ForRetrieval instead.
+# Regenerate only with colpali-engine pinned at each checkpoint's git_hash.txt era (its query
+# render changed twice), and always send token_type_ids or PaliGemma queries attend their padding.
 IMAGE_MODELS_TO_MAXSIM: dict[str, list[list[float]]] = {
     "vidore/colpali-v1.2-merged": [
-        [11.12544, 10.70494, 8.33699, 5.55528],
-        [5.43893, 9.22282, 4.77620, 6.18975],
+        [11.11996, 10.83272, 8.34862, 5.54090],
+        [5.46607, 9.24259, 4.81569, 6.16846],
     ],
     "vidore/colpali-v1.2-hf": [
-        [11.12544, 10.70494, 8.33699, 5.55528],
-        [5.43893, 9.22282, 4.77620, 6.18975],
+        [11.11996, 10.83272, 8.34862, 5.54090],
+        [5.46607, 9.24259, 4.81569, 6.16846],
     ],
     "vidore/colpali-v1.3-merged": [
-        [22.31612, 19.89108, 19.68853, 19.08340],
-        [5.86997, 13.53104, 6.14273, 6.66346],
+        [22.31296, 19.91783, 19.65032, 19.08110],
+        [5.84823, 13.27723, 6.13870, 6.68729],
     ],
     "vidore/colpali-v1.3": [
-        [22.31328, 19.88509, 19.67547, 19.07253],
-        [5.86399, 13.52503, 6.13950, 6.65664],
+        [22.31006, 19.91216, 19.63692, 19.06972],
+        [5.84230, 13.27022, 6.13517, 6.68002],
     ],
     "vidore/colpali-v1.3-hf": [
-        [22.31612, 19.89108, 19.68853, 19.08340],
-        [5.86997, 13.53104, 6.14273, 6.66346],
+        [22.31296, 19.91783, 19.65032, 19.08110],
+        [5.84823, 13.27723, 6.13870, 6.68729],
     ],
     "vidore/colqwen2-v1.0-merged": [
-        [13.71122, 11.32144, 11.24476, 10.29570],
-        [7.23860, 15.97721, 6.80682, 6.33582],
+        [13.70829, 11.18885, 11.55377, 10.34371],
+        [7.22471, 16.19691, 6.92718, 6.34652],
     ],
     "vidore/colqwen2-v1.0": [
-        [13.70652, 11.32664, 11.24544, 10.29281],
-        [7.23405, 15.98250, 6.80532, 6.33567],
+        [13.70598, 11.19109, 11.55256, 10.34176],
+        [7.23008, 16.20519, 6.92686, 6.34751],
     ],
     "vidore/colqwen2-v1.0-hf": [
-        [14.30825, 11.39804, 11.71452, 11.11929],
-        [8.06244, 15.51341, 7.69973, 6.81685],
+        [14.95679, 11.99078, 12.74620, 11.75120],
+        [8.21900, 16.32439, 7.78084, 7.26281],
     ],
     "vidore/colqwen2.5-v0.1": [
-        [14.41530, 13.65989, 12.64034, 12.21288],
-        [6.72662, 12.85824, 6.38309, 6.51216],
+        [14.49592, 13.66154, 12.62755, 12.21405],
+        [6.67031, 13.04360, 6.41104, 6.51284],
     ],
     "vidore/colqwen2.5-v0.2": [
-        [13.92257, 12.42018, 12.16155, 11.21492],
-        [7.20985, 14.49691, 6.98430, 6.85667],
+        [13.86088, 12.41194, 12.14236, 11.15379],
+        [7.20549, 14.63949, 6.95723, 7.01793],
     ],
     "vidore/colsmolvlm-v0.1": [
-        [19.24759, 14.70667, 13.41699, 13.06858],
-        [11.33126, 16.25809, 10.10841, 10.38294],
+        [19.26244, 14.77771, 13.38723, 13.07574],
+        [11.34115, 16.35669, 10.05041, 10.39349],
     ],
     "vidore/colSmol-256M": [
-        [18.10806, 15.99803, 11.76210, 9.80238],
-        [9.24236, 15.09791, 10.53463, 8.08666],
+        [18.19177, 16.21826, 11.77296, 9.81028],
+        [9.28594, 15.07055, 10.39773, 8.11685],
     ],
     "vidore/colSmol-500M": [
-        [16.85453, 13.74751, 11.73707, 11.53643],
-        [7.77525, 14.95062, 8.11365, 9.26005],
+        [16.83529, 13.67782, 11.73600, 11.48435],
+        [7.74692, 14.95682, 8.18546, 9.20794],
     ],
     "TomoroAI/tomoro-colqwen3-embed-4b": [
-        [12.77696, 8.82909, 6.06170, 5.93094],
-        [4.57132, 10.81090, 4.18670, 5.13091],
+        [12.74590, 8.98804, 6.31755, 5.91395],
+        [4.58117, 10.76462, 4.75141, 5.33277],
     ],
     "vidore/colqwen-omni-v0.1": [
-        [53.52898, 48.61031, 46.56916, 45.45226],
-        [45.56886, 53.15039, 45.12549, 45.34389],
+        [53.52136, 49.16924, 46.72224, 45.56889],
+        [45.62766, 53.28142, 45.12759, 45.39864],
     ],
     "ModernVBERT/colmodernvbert-merged": [
-        [16.76402, 10.43273, 11.82670, 9.02781],
-        [7.38520, 12.01467, 8.11896, 7.95296],
+        [16.77780, 10.37122, 11.84198, 9.05343],
+        [7.37222, 12.06184, 8.14767, 7.95627],
     ],
     "ModernVBERT/colmodernvbert": [
-        [16.76402, 10.43273, 11.82670, 9.02781],
-        [7.38520, 12.01467, 8.11896, 7.95296],
+        [16.77780, 10.37123, 11.84198, 9.05343],
+        [7.37221, 12.06184, 8.14767, 7.95627],
     ],
 }
 
-# Checkpoints that need remote code: the Perplexity backbone ships as repository code, and the
-# ``-st`` adapter repos ship a small ``modeling_st_*.py`` that merges the LoRA onto its base at
-# load time. The rest are deliberately not granted it.
+# The Perplexity backbone and the Tomoro LoRA-merging module ship as repository code.
 MODELS_NEEDING_REMOTE_CODE: frozenset[str] = frozenset(
     {
         "perplexity-ai/pplx-embed-v1-late-0.6b",
@@ -148,7 +143,7 @@ def test_pretrained_multi_vector_maxsim(model_name: str, expected_score: list[fl
     model = MultiVectorEncoder(model_name, trust_remote_code=model_name in MODELS_NEEDING_REMOTE_CODE)
     query_embeddings = model.encode_query([QUERY])
     document_embeddings = model.encode_document(DOCUMENTS)
-    similarities = model.similarity(query_embeddings, document_embeddings)[0]
+    similarities = model.similarity(query_embeddings, document_embeddings)[0].float().cpu()
     assert np.allclose(similarities, expected_score, rtol=0.001, atol=0.001), (
         f"Expected MaxSim scores for {model_name} to be close to {expected_score}, but got {similarities.tolist()}"
     )
@@ -160,19 +155,23 @@ def test_pretrained_multi_vector_maxsim(model_name: str, expected_score: list[fl
 @pytest.mark.parametrize("model_name", MODELS_TO_MAXSIM)
 @pytest.mark.slow
 def test_pretrained_prompt_prefix_stays_one_token(model_name: str) -> None:
-    """These checkpoints were trained by inserting the prefix *token*, while we prepend the prompt as
-    *text*, so the two only agree while the prefix tokenizes to one piece. Registration drops the
-    trailing space for an in-vocab marker (``[unused0] `` -> ``[unused0]``) but keeps it for a
-    PyLate-style added token (``[Q] ``), hence the two accepted forms.
-    """
+    """The checkpoints insert the prefix as a token while we prepend it as text, which only agree
+    while the prefix tokenizes to one piece (with or without its trailing space). A save that pairs a
+    prefix with a prompt composes the two, so the prefix must survive as the leading piece."""
     model = MultiVectorEncoder(model_name, trust_remote_code=model_name in MODELS_NEEDING_REMOTE_CODE)
     tokenizer = model.tokenizer
     prompts = {task: prompt for task, prompt in model.prompts.items() if prompt and prompt.strip()}
     assert prompts, f"{model_name} is expected to carry query / document prompts"
     for task, prompt in prompts.items():
+        prefix = model._legacy.prefixes.get(task) or prompt
         pieces = tokenizer.tokenize(prompt)
-        assert pieces == [prompt.strip()] or pieces == [prompt], (
-            f"The {task!r} prompt {prompt!r} of {model_name} must tokenize to a single piece, got {pieces}"
+        assert pieces[:1] == [prefix.strip()] or pieces[:1] == [prefix], (
+            f"The {task!r} prompt {prompt!r} of {model_name} must start with the {prefix!r} prefix "
+            f"as a single piece, got {pieces}"
+        )
+        assert prefix != prompt or len(pieces) == 1, (
+            f"The {task!r} prompt {prompt!r} of {model_name} is the bare prefix and must be "
+            f"a single piece, got {pieces}"
         )
     del model
     gc.collect()
@@ -186,13 +185,7 @@ def test_pretrained_prompt_prefix_stays_one_token(model_name: str) -> None:
 )
 @pytest.mark.slow
 def test_pretrained_image_document_maxsim(model_name: str, expected_scores: list[list[float]]) -> None:
-    """Cross-library parity guard for image documents, against each checkpoint's reference implementation.
-
-    Covers every multimodal load path: the explicit
-    ``Transformer -> Dense -> Normalize -> MultiVectorMask`` pipeline on merged checkpoints, the
-    adapter repos whose custom module merges a LoRA onto its base at load time, and ColQwen2's
-    auto-recognised ``*ForRetrieval`` pipeline, whose head projects and normalises internally.
-    """
+    """Cross-library parity for image documents, covering every multimodal load path."""
     model = MultiVectorEncoder(
         model_name,
         trust_remote_code=model_name in MODELS_NEEDING_REMOTE_CODE,
@@ -206,7 +199,7 @@ def test_pretrained_image_document_maxsim(model_name: str, expected_scores: list
     assert np.allclose(similarities, expected_scores, rtol=0.001, atol=0.001), (
         f"Expected MaxSim scores for {model_name} to be close to {expected_scores}, but got {similarities.tolist()}"
     )
-    # Semantic: each query retrieves its matching page (query i -> doc i).
+    # Each query retrieves its matching page.
     assert similarities.argmax(dim=1).tolist() == list(range(len(IMAGE_QUERIES)))
 
     del model
@@ -214,15 +207,11 @@ def test_pretrained_image_document_maxsim(model_name: str, expected_scores: list
     torch.cuda.empty_cache()
 
 
-# The bare-HF default is empty (covered by ``test_default_colbert_attributes``), so these guard that
-# each legacy source still seeds punctuation. One entry per load path.
+# The bare-HF default is empty, so each legacy skiplist source must still seed punctuation.
 LEGACY_SKIPLIST_CASES: list[tuple[str, list[str]]] = [
-    # Stanford-NLP `artifact.metadata` with ``mask_punctuation=True`` → punctuation skiplist.
-    ("colbert-ir/colbertv2.0", list(string.punctuation)),
-    # PyLate-as-ST save: ``skiplist_words`` baked into ``config_sentence_transformers.json``.
-    ("lightonai/colbertv2.0", list(string.punctuation)),
-    # PyLate v3 (``model_type == "ColBERT"``): ``_apply_legacy_fixups`` reads the same key.
-    ("lightonai/Reason-ModernColBERT", list(string.punctuation)),
+    ("colbert-ir/colbertv2.0", list(string.punctuation)),  # Stanford artifact.metadata
+    ("lightonai/colbertv2.0", list(string.punctuation)),  # PyLate-as-ST config_sentence_transformers.json
+    ("lightonai/Reason-ModernColBERT", list(string.punctuation)),  # PyLate v3 legacy fixups
 ]
 
 
@@ -247,20 +236,18 @@ def test_pretrained_legacy_save_seeds_punctuation_skiplist(model_name: str, expe
 )
 @pytest.mark.slow
 def test_pretrained_colpali_multimodal() -> None:
-    """Image-document path end to end. The checkpoint loads in bfloat16, so absolute MaxSim values
-    drift across GPU architectures and the assertions stay structural instead.
-    """
-    model = MultiVectorEncoder("tomaarsen/colpali-v1.3-merged-st")
+    """End-to-end image path. The checkpoint loads in bfloat16, so the assertions stay structural."""
+    model = MultiVectorEncoder("vidore/colpali-v1.3-merged")
 
     queries = [
         "What is the variable represented on the y-axis of the graph?",
         "Total outlay is maximum in which year?",
     ]
     images = [
-        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc1.jpg",
-        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc2.jpg",
-        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc3.jpg",
-        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc4.jpg",
+        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc1.jpg",
+        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc2.jpg",
+        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc3.jpg",
+        "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc4.jpg",
     ]
 
     query_embeddings = model.encode_query(queries)
@@ -293,11 +280,8 @@ def test_pretrained_colpali_multimodal() -> None:
 )
 @pytest.mark.slow
 def test_pretrained_colqwen2_hf_for_retrieval(tmp_path) -> None:
-    """Auto-recognition of transformers-native ``*ForRetrieval`` retrievers, which carry no Sentence
-    Transformers config. The head projects and normalises internally, so the pipeline must come out
-    as ``Transformer(retrieval) -> MultiVectorMask`` with no Dense and no Normalize. Scores stay
-    structural because bfloat16 drifts across GPU architectures.
-    """
+    """Auto-recognition of transformers-native ``*ForRetrieval`` checkpoints, whose head projects
+    and normalises internally: the pipeline must be ``Transformer -> MultiVectorMask`` alone."""
     from transformers import AutoProcessor, ColQwen2ForRetrieval
 
     model_id = "vidore/colqwen2-v1.0-hf"
@@ -314,12 +298,11 @@ def test_pretrained_colqwen2_hf_for_retrieval(tmp_path) -> None:
         "Total outlay is maximum in which year?",
     ]
     images = [
-        f"https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/assets/doc{i}.jpg"
+        f"https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc{i}.jpg"
         for i in range(1, 5)
     ]
 
-    # The processor bakes in the trained prefix and the augmentation buffer, so matching its ids is
-    # what proves no chat template got involved.
+    # Matching the processor's ids proves no chat template got involved.
     processor = AutoProcessor.from_pretrained(model_id)
     st_query_ids = model[0].preprocess(queries, task="query")["input_ids"].cpu()
     assert torch.equal(st_query_ids, processor.process_queries(queries)["input_ids"])
@@ -341,8 +324,7 @@ def test_pretrained_colqwen2_hf_for_retrieval(tmp_path) -> None:
     assert tuple(scores.shape) == (len(queries), len(images))
     assert scores.argmax(dim=1).tolist() == list(range(len(queries)))
 
-    # Reloading must rebuild the pipeline from the persisted transformer_task and modality_config,
-    # without re-running auto-recognition.
+    # Reloading must rebuild from the persisted config without re-running auto-recognition.
     model.save_pretrained(str(tmp_path))
     del model
     gc.collect()

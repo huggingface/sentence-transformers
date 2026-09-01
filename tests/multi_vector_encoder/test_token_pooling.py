@@ -130,6 +130,14 @@ class TestHierarchicalTokenPooling:
         # First 2 rows are the protected tokens verbatim.
         assert torch.allclose(out[:2], emb[:2])
 
+    @pytest.mark.parametrize(("pool_factor", "expected_tokens"), [(1.5, 21), (2.5, 13), (3.5, 9)])
+    def test_fractional_pool_factor(self, pool_factor: float, expected_tokens: int) -> None:
+        # Fractional factors give compression steps between the integers:
+        # 1 protected + max(int(30 // pool_factor), 1) cluster means.
+        emb = _normed((31, 8))
+        out = HierarchicalTokenPooling(pool_factor=pool_factor, num_protected_tokens=1).pool([emb])[0]
+        assert out.shape == (expected_tokens, 8)
+
     def test_pooled_rows_are_cluster_means(self) -> None:
         # Every non-protected row of the output must equal the mean of some non-empty subset of the
         # non-protected input rows, and the subsets must partition the non-protected input rows.
@@ -321,8 +329,8 @@ class TestTrainingGradientFlow:
 
 
 class TestConstructorValidation:
-    @pytest.mark.parametrize("bad", [0, -1])
-    def test_pool_factor_must_be_positive(self, bad: int) -> None:
+    @pytest.mark.parametrize("bad", [0, -1, 0.5])
+    def test_pool_factor_must_be_positive(self, bad: float) -> None:
         with pytest.raises(ValueError, match="pool_factor must be >= 1"):
             HierarchicalTokenPooling(pool_factor=bad)
 
