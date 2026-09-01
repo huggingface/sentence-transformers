@@ -848,16 +848,9 @@ class Transformer(InputModule):
             model_name_or_path, transformer_task, config, backend, is_peft_model, **model_kwargs
         )
 
-        # Unwrap PEFT first: ``PeftModel.forward`` hides the base model's multimodal params (e.g. ``pixel_values``).
-        forward_model = self.model
-        if is_peft_available():
-            from peft import PeftModel
-
-            if isinstance(forward_model, PeftModel):
-                forward_model = forward_model.get_base_model()
         # ``None`` = forward accepts ``**kwargs`` (pass all but undeclared ST bookkeeping).
         # Set = declared params plus safety net.
-        forward_signature = inspect.signature(forward_model.forward)
+        forward_signature = inspect.signature(self.model.forward)
         self._declared_forward_params = set(forward_signature.parameters)
         self.model_forward_params: set[str] | None = None
         if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in forward_signature.parameters.values()):
@@ -1672,19 +1665,6 @@ class Transformer(InputModule):
             embedding = embedding.flatten(2).transpose(1, 2)
 
         features[self.module_output_name] = embedding
-
-        # If the AutoModel is wrapped with a PeftModel(ForFeatureExtraction), then it may have added virtual tokens
-        # We need to extend the attention mask to include these virtual tokens, or the pooling will fail
-        if "input_ids" in features and "attention_mask" in features and is_peft_available():
-            from peft import PeftModel
-
-            if isinstance(self.model, PeftModel) and self.model.active_peft_config.is_prompt_learning:
-                batch_size = features["input_ids"].shape[0]
-                attention_mask = features["attention_mask"]
-                prefix_attention_mask = torch.ones(
-                    batch_size, self.model.active_peft_config.num_virtual_tokens, device=attention_mask.device
-                )
-                features["attention_mask"] = torch.cat((prefix_attention_mask, attention_mask), dim=1)
 
         if (
             hasattr(self.model.config, "output_hidden_states")
