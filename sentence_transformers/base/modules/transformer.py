@@ -2248,9 +2248,7 @@ class Transformer(InputModule):
             from peft import PeftConfig
 
             peft_config = PeftConfig.from_pretrained(model_name_or_path, **config_kwargs)
-            # An adapter checkpoint has no config.json, and a PeftConfig carries no `architectures` and
-            # no `num_labels` that survives `from_pretrained`. `revision` and `subfolder` locate the
-            # adapter, not the base model.
+            # `revision` and `subfolder` locate the adapter, not the base model.
             base_config_kwargs = {
                 key: value for key, value in config_kwargs.items() if key not in ("revision", "subfolder")
             }
