@@ -141,49 +141,6 @@ def _corpus(n_docs: int, precision: str, seed: int = 0) -> np.ndarray:
     return quantize_embeddings(embeddings, precision=precision, calibration_embeddings=CALIBRATION)
 
 
-@skip_without_usearch
-def test_semantic_search_usearch_signed_binary_rescoring_preserves_ranking() -> None:
-    query = np.array([[10.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]], dtype=np.float32)
-    corpus = np.array(
-        [
-            [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-            [-1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        ],
-        dtype=np.float32,
-    )
-
-    results, _ = semantic_search_usearch(
-        query,
-        corpus_embeddings=quantize_embeddings(corpus, precision="binary"),
-        corpus_precision="binary",
-        top_k=1,
-        rescore=True,
-        rescore_multiplier=2,
-        exact=True,
-    )
-
-    assert results[0] == [{"corpus_id": 0, "score": 17.0}]
-
-
-@skip_without_usearch
-@pytest.mark.parametrize("corpus_precision", ["binary", "ubinary"])
-def test_semantic_search_usearch_rescores_non_byte_aligned_embeddings(corpus_precision: str) -> None:
-    query = np.arange(1, 11, dtype=np.float32)[None, :]
-    corpus = np.ones((1, 10), dtype=np.float32)
-
-    results, _ = semantic_search_usearch(
-        query,
-        corpus_embeddings=quantize_embeddings(corpus, precision=corpus_precision),
-        corpus_precision=corpus_precision,
-        top_k=1,
-        rescore=True,
-        rescore_multiplier=1,
-        exact=True,
-    )
-
-    assert results[0] == [{"corpus_id": 0, "score": 55.0}]
-
-
 @skip_without_faiss
 @pytest.mark.parametrize("corpus_precision", ["int8", "binary", "float16"])
 def test_semantic_search_faiss_rejects_unsupported_precision(corpus_precision: str) -> None:
@@ -260,3 +217,66 @@ def test_semantic_search_faiss_returns_top_k_when_corpus_is_large_enough(corpus_
     for query_results in results:
         assert len(query_results) == 5
         assert all(0 <= entry["corpus_id"] < 50 for entry in query_results)
+
+
+@skip_without_faiss
+def test_semantic_search_faiss_rescores_non_byte_aligned_embeddings() -> None:
+    """Padding bits from ``np.packbits`` must not reach the rescoring."""
+    query = np.arange(1, 11, dtype=np.float32)[None, :]
+    corpus = np.ones((1, 10), dtype=np.float32)
+
+    results, _ = semantic_search_faiss(
+        query,
+        corpus_embeddings=quantize_embeddings(corpus, precision="ubinary"),
+        corpus_precision="ubinary",
+        top_k=1,
+        rescore=True,
+        rescore_multiplier=1,
+    )
+
+    assert results[0] == [{"corpus_id": 0, "score": 55.0}]
+
+
+@skip_without_usearch
+def test_semantic_search_usearch_signed_binary_rescoring_preserves_ranking() -> None:
+    """The -128 offset on ``binary`` corpus bytes must be undone, or the ranking can flip."""
+    query = np.array([[10.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]], dtype=np.float32)
+    corpus = np.array(
+        [
+            [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            [-1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
+
+    results, _ = semantic_search_usearch(
+        query,
+        corpus_embeddings=quantize_embeddings(corpus, precision="binary"),
+        corpus_precision="binary",
+        top_k=1,
+        rescore=True,
+        rescore_multiplier=2,
+        exact=True,
+    )
+
+    assert results[0] == [{"corpus_id": 0, "score": 17.0}]
+
+
+@skip_without_usearch
+@pytest.mark.parametrize("corpus_precision", ["binary", "ubinary"])
+def test_semantic_search_usearch_rescores_non_byte_aligned_embeddings(corpus_precision: str) -> None:
+    """Padding bits from ``np.packbits`` must not reach the rescoring."""
+    query = np.arange(1, 11, dtype=np.float32)[None, :]
+    corpus = np.ones((1, 10), dtype=np.float32)
+
+    results, _ = semantic_search_usearch(
+        query,
+        corpus_embeddings=quantize_embeddings(corpus, precision=corpus_precision),
+        corpus_precision=corpus_precision,
+        top_k=1,
+        rescore=True,
+        rescore_multiplier=1,
+        exact=True,
+    )
+
+    assert results[0] == [{"corpus_id": 0, "score": 55.0}]
