@@ -587,7 +587,7 @@ The following images show the benchmark results for the different backends on GP
          <b>Batch sizes: </b>each backend is measured at increasing batch sizes until its throughput declines or memory is exceeded, and the ratios compare peak against peak. Columns still climbing at the largest measured batch size (mainly the Flash Attention ones) are shown conservatively.
       </li>
    </ul>
-   Performance ratio: The same models and hardware was used. We compare the performance against the performance of PyTorch with fp32, i.e. the default backend and precision.
+   Quality ratio: The same models and hardware were used. We compare the evaluation quality against that of PyTorch with fp32, i.e. the default backend and precision.
    <ul>
       <li>
          <b>Evaluation: </b>
@@ -651,7 +651,7 @@ The following images show the benchmark results for the different backends on GP
 
    On GPU, fp16 with FlashAttention-2 and input unpadding is the strongest configuration everywhere (3.87x median at no loss of quality), making it the recommended setup when the model architecture supports it. Plain fp16 (2.92x) also beats every ONNX level on every dataset: compared to the original benchmark, the ONNX ratios dropped to roughly 1.2x because exported graphs are static and do not inherit the torch runtime improvements that made the fresh fp32 baseline much faster. The original recommendation of ONNX for short texts on GPU no longer holds: even on the short-text stsb dataset, plain fp16 (2.80x) outperforms onnx-O4 (2.57x), with the Flash Attention backends at 3.9x. The one niche ONNX keeps on GPU is latency-critical workloads pinned to small batches of short texts, where onnx-O4 still leads at the smallest measured batch sizes. Note that checkpoints stored in half precision (e.g. mxbai-embed-large-v1) load in that dtype by default since transformers v5, so they already run at fp16 speed without any configuration. The benchmark forces true fp32 for its baseline.<br>
    <br>
-   For CPU, ONNX is stronger than OpenVINO on the short-text stsb dataset (1.35x against 1.24x), while int8 quantization pays off most: 3.23x for onnx-qint8 and 5.29x for openvino-qint8 overall, at a performance cost of less than half a percent. For longer texts, ONNX and OpenVINO can perform slightly worse than PyTorch, so we recommend testing the different backends with your specific model and data to find the best one for your use case. Half precision must be avoided on CPU altogether: torch-fp16 and torch-bf16 run largely emulated there and collapse to roughly 0.01x.
+   For CPU, ONNX is stronger than OpenVINO on the short-text stsb dataset (1.35x against 1.24x), while int8 quantization pays off most: 3.23x for onnx-qint8 and 5.29x for openvino-qint8 overall, at a quality cost of less than half a percent. For longer texts, ONNX and OpenVINO can perform slightly worse than PyTorch, so we recommend testing the different backends with your specific model and data to find the best one for your use case. Half precision must be avoided on CPU altogether: torch-fp16 and torch-bf16 run largely emulated there and collapse to roughly 0.01x.
 
    </details>
    <br>

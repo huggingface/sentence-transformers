@@ -563,7 +563,7 @@ The following images show the benchmark results for the different backends on GP
          <b>Batch sizes: </b>each backend is measured at increasing batch sizes (from 16 on GPU and 4 on CPU) until its throughput declines or memory is exceeded, and the ratios compare peak against peak. Columns still climbing at the largest measured batch size (mainly the Flash Attention ones) are shown conservatively. Throughput per configuration is computed from the median iteration time.
       </li>
    </ul>
-   Performance ratio: The same models and hardware were used. We compare the performance against the performance of PyTorch with fp32, i.e. the default backend and precision.
+   Quality ratio: The same models and hardware were used. We compare the retrieval quality against that of PyTorch with fp32, i.e. the default backend and precision.
    <ul>
       <li>
          <b>Evaluation: </b>NDCG@10 based on MaxSim on the MSMARCO and NQ subsets from the <a href="https://huggingface.co/collections/zeta-alpha-ai/nanobeir-66e1a0af21dfd93e620cd9f6">NanoBEIR</a> collection of datasets, computed via the MultiVectorNanoBEIREvaluator.
@@ -617,7 +617,7 @@ The following images show the benchmark results for the different backends on GP
          fp16 with FlashAttention-2 is the best of both worlds: the highest speedup measured (2.44x) with no quality loss, making it the recommended GPU configuration when the model supports FlashAttention-2.
       </li>
       <li>
-         The FA2 performance bar covers GTE-ModernColBERT only: models with non-attend query expansion (attend=False, e.g. answerai-colbert, Stanford-NLP checkpoints) cannot encode queries with FlashAttention-2 at all, as the expansion tokens would never receive an attention update. Their document-side encoding speed is unaffected, which is what the speedup bar measures.
+         The FA2 quality bar covers GTE-ModernColBERT only: models with non-attend query expansion (attend=False, e.g. answerai-colbert, Stanford-NLP checkpoints) cannot encode queries with FlashAttention-2 at all, as the expansion tokens would never receive an attention update. Their document-side encoding speed is unaffected, which is what the speedup bar measures.
       </li>
       <li>
          ONNX loses to PyTorch on CPU for longer texts: ONNX throughput declines as the batch size grows on the medium and long datasets, ending below PyTorch (0.80x median). OpenVINO does not show this decline: its throughput rises or stays flat everywhere. Half precision is not benchmarked on CPU here, but as for the other model types it runs many times slower than fp32 there, so avoid torch-fp16 and torch-bf16 on CPU.
