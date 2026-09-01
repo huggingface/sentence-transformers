@@ -8,7 +8,7 @@ from sentence_transformers.backend.utils import save_or_push_to_hub_model
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
+    from sentence_transformers import CrossEncoder, MultiVectorEncoder, SentenceTransformer, SparseEncoder
 
     try:
         from optimum.onnxruntime.configuration import OptimizationConfig
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def export_optimized_onnx_model(
-    model: SentenceTransformer | SparseEncoder | CrossEncoder,
+    model: SentenceTransformer | SparseEncoder | CrossEncoder | MultiVectorEncoder,
     optimization_config: OptimizationConfig | Literal["O1", "O2", "O3", "O4"],
     model_name_or_path: str,
     push_to_hub: bool = False,
@@ -25,7 +25,8 @@ def export_optimized_onnx_model(
     file_suffix: str | None = None,
 ) -> None:
     """
-    Export an optimized ONNX model from a SentenceTransformer, SparseEncoder, or CrossEncoder model.
+    Export an optimized ONNX model from a SentenceTransformer, SparseEncoder, CrossEncoder,
+    or MultiVectorEncoder model.
 
     The O1-O4 optimization levels are defined by Optimum and are documented here:
     https://huggingface.co/docs/optimum-onnx/main/en/onnxruntime/usage_guides/optimization
@@ -43,8 +44,8 @@ def export_optimized_onnx_model(
     - `Cross Encoder > Usage > Speeding up Inference <https://sbert.net/docs/cross_encoder/usage/efficiency.html>`_
 
     Args:
-        model (SentenceTransformer | SparseEncoder | CrossEncoder): The SentenceTransformer, SparseEncoder,
-            or CrossEncoder model to be optimized. Must be loaded with `backend="onnx"`.
+        model (SentenceTransformer | SparseEncoder | CrossEncoder | MultiVectorEncoder): The SentenceTransformer,
+            SparseEncoder, CrossEncoder, or MultiVectorEncoder model to be optimized. Must be loaded with `backend="onnx"`.
         optimization_config (OptimizationConfig | Literal["O1", "O2", "O3", "O4"]): The optimization configuration or level.
         model_name_or_path (str): The path or Hugging Face Hub repository name where the optimized model will be saved.
         push_to_hub (bool, optional): Whether to push the optimized model to the Hugging Face Hub. Defaults to False.
@@ -53,7 +54,8 @@ def export_optimized_onnx_model(
 
     Raises:
         ImportError: If the required packages `optimum` and `onnxruntime` are not installed.
-        ValueError: If the provided model is not a valid SentenceTransformer, SparseEncoder, or CrossEncoder model loaded with `backend="onnx"`.
+        ValueError: If the provided model is not a valid SentenceTransformer, SparseEncoder, CrossEncoder,
+            or MultiVectorEncoder model loaded with `backend="onnx"`.
         ValueError: If the provided optimization_config is not valid.
 
     Returns:
@@ -73,7 +75,8 @@ def export_optimized_onnx_model(
     ort_model = model.transformers_model
     if not isinstance(ort_model, ORTModel):
         raise ValueError(
-            'The model must be a Transformer-based SentenceTransformer, SparseEncoder, or CrossEncoder model loaded with `backend="onnx"`.'
+            "The model must be a Transformer-based SentenceTransformer, SparseEncoder, CrossEncoder, "
+            'or MultiVectorEncoder model loaded with `backend="onnx"`.'
         )
 
     optimizer = ORTOptimizer.from_pretrained(ort_model)

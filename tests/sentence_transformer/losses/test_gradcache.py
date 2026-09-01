@@ -5,8 +5,6 @@ per-forward cache isolation, grad_output scaling, token-budget boundaries, and m
 
 from __future__ import annotations
 
-import sys
-
 import pytest
 import torch
 from torch import Tensor, nn
@@ -19,6 +17,7 @@ from sentence_transformers.sentence_transformer.losses import (
     MultipleNegativesRankingLoss,
 )
 from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+from tests.utils import skip_bfloat16_cpu_crash
 
 COLUMN_A = ["anchor a", "anchor b", "anchor c", "anchor d", "anchor e", "anchor f", "anchor g"]
 COLUMN_B = ["positive a", "positive b", "positive c", "positive d", "positive e", "positive f", "positive g"]
@@ -176,10 +175,7 @@ def test_gradcache_under_no_grad(stsb_bert_tiny_model: SentenceTransformer, trai
     assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="bfloat16 CPU matmul can hard-crash (0xc000001d) on some Windows machines. Skipping to avoid CI failures.",
-)
+@skip_bfloat16_cpu_crash
 def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """Under autocast, the cached gradients are reduced-precision while the backward hook's
     re-embedding runs outside autocast in fp32, so the surrogate must bridge the dtypes.
@@ -476,6 +472,26 @@ def test_create_minibatch_keeps_left_padding() -> None:
     assert _create_minibatch(feature, 0, 3)["attention_mask"].shape[1] == width
 
 
+def test_create_minibatch_keeps_query_expansion_positions() -> None:
+    """ColBERT expansion positions carry attention_mask 0 but are still scored, so the trailing trim
+    must not drop them: doing so silently shrinks a 32-token query to its handful of real tokens."""
+    width, floor = 8, 8
+    mask = torch.zeros(4, width, dtype=torch.long)
+    for row, length in enumerate([3, 4, 2, 3]):
+        mask[row, :length] = 1
+    expansion_positions = (mask == 0) & (torch.arange(width) < floor)
+    feature = {
+        "input_ids": torch.ones(4, width, dtype=torch.long),
+        "attention_mask": mask,
+        "query_expansion_positions": expansion_positions,
+    }
+
+    for begin, end in ((0, 4), (0, 2), (2, 4)):
+        minibatch = _create_minibatch(feature, begin, end)
+        assert minibatch["attention_mask"].shape[1] == width
+        torch.testing.assert_close(minibatch["query_expansion_positions"], expansion_positions[begin:end])
+
+
 def test_gradcache_token_budget_trims_but_matches_mnrl(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """Trimming padded mini-batches to their own width must not change the loss or gradient: the dropped
     columns are padding for every sequence in the mini-batch, so the transformer ignores them anyway."""
@@ -493,3 +509,36 @@ def test_gradcache_token_budget_trims_but_matches_mnrl(stsb_bert_tiny_model: Sen
     assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-4, abs=1e-5)
     for name, grad in cached_grads.items():
         torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)
+
+
+class TestFlattenedMinibatchSlicing:
+    """``_create_minibatch``'s flattened branch, which the range tests above never reach: they only
+    compute boundaries, while this rebuilds the per-mini-batch token slices and FA2 metadata."""
+
+    def _flattened(self, lengths: list[int]) -> dict[str, torch.Tensor]:
+        cu_seq_lens = torch.tensor([0, *torch.tensor(lengths).cumsum(0).tolist()], dtype=torch.long)
+        total = int(cu_seq_lens[-1])
+        return {
+            "input_ids": torch.arange(total).unsqueeze(0),
+            "cu_seq_lens_q": cu_seq_lens,
+            "cu_seq_lens_k": cu_seq_lens.clone(),
+            "max_length_q": max(lengths),
+            "seq_idx": torch.repeat_interleave(torch.arange(len(lengths)), torch.tensor(lengths)).unsqueeze(0),
+        }
+
+    def test_slices_tokens_and_rebuilds_metadata(self) -> None:
+        features = self._flattened([3, 5, 2])
+        middle = _create_minibatch(features, 1, 3)
+
+        # Sequences 1 and 2 span tokens 3..10 of the flat batch.
+        assert middle["input_ids"].tolist() == [list(range(3, 10))]
+        # Offsets restart at 0 so the mini-batch stands alone, and max_length_q follows its own rows.
+        assert middle["cu_seq_lens_q"].tolist() == [0, 5, 7]
+        assert middle["cu_seq_lens_k"].tolist() == [0, 5, 7]
+        assert middle["max_length_q"] == 5
+        # seq_idx is rebased to the mini-batch, not left pointing at global sequence ids.
+        assert middle["seq_idx"].tolist() == [[0] * 5 + [1] * 2]
+
+    def test_end_is_clamped_to_the_sequence_count(self) -> None:
+        features = self._flattened([4, 6])
+        assert _create_minibatch(features, 0, 99)["input_ids"].tolist() == [list(range(10))]

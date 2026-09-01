@@ -8,10 +8,27 @@ from scipy.sparse import coo_matrix
 from torch import Tensor, device
 
 
+def _wrap_numpy(a: np.ndarray) -> Tensor:
+    """View a numpy array as a tensor without copying its buffer, which on a corpus of embeddings
+    costs as much as the scoring it feeds. Two kinds of array cannot be viewed and are copied with
+    :func:`torch.tensor` instead: read-only buffers (memmaps, broadcast views), and dtypes with no
+    torch equivalent. Arrays with a negative stride are rejected outright by both routes.
+
+    The returned tensor aliases the caller's array, so consumers must write only into fresh outputs.
+    """
+    if a.flags.writeable:
+        try:
+            return torch.from_numpy(a)
+        except TypeError:
+            pass
+    return torch.tensor(a)
+
+
 def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
     """
-    Converts the input `a` to a PyTorch tensor if it is not already a tensor.
-    Handles lists of sparse tensors by stacking them.
+    Converts the input `a` to a PyTorch tensor if it is not already a tensor. Lists are stacked into
+    one tensor: a list of sparse tensors keeps its sparsity, and a list of numpy arrays is viewed
+    rather than read element by element (see :func:`_wrap_numpy`).
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The input array or tensor.
@@ -24,12 +41,37 @@ def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
         if all(isinstance(x, Tensor) and x.is_sparse for x in a):
             # Stack sparse tensors while preserving sparsity
             return torch.stack([x.coalesce().to(dtype=torch.float32) for x in a])
+        elif a and all(isinstance(x, np.ndarray) for x in a):
+            # torch.tensor reads a list of arrays one element at a time, two orders of magnitude
+            # slower than viewing each and stacking once. Ragged lists fail either way.
+            a = torch.stack([_wrap_numpy(x) for x in a])
         else:
             a = torch.tensor(a)
+    elif isinstance(a, np.ndarray):
+        a = _wrap_numpy(a)
     elif not isinstance(a, Tensor):
         a = torch.tensor(a)
     if a.is_sparse:
         return a.to(dtype=torch.float32)
+    return a
+
+
+def _convert_to_float_tensor(a: list | np.ndarray | Tensor) -> Tensor:
+    """
+    Converts like :func:`_convert_to_tensor`, then upcasts sub-float32 floats (fp8, float16,
+    bfloat16) to float32: matmul rounds its output to the input dtype, bucketing nearby similarity
+    scores into spurious ties. The multi-vector scoring path instead accumulates in float32 and
+    keeps :func:`_convert_to_tensor`.
+
+    Args:
+        a (Union[list, np.ndarray, Tensor]): The input array or tensor.
+
+    Returns:
+        Tensor: The converted tensor, in float32 for any sub-float32 floating input.
+    """
+    a = _convert_to_tensor(a)
+    if torch.is_floating_point(a) and torch.finfo(a.dtype).bits < 32:
+        a = a.to(torch.float32)
     return a
 
 
@@ -50,16 +92,17 @@ def _convert_to_batch(a: Tensor) -> Tensor:
 
 def _convert_to_batch_tensor(a: list | np.ndarray | Tensor) -> Tensor:
     """
-    Converts the input data to a tensor with a batch dimension.
-    Handles lists of sparse tensors by stacking them.
+    Converts the input data to a tensor with a batch dimension, stacking lists as
+    :func:`_convert_to_tensor` does.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The input data to be converted.
 
     Returns:
-        Tensor: The converted tensor with a batch dimension.
+        Tensor: The converted tensor with a batch dimension, in float32 for any sub-float32
+        floating input (see :func:`_convert_to_float_tensor`).
     """
-    a = _convert_to_tensor(a)
+    a = _convert_to_float_tensor(a)
     if a.dim() == 1:
         a = a.unsqueeze(0)
     return a
@@ -184,6 +227,78 @@ def select_max_active_dims(
     selected.scatter_(-1, top_indices, embeddings.gather(-1, top_indices))
 
     return selected
+
+
+def repad_flattened_features(features: dict[str, Any]) -> dict[str, Any]:
+    """Reverse FA2 input flattening on a features dict, in place.
+
+    When :class:`Transformer` runs with FA2 unpadding, ``DataCollatorWithFlattening`` flattens the
+    batch into ``token_embeddings: (1, sum_lens, D)`` / ``input_ids: (1, sum_lens)``, drops
+    ``attention_mask``, and writes ``cu_seq_lens_q`` to mark sequence boundaries. This function
+    reverses that: pad ``token_embeddings`` and ``input_ids`` back to ``(B, T_max, ...)``, rebuild
+    ``attention_mask`` from the cumulative lengths, and drop the FA2-specific keys. Caller is
+    responsible for gating on ``cu_seq_lens_q in features``.
+
+    Args:
+        features: Features dict containing flat FA2 outputs. Mutated in place.
+
+    Returns:
+        The same ``features`` dict, with the standard ``(B, T_max, ...)`` shape restored.
+    """
+    cu = features["cu_seq_lens_q"].tolist()
+    flat_emb = features["token_embeddings"][0]
+    flat_ids = features["input_ids"][0]
+    features["token_embeddings"] = torch.nn.utils.rnn.pad_sequence(
+        [flat_emb[s:e] for s, e in zip(cu[:-1], cu[1:])], batch_first=True, padding_value=0.0
+    )
+    features["input_ids"] = torch.nn.utils.rnn.pad_sequence(
+        [flat_ids[s:e] for s, e in zip(cu[:-1], cu[1:])], batch_first=True, padding_value=0
+    )
+    lengths = torch.tensor([e - s for s, e in zip(cu[:-1], cu[1:])], device=flat_emb.device)
+    T_max = features["input_ids"].shape[1]
+    features["attention_mask"] = torch.arange(T_max, device=flat_emb.device).unsqueeze(0) < lengths.unsqueeze(1)
+    for key in ("cu_seq_lens_q", "cu_seq_lens_k", "max_length_q", "max_length_k", "seq_idx", "position_ids"):
+        features.pop(key, None)
+    return features
+
+
+def stack_padded_token_embeddings(embeddings: list[Tensor], masks: list[Tensor]) -> tuple[Tensor, Tensor]:
+    """Stack a list of ``(B, T_i, D)`` token embeddings and their ``(B, T_i)`` masks along
+    ``dim=1``, padding each column up to the batch-wide max token count.
+
+    Used by multi-vector / late-interaction losses to assemble a ``(B, N, T_max, D)`` document
+    tensor plus matching ``(B, N, T_max)`` mask. ``F.pad``'s tail-axis padding handles the token
+    dimension (the embedding and batch dims are left alone). Padded positions must be excluded
+    downstream via the returned mask (MaxSim already honours it).
+
+    Skips the pad and does a plain stack when every column already shares ``T`` (e.g. a single
+    document column). Pads when columns differ, as with independently-padded text columns
+    (different per-column batch-longest) or ragged-token-count VLMs (Qwen2-VL family).
+    """
+    T_max = max(e.size(1) for e in embeddings)
+    if any(e.size(1) != T_max for e in embeddings):
+        embeddings = [torch.nn.functional.pad(e, (0, 0, 0, T_max - e.size(1))) for e in embeddings]
+        masks = [torch.nn.functional.pad(m, (0, T_max - m.size(1))) for m in masks]
+    return torch.stack(embeddings, dim=1), torch.stack(masks, dim=1)
+
+
+def cat_padded_token_embeddings(embeddings: list[Tensor], masks: list[Tensor]) -> tuple[Tensor, Tensor]:
+    """Concatenate ``(B_i, T_i, D)`` token-embedding chunks and ``(B_i, T_i)`` mask chunks along
+    ``dim=0``, padding each chunk up to the chunk-wide max token count.
+
+    Used by GradCache-style multi-vector losses where each mini-batch is encoded independently
+    and the resulting per-mini-batch chunks must be assembled into a single
+    ``(sum(B_i), T_max, D)`` tensor + ``(sum(B_i), T_max)`` mask. Native-resolution VLMs
+    (Qwen2-VL family) may emit a different ``T`` per mini-batch within the same column.
+
+    Skips the pad entirely when all chunks already share the same ``T`` (text and fixed-resolution
+    VLMs), paying a pad only for ragged-token-count VLMs.
+    """
+    T_max = max(e.size(1) for e in embeddings)
+    if any(e.size(1) != T_max for e in embeddings):
+        embeddings = [torch.nn.functional.pad(e, (0, 0, 0, T_max - e.size(1))) for e in embeddings]
+        masks = [torch.nn.functional.pad(m, (0, T_max - m.size(1))) for m in masks]
+    return torch.cat(embeddings, dim=0), torch.cat(masks, dim=0)
 
 
 def batch_to_device(batch: dict[str, Any], target_device: device) -> dict[str, Any]:

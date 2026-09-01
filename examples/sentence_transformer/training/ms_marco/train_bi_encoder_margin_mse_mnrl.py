@@ -7,7 +7,7 @@ This example shows how to train a bi-encoder on the MS MARCO Passage Ranking dat
 MarginMSELoss distills CrossEncoder score margins (teacher supervision) but has no
 in-batch contrastive term. MultipleNegativesRankingLoss adds the in-batch contrast
 that gives MNRL its strength. Combining both gets distillation + contrastive signal
-in one training pass; we share the forward pass across both loss components by
+in one training pass. We share the forward pass across both loss components by
 computing embeddings once and calling each loss's ``compute_loss_from_embeddings``,
 so memory stays the same as a single loss.
 
@@ -75,10 +75,10 @@ def main():
     max_seq_length = 300
 
     num_negs_per_system = 5  # How many negatives to take from each mining system per query
-    num_negatives = 10  # Negatives sampled per query per batch; each contributes one MSE term to MarginMSE.
+    num_negatives = 10  # Negatives sampled per query per batch. Each contributes one MSE term to MarginMSE.
 
     # 1. Load a model to finetune with 2. (Optional) model card data. Weights stay in fp32
-    # so the optimizer accumulates updates at full precision; `bf16=True` in TrainingArguments
+    # so the optimizer accumulates updates at full precision. `bf16=True` in TrainingArguments
     # below adds bf16 autocast on the forward/backward.
     short_model_name = model_name.split("/")[-1]
     model = SentenceTransformer(
@@ -100,7 +100,7 @@ def main():
     queries = load_dataset("sentence-transformers/msmarco-corpus", "query", split="train")
     query_dict = dict(zip(queries["qid"], queries["text"]))
 
-    # Load CrossEncoder scores; these serve as the teacher labels for MarginMSELoss.
+    # Load CrossEncoder scores. These serve as the teacher labels for MarginMSELoss.
     scores = load_dataset("sentence-transformers/msmarco-scores-ms-marco-MiniLM-L6-v2", "list", split="train")
     ce_scores = {
         qid: dict(zip(cids, sc)) for qid, cids, sc in zip(scores["query_id"], scores["corpus_id"], scores["score"])

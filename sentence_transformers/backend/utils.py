@@ -13,7 +13,7 @@ import huggingface_hub
 from huggingface_hub import list_repo_files
 
 if TYPE_CHECKING:
-    from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
+    from sentence_transformers import CrossEncoder, MultiVectorEncoder, SentenceTransformer, SparseEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +52,8 @@ def backend_should_export(
     These are the cases:
 
     1. If export is set in model_kwargs, just return export
-    2. If `<subfolder>/<file_name>` exists; set export to False
-    3. If `<backend>/<file_name>` exists; set export to False and set subfolder to the backend (e.g. "onnx")
+    2. If `<subfolder>/<file_name>` exists, set export to False
+    3. If `<backend>/<file_name>` exists, set export to False and set subfolder to the backend (e.g. "onnx")
     4. If `<file_name>` contains a folder, add those folders to the subfolder and set the file_name to the last part
 
     We will warn if:
@@ -135,6 +135,51 @@ def backend_should_export(
     return export, model_kwargs
 
 
+def _onnx_prepare_external_data(model_path: Path) -> list[str]:
+    """
+    Point an ONNX model over the 2GB protobuf limit at its weights under the name Optimum fetches.
+
+    Such a model keeps its weights in files beside itself and records where, so the locations are read
+    out of the model rather than derived from its name, which tools disagree on. ONNX Runtime writes
+    ``<model>.onnx.data`` for an optimized model, but Optimum only ever requests ``<model>.onnx_data``
+    from the Hugging Face Hub, and fails silently, so a lone file is renamed to that along with the
+    location recorded in the model. Rewriting the model does not read the weights, so this stays cheap.
+
+    Args:
+        model_path: The ONNX file to read the references from, and to rewrite if a file is renamed.
+
+    Returns:
+        list[str]: The files holding the weights, relative to the ONNX file, to travel alongside it.
+            Empty if the weights are in the ONNX file itself.
+    """
+    import onnx
+    from onnx.external_data_helper import _get_all_tensors, uses_external_data
+
+    # Tensors held by node attributes get externalized alongside the initializers, so all of them count
+    model = onnx.load(model_path.as_posix(), load_external_data=False)
+    entries = [
+        entry
+        for tensor in _get_all_tensors(model)
+        if uses_external_data(tensor)
+        for entry in tensor.external_data
+        if entry.key == "location"
+    ]
+    locations = {entry.value for entry in entries}
+
+    # Weights spread over several files have no single name to take, and Optimum only fetches one
+    hub_location = f"{model_path.name}_data"
+    if len(locations) == 1:
+        [sidecar] = locations
+        # A file in a subdirectory would have to move rather than be renamed, so it keeps its location
+        if sidecar != hub_location and Path(sidecar).parent == Path("."):
+            (model_path.parent / sidecar).rename(model_path.parent / hub_location)
+            for entry in entries:
+                entry.value = hub_location
+            onnx.save(model, model_path.as_posix())
+            locations = {hub_location}
+    return sorted(locations)
+
+
 def backend_warn_to_save(model_name_or_path: str, is_local: bool, backend_name: str) -> None:
     """
     Warns the user to save the model if they just exported it.
@@ -161,9 +206,9 @@ def save_or_push_to_hub_model(
     create_pr: bool = False,
     file_suffix: str | None = None,
     backend: str = "onnx",
-    model: SentenceTransformer | SparseEncoder | CrossEncoder | None = None,
+    model: SentenceTransformer | SparseEncoder | CrossEncoder | MultiVectorEncoder | None = None,
 ):
-    from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
+    from sentence_transformers import CrossEncoder, MultiVectorEncoder, SentenceTransformer, SparseEncoder
 
     if backend == "onnx":
         file_name = f"model_{file_suffix}.onnx"
@@ -183,10 +228,17 @@ def save_or_push_to_hub_model(
 
         # Because we upload folders and save_dir now has unnecessary files (tokenizer.json, config.json, etc.),
         # we move the main file to a nested directory
+        external_data_locations = []
         if backend == "onnx":
             dst_dir = Path(save_dir) / backend
             dst_dir.mkdir(parents=True, exist_ok=True)
             source = Path(save_dir) / file_name
+            # A model over 2GB keeps its weights in files beside the ONNX file, so those travel with it
+            external_data_locations = _onnx_prepare_external_data(source)
+            for location in external_data_locations:
+                external_destination = dst_dir / location
+                external_destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(source.parent / location, external_destination)
             destination = dst_dir / file_name
             shutil.move(source, destination)
             save_dir = dst_dir.as_posix()
@@ -267,6 +319,47 @@ print(similarities)
 ---
 *This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util.html#sentence_transformers.backend.{export_function_name}).*
 """
+                elif isinstance(model, MultiVectorEncoder):
+                    commit_description = f"""\
+Hello!
+
+This pull request adds an exported {backend} model (`{file_name}`).
+
+## Config
+```python
+{opt_config_string}
+```
+
+## Testing this pull request
+You can test this pull request before merging by loading the model from this PR with the `revision` argument:
+```python
+from sentence_transformers import MultiVectorEncoder
+
+# NOTE: Update this to the number of your pull request
+pr_number = 2
+model = MultiVectorEncoder(
+    "{model_name_or_path}",
+    revision=f"refs/pr/{{pr_number}}",
+    backend="{backend}",
+    model_kwargs={{"file_name": "{file_name}"}},
+)
+
+# Verify that everything works as expected
+queries = ["What is the capital of France?"]
+documents = [
+    "Paris is the capital of France.",
+    "Berlin is the capital of Germany.",
+]
+query_embeddings = model.encode_query(queries)
+document_embeddings = model.encode_document(documents)
+
+scores = model.similarity(query_embeddings, document_embeddings)
+print(scores)
+```
+
+---
+*This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util.html#sentence_transformers.backend.{export_function_name}).*
+"""
                 elif isinstance(model, CrossEncoder):
                     commit_description = f"""\
 Hello!
@@ -327,6 +420,12 @@ print(scores)
             source = Path(save_dir) / file_name
             destination = dst_dir / file_name
             shutil.copy(source, destination)
+
+            # The files that an ONNX model over 2GB keeps its weights in have to be saved as well
+            for location in external_data_locations:
+                external_destination = dst_dir / location
+                external_destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(source.parent / location, external_destination)
 
             # OpenVINO has a second file to save: the .bin file
             if backend == "openvino":

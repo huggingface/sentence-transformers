@@ -4,7 +4,7 @@ import logging
 import math
 import queue
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from multiprocessing import Queue
 from typing import Any, Literal, overload
 
@@ -14,7 +14,7 @@ from torch import nn
 from tqdm.autonotebook import trange
 from transformers import AutoConfig, PretrainedConfig, PreTrainedModel, is_datasets_available
 from transformers.utils import logging as transformers_logging
-from typing_extensions import deprecated
+from typing_extensions import TypeIs, deprecated
 
 from sentence_transformers.base.modality_types import PairableInput, PairInput
 from sentence_transformers.base.model import BaseModel
@@ -130,7 +130,7 @@ class CrossEncoder(BaseModel, FitMixin):
             ]
             scores = model.predict(pairs)
             print(scores)
-            # [8.607  1.133]
+            # [ 8.40307   -4.3200774]
 
             # Rank documents by relevance to a query
             results = model.rank(
@@ -138,7 +138,7 @@ class CrossEncoder(BaseModel, FitMixin):
                 ["Berlin had a population of 3,520,031 in 2019.", "Berlin is well known for its museums."],
             )
             print(results)
-            # [{'corpus_id': 0, 'score': 8.607317}, {'corpus_id': 1, 'score': 1.1329174}]
+            # [{'corpus_id': 0, 'score': 8.403070449829102}, {'corpus_id': 1, 'score': -4.320077419281006}]
     """
 
     model_card_data_class = CrossEncoderModelCardData
@@ -282,7 +282,7 @@ class CrossEncoder(BaseModel, FitMixin):
 
     def _multi_process(
         self,
-        inputs: list[PairInput],
+        inputs: Sequence[PairInput],
         show_progress_bar: bool | None = True,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         device: str | list[str | torch.device] | None = None,
@@ -467,6 +467,45 @@ class CrossEncoder(BaseModel, FitMixin):
     def default_activation_function(self) -> Callable:
         return self.activation_fn
 
+    # Ordered overloads: the first match wins, so the all-defaults signatures come first and each
+    # deviation pins its deviating flag as a required keyword. Singular pairs precede Sequence ones.
+    @overload
+    def predict(
+        self,
+        inputs: Sequence[PairInput] | PairInput,
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
+        batch_size: int = ...,
+        show_progress_bar: bool | None = ...,
+        activation_fn: Callable | None = ...,
+        apply_softmax: bool | None = ...,
+        convert_to_numpy: Literal[True] = ...,
+        convert_to_tensor: Literal[False] = ...,
+        device: str | list[str | torch.device] | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
+        **kwargs,
+    ) -> np.ndarray: ...
+
+    @overload
+    def predict(
+        self,
+        inputs: Sequence[PairInput] | PairInput,
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
+        batch_size: int = ...,
+        show_progress_bar: bool | None = ...,
+        activation_fn: Callable | None = ...,
+        apply_softmax: bool | None = ...,
+        convert_to_numpy: bool = ...,
+        *,
+        convert_to_tensor: Literal[True],
+        device: str | list[str | torch.device] | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
+        **kwargs,
+    ) -> torch.Tensor: ...
+
     @overload
     def predict(
         self,
@@ -477,36 +516,39 @@ class CrossEncoder(BaseModel, FitMixin):
         show_progress_bar: bool | None = ...,
         activation_fn: Callable | None = ...,
         apply_softmax: bool | None = ...,
-        convert_to_numpy: Literal[False] = ...,
+        *,
+        convert_to_numpy: Literal[False],
         convert_to_tensor: Literal[False] = ...,
-        device: str | list[str | torch.device] | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
-        chunk_size: int | None = None,
+        device: str | list[str | torch.device] | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
         **kwargs,
     ) -> torch.Tensor: ...
 
     @overload
     def predict(
         self,
-        inputs: list[PairInput] | PairInput,
+        inputs: Sequence[PairInput],
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         activation_fn: Callable | None = ...,
         apply_softmax: bool | None = ...,
-        convert_to_numpy: Literal[True] = True,
-        convert_to_tensor: Literal[False] = False,
-        device: str | list[str | torch.device] | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
-        chunk_size: int | None = None,
+        *,
+        convert_to_numpy: Literal[False],
+        convert_to_tensor: Literal[False] = ...,
+        device: str | list[str | torch.device] | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
         **kwargs,
-    ) -> np.ndarray: ...
+    ) -> list[torch.Tensor]: ...
 
+    # Catch-all so forwarding calls with union-typed arguments (e.g. from rank) still resolve.
     @overload
     def predict(
         self,
-        inputs: list[PairInput] | PairInput,
+        inputs: Sequence[PairInput] | PairInput,
         prompt_name: str | None = ...,
         prompt: str | None = ...,
         batch_size: int = ...,
@@ -514,36 +556,18 @@ class CrossEncoder(BaseModel, FitMixin):
         activation_fn: Callable | None = ...,
         apply_softmax: bool | None = ...,
         convert_to_numpy: bool = ...,
-        convert_to_tensor: Literal[True] = ...,
-        device: str | list[str | torch.device] | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
-        chunk_size: int | None = None,
+        convert_to_tensor: bool = ...,
+        device: str | list[str | torch.device] | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
         **kwargs,
-    ) -> torch.Tensor: ...
-
-    @overload
-    def predict(
-        self,
-        inputs: list[PairInput],
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        activation_fn: Callable | None = ...,
-        apply_softmax: bool | None = ...,
-        convert_to_numpy: Literal[False] = ...,
-        convert_to_tensor: Literal[False] = ...,
-        device: str | list[str | torch.device] | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
-        chunk_size: int | None = None,
-        **kwargs,
-    ) -> list[torch.Tensor]: ...
+    ) -> list[torch.Tensor] | np.ndarray | torch.Tensor: ...
 
     @torch.inference_mode()
     @cross_encoder_predict_rank_args_decorator
     def predict(
         self,
-        inputs: list[PairInput] | PairInput,
+        inputs: Sequence[PairInput] | PairInput,
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
@@ -633,13 +657,16 @@ class CrossEncoder(BaseModel, FitMixin):
         # Cast an individual pair to a list with length 1
         is_singular_input = self.is_singular_input(inputs)
         if is_singular_input:
-            # A 1D numpy string array is a single pair; convert to a list so downstream sees ["q", "d"].
             if isinstance(inputs, np.ndarray):
-                inputs = inputs.tolist()
+                # A 1D numpy string array is a single pair. Convert to a list so downstream sees ["q", "d"].
+                pair: PairInput = inputs.tolist()
+                inputs = pair
             inputs = [inputs]
         elif not isinstance(inputs, list):
-            # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
-            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index.
+            # The annotation pins ndarray.tolist()'s Any so checkers keep the narrowed input type.
+            materialized: list[PairInput] = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            inputs = materialized
 
         # If pool or a list of devices is provided, use multi-process prediction
         if pool is not None or (isinstance(device, list) and len(device) > 0):
@@ -690,6 +717,10 @@ class CrossEncoder(BaseModel, FitMixin):
             out_features = self(features, **kwargs)
             scores = out_features["scores"]
 
+            # upcast sub-float32 floats (fp8/float16/bfloat16) to break ties
+            if torch.is_floating_point(scores) and torch.finfo(scores.dtype).bits < 32:
+                scores = scores.float()
+
             if activation_fn is not None:
                 scores = activation_fn(scores)
 
@@ -721,7 +752,7 @@ class CrossEncoder(BaseModel, FitMixin):
     def rank(
         self,
         query: PairableInput,
-        documents: list[PairableInput],
+        documents: Sequence[PairableInput],
         top_k: int | None = None,
         return_documents: bool = False,
         prompt_name: str | None = None,
@@ -730,8 +761,6 @@ class CrossEncoder(BaseModel, FitMixin):
         show_progress_bar: bool | None = None,
         activation_fn: Callable | None = None,
         apply_softmax=False,
-        convert_to_numpy: bool = True,
-        convert_to_tensor: bool = False,
         device: str | list[str | torch.device] | None = None,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
@@ -755,9 +784,7 @@ class CrossEncoder(BaseModel, FitMixin):
             batch_size (int, optional): Batch size for encoding. Defaults to 32.
             show_progress_bar (bool, optional): Output progress bar. Defaults to None.
             activation_fn ([type], optional): Activation function applied on the logits output of the CrossEncoder. If None, nn.Sigmoid() will be used if num_labels=1, else nn.Identity. Defaults to None.
-            convert_to_numpy (bool, optional): Convert the output to a numpy matrix. Defaults to True.
             apply_softmax (bool, optional): If there are more than 2 dimensions and apply_softmax=True, applies softmax on the logits output. Defaults to False.
-            convert_to_tensor (bool, optional): Convert the output to a tensor. Defaults to False.
             device (Union[str, List[str]], optional): Device(s) to use for computation. Can be a single device string
                 (e.g., "cuda:0", "cpu") or a list of devices (e.g., ["cuda:0", "cuda:1"]). If a list is provided,
                 multiprocessing will be used automatically. Defaults to None.
@@ -791,20 +818,23 @@ class CrossEncoder(BaseModel, FitMixin):
             ::
 
                 [{'corpus_id': 0,
-                'score': 10.67858,
+                'score': 10.678577423095703,
                 'text': "'To Kill a Mockingbird' is a novel by Harper Lee published in 1960. It was immediately successful, winning the Pulitzer Prize, and has become a classic of modern American literature."},
                 {'corpus_id': 2,
-                'score': 9.761677,
+                'score': 9.761673927307129,
                 'text': "Harper Lee, an American novelist widely known for her novel 'To Kill a Mockingbird', was born in 1926 in Monroeville, Alabama. She received the Pulitzer Prize for Fiction in 1961."},
                 {'corpus_id': 1,
-                'score': -3.3099542,
+                'score': -3.3099513053894043,
                 'text': "The novel 'Moby-Dick' was written by Herman Melville and first published in 1851. It is considered a masterpiece of American literature and deals with complex themes of obsession, revenge, and the conflict between good and evil."},
                 {'corpus_id': 5,
-                'score': -4.8989105,
+                'score': -4.898908615112305,
                 'text': "'The Great Gatsby', a novel written by American author F. Scott Fitzgerald, was published in 1925. The story is set in the Jazz Age and follows the life of millionaire Jay Gatsby and his pursuit of Daisy Buchanan."},
                 {'corpus_id': 4,
-                'score': -5.082967,
-                'text': "The 'Harry Potter' series, which consists of seven fantasy novels written by British author J.K. Rowling, is among the most popular and critically acclaimed books of the modern era."}]
+                'score': -5.0829620361328125,
+                'text': "The 'Harry Potter' series, which consists of seven fantasy novels written by British author J.K. Rowling, is among the most popular and critically acclaimed books of the modern era."},
+                {'corpus_id': 3,
+                'score': -6.478001594543457,
+                'text': 'Jane Austen was an English novelist known primarily for her six major novels, which interpret, critique and comment upon the British landed gentry at the end of the 18th century.'}]
         """
         if self.num_labels != 1:
             raise ValueError(
@@ -820,16 +850,14 @@ class CrossEncoder(BaseModel, FitMixin):
             show_progress_bar=show_progress_bar,
             activation_fn=activation_fn,
             apply_softmax=apply_softmax,
-            convert_to_numpy=convert_to_numpy,
-            convert_to_tensor=convert_to_tensor,
+            convert_to_tensor=True,
             device=device,
             pool=pool,
             chunk_size=chunk_size,
-        )
+        ).tolist()
 
         results = []
         for i, score in enumerate(scores):
-            # TODO v6: convert score to float(score) for cleaner output
             results.append({"corpus_id": i, "score": score})
             if return_documents:
                 results[-1].update({"text": documents[i]})
@@ -837,9 +865,11 @@ class CrossEncoder(BaseModel, FitMixin):
         results = sorted(results, key=lambda x: x["score"], reverse=True)
         return results[:top_k]
 
-    def is_singular_input(self, inputs: PairInput | list[PairInput]) -> bool:
+    def is_singular_input(self, inputs: PairInput | Sequence[PairInput]) -> TypeIs[PairInput]:
         """
         Check if the input represents a single example or a batch of examples.
+        Declared with :class:`~typing_extensions.TypeIs` so type checkers narrow the
+        branches in :meth:`predict`.
 
         Args:
             inputs: The input to check.

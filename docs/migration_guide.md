@@ -1,5 +1,102 @@
 # Migration Guide
 
+## Migrating from v5.x to v6.x
+
+```{eval-rst}
+The v6.0 release introduces :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`, a fourth model type for ColBERT-style multi-vector (late interaction) retrieval models. It absorbs the modeling, training, and evaluation of `PyLate <https://github.com/lightonai/pylate>`_ and `colpali-engine <https://github.com/illuin-tech/colpali>`_: see the two dedicated sections below if you are migrating from either library.
+```
+
+### Breaking changes
+
+v6.0 requires `transformers` v5.x (up from 4.41+), `torch` 2.2+ (up from 1.11+), and `huggingface-hub` v1.x (up from 0.23+): if your environment pins any of these lower, plan those upgrades first. Smaller floors also moved (`numpy` 1.24+, `scikit-learn` 1.1+, and for the `train` extra `datasets` 2.16+ and `accelerate` 1.3+). The minimum Python version stays 3.10.
+
+#### Changed outputs and artifacts
+
+```{eval-rst}
+- :class:`~sentence_transformers.cross_encoder.model.CrossEncoder`'s ``rank`` now returns Python floats as its ``"score"`` values, where it previously returned ``numpy.float32`` scalars, or 0-dimensional tensors with ``convert_to_tensor=True``. The results are directly JSON serializable, which matches what :func:`~sentence_transformers.util.retrieval.semantic_search` already returned. The ``convert_to_numpy`` and ``convert_to_tensor`` arguments on ``rank`` are now deprecated no-ops that will be removed in a future version: call ``predict`` directly if you want the scores as an array or a tensor.
+- :class:`~sentence_transformers.cross_encoder.model.CrossEncoder`'s ``predict`` (and ``rank``) now upcasts the scores to ``float32`` before applying the optional activation function, so ``float16`` and ``bfloat16`` rerankers return different and far better ordered scores: a sigmoid in half precision saturates and ties the top candidates together. The returned dtype changes only for ``predict`` with ``convert_to_tensor=True`` or ``convert_to_numpy=False``, as the default numpy output was already ``float32``.
+- :func:`~sentence_transformers.util.quantization.quantize_embeddings` returns a list of per-input matrices when given a list of 2D arrays, where it previously stacked them into one 3D array: update callers that indexed the stacked array.
+- Multi-process ``encode(pool=..., precision="int8")`` (and ``"uint8"``) now quantizes once after merging the worker results, so the calibration ranges match single-process encoding. Quantized indexes built with v5.x multi-process encoding are not bit-compatible: regenerate them. Peak memory is higher because the full ``float32`` matrix is materialized before quantization.
+- ``similarity`` and ``similarity_pairwise`` on :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`, and the :func:`~sentence_transformers.util.similarity.cos_sim` family they call, now return ``float32`` scores for ``float16`` and ``bfloat16`` embeddings, where they previously scored in the input dtype: half precision ties too many scores together to rank with.
+- :class:`~sentence_transformers.sentence_transformer.modules.Pooling` configured with ``include_prompt=False`` no longer replaces ``attention_mask`` in the features it is handed: the prompt is dropped from the pooling average only, and the mask keeps describing every token the encoder attended over, matching the ``input_ids`` and ``token_embeddings`` that come back beside it. ``encode(output_value=None)`` therefore reports the full mask where it previously reported one with the prompt positions zeroed, as does a custom module that runs after ``Pooling`` and reads ``features["attention_mask"]``. ``sentence_embedding`` and ``output_value="token_embeddings"`` are unchanged. If you pooled over the narrowed mask yourself, rebuild it by zeroing the first ``prompt_length`` unmasked positions of each row, from the ``prompt_length`` the same dict still carries.
+```
+
+#### Custom module classes require `trust_remote_code=True`
+
+Loading a model whose `modules.json` references a module class outside of Sentence Transformers now always requires `trust_remote_code=True`, also when the model is stored in a local directory or when the class comes from a locally installed package. Previously, local models were implicitly trusted, and other untrusted references only emitted a `FutureWarning`.
+
+Behavioral changes that need no code updates (loss bug fixes that change training results, seed reproducibility, model card regeneration differences, compatibility of new saves with older library versions) and a handful of niche API changes are covered in the release notes instead.
+
+### Migrating from PyLate
+
+```{eval-rst}
+:class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` absorbs PyLate's ColBERT modeling, training, and
+evaluation. Existing PyLate checkpoints load directly, e.g.
+``MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")``, with the prefix tokens, query expansion, and
+punctuation skiplist recovered from the saved config.
+
+One difference on **bare** (non-ColBERT) checkpoints: PyLate's ``ColBERT("bert-base-uncased")``
+applies the classic recipe by default ("[Q] " / "[D] " prefixes, mask-token query expansion, a
+punctuation skiplist), while ``MultiVectorEncoder("bert-base-uncased")`` builds a plain stack and
+leaves those as explicit recipe choices. To reproduce PyLate's fresh-model behaviour, pass them
+explicitly (see the msmarco training examples and `Creating Custom Models
+<multi_vector_encoder/usage/custom_models.html>`_).
+```
+
+| PyLate | Sentence Transformers |
+|---|---|
+| `pylate.models.ColBERT(model_name_or_path=...)` | `MultiVectorEncoder(...)` |
+| `model.encode(..., is_query=True)` | `model.encode_query(...)` |
+| `model.encode(..., is_query=False)` | `model.encode_document(...)` |
+| `query_prefix="[Q] "` / `document_prefix="[D] "` | `prompts={"query": "[Q] ", "document": "[D] "}` |
+| `attend_to_expansion_tokens=True` | `query_expansion={"strategy": "fixed", "attend": True, "length": 32}` on the `Transformer` module |
+| `pylate.scores.colbert_scores` | `model.similarity` or `sentence_transformers.util.maxsim` |
+| `pylate.losses.Contrastive` | `MultiVectorMultipleNegativesRankingLoss` |
+| `pylate.losses.CachedContrastive` | `CachedMultiVectorMultipleNegativesRankingLoss` |
+| `temperature=X` on the contrastive losses | `scale=1/X` (the Sentence Transformers convention) |
+| `pylate.losses.Distillation` | `MultiVectorDistillKLDivLoss` |
+| `pylate.evaluation.ColBERTTripletEvaluator` | `MultiVectorTripletEvaluator` |
+| `pylate.evaluation.ColBERTDistillationEvaluator` | `MultiVectorDistillationEvaluator` |
+| `pylate.utils.KDProcessing` | `sentence_transformers.util.resolve_ids` |
+| `pylate.indexes.PLAID` / `pylate.retrieve.ColBERT` | no Sentence Transformers equivalent: keep indexing with PyLate (in a separate environment for now, as PyLate pins an older sentence-transformers version) |
+
+Note that the save compatibility is one-way: PyLate checkpoints load into `MultiVectorEncoder`, but
+models saved with `MultiVectorEncoder.save_pretrained` are not loadable by PyLate.
+
+Data handling also differs from PyLate in three ways. `resolve_ids` expands the per-query document
+list into numbered columns (`document_1`, ..., `document_N`) rather than keeping a nested list,
+matching the `(query, positive, negative_1, ...)` convention of the other losses. The collators no
+longer skip ID-named columns silently: they warn once and tokenize them, so drop or resolve raw ID
+columns before training. And a document ID that is missing from its lookup dataset raises a
+`KeyError` instead of silently substituting an empty document, so pre-filter dangling IDs. String-encoded
+list columns (e.g. from CSV loads) are not parsed either: convert them to native lists first.
+
+### Migrating from colpali-engine
+
+```{eval-rst}
+transformers-native ``*ForRetrieval`` checkpoints (the ``-hf`` variants of the ``vidore`` models, e.g.
+``vidore/colqwen2-v1.0-hf``) are auto-detected: the projection and normalisation run inside the model,
+and the processor formats queries and image documents.
+```
+
+| colpali-engine | Sentence Transformers |
+|---|---|
+| `ColQwen2.from_pretrained(...)` + `ColQwen2Processor` | `MultiVectorEncoder("vidore/colqwen2-v1.0")` |
+| `processor.process_queries(...)` + `model(**batch)` | `model.encode_query(queries)` |
+| `processor.process_images(...)` + `model(**batch)` | `model.encode_document(images)` |
+| `processor.score_multi_vector(qs, ds)` | `model.similarity(query_embeddings, document_embeddings)` |
+| `mask_non_image_embeddings=True` | `MultiVectorMask(keep_only_token_ids=[processor.tokenizer.convert_tokens_to_ids(processor.image_token)])` |
+| `HierarchicalTokenPooler` | `HierarchicalTokenPooling` (see its docstring for exact-parity notes) |
+| `colpali_engine.interpretability` | `sentence_transformers.multi_vector_encoder.interpretability` |
+
+### Smaller changes
+
+```{eval-rst}
+- :class:`~sentence_transformers.sentence_transformer.evaluation.TripletEvaluator` and :class:`~sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator` now embed anchors with ``encode_query`` and positives / negatives with ``encode_document``, instead of ``encode`` for all three. This is a no-op for models without ``query`` / ``document`` prompts, but asymmetric models will report different triplet accuracy than in v5.x because their prompts are now applied.
+- A bare list of chat message dictionaries is now read as a single conversation rather than as a batch of inputs, so ``model.encode([{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}])`` produces one embedding. Wrap each conversation in its own list to encode a batch: ``model.encode([[msg1], [msg2]])``.
+- ``similarity`` and ``similarity_pairwise`` on :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`, :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder`, and :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` are now regular methods rather than properties that return a similarity function. Calls like ``model.similarity(embeddings1, embeddings2)`` work unchanged. Assigning a custom function to ``model.similarity`` is not supported anymore (it now silently shadows the method where it previously raised an ``AttributeError``): to inspect or change the similarity function, get and set ``model.similarity_fn_name`` (e.g. ``model.similarity_fn_name = "dot"``), which updates both ``similarity`` and ``similarity_pairwise``.
+```
+
 ## Migrating from v5.x to v5.4+
 
 ```{eval-rst}
@@ -213,11 +310,11 @@ If you relied on mean pooling for a CausalLM model, you can explicitly set the p
 
 ```{eval-rst}
 
-The following changes are only relevant if you write custom :class:`~sentence_transformers.base.modules.input_module.InputModule` subclasses or custom :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` losses.
+The following changes are only relevant if you write custom :class:`~sentence_transformers.base.modules.InputModule` subclasses or custom :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` losses.
 
 **tokenize replaced by preprocess**
 
-The :meth:`tokenize` method on :class:`~sentence_transformers.base.modules.input_module.InputModule` subclasses (including :class:`~sentence_transformers.base.modules.transformer.Transformer`) has been replaced by :meth:`~sentence_transformers.base.modules.input_module.InputModule.preprocess`, which has a broader signature supporting prompts and multimodal inputs. The old ``tokenize`` method still works but is deprecated and will be removed in a future version. If you have custom :class:`~sentence_transformers.base.modules.input_module.InputModule` subclasses, implement :meth:`~sentence_transformers.base.modules.input_module.InputModule.preprocess` instead of ``tokenize``. If you're not calling ``tokenize`` directly (e.g. in a custom loss), then you are not affected.
+The :meth:`tokenize` method on :class:`~sentence_transformers.base.modules.InputModule` subclasses (including :class:`~sentence_transformers.base.modules.Transformer`) has been replaced by :meth:`~sentence_transformers.base.modules.InputModule.preprocess`, which has a broader signature supporting prompts and multimodal inputs. The old ``tokenize`` method still works but is deprecated and will be removed in a future version. If you have custom :class:`~sentence_transformers.base.modules.InputModule` subclasses, implement :meth:`~sentence_transformers.base.modules.InputModule.preprocess` instead of ``tokenize``. If you're not calling ``tokenize`` directly (e.g. in a custom loss), then you are not affected.
 
 **CrossEncoder.forward() return type**
 
@@ -996,7 +1093,7 @@ The :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer
 ## Migrating from v3.x to v4.x
 
 ```{eval-rst}
-The v4 Sentence Transformers release refactored the training of :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` reranker/pair classification models, replacing :meth:`CrossEncoder.fit <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>` with a :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` and :class:`~sentence_transformers.cross_encoder..training_args.CrossEncoderTrainingArguments`. Like with v3 and :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models, this update softly deprecated :meth:`CrossEncoder.fit <sentence_transformers.cross_encoder.model.CrossEncoder.fit>`, meaning that it still works, but it's recommended to switch to the new v4.x training format. Behind the scenes, this method now uses the new trainer.
+The v4 Sentence Transformers release refactored the training of :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` reranker/pair classification models, replacing :meth:`CrossEncoder.fit <sentence_transformers.sentence_transformer.model.SentenceTransformer.fit>` with a :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` and :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments`. Like with v3 and :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` models, this update softly deprecated :meth:`CrossEncoder.fit <sentence_transformers.cross_encoder.model.CrossEncoder.fit>`, meaning that it still works, but it's recommended to switch to the new v4.x training format. Behind the scenes, this method now uses the new trainer.
 
 .. warning::
     If you don't have code that uses :meth:`CrossEncoder.fit <sentence_transformers.cross_encoder.model.CrossEncoder.fit>`, then you will not have to make any changes to your code to update from v3.x to v4.x.

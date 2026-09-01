@@ -6,7 +6,7 @@ All cross-encoder evaluators live in `sentence_transformers.cross_encoder.evalua
 
 | Task | Evaluator |
 |---|---|
-| Rerank retrieval results (nDCG@k on BM25 top-N) — fast default | `CrossEncoderNanoBEIREvaluator` |
+| Rerank retrieval results (nDCG@k on BM25 top-N), fast default | `CrossEncoderNanoBEIREvaluator` |
 | Rerank with custom candidates per query | `CrossEncoderRerankingEvaluator` |
 | Binary / multi-class pair classification | `CrossEncoderClassificationEvaluator` |
 | Continuous pair scoring (STS-style) | `CrossEncoderCorrelationEvaluator` |
@@ -32,7 +32,7 @@ evaluator = CrossEncoderNanoBEIREvaluator(
 )
 ```
 
-Output key for `metric_for_best_model`: **`eval_NanoBEIR_R100_mean_ndcg@10`**. The `R100` signals "rerank top-100"; if you change `rerank_k`, the prefix changes (e.g. `R50`).
+Output key for `metric_for_best_model`: **`eval_NanoBEIR_R100_mean_ndcg@10`**. The `R100` signals "rerank top-100". If you change `rerank_k`, the prefix changes (e.g. `R50`).
 
 Each individual dataset contributes `eval_Nano{DatasetName}_R100_ndcg@10` (e.g. `eval_NanoMSMARCO_R100_ndcg@10`) too.
 
@@ -102,15 +102,15 @@ Output keys: `eval_{name}_spearman`, `eval_{name}_pearson`.
 ## Writing `metric_for_best_model`
 
 Pattern: `f"eval_{evaluator.primary_metric}"`. Inspect after construction: `print(evaluator.primary_metric)`. Common values:
-- `eval_NanoBEIR_R100_mean_ndcg@10` — `CrossEncoderNanoBEIREvaluator` default
-- `eval_{name}_ndcg@10` — `CrossEncoderRerankingEvaluator`
-- `eval_{name}_average_precision` — `CrossEncoderClassificationEvaluator` (binary, `num_labels=1`)
-- `eval_{name}_f1_macro` — `CrossEncoderClassificationEvaluator` (multi-class, `num_labels>=2`)
-- `eval_{name}_spearman` — `CrossEncoderCorrelationEvaluator`
+- `eval_NanoBEIR_R100_mean_ndcg@10`: `CrossEncoderNanoBEIREvaluator` default
+- `eval_{name}_ndcg@10`: `CrossEncoderRerankingEvaluator`
+- `eval_{name}_average_precision`: `CrossEncoderClassificationEvaluator` (binary, `num_labels=1`)
+- `eval_{name}_f1_macro`: `CrossEncoderClassificationEvaluator` (multi-class, `num_labels>=2`)
+- `eval_{name}_spearman`: `CrossEncoderCorrelationEvaluator`
 
 ## Gotchas
 
-- **Always run `evaluator(model)` once before training** — pre-training baseline. Tiny post-training delta means the loss/data/base is wrong.
-- `CrossEncoderClassificationEvaluator` accepts both `num_labels=1` (binary, primary `average_precision`) and `num_labels>=2` (multi-class, primary `f1_macro`); `CrossEncoderCorrelationEvaluator` requires `num_labels=1`.
-- The default `dataset_names=None` excludes `arguana` and `touche2020` (Argument-Retrieval task differs from the rest); pass `dataset_names=list(DATASET_NAME_TO_HUMAN_READABLE)` from `sentence_transformers.cross_encoder.evaluation.nano_beir` to actually run all 13.
-- Subset NanoBEIR datasets during training (3–4) to keep eval cheap; run the broader set post-training.
+- **Always run `evaluator(model)` once before training**: pre-training baseline. Tiny post-training delta means the loss/data/base is wrong.
+- `CrossEncoderClassificationEvaluator` accepts both `num_labels=1` (binary, primary `average_precision`) and `num_labels>=2` (multi-class, primary `f1_macro`). `CrossEncoderCorrelationEvaluator` requires `num_labels=1`.
+- The default `dataset_names=None` excludes `arguana` and `touche2020` (Argument-Retrieval task differs from the rest). Pass `dataset_names=list(DATASET_NAME_TO_HUMAN_READABLE)` from `sentence_transformers.cross_encoder.evaluation.nano_beir` to actually run all 13.
+- Subset NanoBEIR datasets during training (3-4) to keep eval cheap. Run the broader set post-training.

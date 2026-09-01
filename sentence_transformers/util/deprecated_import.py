@@ -9,6 +9,8 @@ import warnings
 
 # Map old to new module paths for deprecated imports
 DEPRECATED_MODULE_PATHS = {
+    # Moved in Sentence Transformers v6.0.0
+    "sentence_transformers.sentence_transformer.modules.normalize": "sentence_transformers.base.modules.normalize",
     # Moved in Sentence Transformers v5.4.0
     "sentence_transformers.SentenceTransformer": "sentence_transformers.sentence_transformer.model",
     "sentence_transformers.sparse_encoder.SparseEncoder": "sentence_transformers.sparse_encoder.model",
@@ -80,7 +82,7 @@ DEPRECATED_MODULE_PATHS = {
     "sentence_transformers.models.LSTM": "sentence_transformers.sentence_transformer.modules.lstm",
     "sentence_transformers.models.LayerNorm": "sentence_transformers.sentence_transformer.modules.layer_norm",
     "sentence_transformers.models.Module": "sentence_transformers.base.modules.module",
-    "sentence_transformers.models.Normalize": "sentence_transformers.sentence_transformer.modules.normalize",
+    "sentence_transformers.models.Normalize": "sentence_transformers.base.modules.normalize",
     "sentence_transformers.models.Pooling": "sentence_transformers.sentence_transformer.modules.pooling",
     "sentence_transformers.models.Router": "sentence_transformers.base.modules.router",
     "sentence_transformers.models.StaticEmbedding": "sentence_transformers.sentence_transformer.modules.static_embedding",

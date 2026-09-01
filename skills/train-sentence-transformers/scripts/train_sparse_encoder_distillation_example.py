@@ -12,7 +12,7 @@
 
 Trains a SPLADE sparse retriever to match a stronger cross-encoder's score
 gaps via `SparseMarginMSELoss` wrapped in `SpladeLoss` (the FLOPS regularizer
-is non-negotiable; without it embeddings collapse to dense).
+is non-negotiable: without it embeddings collapse to dense).
 
 Data shape: `(query, positive, negative, score_diff)` where
 `score_diff = teacher(q, pos) - teacher(q, neg)`. This script uses
@@ -22,8 +22,8 @@ teacher, run a one-time teacher pass over your (q, pos, neg) triples and
 store the per-row score diff.
 
 Why distill SPLADE from a cross-encoder: SPLADE alone is hard to train from
-contrastive labels because the FLOPS regularizer fights early-training signal;
-distilling from a strong cross-encoder gives the model a dense regression
+contrastive labels because the FLOPS regularizer fights early-training signal.
+Distilling from a strong cross-encoder gives the model a dense regression
 target and reaches stronger nDCG faster than MNRL-only.
 
 Run locally:
@@ -78,7 +78,7 @@ def log_trackio_dashboard():
         pass
 
 
-MODEL_NAME = "Luyu/co-condenser-marco"  # MS MARCO-tuned MLM base; very strong starting point
+MODEL_NAME = "Luyu/co-condenser-marco"  # MS MARCO-tuned MLM base. Very strong starting point
 DATASET_NAME = "sentence-transformers/msmarco"
 DATASET_SUBSET = "bert-ensemble-margin-mse"
 TRAIN_SIZE = 100_000
@@ -87,7 +87,7 @@ OUTPUT_DIR = "models/splade-msmarco-distilled"
 RUN_NAME = "splade-msmarco-distilled"
 DATA_CACHE = f"data/{RUN_NAME}-resolved"
 
-QUERY_REGULARIZER_WEIGHT = 0.1  # higher than contrastive recipe; distillation tolerates more sparsity pressure
+QUERY_REGULARIZER_WEIGHT = 0.1  # higher than contrastive recipe. Distillation tolerates more sparsity pressure
 DOCUMENT_REGULARIZER_WEIGHT = 0.08
 SMOKE_TEST = os.environ.get("SMOKE_TEST") == "1"
 
@@ -110,7 +110,7 @@ def setup_logging():
 
 def load_resolved_dataset():
     """Load (query, positive, negative, score) rows. The MSMARCO subset is keyed by
-    passage_id / query_id; resolve to text once and cache to disk so reruns skip the work."""
+    passage_id / query_id. Resolve to text once and cache to disk so reruns skip the work."""
     if os.path.isdir(DATA_CACHE):
         logging.info(f"Loading cached resolved dataset from {DATA_CACHE}")
         return load_from_disk(DATA_CACHE)
@@ -233,7 +233,7 @@ def main() -> None:
         score = result[evaluator.primary_metric]
     delta = score - baseline_eval
     verdict = "WIN" if delta >= 0.005 else "MARGINAL" if delta >= 0 else "REGRESSION"
-    # Active-dim keys come back name-prefixed (e.g. "NanoBEIR_..._query_active_dims"); suffix-match for compat.
+    # Active-dim keys come back name-prefixed (e.g. "NanoBEIR_..._query_active_dims"). Suffix-match for compat.
     qad = next((v for k, v in result.items() if k.endswith("query_active_dims")), "n/a")
     cad = next((v for k, v in result.items() if k.endswith("corpus_active_dims")), "n/a")
     logging.info(

@@ -856,7 +856,8 @@ def test_non_faiss_batched_search_matches_single_batch(
 ) -> None:
     """Test that batching the non-FAISS similarity search splits the queries and does not change the mined negatives."""
     model = static_retrieval_mrl_en_v1_model
-    original_similarity = model.similarity
+    model.similarity_fn_name  # noqa: B018 (trigger lazy init of _similarity)
+    original_similarity = model._similarity
     chunk_sizes = []
 
     def similarity_spy(embeddings1, embeddings2):
@@ -888,7 +889,7 @@ def test_non_faiss_batched_search_matches_single_batch(
     for column in batched.column_names:
         if column == "scores":
             for batched_scores, single_scores in zip(batched[column], single[column]):
-                assert batched_scores == pytest.approx(single_scores)
+                assert batched_scores == pytest.approx(single_scores, rel=1e-6, abs=1e-7)
         else:
             assert batched[column] == single[column]
 

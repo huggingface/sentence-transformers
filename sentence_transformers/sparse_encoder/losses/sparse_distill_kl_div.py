@@ -4,13 +4,20 @@ from collections.abc import Iterable
 
 from torch import Tensor
 
-from sentence_transformers import util
 from sentence_transformers.sentence_transformer.losses.distill_kl_div import DistillKLDivLoss
 from sentence_transformers.sparse_encoder.model import SparseEncoder
+from sentence_transformers.util import pairwise_dot_score
 
 
 class SparseDistillKLDivLoss(DistillKLDivLoss):
-    def __init__(self, model: SparseEncoder, similarity_fct=util.pairwise_dot_score, temperature: float = 2.0) -> None:
+    def __init__(
+        self,
+        model: SparseEncoder,
+        similarity_fct=pairwise_dot_score,
+        temperature: float = 2.0,
+        student_temperature: float | None = None,
+        teacher_temperature: float | None = None,
+    ) -> None:
         """
         Compute the KL divergence loss between probability distributions derived from student and teacher models' similarity scores.
         By default, similarity is calculated using the dot-product. This loss is designed for knowledge distillation
@@ -25,6 +32,12 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
             temperature: Temperature parameter to soften probability distributions (higher temperature = softer distributions)
                 When combined with other losses, a temperature of 1.0 is also viable, but a higher temperature (e.g., 2.0 or 4.0)
                 can help prevent the student model from going to zero active dimensions. Defaults to 2.0.
+            student_temperature: Student-side override of ``temperature``, see
+                :class:`~sentence_transformers.sentence_transformer.losses.DistillKLDivLoss` for the regime where the
+                temperature-squared scaling holds. Defaults to None.
+            teacher_temperature: Teacher-side override of ``temperature``. Match it to the spread of
+                your teacher's scores: dividing by a temperature well below that spread collapses the
+                target to one-hot and destroys the ranking information being distilled. Defaults to None.
 
         References:
             - For more details, please refer to https://huggingface.co/papers/2010.11386
@@ -133,7 +146,13 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
                 trainer = SparseEncoderTrainer(model=student_model, train_dataset=train_dataset, loss=loss)
                 trainer.train()
         """
-        super().__init__(model, similarity_fct=similarity_fct, temperature=temperature)
+        super().__init__(
+            model,
+            similarity_fct=similarity_fct,
+            temperature=temperature,
+            student_temperature=student_temperature,
+            teacher_temperature=teacher_temperature,
+        )
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         raise AttributeError("SparseDistillKLDivLoss should not be used alone. Use it with SpladeLoss or CSRLoss.")

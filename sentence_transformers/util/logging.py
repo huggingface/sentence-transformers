@@ -21,7 +21,7 @@ class LoggingHandler(logging.Handler):
 
 
 def install_logger(given_logger, level=logging.WARNING, fmt="%(levelname)s:%(name)s:%(message)s") -> None:
-    """Configures the given logger; format, logging level, style, etc"""
+    """Configures the given logger: format, logging level, style, etc"""
     import coloredlogs
 
     def add_notice_log_level():
