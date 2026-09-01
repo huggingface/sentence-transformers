@@ -17,7 +17,7 @@ from packaging.version import parse as parse_version
 from tokenizers.normalizers import NFC, Lowercase, Sequence
 from transformers import AutoConfig, AutoModel, AutoProcessor
 from transformers import __version__ as transformers_version
-from transformers.utils import is_torchvision_available, is_vision_available
+from transformers.utils import is_peft_available, is_torchvision_available, is_vision_available
 
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.base.modules.transformer import (
@@ -1509,12 +1509,8 @@ class TestModelLoading:
         with pytest.raises(ValueError, match="Unsupported backend"):
             Transformer(TINY_BERT, backend="invalid_backend")
 
-    def test_peft_seq_classification_no_architectures_raises(self, monkeypatch):
-        """A PeftConfig has no 'architectures', so sequence-classification init raises.
-
-        This pins current behavior, not intended behavior. Adapter checkpoints cannot be
-        loaded as sequence-classification models today.
-        """
+    def test_peft_seq_classification_resolves_base_config(self, monkeypatch):
+        """A PeftConfig has no 'architectures', so the base model's config decides `num_labels`."""
 
         class FakePeftConfig:
             """Minimal stand-in for PeftConfig that intentionally lacks 'architectures'."""
@@ -1532,8 +1528,25 @@ class TestModelLoading:
 
         monkeypatch.setattr(peft, "PeftConfig", FakePeftConfig)
 
-        with pytest.raises(AttributeError):
-            Transformer(TINY_BERT, transformer_task="sequence-classification")
+        module = Transformer(TINY_BERT, transformer_task="sequence-classification")
+        assert module.model.config.num_labels == 1
+
+    @pytest.mark.skipif(not is_peft_available(), reason="PEFT must be available to test PEFT support.")
+    def test_peft_seq_classification_roundtrip(self, tmp_path):
+        """A saved adapter checkpoint reloads as a sequence-classification model with one label."""
+        from peft import LoraConfig, TaskType
+
+        module = Transformer(TINY_BERT, transformer_task="sequence-classification")
+        module.model.add_adapter(LoraConfig(target_modules=["query", "value"], task_type=TaskType.SEQ_CLS, r=8))
+        module.save(str(tmp_path))
+        # The adapter checkpoint carries no config.json, so loading has to resolve the base model's.
+        assert not (tmp_path / "config.json").exists()
+        assert (tmp_path / "adapter_config.json").exists()
+
+        reloaded = Transformer(str(tmp_path), transformer_task="sequence-classification")
+        assert reloaded.model.config.num_labels == 1
+        assert reloaded.model.classifier.out_features == 1
+        assert reloaded.model._hf_peft_config_loaded
 
     def test_peft_non_torch_backend_error(self, monkeypatch):
         """PEFT models should raise an error for non-torch backends."""

@@ -2213,8 +2213,8 @@ class Transformer(InputModule):
 
     def _load_config(
         self, model_name_or_path: str, backend: str, config_kwargs: dict[str, Any]
-    ) -> tuple[PeftConfig | PretrainedConfig, bool]:
-        """Loads the transformers or PEFT configuration
+    ) -> tuple[PretrainedConfig, bool]:
+        """Loads the transformers configuration, resolving the base model's config for PEFT checkpoints
 
         Args:
             model_name_or_path (str): The model name on Hugging Face (e.g. 'sentence-transformers/all-MiniLM-L6-v2')
@@ -2223,7 +2223,7 @@ class Transformer(InputModule):
             config_kwargs (dict[str, Any]): Keyword arguments passed to the Hugging Face Transformers config.
 
         Returns:
-            tuple[PeftConfig | PretrainedConfig, bool]: The model configuration and a boolean indicating whether the model is a PEFT model.
+            tuple[PretrainedConfig, bool]: The model configuration and a boolean indicating whether the model is a PEFT model.
         """
         adapter_config_file = find_adapter_config_file(
             model_name_or_path,
@@ -2247,16 +2247,20 @@ class Transformer(InputModule):
                 )
             from peft import PeftConfig
 
-            return PeftConfig.from_pretrained(model_name_or_path, **config_kwargs), True
+            peft_config = PeftConfig.from_pretrained(model_name_or_path, **config_kwargs)
+            # An adapter checkpoint has no config.json, and a PeftConfig carries no `architectures` and
+            # no `num_labels` that survives `from_pretrained`. `revision` and `subfolder` locate the
+            # adapter, not the base model.
+            base_config_kwargs = {
+                key: value for key, value in config_kwargs.items() if key not in ("revision", "subfolder")
+            }
+            return AutoConfig.from_pretrained(peft_config.base_model_name_or_path, **base_config_kwargs), True
 
         return AutoConfig.from_pretrained(model_name_or_path, **config_kwargs), False
 
     @staticmethod
-    def _warn_on_unsupported_attention_config(config: PeftConfig | PretrainedConfig) -> None:
+    def _warn_on_unsupported_attention_config(config: PretrainedConfig) -> None:
         """Warn if the config requests bidirectional attention settings not supported by the installed transformers version."""
-        if not isinstance(config, PretrainedConfig):
-            return
-
         configs_to_check: list[PretrainedConfig] = [config]
         if hasattr(config, "sub_configs"):
             for sub_config_name in config.sub_configs.keys():
@@ -2284,7 +2288,7 @@ class Transformer(InputModule):
         self,
         model_name_or_path: str,
         transformer_task: TransformerTask,
-        config: PeftConfig | PretrainedConfig,
+        config: PretrainedConfig,
         backend: str,
         is_peft_model: bool,
         **model_kwargs,
@@ -2294,7 +2298,7 @@ class Transformer(InputModule):
         Args:
             model_name_or_path (str): The model name on Hugging Face (e.g. 'sentence-transformers/all-MiniLM-L6-v2')
                 or the path to a local model directory.
-            config ("PeftConfig" | PretrainedConfig): The model configuration.
+            config (PretrainedConfig): The model configuration.
             backend (str): The backend used for model inference. Can be `torch`, `onnx`, or `openvino`.
             is_peft_model (bool): Whether the model is a PEFT model.
             model_kwargs (dict[str, Any]): Keyword arguments passed to the Hugging Face Transformers model.
