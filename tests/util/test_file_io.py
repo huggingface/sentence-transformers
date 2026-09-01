@@ -16,6 +16,7 @@ from huggingface_hub.utils import (
 )
 
 from sentence_transformers.util.file_io import (
+    IncompleteSnapshotError,
     RevisionResolutionError,
     _resolve_model_revision,
     load_dir_path,
@@ -164,16 +165,17 @@ def test_load_dir_path_local_subfolder_exists(tmp_path: Path) -> None:
     assert Path(result) == subfolder
 
 
-def test_load_dir_path_nonlocal_path_calls_hub(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_dir_path_nonlocal_path_calls_hub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """When the path is not an existing local directory, the local-dir guard must
     not fire and `snapshot_download` should still be invoked.
     """
-    snapshot_mock = MagicMock(return_value="/fake/cache/path")
+    (tmp_path / "1_Pooling").mkdir()
+    snapshot_mock = MagicMock(return_value=str(tmp_path))
     monkeypatch.setattr("sentence_transformers.util.file_io.snapshot_download", snapshot_mock)
 
     result = load_dir_path("some-org/some-model", "1_Pooling", local_files_only=True)
 
-    assert result == str(Path("/fake/cache/path", "1_Pooling"))
+    assert result == str(tmp_path / "1_Pooling")
     snapshot_mock.assert_called_once()
 
 
@@ -230,15 +232,16 @@ def test_load_dir_path_hf_validation_error_returns_none(monkeypatch: pytest.Monk
     snapshot_mock.assert_called_once()
 
 
-def test_load_dir_path_transient_with_cache_hit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_dir_path_transient_with_cache_hit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """When the first `snapshot_download` fails with a transient error but the cache
     has the model, `load_dir_path` should return the cached path.
     """
-    snapshot_mock = MagicMock(side_effect=[RuntimeError("simulated network error"), "/fake/cache/path"])
+    (tmp_path / "1_Pooling").mkdir()
+    snapshot_mock = MagicMock(side_effect=[RuntimeError("simulated network error"), str(tmp_path)])
     monkeypatch.setattr("sentence_transformers.util.file_io.snapshot_download", snapshot_mock)
 
     result = load_dir_path("some-org/some-model", "1_Pooling")
-    assert result == str(Path("/fake/cache/path", "1_Pooling"))
+    assert result == str(tmp_path / "1_Pooling")
     assert snapshot_mock.call_count == 2
     assert snapshot_mock.call_args_list[1].kwargs["local_files_only"] is True
 
@@ -256,3 +259,40 @@ def test_load_dir_path_transient_with_cache_miss_reraises_original(monkeypatch: 
     with pytest.raises(RuntimeError, match="simulated network error"):
         load_dir_path("some-org/some-model", "1_Pooling")
     assert snapshot_mock.call_count == 2
+
+
+def test_load_dir_path_transient_with_partial_cache_reraises_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cached snapshot that never received the subfolder is a cache miss as well."""
+    snapshot_mock = MagicMock(side_effect=[RuntimeError("simulated network error"), str(tmp_path)])
+    monkeypatch.setattr("sentence_transformers.util.file_io.snapshot_download", snapshot_mock)
+
+    with pytest.raises(RuntimeError, match="simulated network error"):
+        load_dir_path("some-org/some-model", "1_Pooling")
+
+
+def test_load_dir_path_raises_when_the_snapshot_lacks_the_subfolder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`snapshot_download` can hand back a cached snapshot without the requested subfolder when its Hub
+    call fails and no tree listing is cached. That must not surface as a dangling path.
+    """
+    snapshot_mock = MagicMock(return_value=str(tmp_path))
+    monkeypatch.setattr("sentence_transformers.util.file_io.snapshot_download", snapshot_mock)
+
+    with pytest.raises(OSError, match="Could not download '1_Pooling'"):
+        load_dir_path("some-org/some-model", "1_Pooling")
+    snapshot_mock.assert_called_once()
+
+
+def test_load_dir_path_incomplete_snapshot_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`IncompleteSnapshotError` subclasses `LocalEntryNotFoundError` but is transient, so it must
+    propagate rather than turn into a `None` module path."""
+    error = IncompleteSnapshotError("incomplete", "/fake/snapshot")
+    snapshot_mock = MagicMock(side_effect=error)
+    monkeypatch.setattr("sentence_transformers.util.file_io.snapshot_download", snapshot_mock)
+
+    with pytest.raises(IncompleteSnapshotError):
+        load_dir_path("some-org/some-model", "1_Pooling")
+    snapshot_mock.assert_called_once()

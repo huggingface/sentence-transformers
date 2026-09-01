@@ -24,6 +24,14 @@ except ImportError:
         """Placeholder for Hub versions that cannot resolve revisions, and so never raise this."""
 
 
+try:
+    from huggingface_hub.errors import IncompleteSnapshotError
+except ImportError:
+
+    class IncompleteSnapshotError(Exception):
+        """Placeholder for Hub versions without cached tree listings, which never raise this."""
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -236,10 +244,11 @@ def load_dir_path(
     if Path(model_name_or_path).is_dir():
         return None
 
+    wants_subfolder = subfolder not in ["", "."]
     download_kwargs = {
         "repo_id": model_name_or_path,
         "revision": revision,
-        "allow_patterns": f"{subfolder}/**" if subfolder not in ["", "."] else None,
+        "allow_patterns": f"{subfolder}/**" if wants_subfolder else None,
         "library_name": "sentence-transformers",
         "token": token,
         "cache_dir": cache_folder,
@@ -249,6 +258,10 @@ def load_dir_path(
     # Try to download from the remote
     try:
         repo_path = snapshot_download(**download_kwargs)
+    except IncompleteSnapshotError:
+        # The Hub call failed, for example on a rate limit, and the cached snapshot lacks requested files.
+        # Unlike its LocalEntryNotFoundError parent this is transient, so it must not become a None return.
+        raise
     except (HFValidationError, LocalEntryNotFoundError) as exc:
         # Unambiguous "not found" / "not cached" cases.
         logger.debug(f"Could not load subfolder {subfolder!r} from {model_name_or_path!r}: {exc}")
@@ -263,6 +276,18 @@ def load_dir_path(
             # (with `from None` to suppress the cache miss from the traceback) so the
             # user sees the real cause, e.g. rate limit, not the misleading cache miss.
             raise first_error from None
+        if wants_subfolder and not Path(repo_path, subfolder).is_dir():
+            # A cached snapshot that never received this subfolder is a cache miss as well
+            raise first_error from None
+        return str(Path(repo_path, subfolder))
+
+    if wants_subfolder and not Path(repo_path, subfolder).is_dir():
+        # When its Hub call fails, for example on a rate limit, snapshot_download can hand back an existing
+        # cached snapshot without raising, even if that snapshot never received this subfolder
+        raise OSError(
+            f"Could not download {subfolder!r} of {model_name_or_path!r} from the Hub, "
+            "and the local cache does not contain it."
+        )
     return str(Path(repo_path, subfolder))
 
 
