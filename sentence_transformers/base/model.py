@@ -47,6 +47,7 @@ from sentence_transformers.util import (
     load_file_path,
     save_to_hub_args_decorator,
 )
+from sentence_transformers.util.file_io import _resolve_model_revision
 from sentence_transformers.util.misc import ORIGINAL_TRANSFORMER_MODELS
 
 if TYPE_CHECKING:
@@ -227,6 +228,14 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 and model_name_or_path.lower() not in ORIGINAL_TRANSFORMER_MODELS
             ):
                 model_name_or_path = f"{self.default_huggingface_organization}/{model_name_or_path}"
+
+            revision = _resolve_model_revision(
+                model_name_or_path,
+                revision,
+                token=token,
+                cache_folder=cache_folder,
+                local_files_only=local_files_only,
+            )
 
         if model_name_or_path and modules is not None:
             logger.warning(

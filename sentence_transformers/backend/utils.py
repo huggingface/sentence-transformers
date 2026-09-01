@@ -92,10 +92,12 @@ def backend_should_export(
     if is_local:
         model_file_names = [path.relative_to(load_path).as_posix() for path in load_path.glob(glob_pattern)]
     else:
+        # Unlike hf_hub_download, list_repo_files is not ResolvedRevision-aware, so pin it to the resolved commit
+        revision = model_kwargs.get("revision", None)
         all_files = list_repo_files(
             load_path.as_posix(),
             repo_type="model",
-            revision=model_kwargs.get("revision", None),
+            revision=getattr(revision, "resolved", revision),
             token=model_kwargs.get("token", None),
         )
         model_file_names = [fname for fname in all_files if fnmatch(fname, glob_pattern)]
