@@ -353,10 +353,11 @@ def semantic_search_usearch(
     if indices.ndim < 2:
         indices = np.atleast_2d(indices)
 
-    # usearch pads short result sets and reports the real match count in `counts`, so validity is
-    # tracked beside the keys rather than in them. A single query returns `Matches`, which has neither.
+    # usearch pads short result sets, marking them both in `counts` and with a NaN distance, so
+    # validity is tracked beside the keys rather than in them. Require both signals, as `counts` has
+    # over-reported on some builds. A single query returns `Matches`, which has no `counts` at all.
     counts = np.reshape(getattr(matches, "counts", indices.shape[1]), (-1, 1))
-    valid = np.arange(indices.shape[1]) < counts
+    valid = (np.arange(indices.shape[1]) < counts) & ~np.isnan(scores)
 
     # If rescoring is enabled, we need to rescore the results using the rescore_embeddings
     if rescore_embeddings is not None and valid.any():
