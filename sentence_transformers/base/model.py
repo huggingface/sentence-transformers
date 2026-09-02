@@ -4,6 +4,7 @@ import importlib
 import inspect
 import json
 import os
+import pickle
 import shutil
 import sys
 import tempfile
@@ -1632,6 +1633,22 @@ This pull request has been automatically generated to add {self.__class__.__name
         results to ``results_queue``.
         """
         raise NotImplementedError("This method should be implemented in subclasses.")
+
+    @classmethod
+    def _report_worker_failure(cls, chunk_id: int, exc: Exception, target_device: str) -> list[int | Exception]:
+        """Log a chunk that a worker failed to process and build the result to enqueue for it.
+
+        :meth:`_multi_process` blocks for exactly one result per submitted chunk, so a worker that
+        dies without reporting leaves it waiting forever. The queue pickles in a feeder thread
+        after ``put`` returns, so an exception that cannot round-trip is replaced by its formatted
+        traceback rather than being dropped there.
+        """
+        logger.exception(f"Error in {cls.__name__} worker process on {target_device} for chunk {chunk_id}")
+        try:
+            pickle.loads(pickle.dumps(exc))
+        except Exception:
+            exc = RuntimeError("".join(traceback.format_exception(exc)))
+        return [chunk_id, exc]
 
     @property
     def tokenizer(self) -> Any:
