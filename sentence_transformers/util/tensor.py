@@ -323,9 +323,8 @@ def _move_tensors_to_cpu(value: Any) -> Any:
 
     Results leaving a multi-process worker have to make this trip. A tensor still on an accelerator
     crosses the queue as a shared handle, so it stops being readable once
-    ``stop_multi_process_pool`` tears the producing worker down. ``encode`` and ``predict`` return a
-    bare tensor, a list of tensors, or a list of feature dicts depending on their arguments, so
-    every shape has to be walked.
+    ``stop_multi_process_pool`` tears the producing worker down. Which shape a chunk comes back as
+    depends on the ``encode`` or ``predict`` arguments, so every container has to be walked.
     """
     if isinstance(value, Tensor):
         return value.cpu() if value.device.type != "cpu" else value
