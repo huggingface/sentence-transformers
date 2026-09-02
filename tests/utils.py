@@ -29,6 +29,36 @@ RERANKER_TEMPLATE = (
 )
 
 
+class UnpicklableError(RuntimeError):
+    """Carries state that cannot cross a process boundary, so the queue's feeder thread drops it."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.callback = lambda: None
+
+
+class CrashingModel:
+    """Stand-in whose inference always raises, for either of the two multi-process worker entry points.
+
+    Defined at module level (not nested in a test) because the workers run under the "spawn"
+    multiprocessing context, which pickles by import path.
+    """
+
+    def __init__(self, unpicklable: bool = False) -> None:
+        self.unpicklable = unpicklable
+
+    def _crash(self):
+        if self.unpicklable:
+            raise UnpicklableError("simulated worker crash")
+        raise RuntimeError("simulated worker crash")
+
+    def encode(self, inputs, device=None, **kwargs):
+        self._crash()
+
+    def predict(self, inputs, device=None, **kwargs):
+        self._crash()
+
+
 def is_ci() -> bool:
     """
     Check if the code is running in a Continuous Integration (CI) environment.

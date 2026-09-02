@@ -527,6 +527,65 @@ def test_parse_model_config_translates_pylate_expansion(model_config, expected_q
     assert "query_length" not in knobs or knobs["query_length"] is not None
 
 
+_PYLATE_PREFIX_AND_PROMPTS = {
+    "query_prefix": "[Q] ",
+    "document_prefix": "[D] ",
+    "prompts": {"query": "search_query: ", "document": "search_document: "},
+}
+
+
+@pytest.mark.parametrize(
+    ("model_config", "user_prompts", "expected"),
+    [
+        # Prefix only (the common PyLate save). The prefix becomes the prompt.
+        ({"query_prefix": "[Q] ", "document_prefix": "[D] "}, {}, ("[Q] ", "[D] ")),
+        # A saved empty prompt is no prompt at all, so the prefix alone becomes it.
+        (
+            {"query_prefix": "[Q] ", "document_prefix": "[D] ", "prompts": {"query": "", "document": ""}},
+            {},
+            ("[Q] ", "[D] "),
+        ),
+        # Prefix plus real prompts (ColBERT-Zero). PyLate applies both, so they compose.
+        (_PYLATE_PREFIX_AND_PROMPTS, {}, ("[Q] search_query: ", "[D] search_document: ")),
+        # Composing is idempotent, so an already-composed save does not stack.
+        (
+            {
+                "query_prefix": "[Q] ",
+                "document_prefix": "[D] ",
+                "prompts": {"query": "[Q] search_query: ", "document": "[D] search_document: "},
+            },
+            {},
+            ("[Q] search_query: ", "[D] search_document: "),
+        ),
+        # A null prefix leaves the saved prompt alone rather than raising.
+        (
+            {"query_prefix": None, "document_prefix": None, "prompts": {"query": "q: ", "document": "d: "}},
+            {},
+            ("q: ", "d: "),
+        ),
+        # A caller-supplied prompt takes precedence over the whole saved format, prefix included.
+        (_PYLATE_PREFIX_AND_PROMPTS, {"query": "q: ", "document": "d: "}, ("q: ", "d: ")),
+        # Empty strings are the documented way to switch prompts off, so they survive too.
+        (_PYLATE_PREFIX_AND_PROMPTS, {"query": "", "document": ""}, ("", "")),
+    ],
+)
+def test_parse_model_config_composes_pylate_prefix_with_prompts(model_config, user_prompts, expected) -> None:
+    """A PyLate save can carry both ``query_prefix`` and ``prompts``. PyLate applies both, so the prefix
+    composes onto the front of the saved prompt rather than being dropped when a prompt exists. Composing
+    onto the saved prompt rather than ``self.prompts`` keeps the base class rule that a caller wins."""
+    from sentence_transformers.multi_vector_encoder.model import _LegacyStash
+
+    fresh = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    fresh._legacy = _LegacyStash()
+    fresh.prompts = {**MultiVectorEncoder._default_prompts, **user_prompts}
+    fresh._parse_model_config(model_config)
+
+    assert (fresh.prompts["query"], fresh.prompts["document"]) == expected
+    # The raw prefixes stay on the stash so special-token registration still sees them.
+    assert fresh._legacy.prefixes["query"] == (model_config["query_prefix"] or "")
+    assert fresh._legacy.prefixes["document"] == (model_config["document_prefix"] or "")
+
+
 def test_loads_native_retriever_archetype() -> None:
     """transformers-native late-interaction retrievers (``architectures`` ending in ``ForRetrieval``,
     i.e. ColPali / ColQwen2 / ColModernVBert) take a different branch: ``forward`` already projects and
@@ -615,6 +674,23 @@ def test_stanford_colbert_archetype_without_metadata_uses_defaults(
     # punctuation masked and must keep that on load.
     assert mask.skiplist_words == list(string.punctuation)
     assert mask._skiplist_ids is not None
+
+
+@pytest.mark.parametrize(
+    ("user_prompts", "expected"),
+    [
+        ({"query": "custom: "}, {"query": "custom: ", "document": "[unused1] "}),
+        ({"query": "", "document": ""}, {"query": "", "document": ""}),
+    ],
+)
+def test_stanford_colbert_archetype_keeps_caller_prompts(tmp_path, model, user_prompts, expected) -> None:
+    """``artifact.metadata`` carries no prompt, so the marker only fills a slot the caller left alone.
+    An empty string is the documented way to switch a prompt off and must survive, matching how the
+    PyLate branch in ``_parse_model_config`` treats one."""
+    _write_stanford_checkpoint(tmp_path, model, metadata=None)
+    loaded = MultiVectorEncoder(str(tmp_path), prompts=user_prompts)
+
+    assert loaded.prompts == expected
 
 
 @pytest.mark.parametrize(

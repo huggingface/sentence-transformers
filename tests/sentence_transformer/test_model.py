@@ -825,10 +825,10 @@ def test_model_card_save_update_model_id(stsb_bert_tiny_model: SentenceTransform
 )
 def test_safetensors(
     stsb_bert_tiny_model: SentenceTransformer,
-    avg_word_embeddings_levy: SentenceTransformer,
+    word_embeddings_model: SentenceTransformer,
     modules: Callable[[], list[nn.Module] | SentenceTransformer],
 ) -> None:
-    modules = modules(stsb_bert_tiny_model, avg_word_embeddings_levy)  # Call the lambda to get the actual modules
+    modules = modules(stsb_bert_tiny_model, word_embeddings_model)  # Call the lambda to get the actual modules
     if isinstance(modules, SentenceTransformer):
         model = modules
     else:
@@ -889,7 +889,7 @@ def test_empty_encode(
     is_ci(), reason="huggingface_hub & PEFT incorrectly set the user agent in the CI, leading to failures."
 )
 def test_multiple_adapters(
-    stsb_bert_tiny_model: SentenceTransformer, avg_word_embeddings_levy: SentenceTransformer
+    stsb_bert_tiny_model: SentenceTransformer, word_embeddings_model: SentenceTransformer
 ) -> None:
     text = "Hello, World!"
     model = stsb_bert_tiny_model
@@ -949,7 +949,7 @@ def test_multiple_adapters(
     assert np.allclose(vec_initial, vec_no_adapter)
 
     # Check that for non Transformer-based models we have an error
-    model = avg_word_embeddings_levy
+    model = word_embeddings_model
     with pytest.raises(ValueError, match="PEFT methods are only supported"):
         model.add_adapter(peft_config)
 

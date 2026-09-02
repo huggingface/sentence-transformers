@@ -140,8 +140,9 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
                         f"score_functions[{name!r}] uses XTR scoring, which is incompatible with this "
                         "evaluator's per-chunk corpus scoring (top-k would be per-chunk). Use MaxSim instead."
                     )
-        # When score_functions is None, scoring resolves from the model at call time (see __call__),
-        # so models carrying a different multi-vector similarity are scored and labeled with it.
+        # When score_functions is None, scoring resolves from the model on every call (see
+        # _model_score_functions), so models carrying a different multi-vector similarity are scored
+        # and labeled with it.
         self.chunk_elements = chunk_elements
         super().__init__(
             queries=queries,
@@ -177,17 +178,16 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
                     f"({registered!r}) rather than composing with it. Include the model's "
                     f"marker prompt in {param_name} if the trained prompt should be kept."
                 )
-        # Resolve the default scoring from the model here instead of letting the parent fall back to
-        # bare model.similarity. Without an explicit chunk_elements, maxsim's default
-        # element budget bounds the scoring intermediate on its own.
-        if self.score_functions is None:
-            scoring_fn: Callable[..., Tensor] = SimilarityFunction.to_similarity_fn(model.similarity_fn_name)
-            if self.chunk_elements is not None:
-                scoring_fn = partial(scoring_fn, chunk_elements=self.chunk_elements)
-            self.score_functions = {model.similarity_fn_name: scoring_fn}
-            self.score_function_names = [model.similarity_fn_name]
-            self._append_csv_headers(self.score_function_names)
         return super().__call__(model, output_path, epoch, steps, *args, **kwargs)
+
+    def _model_score_functions(self, model: MultiVectorEncoder) -> dict[str, Callable[..., Tensor]]:
+        # Resolve from similarity_fn_name instead of taking bare model.similarity, so that an explicit
+        # chunk_elements bounds the scoring intermediate. Without one, maxsim's default element budget
+        # bounds it on its own.
+        scoring_fn: Callable[..., Tensor] = SimilarityFunction.to_similarity_fn(model.similarity_fn_name)
+        if self.chunk_elements is not None:
+            scoring_fn = partial(scoring_fn, chunk_elements=self.chunk_elements)
+        return {model.similarity_fn_name: scoring_fn}
 
     def embed_inputs(
         self,

@@ -8,11 +8,13 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import torch
 from huggingface_hub.utils import validate_repo_id
 from tokenizers import Tokenizer
 
 from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
-from sentence_transformers.sentence_transformer.modules import Pooling, StaticEmbedding, Transformer
+from sentence_transformers.sentence_transformer.modules import Pooling, StaticEmbedding, Transformer, WordEmbeddings
+from sentence_transformers.sentence_transformer.modules.tokenizer import WhitespaceTokenizer
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -60,6 +62,56 @@ def mock_hub_info():
         yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def cache_hub_revision_resolution():
+    """Avoid repeatedly resolving the same Hub revision throughout the integration suite."""
+    from sentence_transformers.util import file_io
+
+    resolve_revision = file_io._hub_resolve_revision
+    if resolve_revision is None:
+        yield
+        return
+
+    resolved_revisions = {}
+
+    def cached_resolve_revision(
+        repo_id,
+        *,
+        repo_type=None,
+        revision=None,
+        cache_dir=None,
+        local_files_only=False,
+        token=None,
+    ):
+        if cache_dir is not None or local_files_only or hasattr(revision, "resolved"):
+            return resolve_revision(
+                repo_id,
+                repo_type=repo_type,
+                revision=revision,
+                cache_dir=cache_dir,
+                local_files_only=local_files_only,
+                token=token,
+            )
+
+        key = (repo_id, repo_type, revision, token)
+        if key not in resolved_revisions:
+            resolved_revisions[key] = resolve_revision(
+                repo_id,
+                repo_type=repo_type,
+                revision=revision,
+                cache_dir=cache_dir,
+                local_files_only=False,
+                token=token,
+            )
+        return resolved_revisions[key]
+
+    file_io._hub_resolve_revision = cached_resolve_revision
+    try:
+        yield
+    finally:
+        file_io._hub_resolve_revision = resolve_revision
+
+
 # Sentence Transformers
 @pytest.fixture(scope="session")
 def _stsb_bert_tiny_model() -> SentenceTransformer:
@@ -75,16 +127,23 @@ def stsb_bert_tiny_model(_stsb_bert_tiny_model: SentenceTransformer) -> Sentence
 
 
 @pytest.fixture(scope="session")
-def _avg_word_embeddings_levy() -> SentenceTransformer:
-    model_id = "sentence-transformers/average_word_embeddings_levy_dependency"
-    model = SentenceTransformer(model_id)
+def _word_embeddings_model() -> SentenceTransformer:
+    # The pretrained word embedding models on the Hub are hundreds of megabytes and no test depends on
+    # their actual vectors, so this stand-in is built locally instead.
+    vocab = ["hello", "world", "sentence", "transformers", "embedding", "model", "text", "vector"]
+    generator = torch.Generator().manual_seed(12)
+    word_embeddings = WordEmbeddings(
+        tokenizer=WhitespaceTokenizer(vocab=vocab),
+        embedding_weights=torch.rand(len(vocab), 300, generator=generator),
+    )
+    model = SentenceTransformer(modules=[word_embeddings, Pooling(300, "mean")])
     model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
     return model
 
 
 @pytest.fixture()
-def avg_word_embeddings_levy(_avg_word_embeddings_levy: SentenceTransformer) -> SentenceTransformer:
-    return deepcopy(_avg_word_embeddings_levy)
+def word_embeddings_model(_word_embeddings_model: SentenceTransformer) -> SentenceTransformer:
+    return deepcopy(_word_embeddings_model)
 
 
 @pytest.fixture()

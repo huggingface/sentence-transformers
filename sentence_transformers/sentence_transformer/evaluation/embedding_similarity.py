@@ -169,11 +169,16 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
         embeddings2 = self.embed_inputs(model, self.sentences2)
         # Binary and ubinary embeddings are packed, so we need to unpack them for the distance metrics
         if self.precision == "binary":
-            embeddings1 = (embeddings1 + 128).astype(np.uint8)
-            embeddings2 = (embeddings2 + 128).astype(np.uint8)
+            # Widen first, as numpy refuses to add 128 to an int8 array (128 doesn't fit in int8)
+            embeddings1 = embeddings1.astype(np.int16) + 128
+            embeddings2 = embeddings2.astype(np.int16) + 128
         if self.precision in ("ubinary", "binary"):
-            embeddings1 = np.unpackbits(embeddings1, axis=1)
-            embeddings2 = np.unpackbits(embeddings2, axis=1)
+            embeddings1 = np.unpackbits(embeddings1.astype(np.uint8), axis=1)
+            embeddings2 = np.unpackbits(embeddings2.astype(np.uint8), axis=1)
+        if self.precision in ("int8", "uint8", "ubinary", "binary"):
+            # Integers break the similarity functions, which normalize, subtract and square their inputs
+            embeddings1 = embeddings1.astype(np.float32)
+            embeddings2 = embeddings2.astype(np.float32)
 
         labels = self.scores
 
