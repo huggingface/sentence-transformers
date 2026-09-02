@@ -22,7 +22,7 @@ from sentence_transformers.base.modality_types import SingleInput
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
-from sentence_transformers.util import batch_to_device, truncate_embeddings
+from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, truncate_embeddings
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -1210,14 +1210,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             chunk_id, inputs, kwargs = input_queue.get()
             try:
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
-                # Move embeddings to CPU if needed
-                if isinstance(embeddings, torch.Tensor) and embeddings.device.type != "cpu":
-                    embeddings = embeddings.cpu()
-                elif isinstance(embeddings, dict):
-                    embeddings = {
-                        key: value.cpu() if isinstance(value, torch.Tensor) and value.device.type != "cpu" else value
-                        for key, value in embeddings.items()
-                    }
+                embeddings = _move_tensors_to_cpu(embeddings)
             except Exception as exc:
                 results_queue.put(SentenceTransformer._report_worker_failure(chunk_id, exc, target_device))
             else:

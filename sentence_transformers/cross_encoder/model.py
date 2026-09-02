@@ -21,7 +21,7 @@ from sentence_transformers.base.modules import Dense, Transformer
 from sentence_transformers.cross_encoder.fit_mixin import FitMixin
 from sentence_transformers.cross_encoder.model_card import CrossEncoderModelCardData
 from sentence_transformers.cross_encoder.modules.logit_score import LogitScore
-from sentence_transformers.util import batch_to_device, fullname, import_from_string
+from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, fullname, import_from_string
 from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
@@ -364,15 +364,7 @@ class CrossEncoder(BaseModel, FitMixin):
             chunk_id, sentence_pairs, kwargs = input_queue.get()
             try:
                 scores = model.predict(sentence_pairs, device=target_device, **kwargs)
-
-                # If multi-process scores are not on CPUs, move them to CPU, so they can all be concatenated later
-                if isinstance(scores, torch.Tensor) and scores.device.type != "cpu":
-                    scores = scores.cpu()
-                elif isinstance(scores, list):
-                    scores = [
-                        score.cpu() if isinstance(score, torch.Tensor) and score.device.type != "cpu" else score
-                        for score in scores
-                    ]
+                scores = _move_tensors_to_cpu(scores)
             except Exception as exc:
                 results_queue.put(CrossEncoder._report_worker_failure(chunk_id, exc, target_device))
             else:

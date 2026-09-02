@@ -22,7 +22,7 @@ from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCardData
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SpladePooling
-from sentence_transformers.util import batch_to_device, select_max_active_dims
+from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, select_max_active_dims
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.similarity import SimilarityFunction
 
@@ -1011,8 +1011,7 @@ class SparseEncoder(BaseModel):
             chunk_id, inputs, kwargs = input_queue.get()
             try:
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
-                if isinstance(embeddings, torch.Tensor) and embeddings.device.type != "cpu":
-                    embeddings = embeddings.cpu()
+                embeddings = _move_tensors_to_cpu(embeddings)
             except Exception as exc:
                 results_queue.put(SparseEncoder._report_worker_failure(chunk_id, exc, target_device))
             else:

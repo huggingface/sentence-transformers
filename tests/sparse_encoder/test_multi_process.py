@@ -219,3 +219,4 @@ def test_multi_process_output_tensors_two_devices(splade_bert_tiny_model: Sparse
     assert isinstance(embeddings, list)
     assert len(embeddings) == len(texts)
     assert all(isinstance(emb, torch.Tensor) for emb in embeddings)
+    assert all(emb.device.type == "cpu" for emb in embeddings)

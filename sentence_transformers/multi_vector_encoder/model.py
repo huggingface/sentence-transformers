@@ -24,7 +24,7 @@ from sentence_transformers.base.modules import Normalize, Transformer
 from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEncoderModelCardData
 from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling, MultiVectorMask
-from sentence_transformers.util import batch_to_device, load_file_path
+from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, load_file_path
 from sentence_transformers.util.misc import import_from_string
 from sentence_transformers.util.similarity import SimilarityFunction
 
@@ -1633,14 +1633,7 @@ class MultiVectorEncoder(BaseModel):
             chunk_id, inputs, kwargs = input_queue.get()
             try:
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
-                if isinstance(embeddings, list):
-                    # Move to CPU before crossing the process boundary (incl. output_value=None dicts).
-                    embeddings = [
-                        {key: value.cpu() if isinstance(value, Tensor) else value for key, value in emb.items()}
-                        if isinstance(emb, dict)
-                        else (emb.cpu() if isinstance(emb, Tensor) and emb.device.type != "cpu" else emb)
-                        for emb in embeddings
-                    ]
+                embeddings = _move_tensors_to_cpu(embeddings)
             except Exception as exc:
                 results_queue.put(MultiVectorEncoder._report_worker_failure(chunk_id, exc, target_device))
             else:

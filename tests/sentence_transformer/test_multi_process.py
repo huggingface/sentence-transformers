@@ -384,3 +384,15 @@ def test_multi_process_output_tensors_two_devices(stsb_bert_tiny_model: Sentence
     embeddings = model.encode(texts, device=["cpu", "cuda"])
     assert isinstance(embeddings, np.ndarray)
     assert embeddings.shape == (len(texts), model.get_embedding_dimension())
+
+    # The two list-shaped results make the same trip, and a device tensor would only stay readable
+    # for as long as the worker that produced it is alive
+    embeddings = model.encode(texts, device=["cpu", "cuda"], convert_to_numpy=False, convert_to_tensor=False)
+    assert isinstance(embeddings, list)
+    assert len(embeddings) == len(texts)
+    assert all(emb.device.type == "cpu" for emb in embeddings)
+
+    features = model.encode(texts, device=["cpu", "cuda"], output_value=None)
+    assert len(features) == len(texts)
+    for feature in features:
+        assert all(value.device.type == "cpu" for value in feature.values() if isinstance(value, torch.Tensor))
