@@ -318,6 +318,24 @@ def batch_to_device(batch: dict[str, Any], target_device: device) -> dict[str, A
     return batch
 
 
+def _move_tensors_to_cpu(value: Any) -> Any:
+    """Move every tensor inside ``value`` to CPU, keeping the surrounding structure.
+
+    Results leaving a multi-process worker have to make this trip. A tensor still on an accelerator
+    crosses the queue as a shared handle, so it stops being readable once
+    ``stop_multi_process_pool`` tears the producing worker down. ``encode`` and ``predict`` return a
+    bare tensor, a list of tensors, or a list of feature dicts depending on their arguments, so
+    every shape has to be walked.
+    """
+    if isinstance(value, Tensor):
+        return value.cpu() if value.device.type != "cpu" else value
+    if isinstance(value, dict):
+        return {key: _move_tensors_to_cpu(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_move_tensors_to_cpu(item) for item in value]
+    return value
+
+
 def to_scipy_coo(x: Tensor) -> coo_matrix:
     """
     Converts a sparse PyTorch tensor to a SciPy COO sparse matrix.

@@ -16,12 +16,12 @@ from transformers.utils import logging as transformers_logging
 from typing_extensions import TypeIs, deprecated
 
 from sentence_transformers.base.modality_types import PairableInput, PairInput
-from sentence_transformers.base.model import BaseModel, _move_tensors_to_cpu
+from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.modules import Dense, Transformer
 from sentence_transformers.cross_encoder.fit_mixin import FitMixin
 from sentence_transformers.cross_encoder.model_card import CrossEncoderModelCardData
 from sentence_transformers.cross_encoder.modules.logit_score import LogitScore
-from sentence_transformers.util import batch_to_device, fullname, import_from_string
+from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, fullname, import_from_string
 from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,

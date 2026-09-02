@@ -18,12 +18,11 @@ from typing_extensions import deprecated
 
 from sentence_transformers.base import BaseModel
 from sentence_transformers.base.modality_types import TextInput
-from sentence_transformers.base.model import _move_tensors_to_cpu
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCardData
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SpladePooling
-from sentence_transformers.util import batch_to_device, select_max_active_dims
+from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, select_max_active_dims
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.similarity import SimilarityFunction
 

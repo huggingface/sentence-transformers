@@ -20,12 +20,11 @@ from typing_extensions import TypeIs
 
 from sentence_transformers.base import BaseModel
 from sentence_transformers.base.modality_types import SingleInput
-from sentence_transformers.base.model import _move_tensors_to_cpu
 from sentence_transformers.base.modules import Normalize, Transformer
 from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEncoderModelCardData
 from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling, MultiVectorMask
-from sentence_transformers.util import batch_to_device, load_file_path
+from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, load_file_path
 from sentence_transformers.util.misc import import_from_string
 from sentence_transformers.util.similarity import SimilarityFunction
 

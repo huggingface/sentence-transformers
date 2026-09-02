@@ -19,10 +19,10 @@ from transformers.utils import logging as transformers_logging
 from typing_extensions import TypeIs, deprecated
 
 from sentence_transformers.base.modality_types import SingleInput
-from sentence_transformers.base.model import BaseModel, _move_tensors_to_cpu
+from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
-from sentence_transformers.util import batch_to_device, truncate_embeddings
+from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, truncate_embeddings
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
