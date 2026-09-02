@@ -283,20 +283,21 @@ def test_semantic_search_usearch_rescores_non_byte_aligned_embeddings(corpus_pre
 
 
 @skip_without_usearch
-@pytest.mark.parametrize("corpus_precision", ["float32", "int8"])
+@pytest.mark.parametrize("corpus_precision", ["float32", "int8", "binary", "ubinary"])
 @pytest.mark.parametrize("rescore", [True, False])
-def test_semantic_search_usearch_drops_padded_indices(corpus_precision: str, rescore: bool) -> None:
-    """A corpus smaller than ``top_k`` must not produce duplicated/phantom entries.
+@pytest.mark.parametrize("n_docs", [1, 3])
+def test_semantic_search_usearch_drops_padded_indices(corpus_precision: str, rescore: bool, n_docs: int) -> None:
+    """A corpus smaller than ``top_k`` must not produce duplicated entries.
 
-    Unlike FAISS, usearch pads a short result set by repeating a match with a NaN distance
-    instead of using a sentinel index, so the padding must be dropped using ``matches.counts``
-    rather than by checking for a -1 corpus_id.
+    usearch zero-fills a short result set with key 0 and a NaN distance instead of using a sentinel
+    index, so the padding resolves to a real document and, once rescored, can outrank the genuine
+    matches.
     """
     results, _ = semantic_search_usearch(
         QUERIES,
-        corpus_embeddings=_corpus(3, corpus_precision),
+        corpus_embeddings=_corpus(n_docs, corpus_precision),
         corpus_precision=corpus_precision,
-        top_k=5,  # deliberately larger than the 3-document corpus
+        top_k=5,  # deliberately larger than the corpus
         rescore=rescore,
         rescore_multiplier=2,
         calibration_embeddings=CALIBRATION,
@@ -306,11 +307,44 @@ def test_semantic_search_usearch_drops_padded_indices(corpus_precision: str, res
         corpus_ids = [entry["corpus_id"] for entry in query_results]
         assert all(not np.isnan(entry["score"]) for entry in query_results)
         # Every existing document is returned exactly once, and nothing else is.
-        assert sorted(corpus_ids) == [0, 1, 2]
+        assert sorted(corpus_ids) == list(range(n_docs))
 
 
 @skip_without_usearch
-@pytest.mark.parametrize("corpus_precision", ["float32", "int8"])
+@pytest.mark.parametrize("corpus_precision", ["float32", "int8", "binary", "ubinary"])
+def test_semantic_search_usearch_single_query_short_corpus(corpus_precision: str) -> None:
+    """A single query returns ``Matches``, which has no ``counts`` and needs no padding removal."""
+    results, _ = semantic_search_usearch(
+        QUERIES[:1],
+        corpus_embeddings=_corpus(3, corpus_precision),
+        corpus_precision=corpus_precision,
+        top_k=5,
+        rescore=True,
+        rescore_multiplier=2,
+        calibration_embeddings=CALIBRATION,
+    )
+
+    assert sorted(entry["corpus_id"] for entry in results[0]) == [0, 1, 2]
+
+
+@skip_without_usearch
+@pytest.mark.parametrize("rescore", [True, False])
+def test_semantic_search_usearch_empty_corpus(rescore: bool) -> None:
+    """An empty corpus yields empty result lists rather than phantom hits."""
+    results, _ = semantic_search_usearch(
+        QUERIES,
+        corpus_embeddings=np.empty((0, 2), dtype=np.uint8),
+        corpus_precision="ubinary",
+        top_k=5,
+        rescore=rescore,
+        rescore_multiplier=2,
+    )
+
+    assert results == [[], []]
+
+
+@skip_without_usearch
+@pytest.mark.parametrize("corpus_precision", ["float32", "int8", "binary", "ubinary"])
 def test_semantic_search_usearch_returns_top_k_when_corpus_is_large_enough(corpus_precision: str) -> None:
     """The padding check must not shorten results for a corpus larger than ``top_k``."""
     results, _ = semantic_search_usearch(
@@ -326,3 +360,49 @@ def test_semantic_search_usearch_returns_top_k_when_corpus_is_large_enough(corpu
     for query_results in results:
         assert len(query_results) == 5
         assert all(0 <= entry["corpus_id"] < 50 for entry in query_results)
+
+
+@skip_without_usearch
+@pytest.mark.parametrize("rescore", [True, False])
+def test_semantic_search_usearch_preserves_large_keys(rescore: bool) -> None:
+    """A caller's index may key documents anywhere in the unsigned 64-bit range."""
+    from usearch.index import Index
+
+    keys = np.array([5, 2**63, 2**64 - 2], dtype=np.uint64)
+    corpus_index = Index(ndim=16, metric="ip", dtype="i8")
+    corpus_index.add(keys, _corpus(3, "int8"))
+
+    results, _ = semantic_search_usearch(
+        QUERIES,
+        corpus_index=corpus_index,
+        corpus_precision="int8",
+        top_k=5,
+        rescore=rescore,
+        rescore_multiplier=2,
+        calibration_embeddings=CALIBRATION,
+    )
+
+    for query_results in results:
+        assert sorted(entry["corpus_id"] for entry in query_results) == sorted(int(key) for key in keys)
+
+
+@pytest.mark.parametrize(
+    "search_fn",
+    [
+        pytest.param(semantic_search_faiss, marks=skip_without_faiss, id="faiss"),
+        pytest.param(semantic_search_usearch, marks=skip_without_usearch, id="usearch"),
+    ],
+)
+def test_semantic_search_rescores_integer_query_embeddings(search_fn) -> None:
+    """Disqualifying the padding with -inf must not overflow on integer query embeddings."""
+    results, _ = search_fn(
+        (QUERIES * 100).astype(np.int32),
+        corpus_embeddings=_corpus(3, "ubinary"),
+        corpus_precision="ubinary",
+        top_k=5,
+        rescore=True,
+        rescore_multiplier=2,
+    )
+
+    for query_results in results:
+        assert sorted(entry["corpus_id"] for entry in query_results) == [0, 1, 2]

@@ -89,6 +89,7 @@ def semantic_search_faiss(
             "ubinary".
 
     The list of search results is in the format: [[{"corpus_id": int, "score": float}, ...], ...]
+    Each query yields at most `top_k` results, and fewer when the index holds fewer matches.
     The time taken for the search is a float value.
     """
     import faiss
@@ -172,7 +173,7 @@ def semantic_search_faiss(
         # updated_scores: [num_queries, top_k]
         # We use einsum to calculate the dot product between the query and the top_k embeddings, equivalent to looping
         # over the queries and calculating 'rescore_embeddings[i] @ top_k_embeddings[i].T'
-        rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings)
+        rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings).astype(np.float64, copy=False)
         # Disqualify the padding slots so their placeholder scores cannot outrank real candidates
         rescored_scores[indices == -1] = -np.inf
         rescored_indices = np.argsort(-rescored_scores)[:, :top_k]
@@ -272,6 +273,7 @@ def semantic_search_usearch(
             "ubinary", or "binary".
 
     The list of search results is in the format: [[{"corpus_id": int, "score": float}, ...], ...]
+    Each query yields at most `top_k` results, and fewer when the index holds fewer matches.
     The time taken for the search is a float value.
     """
     from usearch.compiled import ScalarKind
@@ -351,20 +353,16 @@ def semantic_search_usearch(
     if indices.ndim < 2:
         indices = np.atleast_2d(indices)
 
-    # Unlike FAISS, usearch does not pad short result sets with a sentinel index: when a query has fewer
-    # than `k` valid matches (e.g. the corpus itself has fewer than `k` entries), the remaining slots repeat
-    # an arbitrary key with a NaN distance. `matches.counts` holds the number of real matches per query, so
-    # anything at or beyond that count is padding. Keys are unsigned (uint64), so a -1 sentinel can't be used
-    # to mark them (it wraps around to a huge positive value instead); track validity in a parallel boolean
-    # array instead, threading it through the rescoring reorder below the same way as indices/scores.
-    counts = np.atleast_1d(matches.counts)
-    valid = np.arange(indices.shape[1])[None, :] < counts[:, None]
+    # usearch pads short result sets and reports the real match count in `counts`, so validity is
+    # tracked beside the keys rather than in them. A single query returns `Matches`, which has neither.
+    counts = np.reshape(getattr(matches, "counts", indices.shape[1]), (-1, 1))
+    valid = np.arange(indices.shape[1]) < counts
 
     # If rescoring is enabled, we need to rescore the results using the rescore_embeddings
-    if rescore_embeddings is not None:
-        # corpus_index.get errors on a key beyond what was added, so look up a placeholder (any valid key)
-        # for padding slots and disqualify their scores below instead.
-        safe_indices = np.where(valid, indices, 0)
+    if rescore_embeddings is not None and valid.any():
+        # get() has no key for the padding slots, so look up any real key there as a placeholder and
+        # disqualify its score below
+        safe_indices = np.where(valid, indices, indices[valid][0])
         top_k_embeddings = np.array([corpus_index.get(query_indices) for query_indices in safe_indices])
         if corpus_precision in ("ubinary", "binary"):
             if corpus_precision == "binary":
@@ -381,14 +379,14 @@ def semantic_search_usearch(
         # updated_scores: [num_queries, top_k]
         # We use einsum to calculate the dot product between the query and the top_k embeddings, equivalent to looping
         # over the queries and calculating 'rescore_embeddings[i] @ top_k_embeddings[i].T'
-        rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings)
+        rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings).astype(np.float64, copy=False)
         # Disqualify the padding slots so their placeholder scores cannot outrank real candidates
         rescored_scores[~valid] = -np.inf
+        query_ids = np.arange(len(query_embeddings))[:, None]
         rescored_indices = np.argsort(-rescored_scores)[:, :top_k]
-        query_arange = np.arange(len(query_embeddings))[:, None]
-        indices = indices[query_arange, rescored_indices]
-        scores = rescored_scores[query_arange, rescored_indices]
-        valid = valid[query_arange, rescored_indices]
+        indices = indices[query_ids, rescored_indices]
+        scores = rescored_scores[query_ids, rescored_indices]
+        valid = valid[query_ids, rescored_indices]
 
     delta_t = time.time() - start_t
 
