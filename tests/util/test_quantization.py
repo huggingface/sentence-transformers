@@ -406,3 +406,41 @@ def test_semantic_search_rescores_integer_query_embeddings(search_fn) -> None:
 
     for query_results in results:
         assert sorted(entry["corpus_id"] for entry in query_results) == [0, 1, 2]
+
+
+@skip_without_usearch
+@pytest.mark.parametrize("rescore", [True, False])
+def test_semantic_search_usearch_binary_matches_ubinary(rescore: bool) -> None:
+    """``binary`` packs the same bytes as ``ubinary`` with the top bit of each flipped.
+
+    Undoing that offset makes the two precisions the same b1 index, so they must retrieve
+    identically. Pairing hamming with an i8 scalar kind instead returns NaN for every distance
+    on Linux, which is what ``binary`` used to build.
+    """
+    n_docs, top_k = 20, 4
+    search_kwargs = {
+        "top_k": top_k,
+        "rescore": rescore,
+        # The pool must cover the whole corpus, or hamming ties decide which documents enter it and
+        # the two precisions rescore different candidates
+        "rescore_multiplier": n_docs // top_k,
+        "calibration_embeddings": CALIBRATION,
+    }
+    binary, _ = semantic_search_usearch(
+        QUERIES, corpus_embeddings=_corpus(n_docs, "binary"), corpus_precision="binary", **search_kwargs
+    )
+    ubinary, _ = semantic_search_usearch(
+        QUERIES, corpus_embeddings=_corpus(n_docs, "ubinary"), corpus_precision="ubinary", **search_kwargs
+    )
+
+    for binary_results, ubinary_results in zip(binary, ubinary):
+        assert len(binary_results) == top_k
+        assert all(not np.isnan(entry["score"]) for entry in binary_results)
+        if rescore:
+            # The whole corpus enters the rescoring pool, so the exact dot product orders it deterministically
+            assert binary_results == ubinary_results
+        else:
+            # Hamming distances tie constantly, and usearch breaks those ties nondeterministically
+            assert sorted(entry["score"] for entry in binary_results) == sorted(
+                entry["score"] for entry in ubinary_results
+            )
