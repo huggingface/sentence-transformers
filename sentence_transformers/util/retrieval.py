@@ -114,6 +114,7 @@ def paraphrase_mining_embeddings(
 
     # Mine for duplicates
     pairs = queue.PriorityQueue()
+    queued_pairs = set()  # The (i, j) of every pair currently in `pairs`, always with i < j
     min_score = -1
     num_added = 0
 
@@ -136,11 +137,17 @@ def paraphrase_mining_embeddings(
                     j = corpus_start_idx + corpus_itr
 
                     if i != j and scores_top_k_values[query_itr][top_k_idx] > min_score:
-                        pairs.put((scores_top_k_values[query_itr][top_k_idx], i, j))
+                        sorted_i, sorted_j = (i, j) if i < j else (j, i)
+                        if (sorted_i, sorted_j) in queued_pairs:
+                            continue
+
+                        pairs.put((scores_top_k_values[query_itr][top_k_idx], sorted_i, sorted_j))
+                        queued_pairs.add((sorted_i, sorted_j))
                         num_added += 1
 
                         if num_added > max_pairs:
                             entry = pairs.get()
+                            queued_pairs.discard((entry[1], entry[2]))
                             min_score = entry[0]
 
     # Get the pairs

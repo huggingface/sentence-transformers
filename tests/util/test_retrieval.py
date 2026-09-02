@@ -84,6 +84,17 @@ def test_paraphrase_mining_embeddings_respects_max_pairs_capacity(max_pairs: int
     assert len(pairs) == expected_count
 
 
+@pytest.mark.parametrize("max_pairs", [2, 10, 50])
+def test_paraphrase_mining_embeddings_respects_max_pairs_with_symmetric_scores(max_pairs: int) -> None:
+    torch.manual_seed(0)
+    embeddings = torch.randn(40, 8)
+
+    pairs = paraphrase_mining_embeddings(embeddings, max_pairs=max_pairs, top_k=10)
+
+    assert len(pairs) == max_pairs
+    assert len({(i, j) for _, i, j in pairs}) == max_pairs
+
+
 def test_community_detection_two_clear_communities():
     """Test case with two clear communities."""
     embeddings = torch.tensor(
