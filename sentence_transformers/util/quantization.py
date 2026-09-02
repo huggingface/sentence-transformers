@@ -302,9 +302,9 @@ def semantic_search_usearch(
             )
         elif corpus_precision == "binary":
             corpus_index = Index(
-                ndim=corpus_embeddings.shape[1],
+                ndim=corpus_embeddings.shape[1] * 8,
                 metric="hamming",
-                dtype="i8",
+                dtype="b1",
             )
         elif corpus_precision == "ubinary":
             corpus_index = Index(
@@ -312,6 +312,9 @@ def semantic_search_usearch(
                 metric="hamming",
                 dtype="b1",
             )
+        if corpus_precision == "binary":
+            # A b1 index reads raw bytes, so undo the -128 offset that `quantize_embeddings` applied
+            corpus_embeddings = corpus_embeddings.view(np.uint8) ^ 0x80
         corpus_index.add(np.arange(len(corpus_embeddings)), corpus_embeddings)
 
     # If rescoring is enabled and the query embeddings are in float32, we need to quantize them
@@ -344,6 +347,8 @@ def semantic_search_usearch(
 
     # Perform the search using the usearch index
     start_t = time.time()
+    if corpus_precision == "binary" and corpus_index.dtype == ScalarKind.B1:
+        query_embeddings = query_embeddings.view(np.uint8) ^ 0x80
     matches = corpus_index.search(query_embeddings, count=k, exact=exact)
     scores = matches.distances
     indices = matches.keys
@@ -353,11 +358,10 @@ def semantic_search_usearch(
     if indices.ndim < 2:
         indices = np.atleast_2d(indices)
 
-    # usearch pads short result sets, marking them both in `counts` and with a NaN distance, so
-    # validity is tracked beside the keys rather than in them. Require both signals, as `counts` has
-    # over-reported on some builds. A single query returns `Matches`, which has no `counts` at all.
+    # usearch pads short result sets and reports the real match count in `counts`, so validity is
+    # tracked beside the keys rather than in them. A single query returns `Matches`, which has neither.
     counts = np.reshape(getattr(matches, "counts", indices.shape[1]), (-1, 1))
-    valid = (np.arange(indices.shape[1]) < counts) & ~np.isnan(scores)
+    valid = np.arange(indices.shape[1]) < counts
 
     # If rescoring is enabled, we need to rescore the results using the rescore_embeddings
     if rescore_embeddings is not None and valid.any():
@@ -366,8 +370,8 @@ def semantic_search_usearch(
         safe_indices = np.where(valid, indices, indices[valid][0])
         top_k_embeddings = np.array([corpus_index.get(query_indices) for query_indices in safe_indices])
         if corpus_precision in ("ubinary", "binary"):
-            if corpus_precision == "binary":
-                # `quantize_embeddings` stored these packed bytes with a -128 offset to fit them in int8
+            if corpus_precision == "binary" and corpus_index.dtype != ScalarKind.B1:
+                # An index built before binary moved to b1 still stores the -128 offset
                 top_k_embeddings = top_k_embeddings.astype(np.int16) + 128
             # `np.packbits` padded the embedding dimension up to a whole byte, so trim those bits back off
             top_k_embeddings = np.unpackbits(top_k_embeddings.astype(np.uint8), axis=-1)[
