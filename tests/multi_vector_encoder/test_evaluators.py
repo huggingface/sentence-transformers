@@ -80,6 +80,17 @@ def test_ir_evaluator_defers_scoring_resolution_to_call_time(model: MultiVectorE
     assert evaluator.score_function_names == [model.similarity_fn_name]
     assert f"late_binding_{model.similarity_fn_name}_ndcg@10" in results
 
+    # Reusing the evaluator re-resolves rather than keeping the first model's scoring (#3939).
+    original = model.similarity_fn_name
+    model.similarity_fn_name = "meanmaxsim"
+    try:
+        reused = evaluator(model)
+    finally:
+        model.similarity_fn_name = original
+    assert evaluator.score_function_names == ["meanmaxsim"]
+    assert evaluator.primary_metric == "late_binding_meanmaxsim_ndcg@10"
+    assert "late_binding_meanmaxsim_ndcg@10" in reused
+
 
 def test_ir_evaluator_chunk_elements_reaches_scoring(model: MultiVectorEncoder) -> None:
     """The budget is bound onto the model-resolved scorer and actually invoked: a one-document-per-
@@ -263,6 +274,16 @@ def test_nano_beir_evaluator_emits_lowercase_maxsim_key(model: MultiVectorEncode
     results = evaluator(model)
     assert "NanoBEIR_mean_maxsim_ndcg@10" in results
     assert evaluator.primary_metric == "NanoBEIR_mean_maxsim_ndcg@10"
+
+    # The aggregate labels track the sub-evaluators, which re-resolve their scoring per call (#3939).
+    original = model.similarity_fn_name
+    model.similarity_fn_name = "meanmaxsim"
+    try:
+        reused = evaluator(model)
+    finally:
+        model.similarity_fn_name = original
+    assert "NanoBEIR_mean_meanmaxsim_ndcg@10" in reused
+    assert evaluator.primary_metric == "NanoBEIR_mean_meanmaxsim_ndcg@10"
 
 
 def test_distillation_evaluator(model: MultiVectorEncoder) -> None:

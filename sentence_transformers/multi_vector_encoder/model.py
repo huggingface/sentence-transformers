@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import queue
 import string
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
@@ -1602,7 +1601,7 @@ class MultiVectorEncoder(BaseModel):
             input_queue: Queue = pool["input"]
             output_queue: Queue = pool["output"]
 
-            num_chunks = math.ceil(len(inputs) / chunk_size) if inputs else 0
+            num_chunks = math.ceil(len(inputs) / chunk_size)
             for chunk_id in range(num_chunks):
                 start = chunk_id * chunk_size
                 input_queue.put([chunk_id, inputs[start : start + chunk_size], encode_kwargs])
@@ -1612,9 +1611,9 @@ class MultiVectorEncoder(BaseModel):
                 key=lambda x: x[0],
             )
 
-            for output in output_list:
-                if isinstance(output[1], Exception):
-                    raise output[1]
+            for _, result in output_list:
+                if isinstance(result, Exception):
+                    raise result
 
             embeddings: list[Tensor | np.ndarray] = []
             for _, chunk_result in output_list:
@@ -1632,19 +1631,14 @@ class MultiVectorEncoder(BaseModel):
         target_device: str, model: MultiVectorEncoder, input_queue: Queue, results_queue: Queue
     ) -> None:
         while True:
+            chunk_id, inputs, kwargs = input_queue.get()
             try:
-                chunk_id, inputs, kwargs = input_queue.get()
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
-                results_queue.put([chunk_id, _move_tensors_to_cpu(embeddings)])
-            except queue.Empty:
-                break
-            except Exception as e:
-                logger.error(f"Error in worker process on {target_device}: {e}")
-                try:
-                    results_queue.put([chunk_id, e])
-                except Exception:
-                    pass
-                break
+                embeddings = _move_tensors_to_cpu(embeddings)
+            except Exception as exc:
+                results_queue.put(MultiVectorEncoder._report_worker_failure(chunk_id, exc, target_device))
+            else:
+                results_queue.put([chunk_id, embeddings])
 
     def _push_to_hub_usage_tip(self, repo_id: str) -> str:
         class_name = self.__class__.__name__

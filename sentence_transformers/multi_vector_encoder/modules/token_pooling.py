@@ -187,7 +187,7 @@ class BaseTokenPooling(Module, ABC):
         self.save_config(output_path)
 
 
-def _hierarchical_pool_one(embedding: Tensor, pool_factor: int, num_protected_tokens: int) -> Tensor:
+def _hierarchical_pool_one(embedding: Tensor, pool_factor: float, num_protected_tokens: int) -> Tensor:
     """Ward hierarchical clustering on cosine distance for a single 2D embedding."""
     from scipy.cluster import hierarchy
 
@@ -196,7 +196,7 @@ def _hierarchical_pool_one(embedding: Tensor, pool_factor: int, num_protected_to
     protected = embedding[:num_protected_tokens]
     to_pool = embedding[num_protected_tokens:]
     num_to_pool = len(to_pool)
-    num_clusters = max(num_to_pool // pool_factor, 1)
+    num_clusters = max(int(num_to_pool // pool_factor), 1)
 
     if num_clusters >= num_to_pool:
         return embedding.to(device)
@@ -236,8 +236,9 @@ class HierarchicalTokenPooling(BaseTokenPooling):
     For the closest colpali-engine setup, pass ``num_protected_tokens=0`` and re-normalize afterwards.
 
     Args:
-        pool_factor: Keep roughly ``1 / pool_factor`` of each document's tokens. ``1`` (default)
-            disables pooling (the module becomes a no-op).
+        pool_factor: Keep roughly ``1 / pool_factor`` of each document's tokens. Fractional values
+            (e.g. ``1.5`` keeps two thirds) allow compression steps between the integer factors.
+            ``1.0`` (default) disables pooling (the module becomes a no-op).
         num_protected_tokens: Leading tokens excluded from pooling (typically ``[CLS]``). Default 1.
             colpali-engine has no protected-token concept: use ``0`` when matching its setup.
         tasks: Task names this pooling applies to. Defaults to ``["document"]`` (only compress
@@ -247,7 +248,7 @@ class HierarchicalTokenPooling(BaseTokenPooling):
     config_keys: list[str] = ["pool_factor", "num_protected_tokens", "tasks"]
 
     def __init__(
-        self, pool_factor: int = 1, *, num_protected_tokens: int = 1, tasks: str | list[str] | None = None
+        self, pool_factor: float = 1.0, *, num_protected_tokens: int = 1, tasks: str | list[str] | None = None
     ) -> None:
         super().__init__(tasks=tasks)
         if pool_factor < 1:

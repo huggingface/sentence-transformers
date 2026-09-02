@@ -66,6 +66,8 @@ dev = [
     "pytest-xdist",
     "peft",
     "transformers[vision,audio,video]",
+    "faiss-cpu",
+    "usearch",
 ]
 
 [dependency-groups]
@@ -79,6 +81,8 @@ test = [
     "pytest-xdist",
     "peft",
     "transformers[vision,audio,video]",
+    "faiss-cpu",
+    "usearch",
 ]
 lint = [
     "pre-commit",

@@ -4,7 +4,6 @@ import copy
 import itertools
 import logging
 import math
-import queue
 import warnings
 from collections import OrderedDict
 from collections.abc import Iterator, Sequence
@@ -1164,16 +1163,21 @@ class SentenceTransformer(BaseModel, FitMixin):
             output_queue: torch.multiprocessing.Queue = pool["output"]
 
             # Send inputs to the input queue in chunks
-            chunk_id = -1
-            for chunk_id, chunk_start in enumerate(range(0, len(inputs), chunk_size)):
+            num_chunks = math.ceil(len(inputs) / chunk_size)
+            for chunk_id in range(num_chunks):
+                chunk_start = chunk_id * chunk_size
                 chunk = inputs[chunk_start : chunk_start + chunk_size]
                 input_queue.put([chunk_id, chunk, encode_kwargs])
 
             # Collect results from the output queue
             output_list = sorted(
-                [output_queue.get() for _ in trange(chunk_id + 1, desc="Chunks", disable=not show_progress_bar)],
+                [output_queue.get() for _ in trange(num_chunks, desc="Chunks", disable=not show_progress_bar)],
                 key=lambda x: x[0],
             )
+
+            for _, result in output_list:
+                if isinstance(result, Exception):
+                    raise result
 
             # Handle the various output formats
             embeddings = [output[1] for output in output_list]
@@ -1203,12 +1207,14 @@ class SentenceTransformer(BaseModel, FitMixin):
         Workers are terminated externally via ``stop_multi_process_pool``.
         """
         while True:
+            chunk_id, inputs, kwargs = input_queue.get()
             try:
-                chunk_id, inputs, kwargs = input_queue.get()
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
-                results_queue.put([chunk_id, _move_tensors_to_cpu(embeddings)])
-            except queue.Empty:
-                break
+                embeddings = _move_tensors_to_cpu(embeddings)
+            except Exception as exc:
+                results_queue.put(SentenceTransformer._report_worker_failure(chunk_id, exc, target_device))
+            else:
+                results_queue.put([chunk_id, embeddings])
 
     def set_pooling_include_prompt(self, include_prompt: bool) -> None:
         """

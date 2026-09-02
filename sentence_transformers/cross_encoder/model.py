@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import math
-import queue
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from multiprocessing import Queue
@@ -309,34 +308,31 @@ class CrossEncoder(BaseModel, FitMixin):
             output_queue: torch.multiprocessing.Queue = pool["output"]
 
             # Send inputs to the input queue in chunks
-            chunk_id = -1  # We default to -1 to handle empty input gracefully
-            for chunk_id, chunk_start in enumerate(range(0, len(inputs), chunk_size)):
+            num_chunks = math.ceil(len(inputs) / chunk_size)
+            for chunk_id in range(num_chunks):
+                chunk_start = chunk_id * chunk_size
                 chunk = inputs[chunk_start : chunk_start + chunk_size]
                 input_queue.put([chunk_id, chunk, predict_kwargs])
 
             # Collect results from output queue
             output_list = sorted(
-                [output_queue.get() for _ in trange(chunk_id + 1, desc="Chunks", disable=not show_progress_bar)],
+                [output_queue.get() for _ in trange(num_chunks, desc="Chunks", disable=not show_progress_bar)],
                 key=lambda x: x[0],  # Sort by chunk_id
             )
+
+            for _, result in output_list:
+                if isinstance(result, Exception):
+                    raise result
 
             # Handle the various output formats: torch tensors, numpy arrays, or
             # list of dictionaries, also when empty.
             scores = [output[1] for output in output_list]
-
-            # Check for errors in results
-            if any(len(output) > 2 and output[2] is not None for output in output_list):
-                # Error occurred in worker
-                error_output = next(output for output in output_list if len(output) > 2 and output[2])
-                raise RuntimeError(f"Error in worker process: {error_output[2]}")
 
             if scores:
                 if isinstance(scores[0], torch.Tensor):
                     scores = torch.cat(scores)
                 elif isinstance(scores[0], np.ndarray):
                     scores = np.concatenate(scores, axis=0)
-                elif isinstance(scores[0], list):
-                    scores = sum(scores, [])
                 else:
                     scores = sum(scores, [])
 
@@ -365,21 +361,14 @@ class CrossEncoder(BaseModel, FitMixin):
 
         """
         while True:
-            chunk_id = None
+            chunk_id, sentence_pairs, kwargs = input_queue.get()
             try:
-                chunk_id, sentence_pairs, kwargs = input_queue.get()
                 scores = model.predict(sentence_pairs, device=target_device, **kwargs)
-                results_queue.put([chunk_id, _move_tensors_to_cpu(scores)])
-
-            except queue.Empty:
-                break
-            except Exception as e:
-                logger.error(f"Error in worker process on {target_device}: {e}")
-                try:
-                    results_queue.put([chunk_id, None, str(e)])
-                except Exception:
-                    pass
-                break
+                scores = _move_tensors_to_cpu(scores)
+            except Exception as exc:
+                results_queue.put(CrossEncoder._report_worker_failure(chunk_id, exc, target_device))
+            else:
+                results_queue.put([chunk_id, scores])
 
     def _resolve_activation_fn(self, activation_fn_path: str) -> Callable | None:
         """Instantiate an activation function from a dotted path string, respecting trust_remote_code."""

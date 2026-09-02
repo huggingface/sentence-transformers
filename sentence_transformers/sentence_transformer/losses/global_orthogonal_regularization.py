@@ -184,7 +184,8 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         # Compute pairwise similarity matrix between all embeddings, and exclude self-similarities
         sim_matrix = self.similarity_fct(embeddings, embeddings)
         sim_matrix.fill_diagonal_(0.0)
-        num_off_diagonal = batch_size * (batch_size - 1)
+        # Clamped so that a batch of one yields a differentiable 0 for both terms rather than nan
+        num_off_diagonal = max(batch_size * (batch_size - 1), 1)
 
         # Mean term: M_1^2 where M_1 = mean of off-diagonal similarities
         # Penalizes high similarities across inputs from the same column (e.g., queries vs other queries)

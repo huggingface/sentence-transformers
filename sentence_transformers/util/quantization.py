@@ -162,11 +162,10 @@ def semantic_search_faiss(
                 for query_indices in indices
             ]
         )
-        # If the corpus precision is binary, we need to unpack the bits
+        # `np.packbits` padded the embedding dimension up to a whole byte, so trim those bits back off
         if corpus_precision == "ubinary":
-            top_k_embeddings = np.unpackbits(top_k_embeddings, axis=-1).astype(int)
-        else:
-            top_k_embeddings = top_k_embeddings.astype(int)
+            top_k_embeddings = np.unpackbits(top_k_embeddings, axis=-1)[..., : rescore_embeddings.shape[-1]]
+        top_k_embeddings = top_k_embeddings.astype(int)
 
         # rescore_embeddings: [num_queries, embedding_dim]
         # top_k_embeddings: [num_queries, top_k, embedding_dim]
@@ -355,9 +354,14 @@ def semantic_search_usearch(
     # If rescoring is enabled, we need to rescore the results using the rescore_embeddings
     if rescore_embeddings is not None:
         top_k_embeddings = np.array([corpus_index.get(query_indices) for query_indices in indices])
-        # If the corpus precision is binary, we need to unpack the bits
         if corpus_precision in ("ubinary", "binary"):
-            top_k_embeddings = np.unpackbits(top_k_embeddings.astype(np.uint8), axis=-1)
+            if corpus_precision == "binary":
+                # `quantize_embeddings` stored these packed bytes with a -128 offset to fit them in int8
+                top_k_embeddings = top_k_embeddings.astype(np.int16) + 128
+            # `np.packbits` padded the embedding dimension up to a whole byte, so trim those bits back off
+            top_k_embeddings = np.unpackbits(top_k_embeddings.astype(np.uint8), axis=-1)[
+                ..., : rescore_embeddings.shape[-1]
+            ]
         top_k_embeddings = top_k_embeddings.astype(int)
 
         # rescore_embeddings: [num_queries, embedding_dim]
