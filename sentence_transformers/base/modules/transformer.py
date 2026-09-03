@@ -808,6 +808,12 @@ class Transformer(InputModule):
             processor_kwargs = {}
         if config_kwargs is None:
             config_kwargs = {}
+
+        # A revision resolved for the model repository must not pin a separate processor repository
+        processor_revision = processor_kwargs.get("revision")
+        if tokenizer_name_or_path not in (None, model_name_or_path) and hasattr(processor_revision, "initial"):
+            processor_kwargs = {**processor_kwargs, "revision": processor_revision.initial}
+
         self.processing_kwargs: ProcessingKwargs = processing_kwargs or {}
         unknown_keys = set(self.processing_kwargs) - self._VALID_PROCESSING_KWARGS_KEYS
         if unknown_keys:
@@ -848,16 +854,9 @@ class Transformer(InputModule):
             model_name_or_path, transformer_task, config, backend, is_peft_model, **model_kwargs
         )
 
-        # Unwrap PEFT first: ``PeftModel.forward`` hides the base model's multimodal params (e.g. ``pixel_values``).
-        forward_model = self.model
-        if is_peft_available():
-            from peft import PeftModel
-
-            if isinstance(forward_model, PeftModel):
-                forward_model = forward_model.get_base_model()
         # ``None`` = forward accepts ``**kwargs`` (pass all but undeclared ST bookkeeping).
         # Set = declared params plus safety net.
-        forward_signature = inspect.signature(forward_model.forward)
+        forward_signature = inspect.signature(self.model.forward)
         self._declared_forward_params = set(forward_signature.parameters)
         self.model_forward_params: set[str] | None = None
         if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in forward_signature.parameters.values()):
@@ -1673,19 +1672,6 @@ class Transformer(InputModule):
 
         features[self.module_output_name] = embedding
 
-        # If the AutoModel is wrapped with a PeftModel(ForFeatureExtraction), then it may have added virtual tokens
-        # We need to extend the attention mask to include these virtual tokens, or the pooling will fail
-        if "input_ids" in features and "attention_mask" in features and is_peft_available():
-            from peft import PeftModel
-
-            if isinstance(self.model, PeftModel) and self.model.active_peft_config.is_prompt_learning:
-                batch_size = features["input_ids"].shape[0]
-                attention_mask = features["attention_mask"]
-                prefix_attention_mask = torch.ones(
-                    batch_size, self.model.active_peft_config.num_virtual_tokens, device=attention_mask.device
-                )
-                features["attention_mask"] = torch.cat((prefix_attention_mask, attention_mask), dim=1)
-
         if (
             hasattr(self.model.config, "output_hidden_states")
             and self.model.config.output_hidden_states
@@ -2227,8 +2213,8 @@ class Transformer(InputModule):
 
     def _load_config(
         self, model_name_or_path: str, backend: str, config_kwargs: dict[str, Any]
-    ) -> tuple[PeftConfig | PretrainedConfig, bool]:
-        """Loads the transformers or PEFT configuration
+    ) -> tuple[PretrainedConfig, bool]:
+        """Loads the transformers configuration, resolving the base model's config for PEFT checkpoints
 
         Args:
             model_name_or_path (str): The model name on Hugging Face (e.g. 'sentence-transformers/all-MiniLM-L6-v2')
@@ -2237,7 +2223,7 @@ class Transformer(InputModule):
             config_kwargs (dict[str, Any]): Keyword arguments passed to the Hugging Face Transformers config.
 
         Returns:
-            tuple[PeftConfig | PretrainedConfig, bool]: The model configuration and a boolean indicating whether the model is a PEFT model.
+            tuple[PretrainedConfig, bool]: The model configuration and a boolean indicating whether the model is a PEFT model.
         """
         adapter_config_file = find_adapter_config_file(
             model_name_or_path,
@@ -2261,16 +2247,18 @@ class Transformer(InputModule):
                 )
             from peft import PeftConfig
 
-            return PeftConfig.from_pretrained(model_name_or_path, **config_kwargs), True
+            peft_config = PeftConfig.from_pretrained(model_name_or_path, **config_kwargs)
+            # `revision` and `subfolder` locate the adapter, not the base model.
+            base_config_kwargs = {
+                key: value for key, value in config_kwargs.items() if key not in ("revision", "subfolder")
+            }
+            return AutoConfig.from_pretrained(peft_config.base_model_name_or_path, **base_config_kwargs), True
 
         return AutoConfig.from_pretrained(model_name_or_path, **config_kwargs), False
 
     @staticmethod
-    def _warn_on_unsupported_attention_config(config: PeftConfig | PretrainedConfig) -> None:
+    def _warn_on_unsupported_attention_config(config: PretrainedConfig) -> None:
         """Warn if the config requests bidirectional attention settings not supported by the installed transformers version."""
-        if not isinstance(config, PretrainedConfig):
-            return
-
         configs_to_check: list[PretrainedConfig] = [config]
         if hasattr(config, "sub_configs"):
             for sub_config_name in config.sub_configs.keys():
@@ -2298,7 +2286,7 @@ class Transformer(InputModule):
         self,
         model_name_or_path: str,
         transformer_task: TransformerTask,
-        config: PeftConfig | PretrainedConfig,
+        config: PretrainedConfig,
         backend: str,
         is_peft_model: bool,
         **model_kwargs,
@@ -2308,7 +2296,7 @@ class Transformer(InputModule):
         Args:
             model_name_or_path (str): The model name on Hugging Face (e.g. 'sentence-transformers/all-MiniLM-L6-v2')
                 or the path to a local model directory.
-            config ("PeftConfig" | PretrainedConfig): The model configuration.
+            config (PretrainedConfig): The model configuration.
             backend (str): The backend used for model inference. Can be `torch`, `onnx`, or `openvino`.
             is_peft_model (bool): Whether the model is a PEFT model.
             model_kwargs (dict[str, Any]): Keyword arguments passed to the Hugging Face Transformers model.

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 import os
 import pickle
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from itertools import accumulate, cycle
 from typing import Any
 
@@ -14,6 +13,7 @@ import numpy as np
 import torch
 from torch.utils.data import BatchSampler, ConcatDataset, SubsetRandomSampler
 from transformers.utils import ExplicitEnum
+from transformers.utils import logging as transformers_logging
 
 try:
     import xxhash
@@ -25,11 +25,15 @@ from sentence_transformers.util import is_datasets_available
 if is_datasets_available():
     from datasets import Dataset
 
-logger = logging.getLogger(__name__)
+# NOTE: transformers wraps the regular logging module for e.g. warning_once
+logger = transformers_logging.get_logger(__name__)
 
 _XXHASH_INT64_MAX = 1 << 63
 _XXHASH_UINT64_MAX = 1 << 64
 _EXCLUDE_DATASET_COLUMNS = {"dataset_name"}
+
+# Extra shuffled passes that NoDuplicatesBatchSampler.__iter__ may run to reach __len__ batches.
+_MAX_RESAMPLE_PASSES = 2
 
 
 class BatchSamplers(ExplicitEnum):
@@ -41,9 +45,9 @@ class BatchSamplers(ExplicitEnum):
 
     - ``BatchSamplers.BATCH_SAMPLER``: **[default]** Uses :class:`~sentence_transformers.base.sampler.DefaultBatchSampler`, the default
       PyTorch batch sampler.
-    - ``BatchSamplers.NO_DUPLICATES``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`,
+    - ``BatchSamplers.NO_DUPLICATES``: Uses :class:`~sentence_transformers.base.sampler.NoDuplicatesBatchSampler`,
       ensuring no duplicate samples in a batch.
-    - ``BatchSamplers.NO_DUPLICATES_HASHED``: Uses :class:`~sentence_transformers.sampler.NoDuplicatesBatchSampler`
+    - ``BatchSamplers.NO_DUPLICATES_HASHED``: Uses :class:`~sentence_transformers.base.sampler.NoDuplicatesBatchSampler`
       with ``precompute_hashes=True``, a variant that precomputes hashes for faster duplicate checks at a small memory cost.
       Requires the ``xxhash`` library to be installed.
 
@@ -56,7 +60,7 @@ class BatchSamplers(ExplicitEnum):
         - :class:`~sentence_transformers.sentence_transformer.losses.MegaBatchMarginLoss`
         - :class:`~sentence_transformers.sentence_transformer.losses.GISTEmbedLoss`
         - :class:`~sentence_transformers.sentence_transformer.losses.CachedGISTEmbedLoss`
-    - ``BatchSamplers.GROUP_BY_LABEL``: Uses :class:`~sentence_transformers.sampler.GroupByLabelBatchSampler`,
+    - ``BatchSamplers.GROUP_BY_LABEL``: Uses :class:`~sentence_transformers.base.sampler.GroupByLabelBatchSampler`,
       which constructs each batch by drawing at least 2 samples from each of at least 2 distinct labels.
       This guarantees every batch contains multiple classes, which is required for in-batch triplet mining.
       Recommended for:
@@ -533,6 +537,13 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         Iterate over the remaining non-yielded indices. For each index, check if the sample values are already in the
         batch. If not, add the sample values to the batch keep going until the batch is full. If the batch is full, yield
         the batch indices and continue with the next batch.
+
+        When a full pass over the dataset yields fewer batches than :meth:`__len__` (possible with
+        ``drop_last=True`` and many duplicate values), the dataset is reshuffled and sampling
+        continues until the advertised length is reached, for a limited number of extra passes.
+        Batches added this way redraw samples that already appeared earlier in the epoch, and a
+        warning is logged once. This keeps the number of batches in line with the length promised
+        to the DataLoader and the learning rate scheduler.
         """
         if self.generator and self.seed is not None:
             self.generator.manual_seed(self.seed + self.epoch)
@@ -564,6 +575,47 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         if num_rows == 0:
             return
 
+        expected_num_batches = len(self)
+        num_yielded = 0
+
+        # Never truncate the first pass, as drop_last=False may legitimately yield more
+        # (smaller) batches than ``__len__``.
+        for batch_indices in self._iter_one_pass(get_sample_values, _has_overlap):
+            yield batch_indices
+            num_yielded += 1
+
+        if num_yielded >= expected_num_batches:
+            return
+
+        if num_yielded > 0:
+            shortfall = expected_num_batches - num_yielded
+            logger.warning_once(
+                f"NoDuplicatesBatchSampler produced only {num_yielded} of the expected "
+                f"{expected_num_batches} batches in a full pass over the dataset. The remaining "
+                f"{shortfall} batches are resampled, so at most {shortfall / expected_num_batches:.1%} "
+                "of this epoch's samples are repeats from earlier batches."
+            )
+            for _ in range(_MAX_RESAMPLE_PASSES):
+                for batch_indices in self._iter_one_pass(get_sample_values, _has_overlap):
+                    yield batch_indices
+                    num_yielded += 1
+                    if num_yielded >= expected_num_batches:
+                        return
+
+        logger.warning_once(
+            f"NoDuplicatesBatchSampler yielded only {num_yielded} of the expected "
+            f"{expected_num_batches} batches. The dataset has too few distinct values for this "
+            "batch size. Consider lowering it."
+        )
+
+    def _iter_one_pass(
+        self,
+        get_sample_values: Callable[[int], set[str] | np.ndarray],
+        has_overlap: Callable[[set[str] | np.ndarray, set[str | np.int64]], bool],
+    ) -> Iterator[list[int]]:
+        """Yield batches from a single shuffle of the dataset without resampling."""
+        num_rows = len(self.dataset)
+
         # Create a random numpy permutation using int32 (or int64 if necessary)
         index_dtype = torch.int32 if num_rows <= np.iinfo(np.int32).max else torch.int64
         remaining_indices = torch.randperm(num_rows, generator=self.generator, dtype=index_dtype).numpy()
@@ -585,7 +637,7 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 next_position = int(next_positions[current_position])
                 index = int(remaining_indices[current_position])
                 sample_values = get_sample_values(index)
-                if _has_overlap(sample_values, batch_values):
+                if has_overlap(sample_values, batch_values):
                     # Defer conflicting samples to later batches instead of reordering them.
                     previous_position = current_position
                     current_position = next_position
@@ -611,14 +663,15 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                     yield batch_indices
 
     def __len__(self) -> int:
-        """Return the approximate number of batches.
+        """Return the number of batches advertised to the DataLoader.
 
-        .. note::
-
-            This is an upper-bound estimate. The actual number of batches
-            yielded by :meth:`__iter__` may be smaller when the dataset
-            contains many duplicate values, because those samples are
-            deferred or skipped rather than placed into a batch.
+        This is a cheap estimate based only on the dataset and batch sizes, as
+        computing the exact count would require running the full no-duplicates
+        pass before training. When a single pass cannot fill this many batches,
+        :meth:`__iter__` reshuffles and continues sampling until this length is
+        reached, within a limited number of extra passes. A dataset with very
+        few distinct values can still fall short, in which case a warning is
+        logged.
         """
         if self.drop_last:
             return len(self.dataset) // self.batch_size

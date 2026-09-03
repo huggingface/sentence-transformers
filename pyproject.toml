@@ -1,6 +1,6 @@
 [project]
 name = "sentence-transformers"
-version = "6.0.0.dev0"
+version = "6.1.0.dev0"
 description = "Embeddings, Retrieval, and Reranking"
 license = "Apache-2.0"
 readme = "README.md"
@@ -67,6 +67,8 @@ dev = [
     "pytest-xdist",
     "peft",
     "transformers[vision,audio,video]",
+    "faiss-cpu",
+    "usearch",
 ]
 
 [dependency-groups]
@@ -81,6 +83,8 @@ test = [
     "pytest-xdist",
     "peft",
     "transformers[vision,audio,video]",
+    "faiss-cpu",
+    "usearch",
 ]
 lint = [
     "pre-commit",
@@ -174,6 +178,7 @@ Ein = "Ein"
 ein = "ein"
 ist = "ist"
 arange = "arange"
+writeable = "writeable"
 
 
 [tool.typos.files]

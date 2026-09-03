@@ -22,7 +22,7 @@ class MultiVectorEncoderModelCardCallback(BaseModelCardCallback):
 
 @dataclass
 class MultiVectorEncoderModelCardData(BaseModelCardData):
-    """A dataclass storing data used in the model card for :class:`~sentence_transformers.MultiVectorEncoder` models.
+    """A dataclass storing data used in the model card for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models.
 
     Args:
         language (`Optional[Union[str, List[str]]]`): The model language, either a string or a list,
@@ -130,8 +130,8 @@ class MultiVectorEncoderModelCardData(BaseModelCardData):
             documents = prepared_examples[1:]
         else:
             queries = documents = prepared_examples
-        query_embeddings = self.model.encode_query(queries, convert_to_tensor=True, show_progress_bar=False)
-        doc_embeddings = self.model.encode_document(documents, convert_to_tensor=True, show_progress_bar=False)
+        query_embeddings = self.model.encode_query(queries, show_progress_bar=False)
+        doc_embeddings = self.model.encode_document(documents, show_progress_bar=False)
         self.usage_query_shape = tuple(query_embeddings[0].shape)
         self.usage_document_shape = tuple(doc_embeddings[0].shape)
         similarity = self.model.similarity(query_embeddings, doc_embeddings)

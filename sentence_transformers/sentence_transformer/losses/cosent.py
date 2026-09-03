@@ -7,6 +7,7 @@ import torch
 from torch import Tensor, nn
 
 from sentence_transformers import util
+from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
@@ -79,7 +80,7 @@ class CoSENTLoss(nn.Module):
         self.scale = scale
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
-        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        embeddings = embed_columns(self.model, sentence_features)
 
         return self.compute_loss_from_embeddings(embeddings, labels)
 

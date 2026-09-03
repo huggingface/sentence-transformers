@@ -3,7 +3,6 @@ from __future__ import annotations
 import itertools
 import logging
 import math
-import queue
 from collections import OrderedDict
 from multiprocessing import Queue
 from typing import Any, ClassVar, Literal, overload
@@ -23,7 +22,7 @@ from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCardData
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SpladePooling
-from sentence_transformers.util import batch_to_device, select_max_active_dims
+from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, select_max_active_dims
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.similarity import SimilarityFunction
 
@@ -968,7 +967,7 @@ class SparseEncoder(BaseModel):
             input_queue: torch.multiprocessing.Queue = pool["input"]
             output_queue: torch.multiprocessing.Queue = pool["output"]
 
-            num_chunks = math.ceil(len(inputs) / chunk_size) if inputs else 0
+            num_chunks = math.ceil(len(inputs) / chunk_size)
             for chunk_id in range(num_chunks):
                 chunk_start = chunk_id * chunk_size
                 chunk = inputs[chunk_start : chunk_start + chunk_size]
@@ -979,10 +978,9 @@ class SparseEncoder(BaseModel):
                 key=lambda x: x[0],
             )
 
-            # Check for errors from worker processes
-            for output in output_list:
-                if isinstance(output[1], Exception):
-                    raise output[1]
+            for _, result in output_list:
+                if isinstance(result, Exception):
+                    raise result
 
             # Handle the various output formats
             embeddings = [output[1] for output in output_list]
@@ -1010,22 +1008,14 @@ class SparseEncoder(BaseModel):
         Workers are terminated externally via ``stop_multi_process_pool``.
         """
         while True:
+            chunk_id, inputs, kwargs = input_queue.get()
             try:
-                chunk_id, inputs, kwargs = input_queue.get()
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
-                if isinstance(embeddings, torch.Tensor) and embeddings.device.type != "cpu":
-                    embeddings = embeddings.cpu()
+                embeddings = _move_tensors_to_cpu(embeddings)
+            except Exception as exc:
+                results_queue.put(SparseEncoder._report_worker_failure(chunk_id, exc, target_device))
+            else:
                 results_queue.put([chunk_id, embeddings])
-
-            except queue.Empty:
-                break
-            except Exception as e:
-                logger.error(f"Error in worker process on {target_device}: {e}")
-                try:
-                    results_queue.put([chunk_id, e])
-                except Exception:
-                    pass
-                break
 
     def get_embedding_dimension(self) -> int | None:
         """

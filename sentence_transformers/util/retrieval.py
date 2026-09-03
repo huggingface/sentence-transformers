@@ -139,7 +139,7 @@ def paraphrase_mining_embeddings(
                         pairs.put((scores_top_k_values[query_itr][top_k_idx], i, j))
                         num_added += 1
 
-                        if num_added >= max_pairs:
+                        if num_added > max_pairs:
                             entry = pairs.get()
                             min_score = entry[0]
 
@@ -282,13 +282,15 @@ def community_detection(
     if not isinstance(embeddings, torch.Tensor):
         embeddings = torch.tensor(embeddings)
 
+    if len(embeddings) < min_community_size:
+        return []
+
     threshold = torch.tensor(threshold, device=embeddings.device)
     embeddings = normalize_embeddings(embeddings)
 
     extracted_communities = []
 
     # Maximum size for community
-    min_community_size = min(min_community_size, len(embeddings))
     sort_max_size = min(max(2 * min_community_size, 50), len(embeddings))
 
     for start_idx in tqdm(

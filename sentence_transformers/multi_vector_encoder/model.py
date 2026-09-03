@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import queue
 import string
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
@@ -25,7 +24,7 @@ from sentence_transformers.base.modules import Normalize, Transformer
 from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEncoderModelCardData
 from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling, MultiVectorMask
-from sentence_transformers.util import batch_to_device, load_file_path
+from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, load_file_path
 from sentence_transformers.util.misc import import_from_string
 from sentence_transformers.util.similarity import SimilarityFunction
 
@@ -66,7 +65,7 @@ class MultiVectorEncoder(BaseModel):
     """
     Loads or creates a multi-vector / late-interaction (ColBERT-style) embedding model.
 
-    Unlike :class:`~sentence_transformers.SentenceTransformer` which produces a single vector per input,
+    Unlike :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` which produces a single vector per input,
     :class:`MultiVectorEncoder` produces a *sequence* of vectors per input, one per token. Scoring between
     queries and documents is done with the MaxSim late-interaction operator: for each query token, take the
     max similarity to any document token, then sum across query tokens.
@@ -117,7 +116,8 @@ class MultiVectorEncoder(BaseModel):
 
             from sentence_transformers import MultiVectorEncoder
 
-            model = MultiVectorEncoder("lightonai/GTE-ModernColBERT-v1")
+            # 1. Load a pretrained MultiVectorEncoder model
+            model = MultiVectorEncoder("lightonai/LateOn")
 
             queries = ["What is the capital of France?"]
             documents = [
@@ -125,11 +125,18 @@ class MultiVectorEncoder(BaseModel):
                 "Berlin is the capital of Germany.",
             ]
 
+            # 2. Encode queries and documents (note the asymmetric encode_query / encode_document split)
             query_embeddings = model.encode_query(queries)
             document_embeddings = model.encode_document(documents)
 
+            # Each entry is a 2D tensor of shape (num_tokens_i, embedding_dim), variable-length per input.
+            print(query_embeddings[0].shape)
+            # torch.Size([10, 128])
+
+            # 3. Score with MaxSim
             scores = model.similarity(query_embeddings, document_embeddings)
             print(scores)
+            # tensor([[9.1129, 8.8769]], device='cuda:0')
     """
 
     model_card_data_class = MultiVectorEncoderModelCardData
@@ -222,8 +229,26 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[False] = ...,
-        convert_to_numpy: Literal[True] = ...,
+        convert_to_numpy: Literal[False] = ...,
+        device: str | torch.device | list[str | torch.device] | None = ...,
+        normalize_embeddings: bool = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        **kwargs: Any,
+    ) -> Tensor: ...
+
+    @overload
+    def encode_query(
+        self,
+        inputs: SingleInput,
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
+        batch_size: int = ...,
+        show_progress_bar: bool | None = ...,
+        *,
+        output_value: Literal["token_embeddings"] = ...,
+        convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
@@ -241,48 +266,7 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[True],
-        convert_to_numpy: bool = ...,
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        **kwargs: Any,
-    ) -> Tensor: ...
-
-    @overload
-    def encode_query(
-        self,
-        inputs: SingleInput,
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: bool = ...,
-        convert_to_numpy: Literal[False],
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        **kwargs: Any,
-    ) -> Tensor: ...
-
-    @overload
-    def encode_query(
-        self,
-        inputs: SingleInput,
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
         output_value: None,
-        convert_to_tensor: bool = ...,
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
@@ -301,8 +285,26 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[False] = ...,
-        convert_to_numpy: Literal[True] = ...,
+        convert_to_numpy: Literal[False] = ...,
+        device: str | torch.device | list[str | torch.device] | None = ...,
+        normalize_embeddings: bool = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        **kwargs: Any,
+    ) -> list[Tensor]: ...
+
+    @overload
+    def encode_query(
+        self,
+        inputs: Sequence[SingleInput],
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
+        batch_size: int = ...,
+        show_progress_bar: bool | None = ...,
+        *,
+        output_value: Literal["token_embeddings"] = ...,
+        convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
@@ -320,48 +322,7 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[True],
-        convert_to_numpy: bool = ...,
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        **kwargs: Any,
-    ) -> list[Tensor]: ...
-
-    @overload
-    def encode_query(
-        self,
-        inputs: Sequence[SingleInput],
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: bool = ...,
-        convert_to_numpy: Literal[False],
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        **kwargs: Any,
-    ) -> list[Tensor]: ...
-
-    @overload
-    def encode_query(
-        self,
-        inputs: Sequence[SingleInput],
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
         output_value: None,
-        convert_to_tensor: bool = ...,
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
@@ -381,7 +342,6 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         output_value: Literal["token_embeddings"] | None = ...,
-        convert_to_tensor: bool = ...,
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
@@ -399,8 +359,7 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
         output_value: Literal["token_embeddings"] | None = "token_embeddings",
-        convert_to_tensor: bool = False,
-        convert_to_numpy: bool = True,
+        convert_to_numpy: bool = False,
         device: str | torch.device | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
@@ -427,7 +386,6 @@ class MultiVectorEncoder(BaseModel):
             batch_size=batch_size,
             show_progress_bar=show_progress_bar,
             output_value=output_value,
-            convert_to_tensor=convert_to_tensor,
             convert_to_numpy=convert_to_numpy,
             device=device,
             normalize_embeddings=normalize_embeddings,
@@ -447,8 +405,26 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[False] = ...,
-        convert_to_numpy: Literal[True] = ...,
+        convert_to_numpy: Literal[False] = ...,
+        device: str | torch.device | list[str | torch.device] | None = ...,
+        normalize_embeddings: bool = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        **kwargs: Any,
+    ) -> Tensor: ...
+
+    @overload
+    def encode_document(
+        self,
+        inputs: SingleInput,
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
+        batch_size: int = ...,
+        show_progress_bar: bool | None = ...,
+        *,
+        output_value: Literal["token_embeddings"] = ...,
+        convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
@@ -466,48 +442,7 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[True],
-        convert_to_numpy: bool = ...,
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        **kwargs: Any,
-    ) -> Tensor: ...
-
-    @overload
-    def encode_document(
-        self,
-        inputs: SingleInput,
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: bool = ...,
-        convert_to_numpy: Literal[False],
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        **kwargs: Any,
-    ) -> Tensor: ...
-
-    @overload
-    def encode_document(
-        self,
-        inputs: SingleInput,
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
         output_value: None,
-        convert_to_tensor: bool = ...,
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
@@ -526,8 +461,26 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[False] = ...,
-        convert_to_numpy: Literal[True] = ...,
+        convert_to_numpy: Literal[False] = ...,
+        device: str | torch.device | list[str | torch.device] | None = ...,
+        normalize_embeddings: bool = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        **kwargs: Any,
+    ) -> list[Tensor]: ...
+
+    @overload
+    def encode_document(
+        self,
+        inputs: Sequence[SingleInput],
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
+        batch_size: int = ...,
+        show_progress_bar: bool | None = ...,
+        *,
+        output_value: Literal["token_embeddings"] = ...,
+        convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
@@ -545,48 +498,7 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[True],
-        convert_to_numpy: bool = ...,
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        **kwargs: Any,
-    ) -> list[Tensor]: ...
-
-    @overload
-    def encode_document(
-        self,
-        inputs: Sequence[SingleInput],
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: bool = ...,
-        convert_to_numpy: Literal[False],
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        **kwargs: Any,
-    ) -> list[Tensor]: ...
-
-    @overload
-    def encode_document(
-        self,
-        inputs: Sequence[SingleInput],
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
         output_value: None,
-        convert_to_tensor: bool = ...,
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
@@ -606,7 +518,6 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         output_value: Literal["token_embeddings"] | None = ...,
-        convert_to_tensor: bool = ...,
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
@@ -624,8 +535,7 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
         output_value: Literal["token_embeddings"] | None = "token_embeddings",
-        convert_to_tensor: bool = False,
-        convert_to_numpy: bool = True,
+        convert_to_numpy: bool = False,
         device: str | torch.device | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
@@ -656,7 +566,6 @@ class MultiVectorEncoder(BaseModel):
             batch_size=batch_size,
             show_progress_bar=show_progress_bar,
             output_value=output_value,
-            convert_to_tensor=convert_to_tensor,
             convert_to_numpy=convert_to_numpy,
             device=device,
             normalize_embeddings=normalize_embeddings,
@@ -676,8 +585,27 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[False] = ...,
-        convert_to_numpy: Literal[True] = ...,
+        convert_to_numpy: Literal[False] = ...,
+        device: str | torch.device | list[str | torch.device] | None = ...,
+        normalize_embeddings: bool = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        task: str | None = ...,
+        **kwargs: Any,
+    ) -> Tensor: ...
+
+    @overload
+    def encode(
+        self,
+        inputs: SingleInput,
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
+        batch_size: int = ...,
+        show_progress_bar: bool | None = ...,
+        *,
+        output_value: Literal["token_embeddings"] = ...,
+        convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
@@ -696,50 +624,7 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[True],
-        convert_to_numpy: bool = ...,
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        task: str | None = ...,
-        **kwargs: Any,
-    ) -> Tensor: ...
-
-    @overload
-    def encode(
-        self,
-        inputs: SingleInput,
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: bool = ...,
-        convert_to_numpy: Literal[False],
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        task: str | None = ...,
-        **kwargs: Any,
-    ) -> Tensor: ...
-
-    @overload
-    def encode(
-        self,
-        inputs: SingleInput,
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
         output_value: None,
-        convert_to_tensor: bool = ...,
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
@@ -759,8 +644,27 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[False] = ...,
-        convert_to_numpy: Literal[True] = ...,
+        convert_to_numpy: Literal[False] = ...,
+        device: str | torch.device | list[str | torch.device] | None = ...,
+        normalize_embeddings: bool = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        chunk_size: int | None = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        task: str | None = ...,
+        **kwargs: Any,
+    ) -> list[Tensor]: ...
+
+    @overload
+    def encode(
+        self,
+        inputs: Sequence[SingleInput],
+        prompt_name: str | None = ...,
+        prompt: str | None = ...,
+        batch_size: int = ...,
+        show_progress_bar: bool | None = ...,
+        *,
+        output_value: Literal["token_embeddings"] = ...,
+        convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
@@ -779,50 +683,7 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: Literal[True],
-        convert_to_numpy: bool = ...,
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        task: str | None = ...,
-        **kwargs: Any,
-    ) -> list[Tensor]: ...
-
-    @overload
-    def encode(
-        self,
-        inputs: Sequence[SingleInput],
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
-        output_value: Literal["token_embeddings"] = ...,
-        convert_to_tensor: bool = ...,
-        convert_to_numpy: Literal[False],
-        device: str | torch.device | list[str | torch.device] | None = ...,
-        normalize_embeddings: bool = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
-        chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
-        task: str | None = ...,
-        **kwargs: Any,
-    ) -> list[Tensor]: ...
-
-    @overload
-    def encode(
-        self,
-        inputs: Sequence[SingleInput],
-        prompt_name: str | None = ...,
-        prompt: str | None = ...,
-        batch_size: int = ...,
-        show_progress_bar: bool | None = ...,
-        *,
         output_value: None,
-        convert_to_tensor: bool = ...,
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
@@ -843,7 +704,6 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = ...,
         show_progress_bar: bool | None = ...,
         output_value: Literal["token_embeddings"] | None = ...,
-        convert_to_tensor: bool = ...,
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
@@ -862,8 +722,7 @@ class MultiVectorEncoder(BaseModel):
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
         output_value: Literal["token_embeddings"] | None = "token_embeddings",
-        convert_to_tensor: bool = False,
-        convert_to_numpy: bool = True,
+        convert_to_numpy: bool = False,
         device: str | torch.device | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
@@ -894,9 +753,12 @@ class MultiVectorEncoder(BaseModel):
                 longest input. With ``None``, normalization and the ``convert_to_*`` options do not
                 apply. Per-call ``token_pooling`` does apply: it
                 rewrites ``token_embeddings`` and ``attention_mask`` in the dicts.
-            convert_to_tensor (bool, optional): If True, returns a list of :class:`torch.Tensor`. Overrides
-                ``convert_to_numpy``. Defaults to False.
-            convert_to_numpy (bool, optional): If True (default), returns a list of :class:`numpy.ndarray`.
+            convert_to_numpy (bool, optional): If True, returns a list of :class:`numpy.ndarray` and moves
+                each batch to the CPU as it is encoded. Defaults to False, so embeddings stay on
+                ``device``: scoring them with :meth:`similarity` then needs no transfer, which is worth
+                multiples on an accelerator. Set it for corpora too large to keep in device memory.
+                Multi-process encoding (a ``pool``, or a list of ``device``s) always returns on the CPU,
+                since embeddings are moved there to cross the process boundary.
             device (str, torch.device, list, or None): Device(s) for computation. Defaults to None.
             normalize_embeddings (bool, optional): If True, L2-normalize each per-token embedding before
                 returning. Use this when the loaded pipeline does not include a :class:`Normalize` module
@@ -914,10 +776,11 @@ class MultiVectorEncoder(BaseModel):
                 masking strategy.
 
         Returns:
-            list[Tensor] | list[ndarray] | Tensor | ndarray: By default, a list of per-input 2D arrays of shape
-            ``(num_tokens_i, embedding_dim)`` (variable-length). With ``output_value=None``, a list of
-            per-input feature dicts (including each input's real ``attention_mask``). If a single string
-            is passed, the outer list is unwrapped (e.g. a bare 2D array for the default).
+            list[Tensor] | list[ndarray] | Tensor | ndarray: By default, a list of per-input 2D tensors of
+            shape ``(num_tokens_i, embedding_dim)`` (variable-length) on ``device``, or numpy arrays with
+            ``convert_to_numpy=True``. With ``output_value=None``, a list of per-input feature dicts
+            (including each input's real ``attention_mask``). If a single string is passed, the outer list
+            is unwrapped (e.g. a bare 2D tensor for the default).
         """
         is_query = task == "query"
 
@@ -932,10 +795,6 @@ class MultiVectorEncoder(BaseModel):
                 f'output_value must be "token_embeddings" or None (raw per-input feature dicts), got {output_value!r}.'
             )
         if output_value is None:
-            convert_to_tensor = False
-            convert_to_numpy = False
-
-        if convert_to_tensor:
             convert_to_numpy = False
 
         is_singular_input = self.is_singular_input(inputs)
@@ -949,6 +808,15 @@ class MultiVectorEncoder(BaseModel):
         # Validate kwargs (matching SparseEncoder.encode behaviour).
         model_kwargs = self.get_model_kwargs()
         if unused_kwargs := set(kwargs) - set(model_kwargs) - {"task", "processing_kwargs"}:
+            if "convert_to_tensor" in unused_kwargs:
+                # Named because every other model type takes it, so the generic message below would
+                # read as a model quirk rather than as a shape that does not exist here.
+                raise ValueError(
+                    f"{self.__class__.__name__}.encode() has no `convert_to_tensor`: it stacks embeddings into "
+                    "one tensor on the other model types, and multi-vector embeddings are variable-length, so "
+                    "there is nothing to stack. Encoding already returns a list of tensors. Drop the argument, "
+                    "or pass `convert_to_numpy=True` for a list of arrays."
+                )
             raise ValueError(
                 f"{self.__class__.__name__}.encode() has been called with additional keyword arguments that "
                 f"this model does not use: {list(unused_kwargs)}."
@@ -965,7 +833,6 @@ class MultiVectorEncoder(BaseModel):
                 prompt=prompt,
                 batch_size=batch_size,
                 output_value=output_value,
-                convert_to_tensor=convert_to_tensor,
                 convert_to_numpy=convert_to_numpy,
                 normalize_embeddings=normalize_embeddings,
                 token_pooling=token_pooling,
@@ -1113,8 +980,8 @@ class MultiVectorEncoder(BaseModel):
                 [num_embeddings_1, num_tokens, embedding_dim]-shaped tensor, or a single
                 [num_tokens, embedding_dim]-shaped tensor scored as a batch of one.
             embeddings2 (Union[Tensor, ndarray, list]): Document embeddings, in the same forms.
-            **kwargs: Forwarded to the scoring function, :func:`~sentence_transformers.util.maxsim`
-                or :func:`~sentence_transformers.util.mean_maxsim`. Particularly useful options include:
+            **kwargs: Forwarded to the scoring function, :func:`~sentence_transformers.util.similarity.maxsim`
+                or :func:`~sentence_transformers.util.similarity.mean_maxsim`. Particularly useful options include:
 
                 - ``device``: Run the scoring on this device. The returned scores stay on the
                   documents' device either way.
@@ -1155,8 +1022,8 @@ class MultiVectorEncoder(BaseModel):
                 [num_tokens, embedding_dim]-shaped tensor scored as a batch of one.
             embeddings2 (Union[Tensor, ndarray, list]): Document embeddings, in the same forms.
             **kwargs: Forwarded to the scoring function,
-                :func:`~sentence_transformers.util.maxsim_pairwise` or
-                :func:`~sentence_transformers.util.mean_maxsim_pairwise`. Particularly useful options include:
+                :func:`~sentence_transformers.util.similarity.maxsim_pairwise` or
+                :func:`~sentence_transformers.util.similarity.mean_maxsim_pairwise`. Particularly useful options include:
 
                 - ``device``: Run the scoring on this device. The returned scores stay on the
                   documents' device either way.
@@ -1211,9 +1078,9 @@ class MultiVectorEncoder(BaseModel):
 
         Call only with the prefixes of an existing token-prepended checkpoint (the caller guards on
         ``self._legacy.prefixes``). Needed for checkpoints (Stanford ColBERTv2, answerai-colbert,
-        mxbai-edge-colbert, ...) whose prefix is a known token like ``[unused0]`` or ``[Q] `` applied
+        mxbai-edge-colbert, ...) whose prefix is a known token like ``[unused0]`` or "[Q] " applied
         via token insertion at training time. Prepending it as text would shatter it
-        (``[unused0]`` -> ``['[','unused','##0',']']``, and an added ``[Q] `` stored with
+        (``[unused0]`` -> ``['[','unused','##0',']']``, and an added "[Q] " stored with
         ``normalized=True`` never matches input text on a lowercasing tokenizer) and diverge from
         training. Registering it as a non-normalized special token restores single-piece
         tokenization, making text-prepending byte-identical to token insertion.
@@ -1221,7 +1088,7 @@ class MultiVectorEncoder(BaseModel):
         Two gates keep this a no-op when no fix is required:
 
         1. Skip prefixes the tokenizer doesn't know: neither the full prompt value (PyLate saves
-           ``[Q] `` with its trailing space as one token) nor its first whitespace-delimited token
+           "[Q] " with its trailing space as one token) nor its first whitespace-delimited token
            has an id. Such prefixes (``[Q]`` on a plain BERT, or a text prompt like ``query:``) are
            left as ordinary text rather than growing the embedding table.
         2. Skip prefixes the tokenizer already emits as a single piece, no fix needed.
@@ -1245,7 +1112,17 @@ class MultiVectorEncoder(BaseModel):
             tokenizer.add_special_tokens({"additional_special_tokens": to_register})
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
-        super()._parse_model_config(model_config)
+        # PyLate <=3 saved [Q]/[D] as top-level query_prefix/document_prefix (inserted as tokens). We route
+        # them through `prompts` as text instead, recording them on the stash for special-token registration.
+        # A save can carry both, and PyLate inserts the prefix ahead of the prompt text. Composing onto the
+        # saved prompts (not self.prompts) leaves the base merge free to keep a caller-supplied prompt.
+        saved_prompts = dict(model_config.get("prompts") or {})
+        for prefix_key, prompt_key in (("query_prefix", "query"), ("document_prefix", "document")):
+            if prefix_key in model_config:
+                prefix = model_config[prefix_key] or ""
+                self._legacy.prefixes[prompt_key] = prefix
+                saved_prompts[prompt_key] = prefix + (saved_prompts.get(prompt_key) or "").removeprefix(prefix)
+        super()._parse_model_config({**model_config, "prompts": saved_prompts})
         # Inherit a supported saved similarity_fn_name unless the user overrode it (legacy cosine/dot fall through).
         saved_similarity = model_config.get("similarity_fn_name")
         if self._similarity_fn_name is None and saved_similarity in self.SUPPORTED_SIMILARITY_FN_NAMES:
@@ -1253,13 +1130,6 @@ class MultiVectorEncoder(BaseModel):
         # PyLate v3 (model_type == "ColBERT") saved a plain Transformer and only [Transformer, Dense]. Flag it
         # so _apply_legacy_fixups appends the missing MultiVectorMask + token-level Normalize.
         self._legacy.is_pylate_v3 = model_config.get("model_type") == "ColBERT"
-        # PyLate <=3 saved [Q]/[D] as top-level query_prefix/document_prefix (inserted as tokens). We route
-        # them through `prompts` as text instead, recording them on the stash for special-token registration.
-        for prefix_key, prompt_key in (("query_prefix", "query"), ("document_prefix", "document")):
-            if prefix_key in model_config:
-                self._legacy.prefixes[prompt_key] = model_config[prefix_key]
-                if not self.prompts.get(prompt_key):
-                    self.prompts[prompt_key] = model_config[prefix_key]
         # Filter ``None`` values so missing/null PyLate knobs fall through to the Transformer's own
         # defaults. ``query_expansion`` is the exception: ``None`` is its "explicitly off" value and
         # must survive the filter, while a missing key still triggers the PyLate fallback below.
@@ -1522,8 +1392,10 @@ class MultiVectorEncoder(BaseModel):
             "query": (metadata.get("query_token_id") or "[unused0]") + " ",
             "document": (metadata.get("doc_token_id") or "[unused1]") + " ",
         }
+        # ``artifact.metadata`` has no prompt field, so unlike the PyLate branch in ``_parse_model_config``
+        # there is no saved prompt to compose the marker onto. A caller-supplied prompt still wins.
         for role, marker in self._legacy.prefixes.items():
-            if not self.prompts.get(role):
+            if self.prompts.get(role) is None:
                 self.prompts[role] = marker
         if metadata.get("doc_maxlen") is not None:
             self._legacy.transformer_config.setdefault("document_length", metadata["doc_maxlen"])
@@ -1728,7 +1600,7 @@ class MultiVectorEncoder(BaseModel):
             input_queue: Queue = pool["input"]
             output_queue: Queue = pool["output"]
 
-            num_chunks = math.ceil(len(inputs) / chunk_size) if inputs else 0
+            num_chunks = math.ceil(len(inputs) / chunk_size)
             for chunk_id in range(num_chunks):
                 start = chunk_id * chunk_size
                 input_queue.put([chunk_id, inputs[start : start + chunk_size], encode_kwargs])
@@ -1738,9 +1610,9 @@ class MultiVectorEncoder(BaseModel):
                 key=lambda x: x[0],
             )
 
-            for output in output_list:
-                if isinstance(output[1], Exception):
-                    raise output[1]
+            for _, result in output_list:
+                if isinstance(result, Exception):
+                    raise result
 
             embeddings: list[Tensor | np.ndarray] = []
             for _, chunk_result in output_list:
@@ -1758,27 +1630,14 @@ class MultiVectorEncoder(BaseModel):
         target_device: str, model: MultiVectorEncoder, input_queue: Queue, results_queue: Queue
     ) -> None:
         while True:
+            chunk_id, inputs, kwargs = input_queue.get()
             try:
-                chunk_id, inputs, kwargs = input_queue.get()
                 embeddings = model.encode(inputs, device=target_device, **kwargs)
-                if isinstance(embeddings, list):
-                    # Move to CPU before crossing the process boundary (incl. output_value=None dicts).
-                    embeddings = [
-                        {key: value.cpu() if isinstance(value, Tensor) else value for key, value in emb.items()}
-                        if isinstance(emb, dict)
-                        else (emb.cpu() if isinstance(emb, Tensor) and emb.device.type != "cpu" else emb)
-                        for emb in embeddings
-                    ]
+                embeddings = _move_tensors_to_cpu(embeddings)
+            except Exception as exc:
+                results_queue.put(MultiVectorEncoder._report_worker_failure(chunk_id, exc, target_device))
+            else:
                 results_queue.put([chunk_id, embeddings])
-            except queue.Empty:
-                break
-            except Exception as e:
-                logger.error(f"Error in worker process on {target_device}: {e}")
-                try:
-                    results_queue.put([chunk_id, e])
-                except Exception:
-                    pass
-                break
 
     def _push_to_hub_usage_tip(self, repo_id: str) -> str:
         class_name = self.__class__.__name__

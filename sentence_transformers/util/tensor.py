@@ -8,10 +8,27 @@ from scipy.sparse import coo_matrix
 from torch import Tensor, device
 
 
+def _wrap_numpy(a: np.ndarray) -> Tensor:
+    """View a numpy array as a tensor without copying its buffer, which on a corpus of embeddings
+    costs as much as the scoring it feeds. Two kinds of array cannot be viewed and are copied with
+    :func:`torch.tensor` instead: read-only buffers (memmaps, broadcast views), and dtypes with no
+    torch equivalent. Arrays with a negative stride are rejected outright by both routes.
+
+    The returned tensor aliases the caller's array, so consumers must write only into fresh outputs.
+    """
+    if a.flags.writeable:
+        try:
+            return torch.from_numpy(a)
+        except TypeError:
+            pass
+    return torch.tensor(a)
+
+
 def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
     """
-    Converts the input `a` to a PyTorch tensor if it is not already a tensor.
-    Handles lists of sparse tensors by stacking them.
+    Converts the input `a` to a PyTorch tensor if it is not already a tensor. Lists are stacked into
+    one tensor: a list of sparse tensors keeps its sparsity, and a list of numpy arrays is viewed
+    rather than read element by element (see :func:`_wrap_numpy`).
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The input array or tensor.
@@ -24,8 +41,14 @@ def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
         if all(isinstance(x, Tensor) and x.is_sparse for x in a):
             # Stack sparse tensors while preserving sparsity
             return torch.stack([x.coalesce().to(dtype=torch.float32) for x in a])
+        elif a and all(isinstance(x, np.ndarray) for x in a):
+            # torch.tensor reads a list of arrays one element at a time, two orders of magnitude
+            # slower than viewing each and stacking once. Ragged lists fail either way.
+            a = torch.stack([_wrap_numpy(x) for x in a])
         else:
             a = torch.tensor(a)
+    elif isinstance(a, np.ndarray):
+        a = _wrap_numpy(a)
     elif not isinstance(a, Tensor):
         a = torch.tensor(a)
     if a.is_sparse:
@@ -69,8 +92,8 @@ def _convert_to_batch(a: Tensor) -> Tensor:
 
 def _convert_to_batch_tensor(a: list | np.ndarray | Tensor) -> Tensor:
     """
-    Converts the input data to a tensor with a batch dimension.
-    Handles lists of sparse tensors by stacking them.
+    Converts the input data to a tensor with a batch dimension, stacking lists as
+    :func:`_convert_to_tensor` does.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The input data to be converted.
@@ -293,6 +316,23 @@ def batch_to_device(batch: dict[str, Any], target_device: device) -> dict[str, A
         if isinstance(batch[key], Tensor):
             batch[key] = batch[key].to(target_device)
     return batch
+
+
+def _move_tensors_to_cpu(value: Any) -> Any:
+    """Move every tensor inside ``value`` to CPU, keeping the surrounding structure.
+
+    Results leaving a multi-process worker have to make this trip. A tensor still on an accelerator
+    crosses the queue as a shared handle, so it stops being readable once
+    ``stop_multi_process_pool`` tears the producing worker down. Which shape a chunk comes back as
+    depends on the ``encode`` or ``predict`` arguments, so every container has to be walked.
+    """
+    if isinstance(value, Tensor):
+        return value.cpu() if value.device.type != "cpu" else value
+    if isinstance(value, dict):
+        return {key: _move_tensors_to_cpu(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_move_tensors_to_cpu(item) for item in value]
+    return value
 
 
 def to_scipy_coo(x: Tensor) -> coo_matrix:

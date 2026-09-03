@@ -26,7 +26,7 @@ As a result, in practice quantizing a `float32` embedding with a dimensionality 
    #. `mixedbread-ai/mxbai-embed-large-v1 <https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1>`_
    #. :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`
    #. :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>`
-   #. :func:`~sentence_transformers.quantization.quantize_embeddings`
+   #. :func:`~sentence_transformers.util.quantization.quantize_embeddings`
 
 ```
 
@@ -97,7 +97,7 @@ See how you can produce scalar quantized embeddings using Sentence Transformers 
    #. `mixedbread-ai/mxbai-embed-large-v1 <https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1>`_
    #. :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer`
    #. :meth:`SentenceTransformer.encode <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode>`
-   #. :func:`~sentence_transformers.quantization.quantize_embeddings`
+   #. :func:`~sentence_transformers.util.quantization.quantize_embeddings`
 
 ```
 

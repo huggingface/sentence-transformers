@@ -9,6 +9,7 @@ import transformers
 from packaging import version
 from torch import Tensor, nn
 
+from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.util.decorators import deprecated_kwargs
 
@@ -121,7 +122,7 @@ class SoftmaxLoss(nn.Module):
     def forward(
         self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor
     ) -> Tensor | tuple[Tensor, Tensor]:
-        reps = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        reps = embed_columns(self.model, sentence_features)
         rep_a, rep_b = reps
 
         vectors_concat = []

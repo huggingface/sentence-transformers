@@ -8,7 +8,7 @@ from sentence_transformers.base.training_args import BaseTrainingArguments
 
 @dataclass
 class MultiVectorEncoderTrainingArguments(BaseTrainingArguments):
-    """Training arguments for :class:`~sentence_transformers.MultiVectorEncoder` training.
+    """Training arguments for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` training.
 
     Inherits all fields from :class:`~sentence_transformers.base.training_args.BaseTrainingArguments`, and adds:
 

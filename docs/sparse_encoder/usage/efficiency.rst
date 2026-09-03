@@ -180,14 +180,14 @@ All keyword arguments passed via ``model_kwargs`` will be passed on to :meth:`OR
 
 .. tip::
 
-   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.SparseEncoder.save_pretrained>` if your model was local:
+   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.sparse_encoder.model.SparseEncoder.save_pretrained>` if your model was local:
 
    .. code-block:: python
 
       model = SparseEncoder("path/to/my/model", backend="onnx")
       model.save_pretrained("path/to/my/model")
 
-   or with :meth:`model.push_to_hub() <sentence_transformers.SparseEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
+   or with :meth:`model.push_to_hub() <sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
 
    .. code-block:: python
 
@@ -381,14 +381,14 @@ If the model path or repository already contains a model in OpenVINO format, Sen
 
 .. tip::
 
-   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.SparseEncoder.save_pretrained>` if your model was local:
+   It's heavily recommended to save the exported model to prevent having to re-export it every time you run your code. You can do this by calling :meth:`model.save_pretrained() <sentence_transformers.sparse_encoder.model.SparseEncoder.save_pretrained>` if your model was local:
 
    .. code-block:: python
 
       model = SparseEncoder("path/to/my/model", backend="openvino")
       model.save_pretrained("path/to/my/model")
    
-   or with :meth:`model.push_to_hub() <sentence_transformers.SparseEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
+   or with :meth:`model.push_to_hub() <sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub>` if your model was from the Hugging Face Hub:
 
    .. code-block:: python
 
@@ -524,7 +524,7 @@ The following images show the benchmark results for the different backends on GP
    </ul>
    I also benchmarked <a href="https://huggingface.co/ibm-granite/granite-embedding-30m-sparse">ibm-granite/granite-embedding-30m-sparse</a>, but it proved too small to effectively show the gains of the different backends, so I excluded it from the results.
    <br>
-   Performance ratio: The same models and hardware was used. We compare the performance against the performance of PyTorch with fp32, i.e. the default backend and precision.
+   Quality ratio: The same models and hardware were used. We compare the retrieval quality against that of PyTorch with fp32, i.e. the default backend and precision.
    <ul>
       <li>
          <b>Evaluation: </b>

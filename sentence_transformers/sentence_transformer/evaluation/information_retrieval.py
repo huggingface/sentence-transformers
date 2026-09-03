@@ -43,7 +43,7 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         name (str): A name for the evaluation. Defaults to "".
         write_csv (bool): Whether to write the evaluation results to a CSV file. Defaults to True.
         truncate_dim (int, optional): The dimension to truncate the embeddings to. Defaults to None.
-        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to the ``similarity`` function from the ``model``.
+        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to the ``similarity`` function of the model passed to each call, so a reused evaluator follows every model's own similarity.
         main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation. Defaults to None.
         query_prompt (str, optional): The prompt to be used when encoding the corpus. Defaults to None.
         query_prompt_name (str, optional): The name of the prompt to be used when encoding the corpus. Defaults to None.
@@ -183,6 +183,7 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         self.write_csv = write_csv
         self.score_functions = score_functions
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
+        self._score_functions_from_model = score_functions is None
         self.main_score_function = SimilarityFunction(main_score_function) if main_score_function else None
         self.truncate_dim = truncate_dim
 
@@ -215,6 +216,9 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             for k in self.map_at_k:
                 self.csv_headers.append(f"{score_name}-MAP@{k}")
 
+    def _model_score_functions(self, model: SentenceTransformer) -> dict[str, Callable[[Tensor, Tensor], Tensor]]:
+        return {model.similarity_fn_name: model.similarity}
+
     def __call__(
         self,
         model: SentenceTransformer,
@@ -236,10 +240,17 @@ class InformationRetrievalEvaluator(BaseEvaluator):
 
         logger.info(f"Information Retrieval Evaluation of the model on the {self.name} dataset{out_txt}:")
 
-        if self.score_functions is None:
-            self.score_functions = {model.similarity_fn_name: model.similarity}
-            self.score_function_names = [model.similarity_fn_name]
-            self._append_csv_headers(self.score_function_names)
+        headers_changed = False
+        if self._score_functions_from_model:
+            # Resolved per call, so an evaluator reused across models scores and labels each of them
+            # with its own similarity rather than with the first model's.
+            self.score_functions = self._model_score_functions(model)
+            if self.score_function_names != sorted(self.score_functions):
+                headers_changed = bool(self.score_function_names)
+                self.score_function_names = sorted(self.score_functions)
+                self.csv_headers = ["epoch", "steps"]
+                self._append_csv_headers(self.score_function_names)
+                self.primary_metric = None
 
         scores = self.compute_all_metrics(model, output_path=output_path, *args, **kwargs)
 
@@ -253,6 +264,12 @@ class InformationRetrievalEvaluator(BaseEvaluator):
                 fOut.write("\n")
 
             else:
+                if headers_changed:
+                    logger.warning(
+                        f"{self.csv_file} was written with different score function columns, so the "
+                        f"rows appended for {self.score_function_names} are labeled with the previous "
+                        "score function."
+                    )
                 fOut = open(csv_path, mode="a", encoding="utf-8")
 
             output_data = [epoch, steps]
