@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import logging
 import random
 import wave
 
@@ -275,9 +276,7 @@ def test_no_duplicates_batch_sampler_resamples_to_match_len(precompute_hashes: b
         **sampler_kwargs,
     )
 
-    expected_first_pass = _reference_no_duplicates_batches(
-        dataset=dataset, batch_size=2, drop_last=True, seed=0
-    )
+    expected_first_pass = _reference_no_duplicates_batches(dataset=dataset, batch_size=2, drop_last=True, seed=0)
     batches = list(iter(sampler))
 
     assert len(expected_first_pass) == 8
@@ -304,9 +303,7 @@ def test_no_duplicates_batch_sampler_does_not_truncate_when_first_pass_exceeds_l
         generator=torch.Generator(),
         seed=0,
     )
-    expected_first_pass = _reference_no_duplicates_batches(
-        dataset=dataset, batch_size=2, drop_last=False, seed=0
-    )
+    expected_first_pass = _reference_no_duplicates_batches(dataset=dataset, batch_size=2, drop_last=False, seed=0)
     batches = list(iter(sampler))
 
     assert len(expected_first_pass) > len(sampler)
@@ -341,6 +338,54 @@ def test_no_duplicates_batch_sampler_cannot_form_batch_does_not_loop_forever() -
     batches = list(iter(sampler))
     assert batches == []
     assert len(sampler) == 5
+
+
+def test_no_duplicates_batch_sampler_warns_once_when_resampling(caplog) -> None:
+    dataset = Dataset.from_list(
+        [{"anchor": "anchor_1", "positive": "positive_1"}] * 12
+        + [{"anchor": "anchor_2", "positive": "positive_2"}] * 8
+    )
+    sampler = NoDuplicatesBatchSampler(
+        dataset=dataset,
+        batch_size=2,
+        drop_last=True,
+        generator=torch.Generator(),
+        seed=0,
+    )
+    with caplog.at_level(logging.WARNING):
+        batches = list(iter(sampler))
+        sampler.set_epoch(1)
+        batches_second_epoch = list(iter(sampler))
+
+    assert len(batches) == len(batches_second_epoch) == len(sampler)
+    warnings = [record for record in caplog.records if "repeats from earlier batches" in record.message]
+    assert len(warnings) == 1
+    assert "8 of the expected 10 batches" in warnings[0].message
+    assert "at most 20.0%" in warnings[0].message
+
+
+def test_no_duplicates_batch_sampler_caps_resample_passes(caplog) -> None:
+    # A dominant duplicate value limits every pass to a single unique batch, so filling
+    # ``__len__`` would cost one full pass per missing batch. The cap bounds that work
+    # and the shortfall is reported instead.
+    dataset = Dataset.from_list(
+        [{"anchor": "same", "positive": "same"}] * 20
+        + [{"anchor": f"unique_{i}", "positive": f"unique_positive_{i}"} for i in range(3)]
+    )
+    sampler = NoDuplicatesBatchSampler(
+        dataset=dataset,
+        batch_size=4,
+        drop_last=True,
+        generator=torch.Generator(),
+        seed=0,
+    )
+    with caplog.at_level(logging.WARNING):
+        batches = list(iter(sampler))
+
+    assert len(sampler) == 5
+    assert len(batches) == 1 + sampler_module._MAX_RESAMPLE_PASSES
+    assert all(len(batch) == 4 for batch in batches)
+    assert f"yielded only {len(batches)} of the expected {len(sampler)} batches" in caplog.text
 
 
 @pytest.mark.skipif(not is_xxhash_available(), reason="xxhash not installed")

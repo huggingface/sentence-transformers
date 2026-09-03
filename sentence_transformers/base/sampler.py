@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 import os
 import pickle
 from abc import ABC, abstractmethod
@@ -14,6 +13,7 @@ import numpy as np
 import torch
 from torch.utils.data import BatchSampler, ConcatDataset, SubsetRandomSampler
 from transformers.utils import ExplicitEnum
+from transformers.utils import logging as transformers_logging
 
 try:
     import xxhash
@@ -25,11 +25,15 @@ from sentence_transformers.util import is_datasets_available
 if is_datasets_available():
     from datasets import Dataset
 
-logger = logging.getLogger(__name__)
+# NOTE: transformers wraps the regular logging module for e.g. warning_once
+logger = transformers_logging.get_logger(__name__)
 
 _XXHASH_INT64_MAX = 1 << 63
 _XXHASH_UINT64_MAX = 1 << 64
 _EXCLUDE_DATASET_COLUMNS = {"dataset_name"}
+
+# Extra shuffled passes that NoDuplicatesBatchSampler.__iter__ may run to reach __len__ batches.
+_MAX_RESAMPLE_PASSES = 2
 
 
 class BatchSamplers(ExplicitEnum):
@@ -534,11 +538,12 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         batch. If not, add the sample values to the batch keep going until the batch is full. If the batch is full, yield
         the batch indices and continue with the next batch.
 
-        When a full pass over the dataset yields fewer batches than :meth:`__len__` (common with
-        ``drop_last=True`` and many duplicate values), the remaining indices are reshuffled and
-        sampling continues until the advertised length is reached. This keeps
-        :class:`~torch.utils.data.DataLoader` / Trainer step counts in sync and avoids DDP hangs
-        when ranks wait for batches that would never arrive. See #3348.
+        When a full pass over the dataset yields fewer batches than :meth:`__len__` (possible with
+        ``drop_last=True`` and many duplicate values), the dataset is reshuffled and sampling
+        continues until the advertised length is reached, for a limited number of extra passes.
+        Batches added this way redraw samples that already appeared earlier in the epoch, and a
+        warning is logged once. This keeps the number of batches in line with the length promised
+        to the DataLoader and the learning rate scheduler.
         """
         if self.generator and self.seed is not None:
             self.generator.manual_seed(self.seed + self.epoch)
@@ -572,23 +577,36 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
 
         expected_num_batches = len(self)
         num_yielded = 0
-        first_pass = True
 
-        while True:
-            pass_yielded = 0
-            for batch_indices in self._iter_one_pass(get_sample_values, _has_overlap):
-                # The first pass may yield more batches than ``__len__`` (e.g. drop_last=False
-                # with many collisions producing smaller leftover batches). Later passes only
-                # fill the shortfall so we never truncate the historical first-pass stream.
-                if not first_pass and num_yielded >= expected_num_batches:
-                    return
-                yield batch_indices
-                num_yielded += 1
-                pass_yielded += 1
+        # Never truncate the first pass, as drop_last=False may legitimately yield more
+        # (smaller) batches than ``__len__``.
+        for batch_indices in self._iter_one_pass(get_sample_values, _has_overlap):
+            yield batch_indices
+            num_yielded += 1
 
-            first_pass = False
-            if num_yielded >= expected_num_batches or pass_yielded == 0:
-                return
+        if num_yielded >= expected_num_batches:
+            return
+
+        if num_yielded > 0:
+            shortfall = expected_num_batches - num_yielded
+            logger.warning_once(
+                f"NoDuplicatesBatchSampler produced only {num_yielded} of the expected "
+                f"{expected_num_batches} batches in a full pass over the dataset. The remaining "
+                f"{shortfall} batches are resampled, so at most {shortfall / expected_num_batches:.1%} "
+                "of this epoch's samples are repeats from earlier batches."
+            )
+            for _ in range(_MAX_RESAMPLE_PASSES):
+                for batch_indices in self._iter_one_pass(get_sample_values, _has_overlap):
+                    yield batch_indices
+                    num_yielded += 1
+                    if num_yielded >= expected_num_batches:
+                        return
+
+        logger.warning_once(
+            f"NoDuplicatesBatchSampler yielded only {num_yielded} of the expected "
+            f"{expected_num_batches} batches. The dataset has too few distinct values for this "
+            "batch size. Consider lowering it."
+        )
 
     def _iter_one_pass(
         self,
@@ -645,16 +663,15 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                     yield batch_indices
 
     def __len__(self) -> int:
-        """Return the number of batches advertised to DataLoader / Trainer.
+        """Return the number of batches advertised to the DataLoader.
 
-        This remains a cheap upper-bound estimate (``ceil`` / ``floor`` of
-        ``len(dataset) / batch_size``). Computing the exact count would require
-        running the full no-duplicates pass before training.
-
-        When a single pass cannot fill this many batches, :meth:`__iter__`
-        reshuffles and continues sampling until this length is reached (or until
-        a pass produces no further batches). That keeps step counts aligned
-        under DDP without the expensive precomputation discussed in #3348.
+        This is a cheap estimate based only on the dataset and batch sizes, as
+        computing the exact count would require running the full no-duplicates
+        pass before training. When a single pass cannot fill this many batches,
+        :meth:`__iter__` reshuffles and continues sampling until this length is
+        reached, within a limited number of extra passes. A dataset with very
+        few distinct values can still fall short, in which case a warning is
+        logged.
         """
         if self.drop_last:
             return len(self.dataset) // self.batch_size
