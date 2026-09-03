@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from functools import cache
 from typing import overload
 
 import numpy as np
@@ -187,9 +188,28 @@ class BaseTokenPooling(Module, ABC):
         self.save_config(output_path)
 
 
+@cache
+def _ward_linkage_fn() -> Callable[..., np.ndarray]:
+    """Resolve the Ward linkage backend once (fastcluster when installed, scipy otherwise).
+
+    Python does not cache failed imports, so an uncached lookup would walk sys.path for every
+    pooled document.
+    """
+    try:
+        from fastcluster import linkage
+    except (ImportError, OSError, RuntimeError):
+        from scipy.cluster.hierarchy import linkage
+    return linkage
+
+
 def _hierarchical_pool_one(embedding: Tensor, pool_factor: float, num_protected_tokens: int) -> Tensor:
-    """Ward hierarchical clustering on cosine distance for a single 2D embedding."""
+    """Ward hierarchical clustering on cosine distance for a single 2D embedding.
+
+    Uses fastcluster for the Ward linkage when installed (moderately faster, same clustering as
+    scipy except on exact distance ties). Falls back to scipy silently.
+    """
     from scipy.cluster import hierarchy
+    from scipy.spatial.distance import squareform
 
     device = embedding.device
     embedding = embedding.cpu()
@@ -203,9 +223,10 @@ def _hierarchical_pool_one(embedding: Tensor, pool_factor: float, num_protected_
 
     # Detach: clustering only picks assignments, gradients flow through the cluster means below.
     to_pool_fp32 = to_pool.detach().float()
-    cos_sim = torch.mm(to_pool_fp32, to_pool_fp32.t()).numpy()
-    condensed = np.clip(1 - cos_sim, 0, 2)[np.triu_indices(num_to_pool, k=1)]
-    linkage = hierarchy.linkage(condensed, method="ward")
+    cos_dist = (1 - torch.mm(to_pool_fp32, to_pool_fp32.t())).clamp_(0, 2).numpy()
+    # squareform with checks=False extracts the condensed upper triangle faster than a triu_indices gather.
+    condensed = squareform(cos_dist, checks=False)
+    linkage = _ward_linkage_fn()(condensed, method="ward")
     labels = hierarchy.fcluster(linkage, t=num_clusters, criterion="maxclust") - 1  # 0-indexed
     # Dense-index the labels so pooled rows line up with valid cluster ids even if fcluster returns
     # fewer than num_clusters distinct labels (possible with ties).
@@ -227,6 +248,10 @@ class HierarchicalTokenPooling(BaseTokenPooling):
 
     Assumes L2-normalized embeddings (place after a
     :class:`~sentence_transformers.sentence_transformer.modules.Normalize` in the pipeline).
+
+    Installing the optional ``fastcluster`` package speeds up the clustering step. Its output is
+    identical to scipy's except on exact distance ties, which the two libraries may break
+    differently.
 
     Reference compatibility: this implementation matches PyLate *after* its condensed-Ward fix
     (PyLate > 1.3.4). It intentionally does NOT reproduce released PyLate <= 1.3.4 (square-matrix

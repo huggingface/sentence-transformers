@@ -58,6 +58,7 @@ openvino = ["optimum-intel[openvino]>=2.0.0"]
 dev = [
     "datasets>=2.16.0",
     "accelerate>=1.3.0",
+    "fastcluster>=1.2.0",
     "pre-commit",
     "pytest",
     "pytest-cov",
@@ -74,6 +75,7 @@ dev = [
 test = [
     "datasets>=2.16.0",
     "accelerate>=1.3.0",
+    "fastcluster>=1.2.0",
     "pytest",
     "pytest-cov",
     "pytest-env",
