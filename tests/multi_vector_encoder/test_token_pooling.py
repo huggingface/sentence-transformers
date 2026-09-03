@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pickle
+import sys
 from itertools import combinations
 
 import pytest
@@ -112,6 +113,23 @@ class TestHierarchicalTokenPooling:
         reference = HierarchicalTokenPooling(pool_factor=2, num_protected_tokens=1).pool([emb.float()])[0]
         assert out.shape == reference.shape
         assert torch.allclose(out.float(), reference, atol=1e-2)
+
+    def test_scipy_fallback_matches_fastcluster(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # fastcluster is optional. Without it the pooling must silently fall back to scipy and
+        # produce the same clustering (None in sys.modules makes the import raise ImportError).
+        pytest.importorskip("fastcluster")
+        from sentence_transformers.multi_vector_encoder.modules.token_pooling import _ward_linkage_fn
+
+        emb = _normed((40, 8))
+        pooling = HierarchicalTokenPooling(pool_factor=2, num_protected_tokens=1)
+        default = pooling.pool([emb])[0]
+        monkeypatch.setitem(sys.modules, "fastcluster", None)
+        _ward_linkage_fn.cache_clear()
+        try:
+            fallback = pooling.pool([emb])[0]
+        finally:
+            _ward_linkage_fn.cache_clear()
+        assert torch.equal(fallback, default)
 
     def test_no_op_when_pool_factor_1(self) -> None:
         docs = [_normed((10, 4))]
