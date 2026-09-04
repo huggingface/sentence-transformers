@@ -236,7 +236,7 @@ def semantic_search(
                     if len(queries_result_list[query_id]) < top_k:
                         heapq.heappush(
                             queries_result_list[query_id], (score, corpus_id)
-                        )  # heaqp tracks the quantity of the first element in the tuple
+                        )  # heap tracks the quantity of the first element in the tuple
                     else:
                         heapq.heappushpop(queries_result_list[query_id], (score, corpus_id))
 
