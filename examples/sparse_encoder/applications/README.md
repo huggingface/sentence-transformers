@@ -1,6 +1,6 @@
 # Applications
 
-SparseEncoder can be used for various use-cases. In these folders, you find several example scripts that show case how SparseEncoder can be used
+SparseEncoder can be used for various use-cases. In these folders, you find several example scripts that showcase how SparseEncoder can be used
 
 ## Computing Embeddings
 

@@ -1,6 +1,6 @@
 # Applications
 
-SentenceTransformers can be used for various use-cases. In these folders, you find several example scripts that show case how SentenceTransformers can be used
+SentenceTransformers can be used for various use-cases. In these folders, you find several example scripts that showcase how SentenceTransformers can be used
 
 ## Computing Embeddings
 
@@ -12,7 +12,7 @@ The [clustering](clustering/) folder shows how SentenceTransformers can be used 
 
 ## Cross-Encoder
 
-SentenceTransformers also support training and inference of [Cross-Encoders](cross-encoder/). There, two sentences are presented simultaneously to the transformer network and a score (0...1) is derived indicating the similarity or a label.
+SentenceTransformers also support training and inference of [Cross-Encoders](../../cross_encoder/applications/). There, two sentences are presented simultaneously to the transformer network and a score (0...1) is derived indicating the similarity or a label.
 
 ## Parallel Sentence Mining
 
