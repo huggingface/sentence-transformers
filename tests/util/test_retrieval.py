@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 import torch
@@ -11,7 +13,7 @@ from sentence_transformers.util.retrieval import (
     paraphrase_mining_embeddings,
     semantic_search,
 )
-from sentence_transformers.util.similarity import pytorch_cos_sim
+from sentence_transformers.util.similarity import cos_sim, dot_score, euclidean_sim, manhattan_sim, pytorch_cos_sim
 
 
 def test_semantic_search() -> None:
@@ -93,6 +95,26 @@ def test_paraphrase_mining_embeddings_respects_max_pairs_with_symmetric_scores(m
 
     assert len(pairs) == max_pairs
     assert len({(i, j) for _, i, j in pairs}) == max_pairs
+
+
+@pytest.mark.parametrize("score_function", [cos_sim, dot_score, euclidean_sim, manhattan_sim])
+@pytest.mark.parametrize("max_pairs", [2, 10, 50])
+def test_paraphrase_mining_embeddings_returns_top_max_pairs(
+    score_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor], max_pairs: int
+) -> None:
+    torch.manual_seed(0)
+    embeddings = torch.randn(40, 8)
+    scores = score_function(embeddings, embeddings)
+    i_idx, j_idx = torch.triu_indices(len(embeddings), len(embeddings), offset=1)
+    expected = sorted(zip(scores[i_idx, j_idx].tolist(), i_idx.tolist(), j_idx.tolist()), reverse=True)[:max_pairs]
+
+    # With top_k covering every other sentence, all pairs are candidates and the result must be the global top max_pairs
+    pairs = paraphrase_mining_embeddings(
+        embeddings, max_pairs=max_pairs, top_k=len(embeddings), score_function=score_function
+    )
+
+    assert [(i, j) for _, i, j in pairs] == [(i, j) for _, i, j in expected]
+    assert [score for score, _, _ in pairs] == pytest.approx([score for score, _, _ in expected])
 
 
 def test_community_detection_two_clear_communities():

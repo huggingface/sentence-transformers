@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import heapq
 import logging
-import queue
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -47,7 +46,8 @@ def paraphrase_mining(
         corpus_chunk_size (int, optional): Compare a sentence simultaneously against #corpus_chunk_size other sentences. Decrease, to lower memory footprint (increases run-time). Defaults to 100000.
         max_pairs (int, optional): Maximal number of text pairs returned. Defaults to 500000.
         top_k (int, optional): For each sentence, we retrieve up to top_k other sentences. Defaults to 100.
-        score_function (Callable[[Tensor, Tensor], Tensor], optional): Function for computing scores. By default, cosine similarity. Defaults to cos_sim.
+        score_function (Callable[[Tensor, Tensor], Tensor], optional): Function for computing scores. Assumed to be symmetric,
+            since only one direction's score is kept for each pair. By default, cosine similarity. Defaults to cos_sim.
         truncate_dim (int, optional): The dimension to truncate sentence embeddings to. If None, uses the model's ones. Defaults to None.
         prompt_name (Optional[str], optional): The name of a predefined prompt to use when encoding the sentence.
             It must match a key in the model `prompts` dictionary, which can be set during model initialization
@@ -104,7 +104,8 @@ def paraphrase_mining_embeddings(
         corpus_chunk_size (int): Compare a sentence simultaneously against #corpus_chunk_size other sentences. Decrease, to lower memory footprint (increases run-time).
         max_pairs (int): Maximal number of text pairs returned.
         top_k (int): For each sentence, we retrieve up to top_k other sentences
-        score_function (Callable[[Tensor, Tensor], Tensor]): Function for computing scores. By default, cosine similarity.
+        score_function (Callable[[Tensor, Tensor], Tensor]): Function for computing scores. Assumed to be symmetric,
+            since only one direction's score is kept for each pair. By default, cosine similarity.
 
     Returns:
         List[List[Union[float, int]]]: Returns a list of triplets with the format [score, id1, id2]
@@ -113,10 +114,9 @@ def paraphrase_mining_embeddings(
     top_k += 1  # A sentence has the highest similarity to itself. Increase +1 as we are interest in distinct pairs
 
     # Mine for duplicates
-    pairs = queue.PriorityQueue()
-    queued_pairs = set()  # The (i, j) of every pair currently in `pairs`, always with i < j
-    min_score = -1
-    num_added = 0
+    pairs = []  # Min-heap of (score, i, j) with i < j, capped at max_pairs entries
+    queued_pairs = set()  # The (i, j) of every pair currently in `pairs`
+    min_score = float("-inf")
 
     for corpus_start_idx in range(0, len(embeddings), corpus_chunk_size):
         for query_start_idx in range(0, len(embeddings), query_chunk_size):
@@ -132,38 +132,26 @@ def paraphrase_mining_embeddings(
             scores_top_k_idx = scores_top_k_idx.cpu().tolist()
 
             for query_itr in range(len(scores)):
-                for top_k_idx, corpus_itr in enumerate(scores_top_k_idx[query_itr]):
-                    i = query_start_idx + query_itr
+                i = query_start_idx + query_itr
+                for corpus_itr, score in zip(scores_top_k_idx[query_itr], scores_top_k_values[query_itr]):
                     j = corpus_start_idx + corpus_itr
+                    if i == j or score <= min_score:
+                        continue
 
-                    if i != j and scores_top_k_values[query_itr][top_k_idx] > min_score:
-                        sorted_i, sorted_j = (i, j) if i < j else (j, i)
-                        if (sorted_i, sorted_j) in queued_pairs:
-                            continue
+                    pair = (i, j) if i < j else (j, i)
+                    if pair in queued_pairs:
+                        continue
 
-                        pairs.put((scores_top_k_values[query_itr][top_k_idx], sorted_i, sorted_j))
-                        queued_pairs.add((sorted_i, sorted_j))
-                        num_added += 1
-
-                        if num_added > max_pairs:
-                            entry = pairs.get()
-                            queued_pairs.discard((entry[1], entry[2]))
-                            min_score = entry[0]
-
-    # Get the pairs
-    added_pairs = set()  # Used for duplicate detection
-    pairs_list = []
-    while not pairs.empty():
-        score, i, j = pairs.get()
-        sorted_i, sorted_j = sorted([i, j])
-
-        if sorted_i != sorted_j and (sorted_i, sorted_j) not in added_pairs:
-            added_pairs.add((sorted_i, sorted_j))
-            pairs_list.append([score, sorted_i, sorted_j])
+                    queued_pairs.add(pair)
+                    if len(pairs) < max_pairs:
+                        heapq.heappush(pairs, (score, *pair))
+                    else:
+                        evicted = heapq.heappushpop(pairs, (score, *pair))
+                        queued_pairs.discard(evicted[1:])
+                        min_score = evicted[0]
 
     # Highest scores first
-    pairs_list = sorted(pairs_list, key=lambda x: x[0], reverse=True)
-    return pairs_list
+    return sorted(([score, i, j] for score, i, j in pairs), key=lambda x: x[0], reverse=True)
 
 
 def information_retrieval(*args, **kwargs) -> list[list[dict[str, int | float]]]:

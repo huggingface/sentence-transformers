@@ -41,7 +41,7 @@ For example, for each sentence you will get only the one most relevant sentence 
 
     paraphrases = paraphrase_mining(model, sentences, corpus_chunk_size=len(sentences), top_k=1)
 
-The final key parameter is ``max_pairs``, which determines the maximum number of paraphrase pairs that the function returns. Usually, you get fewer pairs returned because the list is cleaned of duplicates, e.g., if it contains (A, B) and (B, A), then only one is returned.
+The final key parameter is ``max_pairs``, which determines the maximum number of paraphrase pairs that the function returns.
 
 .. note::
     
