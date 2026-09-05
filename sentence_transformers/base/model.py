@@ -12,6 +12,7 @@ import traceback
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
+from itertools import chain
 from multiprocessing import Queue
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -1515,6 +1516,19 @@ This pull request has been automatically generated to add {self.__class__.__name
                     module.gradient_checkpointing_enable(gradient_checkpointing_kwargs)
                 except TypeError:
                     module.gradient_checkpointing_enable()
+
+    def _to_device(self, device: int | str | torch.device) -> None:
+        """Move the model to ``device``, unless every tensor of it is already there.
+
+        Moving a model that is already in place is a no-op for an ordinary tensor, but not for
+        every tensor: ``nn.Module._apply`` rebuilds each parameter, which fails for a torchao
+        quantized weight with ``_apply(): Couldn't swap Linear.weight``. ``torch.empty`` resolves
+        ``device`` the way a tensor reports it, so that e.g. ``"cuda"`` matches a ``cuda:0``
+        parameter rather than moving the model on every call.
+        """
+        target_device = torch.empty(0, device=device).device
+        if any(tensor.device != target_device for tensor in chain(self.parameters(), self.buffers())):
+            self.to(device)
 
     @property
     def device(self) -> torch.device:

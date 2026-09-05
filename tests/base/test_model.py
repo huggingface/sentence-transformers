@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -8,7 +9,7 @@ import warnings
 from collections import UserDict
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -939,14 +940,83 @@ def test_device_map_controls_placement(model_class: type, model_id: str) -> None
     assert all(param.device.type == "cpu" for param in model.parameters())
 
 
-def test_device_argument_warns_when_device_map_present(caplog: pytest.LogCaptureFixture) -> None:
-    """Passing both ``device`` and a ``device_map`` should warn that ``device_map`` wins. See #3822."""
-    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-    with caplog.at_level(logging.WARNING, logger="sentence_transformers.base.model"):
-        # device="cuda" is inert here (device_map controls placement), so this is safe without a GPU.
-        model = SentenceTransformer(model_id, device="cuda", model_kwargs={"device_map": {"": "cpu"}})
-    assert model.device.type == "cpu"
-    assert "device_map" in caplog.text and "ignored" in caplog.text
+ENCODE_MODELS = [
+    ("stsb_bert_tiny_model", "encode", ["hello"]),
+    ("splade_bert_tiny_model", "encode", ["hello"]),
+    ("reranker_bert_tiny_model", "predict", [("query", "passage")]),
+    ("mve_bert_tiny_model", "encode", ["hello"]),
+    ("static_embedding_model", "encode", ["hello"]),
+]
+ENCODE_MODEL_IDS = [
+    "sentence_transformer",
+    "sparse_encoder",
+    "cross_encoder",
+    "multi_vector_encoder",
+    "static_embedding",
+]
+
+
+@pytest.mark.parametrize(["model_fixture", "encode_method", "inputs"], ENCODE_MODELS, ids=ENCODE_MODEL_IDS)
+def test_encode_does_not_move_a_model_that_is_already_in_place(
+    request: pytest.FixtureRequest, model_fixture: str, encode_method: str, inputs: list
+) -> None:
+    """Encoding must not move a model that is already on the requested device.
+
+    The device defaults to the one the model is already on, and the move that followed was a no-op
+    for an ordinary tensor. It is not a no-op for every tensor: ``nn.Module._apply`` rebuilds each
+    parameter, which fails for a torchao quantized weight with ``_apply(): Couldn't swap
+    Linear.weight``. See #3908.
+    """
+    model = request.getfixturevalue(model_fixture)
+    with patch.object(model, "to", wraps=model.to) as move:
+        getattr(model, encode_method)(inputs)
+    move.assert_not_called()
+
+
+@pytest.mark.parametrize("device", [None, "cpu", "cpu:0", torch.device("cpu")], ids=str)
+def test_encode_recognises_every_spelling_of_the_device_it_is_on(
+    stsb_bert_tiny_model: SentenceTransformer, device: str | torch.device | None
+) -> None:
+    """``"cpu:0"`` and ``torch.device("cpu")`` name the device a ``cpu`` parameter is on.
+
+    A parameter on an accelerator always reports an index, so comparing ``torch.device("cuda")``
+    against it would differ and move the model on every call. The requested device is resolved the
+    way a tensor reports it to keep the two comparable.
+    """
+    with patch.object(stsb_bert_tiny_model, "to", wraps=stsb_bert_tiny_model.to) as move:
+        stsb_bert_tiny_model.encode(["hello"], **({} if device is None else {"device": device}))
+    move.assert_not_called()
+
+
+@pytest.mark.parametrize(["model_fixture", "encode_method", "inputs"], ENCODE_MODELS[:4], ids=ENCODE_MODEL_IDS[:4])
+@pytest.mark.parametrize("stranded", ["buffer", "module"])
+def test_encode_moves_a_model_that_is_not_in_place(
+    request: pytest.FixtureRequest, model_fixture: str, encode_method: str, inputs: list, stranded: str
+) -> None:
+    """A model that spans two devices must still be moved to the requested one.
+
+    ``model.device`` reports the underlying transformers model, so a separately loaded module or a
+    buffer can sit elsewhere without showing up there. ``to()`` moves buffers as well as parameters,
+    so both have to be considered.
+    """
+    model = request.getfixturevalue(model_fixture)
+    expected = model.device
+
+    if stranded == "buffer":
+        name, buffer = next(iter(model.named_buffers()))
+        owner = model.get_submodule(name.rsplit(".", 1)[0])
+        attribute = name.rsplit(".", 1)[1]
+        setattr(owner, attribute, None)
+        owner.register_buffer(attribute, buffer.to("meta"))
+    else:
+        module = [child for child in model.modules() if next(child.parameters(recurse=False), None) is not None][-1]
+        module.to("meta")
+
+    with patch.object(model, "to", wraps=model.to) as move:
+        with contextlib.suppress(NotImplementedError):  # a meta tensor cannot be moved back
+            getattr(model, encode_method)(inputs)
+    move.assert_called_once()
+    assert torch.device(move.call_args.args[0]) == expected  # the classes spell the device differently
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")

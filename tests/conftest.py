@@ -12,8 +12,13 @@ import torch
 from huggingface_hub.utils import validate_repo_id
 from tokenizers import Tokenizer
 
-from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
-from sentence_transformers.sentence_transformer.modules import Pooling, StaticEmbedding, Transformer, WordEmbeddings
+from sentence_transformers import CrossEncoder, MultiVectorEncoder, SentenceTransformer, SparseEncoder
+from sentence_transformers.sentence_transformer.modules import (
+    Pooling,
+    StaticEmbedding,
+    Transformer,
+    WordEmbeddings,
+)
 from sentence_transformers.sentence_transformer.modules.tokenizer import WhitespaceTokenizer
 from sentence_transformers.util import is_datasets_available
 
@@ -219,6 +224,20 @@ def _splade_bert_tiny_model() -> SparseEncoder:
 @pytest.fixture()
 def splade_bert_tiny_model(_splade_bert_tiny_model: SparseEncoder) -> SparseEncoder:
     return deepcopy(_splade_bert_tiny_model)
+
+
+# Multi Vector Encoders
+@pytest.fixture(scope="session")
+def _mve_bert_tiny_model() -> MultiVectorEncoder:
+    model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
+    model = MultiVectorEncoder(model_id)
+    model.model_card_data.generate_widget_examples = False  # Disable widget examples generation for testing
+    return model
+
+
+@pytest.fixture()
+def mve_bert_tiny_model(_mve_bert_tiny_model: MultiVectorEncoder) -> MultiVectorEncoder:
+    return deepcopy(_mve_bert_tiny_model)
 
 
 @pytest.fixture(scope="session")
