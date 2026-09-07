@@ -20,9 +20,9 @@ class CoSENTLoss(nn.Module):
 
         It computes the following loss function:
 
-        ``loss = logsum(1+exp(s(k,l)-s(i,j))+exp...)``, where ``(i,j)`` and ``(k,l)`` are any of the input pairs in the
-        batch such that the expected similarity of ``(i,j)`` is greater than ``(k,l)``. The summation is over all possible
-        pairs of input pairs in the batch that match this condition.
+        ``loss = log(1 + sum(exp(scale * (s(k,l) - s(i,j)))))``, where ``s`` is the score returned by
+        ``similarity_fct``. The sum is over all pairs of input pairs in the batch such that the similarity label of
+        ``(i,j)`` is greater than that of ``(k,l)``.
 
         Anecdotal experiments show that this loss function produces a more powerful training signal than :class:`CosineSimilarityLoss`,
         resulting in faster convergence and a final model with superior performance. Consequently, CoSENTLoss may be used

@@ -23,10 +23,18 @@ class AnglELoss(CoSENTLoss):
 
         It computes the following loss function:
 
-        ``loss = logsum(1+exp(s(i,j)-s(k,l))+exp...)``, where ``(i,j)`` and ``(k,l)`` are any of the input pairs in the
-        batch such that the expected similarity of ``(i,j)`` is greater than ``(k,l)``. The summation is over all possible
-        pairs of input pairs in the batch that match this condition. This is the same as CoSENTLoss, with a different
+        ``loss = log(1 + sum(exp(scale * (s(k,l) - s(i,j)))))``, where ``s`` is the score returned by
+        ``pairwise_angle_sim``. The sum is over all pairs of input pairs in the batch such that the similarity label of
+        ``(i,j)`` is greater than that of ``(k,l)``. This is the same objective as :class:`CoSENTLoss`, with a different
         similarity function.
+
+        .. note::
+
+            This implementation follows the authors' `reference code
+            <https://github.com/SeanLee97/AnglE/blob/5155458cfa6f7fbc7a8a19a66960cd86eadfd534/angle_emb/loss.py>`_.
+            Equation 3 of the published paper writes the angle objective with the opposite subtraction order.
+            The score returned by ``pairwise_angle_sim`` is not an ordinary geometric angle.
+            See `the discussion in #3368 <https://github.com/huggingface/sentence-transformers/issues/3368>`_.
 
         It is recommended to use this loss in conjunction with :class:`MultipleNegativesRankingLoss`, as done in
         the original paper.
@@ -37,7 +45,7 @@ class AnglELoss(CoSENTLoss):
                 value. Represents the inverse temperature.
 
         References:
-            - For further details, see: https://aclanthology.org/2024.acl-long.101/
+            - For further details, see: https://huggingface.co/papers/2309.12871
 
         Requirements:
             - Input pairs with corresponding similarity scores in range of the similarity function. Default is [-1,1].
