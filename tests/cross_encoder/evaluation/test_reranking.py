@@ -105,3 +105,56 @@ def test_validation_errors() -> None:
         CrossEncoderRerankingEvaluator([{"query": "q", "positive": ["a"], "negative": ["b"], "documents": ["c"]}])(
             None
         )
+
+
+# compute_metrics scores one query at a time, so these samples only serve to build the evaluator
+METRIC_SAMPLES = [{"query": "q", "positive": ["p"], "negative": ["n"]}]
+
+
+def test_mrr_is_independent_of_candidate_order_under_ties() -> None:
+    """Equally scored candidates may be passed in any order, so MRR should not depend on that order"""
+    evaluator = CrossEncoderRerankingEvaluator(METRIC_SAMPLES)
+    scores = [0.5, 0.5, 0.5, 0.5, 0.5]
+
+    mrr_first, _, _ = evaluator.compute_metrics([1, 0, 0, 0, 0], scores)
+    mrr_last, _, _ = evaluator.compute_metrics([0, 0, 0, 0, 1], scores)
+
+    assert mrr_first == pytest.approx(mrr_last)
+    # The positive is equally likely to end up at any of the five positions
+    assert mrr_first == pytest.approx((1 + 1 / 2 + 1 / 3 + 1 / 4 + 1 / 5) / 5)
+
+
+def test_mrr_with_several_relevant_documents_in_one_tie() -> None:
+    """A tie holding more than one relevant document reaches a relevant one sooner"""
+    evaluator = CrossEncoderRerankingEvaluator(METRIC_SAMPLES)
+
+    mrr, _, _ = evaluator.compute_metrics([1, 1, 0, 0], [0.5, 0.5, 0.5, 0.5])
+
+    # P(first relevant at position 1..3) = 1/2, 1/3, 1/6
+    assert mrr == pytest.approx(1 / 2 + (1 / 3) / 2 + (1 / 6) / 3)
+
+
+def test_mrr_when_every_tied_document_is_relevant() -> None:
+    """With no irrelevant document to get in the way the first position is always relevant"""
+    evaluator = CrossEncoderRerankingEvaluator(METRIC_SAMPLES)
+
+    mrr, _, _ = evaluator.compute_metrics([1, 1, 1], [0.5, 0.5, 0.5])
+
+    assert mrr == pytest.approx(1.0)
+
+
+def test_mrr_when_tie_starts_after_at_k() -> None:
+    """A tie that begins beyond at_k cannot contribute"""
+    evaluator = CrossEncoderRerankingEvaluator(METRIC_SAMPLES, at_k=2)
+
+    mrr, _, _ = evaluator.compute_metrics([0, 0, 1, 0], [0.9, 0.8, 0.5, 0.5])
+
+    assert mrr == pytest.approx(0.0)
+
+
+def test_mrr_without_ties_is_the_plain_reciprocal_rank() -> None:
+    """Distinct scores keep the previous behaviour"""
+    evaluator = CrossEncoderRerankingEvaluator(METRIC_SAMPLES)
+
+    assert evaluator.compute_metrics([0, 1, 0], [0.9, 0.8, 0.1])[0] == pytest.approx(1 / 2)
+    assert evaluator.compute_metrics([1, 0, 0], [0.9, 0.8, 0.1])[0] == pytest.approx(1.0)
