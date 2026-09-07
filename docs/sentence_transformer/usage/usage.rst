@@ -138,6 +138,54 @@ These methods accept all the same input types as :meth:`~sentence_transformers.s
    # tensor([[0.3907, 0.1490],
    #         [0.1235, 0.4872]])
 
+Encoding pre-sampled videos
+---------------------------
+
+If you have already decoded and sampled a video, pass its frames and metadata together as ``{"array": frames, "video_metadata": metadata}``. This lets each video in a batch carry its own timing information. For example, Qwen3-VL uses the original frame indices and frame rate to determine timestamps for the sampled frames.
+
+The example below assumes that you have extracted three frames from a 15-frame video recorded at 15 FPS, and two frames from a 10-frame video recorded at 10 FPS. The filenames identify the original, zero-based frame indices:
+
+.. code-block:: python
+
+   from PIL import Image
+   from sentence_transformers import SentenceTransformer
+
+   model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
+
+   videos = [
+       {
+           "array": [Image.open(f"clip_a/frame_{index}.jpg") for index in [0, 5, 10]],
+           "video_metadata": {
+               "fps": 15,
+               "total_num_frames": 15,
+               "frames_indices": [0, 5, 10],
+           },
+       },
+       {
+           "array": [Image.open(f"clip_b/frame_{index}.jpg") for index in [0, 5]],
+           "video_metadata": {
+               "fps": 10,
+               "total_num_frames": 10,
+               "frames_indices": [0, 5],
+           },
+       },
+   ]
+
+   embeddings = model.encode_document(
+       videos,
+       processing_kwargs={"video": {"do_sample_frames": False}},
+   )
+
+``array`` can also be a pre-decoded NumPy array or PyTorch tensor with shape ``(num_sampled_frames, C, H, W)``. The metadata describes the source video:
+
+- ``fps``: the original video's frame rate, before sampling.
+- ``total_num_frames``: the total number of frames in the original video, not the number passed in ``array``.
+- ``frames_indices``: the original, zero-based indices of the supplied frames, in the same order as ``array``.
+
+Keep per-video metadata in each input dict. Options that apply to the entire call, such as ``do_sample_frames`` and resize settings, belong in ``processing_kwargs["video"]``. Setting ``do_sample_frames=False`` prevents the processor from sampling your frames again. To include text alongside a video, nest the same wrapper: ``{"text": "A description", "video": videos[0]}``; ``video_metadata`` is not a top-level modality key.
+
+If you pass video file paths instead of pre-sampled frames, the model's video processor can decode and sample the videos and populate the metadata for you. See `Installation <../../installation.html>`_ for the video dependencies.
+
 .. toctree::
    :maxdepth: 1
    :caption: Tasks and Advanced Usage
@@ -154,4 +202,3 @@ These methods accept all the same input types as :meth:`~sentence_transformers.s
    custom_models
    mteb_evaluation
    efficiency
-
