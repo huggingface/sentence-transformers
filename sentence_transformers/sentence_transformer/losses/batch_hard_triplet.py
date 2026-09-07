@@ -164,9 +164,6 @@ class BatchHardTripletLoss(nn.Module):
         Args:
             labels: labels of the batch, of size (batch_size,)
             embeddings: tensor of shape (batch_size, embed_dim)
-            margin: margin for triplet loss
-            squared: Boolean. If true, output is the pairwise squared euclidean distance matrix.
-                     If false, output is the pairwise euclidean distance matrix.
         Returns:
             Label_Sentence_Triplet: scalar tensor containing the triplet loss
         """
