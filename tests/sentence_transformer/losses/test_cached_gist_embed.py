@@ -6,7 +6,7 @@ import pytest
 import torch
 
 import sentence_transformers.sentence_transformer.losses.cached_gist_embed as cge
-from sentence_transformers.sentence_transformer.losses import CachedGISTEmbedLoss
+from sentence_transformers.sentence_transformer.losses import CachedGISTEmbedLoss, GISTEmbedLoss
 
 
 def _make_loss(margin: float, mini_batch_size: int = 32) -> CachedGISTEmbedLoss:
@@ -28,6 +28,51 @@ def _make_loss(margin: float, mini_batch_size: int = 32) -> CachedGISTEmbedLoss:
     obj.gather_across_devices = True
     obj.cross_entropy_loss = torch.nn.CrossEntropyLoss()
     return obj
+
+
+def _tokenizer_without_vocab_attribute(tmp_path):
+    """A real slow tokenizer that exposes `get_vocab()` but has no `.vocab` attribute."""
+    import json
+
+    from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
+
+    (tmp_path / "vocab.json").write_text(json.dumps({"<unk>": 0, "the": 1, "cat": 2}))
+    (tmp_path / "merges.txt").write_text("#version: 0.2\n\u0120 t\n")
+    return GPT2Tokenizer(
+        vocab_file=str(tmp_path / "vocab.json"),
+        merges_file=str(tmp_path / "merges.txt"),
+        unk_token="<unk>",
+    )
+
+
+class _ModelWithTokenizer(torch.nn.Module):
+    def __init__(self, tokenizer) -> None:
+        super().__init__()
+        self.tokenizer = tokenizer
+        self.max_seq_length = 128
+        self.linear = torch.nn.Linear(2, 2)
+
+    def __getitem__(self, index):
+        return self.linear
+
+
+@pytest.mark.parametrize("loss_class", [GISTEmbedLoss, CachedGISTEmbedLoss])
+def test_accepts_a_tokenizer_without_a_vocab_attribute(loss_class, tmp_path) -> None:
+    """Both losses must compare vocabularies through the `get_vocab()` API.
+
+    Some tokenizers (GPT2, XLM, Flaubert) keep their vocabulary in `encoder` and expose
+    no `.vocab` attribute at all, so reading it raises AttributeError.
+    """
+    tokenizer = _tokenizer_without_vocab_attribute(tmp_path)
+    with pytest.raises(AttributeError):
+        tokenizer.vocab
+
+    model = _ModelWithTokenizer(tokenizer)
+    guide = _ModelWithTokenizer(tokenizer)
+
+    loss = loss_class(model, guide)
+
+    assert loss.must_retokenize is False
 
 
 @pytest.fixture
