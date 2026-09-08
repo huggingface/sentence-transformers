@@ -72,7 +72,7 @@ class ParallelSentencesDataset(Dataset):
         self.num_sentences = 0
 
     def load_data(
-        self, filepath: str, weight: int = 100, max_sentences: int = None, max_sentence_length: int = 128
+        self, filepath: str, weight: int = 100, max_sentences: int | None = None, max_sentence_length: int = 128
     ) -> None:
         """
         Reads in a tab-separated .txt/.csv/.tsv or .gz file. The different columns contain the different translations of the sentence in the first column
@@ -117,7 +117,7 @@ class ParallelSentencesDataset(Dataset):
         self,
         parallel_sentences: list[list[str]],
         weight: int = 100,
-        max_sentences: int = None,
+        max_sentences: int | None = None,
         max_sentence_length: int = 128,
     ):
         sentences_map = {}
