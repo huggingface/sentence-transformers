@@ -194,7 +194,7 @@ class FitMixin:
         save_best_model: bool = True,
         max_grad_norm: float = 1,
         use_amp: bool = False,
-        callback: Callable[[float, int, int], None] = None,
+        callback: Callable[[float, int, int], None] | None = None,
         show_progress_bar: bool = True,
     ) -> None:
         """
@@ -421,7 +421,7 @@ class FitMixin:
         save_best_model: bool = True,
         max_grad_norm: float = 1,
         use_amp: bool = False,
-        callback: Callable[[float, int, int], None] = None,
+        callback: Callable[[float, int, int], None] | None = None,
         show_progress_bar: bool = True,
     ) -> None:
         """

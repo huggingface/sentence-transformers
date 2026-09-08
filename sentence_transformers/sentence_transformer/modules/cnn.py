@@ -25,7 +25,7 @@ class CNN(Module):
         in_embedding_dimension: int,
         out_channels: int = 256,
         kernel_sizes: list[int] = [1, 3, 5],
-        stride_sizes: list[int] = None,
+        stride_sizes: list[int] | None = None,
     ):
         nn.Module.__init__(self)
         self.in_embedding_dimension = in_embedding_dimension
