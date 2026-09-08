@@ -3,12 +3,14 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import socket
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 import torch
+import torch.multiprocessing as mp
 from huggingface_hub import HfApi
 
 from sentence_transformers import (
@@ -205,3 +207,62 @@ def test_track_loss_components_detaches_the_accumulated_values() -> None:
     accumulated = trainer.accum_loss_components["train"]["base_loss"]
     assert accumulated.grad_fn is None and not accumulated.requires_grad
     assert accumulated.item() == pytest.approx(12.0)
+
+
+def _run_ddp_evaluation_loop(rank: int, world_size: int, port: int, tmp_dir: str) -> None:
+    os.environ["RANK"] = str(rank)
+    os.environ["WORLD_SIZE"] = str(world_size)
+    os.environ["LOCAL_RANK"] = str(rank)
+    os.environ["LOCAL_WORLD_SIZE"] = str(world_size)
+    os.environ["MASTER_ADDR"] = "127.0.0.1"
+    os.environ["MASTER_PORT"] = str(port)
+
+    from datasets import Dataset
+
+    from sentence_transformers.base.evaluation import BaseEvaluator
+    from sentence_transformers.sentence_transformer.modules import Pooling, WordEmbeddings
+    from sentence_transformers.sentence_transformer.modules.tokenizer import WhitespaceTokenizer
+
+    vocab = ["hello", "world", "sentence", "transformers"]
+    word_embeddings = WordEmbeddings(
+        tokenizer=WhitespaceTokenizer(vocab=vocab),
+        embedding_weights=torch.rand(len(vocab), 16, generator=torch.Generator().manual_seed(12)),
+    )
+    model = SentenceTransformer(modules=[word_embeddings, Pooling(16, "mean")])
+
+    class RankRecordingEvaluator(BaseEvaluator):
+        def __init__(self):
+            super().__init__()
+            self.primary_metric = "score"
+
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1):
+            (Path(tmp_dir) / f"called_rank_{rank}").touch()
+            # Stand-in for the real bug: under a DistributedSampler shard, each rank's own
+            # evaluator run would compute a different score for the same eval step.
+            return {"score": float(rank)}
+
+    args = SentenceTransformerTrainingArguments(output_dir=os.path.join(tmp_dir, f"out_{rank}"), use_cpu=True)
+    trainer = SentenceTransformerTrainer(model=model, args=args, evaluator=RankRecordingEvaluator())
+    eval_dataset = Dataset.from_dict(
+        {"sentence1": ["hello world"] * 4, "sentence2": ["sentence transformers"] * 4, "score": [0.5] * 4}
+    )
+    metrics = trainer.evaluate(eval_dataset=eval_dataset)
+    (Path(tmp_dir) / f"metrics_rank_{rank}.json").write_text(json.dumps(metrics["eval_score"]))
+
+
+def test_evaluator_runs_once_and_broadcasts_under_ddp(tmp_path: Path) -> None:
+    """Under DDP every rank used to call the evaluator against its own DistributedSampler shard
+    (#3556), so a metric could come out different per rank. Only the world's main process should
+    run the evaluator; every other rank must get its exact result back, not compute its own."""
+    world_size = 2
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    mp.spawn(_run_ddp_evaluation_loop, args=(world_size, port, str(tmp_path)), nprocs=world_size, join=True)
+
+    called = sorted(p.name for p in tmp_path.glob("called_rank_*"))
+    assert called == ["called_rank_0"], "only world rank 0 should call the evaluator"
+
+    scores = {p.name: json.loads(p.read_text()) for p in sorted(tmp_path.glob("metrics_rank_*.json"))}
+    assert scores == {"metrics_rank_0.json": 0.0, "metrics_rank_1.json": 0.0}

@@ -9,11 +9,11 @@ import shutil
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Callable
-from contextlib import nullcontext
 from functools import partial
 from typing import Any
 
 import torch
+from accelerate.utils import broadcast_object_list
 from torch import nn
 from torch.utils.data import BatchSampler, ConcatDataset, DataLoader, RandomSampler
 from transformers import EvalPrediction, PreTrainedTokenizerBase, Trainer, TrainerCallback
@@ -57,7 +57,7 @@ from sentence_transformers.base.sampler import (
     RoundRobinBatchSampler,
 )
 from sentence_transformers.base.training_args import BaseTrainingArguments, BatchSamplers, MultiDatasetBatchSamplers
-from sentence_transformers.util import disable_logging, fullname, is_datasets_available, is_training_available
+from sentence_transformers.util import fullname, is_datasets_available, is_training_available
 from sentence_transformers.util.decorators import deprecated_kwargs
 
 if is_datasets_available():
@@ -664,7 +664,10 @@ class BaseTrainer(Trainer, ABC):
             else:
                 return output
 
-        with nullcontext() if self.is_local_process_zero() else disable_logging(logging.INFO):
+        # Only the main process needs to run the evaluator: under DistributedSampler every process
+        # would otherwise evaluate a different shard of the data and report different metrics for
+        # the same step (see #3556). Broadcast its result so every process still returns it below.
+        if self.is_world_process_zero():
             output_path = self.args.output_dir
             if output_path is not None:
                 output_path = os.path.join(output_path, "eval")
@@ -672,8 +675,13 @@ class BaseTrainer(Trainer, ABC):
             evaluator_metrics = self.evaluator(
                 self.model, output_path=output_path, epoch=self.state.epoch, steps=self.state.global_step
             )
-        if not isinstance(evaluator_metrics, dict):
-            evaluator_metrics = {"evaluator": evaluator_metrics}
+            if not isinstance(evaluator_metrics, dict):
+                evaluator_metrics = {"evaluator": evaluator_metrics}
+        else:
+            evaluator_metrics = {}
+
+        # No-ops when there is nothing to broadcast to (single process, no distributed backend).
+        evaluator_metrics = broadcast_object_list([evaluator_metrics])[0]
 
         # Prefix all keys with metric_key_prefix + '_'
         for key in list(evaluator_metrics.keys()):
