@@ -65,6 +65,17 @@ def paraphrase_mining(
         List[List[Union[float, int]]]: Returns a list of triplets with the format [score, id1, id2]
     """
 
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be a positive integer, got {batch_size}.")
+    if query_chunk_size <= 0:
+        raise ValueError(f"query_chunk_size must be a positive integer, got {query_chunk_size}.")
+    if corpus_chunk_size <= 0:
+        raise ValueError(f"corpus_chunk_size must be a positive integer, got {corpus_chunk_size}.")
+    if max_pairs < 0:
+        raise ValueError(f"max_pairs must be a non-negative integer, got {max_pairs}.")
+    if top_k <= 0:
+        raise ValueError(f"top_k must be a positive integer, got {top_k}.")
+
     # Compute embedding for the sentences
     embeddings = model.encode(
         sentences,
@@ -110,6 +121,15 @@ def paraphrase_mining_embeddings(
     Returns:
         List[List[Union[float, int]]]: Returns a list of triplets with the format [score, id1, id2]
     """
+
+    if query_chunk_size <= 0:
+        raise ValueError(f"query_chunk_size must be a positive integer, got {query_chunk_size}.")
+    if corpus_chunk_size <= 0:
+        raise ValueError(f"corpus_chunk_size must be a positive integer, got {corpus_chunk_size}.")
+    if max_pairs < 0:
+        raise ValueError(f"max_pairs must be a non-negative integer, got {max_pairs}.")
+    if top_k <= 0:
+        raise ValueError(f"top_k must be a positive integer, got {top_k}.")
 
     top_k += 1  # A sentence has the highest similarity to itself. Increase +1 as we are interest in distinct pairs
 
@@ -182,6 +202,13 @@ def semantic_search(
     Returns:
         List[List[Dict[str, Union[int, float]]]]: A list with one entry for each query. Each entry is a list of dictionaries with the keys 'corpus_id' and 'score', sorted by decreasing cosine similarity scores.
     """
+
+    if query_chunk_size <= 0:
+        raise ValueError(f"query_chunk_size must be a positive integer, got {query_chunk_size}.")
+    if corpus_chunk_size <= 0:
+        raise ValueError(f"corpus_chunk_size must be a positive integer, got {corpus_chunk_size}.")
+    if top_k <= 0:
+        raise ValueError(f"top_k must be a positive integer, got {top_k}.")
 
     if isinstance(query_embeddings, (np.ndarray, np.generic)):
         query_embeddings = torch.from_numpy(query_embeddings)
@@ -274,6 +301,12 @@ def community_detection(
     Returns:
         List[List[int]]: A list of communities, where each community is represented as a list of indices.
     """
+
+    if min_community_size <= 0:
+        raise ValueError(f"min_community_size must be a positive integer, got {min_community_size}.")
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be a positive integer, got {batch_size}.")
+
     if not isinstance(embeddings, torch.Tensor):
         embeddings = torch.tensor(embeddings)
 

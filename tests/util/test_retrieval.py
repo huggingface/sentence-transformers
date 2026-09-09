@@ -39,6 +39,72 @@ def test_semantic_search() -> None:
             assert np.abs(hits[qid][hit_num]["score"] - cos_scores_values[qid][hit_num]) < 0.001
 
 
+@pytest.mark.parametrize(
+    ("parameter", "value", "match"),
+    [
+        ("query_chunk_size", 0, "positive integer"),
+        ("query_chunk_size", -1, "positive integer"),
+        ("corpus_chunk_size", 0, "positive integer"),
+        ("corpus_chunk_size", -1, "positive integer"),
+        ("top_k", 0, "positive integer"),
+        ("top_k", -1, "positive integer"),
+    ],
+)
+def test_semantic_search_rejects_invalid_parameters(parameter: str, value: int, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        semantic_search(torch.ones(1, 2), torch.ones(1, 2), **{parameter: value})
+
+
+@pytest.mark.parametrize(
+    ("parameter", "value", "match"),
+    [
+        ("query_chunk_size", 0, "positive integer"),
+        ("query_chunk_size", -1, "positive integer"),
+        ("corpus_chunk_size", 0, "positive integer"),
+        ("corpus_chunk_size", -1, "positive integer"),
+        ("max_pairs", -1, "non-negative integer"),
+        ("top_k", 0, "positive integer"),
+        ("top_k", -1, "positive integer"),
+    ],
+)
+def test_paraphrase_mining_embeddings_rejects_invalid_parameters(parameter: str, value: int, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        paraphrase_mining_embeddings(torch.ones(2, 2), **{parameter: value})
+
+
+@pytest.mark.parametrize(
+    ("parameter", "value", "match"),
+    [
+        ("batch_size", 0, "positive integer"),
+        ("batch_size", -1, "positive integer"),
+        ("query_chunk_size", 0, "positive integer"),
+        ("query_chunk_size", -1, "positive integer"),
+        ("corpus_chunk_size", 0, "positive integer"),
+        ("corpus_chunk_size", -1, "positive integer"),
+        ("max_pairs", -1, "non-negative integer"),
+        ("top_k", 0, "positive integer"),
+        ("top_k", -1, "positive integer"),
+    ],
+)
+def test_paraphrase_mining_rejects_invalid_parameters(parameter: str, value: int, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        paraphrase_mining(object(), ["test"], **{parameter: value})
+
+
+@pytest.mark.parametrize(
+    ("parameter", "value"),
+    [
+        ("min_community_size", 0),
+        ("min_community_size", -1),
+        ("batch_size", 0),
+        ("batch_size", -1),
+    ],
+)
+def test_community_detection_rejects_invalid_parameters(parameter: str, value: int) -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        community_detection(torch.ones(2, 2), **{parameter: value})
+
+
 @pytest.mark.slow
 def test_paraphrase_mining() -> None:
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
