@@ -225,7 +225,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         try:
             # If the sentences are hashable, then we can use a set to avoid embedding the same sentences multiple
             # times
-            sentences = list(set(self.sentences1 + self.sentences2))
+            sentences = list({*self.sentences1, *self.sentences2})
         except TypeError:
             # Otherwise we just embed everything, e.g. if the sentences are images for evaluating a CLIP model
             embeddings1 = self.embed_inputs(model, self.sentences1)

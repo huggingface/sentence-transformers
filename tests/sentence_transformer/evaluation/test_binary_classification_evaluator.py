@@ -47,7 +47,8 @@ def test_BinaryClassificationEvaluator_find_best_accuracy_and_threshold() -> Non
 
 
 @pytest.mark.parametrize("similarity_fn_name", ["euclidean", "manhattan"])
-def test_BinaryClassificationEvaluator_distance_metrics_direction(similarity_fn_name: str) -> None:
+@pytest.mark.parametrize("sentences_type", [list, tuple, np.array])
+def test_BinaryClassificationEvaluator_distance_metrics_direction(similarity_fn_name: str, sentences_type) -> None:
     """The euclidean/manhattan metrics must treat smaller distances as more similar.
 
     ``pairwise_euclidean_sim``/``pairwise_manhattan_sim`` return negative distances (i.e.
@@ -72,8 +73,8 @@ def test_BinaryClassificationEvaluator_distance_metrics_direction(similarity_fn_
             return np.array([embeddings[sentence] for sentence in sentences], dtype=np.float32)
 
     evaluator = evaluation.BinaryClassificationEvaluator(
-        sentences1=["a1", "b1", "c1", "d1"],
-        sentences2=["a2", "b2", "c2", "d2"],
+        sentences1=sentences_type(["a1", "b1", "c1", "d1"]),
+        sentences2=sentences_type(["a2", "b2", "c2", "d2"]),
         labels=[1, 1, 0, 0],
         similarity_fn_names=[similarity_fn_name],
     )
