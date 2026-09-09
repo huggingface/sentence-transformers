@@ -39,6 +39,15 @@ def test_semantic_search() -> None:
             assert np.abs(hits[qid][hit_num]["score"] - cos_scores_values[qid][hit_num]) < 0.001
 
 
+def test_semantic_search_supports_compressed_sparse_tensors() -> None:
+    query_embeddings = torch.tensor([[1.0, 0.0, 2.0], [0.0, 3.0, 4.0]]).to_sparse_csr()
+    corpus_embeddings = torch.tensor([[1.0, 0.0, 2.0], [0.0, 3.0, 4.0]]).to_sparse_csr()
+
+    hits = semantic_search(query_embeddings, corpus_embeddings, top_k=1)
+
+    assert [hit[0]["corpus_id"] for hit in hits] == [0, 1]
+
+
 @pytest.mark.slow
 def test_paraphrase_mining() -> None:
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")

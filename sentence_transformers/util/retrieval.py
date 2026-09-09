@@ -187,6 +187,8 @@ def semantic_search(
         query_embeddings = torch.from_numpy(query_embeddings)
     elif isinstance(query_embeddings, list):
         query_embeddings = torch.stack(query_embeddings)
+    if query_embeddings.layout != torch.strided:
+        query_embeddings = query_embeddings.to_sparse()
 
     if len(query_embeddings.shape) == 1:
         query_embeddings = query_embeddings.unsqueeze(0)
@@ -195,6 +197,8 @@ def semantic_search(
         corpus_embeddings = torch.from_numpy(corpus_embeddings)
     elif isinstance(corpus_embeddings, list):
         corpus_embeddings = torch.stack(corpus_embeddings)
+    if corpus_embeddings.layout != torch.strided:
+        corpus_embeddings = corpus_embeddings.to_sparse()
 
     # Check that corpus and queries are on the same device
     if corpus_embeddings.device != query_embeddings.device:
