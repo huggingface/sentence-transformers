@@ -654,6 +654,12 @@ class MultiDatasetDefaultBatchSampler(SetEpochMixin, BatchSampler, ABC):
         self.generator = generator
         self.seed = seed
 
+    def set_epoch(self, epoch: int) -> None:
+        super().set_epoch(epoch)
+        for sampler in self.batch_samplers:
+            if hasattr(sampler, "set_epoch"):
+                sampler.set_epoch(epoch)
+
     @abstractmethod
     def __iter__(self) -> Iterator[list[int]]:
         """Yield batches from the underlying datasets in a specific order."""
