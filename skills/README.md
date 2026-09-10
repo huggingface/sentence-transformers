@@ -1,14 +1,15 @@
 # Sentence-Transformers Agent Skill
 
-This is a tool-neutral [Agent Skill](https://agentskills.io) for training and fine-tuning `sentence-transformers` models. It covers model selection, hard-negative mining, loss / evaluator choice, training, evaluation, and Hub publishing across all three archetypes:
+This is a tool-neutral [Agent Skill](https://agentskills.io) for training and fine-tuning `sentence-transformers` models. It covers model selection, hard-negative mining, loss / evaluator choice, training, evaluation, and Hub publishing across all four archetypes:
 
 | Archetype | What it does |
 |---|---|
 | `SentenceTransformer` (bi-encoder) | Fixed-dimension dense vectors for semantic similarity, retrieval, clustering, classification. |
 | `CrossEncoder` (reranker) | Pair scoring for two-stage retrieval / pairwise classification. |
 | `SparseEncoder` (SPLADE) | Sparse vectors over the vocabulary for learned-sparse retrieval. |
+| `MultiVectorEncoder` (ColBERT) | Per-token vectors scored with MaxSim for late-interaction retrieval, over texts or page images. |
 
-Loss / evaluator / example references inside the skill are split per archetype (`losses_sentence_transformer.md`, `losses_cross_encoder.md`, `losses_sparse_encoder.md`, etc.). `SKILL.md` directs the agent to load only the ones matching the user's task.
+Loss / evaluator / example references inside the skill are split per archetype (`losses_sentence_transformer.md`, `losses_cross_encoder.md`, `losses_sparse_encoder.md`, `losses_multi_vector_encoder.md`, etc.). `SKILL.md` directs the agent to load only the ones matching the user's task.
 
 ## Install
 
@@ -38,6 +39,7 @@ Once installed, just mention the task naturally, and the agent loads `SKILL.md` 
 > "Train a multilingual sentence-transformer on my parallel corpus."
 > "Fine-tune a cross-encoder reranker on `(question, answer)` pairs from my dataset, mine hard negatives, and push to my Hub repo."
 > "Train a SPLADE model from `naver/splade-v3` on domain data and evaluate sparsity."
+> "Fine-tune a ColBERT model from `lightonai/LateOn` on my retrieval data and evaluate it on NanoBEIR."
 
 ## Local development
 

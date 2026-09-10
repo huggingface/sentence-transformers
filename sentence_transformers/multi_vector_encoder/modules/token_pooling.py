@@ -2,12 +2,12 @@
 
 Reduce each document's per-token embedding count to lower storage cost. Three ways to apply:
 
-1. As a module in a :class:`~sentence_transformers.MultiVectorEncoder` pipeline: model authors
+1. As a module in a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` pipeline: model authors
    put a :class:`HierarchicalTokenPooling` (or any :class:`BaseTokenPooling` subclass) at the end of
    the modules list to bake pooling into the checkpoint. Every consumer of the saved model gets
    the pooled output.
 2. Per-call at encode time: users pass ``token_pooling=`` to
-   :meth:`~sentence_transformers.MultiVectorEncoder.encode` / ``encode_query`` / ``encode_document``
+   :meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode` / ``encode_query`` / ``encode_document``
    to opt in to pooling for a specific call.
 3. Standalone: users call :meth:`BaseTokenPooling.pool` on already-encoded embeddings to compress
    before storage.
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from functools import cache
 from typing import overload
 
 import numpy as np
@@ -146,7 +147,7 @@ class BaseTokenPooling(Module, ABC):
             task: Task the embeddings were encoded for. If it is not in :attr:`tasks`, the input
                 is returned unchanged. ``None`` (default) counts as ``"document"``, so standalone
                 document compression needs no extra argument.
-                :meth:`~sentence_transformers.MultiVectorEncoder.encode` forwards its ``task``
+                :meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode` forwards its ``task``
                 here for per-call pooling.
             attention_mask: Optional ``(B, T)`` boolean mask for the 3D case. Required unless
                 the padding is zero-valued (in which case the input boundary is detected by
@@ -187,25 +188,45 @@ class BaseTokenPooling(Module, ABC):
         self.save_config(output_path)
 
 
-def _hierarchical_pool_one(embedding: Tensor, pool_factor: int, num_protected_tokens: int) -> Tensor:
-    """Ward hierarchical clustering on cosine distance for a single 2D embedding."""
+@cache
+def _ward_linkage_fn() -> Callable[..., np.ndarray]:
+    """Resolve the Ward linkage backend once (fastcluster when installed, scipy otherwise).
+
+    Python does not cache failed imports, so an uncached lookup would walk sys.path for every
+    pooled document.
+    """
+    try:
+        from fastcluster import linkage
+    except (ImportError, OSError, RuntimeError):
+        from scipy.cluster.hierarchy import linkage
+    return linkage
+
+
+def _hierarchical_pool_one(embedding: Tensor, pool_factor: float, num_protected_tokens: int) -> Tensor:
+    """Ward hierarchical clustering on cosine distance for a single 2D embedding.
+
+    Uses fastcluster for the Ward linkage when installed (moderately faster, same clustering as
+    scipy except on exact distance ties). Falls back to scipy silently.
+    """
     from scipy.cluster import hierarchy
+    from scipy.spatial.distance import squareform
 
     device = embedding.device
     embedding = embedding.cpu()
     protected = embedding[:num_protected_tokens]
     to_pool = embedding[num_protected_tokens:]
     num_to_pool = len(to_pool)
-    num_clusters = max(num_to_pool // pool_factor, 1)
+    num_clusters = max(int(num_to_pool // pool_factor), 1)
 
     if num_clusters >= num_to_pool:
         return embedding.to(device)
 
     # Detach: clustering only picks assignments, gradients flow through the cluster means below.
     to_pool_fp32 = to_pool.detach().float()
-    cos_sim = torch.mm(to_pool_fp32, to_pool_fp32.t()).numpy()
-    condensed = np.clip(1 - cos_sim, 0, 2)[np.triu_indices(num_to_pool, k=1)]
-    linkage = hierarchy.linkage(condensed, method="ward")
+    cos_dist = (1 - torch.mm(to_pool_fp32, to_pool_fp32.t())).clamp_(0, 2).numpy()
+    # squareform with checks=False extracts the condensed upper triangle faster than a triu_indices gather.
+    condensed = squareform(cos_dist, checks=False)
+    linkage = _ward_linkage_fn()(condensed, method="ward")
     labels = hierarchy.fcluster(linkage, t=num_clusters, criterion="maxclust") - 1  # 0-indexed
     # Dense-index the labels so pooled rows line up with valid cluster ids even if fcluster returns
     # fewer than num_clusters distinct labels (possible with ties).
@@ -228,6 +249,10 @@ class HierarchicalTokenPooling(BaseTokenPooling):
     Assumes L2-normalized embeddings (place after a
     :class:`~sentence_transformers.sentence_transformer.modules.Normalize` in the pipeline).
 
+    Installing the optional ``fastcluster`` package speeds up the clustering step. Its output is
+    identical to scipy's except on exact distance ties, which the two libraries may break
+    differently.
+
     Reference compatibility: this implementation matches PyLate *after* its condensed-Ward fix
     (PyLate > 1.3.4). It intentionally does NOT reproduce released PyLate <= 1.3.4 (square-matrix
     ``linkage`` quirk, protected tokens re-appended at the end) nor colpali-engine's
@@ -236,8 +261,9 @@ class HierarchicalTokenPooling(BaseTokenPooling):
     For the closest colpali-engine setup, pass ``num_protected_tokens=0`` and re-normalize afterwards.
 
     Args:
-        pool_factor: Keep roughly ``1 / pool_factor`` of each document's tokens. ``1`` (default)
-            disables pooling (the module becomes a no-op).
+        pool_factor: Keep roughly ``1 / pool_factor`` of each document's tokens. Fractional values
+            (e.g. ``1.5`` keeps two thirds) allow compression steps between the integer factors.
+            ``1.0`` (default) disables pooling (the module becomes a no-op).
         num_protected_tokens: Leading tokens excluded from pooling (typically ``[CLS]``). Default 1.
             colpali-engine has no protected-token concept: use ``0`` when matching its setup.
         tasks: Task names this pooling applies to. Defaults to ``["document"]`` (only compress
@@ -247,7 +273,7 @@ class HierarchicalTokenPooling(BaseTokenPooling):
     config_keys: list[str] = ["pool_factor", "num_protected_tokens", "tasks"]
 
     def __init__(
-        self, pool_factor: int = 1, *, num_protected_tokens: int = 1, tasks: str | list[str] | None = None
+        self, pool_factor: float = 1.0, *, num_protected_tokens: int = 1, tasks: str | list[str] | None = None
     ) -> None:
         super().__init__(tasks=tasks)
         if pool_factor < 1:

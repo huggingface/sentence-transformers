@@ -19,7 +19,7 @@ from sentence_transformers.util import (
 
 
 class MultiVectorMultipleNegativesRankingLoss(nn.Module):
-    """In-batch negatives contrastive loss for :class:`~sentence_transformers.MultiVectorEncoder` models.
+    """In-batch negatives contrastive loss for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models.
 
     For each query in the batch, the matched positive document is treated as the positive sample, and all
     other in-batch documents (plus any explicitly-provided hard negatives) serve as negatives. Scoring uses
@@ -28,7 +28,7 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
     without changing the loss.
 
     Args:
-        model: A :class:`~sentence_transformers.MultiVectorEncoder` model.
+        model: A :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` model.
         scale: ``1 / temperature``. Scores are multiplied by ``scale`` before cross-entropy. Defaults to
             ``1.0`` (``temperature=1.0``), matching PyLate. Unlike cosine similarity (bounded to
             ``[-1, 1]``, where ST's dense :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`
@@ -72,7 +72,7 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
         +-------------------------------------------------+--------+
 
     Recommendations:
-        - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`)
+        - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`)
           to ensure that no in-batch negatives are duplicates of the anchor or positive samples.
 
     Relations:

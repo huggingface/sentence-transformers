@@ -216,3 +216,9 @@ def test_multi_process_output_tensors_two_devices(reranker_bert_tiny_model: Cros
     scores = model.predict(pairs, device=["cpu", "cuda"])
     assert isinstance(scores, np.ndarray)
     assert scores.shape[0] == len(pairs)
+
+    # And a list of tensors when neither conversion is asked for
+    scores = model.predict(pairs, device=["cpu", "cuda"], convert_to_tensor=False, convert_to_numpy=False)
+    assert isinstance(scores, list)
+    assert len(scores) == len(pairs)
+    assert all(score.device.type == "cpu" for score in scores)

@@ -215,7 +215,7 @@ Do **not** combine `gradient_checkpointing=True` with any `Cached*` loss. They c
 
 ## Hyperparameter search
 
-`trainer.hyperparameter_search(...)` is supported for all three trainers via Hugging Face's `Trainer` API (uses Optuna, Ray Tune, Sigopt, or W&B as backends).
+`trainer.hyperparameter_search(...)` is supported for all four trainers via Hugging Face's `Trainer` API (uses Optuna, Ray Tune, Sigopt, or W&B as backends).
 
 Minimal example:
 

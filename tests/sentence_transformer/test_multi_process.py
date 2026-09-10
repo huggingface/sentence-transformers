@@ -1,14 +1,62 @@
 from __future__ import annotations
 
+import queue
+
 import numpy as np
 import pytest
 import torch
 
 from sentence_transformers import SentenceTransformer
+from tests.utils import CrashingModel
 
 # These tests fail if optimum.intel.openvino is imported, because openvinotoolkit/nncf
 # patches torch._C._nn.gelu in a way that breaks pickling. As a result, we may have issues
 # when running both backend tests and multi-process tests in the same session.
+
+
+@pytest.mark.parametrize("unpicklable", (False, True))
+def test_multi_process_worker_reports_encode_failure(unpicklable: bool) -> None:
+    ctx = torch.multiprocessing.get_context("spawn")
+    input_queue = ctx.Queue()
+    output_queue = ctx.Queue()
+    input_queue.put([0, ["text"], {}])
+    process = ctx.Process(
+        target=SentenceTransformer._multi_process_worker,
+        args=("cpu", CrashingModel(unpicklable=unpicklable), input_queue, output_queue),
+        daemon=True,
+    )
+    process.start()
+    try:
+        chunk_id, result = output_queue.get(timeout=60)
+    except queue.Empty:
+        pytest.fail("the worker did not report the failure, so _multi_process would block forever")
+    finally:
+        process.terminate()
+        process.join(timeout=10)
+
+    assert chunk_id == 0
+    assert isinstance(result, Exception)
+    assert "simulated worker crash" in str(result)
+    # The replacement for an exception that could not be pickled carries the worker-side frames
+    if unpicklable:
+        assert "in _crash" in str(result)
+
+
+def test_multi_process_raises_reported_worker_failure() -> None:
+    # _multi_process only reaches self when it has to create or tear down the pool itself, which a
+    # caller-provided pool skips, so plain queues and an uninitialized model are enough here.
+    pool = {"input": queue.Queue(), "output": queue.Queue(), "processes": [None]}
+    pool["output"].put([0, [[0.0]]])
+    pool["output"].put([1, RuntimeError("simulated worker crash")])
+
+    with pytest.raises(RuntimeError, match="simulated worker crash"):
+        SentenceTransformer._multi_process(
+            SentenceTransformer.__new__(SentenceTransformer),
+            inputs=["ok", "poison"],
+            pool=pool,
+            chunk_size=1,
+            show_progress_bar=False,
+        )
 
 
 @pytest.mark.slow
@@ -336,3 +384,15 @@ def test_multi_process_output_tensors_two_devices(stsb_bert_tiny_model: Sentence
     embeddings = model.encode(texts, device=["cpu", "cuda"])
     assert isinstance(embeddings, np.ndarray)
     assert embeddings.shape == (len(texts), model.get_embedding_dimension())
+
+    # The two list-shaped results make the same trip, and a device tensor would only stay readable
+    # for as long as the worker that produced it is alive
+    embeddings = model.encode(texts, device=["cpu", "cuda"], convert_to_numpy=False, convert_to_tensor=False)
+    assert isinstance(embeddings, list)
+    assert len(embeddings) == len(texts)
+    assert all(emb.device.type == "cpu" for emb in embeddings)
+
+    features = model.encode(texts, device=["cpu", "cuda"], output_value=None)
+    assert len(features) == len(texts)
+    for feature in features:
+        assert all(value.device.type == "cpu" for value in feature.values() if isinstance(value, torch.Tensor))

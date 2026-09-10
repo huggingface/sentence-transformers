@@ -9,6 +9,7 @@ from safetensors.torch import load_file as load_safetensors_file
 from safetensors.torch import save_model as save_safetensors_model
 from torch import Tensor, nn
 
+from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
@@ -169,8 +170,7 @@ class EmbedDistillLoss(nn.Module):
                 "Compute them once with the teacher and add them via `dataset.map(...)`."
             )
 
-        sentence_features = list(sentence_features)
-        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        embeddings = embed_columns(self.model, sentence_features)
 
         labels = labels.detach()
         if labels.dim() == 2:

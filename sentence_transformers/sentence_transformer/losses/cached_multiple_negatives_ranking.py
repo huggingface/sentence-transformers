@@ -44,7 +44,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
         """
         Boosted version of :class:`MultipleNegativesRankingLoss` (https://huggingface.co/papers/1705.00652) by GradCache (https://huggingface.co/papers/2101.06983).
 
-        Constrastive learning (here our MNRL loss) with in-batch negatives is usually hard to work with large batch sizes due to (GPU) memory limitation.
+        Contrastive learning (here our MNRL loss) with in-batch negatives is usually hard to work with large batch sizes due to (GPU) memory limitation.
         Even with batch-scaling methods like gradient-scaling, it cannot work either. This is because the in-batch negatives make the data points within
         the same batch non-independent and thus the batch cannot be broke down into mini-batches. GradCache is a smart way to solve this problem.
         It achieves the goal by dividing the computation into two stages of embedding and loss calculation, which both can be scaled by mini-batches.
@@ -136,7 +136,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
             +-------------------------------------------------+--------+
 
         Recommendations:
-            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`) to
+            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
 
         Relations:

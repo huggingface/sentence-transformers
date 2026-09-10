@@ -1,6 +1,6 @@
 [project]
 name = "sentence-transformers"
-version = "6.0.0.dev0"
+version = "6.1.0.dev0"
 description = "Embeddings, Retrieval, and Reranking"
 license = "Apache-2.0"
 readme = "README.md"
@@ -58,6 +58,7 @@ openvino = ["optimum-intel[openvino]>=2.0.0"]
 dev = [
     "datasets>=2.16.0",
     "accelerate>=1.3.0",
+    "fastcluster>=1.2.0",
     "pre-commit",
     "pytest",
     "pytest-cov",
@@ -66,12 +67,15 @@ dev = [
     "pytest-xdist",
     "peft",
     "transformers[vision,audio,video]",
+    "faiss-cpu",
+    "usearch",
 ]
 
 [dependency-groups]
 test = [
     "datasets>=2.16.0",
     "accelerate>=1.3.0",
+    "fastcluster>=1.2.0",
     "pytest",
     "pytest-cov",
     "pytest-env",
@@ -79,6 +83,8 @@ test = [
     "pytest-xdist",
     "peft",
     "transformers[vision,audio,video]",
+    "faiss-cpu",
+    "usearch",
 ]
 lint = [
     "pre-commit",
@@ -172,6 +178,7 @@ Ein = "Ein"
 ein = "ein"
 ist = "ist"
 arange = "arange"
+writeable = "writeable"
 
 
 [tool.typos.files]

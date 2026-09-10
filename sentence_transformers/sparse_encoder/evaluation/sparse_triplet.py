@@ -128,8 +128,9 @@ class SparseTripletEvaluator(TripletEvaluator):
 
     def _append_csv_headers(self, similarity_fn_names):
         super()._append_csv_headers(similarity_fn_names)
-        for prefix in ["anchor", "positive", "negative"]:
-            self.csv_headers.extend([f"{prefix}_active_dims", f"{prefix}_sparsity_ratio"])
+        if similarity_fn_names:
+            for prefix in ["anchor", "positive", "negative"]:
+                self.csv_headers.extend([f"{prefix}_active_dims", f"{prefix}_sparsity_ratio"])
 
     def __call__(
         self, model: SparseEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1

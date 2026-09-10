@@ -89,6 +89,7 @@ def semantic_search_faiss(
             "ubinary".
 
     The list of search results is in the format: [[{"corpus_id": int, "score": float}, ...], ...]
+    Each query yields at most `top_k` results, and fewer when the index holds fewer matches.
     The time taken for the search is a float value.
     """
     import faiss
@@ -162,18 +163,17 @@ def semantic_search_faiss(
                 for query_indices in indices
             ]
         )
-        # If the corpus precision is binary, we need to unpack the bits
+        # `np.packbits` padded the embedding dimension up to a whole byte, so trim those bits back off
         if corpus_precision == "ubinary":
-            top_k_embeddings = np.unpackbits(top_k_embeddings, axis=-1).astype(int)
-        else:
-            top_k_embeddings = top_k_embeddings.astype(int)
+            top_k_embeddings = np.unpackbits(top_k_embeddings, axis=-1)[..., : rescore_embeddings.shape[-1]]
+        top_k_embeddings = top_k_embeddings.astype(int)
 
         # rescore_embeddings: [num_queries, embedding_dim]
         # top_k_embeddings: [num_queries, top_k, embedding_dim]
         # updated_scores: [num_queries, top_k]
         # We use einsum to calculate the dot product between the query and the top_k embeddings, equivalent to looping
         # over the queries and calculating 'rescore_embeddings[i] @ top_k_embeddings[i].T'
-        rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings)
+        rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings).astype(np.float64, copy=False)
         # Disqualify the padding slots so their placeholder scores cannot outrank real candidates
         rescored_scores[indices == -1] = -np.inf
         rescored_indices = np.argsort(-rescored_scores)[:, :top_k]
@@ -273,6 +273,7 @@ def semantic_search_usearch(
             "ubinary", or "binary".
 
     The list of search results is in the format: [[{"corpus_id": int, "score": float}, ...], ...]
+    Each query yields at most `top_k` results, and fewer when the index holds fewer matches.
     The time taken for the search is a float value.
     """
     from usearch.compiled import ScalarKind
@@ -299,18 +300,15 @@ def semantic_search_usearch(
                 metric="ip",
                 dtype="i8",
             )
-        elif corpus_precision == "binary":
-            corpus_index = Index(
-                ndim=corpus_embeddings.shape[1],
-                metric="hamming",
-                dtype="i8",
-            )
-        elif corpus_precision == "ubinary":
+        elif corpus_precision in ("binary", "ubinary"):
             corpus_index = Index(
                 ndim=corpus_embeddings.shape[1] * 8,
                 metric="hamming",
                 dtype="b1",
             )
+            if corpus_precision == "binary":
+                # A b1 index reads raw bytes, so undo the -128 offset that `quantize_embeddings` applied
+                corpus_embeddings = corpus_embeddings.view(np.uint8) ^ 0x80
         corpus_index.add(np.arange(len(corpus_embeddings)), corpus_embeddings)
 
     # If rescoring is enabled and the query embeddings are in float32, we need to quantize them
@@ -343,6 +341,8 @@ def semantic_search_usearch(
 
     # Perform the search using the usearch index
     start_t = time.time()
+    if corpus_precision == "binary":
+        query_embeddings = query_embeddings.view(np.uint8) ^ 0x80
     matches = corpus_index.search(query_embeddings, count=k, exact=exact)
     scores = matches.distances
     indices = matches.keys
@@ -352,12 +352,22 @@ def semantic_search_usearch(
     if indices.ndim < 2:
         indices = np.atleast_2d(indices)
 
+    # usearch pads short result sets and reports the real match count in `counts`, so validity is
+    # tracked beside the keys rather than in them. A single query returns `Matches`, which has neither.
+    counts = np.reshape(getattr(matches, "counts", indices.shape[1]), (-1, 1))
+    valid = np.arange(indices.shape[1]) < counts
+
     # If rescoring is enabled, we need to rescore the results using the rescore_embeddings
-    if rescore_embeddings is not None:
-        top_k_embeddings = np.array([corpus_index.get(query_indices) for query_indices in indices])
-        # If the corpus precision is binary, we need to unpack the bits
+    if rescore_embeddings is not None and valid.any():
+        # get() has no key for the padding slots, so look up any real key there as a placeholder and
+        # disqualify its score below
+        safe_indices = np.where(valid, indices, indices[valid][0])
+        top_k_embeddings = np.array([corpus_index.get(query_indices) for query_indices in safe_indices])
         if corpus_precision in ("ubinary", "binary"):
-            top_k_embeddings = np.unpackbits(top_k_embeddings.astype(np.uint8), axis=-1)
+            # `np.packbits` padded the embedding dimension up to a whole byte, so trim those bits back off
+            top_k_embeddings = np.unpackbits(top_k_embeddings.astype(np.uint8), axis=-1)[
+                ..., : rescore_embeddings.shape[-1]
+            ]
         top_k_embeddings = top_k_embeddings.astype(int)
 
         # rescore_embeddings: [num_queries, embedding_dim]
@@ -365,18 +375,25 @@ def semantic_search_usearch(
         # updated_scores: [num_queries, top_k]
         # We use einsum to calculate the dot product between the query and the top_k embeddings, equivalent to looping
         # over the queries and calculating 'rescore_embeddings[i] @ top_k_embeddings[i].T'
-        rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings)
+        rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings).astype(np.float64, copy=False)
+        # Disqualify the padding slots so their placeholder scores cannot outrank real candidates
+        rescored_scores[~valid] = -np.inf
+        query_ids = np.arange(len(query_embeddings))[:, None]
         rescored_indices = np.argsort(-rescored_scores)[:, :top_k]
-        indices = indices[np.arange(len(query_embeddings))[:, None], rescored_indices]
-        scores = rescored_scores[np.arange(len(query_embeddings))[:, None], rescored_indices]
+        indices = indices[query_ids, rescored_indices]
+        scores = rescored_scores[query_ids, rescored_indices]
+        valid = valid[query_ids, rescored_indices]
 
     delta_t = time.time() - start_t
 
+    # Drop the padding slots (marked invalid above) so short result sets don't surface duplicated corpus
+    # entries with meaningless (NaN or -inf) scores.
     outputs = (
         [
             [
                 {"corpus_id": int(neighbor), "score": float(score)}
-                for score, neighbor in zip(scores[query_id], indices[query_id])
+                for score, neighbor, is_valid in zip(scores[query_id], indices[query_id], valid[query_id])
+                if is_valid
             ]
             for query_id in range(len(query_embeddings))
         ],

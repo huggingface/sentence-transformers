@@ -5,6 +5,9 @@ Several Sparse Encoder models have been publicly released on the Hugging Face Hu
 
 * **Community models**: `All Sparse Encoder models on Hugging Face <https://huggingface.co/models?library=sentence-transformers&other=sparse>`_.
 
+.. note::
+    The ``sentence-transformers`` library tag is shared by all four model types, so pair it with the ``sparse`` tag to find only the models that load with :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder`. ``cross-encoder`` and ``multi-vector`` are the equivalents for Cross Encoder and Multi-Vector Encoder models, while dense Sentence Transformer models make up the bulk of what the library tag returns on its own.
+
 Models integrate seamlessly with this simple interface:
 ```
 

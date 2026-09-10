@@ -80,6 +80,17 @@ def test_ir_evaluator_defers_scoring_resolution_to_call_time(model: MultiVectorE
     assert evaluator.score_function_names == [model.similarity_fn_name]
     assert f"late_binding_{model.similarity_fn_name}_ndcg@10" in results
 
+    # Reusing the evaluator re-resolves rather than keeping the first model's scoring (#3939).
+    original = model.similarity_fn_name
+    model.similarity_fn_name = "meanmaxsim"
+    try:
+        reused = evaluator(model)
+    finally:
+        model.similarity_fn_name = original
+    assert evaluator.score_function_names == ["meanmaxsim"]
+    assert evaluator.primary_metric == "late_binding_meanmaxsim_ndcg@10"
+    assert "late_binding_meanmaxsim_ndcg@10" in reused
+
 
 def test_ir_evaluator_chunk_elements_reaches_scoring(model: MultiVectorEncoder) -> None:
     """The budget is bound onto the model-resolved scorer and actually invoked: a one-document-per-
@@ -264,6 +275,16 @@ def test_nano_beir_evaluator_emits_lowercase_maxsim_key(model: MultiVectorEncode
     assert "NanoBEIR_mean_maxsim_ndcg@10" in results
     assert evaluator.primary_metric == "NanoBEIR_mean_maxsim_ndcg@10"
 
+    # The aggregate labels track the sub-evaluators, which re-resolve their scoring per call (#3939).
+    original = model.similarity_fn_name
+    model.similarity_fn_name = "meanmaxsim"
+    try:
+        reused = evaluator(model)
+    finally:
+        model.similarity_fn_name = original
+    assert "NanoBEIR_mean_meanmaxsim_ndcg@10" in reused
+    assert evaluator.primary_metric == "NanoBEIR_mean_meanmaxsim_ndcg@10"
+
 
 def test_distillation_evaluator(model: MultiVectorEncoder) -> None:
     evaluator = MultiVectorDistillationEvaluator(
@@ -301,8 +322,8 @@ def test_distillation_evaluator_per_query_candidate_sets(model: MultiVectorEncod
 def _student_kd_scores(model: MultiVectorEncoder, queries: list[str], documents: list[list[str]]) -> torch.Tensor:
     """Mirror the evaluator's student MaxSim scoring so teacher scores can be built from it."""
     n_ways = len(documents[0])
-    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
-    doc_embeddings = model.encode_document([document for row in documents for document in row], convert_to_tensor=True)
+    query_embeddings = model.encode_query(queries)
+    doc_embeddings = model.encode_document([document for row in documents for document in row])
     return torch.stack(
         [model.similarity_pairwise(query_embeddings, doc_embeddings[way::n_ways]).cpu() for way in range(n_ways)],
         dim=1,
@@ -425,8 +446,8 @@ def test_distillation_evaluator_flat_kl_is_full_sum(model: MultiVectorEncoder) -
     documents = ["Paris is the capital of France.", "Leonardo da Vinci painted the Mona Lisa."]
     scores = [0.0, 10.0]
 
-    query_embeddings = model.encode_query(queries, convert_to_tensor=True)
-    doc_embeddings = model.encode_document(documents, convert_to_tensor=True)
+    query_embeddings = model.encode_query(queries)
+    doc_embeddings = model.encode_document(documents)
     student_scores = model.similarity_pairwise(query_embeddings, doc_embeddings).cpu()
     expected = torch.nn.functional.kl_div(
         torch.log_softmax(student_scores, dim=-1),

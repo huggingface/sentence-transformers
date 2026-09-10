@@ -48,7 +48,7 @@ class BatchAllTripletLoss(nn.Module):
             +------------------+--------+
 
         Recommendations:
-            - Use ``BatchSamplers.GROUP_BY_LABEL`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`)
+            - Use ``BatchSamplers.GROUP_BY_LABEL`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`)
               to ensure that each batch contains at least 2 distinct labels with at least 2 samples per label.
 
         Relations:
@@ -103,9 +103,6 @@ class BatchAllTripletLoss(nn.Module):
         Args:
             labels: labels of the batch, of size (batch_size,)
             embeddings: tensor of shape (batch_size, embed_dim)
-            margin: margin for triplet loss
-            squared: Boolean. If true, output is the pairwise squared euclidean distance matrix.
-                     If false, output is the pairwise euclidean distance matrix.
         Returns:
             Label_Sentence_Triplet: scalar tensor containing the triplet loss
         """

@@ -571,7 +571,7 @@ The following images show the benchmark results for the different backends on GP
          </ul>
       </li>
    </ul>
-   Performance ratio: The same models and hardware was used. We compare the performance against the performance of PyTorch with fp32, i.e. the default backend and precision.
+   Quality ratio: The same models and hardware were used. We compare the retrieval quality against that of PyTorch with fp32, i.e. the default backend and precision.
    <ul>
       <li>
          <b>Evaluation: </b>

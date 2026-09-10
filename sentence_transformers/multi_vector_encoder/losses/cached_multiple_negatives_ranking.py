@@ -38,7 +38,7 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
     final ``loss.backward()``.
 
     Args:
-        model: A :class:`~sentence_transformers.MultiVectorEncoder`.
+        model: A :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`.
         scale: ``1 / temperature``. Scores are multiplied by ``scale`` before cross-entropy. Defaults to
             ``1.0`` (``temperature=1.0``). Unlike cosine similarity (bounded to ``[-1, 1]``, where ST's
             dense :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss` uses ``scale=20.0``
@@ -84,7 +84,7 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         +-------------------------------------------------+--------+
 
     Recommendations:
-        - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.sentence_transformer.training_args.BatchSamplers>`)
+        - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`)
           to ensure that no in-batch negatives are duplicates of the anchor or positive samples.
 
     Relations:

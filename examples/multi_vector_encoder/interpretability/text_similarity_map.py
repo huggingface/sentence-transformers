@@ -98,11 +98,11 @@ def main() -> None:
     corpus = list(dict.fromkeys(dataset["answer"]))
 
     model = MultiVectorEncoder("lightonai/LateOn")
-    corpus_embeddings = model.encode_document(corpus, convert_to_tensor=True, show_progress_bar=True)
+    corpus_embeddings = model.encode_document(corpus, show_progress_bar=True)
 
     def search(query: str) -> None:
         start = time.perf_counter()
-        query_embeddings = model.encode_query([query], convert_to_tensor=True)
+        query_embeddings = model.encode_query([query])
         scores = model.similarity(query_embeddings, corpus_embeddings)[0]
         top_scores, top_indices = scores.topk(3)
         search_time = (time.perf_counter() - start) * 1000

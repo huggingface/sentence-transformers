@@ -34,14 +34,14 @@ logger = logging.getLogger(__name__)
 
 
 class MultiVectorEncoderTrainer(BaseTrainer):
-    """Trainer for :class:`~sentence_transformers.MultiVectorEncoder` (multi-vector / ColBERT-style) models.
+    """Trainer for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` (multi-vector / ColBERT-style) models.
 
     Inherits all functionality from :class:`~sentence_transformers.base.trainer.BaseTrainer`: dataset-name-based
     loss dispatch, prompt threading, model-card callback, mixed precision, gradient checkpointing, multi-GPU
     via accelerate, etc. Overrides only the default classes and the default-loss factory.
 
     Args:
-        model: The :class:`~sentence_transformers.MultiVectorEncoder` to train.
+        model: The :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` to train.
         args: Training arguments.
         train_dataset: Training dataset. Standard ST formats are supported (pair / triplet / multi-negative),
             plus the knowledge-distillation format ``(query, document_1, ..., document_N, scores)`` where

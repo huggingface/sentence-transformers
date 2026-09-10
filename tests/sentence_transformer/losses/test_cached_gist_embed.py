@@ -4,9 +4,10 @@ import math
 
 import pytest
 import torch
+from transformers import PreTrainedTokenizerBase
 
 import sentence_transformers.sentence_transformer.losses.cached_gist_embed as cge
-from sentence_transformers.sentence_transformer.losses import CachedGISTEmbedLoss
+from sentence_transformers.sentence_transformer.losses import CachedGISTEmbedLoss, GISTEmbedLoss
 
 
 def _make_loss(margin: float, mini_batch_size: int = 32) -> CachedGISTEmbedLoss:
@@ -28,6 +29,36 @@ def _make_loss(margin: float, mini_batch_size: int = 32) -> CachedGISTEmbedLoss:
     obj.gather_across_devices = True
     obj.cross_entropy_loss = torch.nn.CrossEntropyLoss()
     return obj
+
+
+class _TokenizerWithoutVocabAttribute(PreTrainedTokenizerBase):
+    def get_vocab(self) -> dict[str, int]:
+        return {"<unk>": 0, "the": 1, "cat": 2}
+
+
+class _ModelWithTokenizer(torch.nn.Module):
+    def __init__(self, tokenizer) -> None:
+        super().__init__()
+        self.tokenizer = tokenizer
+        self.max_seq_length = 128
+        self.linear = torch.nn.Linear(2, 2)
+
+    def __getitem__(self, index):
+        return self.linear
+
+
+@pytest.mark.parametrize("loss_class", [GISTEmbedLoss, CachedGISTEmbedLoss])
+def test_accepts_a_tokenizer_without_a_vocab_attribute(loss_class) -> None:
+    tokenizer = _TokenizerWithoutVocabAttribute()
+    with pytest.raises(AttributeError):
+        tokenizer.vocab
+
+    model = _ModelWithTokenizer(tokenizer)
+    guide = _ModelWithTokenizer(tokenizer)
+
+    loss = loss_class(model, guide)
+
+    assert loss.must_retokenize is False
 
 
 @pytest.fixture

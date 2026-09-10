@@ -41,15 +41,20 @@ def model_dir(tmp_path_factory) -> str:
 @pytest.fixture(scope="module")
 def torch_embeddings(model_dir: str) -> tuple[list[np.ndarray], list[np.ndarray]]:
     model = MultiVectorEncoder(model_dir, backend="torch")
-    queries = model.encode_query(["What is the capital of France?"])
-    documents = model.encode_document(["Paris is the capital of France.", "Berlin is the capital of Germany."])
+    # Arrays, so the torch reference compares against the CPU-only backends without a device hop.
+    queries = model.encode_query(["What is the capital of France?"], convert_to_numpy=True)
+    documents = model.encode_document(
+        ["Paris is the capital of France.", "Berlin is the capital of Germany."], convert_to_numpy=True
+    )
     return queries, documents
 
 
 def encode_and_compare(model: MultiVectorEncoder, torch_embeddings, atol: float = 1e-5) -> None:
     reference_queries, reference_documents = torch_embeddings
-    queries = model.encode_query(["What is the capital of France?"])
-    documents = model.encode_document(["Paris is the capital of France.", "Berlin is the capital of Germany."])
+    queries = model.encode_query(["What is the capital of France?"], convert_to_numpy=True)
+    documents = model.encode_document(
+        ["Paris is the capital of France.", "Berlin is the capital of Germany."], convert_to_numpy=True
+    )
     assert queries[0].shape == (16, model.get_embedding_dimension())
     for reference, embedding in zip(reference_queries + reference_documents, queries + documents):
         assert reference.shape == embedding.shape

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import copy
+import warnings
 
 import numpy as np
 import pytest
 import torch
 
-from sentence_transformers.util.tensor import normalize_embeddings, select_max_active_dims
+from sentence_transformers.util.similarity import cos_sim, dot_score, euclidean_sim, manhattan_sim, maxsim
+from sentence_transformers.util.tensor import _convert_to_tensor, normalize_embeddings, select_max_active_dims
 
 
 def test_normalize_embeddings() -> None:
@@ -70,3 +72,57 @@ def test_select_max_active_dims_rejects_non_positive(max_active_dims: int) -> No
 
     with pytest.raises(ValueError, match="max_active_dims must be a positive integer"):
         select_max_active_dims(embeddings, max_active_dims=max_active_dims)
+
+
+def test_convert_to_tensor_views_numpy_without_copying() -> None:
+    """A numpy corpus is viewed, not copied: the copy costs as much as the scoring it feeds."""
+    array = np.zeros((4, 8), dtype=np.float32)
+
+    assert _convert_to_tensor(array).data_ptr() == array.__array_interface__["data"][0]
+
+
+def test_convert_to_tensor_stacks_a_list_of_arrays_without_reading_elementwise() -> None:
+    """A list of arrays (what encoding with `convert_to_numpy=True` returns) went through
+    `torch.tensor`, which reads it one element at a time. Stacking views instead is two orders of
+    magnitude faster and must land on the same tensor."""
+    arrays = [np.arange(6, dtype=np.float32).reshape(2, 3) + offset for offset in range(4)]
+
+    result = _convert_to_tensor(arrays)
+
+    assert torch.equal(result, torch.tensor(np.stack(arrays)))
+    assert result.shape == (4, 2, 3)
+
+
+def test_convert_to_tensor_negative_stride_still_rejected() -> None:
+    """Negative strides were never convertible and still are not. `torch.from_numpy` rejects them
+    with the same error `torch.tensor` raised before the view was introduced, so this is not a
+    fallback case: the error propagates straight out."""
+    with pytest.raises(ValueError, match="stride"):
+        _convert_to_tensor(np.zeros((4, 6), dtype=np.float32)[::-1])
+
+
+def test_convert_to_tensor_read_only_array_does_not_warn() -> None:
+    """Read-only buffers (memmaps, broadcast views) take the copying path instead of torch's
+    non-writable-tensor warning."""
+    array = np.zeros((4, 8), dtype=np.float32)
+    array.flags.writeable = False
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _convert_to_tensor(array).shape == (4, 8)
+
+
+@pytest.mark.parametrize("similarity_fct", [cos_sim, dot_score, euclidean_sim, manhattan_sim, maxsim])
+def test_scoring_does_not_mutate_numpy_inputs(similarity_fct) -> None:
+    """The zero-copy view means an in-place op anywhere in a scoring path would corrupt the caller's
+    array. Every scoring function must write into fresh outputs only."""
+    rng = np.random.default_rng(0)
+    shape = (3, 5, 4) if similarity_fct is maxsim else (3, 4)
+    a = rng.standard_normal(shape, dtype=np.float32)
+    b = rng.standard_normal(shape, dtype=np.float32)
+    a_before, b_before = a.copy(), b.copy()
+
+    similarity_fct(a, b)
+
+    assert np.array_equal(a, a_before), "scoring mutated the first input array"
+    assert np.array_equal(b, b_before), "scoring mutated the second input array"

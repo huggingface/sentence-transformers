@@ -7,7 +7,7 @@ from sentence_transformers.base.data_collator import BaseDataCollator
 
 @dataclass
 class MultiVectorEncoderDataCollator(BaseDataCollator):
-    """Data collator for :class:`~sentence_transformers.MultiVectorEncoder` training.
+    """Data collator for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` training.
 
     Differs from :class:`~sentence_transformers.base.data_collator.BaseDataCollator` only in the
     default task assignment: when ``router_mapping`` does not specify a task for a column, the first

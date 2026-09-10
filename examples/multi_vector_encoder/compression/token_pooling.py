@@ -28,8 +28,8 @@ def main() -> None:
         "Machine learning is a subfield of artificial intelligence that focuses on data-driven models.",
     ]
 
-    query_emb = model.encode_query([query], convert_to_tensor=True)
-    baseline = model.encode_document(documents, convert_to_tensor=True)
+    query_emb = model.encode_query([query])
+    baseline = model.encode_document(documents)
     baseline_tokens = sum(emb.shape[0] for emb in baseline)
     baseline_scores = model.similarity(query_emb, baseline)[0].tolist()
     print(f"Baseline: {baseline_tokens} total tokens across {len(documents)} documents.")
@@ -39,7 +39,7 @@ def main() -> None:
     print("\nPer-call pooling via encode(token_pooling=...):")
     for pool_factor in (2, 3, 6):
         pooling = HierarchicalTokenPooling(pool_factor=pool_factor)
-        pooled = model.encode_document(documents, token_pooling=pooling, convert_to_tensor=True)
+        pooled = model.encode_document(documents, token_pooling=pooling)
         pooled_tokens = sum(emb.shape[0] for emb in pooled)
         ratio = baseline_tokens / max(pooled_tokens, 1)
         scores = model.similarity(query_emb, pooled)[0].tolist()

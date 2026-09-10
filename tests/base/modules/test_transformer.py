@@ -17,7 +17,7 @@ from packaging.version import parse as parse_version
 from tokenizers.normalizers import NFC, Lowercase, Sequence
 from transformers import AutoConfig, AutoModel, AutoProcessor
 from transformers import __version__ as transformers_version
-from transformers.utils import is_torchvision_available, is_vision_available
+from transformers.utils import is_peft_available, is_torchvision_available, is_vision_available
 
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.base.modules.transformer import (
@@ -1460,13 +1460,58 @@ class TestProcessChatMessages:
         assert not tokenizer.decode(process(16, restore_suffix=False)).rstrip().endswith("[/INST]")
 
 
+class ResolvedRevisionStub(str):
+    initial = "branch"
+    resolved = "0123456789abcdef0123456789abcdef01234567"
+
+
 class TestModelLoading:
+    @staticmethod
+    def _processor_revision(monkeypatch, **kwargs):
+        """Return the revision that the processor would be loaded with, without loading anything."""
+
+        class StopLoading(Exception):
+            pass
+
+        captured = {}
+
+        def capture_processor(model_name_or_path, **processor_kwargs):
+            captured.update(processor_kwargs)
+            raise StopLoading
+
+        monkeypatch.setattr(Transformer, "_load_config", lambda *args, **kwargs: (SimpleNamespace(), False))
+        monkeypatch.setattr(Transformer, "_load_model", lambda *args, **kwargs: torch.nn.Linear(2, 2))
+        monkeypatch.setattr(transformer_module.AutoProcessor, "from_pretrained", capture_processor)
+
+        with pytest.raises(StopLoading):
+            Transformer("some-org/some-model", **kwargs)
+        return captured["revision"]
+
+    def test_separate_processor_repository_is_not_pinned_to_model_revision(self, monkeypatch):
+        processor_kwargs = {"revision": ResolvedRevisionStub("branch")}
+        revision = self._processor_revision(
+            monkeypatch,
+            tokenizer_name_or_path="some-org/some-tokenizer",
+            processor_kwargs=processor_kwargs,
+        )
+
+        assert revision == "branch"
+        assert not isinstance(revision, ResolvedRevisionStub)
+        assert isinstance(processor_kwargs["revision"], ResolvedRevisionStub)
+
+    def test_same_repository_processor_keeps_resolved_revision(self, monkeypatch):
+        processor_kwargs = {"revision": ResolvedRevisionStub("branch")}
+        revision = self._processor_revision(monkeypatch, processor_kwargs=processor_kwargs)
+
+        assert isinstance(revision, ResolvedRevisionStub)
+
     def test_invalid_backend_error(self):
         with pytest.raises(ValueError, match="Unsupported backend"):
             Transformer(TINY_BERT, backend="invalid_backend")
 
-    def test_peft_seq_classification_no_architectures(self, monkeypatch):
-        """PeftConfig has no 'architectures' attr. Sequence-classification init should not crash."""
+    @pytest.mark.skipif(not is_peft_available(), reason="PEFT must be available to test PEFT support.")
+    def test_peft_seq_classification_resolves_base_config(self, monkeypatch):
+        """A PeftConfig has no 'architectures', so the base model's config decides `num_labels`."""
 
         class FakePeftConfig:
             """Minimal stand-in for PeftConfig that intentionally lacks 'architectures'."""
@@ -1484,10 +1529,25 @@ class TestModelLoading:
 
         monkeypatch.setattr(peft, "PeftConfig", FakePeftConfig)
 
-        # PeftConfig lacks 'architectures', so the sequence-classification guard
-        # (which accesses config.architectures) will raise AttributeError.
-        with pytest.raises(AttributeError):
-            Transformer(TINY_BERT, transformer_task="sequence-classification")
+        module = Transformer(TINY_BERT, transformer_task="sequence-classification")
+        assert module.model.config.num_labels == 1
+
+    @pytest.mark.skipif(not is_peft_available(), reason="PEFT must be available to test PEFT support.")
+    def test_peft_seq_classification_roundtrip(self, tmp_path):
+        """A saved adapter checkpoint reloads as a sequence-classification model with one label."""
+        from peft import LoraConfig, TaskType
+
+        module = Transformer(TINY_BERT, transformer_task="sequence-classification")
+        module.model.add_adapter(LoraConfig(target_modules=["query", "value"], task_type=TaskType.SEQ_CLS, r=8))
+        module.save(str(tmp_path))
+        # The adapter checkpoint carries no config.json, so loading has to resolve the base model's.
+        assert not (tmp_path / "config.json").exists()
+        assert (tmp_path / "adapter_config.json").exists()
+
+        reloaded = Transformer(str(tmp_path), transformer_task="sequence-classification")
+        assert reloaded.model.config.num_labels == 1
+        assert reloaded.model.classifier.out_features == 1
+        assert reloaded.model._hf_peft_config_loaded
 
     def test_peft_non_torch_backend_error(self, monkeypatch):
         """PEFT models should raise an error for non-torch backends."""

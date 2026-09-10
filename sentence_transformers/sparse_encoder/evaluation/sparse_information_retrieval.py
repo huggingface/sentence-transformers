@@ -46,7 +46,7 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         write_csv (bool): Whether to write the evaluation results to a CSV file. Defaults to True.
         max_active_dims (Optional[int], optional): The maximum number of active dimensions to use.
             `None` uses the model's current `max_active_dims`. Defaults to None.
-        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to the ``similarity`` function from the ``model``.
+        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to the ``similarity`` function of the model passed to each call, so a reused evaluator follows every model's own similarity.
         main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation. Defaults to None.
         query_prompt (str, optional): The prompt to be used when encoding the corpus. Defaults to None.
         query_prompt_name (str, optional): The name of the prompt to be used when encoding the corpus. Defaults to None.

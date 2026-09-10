@@ -6,6 +6,9 @@ We have released various pre-trained Cross Encoder models via our Cross Encoder 
 * **Original models**: `Cross Encoder Hugging Face organization <https://huggingface.co/models?library=sentence-transformers&author=cross-encoder>`_.
 * **Community models**: `All Cross Encoder models on Hugging Face <https://huggingface.co/models?library=sentence-transformers&pipeline_tag=text-ranking>`_.
 
+.. note::
+    The ``sentence-transformers`` library tag is shared by all four model types, and Cross Encoders are the one type without a single clean filter on top of it. The community link above uses the ``text-ranking`` pipeline tag, which covers rerankers but not the classification models further down this page. Models trained with recent versions also carry a ``cross-encoder`` tag, though most of the models on this page predate it. ``sparse`` and ``multi-vector`` are the equivalents for Sparse Encoder and Multi-Vector Encoder models, while dense Sentence Transformer models make up the bulk of what the library tag returns on its own.
+
 Each of these models can be easily downloaded and used like so:
 ```
 
@@ -85,7 +88,7 @@ These models have been trained on the [Quora duplicate questions dataset](https:
 
 ```{eval-rst}
 .. note::
-    The model don't work for question similarity. The question "How to learn Java?" and "How to learn Python?" will get a low score, as these questions are not duplicates. For question similarity, a :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` trained on the Quora dataset will yield much more meaningful results.
+    The model doesn't work for question similarity. The question "How to learn Java?" and "How to learn Python?" will get a low score, as these questions are not duplicates. For question similarity, a :class:`~sentence_transformers.sentence_transformer.model.SentenceTransformer` trained on the Quora dataset will yield much more meaningful results.
 ```
 
 ## NLI

@@ -85,7 +85,7 @@ class NanoBEIREvaluator(BaseEvaluator):
         batch_size (int): The batch size for evaluation. Defaults to 32.
         write_csv (bool): Whether to write the evaluation results to a CSV file. Defaults to True.
         truncate_dim (int, optional): The dimension to truncate the embeddings to. Defaults to None.
-        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to {SimilarityFunction.COSINE.value: cos_sim, SimilarityFunction.DOT_PRODUCT.value: dot_score}.
+        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to the ``similarity`` function of the model passed to each call, so a reused evaluator follows every model's own similarity.
         main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation. Defaults to None.
         aggregate_fn (Callable[[list[float]], float]): The function to aggregate the scores. Defaults to np.mean.
         aggregate_key (str): The key to use for the aggregated score. Defaults to "mean".
@@ -246,6 +246,7 @@ class NanoBEIREvaluator(BaseEvaluator):
         self.write_csv = write_csv
         self.score_functions = score_functions
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
+        self._score_functions_from_model = score_functions is None
         self.main_score_function = main_score_function
         self.truncate_dim = truncate_dim
         self.name = f"NanoBEIR_{aggregate_key}"
@@ -325,10 +326,17 @@ class NanoBEIREvaluator(BaseEvaluator):
             out_txt += f" (truncated to {self.truncate_dim})"
         logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
 
-        if self.score_functions is None:
-            self.score_functions = {model.similarity_fn_name: model.similarity}
-            self.score_function_names = [model.similarity_fn_name]
-            self._append_csv_headers(self.score_function_names)
+        headers_changed = False
+        if self._score_functions_from_model:
+            # Taken from a sub-evaluator so the aggregate labels cannot drift from the per-dataset
+            # ones, which resolve their own scoring per call.
+            self.score_functions = self.evaluators[0]._model_score_functions(model)
+            if self.score_function_names != sorted(self.score_functions):
+                headers_changed = bool(self.score_function_names)
+                self.score_function_names = sorted(self.score_functions)
+                self.csv_headers = ["epoch", "steps"]
+                self._append_csv_headers(self.score_function_names)
+                self.primary_metric = None
 
         num_underscores_in_name = self.name.count("_")
         for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
@@ -355,6 +363,12 @@ class NanoBEIREvaluator(BaseEvaluator):
                 fOut.write("\n")
 
             else:
+                if headers_changed:
+                    logger.warning(
+                        f"{self.csv_file} was written with different score function columns, so the "
+                        f"rows appended for {self.score_function_names} are labeled with the previous "
+                        "score function."
+                    )
                 fOut = open(csv_path, mode="a", encoding="utf-8")
 
             output_data = [epoch, steps]

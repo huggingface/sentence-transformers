@@ -19,7 +19,7 @@ class MultiVectorMask(Module):
     """Module that overwrites ``features["attention_mask"]`` with the per-row *scoring* mask for
     late-interaction (ColBERT-style) models.
 
-    Place this at the end of the module sequence in a :class:`~sentence_transformers.MultiVectorEncoder`.
+    Place this at the end of the module sequence in a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`.
     Reads ``task`` from forward kwargs and ``features["query_expansion_positions"]`` (a ``(B, T)``
     mask set by the :class:`~sentence_transformers.base.modules.Transformer` during preprocess when
     query expansion is on) to decide:

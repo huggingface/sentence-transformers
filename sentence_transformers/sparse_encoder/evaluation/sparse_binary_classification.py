@@ -135,7 +135,8 @@ class SparseBinaryClassificationEvaluator(BinaryClassificationEvaluator):
 
     def _append_csv_headers(self, similarity_fn_names: list[str]) -> None:
         super()._append_csv_headers(similarity_fn_names)
-        self.csv_headers.extend(["active_dims", "sparsity_ratio"])
+        if similarity_fn_names:
+            self.csv_headers.extend(["active_dims", "sparsity_ratio"])
 
     def __call__(
         self, model: SparseEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1

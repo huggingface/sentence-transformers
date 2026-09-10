@@ -115,11 +115,11 @@ def test_round_robin_batch_sampler_stops_at_advertised_length(
     ("values", "drop_last", "expected_batches"),
     [
         (([0] * 4, [1] * 6), False, 8),
-        ((list(range(8)), [0, 0, 0, 1]), True, 2),
+        ((list(range(8)), [0, 0, 0, 1]), True, 4),
         ((list(range(8)), [0] * 4), True, 0),
     ],
 )
-def test_round_robin_batch_sampler_with_estimated_lengths(
+def test_round_robin_batch_sampler_with_no_duplicates(
     values: tuple[list[int], list[int]], drop_last: bool, expected_batches: int
 ) -> None:
     datasets = [Dataset.from_dict({"data": data}) for data in values]
@@ -137,6 +137,38 @@ def test_round_robin_batch_sampler_with_estimated_lengths(
 
     batches = list(sampler)
 
+    assert len(batches) == expected_batches
+    assert [int(batch[0] >= len(datasets[0])) for batch in batches] == [0, 1] * (expected_batches // 2)
+
+
+@pytest.mark.parametrize(
+    ("batch_counts", "estimated_counts", "expected_batches"),
+    [
+        ((4, 6), (2, 3), 8),
+        ((4, 1), (4, 2), 2),
+        ((4, 0), (4, 2), 0),
+    ],
+)
+def test_round_robin_batch_sampler_with_estimated_lengths(
+    batch_counts: tuple[int, int], estimated_counts: tuple[int, int], expected_batches: int
+) -> None:
+    class EstimatedBatchSampler(BatchSampler):
+        def __init__(self, dataset: Dataset, estimated_count: int) -> None:
+            super().__init__(SequentialSampler(dataset), batch_size=2, drop_last=True)
+            self.estimated_count = estimated_count
+
+        def __len__(self) -> int:
+            return self.estimated_count
+
+    datasets = [Dataset.from_dict({"data": list(range(count * 2))}) for count in batch_counts]
+    batch_samplers = [
+        EstimatedBatchSampler(dataset, estimated_count) for dataset, estimated_count in zip(datasets, estimated_counts)
+    ]
+    sampler = RoundRobinBatchSampler(dataset=ConcatDataset(datasets), batch_samplers=batch_samplers)
+
+    batches = list(sampler)
+
+    assert len(sampler) != expected_batches
     assert len(batches) == expected_batches
     assert [int(batch[0] >= len(datasets[0])) for batch in batches] == [0, 1] * (expected_batches // 2)
 
