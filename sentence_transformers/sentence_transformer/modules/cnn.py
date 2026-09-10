@@ -31,19 +31,17 @@ class CNN(Module):
         self.in_embedding_dimension = in_embedding_dimension
         self.out_channels = out_channels
         self.kernel_sizes = kernel_sizes
-
-        self.embeddings_dimension = out_channels * len(kernel_sizes)
-        self.convs = nn.ModuleList()
-
-        in_channels = in_embedding_dimension
         if stride_sizes is None:
             stride_sizes = [1] * len(kernel_sizes)
         self.stride_sizes = stride_sizes
 
+        self.embeddings_dimension = out_channels * len(kernel_sizes)
+        self.convs = nn.ModuleList()
+
         for kernel_size, stride in zip(kernel_sizes, stride_sizes):
             padding_size = int((kernel_size - 1) / 2)
             conv = nn.Conv1d(
-                in_channels=in_channels,
+                in_channels=in_embedding_dimension,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
                 stride=stride,
