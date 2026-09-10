@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import pytest
+import torch
 from torch.utils.data import BatchSampler, ConcatDataset, SequentialSampler
 
-from sentence_transformers.base.sampler import RoundRobinBatchSampler
+from sentence_transformers.base.sampler import NoDuplicatesBatchSampler, RoundRobinBatchSampler
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -80,3 +81,42 @@ def test_round_robin_batch_sampler_value_error(dummy_concat_dataset: ConcatDatas
         RoundRobinBatchSampler(
             dataset=dummy_concat_dataset, batch_samplers=[batch_sampler_1, batch_sampler_2, batch_sampler_3]
         )
+
+
+def test_round_robin_batch_sampler_stops_at_advertised_length() -> None:
+    dataset_1 = Dataset.from_dict({"data": list(range(20))})
+    dataset_2 = Dataset.from_dict({"data": list(range(12))})
+    concat_dataset = ConcatDataset([dataset_1, dataset_2])
+    batch_samplers = [
+        BatchSampler(SequentialSampler(range(len(dataset))), batch_size=4, drop_last=True)
+        for dataset in (dataset_1, dataset_2)
+    ]
+
+    sampler = RoundRobinBatchSampler(dataset=concat_dataset, batch_samplers=batch_samplers)
+
+    assert len(sampler) == 6
+    assert len(list(sampler)) == len(sampler)
+
+
+def test_multi_dataset_batch_sampler_propagates_epoch(dummy_concat_dataset: ConcatDataset) -> None:
+    batch_samplers = [
+        NoDuplicatesBatchSampler(
+            dataset=dataset,
+            batch_size=4,
+            drop_last=True,
+            generator=torch.Generator(),
+            seed=42,
+        )
+        for dataset in dummy_concat_dataset.datasets
+    ]
+    sampler = RoundRobinBatchSampler(
+        dataset=dummy_concat_dataset,
+        batch_samplers=batch_samplers,
+        generator=torch.Generator(),
+        seed=42,
+    )
+
+    sampler.set_epoch(3)
+
+    assert sampler.epoch == 3
+    assert all(batch_sampler.epoch == 3 for batch_sampler in batch_samplers)
