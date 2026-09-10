@@ -15,7 +15,7 @@ from sentence_transformers.util.decorators import deprecated_kwargs
 class CNN(Module):
     """CNN-layer with multiple kernel-sizes over the word embeddings"""
 
-    config_keys: list[str] = ["in_embedding_dimension", "out_channels", "kernel_sizes"]
+    config_keys: list[str] = ["in_embedding_dimension", "out_channels", "kernel_sizes", "stride_sizes"]
     config_file_name: str = "cnn_config.json"
     config_key_renames = {"in_word_embedding_dimension": "in_embedding_dimension"}
 
@@ -31,14 +31,14 @@ class CNN(Module):
         self.in_embedding_dimension = in_embedding_dimension
         self.out_channels = out_channels
         self.kernel_sizes = kernel_sizes
+        if stride_sizes is None:
+            stride_sizes = [1] * len(kernel_sizes)
+        self.stride_sizes = stride_sizes
 
         self.embeddings_dimension = out_channels * len(kernel_sizes)
         self.convs = nn.ModuleList()
 
         in_channels = in_embedding_dimension
-        if stride_sizes is None:
-            stride_sizes = [1] * len(kernel_sizes)
-
         for kernel_size, stride in zip(kernel_sizes, stride_sizes):
             padding_size = int((kernel_size - 1) / 2)
             conv = nn.Conv1d(
