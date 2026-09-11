@@ -1218,6 +1218,30 @@ def test_explicit_move_overrides_a_single_device_map(move_method: str) -> None:
     assert not model._placement_is_delegated
 
 
+@pytest.mark.parametrize(
+    "args, kwargs, overrides_map",
+    [
+        pytest.param((), {"device": "cpu"}, True, id="device_keyword"),
+        pytest.param(("cpu", torch.float64), {}, True, id="device_and_dtype"),
+        pytest.param((torch.empty(0),), {}, True, id="tensor_positional"),
+        pytest.param((), {"tensor": torch.empty(0)}, True, id="tensor_keyword"),
+        pytest.param((torch.float64,), {}, False, id="dtype_positional"),
+        pytest.param((), {"dtype": torch.float64}, False, id="dtype_keyword"),
+        pytest.param((None, torch.float64), {}, False, id="none_and_dtype"),
+        pytest.param((), {"memory_format": torch.preserve_format}, False, id="memory_format"),
+        pytest.param((), {}, False, id="no_arguments"),
+    ],
+)
+def test_to_overloads_respect_device_map(args: tuple, kwargs: dict, overrides_map: bool) -> None:
+    model = SentenceTransformer(
+        "sentence-transformers-testing/stsb-bert-tiny-safetensors", model_kwargs={"device_map": {"": "cpu"}}
+    )
+
+    model.to(*args, **kwargs)
+
+    assert model._device_map == (None if overrides_map else {"": "cpu"})
+
+
 def test_device_uses_buffers_without_parameters() -> None:
     module = nn.Module()
     module.register_buffer("state", torch.ones(1))

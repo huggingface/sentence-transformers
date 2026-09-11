@@ -1577,11 +1577,12 @@ This pull request has been automatically generated to add {self.__class__.__name
         The warning mirrors the one accelerate patches onto the backbone's own ``to``, which the
         ``nn.Module._apply`` recursion under this call never reaches.
         """
-        device = torch._C._nn._parse_to(*args, **kwargs)[0]
-        if device is not None and self._accelerate_placement_hook is not None:
+        target = args[0] if args else kwargs.get("device", kwargs.get("tensor"))
+        device_requested = target is not None and not isinstance(target, torch.dtype)
+        if device_requested and self._accelerate_placement_hook is not None:
             logger.warning_once("You shouldn't move a model that is dispatched using accelerate hooks.")
         result = super().to(*args, **kwargs)
-        if device is not None:
+        if device_requested:
             self._device_map = None
         return result
 
