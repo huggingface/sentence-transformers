@@ -543,10 +543,7 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
 Benchmarks
 ----------
 
-The best backend depends on your hardware, model and input lengths. The figures
-below compare throughput across several models and datasets, using PyTorch FP32
-as the baseline. Alongside the median speedup, they show the average task-quality
-ratio so you can see whether a faster configuration affects embedding quality.
+The best backend depends on your hardware, model and input lengths. The figures below compare throughput across several models and datasets, using PyTorch FP32 as the baseline. Alongside the median speedup, they show the average task-quality ratio so you can see whether a faster configuration affects embedding quality.
 
 .. raw:: html
 
@@ -555,11 +552,7 @@ ratio so you can see whether a faster configuration affects embedding quality.
 
    <br>
 
-I measured GPU throughput on an RTX 3090 and CPU throughput on an i7-13700K.
-Each speedup compares a backend with the matching model and workload in PyTorch
-FP32, and the bars summarize these ratios across the tested combinations.
-The whiskers show variation between combinations, rather than confidence intervals.
-The GPU llama.cpp measurements use their own matching FP32 baseline.
+I measured GPU throughput on an RTX 3090 and CPU throughput on an i7-13700K. Each speedup compares a backend with the matching model and workload in PyTorch FP32, and the bars summarize these ratios across the tested combinations. The whiskers show variation between combinations, rather than confidence intervals. The GPU llama.cpp measurements use their own matching FP32 baseline.
 
 **Datasets:** the workloads range from short sentences to long reviews:
 
@@ -579,43 +572,25 @@ The GPU llama.cpp measurements use their own matching FP32 baseline.
 
 - `BAAI/bge-m3 <https://huggingface.co/BAAI/bge-m3>`_: 567M parameters (GPU only).
 
-The GPU Sentence Transformers and ONNX tests use 2,000 samples per dataset.
-The CPU tests use 1,000 samples for MiniLM and BGE-base and 512 for mxbai-large.
-Mxbai-large is tested only on short sentences and NQ answers, giving eight CPU
-model and workload combinations in total.
+The GPU Sentence Transformers and ONNX tests use 2,000 samples per dataset. The CPU tests use 1,000 samples for MiniLM and BGE-base and 512 for mxbai-large. Mxbai-large is tested only on short sentences and NQ answers, giving eight CPU model and workload combinations in total.
 
-The throughput comparison uses each backend's best tested batch size,
-with 8 or 20 threads selected on CPU. After warmup, CPU timings use
-either the median of five passes or the mean of two passes. The CPU
-``torch-fp16`` and ``torch-bf16`` results come from smaller
-checks on 128 samples, using the FP32-selected settings and two timed passes
-against matching FP32 controls.
+The throughput comparison uses each backend's best tested batch size, with 8 or 20 threads selected on CPU. After warmup, CPU timings use either the median of five passes or the mean of two passes. The CPU ``torch-fp16`` and ``torch-bf16`` results come from smaller checks on 128 samples, using the FP32-selected settings and two timed passes against matching FP32 controls.
 
-The ranking changes on Hugging Face Jobs ``cpu-upgrade`` instances, where
-llama.cpp leads instead of OpenVINO INT8. The cloud figure covers six model
-and workload combinations, with speedups relative to PyTorch FP32 on that CPU:
+The ranking changes on Hugging Face Jobs ``cpu-upgrade`` instances, where llama.cpp leads instead of OpenVINO INT8. The cloud figure covers six model and workload combinations, with speedups relative to PyTorch FP32 on that CPU:
 
 .. image:: ../../img/backends_benchmark_cpu_cloud.png
    :alt: Backend speedups on Hugging Face Jobs cpu-upgrade instances
    :width: 75%
 
-For quality, each configuration's task scores are compared with PyTorch FP32
-and the resulting ratios are averaged. The evaluation covers both sentence
-similarity and retrieval to capture different uses of the embeddings:
+For quality, each configuration's task scores are compared with PyTorch FP32 and the resulting ratios are averaged. The evaluation covers both sentence similarity and retrieval to capture different uses of the embeddings:
 
 - **Semantic Textual Similarity:** Spearman rank correlation based on cosine similarity on the `sentence-transformers/stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_ test set, computed via the EmbeddingSimilarityEvaluator.
 
 - **Information Retrieval:** NDCG@10 based on cosine similarity on the entire `NanoBEIR <https://huggingface.co/collections/zeta-alpha-ai/nanobeir-66e1a0af21dfd93e620cd9f6>`_ collection of datasets, computed via the InformationRetrievalEvaluator.
 
-The CPU quality bars cover both tasks for MiniLM, BGE-base and mxbai-large,
-giving six ratios per backend. Quality evaluations use matching model artifacts
-on CPU or GPU, with OpenVINO and ONNX INT8 evaluated on CPU. The CPU
-``torch-fp16`` and ``torch-bf16`` quality bars use GPU scores
-relative to matching GPU FP32 scores.
+The CPU quality bars cover both tasks for MiniLM, BGE-base and mxbai-large, giving six ratios per backend. Quality evaluations use matching model artifacts on CPU or GPU, with OpenVINO and ONNX INT8 evaluated on CPU. The CPU ``torch-fp16`` and ``torch-bf16`` quality bars use GPU scores relative to matching GPU FP32 scores.
 
-For llama.cpp in the GPU figure, quality is evaluated on MiniLM and BGE-base,
-while throughput also covers mxbai-large and BGE-M3. BGE-M3 Q4 is excluded
-because its embeddings failed the agreement check against FP32.
+For llama.cpp in the GPU figure, quality is evaluated on MiniLM and BGE-base, while throughput also covers mxbai-large and BGE-M3. BGE-M3 Q4 is excluded because its embeddings failed the agreement check against FP32.
 
 **Backends:**
 
@@ -652,11 +627,7 @@ because its embeddings failed the agreement check against FP32.
 
 .. tab:: GPU
 
-   Half precision provides a substantial speedup on these models: plain FP16
-   reaches a median 2.92x the throughput of FP32. Combining it with Flash Attention 2 and
-   input unpadding raises that to 3.87x, with BF16 performing similarly at 3.84x.
-   This makes half precision with Flash Attention a useful starting point when
-   your model supports it.
+   Half precision provides a substantial speedup on these models: plain FP16 reaches a median 2.92x the throughput of FP32. Combining it with Flash Attention 2 and input unpadding raises that to 3.87x, with BF16 performing similarly at 3.84x. This makes half precision with Flash Attention a useful starting point when your model supports it.
 
    .. image:: ../../img/backends_benchmark_gpu.png
       :alt: Benchmark for GPUs
@@ -680,18 +651,9 @@ Sentence Transformers performed best on the smaller GPU models I tested, while l
    <summary>Compare with llama.cpp</summary>
 
 
-The aggregate results above cover models up to BGE-M3. To explore how the
-comparison changes with larger models and different input lengths, I also
-compared Sentence Transformers with native llama.cpp on models up to
-Qwen3-Embedding-8B. These measurements use an RTX 3090 with 24 GB of VRAM under
-WSL2, with batch sizes tuned for each backend.
+The aggregate results above cover models up to BGE-M3. To explore how the comparison changes with larger models and different input lengths, I also compared Sentence Transformers with native llama.cpp on models up to Qwen3-Embedding-8B. These measurements use an RTX 3090 with 24 GB of VRAM under WSL2, with batch sizes tuned for each backend.
 
-The charts show median throughput, with whiskers indicating the interquartile
-range across repeated measurements. For Sentence Transformers, they compare
-the default unpadded FA2 configuration with padding enabled. Unpadding is
-automatic for text-only inputs when the Flash Attention implementation and
-model architecture support it. For llama.cpp, the GPU-table bars move the input
-embedding table from its default placement in CPU memory to CUDA.
+The charts show median throughput, with whiskers indicating the interquartile range across repeated measurements. For Sentence Transformers, they compare the default unpadded FA2 configuration with padding enabled. Unpadding is automatic for text-only inputs when the Flash Attention implementation and model architecture support it. For llama.cpp, the GPU-table bars move the input embedding table from its default placement in CPU memory to CUDA.
 
 .. tab:: Short sentences
 
@@ -711,52 +673,23 @@ embedding table from its default placement in CPU memory to CUDA.
       :alt: Sentence Transformers and native llama.cpp throughput on long reviews
       :width: 100%
 
-Sentence Transformers with BF16, Flash Attention 2 and unpadding leads on the
-small models, running 2.6 to 6.7 times faster than the fastest tested llama.cpp
-configuration on MiniLM and 2.4 to 3.0 times faster on BGE-base. The gap is much
-smaller on Qwen3-Embedding-4B, where the same configuration leads by about
-5 to 11 percent.
+Sentence Transformers with BF16, Flash Attention 2 and unpadding leads on the small models, running 2.6 to 6.7 times faster than the fastest tested llama.cpp configuration on MiniLM and 2.4 to 3.0 times faster on BGE-base. The gap is much smaller on Qwen3-Embedding-4B, where the same configuration leads by about 5 to 11 percent.
 
-On Qwen3-Embedding-8B, the comparison shifts in favor of llama.cpp: Q8_0 with
-default embedding-table placement is about 12%, 2% and 12% faster than Sentence
-Transformers with BF16, FA2 and unpadding on short sentences, NQ answers and long
-reviews, respectively. More aggressive quantization does not help here, as Q4
-is slower than Q8 on all three workloads. These results make llama.cpp worth
-considering for larger models, particularly when quantization helps them fit
-in memory, although models above 8B were not tested.
+On Qwen3-Embedding-8B, the comparison shifts in favor of llama.cpp: Q8_0 with default embedding-table placement is about 12%, 2% and 12% faster than Sentence Transformers with BF16, FA2 and unpadding on short sentences, NQ answers and long reviews, respectively. More aggressive quantization does not help here, as Q4 is slower than Q8 on all three workloads. These results make llama.cpp worth considering for larger models, particularly when quantization helps them fit in memory, although models above 8B were not tested.
 
 .. note::
 
-   These results measure throughput with tuned batches, so the best configuration
-   for single-request latency may differ. The comparison also checks embedding
-   agreement rather than fully evaluating retrieval quality. Test both speed and
-   task quality on representative inputs before choosing a backend.
+   These results measure throughput with tuned batches, so the best configuration for single-request latency may differ. The comparison also checks embedding agreement rather than fully evaluating retrieval quality. Test both speed andtask quality on representative inputs before choosing a backend.
 
-Timings for Sentence Transformers and native llama.cpp include tokenization,
-model execution, pooling, normalization and returning embeddings to CPU memory.
-The benchmark calls llama.cpp directly, so its timings do not include HTTP transport.
+Timings for Sentence Transformers and native llama.cpp include tokenization, model execution, pooling, normalization and returning embeddings to CPU memory. The benchmark calls llama.cpp directly, so its timings do not include HTTP transport.
 
-To compare each model on the same workload, both backends use identical
-inputs and matching truncation limits:
-256 tokens for MiniLM, 384 for MPNet, 512 for BGE-base and mxbai-large,
-8,192 for BGE-M3, 32,768 for Qwen 0.6B and 40,960 for Qwen 4B and 8B.
-The workloads contain 2,000 short sentences, 1,000 NQ answers and 256 long
-reviews (repeated text). Qwen 4B and 8B use prefixes of 1,024, 256 and 64 texts.
+To compare each model on the same workload, both backends use identical inputs and matching truncation limits: 256 tokens for MiniLM, 384 for MPNet, 512 for BGE-base and mxbai-large, 8,192 for BGE-M3, 32,768 for Qwen 0.6B and 40,960 for Qwen 4B and 8B. The workloads contain 2,000 short sentences, 1,000 NQ answers and 256 long reviews (repeated text). Qwen 4B and 8B use prefixes of 1,024, 256 and 64 texts.
 
-I checked embedding agreement on 552 texts against FP32, using BF16 as the
-reference for 8B. Configurations that fail this check are marked as withheld,
-including BGE-M3 Q4. MPNet has no supported FA2 or llama.cpp implementation in
-the tested versions, so those configurations are marked as unsupported.
+I checked embedding agreement on 552 texts against FP32, using BF16 as the reference for 8B. Configurations that fail this check are marked as withheld, including BGE-M3 Q4. MPNet has no supported FA2 or llama.cpp implementation in the tested versions, so those configurations are marked as unsupported.
 
-Sentence Transformers uses the same checkpoints as the llama.cpp GGUF
-conversions, which are tested in F16, BF16, Q8_0 and Q4_K_M. Decoder models
-use ``model[0].config.use_cache = False`` to avoid retaining a generation
-cache during embedding inference. The llama.cpp GPU-table variants reuse the
-default F16 token budgets.
+Sentence Transformers uses the same checkpoints as the llama.cpp GGUF conversions, which are tested in F16, BF16, Q8_0 and Q4_K_M. Decoder models use ``model[0].config.use_cache = False`` to avoid retaining a generation cache during embedding inference. The llama.cpp GPU-table variants reuse the default F16 token budgets.
 
-The software versions are Sentence Transformers 6.1.0.dev0 (084d9f7183b7),
-PyTorch 2.11.0+cu128, Transformers 5.14.1 and kernels 0.15.2 with
-kernels-community/flash-attn2. llama.cpp uses revision 4d91760, built with CUDA.
+The software versions are Sentence Transformers 6.1.0.dev0 (084d9f7183b7), PyTorch 2.11.0+cu128, Transformers 5.14.1 and kernels 0.15.2 with kernels-community/flash-attn2. llama.cpp uses revision 4d91760, built with CUDA.
 
 .. raw:: html
 
