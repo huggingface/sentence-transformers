@@ -672,6 +672,17 @@ def test_logger_warning(caplog):
         assert "`config_args` argument was renamed and is now deprecated" in caplog.text
 
 
+def test_predict_with_falsey_activation_override(reranker_bert_tiny_model: CrossEncoder):
+    model = reranker_bert_tiny_model
+    inputs = [["Hello there!", "Hello, World!"], ["A cat is sleeping.", "An animal is resting."]]
+    raw_scores = model.predict(inputs, activation_fn=torch.nn.Identity(), convert_to_tensor=True)
+
+    torch.testing.assert_close(
+        model.predict(inputs, activation_fn=torch.nn.Sequential(), convert_to_tensor=True), raw_scores
+    )
+    torch.testing.assert_close(model.predict(inputs, convert_to_tensor=True), torch.sigmoid(raw_scores))
+
+
 def test_explicit_activation_overrides_unconstructible_saved_activation(
     reranker_bert_tiny_model: CrossEncoder, tmp_path: Path
 ):

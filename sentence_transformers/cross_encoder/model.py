@@ -675,7 +675,8 @@ class CrossEncoder(BaseModel, FitMixin):
         self.to(device)
 
         self.eval()
-        activation_fn = activation_fn or self.activation_fn
+        if activation_fn is None:
+            activation_fn = self.activation_fn
         num_labels = self.num_labels
 
         pred_scores = []
