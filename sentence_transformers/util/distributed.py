@@ -161,7 +161,8 @@ class _DistributedInference:
 
     def _scatter(self, messages: list | None = None) -> tuple[str, Any]:
         payload = [None]
-        dist.scatter_object_list(payload, messages, src=0)
+        with torch.inference_mode(False):
+            dist.scatter_object_list(payload, messages, src=0)
         return payload[0]
 
     def _infer_and_gather(self, payload: tuple[list, dict[str, Any]]) -> list | None:
@@ -173,7 +174,8 @@ class _DistributedInference:
         except Exception:
             result = (None, traceback.format_exc())
         results = [None] * self.world_size if self.rank == 0 else None
-        dist.gather_object(result, results, dst=0)
+        with torch.inference_mode(False):
+            dist.gather_object(result, results, dst=0)
         return results
 
     def serve(self) -> None:

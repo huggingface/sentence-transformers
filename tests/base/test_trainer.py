@@ -249,7 +249,9 @@ def _run_ddp_evaluation_loop(rank: int, world_size: int, port: int, tmp_dir: str
             assert metrics == pytest.approx(expected_metrics)
             return {**metrics, "score": float(rank)}
 
-    args = SentenceTransformerTrainingArguments(output_dir=os.path.join(tmp_dir, f"out_{rank}"), use_cpu=True)
+    args = SentenceTransformerTrainingArguments(
+        output_dir=os.path.join(tmp_dir, f"out_{rank}"), use_cpu=True, ddp_timeout=30
+    )
     trainer = SentenceTransformerTrainer(model=model, args=args, evaluator=RankRecordingEvaluator())
     eval_dataset = Dataset.from_dict(
         {"sentence1": ["hello world"] * 4, "sentence2": ["sentence transformers"] * 4, "score": [0.5] * 4}
