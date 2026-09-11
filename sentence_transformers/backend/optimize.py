@@ -40,8 +40,8 @@ def export_optimized_onnx_model(
 
     See the following pages for more information & benchmarks:
 
-    - `Sentence Transformer > Usage > Speeding up Inference <https://sbert.net/docs/sentence_transformer/usage/efficiency.html>`_
-    - `Cross Encoder > Usage > Speeding up Inference <https://sbert.net/docs/cross_encoder/usage/efficiency.html>`_
+    - `Sentence Transformer > Speeding up Inference <https://sbert.net/docs/sentence_transformer/usage/efficiency.html>`_
+    - `Cross Encoder > Speeding up Inference <https://sbert.net/docs/cross_encoder/usage/efficiency.html>`_
 
     Args:
         model (SentenceTransformer | SparseEncoder | CrossEncoder | MultiVectorEncoder): The SentenceTransformer,

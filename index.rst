@@ -270,23 +270,23 @@ Consider reading one of the following sections to answer the related questions:
 * Embedding Models:
    * How to **use** Sentence Transformer models? `Sentence Transformers > Usage <docs/sentence_transformer/usage/usage.html>`_
    * What Sentence Transformer **models** can I use? `Sentence Transformers > Pretrained Models <docs/sentence_transformer/pretrained_models.html>`_
-   * How do I make Sentence Transformer models **faster**? `Sentence Transformers > Usage > Speeding up Inference <docs/sentence_transformer/usage/efficiency.html>`_
+   * How do I make Sentence Transformer models **faster**? `Sentence Transformers > Speeding up Inference <docs/sentence_transformer/usage/efficiency.html>`_
    * How do I **train/finetune** a Sentence Transformer model? `Sentence Transformers > Training Overview <docs/sentence_transformer/training_overview.html>`_
 * Reranker Models:
    * How to **use** Cross Encoder models? `Cross Encoder > Usage <docs/cross_encoder/usage/usage.html>`_
    * What Cross Encoder **models** can I use? `Cross Encoder > Pretrained Models <docs/cross_encoder/pretrained_models.html>`_
-   * How do I make Cross Encoder models **faster**? `Cross Encoder > Usage > Speeding up Inference <docs/cross_encoder/usage/efficiency.html>`_
+   * How do I make Cross Encoder models **faster**? `Cross Encoder > Speeding up Inference <docs/cross_encoder/usage/efficiency.html>`_
    * How do I **train/finetune** a Cross Encoder model? `Cross Encoder > Training Overview <docs/cross_encoder/training_overview.html>`_
 * Sparse Encoder Models:
    * How to **use** Sparse Encoder models? `Sparse Encoder > Usage <docs/sparse_encoder/usage/usage.html>`_
    * What Sparse Encoder **models** can I use? `Sparse Encoder > Pretrained Models <docs/sparse_encoder/pretrained_models.html>`_
-   * How do I make Sparse Encoder models **faster**? `Sparse Encoder > Usage > Speeding up Inference <docs/sparse_encoder/usage/efficiency.html>`_
+   * How do I make Sparse Encoder models **faster**? `Sparse Encoder > Speeding up Inference <docs/sparse_encoder/usage/efficiency.html>`_
    * How do I **train/finetune** a Sparse Encoder model? `Sparse Encoder > Training Overview <docs/sparse_encoder/training_overview.html>`_
    * How do I **integrate** Sparse Encoder models with search engines? `Sparse Encoder > Vector Database Integration <examples/sparse_encoder/applications/semantic_search/README.html#vector-database-search>`_
 * Multi-Vector Encoder Models:
    * How to **use** Multi-Vector Encoder models? `Multi-Vector Encoder > Usage <docs/multi_vector_encoder/usage/usage.html>`_
    * What Multi-Vector Encoder **models** can I use? `Multi-Vector Encoder > Pretrained Models <docs/multi_vector_encoder/pretrained_models.html>`_
-   * How do I make Multi-Vector Encoder models **faster**? `Multi-Vector Encoder > Usage > Speeding up Inference <docs/multi_vector_encoder/usage/efficiency.html>`_
+   * How do I make Multi-Vector Encoder models **faster**? `Multi-Vector Encoder > Speeding up Inference <docs/multi_vector_encoder/usage/efficiency.html>`_
    * How do I **train/finetune** a Multi-Vector Encoder model? `Multi-Vector Encoder > Training Overview <docs/multi_vector_encoder/training_overview.html>`_
 
 Companion Blog Posts
@@ -385,6 +385,7 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
 
    docs/sentence_transformer/usage/usage
    docs/sentence_transformer/pretrained_models
+   docs/sentence_transformer/usage/efficiency
    docs/sentence_transformer/training_overview
    docs/sentence_transformer/dataset_overview
    docs/sentence_transformer/loss_overview
@@ -397,6 +398,7 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
 
    docs/cross_encoder/usage/usage
    docs/cross_encoder/pretrained_models
+   docs/cross_encoder/usage/efficiency
    docs/cross_encoder/training_overview
    docs/sentence_transformer/dataset_overview
    docs/cross_encoder/loss_overview
@@ -409,6 +411,7 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
 
    docs/sparse_encoder/usage/usage
    docs/sparse_encoder/pretrained_models
+   docs/sparse_encoder/usage/efficiency
    docs/sparse_encoder/training_overview
    docs/sentence_transformer/dataset_overview
    docs/sparse_encoder/loss_overview
@@ -421,6 +424,7 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
 
    docs/multi_vector_encoder/usage/usage
    docs/multi_vector_encoder/pretrained_models
+   docs/multi_vector_encoder/usage/efficiency
    docs/multi_vector_encoder/training_overview
    docs/sentence_transformer/dataset_overview
    docs/multi_vector_encoder/loss_overview

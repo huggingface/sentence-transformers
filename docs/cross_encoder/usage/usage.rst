@@ -16,6 +16,7 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    1. :class:`~sentence_transformers.cross_encoder.model.CrossEncoder`
    2. :meth:`CrossEncoder.predict <sentence_transformers.cross_encoder.model.CrossEncoder.predict>`
    3. :meth:`CrossEncoder.rank <sentence_transformers.cross_encoder.model.CrossEncoder.rank>`
+   4. :doc:`Speeding up Inference <efficiency>`
 
    .. note::
       MS Marco models return logits rather than scores between 0 and 1. Load the :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` with ``activation_fn=torch.nn.Sigmoid()`` to get scores between 0 and 1. This does not affect the ranking.
@@ -140,4 +141,3 @@ In this example, the multimodal CrossEncoder uses the same modular architecture 
    Cross-Encoder vs Bi-Encoder <../../../examples/cross_encoder/applications/README>
    ../../../examples/sentence_transformer/applications/retrieve_rerank/README
    custom_models
-   efficiency
