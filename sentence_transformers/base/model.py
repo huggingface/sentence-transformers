@@ -274,12 +274,10 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self._device_map = device_map
         if self._placement_is_delegated:
             self._align_modules_around_backbone(dtype=first_param.dtype if first_param is not None else None)
-        elif first_param is not None:
-            first_dtype = first_param.dtype
-            for module in list(self.children())[1:]:
-                module.to(first_dtype)
-
-        if not self._placement_is_delegated:
+        else:
+            if first_param is not None:
+                for module in list(self.children())[1:]:
+                    module.to(first_param.dtype)
             self.to(device)
         self.is_hpu_graph_enabled = False
 
@@ -1517,38 +1515,34 @@ This pull request has been automatically generated to add {self.__class__.__name
     def _align_modules_around_backbone(self, dtype: torch.dtype | None = None) -> torch.device:
         """Align auxiliary modules without changing loaded backbones or dispatched submodules. Return the device."""
         device = self.device
+        modules = list(self.modules())
         placed = set()
 
-        def collect_placed(module: nn.Module) -> None:
+        def collect_hook(module: nn.Module, hook: ModelHook | None) -> None:
+            if getattr(hook, "execution_device", None) is not None:
+                if getattr(hook, "place_submodules", True):
+                    placed.update(id(child) for child in module.modules())
+                else:
+                    placed.add(id(module))
+            for child in getattr(hook, "hooks", ()):
+                collect_hook(module, child)
+
+        for module in modules:
             if self._device_map is not None and isinstance(module, Transformer):
                 placed.update(id(child) for child in module.model.modules())
-            elif (self._device_map is not None and isinstance(module, PreTrainedModel)) or getattr(
-                module, "_hf_hook", None
-            ) is not None:
+            elif self._device_map is not None and isinstance(module, PreTrainedModel):
                 placed.update(id(child) for child in module.modules())
-                return
-            for child in module.children():
-                if id(child) not in placed:
-                    collect_placed(child)
-
-        collect_placed(self)
+            collect_hook(module, module.__dict__.get("_hf_hook"))
 
         def convert(tensor: Tensor) -> Tensor:
             return tensor.to(device=device, dtype=dtype if tensor.is_floating_point() or tensor.is_complex() else None)
 
-        def align(module: nn.Module) -> None:
-            for child in module.children():
-                if id(child) in placed:
-                    continue
-                if any(id(descendant) in placed for descendant in child.modules()):
-                    child._apply(convert, recurse=False)
-                    align(child)
+        for module in reversed(modules):
+            if id(module) not in placed:
+                if isinstance(module, BaseModel):
+                    super(BaseModel, module)._apply(convert, recurse=False)
                 else:
-                    child.to(device=device, dtype=dtype)
-
-        if id(self) not in placed:
-            super()._apply(convert, recurse=False)
-        align(self)
+                    module._apply(convert, recurse=False)
         return device
 
     @torch.inference_mode(False)
@@ -1705,9 +1699,6 @@ This pull request has been automatically generated to add {self.__class__.__name
         # Note: this modifies the model in-place, the model will remain on CPU after this call.
         self.to("cpu")
         self.share_memory()
-        # This move overrides whatever a `device_map` asked for, so each worker may now place its own
-        # copy on its target device.
-        self._device_map = None
         ctx = mp.get_context("spawn")
         input_queue = ctx.Queue()
         output_queue = ctx.Queue()

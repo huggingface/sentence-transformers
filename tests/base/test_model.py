@@ -980,10 +980,14 @@ def test_device_map_alignment_reaches_modules_outside_the_backbone() -> None:
     )
     route = model[0].sub_modules["query"]
     assert model.transformers_model not in list(route.modules())
+    route.register_buffer("state", torch.ones(1))
+    backbone_dtype = model.transformers_model.dtype
 
-    with patch.object(route, "to", wraps=route.to) as move:
-        model._align_modules_around_backbone()
-    move.assert_called_once_with(device=model.device, dtype=None)
+    model._align_modules_around_backbone(dtype=torch.float64)
+
+    assert route.state.device == model.device
+    assert route.state.dtype == torch.float64
+    assert model.transformers_model.dtype == backbone_dtype
 
 
 def test_pool_takes_placement_over_from_an_undispatched_device_map() -> None:
@@ -1429,7 +1433,9 @@ def test_mixed_gpu_offload_map_with_auxiliary_dense(tmp_path: Path, offload: str
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
 @pytest.mark.parametrize("explicit_device", [False, True])
-@pytest.mark.parametrize("placement", ["ordinary", "device_map", "offload"])
+@pytest.mark.parametrize(
+    "placement", ["ordinary", "device_map", "offload", "outer_offload", "outer_offload_composed", "preloaded_offload"]
+)
 def test_encode_aligns_appended_dense_module(
     stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, explicit_device: bool, placement: str
 ) -> None:
@@ -1437,6 +1443,23 @@ def test_encode_aligns_appended_dense_module(
 
     if placement == "ordinary":
         model = stsb_bert_tiny_model.to("cuda")
+    elif placement.startswith("outer_offload"):
+        from accelerate import cpu_offload
+        from accelerate.hooks import ModelHook, add_hook_to_module
+
+        model = stsb_bert_tiny_model.to("cpu")
+        cpu_offload(model, execution_device=torch.device("cuda:0"))
+        if placement == "outer_offload_composed":
+            add_hook_to_module(model, ModelHook(), append=True)
+    elif placement == "preloaded_offload":
+        from accelerate import cpu_offload
+
+        model = stsb_bert_tiny_model.to("cpu")
+        cpu_offload(
+            model.transformers_model,
+            execution_device=torch.device("cuda:0"),
+            preload_module_classes=[type(model.transformers_model).__name__],
+        )
     else:
         device_map = (
             {"": "cuda:0"}
@@ -1461,6 +1484,27 @@ def test_encode_aligns_appended_dense_module(
     assert {name: tensor.device for name, tensor in model.transformers_model.named_parameters()} == backbone_devices
     repeated = model.encode(["hello"], convert_to_tensor=True)
     torch.testing.assert_close(repeated, embeddings)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+def test_alignment_preserves_parent_offloaded_tensors(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    from accelerate import cpu_offload
+
+    from sentence_transformers.sentence_transformer.modules import Dense
+
+    model = stsb_bert_tiny_model.to("cpu")
+    model.register_parameter("offloaded", nn.Parameter(torch.ones(1)))
+    cpu_offload(model, execution_device=torch.device("cuda:0"))
+    dense = Dense(model.get_embedding_dimension(), 32)
+    model.add_module("dense", dense)
+
+    embeddings = model.encode(["hello"], convert_to_tensor=True)
+
+    assert embeddings.shape == (1, 32)
+    assert embeddings.device == dense.linear.weight.device == torch.device("cuda:0")
+    assert model.offloaded.device.type == "meta"
+    assert not dense.linear.weight.is_inference()
+    torch.testing.assert_close(model.encode(["hello"], convert_to_tensor=True), embeddings)
 
 
 @pytest.mark.parametrize("device", [None, "cpu"], ids=str)
