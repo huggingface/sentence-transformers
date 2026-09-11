@@ -635,9 +635,10 @@ class SparseEncoder(BaseModel):
                 - A single device string (e.g., "cuda:0", "cpu") for single-process encoding
                 - A list of device strings (e.g., ["cuda:0", "cuda:1"], ["cpu", "cpu", "cpu", "cpu"]) to distribute
                   encoding across multiple processes
-                - None to auto-detect available device for single-process encoding
+                - None to use the model's current device
 
-                If a list is provided, multi-process encoding will be used. Defaults to None.
+                A single device moves the model there, unless a `device_map` or Accelerate hooks control placement. If a list is
+                provided, multi-process encoding will be used. Defaults to None.
             max_active_dims (int, optional): The maximum number of active (non-zero) dimensions in the output of the
                 model. ``None`` means the value from the model's config will be used. Defaults to None. If also None in
                 the model's config, there will be no limit on the number of active dimensions, which can be slow or
@@ -733,11 +734,7 @@ class SparseEncoder(BaseModel):
             return embeddings
 
         prompt = self._resolve_prompt(prompt, prompt_name)
-
-        if device is None:
-            device = self.device
-
-        self.to(device)
+        device = self._resolve_inference_device(device)
         self.eval()
 
         max_active_dims = max_active_dims if max_active_dims is not None else self.max_active_dims
@@ -775,7 +772,7 @@ class SparseEncoder(BaseModel):
 
         if convert_to_tensor:
             if len(all_embeddings) == 0:
-                all_embeddings = torch.tensor([], device=self.device)
+                all_embeddings = torch.tensor([], device=device)
                 if convert_to_sparse_tensor:
                     all_embeddings = all_embeddings.to_sparse()
                 if save_to_cpu:

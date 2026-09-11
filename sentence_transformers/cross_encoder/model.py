@@ -581,8 +581,9 @@ class CrossEncoder(BaseModel, FitMixin):
             convert_to_tensor (bool, optional): Whether the output should be one large tensor. Overwrites `convert_to_numpy`.
                 Defaults to False.
             device (Union[str, List[str]], optional): Device(s) to use for computation. Can be a single device string
-                (e.g., "cuda:0", "cpu") or a list of devices (e.g., ["cuda:0", "cuda:1"]). If a list is provided,
-                multiprocessing will be used automatically. Defaults to None.
+                (e.g., "cuda:0", "cpu"), which moves the model there unless a `device_map` or Accelerate hooks control placement,
+                or a list of devices (e.g., ["cuda:0", "cuda:1"]), which uses multiprocessing automatically.
+                If None, uses the model's current device. Defaults to None.
             pool (Dict[str, Any], optional): A pool of workers created with :meth:`start_multi_process_pool`. If provided,
                 multiprocessing will be used. If None and ``device`` is a list, a pool will be created automatically.
                 Defaults to None.
@@ -667,12 +668,7 @@ class CrossEncoder(BaseModel, FitMixin):
             return pred_scores
 
         prompt = self._resolve_prompt(prompt, prompt_name)
-
-        # Here, device is either a single device string (e.g., "cuda:0", "cpu") for single-process encoding or None
-        if device is None:
-            device = str(self.device)
-
-        self.to(device)
+        device = self._resolve_inference_device(device)
 
         self.eval()
         if activation_fn is None:
@@ -761,8 +757,9 @@ class CrossEncoder(BaseModel, FitMixin):
             activation_fn ([type], optional): Activation function applied on the logits output of the CrossEncoder. If None, nn.Sigmoid() will be used if num_labels=1, else nn.Identity. Defaults to None.
             apply_softmax (bool, optional): If there are more than 2 dimensions and apply_softmax=True, applies softmax on the logits output. Defaults to False.
             device (Union[str, List[str]], optional): Device(s) to use for computation. Can be a single device string
-                (e.g., "cuda:0", "cpu") or a list of devices (e.g., ["cuda:0", "cuda:1"]). If a list is provided,
-                multiprocessing will be used automatically. Defaults to None.
+                (e.g., "cuda:0", "cpu"), which moves the model there unless a `device_map` or Accelerate hooks control placement,
+                or a list of devices (e.g., ["cuda:0", "cuda:1"]), which uses multiprocessing automatically.
+                If None, uses the model's current device. Defaults to None.
             pool (Dict[str, Any], optional): A pool of workers created with :meth:`start_multi_process_pool`. If provided,
                 multiprocessing will be used. If None and ``device`` is a list, a pool will be created automatically.
                 Defaults to None.
