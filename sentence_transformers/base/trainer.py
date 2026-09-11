@@ -9,7 +9,6 @@ import shutil
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Callable
-from contextlib import nullcontext
 from functools import partial
 from typing import Any
 
@@ -57,11 +56,15 @@ from sentence_transformers.base.sampler import (
     RoundRobinBatchSampler,
 )
 from sentence_transformers.base.training_args import BaseTrainingArguments, BatchSamplers, MultiDatasetBatchSamplers
-from sentence_transformers.util import disable_logging, fullname, is_datasets_available, is_training_available
+from sentence_transformers.util import fullname, is_datasets_available, is_training_available
 from sentence_transformers.util.decorators import deprecated_kwargs
+from sentence_transformers.util.distributed import distributed_evaluation
 
 if is_datasets_available():
     from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, Sequence, Value
+
+if is_training_available():
+    from accelerate.utils import broadcast_object_list
 
 logger = logging.getLogger(__name__)
 
@@ -664,16 +667,22 @@ class BaseTrainer(Trainer, ABC):
             else:
                 return output
 
-        with nullcontext() if self.is_local_process_zero() else disable_logging(logging.INFO):
-            output_path = self.args.output_dir
-            if output_path is not None:
-                output_path = os.path.join(output_path, "eval")
-                os.makedirs(output_path, exist_ok=True)
-            evaluator_metrics = self.evaluator(
-                self.model, output_path=output_path, epoch=self.state.epoch, steps=self.state.global_step
-            )
-        if not isinstance(evaluator_metrics, dict):
-            evaluator_metrics = {"evaluator": evaluator_metrics}
+        with distributed_evaluation(self.model, enabled=not self.is_fsdp_enabled and not self.is_deepspeed_enabled):
+            if self.is_world_process_zero():
+                output_path = self.args.output_dir
+                if output_path is not None:
+                    output_path = os.path.join(output_path, "eval")
+                    os.makedirs(output_path, exist_ok=True)
+                evaluator_metrics = self.evaluator(
+                    self.model, output_path=output_path, epoch=self.state.epoch, steps=self.state.global_step
+                )
+                if not isinstance(evaluator_metrics, dict):
+                    evaluator_metrics = {"evaluator": evaluator_metrics}
+            else:
+                evaluator_metrics = {}
+
+        # No-ops when there is nothing to broadcast to (single process, no distributed backend).
+        evaluator_metrics = broadcast_object_list([evaluator_metrics])[0]
 
         # Prefix all keys with metric_key_prefix + '_'
         for key in list(evaluator_metrics.keys()):

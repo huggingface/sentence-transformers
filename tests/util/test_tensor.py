@@ -8,7 +8,31 @@ import pytest
 import torch
 
 from sentence_transformers.util.similarity import cos_sim, dot_score, euclidean_sim, manhattan_sim, maxsim
-from sentence_transformers.util.tensor import _convert_to_tensor, normalize_embeddings, select_max_active_dims
+from sentence_transformers.util.tensor import (
+    _convert_to_tensor,
+    _move_tensors_to_cpu,
+    _move_tensors_to_device,
+    normalize_embeddings,
+    select_max_active_dims,
+)
+
+
+@pytest.mark.parametrize("target_device", ["cpu", torch.device("meta")])
+def test_move_tensors_to_device_preserves_nested_outputs(target_device):
+    tensor = torch.tensor([1.0, 2.0])
+    array = np.array([3.0, 4.0])
+    original = ({"embeddings": [tensor], "array": array}, "metadata", None)
+    moved = _move_tensors_to_device(original, target_device)
+
+    assert isinstance(moved, tuple)
+    assert isinstance(moved[0]["embeddings"], list)
+    output = moved[0]["embeddings"][0]
+    assert output.device == torch.device(target_device)
+    assert output.shape == tensor.shape and output.dtype == tensor.dtype
+    assert moved[0]["array"] is array
+    assert moved[1:] == ("metadata", None)
+    assert original[0]["embeddings"][0] is tensor
+    assert _move_tensors_to_cpu(original)[0]["embeddings"][0] is tensor
 
 
 def test_normalize_embeddings() -> None:

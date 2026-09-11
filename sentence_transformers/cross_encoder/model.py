@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import logging
-import math
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
-from multiprocessing import Queue
 from typing import Any, Literal, overload
 
 import numpy as np
@@ -21,7 +19,7 @@ from sentence_transformers.base.modules import Dense, Transformer
 from sentence_transformers.cross_encoder.fit_mixin import FitMixin
 from sentence_transformers.cross_encoder.model_card import CrossEncoderModelCardData
 from sentence_transformers.cross_encoder.modules.logit_score import LogitScore
-from sentence_transformers.util import _move_tensors_to_cpu, batch_to_device, fullname, import_from_string
+from sentence_transformers.util import batch_to_device, fullname, import_from_string
 from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
@@ -278,97 +276,6 @@ class CrossEncoder(BaseModel, FitMixin):
             backend=self.backend,
         )
         return [transformer_model], {}
-
-    def _multi_process(
-        self,
-        inputs: Sequence[PairInput],
-        show_progress_bar: bool | None = True,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
-        device: str | list[str | torch.device] | None = None,
-        chunk_size: int | None = None,
-        **predict_kwargs,
-    ):
-        convert_to_tensor = predict_kwargs.get("convert_to_tensor", False)
-        convert_to_numpy = predict_kwargs.get("convert_to_numpy", True)
-        predict_kwargs["show_progress_bar"] = False
-
-        created_pool = False
-        if pool is None and isinstance(device, list) and len(device) > 0:
-            pool = self.start_multi_process_pool(device)
-            created_pool = True
-
-        # Create a pool if is not provided, but a list of devices is
-        try:
-            # Determine chunk size if not provided. As a default, aim for 10 chunks per process, with a maximum of 5000 sentences per chunk.
-            if chunk_size is None:
-                chunk_size = min(math.ceil(len(inputs) / len(pool["processes"]) / 10), 5000)
-                chunk_size = max(chunk_size, 1)  # Ensure at least 1
-
-            input_queue: torch.multiprocessing.Queue = pool["input"]
-            output_queue: torch.multiprocessing.Queue = pool["output"]
-
-            # Send inputs to the input queue in chunks
-            num_chunks = math.ceil(len(inputs) / chunk_size)
-            for chunk_id in range(num_chunks):
-                chunk_start = chunk_id * chunk_size
-                chunk = inputs[chunk_start : chunk_start + chunk_size]
-                input_queue.put([chunk_id, chunk, predict_kwargs])
-
-            # Collect results from output queue
-            output_list = sorted(
-                [output_queue.get() for _ in trange(num_chunks, desc="Chunks", disable=not show_progress_bar)],
-                key=lambda x: x[0],  # Sort by chunk_id
-            )
-
-            for _, result in output_list:
-                if isinstance(result, Exception):
-                    raise result
-
-            # Handle the various output formats: torch tensors, numpy arrays, or
-            # list of dictionaries, also when empty.
-            scores = [output[1] for output in output_list]
-
-            if scores:
-                if isinstance(scores[0], torch.Tensor):
-                    scores = torch.cat(scores)
-                elif isinstance(scores[0], np.ndarray):
-                    scores = np.concatenate(scores, axis=0)
-                else:
-                    scores = sum(scores, [])
-
-            elif convert_to_tensor:
-                scores = torch.tensor([], device=self.device)
-            elif convert_to_numpy:
-                scores = np.array([])
-            else:
-                scores = []
-            return scores
-
-        finally:
-            # Clean up the pool if we created it
-            if created_pool:
-                self.stop_multi_process_pool(pool)
-
-    @staticmethod
-    def _multi_process_worker(
-        target_device: str,
-        model: CrossEncoder,
-        input_queue: Queue,
-        results_queue: Queue,
-    ) -> None:
-        """
-        Internal working process to predict input pairs in a multi-process setup.
-
-        """
-        while True:
-            chunk_id, sentence_pairs, kwargs = input_queue.get()
-            try:
-                scores = model.predict(sentence_pairs, device=target_device, **kwargs)
-                scores = _move_tensors_to_cpu(scores)
-            except Exception as exc:
-                results_queue.put(CrossEncoder._report_worker_failure(chunk_id, exc, target_device))
-            else:
-                results_queue.put([chunk_id, scores])
 
     def _resolve_activation_fn(self, activation_fn_path: str) -> Callable | None:
         """Instantiate an activation function from a dotted path string, respecting trust_remote_code."""
@@ -646,32 +553,54 @@ class CrossEncoder(BaseModel, FitMixin):
             materialized: list[PairInput] = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
             inputs = materialized
 
-        # If pool or a list of devices is provided, use multi-process prediction
-        if pool is not None or (isinstance(device, list) and len(device) > 0):
-            pred_scores = self._multi_process(
-                inputs=inputs,
-                # Utility and post-processing parameters
-                show_progress_bar=show_progress_bar,
-                # Multi-process encoding parameters
-                pool=pool,
-                device=device,
-                chunk_size=chunk_size,
-                # Prediction parameters
-                prompt=prompt,
-                prompt_name=prompt_name,
-                batch_size=batch_size,
-                activation_fn=activation_fn,
-                apply_softmax=apply_softmax,
-                convert_to_numpy=convert_to_numpy,
-                convert_to_tensor=convert_to_tensor,
-                **kwargs,
-            )
-            if is_singular_input:
-                pred_scores = pred_scores[0]
-            return pred_scores
-
         prompt = self._resolve_prompt(prompt, prompt_name)
+        activation_fn = activation_fn or self.activation_fn
 
+        inference_kwargs = dict(
+            prompt=prompt,
+            batch_size=batch_size,
+            show_progress_bar=show_progress_bar,
+            activation_fn=activation_fn,
+            apply_softmax=apply_softmax,
+            **kwargs,
+        )
+        use_multi_process = pool is not None or (isinstance(device, list) and len(device) > 0)
+        if use_multi_process:
+            pred_scores = self._multi_process(
+                inputs, pool=pool, device=device, chunk_size=chunk_size, **inference_kwargs
+            )
+        elif self._distributed_inference is not None and device is None:
+            pred_scores = self._distributed_inference(inputs, **inference_kwargs)
+        else:
+            pred_scores = self._inference(inputs, device=device, **inference_kwargs)
+
+        if convert_to_tensor:
+            if not isinstance(pred_scores, torch.Tensor):
+                pred_scores = torch.tensor([], device="cpu" if use_multi_process else self.device)
+        elif convert_to_numpy:
+            pred_scores = pred_scores.float().cpu().numpy() if len(pred_scores) else np.array([])
+        else:
+            pred_scores = list(pred_scores)
+
+        if is_singular_input:
+            pred_scores = pred_scores[0]
+
+        return pred_scores
+
+    @torch.inference_mode()
+    def _inference(
+        self,
+        inputs: list,
+        *,
+        prompt: str | None,
+        batch_size: int,
+        show_progress_bar: bool,
+        activation_fn: Callable | None,
+        apply_softmax: bool | None,
+        device: str | torch.device | None = None,
+        **kwargs,
+    ) -> list[torch.Tensor] | torch.Tensor:
+        """Run local inference on normalized inputs with resolved arguments."""
         # Here, device is either a single device string (e.g., "cuda:0", "cpu") for single-process encoding or None
         if device is None:
             device = str(self.device)
@@ -679,7 +608,6 @@ class CrossEncoder(BaseModel, FitMixin):
         self.to(device)
 
         self.eval()
-        activation_fn = activation_fn or self.activation_fn
         num_labels = self.num_labels
 
         pred_scores = []
@@ -713,16 +641,8 @@ class CrossEncoder(BaseModel, FitMixin):
 
         pred_scores = [pred_scores[idx] for idx in np.argsort(length_sorted_idx)]
 
-        if convert_to_tensor:
-            if len(pred_scores):
-                pred_scores = torch.stack(pred_scores)
-            else:
-                pred_scores = torch.tensor([], device=device)
-        elif convert_to_numpy:
-            pred_scores = np.asarray([score.cpu().detach().float().numpy() for score in pred_scores])
-
-        if is_singular_input:
-            pred_scores = pred_scores[0]
+        if pred_scores:
+            return torch.stack(pred_scores)
 
         return pred_scores
 

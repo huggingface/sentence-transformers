@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pickle
+import queue
 
 import pytest
 import torch
@@ -75,6 +76,9 @@ class _LeavesResultsOnDevice:
     def predict(self, pairs, device=None, **kwargs):
         return [_off_device(1.0) for _ in pairs]
 
+    def _inference(self, inputs, device=None, **kwargs):
+        return self.encode(inputs, device=device, **kwargs)
+
 
 @pytest.mark.parametrize("unpicklable", (False, True))
 @pytest.mark.parametrize(
@@ -143,3 +147,56 @@ def test_multi_process_worker_returns_cpu_tensors(model_class, chunk):
     for entry in result:
         values = list(entry.values()) if isinstance(entry, dict) else [entry]
         assert values and all(_on_cpu(value) for value in values)
+
+
+@pytest.mark.parametrize("output_kind", ["tensor", "sparse", "tokens", "features"])
+def test_multi_process_restores_chunk_order(output_kind):
+    chunks = [torch.tensor([[float(index)]]) for index in range(3)]
+    if output_kind == "sparse":
+        chunks = [chunk.to_sparse() for chunk in chunks]
+    elif output_kind == "tokens":
+        chunks = [[chunk] for chunk in chunks]
+    elif output_kind == "features":
+        chunks = [[{"token_embeddings": chunk}] for chunk in chunks]
+
+    pool = {"input": queue.Queue(), "output": queue.Queue(), "processes": [None]}
+    for chunk_id in (2, 0, 1):
+        pool["output"].put([chunk_id, chunks[chunk_id]])
+
+    model = SentenceTransformer.__new__(SentenceTransformer)
+    result = model._multi_process(["a", "b", "c"], pool=pool, chunk_size=1, show_progress_bar=False)
+    expected = (
+        torch.cat(chunks) if output_kind in ("tensor", "sparse") else [item for chunk in chunks for item in chunk]
+    )
+    torch.testing.assert_close(result, expected)
+
+
+def test_multi_process_drains_results_after_failure():
+    pool = {"input": queue.Queue(), "output": queue.Queue(), "processes": [None]}
+    pool["output"].put([0, ValueError("worker failed")])
+    pool["output"].put([1, torch.tensor([[1.0]])])
+    model = SentenceTransformer.__new__(SentenceTransformer)
+
+    with pytest.raises(ValueError, match="worker failed"):
+        model._multi_process(["a", "b"], pool=pool, chunk_size=1, show_progress_bar=False)
+    assert pool["output"].empty()
+
+    pool["output"].put([0, torch.tensor([[2.0]])])
+    result = model._multi_process(["c"], pool=pool, chunk_size=1, show_progress_bar=False)
+    torch.testing.assert_close(result, torch.tensor([[2.0]]))
+
+
+@pytest.mark.parametrize("chunk_size", [0, -1])
+def test_multi_process_rejects_invalid_chunk_size(chunk_size):
+    model = SentenceTransformer.__new__(SentenceTransformer)
+    with pytest.raises(ValueError, match="chunk_size must be a positive integer"):
+        model._multi_process(["a"], device=["cpu"], chunk_size=chunk_size)
+
+
+def test_multi_process_empty_inputs_skip_pool_creation(monkeypatch):
+    def start_pool(*args, **kwargs):
+        pytest.fail("Empty inputs should not start worker processes")
+
+    monkeypatch.setattr(SentenceTransformer, "start_multi_process_pool", start_pool)
+    model = SentenceTransformer.__new__(SentenceTransformer)
+    assert model._multi_process([], device=["cpu"]) == []

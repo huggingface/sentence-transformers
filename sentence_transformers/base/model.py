@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import json
+import math
 import os
 import pickle
 import shutil
@@ -11,7 +12,7 @@ import tempfile
 import traceback
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from multiprocessing import Queue
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -28,6 +29,7 @@ import transformers
 from huggingface_hub import CardData, HfApi
 from packaging import version
 from torch import Tensor, nn
+from tqdm.autonotebook import trange
 from transformers import PreTrainedModel, is_datasets_available, is_torch_npu_available
 from transformers.dynamic_module_utils import get_relative_import_files
 from transformers.utils import logging as transformers_logging
@@ -40,6 +42,7 @@ from sentence_transformers.base.model_card import BaseModelCardData, generate_mo
 from sentence_transformers.base.modules import Module, Router, Transformer
 from sentence_transformers.base.peft_mixin import PeftAdapterMixin
 from sentence_transformers.util import (
+    _move_tensors_to_cpu,
     check_version_requirements,
     get_device_name,
     import_module_class,
@@ -88,6 +91,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     model_type: str
     # Set per instance by `_load_with_module_classes` before `__init__` runs the loading, never mutated.
     _module_classes: Mapping[str, type[nn.Module]] = {}
+    _distributed_inference: Callable | None = None
 
     def __init__(
         self,
@@ -1615,24 +1619,79 @@ This pull request has been automatically generated to add {self.__class__.__name
         pool["input"].close()
         pool["output"].close()
 
-    def _multi_process(self, *args, **kwargs):
+    def _inference(self, inputs: list, **kwargs) -> Any:
+        """Run local inference on normalized inputs with resolved arguments."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
-    @staticmethod
+    def _multi_process(
+        self,
+        inputs: Sequence,
+        show_progress_bar: bool | None = True,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        device: str | torch.device | list[str | torch.device] | None = None,
+        chunk_size: int | None = None,
+        **kwargs,
+    ) -> list | Tensor:
+        """Run inference in a provided pool or a temporary pool created from a list of devices."""
+        if chunk_size is not None and chunk_size <= 0:
+            raise ValueError(f"chunk_size must be a positive integer, got {chunk_size}.")
+        if not inputs:
+            return []
+        kwargs["show_progress_bar"] = False
+
+        created_pool = False
+        if pool is None and isinstance(device, list):
+            pool = self.start_multi_process_pool(device)
+            created_pool = True
+
+        try:
+            if chunk_size is None:
+                chunk_size = max(1, min(math.ceil(len(inputs) / len(pool["processes"]) / 10), 5000))
+
+            input_queue: Queue = pool["input"]
+            output_queue: Queue = pool["output"]
+            chunk_starts = range(0, len(inputs), chunk_size)
+            num_chunks = len(chunk_starts)
+            for chunk_id, start in enumerate(chunk_starts):
+                input_queue.put([chunk_id, inputs[start : start + chunk_size], kwargs])
+
+            outputs = [None] * num_chunks
+            for _ in trange(num_chunks, desc="Chunks", disable=not show_progress_bar):
+                chunk_id, output = output_queue.get()
+                outputs[chunk_id] = output
+
+            for output in outputs:
+                if isinstance(output, Exception):
+                    raise output
+
+            if isinstance(outputs[0], Tensor):
+                return torch.cat(outputs)
+            return [item for chunk in outputs for item in chunk]
+        finally:
+            if created_pool:
+                self.stop_multi_process_pool(pool)
+
+    @classmethod
     def _multi_process_worker(
+        cls,
         target_device: str,
         model: BaseModel,
         input_queue: Queue,
         results_queue: Queue,
     ) -> None:
-        """Worker function for multi-process inference. Must be overridden by subclasses.
+        """Run inference on queued chunks in a worker process.
 
-        This is called as the target function in each spawned process by
-        :meth:`start_multi_process_pool`. Subclasses should implement this to
-        read from ``input_queue``, run inference on ``target_device``, and write
-        results to ``results_queue``.
+        Workers are terminated externally via ``stop_multi_process_pool``.
         """
-        raise NotImplementedError("This method should be implemented in subclasses.")
+        while True:
+            chunk_id, inputs, kwargs = input_queue.get()
+            try:
+                outputs = model._inference(inputs, device=target_device, **kwargs)
+                outputs = _move_tensors_to_cpu(outputs)
+            except Exception as exc:
+                results_queue.put(cls._report_worker_failure(chunk_id, exc, target_device))
+            else:
+                results_queue.put([chunk_id, outputs])
 
     @classmethod
     def _report_worker_failure(cls, chunk_id: int, exc: Exception, target_device: str) -> list[int | Exception]:
