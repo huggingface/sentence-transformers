@@ -19,7 +19,6 @@ from transformers import __version__ as transformers_version
 
 from sentence_transformers import CrossEncoder
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import fullname
 from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
@@ -673,62 +672,60 @@ def test_logger_warning(caplog):
         assert "`config_args` argument was renamed and is now deprecated" in caplog.text
 
 
+def test_explicit_activation_overrides_unconstructible_saved_activation(
+    reranker_bert_tiny_model: CrossEncoder, tmp_path: Path
+):
+    model = reranker_bert_tiny_model
+    model.activation_fn = torch.nn.Threshold(0.0, -0.5)
+    inputs = [["Hello there!", "Hello, World!"], ["A cat is sleeping.", "An animal is resting."]]
+    expected = model.predict(inputs, activation_fn=torch.nn.Identity(), convert_to_tensor=True)
+    model.save_pretrained(tmp_path)
+
+    restored = CrossEncoder(str(tmp_path), activation_fn=torch.nn.Identity(), local_files_only=True)
+
+    torch.testing.assert_close(restored.predict(inputs, convert_to_tensor=True), expected)
+
+
 @pytest.mark.parametrize(
-    ["num_labels", "activation_fn", "saved_activation_fn"],
+    ["num_labels", "activation_fn", "expected_activation_fn"],
     [
-        [
-            1,
-            torch.nn.Sigmoid(),
-            "torch.nn.modules.activation.Sigmoid",
-        ],
-        [
-            1,
-            torch.nn.Identity(),
-            "torch.nn.modules.linear.Identity",
-        ],
-        [
-            1,
-            torch.nn.Tanh(),
-            "torch.nn.modules.activation.Tanh",
-        ],
-        [
-            1,
-            torch.nn.Softmax(),
-            "torch.nn.modules.activation.Softmax",
-        ],
-        [
-            1,
-            None,
-            "torch.nn.modules.activation.Sigmoid",
-        ],
-        [
-            3,
-            None,
-            "torch.nn.modules.linear.Identity",
-        ],
+        [1, torch.nn.Tanh(), torch.nn.Tanh()],
+        [1, None, torch.nn.Sigmoid()],
+        [3, None, torch.nn.Identity()],
     ],
 )
-def test_load_activation_fn_from_kwargs(num_labels: int, activation_fn: str, saved_activation_fn: str, tmp_path: Path):
+def test_load_activation_fn_from_kwargs(
+    num_labels: int,
+    activation_fn: torch.nn.Module | None,
+    expected_activation_fn: torch.nn.Module,
+    tmp_path: Path,
+):
     model = CrossEncoder(
         "sentence-transformers-testing/stsb-bert-tiny-safetensors", num_labels=num_labels, activation_fn=activation_fn
     )
-    assert fullname(model.activation_fn) == saved_activation_fn
+    inputs = [["Hello there!", "Hello, World!"], ["A cat is sleeping.", "An animal is resting."]]
+    raw_scores = model.predict(inputs, activation_fn=torch.nn.Identity(), convert_to_tensor=True)
+    expected_scores = expected_activation_fn(raw_scores.reshape(len(inputs), num_labels))
+    torch.testing.assert_close(
+        model.predict(inputs, convert_to_tensor=True).reshape_as(expected_scores), expected_scores
+    )
 
     model.save_pretrained(tmp_path)
-    with open(tmp_path / "config_sentence_transformers.json") as f:
-        config = json.load(f)
-    assert config["activation_fn"] == saved_activation_fn
+    loaded_model = CrossEncoder(str(tmp_path), local_files_only=True)
+    torch.testing.assert_close(
+        loaded_model.predict(inputs, convert_to_tensor=True).reshape_as(expected_scores), expected_scores
+    )
 
-    loaded_model = CrossEncoder(str(tmp_path))
-    assert fullname(loaded_model.activation_fn) == saved_activation_fn
+    # A per-call override must not change subsequent predictions.
+    torch.testing.assert_close(
+        loaded_model.predict(inputs, activation_fn=torch.nn.Identity(), convert_to_tensor=True), raw_scores
+    )
+    torch.testing.assert_close(
+        loaded_model.predict(inputs, convert_to_tensor=True).reshape_as(expected_scores), expected_scores
+    )
 
-    # Setting the activation function via a predict call only updates it for that call
-    loaded_model.predict([["Hello there!", "Hello, World!"]], activation_fn=torch.nn.Identity())
-    assert fullname(loaded_model.activation_fn) == saved_activation_fn
-
-    # But we can also override it again when loading the model
-    loaded_model = CrossEncoder(str(tmp_path), activation_fn=torch.nn.Identity())
-    assert fullname(loaded_model.activation_fn) == "torch.nn.modules.linear.Identity"
+    loaded_model = CrossEncoder(str(tmp_path), activation_fn=torch.nn.Identity(), local_files_only=True)
+    torch.testing.assert_close(loaded_model.predict(inputs, convert_to_tensor=True), raw_scores)
 
 
 @pytest.mark.parametrize(
@@ -739,22 +736,21 @@ def test_load_activation_fn_from_kwargs(num_labels: int, activation_fn: str, sav
     ],
 )
 def test_load_activation_fn_from_config(tanh_model_name: str, tmp_path):
-    saved_activation_fn = "torch.nn.modules.activation.Tanh"
-
     model = CrossEncoder(tanh_model_name)
-    assert fullname(model.activation_fn) == saved_activation_fn
+    inputs = [["Hello there!", "Hello, World!"], ["A cat is sleeping.", "An animal is resting."]]
+    raw_scores = model.predict(inputs, activation_fn=torch.nn.Identity(), convert_to_tensor=True)
+    expected_scores = torch.tanh(raw_scores)
+    torch.testing.assert_close(model.predict(inputs, convert_to_tensor=True), expected_scores)
 
     model.save_pretrained(tmp_path)
-    with open(tmp_path / "config_sentence_transformers.json") as f:
-        config = json.load(f)
-    assert config["activation_fn"] == saved_activation_fn
-
-    loaded_model = CrossEncoder(str(tmp_path))
-    assert fullname(loaded_model.activation_fn) == saved_activation_fn
+    loaded_model = CrossEncoder(str(tmp_path), local_files_only=True)
+    torch.testing.assert_close(loaded_model.predict(inputs, convert_to_tensor=True), expected_scores)
 
 
-def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEncoder, tmp_path: Path, caplog):
+def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEncoder, tmp_path: Path):
     model = reranker_bert_tiny_model
+    inputs = [["Hello there!", "Hello, World!"], ["A cat is sleeping.", "An animal is resting."]]
+    raw_scores = model.predict(inputs, activation_fn=torch.nn.Identity(), convert_to_tensor=True)
 
     model.save_pretrained(tmp_path)
     with open(tmp_path / "config_sentence_transformers.json") as f:
@@ -763,25 +759,23 @@ def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEn
     with open(tmp_path / "config_sentence_transformers.json", "w") as f:
         json.dump(config, f)
 
-    with caplog.at_level(logging.WARNING):
-        CrossEncoder(str(tmp_path))
-        assert (
-            "Activation function path 'sentence_transformers.custom.activations.CustomActivation' is not trusted, using default activation function instead."
-            in caplog.text
-        )
+    loaded_model = CrossEncoder(str(tmp_path), local_files_only=True)
+    torch.testing.assert_close(loaded_model.predict(inputs, convert_to_tensor=True), torch.sigmoid(raw_scores))
 
-    # If we use trust_remote_code, it'll try to load the custom activation function, which doesn't exist
     with pytest.raises(ModuleNotFoundError):
-        model = CrossEncoder(str(tmp_path), trust_remote_code=True)
+        CrossEncoder(str(tmp_path), trust_remote_code=True, local_files_only=True)
+
+    loaded_model = CrossEncoder(
+        str(tmp_path), activation_fn=torch.nn.Identity(), trust_remote_code=True, local_files_only=True
+    )
+    torch.testing.assert_close(loaded_model.predict(inputs, convert_to_tensor=True), raw_scores)
 
 
 def test_default_activation_fn(reranker_bert_tiny_model: CrossEncoder):
-    model = reranker_bert_tiny_model
-    assert fullname(model.activation_fn) == "torch.nn.modules.activation.Sigmoid"
-    with pytest.warns(
-        DeprecationWarning, match="The `default_activation_function` property was renamed and is now deprecated.*"
-    ):
-        assert fullname(model.default_activation_function) == "torch.nn.modules.activation.Sigmoid"
+    scores = torch.tensor([-2.0, 0.0, 2.0])
+    with pytest.warns(DeprecationWarning):
+        activation = reranker_bert_tiny_model.default_activation_function
+    torch.testing.assert_close(activation(scores), torch.sigmoid(scores))
 
 
 def test_bge_reranker_max_length():

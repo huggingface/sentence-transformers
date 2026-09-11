@@ -169,8 +169,8 @@ class CrossEncoder(BaseModel, FitMixin):
         max_length: int | None = None,
         activation_fn: Callable | None = None,
     ) -> None:
-        # Set before super().__init__() so _parse_model_config can check these
-        self.activation_fn = None
+        # Preserve an explicit activation before parsing the saved configuration.
+        self.activation_fn = activation_fn
 
         if num_labels is not None:
             if config_kwargs is None:
@@ -201,11 +201,7 @@ class CrossEncoder(BaseModel, FitMixin):
         )
         self.model_card_data: CrossEncoderModelCardData
 
-        # If an activation function is provided, use it. Otherwise, load the default one/from backwards compatibility
-        # if it wasn't set during super().__init__()
-        if activation_fn is not None:
-            self.activation_fn = activation_fn
-        elif self.activation_fn is None:
+        if self.activation_fn is None:
             self.activation_fn = self.get_default_activation_fn()
 
     def _load_default_modules(
@@ -878,7 +874,7 @@ class CrossEncoder(BaseModel, FitMixin):
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
         super()._parse_model_config(model_config)
-        if "activation_fn" in model_config:
+        if self.activation_fn is None and "activation_fn" in model_config:
             activation_fn_path = model_config["activation_fn"]
             if activation_fn_path is not None:
                 resolved = self._resolve_activation_fn(activation_fn_path)
