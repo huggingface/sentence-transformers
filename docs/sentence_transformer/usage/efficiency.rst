@@ -620,6 +620,8 @@ For llama.cpp in the GPU figure, quality is evaluated on MiniLM and BGE-base, wh
 
 - ``openvino-qint8``: OpenVINO quantized to int8 via ``export_static_quantized_openvino_model(..., quantization_config=OVQuantizationConfig(), ...)`` and ``backend="openvino"``.
 
+- ``llamacpp-*``: native llama.cpp with GGUF models in F16, BF16, Q8_0 or Q4_K_M format.
+
 .. raw:: html
 
    </details>
