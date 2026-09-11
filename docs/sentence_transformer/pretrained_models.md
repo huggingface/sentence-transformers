@@ -38,7 +38,7 @@ similarities = model.similarity(embeddings, embeddings)
 
 .. tip::
 
-    Read `Sentence Transformer > Usage > Speeding up Inference <./usage/efficiency.html>`_ for tips on how to speed up inference of models by up to 2x-3x.
+    Read `Sentence Transformer > Speeding up Inference <./usage/efficiency.html>`_ for tips on how to speed up inference of models by up to 2x-3x.
 ```
 
 ## Original Models

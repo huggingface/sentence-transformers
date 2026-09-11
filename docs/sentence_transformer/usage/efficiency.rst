@@ -122,9 +122,13 @@ If you're using a GPU, then you can use the following options to speed up your i
       :alt: Flash Attention 2 Input Flattening Benchmark
       :width: 100%
 
-   Flash Attention 2 with input flattening always outperforms standard Flash Attention 2, while using considerably less VRAM. The gains grow with the variance in input length, with the mixed dataset with wildly varying lengths (10-500 tokens) benefitting the most.
+   Input flattening improves throughput and reduces VRAM use in this benchmark, with the largest gains on the
+   mixed dataset, where input lengths range from 10 to 500 tokens. This makes it particularly useful for batches
+   of texts with varying lengths, although the benefit depends on the model and batch size.
 
-   In the full backend benchmark below, fp16 with Flash Attention and input unpadding was the fastest configuration measured (3.87x over fp32, comparing each backend at its best batch size) at no loss of quality, making it the recommended GPU configuration when the model architecture supports it.
+   The `backend benchmark <#benchmarks>`_ below also shows the benefit of combining half precision with Flash Attention and
+   input unpadding: FP16 with this setup achieves the highest median speedup across the tested models (3.87x
+   over FP32), without reducing average task quality.
 
    Input flattening also speeds up training. When training with a gradient-cached loss such as
    :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`, you can additionally set
@@ -539,7 +543,10 @@ See this example for quantizing a model to ``int8`` with `static quantization <h
 Benchmarks
 ----------
 
-The following images show the benchmark results for the different backends on GPUs and CPUs. Each backend runs at its best batch size per model and dataset, and the bars show the median speedup over PyTorch fp32 across those combinations.
+The best backend depends on your hardware, model and input lengths. The figures
+below compare throughput across several models and datasets, using PyTorch FP32
+as the baseline. Alongside the median speedup, they show the average task-quality
+ratio so you can see whether a faster configuration affects embedding quality.
 
 .. raw:: html
 
@@ -547,123 +554,214 @@ The following images show the benchmark results for the different backends on GP
       <summary>Expand the benchmark details</summary>
 
    <br>
-   Speedup ratio:
-   <ul>
-      <li>
-         <b>Hardware: </b>RTX 3090 GPU, i7-13700K CPU
-      </li>
-      <li>
-         <b>Datasets: </b> 2000 samples for GPU tests, 1000 samples for CPU tests.
-         <ul>
-            <li>
-               <a href="https://huggingface.co/datasets/sentence-transformers/stsb">sentence-transformers/stsb</a>: 38.9 characters on average (SD=13.9)
-            </li>
-            <li>
-               <a href="https://huggingface.co/datasets/sentence-transformers/natural-questions">sentence-transformers/natural-questions</a>: answers only, 619.6 characters on average (SD=345.3)
-            </li>
-            <li>
-               <a href="https://huggingface.co/datasets/stanfordnlp/imdb">stanfordnlp/imdb</a>: texts repeated 4 times, 9589.3 characters on average (SD=633.4)
-            </li>
-         </ul>
-      </li>
-      <li>
-         <b>Models: </b>
-         <ul>
-            <li>
-               <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">sentence-transformers/all-MiniLM-L6-v2</a>: 22.7M parameters.
-            </li>
-            <li>
-               <a href="https://huggingface.co/BAAI/bge-base-en-v1.5">BAAI/bge-base-en-v1.5</a>: 109M parameters.
-            </li>
-            <li>
-               <a href="https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1">mixedbread-ai/mxbai-embed-large-v1</a>: 335M parameters.
-            </li>
-            <li>
-               <a href="https://huggingface.co/BAAI/bge-m3">BAAI/bge-m3</a>: 567M parameters.
-            </li>
-         </ul>
-      </li>
-      <li>
-         <b>Batch sizes: </b>each backend is measured at increasing batch sizes until its throughput declines or memory is exceeded, and the ratios compare peak against peak. Columns still climbing at the largest measured batch size (mainly the Flash Attention ones) are shown conservatively.
-      </li>
-   </ul>
-   Quality ratio: The same models and hardware were used. We compare the evaluation quality against that of PyTorch with fp32, i.e. the default backend and precision.
-   <ul>
-      <li>
-         <b>Evaluation: </b>
-         <ul>
-            <li>
-               <b>Semantic Textual Similarity: </b>Spearman rank correlation based on cosine similarity on the <a href="https://huggingface.co/datasets/sentence-transformers/stsb">sentence-transformers/stsb</a> test set, computed via the EmbeddingSimilarityEvaluator.
-            </li>
-            <li>
-               <b>Information Retrieval: </b>NDCG@10 based on cosine similarity on the entire <a href="https://huggingface.co/collections/zeta-alpha-ai/nanobeir-66e1a0af21dfd93e620cd9f6">NanoBEIR</a> collection of datasets, computed via the InformationRetrievalEvaluator.
-            </li>
-         </ul>
-      </li>
-   </ul>
 
-   <ul>
-      <li>
-         <b>Backends: </b>
-         <ul>
-            <li>
-               <code>torch-fp32</code>: PyTorch with float32 precision (default).
-            </li>
-            <li>
-               <code>torch-fp16</code>: PyTorch with float16 precision, via <code>model_kwargs={"torch_dtype": "float16"}</code>.
-            </li>
-            <li>
-               <code>torch-bf16</code>: PyTorch with bfloat16 precision, via <code>model_kwargs={"torch_dtype": "bfloat16"}</code>.
-            </li>
-            <li>
-               <code>torch-fp16-fa2</code>: PyTorch with float16 precision and FlashAttention-2 with automatic input unpadding, via <code>model_kwargs={"torch_dtype": "float16", "attn_implementation": "flash_attention_2"}</code>.
-            </li>
-            <li>
-               <code>torch-bf16-fa2</code>: the same with bfloat16 precision.
-            </li>
-            <li>
-               <code>onnx</code>: ONNX with float32 precision, via <code>backend="onnx"</code>.
-            </li>
-            <li>
-               <code>onnx-O1</code>: ONNX with float32 precision and O1 optimization, via <code>export_optimized_onnx_model(..., optimization_config="O1", ...)</code> and <code>backend="onnx"</code>.
-            </li>
-            <li>
-               <code>onnx-O2</code>: ONNX with float32 precision and O2 optimization, via <code>export_optimized_onnx_model(..., optimization_config="O2", ...)</code> and <code>backend="onnx"</code>.
-            </li>
-            <li>
-               <code>onnx-O3</code>: ONNX with float32 precision and O3 optimization, via <code>export_optimized_onnx_model(..., optimization_config="O3", ...)</code> and <code>backend="onnx"</code>.
-            </li>
-            <li>
-               <code>onnx-O4</code>: ONNX with float16 precision and O4 optimization, via <code>export_optimized_onnx_model(..., optimization_config="O4", ...)</code> and <code>backend="onnx"</code>.
-            </li>
-            <li>
-               <code>onnx-qint8</code>: ONNX quantized to int8 with "avx512_vnni", via <code>export_dynamic_quantized_onnx_model(..., quantization_config="avx512_vnni", ...)</code> and <code>backend="onnx"</code>. The different quantization configurations resulted in roughly equivalent speedups.
-            </li>
-            <li>
-               <code>openvino</code>: OpenVINO, via <code>backend="openvino"</code>.
-            </li>
-            <li>
-               <code>openvino-qint8</code>: OpenVINO quantized to int8 via <code>export_static_quantized_openvino_model(..., quantization_config=OVQuantizationConfig(), ...)</code> and <code>backend="openvino"</code>.
-            </li>
-         </ul>
-      </li>
-   </ul>
+I measured GPU throughput on an RTX 3090 and CPU throughput on an i7-13700K.
+Each speedup compares a backend with the matching model and workload in PyTorch
+FP32, and the bars summarize these ratios across the tested combinations.
+The whiskers show variation between combinations, rather than confidence intervals.
+The GPU llama.cpp measurements use their own matching FP32 baseline.
 
-   On GPU, fp16 with FlashAttention-2 and input unpadding is the strongest configuration everywhere (3.87x median at no loss of quality), making it the recommended setup when the model architecture supports it. Plain fp16 (2.92x) also beats every ONNX level on every dataset: compared to the original benchmark, the ONNX ratios dropped to roughly 1.2x because exported graphs are static and do not inherit the torch runtime improvements that made the fresh fp32 baseline much faster. The original recommendation of ONNX for short texts on GPU no longer holds: even on the short-text stsb dataset, plain fp16 (2.80x) outperforms onnx-O4 (2.57x), with the Flash Attention backends at 3.9x. The one niche ONNX keeps on GPU is latency-critical workloads pinned to small batches of short texts, where onnx-O4 still leads at the smallest measured batch sizes. Note that checkpoints stored in half precision (e.g. mxbai-embed-large-v1) load in that dtype by default since transformers v5, so they already run at fp16 speed without any configuration. The benchmark forces true fp32 for its baseline.<br>
-   <br>
-   For CPU, ONNX is stronger than OpenVINO on the short-text stsb dataset (1.35x against 1.24x), while int8 quantization pays off most: 3.23x for onnx-qint8 and 5.29x for openvino-qint8 overall, at a quality cost of less than half a percent. For longer texts, ONNX and OpenVINO can perform slightly worse than PyTorch, so we recommend testing the different backends with your specific model and data to find the best one for your use case. Half precision must be avoided on CPU altogether: torch-fp16 and torch-bf16 run largely emulated there and collapse to roughly 0.01x.
+**Datasets:** the workloads range from short sentences to long reviews:
+
+- `sentence-transformers/stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_: 38.9 characters on average (SD=13.9)
+
+- `sentence-transformers/natural-questions <https://huggingface.co/datasets/sentence-transformers/natural-questions>`_: answers only, 619.6 characters on average (SD=345.3)
+
+- `stanfordnlp/imdb <https://huggingface.co/datasets/stanfordnlp/imdb>`_: texts repeated 4 times, 9589.3 characters on average (SD=633.4)
+
+**Models:**
+
+- `sentence-transformers/all-MiniLM-L6-v2 <https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2>`_: 22.7M parameters.
+
+- `BAAI/bge-base-en-v1.5 <https://huggingface.co/BAAI/bge-base-en-v1.5>`_: 109M parameters.
+
+- `mixedbread-ai/mxbai-embed-large-v1 <https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1>`_: 335M parameters.
+
+- `BAAI/bge-m3 <https://huggingface.co/BAAI/bge-m3>`_: 567M parameters (GPU only).
+
+The GPU Sentence Transformers and ONNX tests use 2,000 samples per dataset.
+The CPU tests use 1,000 samples for MiniLM and BGE-base and 512 for mxbai-large.
+Mxbai-large is tested only on short sentences and NQ answers, giving eight CPU
+model and workload combinations in total.
+
+The throughput comparison uses each backend's best tested batch size,
+with 8 or 20 threads selected on CPU. After warmup, CPU timings use
+either the median of five passes or the mean of two passes. The CPU
+``torch-fp16`` and ``torch-bf16`` results come from smaller
+checks on 128 samples, using the FP32-selected settings and two timed passes
+against matching FP32 controls.
+
+The ranking changes on Hugging Face Jobs ``cpu-upgrade`` instances, where
+llama.cpp leads instead of OpenVINO INT8. The cloud figure covers six model
+and workload combinations, with speedups relative to PyTorch FP32 on that CPU:
+
+.. image:: ../../img/backends_benchmark_cpu_cloud.png
+   :alt: Backend speedups on Hugging Face Jobs cpu-upgrade instances
+   :width: 75%
+
+For quality, each configuration's task scores are compared with PyTorch FP32
+and the resulting ratios are averaged. The evaluation covers both sentence
+similarity and retrieval to capture different uses of the embeddings:
+
+- **Semantic Textual Similarity:** Spearman rank correlation based on cosine similarity on the `sentence-transformers/stsb <https://huggingface.co/datasets/sentence-transformers/stsb>`_ test set, computed via the EmbeddingSimilarityEvaluator.
+
+- **Information Retrieval:** NDCG@10 based on cosine similarity on the entire `NanoBEIR <https://huggingface.co/collections/zeta-alpha-ai/nanobeir-66e1a0af21dfd93e620cd9f6>`_ collection of datasets, computed via the InformationRetrievalEvaluator.
+
+The CPU quality bars cover both tasks for MiniLM, BGE-base and mxbai-large,
+giving six ratios per backend. Quality evaluations use matching model artifacts
+on CPU or GPU, with OpenVINO and ONNX INT8 evaluated on CPU. The CPU
+``torch-fp16`` and ``torch-bf16`` quality bars use GPU scores
+relative to matching GPU FP32 scores.
+
+For llama.cpp in the GPU figure, quality is evaluated on MiniLM and BGE-base,
+while throughput also covers mxbai-large and BGE-M3. BGE-M3 Q4 is excluded
+because its embeddings failed the agreement check against FP32.
+
+**Backends:**
+
+- ``torch-fp32``: PyTorch with float32 precision (default).
+
+- ``torch-fp16``: PyTorch with float16 precision, via ``model_kwargs={"torch_dtype": "float16"}``.
+
+- ``torch-bf16``: PyTorch with bfloat16 precision, via ``model_kwargs={"torch_dtype": "bfloat16"}``.
+
+- ``torch-fp16-fa2``: PyTorch with float16 precision and FlashAttention-2 with automatic input unpadding, via ``model_kwargs={"torch_dtype": "float16", "attn_implementation": "flash_attention_2"}``.
+
+- ``torch-bf16-fa2``: the same with bfloat16 precision.
+
+- ``onnx``: ONNX with float32 precision, via ``backend="onnx"``.
+
+- ``onnx-O1``: ONNX with float32 precision and O1 optimization, via ``export_optimized_onnx_model(..., optimization_config="O1", ...)`` and ``backend="onnx"``.
+
+- ``onnx-O2``: ONNX with float32 precision and O2 optimization, via ``export_optimized_onnx_model(..., optimization_config="O2", ...)`` and ``backend="onnx"``.
+
+- ``onnx-O3``: ONNX with float32 precision and O3 optimization, via ``export_optimized_onnx_model(..., optimization_config="O3", ...)`` and ``backend="onnx"``.
+
+- ``onnx-O4``: ONNX with float16 precision and O4 optimization, via ``export_optimized_onnx_model(..., optimization_config="O4", ...)`` and ``backend="onnx"``.
+
+- ``onnx-qint8``: ONNX quantized to int8 with "avx512_vnni", via ``export_dynamic_quantized_onnx_model(..., quantization_config="avx512_vnni", ...)`` and ``backend="onnx"``. The different quantization configurations resulted in roughly equivalent speedups.
+
+- ``openvino``: OpenVINO, via ``backend="openvino"``.
+
+- ``openvino-qint8``: OpenVINO quantized to int8 via ``export_static_quantized_openvino_model(..., quantization_config=OVQuantizationConfig(), ...)`` and ``backend="openvino"``.
+
+.. raw:: html
 
    </details>
    <br>
 
+.. tab:: GPU
 
-.. image:: ../../img/backends_benchmark_gpu.png
-   :alt: Benchmark for GPUs
-   :width: 45%
+   Half precision provides a substantial speedup on these models: plain FP16
+   reaches a median 2.92x the throughput of FP32. Combining it with Flash Attention 2 and
+   input unpadding raises that to 3.87x, with BF16 performing similarly at 3.84x.
+   This makes half precision with Flash Attention a useful starting point when
+   your model supports it.
 
-.. image:: ../../img/backends_benchmark_cpu.png
-   :alt: Benchmark for CPUs
-   :width: 45%
+   .. image:: ../../img/backends_benchmark_gpu.png
+      :alt: Benchmark for GPUs
+      :width: 75%
+
+.. tab:: CPU
+
+   OpenVINO INT8 performs best on the local i7-13700K shown here, but llama.cpp leads on the cloud instance I tested. It's worth testing backends on your deployment hardware, with inputs representative of your application.
+
+   .. image:: ../../img/backends_benchmark_cpu.png
+      :alt: Benchmark for CPUs
+      :width: 75%
+
+.. _llama-cpp-gpu-comparison:
+
+Sentence Transformers performed best on the smaller GPU models I tested, while llama.cpp became competitive on 8B models. CPU rankings differed between my local machine and the cloud instance, so benchmark on your deployment hardware.
+
+.. raw:: html
+
+   <details>
+   <summary>Compare with llama.cpp</summary>
+
+
+The aggregate results above cover models up to BGE-M3. To explore how the
+comparison changes with larger models and different input lengths, I also
+compared Sentence Transformers with native llama.cpp on models up to
+Qwen3-Embedding-8B. These measurements use an RTX 3090 with 24 GB of VRAM under
+WSL2, with batch sizes tuned for each backend.
+
+The charts show median throughput, with whiskers indicating the interquartile
+range across repeated measurements. For Sentence Transformers, they compare
+the default unpadded FA2 configuration with padding enabled. Unpadding is
+automatic for text-only inputs when the Flash Attention implementation and
+model architecture support it. For llama.cpp, the GPU-table bars move the input
+embedding table from its default placement in CPU memory to CUDA.
+
+.. tab:: Short sentences
+
+   .. image:: ../../img/llamacpp_gpu_stsb.svg
+      :alt: Sentence Transformers and native llama.cpp throughput on short sentences
+      :width: 100%
+
+.. tab:: NQ answers
+
+   .. image:: ../../img/llamacpp_gpu_nq.svg
+      :alt: Sentence Transformers and native llama.cpp throughput on nq answers
+      :width: 100%
+
+.. tab:: Long reviews
+
+   .. image:: ../../img/llamacpp_gpu_imdb.svg
+      :alt: Sentence Transformers and native llama.cpp throughput on long reviews
+      :width: 100%
+
+Sentence Transformers with BF16, Flash Attention 2 and unpadding leads on the
+small models, running 2.6 to 6.7 times faster than the fastest tested llama.cpp
+configuration on MiniLM and 2.4 to 3.0 times faster on BGE-base. The gap is much
+smaller on Qwen3-Embedding-4B, where the same configuration leads by about
+5 to 11 percent.
+
+On Qwen3-Embedding-8B, the comparison shifts in favor of llama.cpp: Q8_0 with
+default embedding-table placement is about 12%, 2% and 12% faster than Sentence
+Transformers with BF16, FA2 and unpadding on short sentences, NQ answers and long
+reviews, respectively. More aggressive quantization does not help here, as Q4
+is slower than Q8 on all three workloads. These results make llama.cpp worth
+considering for larger models, particularly when quantization helps them fit
+in memory, although models above 8B were not tested.
+
+.. note::
+
+   These results measure throughput with tuned batches, so the best configuration
+   for single-request latency may differ. The comparison also checks embedding
+   agreement rather than fully evaluating retrieval quality. Test both speed and
+   task quality on representative inputs before choosing a backend.
+
+Timings for Sentence Transformers and native llama.cpp include tokenization,
+model execution, pooling, normalization and returning embeddings to CPU memory.
+The benchmark calls llama.cpp directly, so its timings do not include HTTP transport.
+
+To compare each model on the same workload, both backends use identical
+inputs and matching truncation limits:
+256 tokens for MiniLM, 384 for MPNet, 512 for BGE-base and mxbai-large,
+8,192 for BGE-M3, 32,768 for Qwen 0.6B and 40,960 for Qwen 4B and 8B.
+The workloads contain 2,000 short sentences, 1,000 NQ answers and 256 long
+reviews (repeated text). Qwen 4B and 8B use prefixes of 1,024, 256 and 64 texts.
+
+I checked embedding agreement on 552 texts against FP32, using BF16 as the
+reference for 8B. Configurations that fail this check are marked as withheld,
+including BGE-M3 Q4. MPNet has no supported FA2 or llama.cpp implementation in
+the tested versions, so those configurations are marked as unsupported.
+
+Sentence Transformers uses the same checkpoints as the llama.cpp GGUF
+conversions, which are tested in F16, BF16, Q8_0 and Q4_K_M. Decoder models
+use ``model[0].config.use_cache = False`` to avoid retaining a generation
+cache during embedding inference. The llama.cpp GPU-table variants reuse the
+default F16 token budgets.
+
+The software versions are Sentence Transformers 6.1.0.dev0 (084d9f7183b7),
+PyTorch 2.11.0+cu128, Transformers 5.14.1 and kernels 0.15.2 with
+kernels-community/flash-attn2. llama.cpp uses revision 4d91760, built with CUDA.
+
+.. raw:: html
+
+   </details>
+   <br>
 
 Recommendations
 ^^^^^^^^^^^^^^^
@@ -680,7 +778,7 @@ Based on the benchmarks, this flowchart should help you decide which backend to 
    }}%%
    graph TD
    A("What is your hardware?") -->|GPU| B("Does your model support<br>Flash Attention?")
-   A -->|CPU| C("Is a 0.4% accuracy loss<br>acceptable?")
+   A -->|CPU| C("Is a small accuracy loss<br>acceptable?")
    B -->|yes| K["float16 + Flash Attention"]
    B -->|no| F[float16]
    C -->|yes| G[openvino-qint8]

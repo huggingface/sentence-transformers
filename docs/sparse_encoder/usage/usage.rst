@@ -16,6 +16,7 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    2. :meth:`SparseEncoder.encode <sentence_transformers.sparse_encoder.model.SparseEncoder.encode>`
    3. :meth:`SparseEncoder.similarity <sentence_transformers.sparse_encoder.model.SparseEncoder.similarity>`
    4. :meth:`SparseEncoder.sparsity <sentence_transformers.sparse_encoder.model.SparseEncoder.sparsity>`
+   5. :doc:`Speeding up Inference <efficiency>`
 
 ::
 
@@ -85,5 +86,3 @@ You can inspect or set the available prompts via the ``prompts`` and ``default_p
    ../../../examples/sparse_encoder/applications/semantic_search/README
    ../../../examples/sparse_encoder/applications/retrieve_rerank/README
    ../../../examples/sparse_encoder/evaluation/README
-   efficiency
-

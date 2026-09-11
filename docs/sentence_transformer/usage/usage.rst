@@ -18,6 +18,7 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    3. :meth:`SentenceTransformer.encode_query <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_query>`
    4. :meth:`SentenceTransformer.encode_document <sentence_transformers.sentence_transformer.model.SentenceTransformer.encode_document>`
    5. :meth:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`
+   6. :doc:`Speeding up Inference <efficiency>`
 
 ::
 
@@ -153,5 +154,3 @@ These methods accept all the same input types as :meth:`~sentence_transformers.s
    ../../../examples/sentence_transformer/applications/embedding-quantization/README
    custom_models
    mteb_evaluation
-   efficiency
-
