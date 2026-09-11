@@ -13,7 +13,11 @@ from sentence_transformers.util.decorators import deprecated_kwargs
 
 
 class CNN(Module):
-    """CNN-layer with multiple kernel-sizes over the word embeddings"""
+    """CNN-layer with multiple kernel-sizes over the word embeddings.
+
+    Convolutions start at each sequence's first unmasked token. Outputs retain
+    the common length of all branches, with aligned masks and prompt boundaries.
+    """
 
     config_keys: list[str] = ["in_embedding_dimension", "out_channels", "kernel_sizes", "stride_sizes"]
     config_file_name: str = "cnn_config.json"
@@ -51,12 +55,53 @@ class CNN(Module):
 
     def forward(self, features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         token_embeddings = features["token_embeddings"]
+        input_mask = features.get("attention_mask")
+        if input_mask is not None:
+            input_mask = input_mask.to(device=token_embeddings.device)
+            # Anchor each row at its first token, independently of batch padding.
+            positions = torch.arange(token_embeddings.size(1), device=token_embeddings.device)
+            positions = positions.unsqueeze(0) + input_mask.to(torch.int32).argmax(dim=1, keepdim=True)
+            indices = positions.clamp(max=token_embeddings.size(1) - 1)
+            token_embeddings = token_embeddings.gather(1, indices.unsqueeze(-1).expand_as(token_embeddings))
+            input_mask = input_mask.gather(1, indices).masked_fill(positions >= input_mask.size(1), 0)
+            token_embeddings.masked_fill_(input_mask.unsqueeze(-1) == 0, 0)
+        elif "sentence_lengths" in features:
+            positions = torch.arange(token_embeddings.size(1), device=token_embeddings.device)
+            input_mask = positions.unsqueeze(0) < features["sentence_lengths"].to(token_embeddings.device).unsqueeze(1)
+            token_embeddings = token_embeddings.masked_fill(~input_mask.unsqueeze(-1), 0)
 
         token_embeddings = token_embeddings.transpose(1, -1)
         vectors = [conv(token_embeddings) for conv in self.convs]
-        out = torch.cat(vectors, 1).transpose(1, -1)
+        output_length = min(vector.size(-1) for vector in vectors)
+        out = torch.cat([vector[:, :, :output_length] for vector in vectors], dim=1).transpose(1, -1)
 
-        features.update({"token_embeddings": out})
+        # Do not replace the encoder's input mask when losses replay its features.
+        features = features.copy()
+        if input_mask is not None:
+            attention_mask = None
+            geometries = {(conv.stride[0], conv.kernel_size[0] % 2 == 0) for conv in self.convs}
+            for stride, even_kernel in geometries:
+                branch_mask = input_mask[:, ::stride][:, :output_length]
+                if even_kernel:
+                    branch_mask = branch_mask.masked_fill(input_mask[:, 1::stride][:, :output_length] == 0, 0)
+                attention_mask = (
+                    branch_mask if attention_mask is None else attention_mask.masked_fill(branch_mask == 0, 0)
+                )
+            features["attention_mask"] = attention_mask
+            if "sentence_lengths" in features:
+                features["sentence_lengths"] = attention_mask.sum(dim=1).to(features["sentence_lengths"])
+
+        if "prompt_length" in features:
+            # Exclude an output if any concatenated branch's anchor is in the prompt.
+            stride = min(conv.stride[0] for conv in self.convs)
+            prompt_length = (features["prompt_length"] + stride - 1) // stride
+            features["prompt_length"] = (
+                prompt_length.clamp(max=output_length)
+                if isinstance(prompt_length, torch.Tensor)
+                else min(prompt_length, output_length)
+            )
+
+        features["token_embeddings"] = out
         return features
 
     def get_embedding_dimension(self) -> int:
