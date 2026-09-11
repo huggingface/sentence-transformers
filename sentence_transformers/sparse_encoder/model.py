@@ -737,7 +737,7 @@ class SparseEncoder(BaseModel):
         if device is None:
             device = self.device
 
-        self.to(device)
+        self._to_device(device)
         self.eval()
 
         max_active_dims = max_active_dims if max_active_dims is not None else self.max_active_dims

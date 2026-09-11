@@ -847,7 +847,7 @@ class MultiVectorEncoder(BaseModel):
 
         if device is None:
             device = self.device
-        self.to(device)
+        self._to_device(device)
         self.eval()
 
         # Element type depends on output_value / convert flags: Tensor, ndarray, or feature dict.

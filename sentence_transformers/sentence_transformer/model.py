@@ -916,7 +916,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         # Set device
         if device is None:
             device = self.device
-        self.to(device)
+        self._to_device(device)
         self.eval()
 
         truncate_dim = truncate_dim if truncate_dim is not None else self.truncate_dim
