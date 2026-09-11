@@ -679,7 +679,7 @@ On Qwen3-Embedding-8B, the comparison shifts in favor of llama.cpp: Q8_0 with de
 
 .. note::
 
-   These results measure throughput with tuned batches, so the best configuration for single-request latency may differ. The comparison also checks embedding agreement rather than fully evaluating retrieval quality. Test both speed andtask quality on representative inputs before choosing a backend.
+   These results measure throughput with tuned batches, so the best configuration for single-request latency may differ. The comparison also checks embedding agreement rather than fully evaluating retrieval quality. Test both speed and task quality on representative inputs before choosing a backend.
 
 Timings for Sentence Transformers and native llama.cpp include tokenization, model execution, pooling, normalization and returning embeddings to CPU memory. The benchmark calls llama.cpp directly, so its timings do not include HTTP transport.
 
