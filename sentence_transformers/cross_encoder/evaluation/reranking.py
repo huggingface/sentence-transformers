@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.metrics import average_precision_score, ndcg_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.base.evaluation.metrics import tie_aware_reciprocal_rank
 
 if TYPE_CHECKING:
     from sentence_transformers.cross_encoder.model import CrossEncoder
@@ -308,14 +309,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
         return metrics
 
     def compute_metrics(self, y_true, y_pred):
-        ranking = np.argsort(y_pred)[::-1]
-
-        mrr = 0
-        for rank, index in enumerate(ranking[0 : self.at_k]):
-            if y_true[index]:
-                mrr = 1 / (rank + 1)
-                break
-
+        mrr = tie_aware_reciprocal_rank(y_true, y_pred, self.at_k)
         ndcg = ndcg_score([y_true], [y_pred], k=self.at_k)
         ap = average_precision_score(y_true, y_pred)
         return mrr, ndcg, ap
