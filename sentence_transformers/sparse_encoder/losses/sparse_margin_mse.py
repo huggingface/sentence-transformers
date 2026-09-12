@@ -12,7 +12,8 @@ from sentence_transformers.sparse_encoder.model import SparseEncoder
 class SparseMarginMSELoss(MarginMSELoss):
     def __init__(self, model: SparseEncoder, similarity_fct=util.pairwise_dot_score) -> None:
         """
-        Compute the MSE loss between the ``|sim(Query, Pos) - sim(Query, Neg)|`` and ``|gold_sim(Query, Pos) - gold_sim(Query, Neg)|``.
+        Compute the MSE loss between the predicted margin ``sim(Query, Pos) - sim(Query, Neg)`` and the gold margin
+        ``gold_sim(Query, Pos) - gold_sim(Query, Neg)``.
         By default, sim() is the dot-product. The gold_sim is often the similarity score from a teacher model.
 
         In contrast to :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss`, the two documents do not

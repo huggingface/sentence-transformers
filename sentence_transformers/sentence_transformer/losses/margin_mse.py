@@ -14,7 +14,8 @@ from sentence_transformers.util import pairwise_dot_score, similarity_fct_name
 class MarginMSELoss(nn.Module):
     def __init__(self, model: SentenceTransformer, similarity_fct=pairwise_dot_score) -> None:
         """
-        Compute the MSE loss between the ``|sim(Query, Pos) - sim(Query, Neg)|`` and ``|gold_sim(Query, Pos) - gold_sim(Query, Neg)|``.
+        Compute the MSE loss between the predicted margin ``sim(Query, Pos) - sim(Query, Neg)`` and the gold margin
+        ``gold_sim(Query, Pos) - gold_sim(Query, Neg)``.
         By default, sim() is the dot-product. The gold_sim is often the similarity score from a teacher model.
 
         In contrast to :class:`~sentence_transformers.sentence_transformer.losses.MultipleNegativesRankingLoss`, the two documents do not

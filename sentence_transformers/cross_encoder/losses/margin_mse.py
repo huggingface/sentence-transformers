@@ -10,7 +10,8 @@ from sentence_transformers.util import batch_to_device, fullname
 class MarginMSELoss(nn.Module):
     def __init__(self, model: CrossEncoder, activation_fn: nn.Module = nn.Identity(), **kwargs) -> None:
         """
-        Computes the MSE loss between ``|sim(Query, Pos) - sim(Query, Neg)|`` and ``|gold_sim(Query, Pos) - gold_sim(Query, Neg)|``.
+        Computes the MSE loss between the predicted margin ``sim(Query, Pos) - sim(Query, Neg)`` and the gold margin
+        ``gold_sim(Query, Pos) - gold_sim(Query, Neg)``.
         This loss is often used to distill a cross-encoder model from a teacher cross-encoder model or gold labels.
 
         In contrast to :class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss`, the two documents do not
