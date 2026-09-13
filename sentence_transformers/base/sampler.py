@@ -328,16 +328,22 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         # The label visit order is reshuffled every round for diverse batches.
         remaining_labels = list(queues)
         batch: list[int] = []
+        last_label = None
         while len(remaining_labels) >= 2:
             remaining_labels = [
                 remaining_labels[i] for i in torch.randperm(len(remaining_labels), generator=self.generator)
             ]
+            # A carried pair must not meet the same label at the next round's start:
+            # together they could fill a four-sample batch without any negatives.
+            if batch and remaining_labels[0] == last_label:
+                remaining_labels[0], remaining_labels[1] = remaining_labels[1], remaining_labels[0]
             for label in remaining_labels:
                 batch.append(queues[label].popleft())
                 batch.append(queues[label].popleft())
                 if len(batch) >= self.batch_size:
                     yield batch[: self.batch_size]
                     batch = batch[self.batch_size :]
+            last_label = remaining_labels[-1]
             remaining_labels = [label for label in remaining_labels if queues[label]]
 
         # Due to the round-robin loading, at least 4 elements ensures >= 2 distinct labels, each with >= 2 samples.
