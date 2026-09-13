@@ -13,6 +13,7 @@ from tqdm import trange
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.util.similarity import SimilarityFunction
+from sentence_transformers.util.statistics import bootstrap_confidence_interval, bootstrap_indices
 
 if TYPE_CHECKING:
     from sentence_transformers.base.modality_types import SingleInput
@@ -27,6 +28,10 @@ class InformationRetrievalEvaluator(BaseEvaluator):
 
     Given a set of queries and a large corpus set. It will retrieve for each query the top-k most similar document. It measures
     Mean Reciprocal Rank (MRR), Recall@k, and Normalized Discounted Cumulative Gain (NDCG)
+
+    The per-query values behind every metric are kept in ``per_query_metrics`` after each call, and can optionally be
+    summarized with bootstrap confidence intervals over the queries (``bootstrap_resamples``) or sliced per query group
+    (``query_groups``).
 
     Args:
         queries (Dict[str, str]): A dictionary mapping query IDs to queries.
@@ -51,6 +56,16 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         corpus_prompt_name (str, optional): The name of the prompt to be used when encoding the corpus. Defaults to None.
         write_predictions (bool): Whether to write the predictions to a JSONL file. Defaults to False.
             This can be useful for downstream evaluation as it can be used as input to the :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator` that accept precomputed predictions.
+        bootstrap_resamples (int, optional): Number of bootstrap resamples over the queries used to compute a
+            confidence interval for every metric, reported as additional ``..._ci_low`` and ``..._ci_high`` keys.
+            One set of resamples is shared by all metrics and score functions, so their intervals are comparable.
+            Defaults to None, which disables the confidence intervals.
+        bootstrap_confidence_level (float): Confidence level of the bootstrap confidence intervals, strictly between
+            0 and 1. Defaults to 0.95.
+        bootstrap_seed (int, optional): Seed of the bootstrap resampling. Defaults to 42.
+        query_groups (Dict[str, str], optional): A dictionary mapping query IDs to a group label. Every metric is
+            additionally reported per group as ``..._<group>`` keys (with ``_ci_low`` / ``_ci_high`` variants when
+            ``bootstrap_resamples`` is set). Queries that are not in the mapping belong to no group. Defaults to None.
 
     Example:
         ::
@@ -126,6 +141,23 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             # => "mteb-touche2020-subset-test_cosine_ndcg@10"
             print(results[ir_evaluator.primary_metric])
             # => 0.9294944073850905
+
+            # With bootstrap confidence intervals over the queries, every metric line also reports its interval,
+            # e.g. "NDCG@10: 0.9295 (95% CI: 0.9012 – 0.9531)", and the results gain "_ci_low" / "_ci_high" keys:
+            ir_evaluator = InformationRetrievalEvaluator(
+                queries=queries,
+                corpus=corpus,
+                relevant_docs=relevant_docs,
+                name="mteb-touche2020-subset-test",
+                bootstrap_resamples=1000,
+            )
+            results = ir_evaluator(model)
+            print(results["mteb-touche2020-subset-test_cosine_ndcg@10_ci_low"])
+            print(results["mteb-touche2020-subset-test_cosine_ndcg@10_ci_high"])
+            # The per-query values behind the metrics are aligned with ir_evaluator.queries_ids, e.g. for
+            # comparing two models on the same queries with sentence_transformers.util.paired_bootstrap_test:
+            print(ir_evaluator.per_query_metrics["cosine"]["ndcg@10"].shape)
+            # => (49,)
     """
 
     def __init__(
@@ -151,8 +183,29 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         corpus_prompt: str | None = None,
         corpus_prompt_name: str | None = None,
         write_predictions: bool = False,
+        bootstrap_resamples: int | None = None,
+        bootstrap_confidence_level: float = 0.95,
+        bootstrap_seed: int | None = 42,
+        query_groups: dict[str, str] | None = None,
     ) -> None:
         super().__init__()
+        if bootstrap_resamples is not None and (
+            isinstance(bootstrap_resamples, bool)
+            or not isinstance(bootstrap_resamples, int)
+            or bootstrap_resamples < 1
+        ):
+            raise ValueError(f"bootstrap_resamples must be None or a positive integer, got {bootstrap_resamples!r}.")
+        if not 0 < bootstrap_confidence_level < 1:
+            raise ValueError(
+                f"bootstrap_confidence_level must be strictly between 0 and 1, got {bootstrap_confidence_level!r}."
+            )
+        if query_groups is not None:
+            for qid, group in query_groups.items():
+                if not isinstance(group, str):
+                    raise TypeError(
+                        f"query_groups must map query IDs to group labels of type str, got {group!r} for query {qid!r}."
+                    )
+
         self.queries_ids = []
         for qid in queries:
             if qid in relevant_docs and len(relevant_docs[qid]) > 0:
@@ -197,6 +250,21 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         self.write_predictions = write_predictions
         if self.write_predictions:
             self.predictions_file = "Information-Retrieval_evaluation" + name + "_predictions.jsonl"
+
+        self.bootstrap_resamples = bootstrap_resamples
+        self.bootstrap_confidence_level = bootstrap_confidence_level
+        self.bootstrap_seed = bootstrap_seed
+        self.query_groups = query_groups
+
+        # Filled by compute_all_metrics on every call, all keyed by score function name first:
+        # per_query_metrics: {"cosine": {"ndcg@10": np.ndarray of shape (n_queries,), ...}}, aligned with queries_ids
+        self.per_query_metrics: dict[str, dict[str, np.ndarray]] = {}
+        # confidence_intervals: {"cosine": {"ndcg@10": (low, high), ...}}, empty unless bootstrap_resamples is set
+        self.confidence_intervals: dict[str, dict[str, tuple[float, float]]] = {}
+        # group_scores: {"cosine": {"easy": {"ndcg@k": {10: value}, ...}}}, empty unless query_groups is set
+        self.group_scores: dict[str, dict[str, dict[str, dict[int, float]]]] = {}
+        # group_confidence_intervals: {"cosine": {"easy": {"ndcg@10": (low, high), ...}}}, needs both options
+        self.group_confidence_intervals: dict[str, dict[str, dict[str, tuple[float, float]]]] = {}
 
     def _append_csv_headers(self, score_function_names):
         for score_name in score_function_names:
@@ -310,6 +378,21 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             for metric_name, values in values_dict.items()
             for k, value in values.items()
         }
+        for score_function, intervals in self.confidence_intervals.items():
+            for metric, (low, high) in intervals.items():
+                metrics[f"{score_function}_{metric}_ci_low"] = low
+                metrics[f"{score_function}_{metric}_ci_high"] = high
+        for score_function, groups in self.group_scores.items():
+            for group, values_dict in groups.items():
+                group_intervals = self.group_confidence_intervals.get(score_function, {}).get(group, {})
+                for metric_name, values in values_dict.items():
+                    for k, value in values.items():
+                        metric = f"{metric_name.replace('@k', '')}@{k}"
+                        metrics[f"{score_function}_{metric}_{group}"] = value
+                        if metric in group_intervals:
+                            low, high = group_intervals[metric]
+                            metrics[f"{score_function}_{metric}_{group}_ci_low"] = low
+                            metrics[f"{score_function}_{metric}_{group}_ci_high"] = high
         metrics = self.prefix_name_to_metrics(metrics, self.name)
         self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
@@ -452,15 +535,90 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         logger.info(f"Queries: {len(self.queries)}")
         logger.info(f"Corpus: {len(self.corpus)}\n")
 
+        # Per-query values behind the metrics, kept for the confidence intervals, the query groups and for comparing
+        # models on the same queries. compute_metrics stays the override point for the reported scores.
+        per_query_metrics = {
+            name: self.compute_per_query_metrics(queries_result_list[name]) for name in self.score_functions
+        }
+        self.per_query_metrics = {
+            name: {
+                f"{metric_name.replace('@k', '')}@{k}": np.asarray(values, dtype=float)
+                for metric_name, values_at_k in per_query.items()
+                for k, values in values_at_k.items()
+            }
+            for name, per_query in per_query_metrics.items()
+        }
+
         # Compute scores
         scores = {name: self.compute_metrics(queries_result_list[name]) for name in self.score_functions}
+
+        self.confidence_intervals = {}
+        if self.bootstrap_resamples is not None:
+            # One draw of resamples shared by every metric and score function, so that their intervals are comparable
+            indices = bootstrap_indices(len(self.queries), self.bootstrap_resamples, self.bootstrap_seed)
+            self.confidence_intervals = {
+                name: self._bootstrap_confidence_intervals(metrics, indices)
+                for name, metrics in self.per_query_metrics.items()
+            }
+
+        self.group_scores = {}
+        self.group_confidence_intervals = {}
+        group_query_indices = self._group_query_indices()
+        for group, query_indices in group_query_indices.items():
+            group_indices = None
+            if self.bootstrap_resamples is not None:
+                group_indices = bootstrap_indices(len(query_indices), self.bootstrap_resamples, self.bootstrap_seed)
+            for name in self.score_functions:
+                group_per_query = {
+                    metric_name: {
+                        k: [values[query_itr] for query_itr in query_indices] for k, values in values_at_k.items()
+                    }
+                    for metric_name, values_at_k in per_query_metrics[name].items()
+                }
+                self.group_scores.setdefault(name, {})[group] = self.aggregate_per_query_metrics(group_per_query)
+                if group_indices is not None:
+                    group_arrays = {
+                        metric: values[query_indices] for metric, values in self.per_query_metrics[name].items()
+                    }
+                    self.group_confidence_intervals.setdefault(name, {})[group] = self._bootstrap_confidence_intervals(
+                        group_arrays, group_indices
+                    )
 
         # Output
         for name in self.score_function_names:
             logger.info(f"Score-Function: {name}")
-            self.output_scores(scores[name])
+            self.output_scores(scores[name], self.confidence_intervals.get(name))
+            for group, group_scores in self.group_scores.get(name, {}).items():
+                logger.info(f"Group '{group}' ({len(group_query_indices[group])} queries):")
+                self.output_scores(group_scores, self.group_confidence_intervals.get(name, {}).get(group))
 
         return scores
+
+    def _bootstrap_confidence_intervals(
+        self, per_query_metrics: dict[str, np.ndarray], indices: np.ndarray
+    ) -> dict[str, tuple[float, float]]:
+        """Confidence interval of every metric from the same precomputed resample ``indices``."""
+        return {
+            metric: bootstrap_confidence_interval(
+                values, confidence_level=self.bootstrap_confidence_level, indices=indices
+            )
+            for metric, values in per_query_metrics.items()
+        }
+
+    def _group_query_indices(self) -> dict[str, list[int]]:
+        """Positions in ``queries_ids`` of the evaluated queries of every query group, in sorted group order."""
+        if self.query_groups is None:
+            return {}
+        query_indices = {group: [] for group in sorted(set(self.query_groups.values()))}
+        for query_itr, query_id in enumerate(self.queries_ids):
+            group = self.query_groups.get(query_id)
+            if group is not None:
+                query_indices[group].append(query_itr)
+        for group in list(query_indices):
+            if not query_indices[group]:
+                logger.warning(f"Query group '{group}' has no evaluated queries and is skipped.")
+                del query_indices[group]
+        return query_indices
 
     # Backwards compatibility alias
     compute_metrices = compute_all_metrics
@@ -491,12 +649,25 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             **kwargs,
         )
 
-    def compute_metrics(self, queries_result_list: list[object]):
+    def compute_per_query_metrics(self, queries_result_list: list[object]) -> dict[str, dict[int, list[float]]]:
+        """
+        Computes every metric for each query separately, in the order of ``queries_result_list`` (i.e. ``queries_ids``).
+
+        Args:
+            queries_result_list (List[object]): Per query, the retrieved hits as ``{"corpus_id": ..., "score": ...}``
+                dictionaries.
+
+        Returns:
+            Dict[str, Dict[int, List[float]]]: The nesting of :meth:`compute_metrics` with a list of per-query values
+            in place of each aggregate: ``{"accuracy@k": {k: [...]}, "precision@k": ..., "recall@k": ...,
+            "ndcg@k": ..., "mrr@k": ..., "map@k": ...}``. Accuracy values are 0/1 integers and MRR values are the
+            reciprocal rank of the first relevant hit, or 0.0 when none is retrieved within k.
+        """
         # Init score computation values
-        num_hits_at_k = {k: 0 for k in self.accuracy_at_k}
+        num_hits_at_k = {k: [] for k in self.accuracy_at_k}
         precisions_at_k = {k: [] for k in self.precision_recall_at_k}
         recall_at_k = {k: [] for k in self.precision_recall_at_k}
-        MRR = {k: 0 for k in self.mrr_at_k}
+        MRR = {k: [] for k in self.mrr_at_k}
         ndcg = {k: [] for k in self.ndcg_at_k}
         AveP_at_k = {k: [] for k in self.map_at_k}
 
@@ -510,10 +681,12 @@ class InformationRetrievalEvaluator(BaseEvaluator):
 
             # Accuracy@k - We count the result correct, if at least one relevant doc is across the top-k documents
             for k_val in self.accuracy_at_k:
+                hit_at_k = 0
                 for hit in top_hits[0:k_val]:
                     if hit["corpus_id"] in query_relevant_docs:
-                        num_hits_at_k[k_val] += 1
+                        hit_at_k = 1
                         break
+                num_hits_at_k[k_val].append(hit_at_k)
 
             # Precision and Recall@k
             for k_val in self.precision_recall_at_k:
@@ -527,10 +700,12 @@ class InformationRetrievalEvaluator(BaseEvaluator):
 
             # MRR@k
             for k_val in self.mrr_at_k:
+                reciprocal_rank = 0.0
                 for rank, hit in enumerate(top_hits[0:k_val]):
                     if hit["corpus_id"] in query_relevant_docs:
-                        MRR[k_val] += 1.0 / (rank + 1)
+                        reciprocal_rank = 1.0 / (rank + 1)
                         break
+                MRR[k_val].append(reciprocal_rank)
 
             # NDCG@k
             for k_val in self.ndcg_at_k:
@@ -556,25 +731,6 @@ class InformationRetrievalEvaluator(BaseEvaluator):
                 avg_precision = sum_precisions / min(k_val, len(query_relevant_docs))
                 AveP_at_k[k_val].append(avg_precision)
 
-        # Compute averages
-        for k in num_hits_at_k:
-            num_hits_at_k[k] /= len(self.queries)
-
-        for k in precisions_at_k:
-            precisions_at_k[k] = np.mean(precisions_at_k[k])
-
-        for k in recall_at_k:
-            recall_at_k[k] = np.mean(recall_at_k[k])
-
-        for k in ndcg:
-            ndcg[k] = np.mean(ndcg[k])
-
-        for k in MRR:
-            MRR[k] /= len(self.queries)
-
-        for k in AveP_at_k:
-            AveP_at_k[k] = np.mean(AveP_at_k[k])
-
         return {
             "accuracy@k": num_hits_at_k,
             "precision@k": precisions_at_k,
@@ -584,24 +740,59 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             "map@k": AveP_at_k,
         }
 
-    def output_scores(self, scores):
-        for k in scores["accuracy@k"]:
-            logger.info("Accuracy@{}: {:.2f}%".format(k, scores["accuracy@k"][k] * 100))
+    def aggregate_per_query_metrics(
+        self, per_query_metrics: dict[str, dict[int, list[float]]]
+    ) -> dict[str, dict[int, float]]:
+        """
+        Averages the per-query values of :meth:`compute_per_query_metrics` over their queries, e.g. over all queries
+        or over the queries of one group.
 
-        for k in scores["precision@k"]:
-            logger.info("Precision@{}: {:.2f}%".format(k, scores["precision@k"][k] * 100))
+        Args:
+            per_query_metrics (Dict[str, Dict[int, List[float]]]): Per-query values as returned by
+                :meth:`compute_per_query_metrics`, possibly restricted to a subset of the queries.
 
-        for k in scores["recall@k"]:
-            logger.info("Recall@{}: {:.2f}%".format(k, scores["recall@k"][k] * 100))
+        Returns:
+            Dict[str, Dict[int, float]]: ``{"accuracy@k": {k: value}, "precision@k": ..., "recall@k": ...,
+            "ndcg@k": ..., "mrr@k": ..., "map@k": ...}``, the format of :meth:`compute_metrics`.
+        """
+        aggregated = {}
+        for metric_name, values_at_k in per_query_metrics.items():
+            aggregated[metric_name] = {}
+            for k, values in values_at_k.items():
+                if metric_name == "accuracy@k":
+                    # Integer count of the queries with a relevant hit, divided once
+                    aggregated[metric_name][k] = sum(values) / len(values)
+                elif metric_name == "mrr@k":
+                    # Running sum of the reciprocal ranks in query order
+                    total = 0
+                    for value in values:
+                        total += value
+                    aggregated[metric_name][k] = total / len(values)
+                else:
+                    aggregated[metric_name][k] = np.mean(values)
+        return aggregated
 
-        for k in scores["mrr@k"]:
-            logger.info("MRR@{}: {:.4f}".format(k, scores["mrr@k"][k]))
+    def compute_metrics(self, queries_result_list: list[object]):
+        return self.aggregate_per_query_metrics(self.compute_per_query_metrics(queries_result_list))
 
-        for k in scores["ndcg@k"]:
-            logger.info("NDCG@{}: {:.4f}".format(k, scores["ndcg@k"][k]))
-
-        for k in scores["map@k"]:
-            logger.info("MAP@{}: {:.4f}".format(k, scores["map@k"][k]))
+    def output_scores(self, scores, confidence_intervals: dict[str, tuple[float, float]] | None = None):
+        for metric_name, label, value_format, scale in (
+            ("accuracy@k", "Accuracy", "{:.2f}%", 100),
+            ("precision@k", "Precision", "{:.2f}%", 100),
+            ("recall@k", "Recall", "{:.2f}%", 100),
+            ("mrr@k", "MRR", "{:.4f}", 1),
+            ("ndcg@k", "NDCG", "{:.4f}", 1),
+            ("map@k", "MAP", "{:.4f}", 1),
+        ):
+            for k, value in scores[metric_name].items():
+                line = f"{label}@{k}: " + value_format.format(value * scale)
+                if confidence_intervals:
+                    low, high = confidence_intervals[f"{metric_name.replace('@k', '')}@{k}"]
+                    line += (
+                        f" ({self.bootstrap_confidence_level * 100:g}% CI: "
+                        f"{value_format.format(low * scale)} – {value_format.format(high * scale)})"
+                    )
+                logger.info(line)
 
     @staticmethod
     def compute_dcg_at_k(relevances, k):
@@ -622,4 +813,9 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         for key in config_dict_candidate_keys:
             if getattr(self, key) is not None:
                 config_dict[key] = getattr(self, key)
+        if self.bootstrap_resamples is not None:
+            config_dict["bootstrap_resamples"] = self.bootstrap_resamples
+            config_dict["bootstrap_confidence_level"] = self.bootstrap_confidence_level
+        if self.query_groups is not None:
+            config_dict["num_query_groups"] = len(set(self.query_groups.values()))
         return config_dict

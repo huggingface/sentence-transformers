@@ -54,6 +54,13 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         corpus_prompt_name (str, optional): The name of the prompt to be used when encoding the corpus. Defaults to None.
         write_predictions (bool): Whether to write the predictions to a JSONL file. Defaults to False.
             This can be useful for downstream evaluation as it can be used as input to the :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator` that accept precomputed predictions.
+        bootstrap_resamples (int, optional): The number of bootstrap resamples over the queries used to compute
+            confidence intervals for every metric, reported as ``{metric}_ci_low`` and ``{metric}_ci_high``.
+            ``None`` disables the confidence intervals. Defaults to None.
+        bootstrap_confidence_level (float): The confidence level of the bootstrap confidence intervals. Defaults to 0.95.
+        bootstrap_seed (int, optional): The random seed used to draw the bootstrap resamples. Defaults to 42.
+        query_groups (Dict[str, str], optional): A dictionary mapping query IDs to a group label. If set, every
+            metric is additionally reported per group as ``{metric}_{group}``. Defaults to None.
 
     Example:
         ::
@@ -156,6 +163,10 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         corpus_prompt: str | None = None,
         corpus_prompt_name: str | None = None,
         write_predictions: bool = False,
+        bootstrap_resamples: int | None = None,
+        bootstrap_confidence_level: float = 0.95,
+        bootstrap_seed: int | None = 42,
+        query_groups: dict[str, str] | None = None,
     ) -> None:
         self.max_active_dims = max_active_dims
         self.sparsity_stats = {"query": defaultdict(list), "corpus": defaultdict(list)}
@@ -182,6 +193,10 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             corpus_prompt=corpus_prompt,
             corpus_prompt_name=corpus_prompt_name,
             write_predictions=write_predictions,
+            bootstrap_resamples=bootstrap_resamples,
+            bootstrap_confidence_level=bootstrap_confidence_level,
+            bootstrap_seed=bootstrap_seed,
+            query_groups=query_groups,
         )
 
     def _append_csv_headers(self, score_function_names):

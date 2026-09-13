@@ -63,6 +63,13 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         write_predictions (bool): Write per-query top-k predictions to a JSONL file, suitable as
             input to :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator`.
             Defaults to False.
+        bootstrap_resamples (int, optional): Number of bootstrap resamples over the queries used to compute
+            confidence intervals for every metric, per subset (``{metric}_ci_low`` / ``{metric}_ci_high``) and
+            for the aggregated scores (queries resampled within each subset, then combined with
+            ``aggregate_fn``). None disables the confidence intervals. Defaults to None.
+        bootstrap_confidence_level (float): Confidence level of the bootstrap confidence intervals.
+            Defaults to 0.95.
+        bootstrap_seed (int, optional): Random seed used to draw the bootstrap resamples. Defaults to 42.
 
     Example:
         ::

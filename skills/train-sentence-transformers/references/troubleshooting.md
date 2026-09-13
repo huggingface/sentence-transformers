@@ -108,6 +108,12 @@ Same applies to `CachedSpladeLoss`, `CachedGISTEmbedLoss`, and any other `Cached
 
 **Fix:** your eval set overlaps the train set. Check `dataset.train_test_split(test_size=...)` was called correctly, or that the Hub dataset's `train` vs. `dev` splits are actually disjoint.
 
+## Small nDCG improvement after training: is it real?
+
+**Symptom:** `eval_NanoBEIR_mean_cosine_ndcg@10` (or your IR evaluator's nDCG@10) moved by 0.5-1 point between two checkpoints.
+
+**Fix:** NanoBEIR datasets have ~50 queries each, so deltas that size are often noise. Pass `bootstrap_resamples=1000` to the evaluator to get `_ci_low` / `_ci_high` keys, or run `paired_bootstrap_test` on `evaluator.per_query_metrics["cosine"]["ndcg@10"]` from both checkpoints (see `evaluators_sentence_transformer.md`). Only trust a delta whose CI excludes 0.
+
 ## Model-card generation fails
 
 **Symptom:** warning about model-card generation, or `README.md` is missing after `save_pretrained`.

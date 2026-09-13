@@ -15,6 +15,7 @@ from sentence_transformers.sentence_transformer.evaluation.information_retrieval
 )
 from sentence_transformers.util import is_datasets_available
 from sentence_transformers.util.similarity import SimilarityFunction
+from sentence_transformers.util.statistics import bootstrap_confidence_interval
 
 if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
@@ -93,6 +94,13 @@ class NanoBEIREvaluator(BaseEvaluator):
         corpus_prompts (str | dict[str, str], optional): The prompts to add to the corpus. If a string, will add the same prompt to all corpus. If a dict, expects that all datasets in dataset_names are keys.
         write_predictions (bool): Whether to write the predictions to a JSONL file. Defaults to False.
             This can be useful for downstream evaluation as it can be used as input to the :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator` that accept precomputed predictions.
+        bootstrap_resamples (int, optional): The number of bootstrap resamples over the queries used to compute
+            confidence intervals for every metric. Each dataset reports its own ``{metric}_ci_low`` and
+            ``{metric}_ci_high``, and the aggregated scores get a confidence interval that resamples the queries
+            within each dataset before aggregating with ``aggregate_fn``. ``None`` disables the confidence
+            intervals. Defaults to None.
+        bootstrap_confidence_level (float): The confidence level of the bootstrap confidence intervals. Defaults to 0.95.
+        bootstrap_seed (int, optional): The random seed used to draw the bootstrap resamples. Defaults to 42.
 
     .. tip::
 
@@ -231,6 +239,9 @@ class NanoBEIREvaluator(BaseEvaluator):
         query_prompts: str | dict[str, str] | None = None,
         corpus_prompts: str | dict[str, str] | None = None,
         write_predictions: bool = False,
+        bootstrap_resamples: int | None = None,
+        bootstrap_confidence_level: float = 0.95,
+        bootstrap_seed: int | None = 42,
     ):
         super().__init__()
         if dataset_names is None:
@@ -249,6 +260,9 @@ class NanoBEIREvaluator(BaseEvaluator):
         self._score_functions_from_model = score_functions is None
         self.main_score_function = main_score_function
         self.truncate_dim = truncate_dim
+        self.bootstrap_resamples = bootstrap_resamples
+        self.bootstrap_confidence_level = bootstrap_confidence_level
+        self.bootstrap_seed = bootstrap_seed
         self.name = f"NanoBEIR_{aggregate_key}"
         if self.truncate_dim:
             self.name += f"_{self.truncate_dim}"
@@ -275,6 +289,9 @@ class NanoBEIREvaluator(BaseEvaluator):
             "score_functions": score_functions,
             "main_score_function": main_score_function,
             "write_predictions": write_predictions,
+            "bootstrap_resamples": bootstrap_resamples,
+            "bootstrap_confidence_level": bootstrap_confidence_level,
+            "bootstrap_seed": bootstrap_seed,
         }
         self.evaluators = [
             self._load_dataset(name, **ir_evaluator_kwargs)
@@ -345,14 +362,20 @@ class NanoBEIREvaluator(BaseEvaluator):
             for full_key, metric_value in evaluation.items():
                 splits = full_key.split("_", maxsplit=num_underscores_in_name)
                 metric = splits[-1]
+                per_dataset_results[full_key] = metric_value
+                if metric.endswith(("_ci_low", "_ci_high")):
+                    # Averaging per-dataset confidence bounds is not a confidence interval; the aggregate
+                    # CI is bootstrapped over the queries of every dataset in _aggregate_confidence_intervals.
+                    continue
                 if metric not in per_metric_results:
                     per_metric_results[metric] = []
-                per_dataset_results[full_key] = metric_value
                 per_metric_results[metric].append(metric_value)
 
         agg_results = {}
         for metric in per_metric_results:
             agg_results[metric] = self.aggregate_fn(per_metric_results[metric])
+        if self.bootstrap_resamples is not None:
+            agg_results.update(self._aggregate_confidence_intervals(agg_results))
 
         if output_path is not None and self.write_csv:
             os.makedirs(output_path, exist_ok=True)
@@ -411,20 +434,22 @@ class NanoBEIREvaluator(BaseEvaluator):
         for name in self.score_function_names:
             logger.info(f"Aggregated for Score Function: {name}")
             for k in self.accuracy_at_k:
-                logger.info("Accuracy@{}: {:.2f}%".format(k, agg_results[f"{name}_accuracy@{k}"] * 100))
+                logger.info(self._format_aggregate(agg_results, f"{name}_accuracy@{k}", f"Accuracy@{k}", percent=True))
 
             for k in self.precision_recall_at_k:
-                logger.info("Precision@{}: {:.2f}%".format(k, agg_results[f"{name}_precision@{k}"] * 100))
-                logger.info("Recall@{}: {:.2f}%".format(k, agg_results[f"{name}_recall@{k}"] * 100))
+                logger.info(
+                    self._format_aggregate(agg_results, f"{name}_precision@{k}", f"Precision@{k}", percent=True)
+                )
+                logger.info(self._format_aggregate(agg_results, f"{name}_recall@{k}", f"Recall@{k}", percent=True))
 
             for k in self.mrr_at_k:
-                logger.info("MRR@{}: {:.4f}".format(k, agg_results[f"{name}_mrr@{k}"]))
+                logger.info(self._format_aggregate(agg_results, f"{name}_mrr@{k}", f"MRR@{k}"))
 
             for k in self.ndcg_at_k:
-                logger.info("NDCG@{}: {:.4f}".format(k, agg_results[f"{name}_ndcg@{k}"]))
+                logger.info(self._format_aggregate(agg_results, f"{name}_ndcg@{k}", f"NDCG@{k}"))
 
             for k in self.map_at_k:
-                logger.info("MAP@{}: {:.4f}".format(k, agg_results[f"{name}_map@{k}"]))
+                logger.info(self._format_aggregate(agg_results, f"{name}_map@{k}", f"MAP@{k}"))
 
         agg_results = self.prefix_name_to_metrics(agg_results, self.name)
         self.store_metrics_in_model_card_data(model, agg_results, epoch, steps)
@@ -432,6 +457,44 @@ class NanoBEIREvaluator(BaseEvaluator):
         per_dataset_results.update(agg_results)
 
         return per_dataset_results
+
+    def _aggregate_confidence_intervals(self, agg_results: dict[str, float]) -> dict[str, float]:
+        """Bootstrap confidence intervals of the aggregated metrics.
+
+        The queries are resampled within each dataset (stratified), the per-dataset means of a resample are
+        combined with ``aggregate_fn``, and the percentiles of the resampled aggregates form the interval.
+        Returns ``{metric}_ci_low`` / ``{metric}_ci_high`` for every aggregated metric that the sub-evaluators
+        expose per query.
+        """
+        confidence_intervals = {}
+        for score_function_name in self.score_function_names:
+            for metric_name in self.evaluators[0].per_query_metrics[score_function_name]:
+                metric = f"{score_function_name}_{metric_name}"
+                if metric not in agg_results:
+                    continue
+                strata = [
+                    evaluator.per_query_metrics[score_function_name][metric_name] for evaluator in self.evaluators
+                ]
+                low, high = bootstrap_confidence_interval(
+                    strata,
+                    n_resamples=self.bootstrap_resamples,
+                    confidence_level=self.bootstrap_confidence_level,
+                    seed=self.bootstrap_seed,
+                    statistic=self.aggregate_fn,
+                )
+                confidence_intervals[f"{metric}_ci_low"] = low
+                confidence_intervals[f"{metric}_ci_high"] = high
+        return confidence_intervals
+
+    def _format_aggregate(self, agg_results: dict[str, float], metric: str, label: str, percent: bool = False) -> str:
+        """Format one aggregated metric log line, appending its confidence interval when one was bootstrapped."""
+        scale, fmt = (100, "{:.2f}%") if percent else (1, "{:.4f}")
+        line = f"{label}: " + fmt.format(agg_results[metric] * scale)
+        if f"{metric}_ci_low" in agg_results:
+            low = fmt.format(agg_results[f"{metric}_ci_low"] * scale)
+            high = fmt.format(agg_results[f"{metric}_ci_high"] * scale)
+            line += f" ({self.bootstrap_confidence_level * 100:g}% CI: {low} – {high})"
+        return line
 
     def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
         human_readable_name = f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
@@ -547,4 +610,7 @@ class NanoBEIREvaluator(BaseEvaluator):
         for key in config_dict_candidate_keys:
             if getattr(self, key) is not None:
                 config_dict[key] = getattr(self, key)
+        if self.bootstrap_resamples is not None:
+            config_dict["bootstrap_resamples"] = self.bootstrap_resamples
+            config_dict["bootstrap_confidence_level"] = self.bootstrap_confidence_level
         return config_dict

@@ -51,6 +51,12 @@ from .similarity import (
     pairwise_manhattan_sim,
     pytorch_cos_sim,
 )
+from .statistics import (
+    PairedBootstrapTestResult,
+    bootstrap_confidence_interval,
+    bootstrap_indices,
+    paired_bootstrap_test,
+)
 from .tensor import (
     _convert_to_batch,
     _convert_to_batch_tensor,
@@ -127,6 +133,11 @@ __all__ = [
     "pairwise_euclidean_sim",
     "pairwise_manhattan_sim",
     "pytorch_cos_sim",
+    # From statistics.py
+    "PairedBootstrapTestResult",
+    "bootstrap_confidence_interval",
+    "bootstrap_indices",
+    "paired_bootstrap_test",
     # From tensor.py
     "_convert_to_batch",
     "_convert_to_batch_tensor",

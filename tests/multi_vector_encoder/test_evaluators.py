@@ -286,6 +286,66 @@ def test_nano_beir_evaluator_emits_lowercase_maxsim_key(model: MultiVectorEncode
     assert evaluator.primary_metric == "NanoBEIR_mean_meanmaxsim_ndcg@10"
 
 
+def test_information_retrieval_evaluator_bootstrap_and_groups(model: MultiVectorEncoder) -> None:
+    """The bootstrap and query-group opt-ins of the dense evaluator pass through the multi-vector subclass."""
+    queries = {"q0": "What is the capital of France?", "q1": "Who painted the Mona Lisa?"}
+    corpus = {
+        "d0": "Paris is the capital of France.",
+        "d1": "Berlin is the capital of Germany.",
+        "d2": "The Mona Lisa was painted by Leonardo da Vinci.",
+        "d3": "Van Gogh painted The Starry Night.",
+    }
+    qrels = {"q0": {"d0"}, "q1": {"d2"}}
+
+    evaluator = MultiVectorInformationRetrievalEvaluator(
+        queries=queries,
+        corpus=corpus,
+        relevant_docs=qrels,
+        name="ir_ci",
+        write_csv=False,
+        bootstrap_resamples=50,
+        bootstrap_confidence_level=0.9,
+        bootstrap_seed=1,
+        query_groups={"q0": "geo", "q1": "art"},
+    )
+    results = evaluator(model)
+    assert evaluator.primary_metric == "ir_ci_maxsim_ndcg@10"
+    assert (
+        results["ir_ci_maxsim_ndcg@10_ci_low"]
+        <= results["ir_ci_maxsim_ndcg@10"]
+        <= results["ir_ci_maxsim_ndcg@10_ci_high"]
+    )
+    assert {"ir_ci_maxsim_ndcg@10_geo", "ir_ci_maxsim_ndcg@10_art", "ir_ci_maxsim_ndcg@10_geo_ci_low"} <= set(results)
+    assert evaluator.per_query_metrics["maxsim"]["ndcg@10"].shape == (2,)
+    config = evaluator.get_config_dict()
+    assert config["bootstrap_resamples"] == 50
+    assert config["bootstrap_confidence_level"] == 0.9
+    assert config["num_query_groups"] == 2
+
+
+def test_nano_beir_evaluator_bootstrap_aggregate_ci(model: MultiVectorEncoder) -> None:
+    queries = {"q0": "What is the capital of France?", "q1": "Who painted the Mona Lisa?"}
+    corpus = {
+        "d0": "Paris is the capital of France.",
+        "d1": "Berlin is the capital of Germany.",
+        "d2": "The Mona Lisa was painted by Leonardo da Vinci.",
+    }
+    qrels = {"q0": {"d0"}, "q1": {"d2"}}
+
+    class _StubNanoBEIR(MultiVectorNanoBEIREvaluator):
+        def _load_dataset(self, dataset_name: str, **ir_kwargs):
+            return MultiVectorInformationRetrievalEvaluator(
+                queries=queries, corpus=corpus, relevant_docs=qrels, name=f"Nano{dataset_name}", **ir_kwargs
+            )
+
+    evaluator = _StubNanoBEIR(dataset_names=["msmarco", "nq"], write_csv=False, bootstrap_resamples=50)
+    results = evaluator(model)
+    assert evaluator.primary_metric == "NanoBEIR_mean_maxsim_ndcg@10"
+    for key in ["NanoBEIR_mean_maxsim_ndcg@10", "Nanomsmarco_maxsim_ndcg@10", "Nanonq_maxsim_ndcg@10"]:
+        assert results[f"{key}_ci_low"] <= results[key] <= results[f"{key}_ci_high"]
+    assert evaluator.get_config_dict()["bootstrap_resamples"] == 50
+
+
 def test_distillation_evaluator(model: MultiVectorEncoder) -> None:
     evaluator = MultiVectorDistillationEvaluator(
         queries=["What is the capital of France?", "Who painted the Mona Lisa?"],

@@ -42,6 +42,7 @@ evaluator = NanoBEIREvaluator(
 
 - Default dataset list covers 13 tasks. Pick a subset for speed during training.
 - Output key for `metric_for_best_model`: **`eval_NanoBEIR_mean_cosine_ndcg@10`** (bi-encoder default = cosine similarity).
+- `bootstrap_resamples=1000` adds `eval_NanoBEIR_mean_cosine_ndcg@10_ci_low` / `_ci_high` (a stratified bootstrap over each dataset's queries, not an average of per-dataset bounds) plus per-dataset keys like `eval_NanoMSMARCO_cosine_ndcg@10_ci_low`. Each NanoBEIR dataset has ~50 queries, so a 0.5-1 point nDCG@10 delta is often inside the CI.
 
 ### `EmbeddingSimilarityEvaluator` (STS-style)
 
@@ -86,6 +87,28 @@ evaluator = InformationRetrievalEvaluator(
 ```
 
 Output keys: `eval_{name}_cosine_ndcg@10`, `eval_{name}_cosine_mrr@10`, etc.
+
+Opt-in extras (all off by default; existing keys, values and CSV output are unchanged when off):
+
+- `bootstrap_resamples=1000`: percentile bootstrap over queries, adds `eval_{name}_cosine_ndcg@10_ci_low` / `_ci_high` for every metric. `bootstrap_confidence_level` (default `0.95`) and `bootstrap_seed` (default `42`) control it.
+- `query_groups={qid: "label", ...}`: also reports every metric per group, as `eval_{name}_cosine_ndcg@10_{label}` (plus `_ci_low` / `_ci_high` when bootstrapping). Queries missing from the mapping only count towards the overall metric.
+- After a call, `evaluator.per_query_metrics["cosine"]["ndcg@10"]` is a `np.ndarray` of per-query values aligned with `evaluator.queries_ids`.
+
+Compare two checkpoints on the same queries:
+
+```python
+from sentence_transformers.util import paired_bootstrap_test
+
+evaluator(baseline_model)
+baseline = evaluator.per_query_metrics["cosine"]["ndcg@10"]
+evaluator(finetuned_model)
+finetuned = evaluator.per_query_metrics["cosine"]["ndcg@10"]
+
+result = paired_bootstrap_test(baseline, finetuned)  # difference = finetuned - baseline
+print(f"{result.difference:+.4f} (95% CI {result.ci_low:+.4f} to {result.ci_high:+.4f}), p={result.p_value:.3f}")
+```
+
+Trust the CI over the p-value: an improvement whose CI excludes 0 holds up across query resamples.
 
 Heavy for large corpora: each eval encodes the full corpus. Don't run it every 100 steps. Use `NanoBEIREvaluator` for frequent evaluation during training and reserve full IR for milestones / post-training.
 

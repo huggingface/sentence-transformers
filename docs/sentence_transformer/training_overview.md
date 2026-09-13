@@ -536,6 +536,8 @@ Evaluator                                                                       
 
 Additionally, :class:`~sentence_transformers.base.evaluation.SequentialEvaluator` should be used to combine multiple evaluators into one Evaluator that can be passed to the :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer`.
 
+The retrieval evaluators (:class:`~sentence_transformers.sentence_transformer.evaluation.InformationRetrievalEvaluator` and :class:`~sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator`) can additionally report bootstrap confidence intervals over queries via ``bootstrap_resamples``, which adds ``_ci_low`` and ``_ci_high`` keys next to every metric. This helps judge whether a small difference between two checkpoints on a small benchmark like NanoBEIR (about 50 queries per dataset) is meaningful.
+
 Sometimes you don't have the required evaluation data to prepare one of these evaluators on your own, but you still want to track how well the model performs on some common benchmarks. In that case, you can use these evaluators with data from Hugging Face.
 
 .. tab:: EmbeddingSimilarityEvaluator with STSb

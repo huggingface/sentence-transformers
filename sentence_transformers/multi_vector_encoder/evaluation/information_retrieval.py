@@ -72,6 +72,14 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         write_predictions (bool): Write per-query top-k predictions to a JSONL file, suitable as
             input to :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator`.
             Defaults to False.
+        bootstrap_resamples (int, optional): Number of bootstrap resamples over the queries used to compute
+            confidence intervals for every metric, reported as ``{metric}_ci_low`` and ``{metric}_ci_high``.
+            None disables the confidence intervals. Defaults to None.
+        bootstrap_confidence_level (float): Confidence level of the bootstrap confidence intervals.
+            Defaults to 0.95.
+        bootstrap_seed (int, optional): Random seed used to draw the bootstrap resamples. Defaults to 42.
+        query_groups (Dict[str, str], optional): Mapping of query ID to a group label. If set, every metric
+            is additionally reported per group as ``{metric}_{group}``. Defaults to None.
 
     Example:
         ::

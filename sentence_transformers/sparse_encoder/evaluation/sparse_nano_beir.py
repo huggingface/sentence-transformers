@@ -67,6 +67,13 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
         corpus_prompts (str | dict[str, str], optional): The prompts to add to the corpus. If a string, will add the same prompt to all corpus. If a dict, expects that all datasets in dataset_names are keys.
         write_predictions (bool): Whether to write the predictions to a JSONL file. Defaults to False.
             This can be useful for downstream evaluation as it can be used as input to the :class:`~sentence_transformers.sparse_encoder.evaluation.ReciprocalRankFusionEvaluator` that accept precomputed predictions.
+        bootstrap_resamples (int, optional): The number of bootstrap resamples over the queries used to compute
+            confidence intervals for every metric. Each dataset reports its own ``{metric}_ci_low`` and
+            ``{metric}_ci_high``, and the aggregated scores get a confidence interval that resamples the queries
+            within each dataset before aggregating with ``aggregate_fn``. ``None`` disables the confidence
+            intervals. Defaults to None.
+        bootstrap_confidence_level (float): The confidence level of the bootstrap confidence intervals. Defaults to 0.95.
+        bootstrap_seed (int, optional): The random seed used to draw the bootstrap resamples. Defaults to 42.
 
     .. tip::
 
@@ -217,6 +224,9 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
         query_prompts: str | dict[str, str] | None = None,
         corpus_prompts: str | dict[str, str] | None = None,
         write_predictions: bool = False,
+        bootstrap_resamples: int | None = None,
+        bootstrap_confidence_level: float = 0.95,
+        bootstrap_seed: int | None = 42,
     ):
         self.max_active_dims = max_active_dims
         self.sparsity_stats = defaultdict(list)
@@ -238,6 +248,9 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
             query_prompts=query_prompts,
             corpus_prompts=corpus_prompts,
             write_predictions=write_predictions,
+            bootstrap_resamples=bootstrap_resamples,
+            bootstrap_confidence_level=bootstrap_confidence_level,
+            bootstrap_seed=bootstrap_seed,
         )
         if self.max_active_dims is not None:
             self.name += f"_{self.max_active_dims}"

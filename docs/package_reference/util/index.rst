@@ -13,4 +13,5 @@ Utility Functions
    quantization
    retrieval
    similarity
+   statistics
    tensor
