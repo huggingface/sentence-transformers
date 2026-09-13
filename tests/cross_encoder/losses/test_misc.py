@@ -88,3 +88,56 @@ def test_listwise_loss_is_padding_invariant(reranker_bert_tiny_model_v54: CrossE
     # On the buggy implementation, padding the 2-doc query to width 3 inflates its loss, so the
     # batched mean diverges from the mean of the separately computed per-query losses.
     assert torch.allclose(loss_batched, (loss_a + loss_b) / 2, atol=1e-5)
+
+
+class _ScoreModel(torch.nn.Module):
+    num_labels = 1
+
+    def __init__(self, scores):
+        super().__init__()
+        self.scores = torch.nn.Parameter(scores)
+
+    @property
+    def device(self):
+        return self.scores.device
+
+    def preprocess(self, pairs, **kwargs):
+        return {"indices": torch.tensor([int(document) for _, document in pairs])}
+
+    def forward(self, inputs):
+        return {"scores": self.scores[inputs["indices"]].unsqueeze(-1)}
+
+
+@pytest.mark.parametrize("loss_cls", [ListMLELoss, PListMLELoss])
+@pytest.mark.parametrize("respect_input_order", [True, False])
+@pytest.mark.parametrize("offset", [0.0, 1000.0, -1000.0])
+def test_listmle_large_scores_match_sequential_cross_entropy(loss_cls, respect_input_order, offset):
+    model = _ScoreModel(torch.tensor([1.0, 2.0, -1.0, 3.0, 0.0]) + offset)
+    loss_fn = loss_cls(model, respect_input_order=respect_input_order)
+    loss = loss_fn(
+        (["query a", "query b"], [["0", "1"], ["2", "3", "4"]]),
+        [torch.tensor([0.0, 1.0]), torch.tensor([1.0, 2.0, 0.0])],
+    )
+
+    # Plackett-Luce chooses the next document from the remaining suffix.
+    # Use independent float64 cross-entropies as the value and gradient oracle.
+    scores = model.scores.detach().double().requires_grad_()
+    orders = [[0, 1], [2, 3, 4]] if respect_input_order else [[1, 0], [3, 2, 4]]
+    query_losses = []
+    for order, weights in zip(orders, [[3 / 4, 1 / 4], [7 / 11, 3 / 11, 1 / 11]]):
+        terms = torch.stack(
+            [
+                torch.nn.functional.cross_entropy(scores[order[index:]].unsqueeze(0), torch.zeros(1, dtype=torch.long))
+                for index in range(len(order))
+            ]
+        )
+        if loss_cls is PListMLELoss:
+            terms = terms * torch.tensor(weights, dtype=terms.dtype)
+        query_losses.append(terms.sum())
+    expected = torch.stack(query_losses).mean()
+
+    torch.testing.assert_close(loss, expected.float(), rtol=2e-4, atol=2e-4)
+    loss.backward()
+    expected.backward()
+    assert torch.isfinite(model.scores.grad).all()
+    torch.testing.assert_close(model.scores.grad, scores.grad.float(), rtol=2e-4, atol=2e-4)
