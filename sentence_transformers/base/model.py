@@ -740,6 +740,17 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             except TypeError:
                 module.save(model_path)
 
+            if safe_serialization:
+                # safetensors always writes 0o600 regardless of umask, unlike every other file
+                # saved here via open()/json.dump, so a root build step feeding a non-root
+                # container can leave the weights unreadable while everything else loads fine.
+                old_umask = os.umask(0)
+                os.umask(old_umask)
+                mode = 0o666 & ~old_umask
+                for filename in os.listdir(model_path):
+                    if filename.endswith(".safetensors"):
+                        os.chmod(os.path.join(model_path, filename), mode)
+
             class_ref = type(module).__module__
             # For remote modules, we want to remove "transformers_modules.{repo_name}":
             if class_ref.startswith("transformers_modules."):

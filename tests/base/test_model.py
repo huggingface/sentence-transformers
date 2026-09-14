@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import tempfile
 import warnings
 from collections import UserDict
@@ -473,6 +474,22 @@ def test_save_creates_expected_files(stsb_bert_tiny_model: SentenceTransformer, 
         assert "name" in module_entry
         assert "path" in module_entry
         assert "type" in module_entry
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits are not meaningful on Windows")
+def test_save_safetensors_files_match_sibling_permissions(
+    stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path
+) -> None:
+    """safetensors always writes 0o600 regardless of umask; save() should chmod it back in line
+    with every other file it writes, so a root build step doesn't leave weights unreadable to a
+    non-root container."""
+    stsb_bert_tiny_model.save(str(tmp_path), safe_serialization=True)
+
+    config_mode = (tmp_path / "config_sentence_transformers.json").stat().st_mode & 0o777
+    safetensors_files = list(tmp_path.rglob("*.safetensors"))
+    assert safetensors_files
+    for path in safetensors_files:
+        assert path.stat().st_mode & 0o777 == config_mode
 
 
 def test_save_none_path_is_noop(stsb_bert_tiny_model: SentenceTransformer) -> None:
