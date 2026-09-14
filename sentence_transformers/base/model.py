@@ -34,7 +34,12 @@ from transformers.utils import logging as transformers_logging
 
 from sentence_transformers import __version__
 from sentence_transformers.base.evaluation import BaseEvaluator
-from sentence_transformers.base.modality import infer_batch_modality, is_message_dict, raise_unsupported_modality_error
+from sentence_transformers.base.modality import (
+    infer_batch_modality,
+    infer_modality,
+    is_message_dict,
+    raise_unsupported_modality_error,
+)
 from sentence_transformers.base.modality_types import Modality, PairInput, SingleInput
 from sentence_transformers.base.model_card import BaseModelCardData, generate_model_card
 from sentence_transformers.base.modules import Module, Router, Transformer
@@ -424,6 +429,30 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         if isinstance(modality, tuple) and "message" in supported:
             return all(part in supported for part in modality)
         return False
+
+    def _group_indices_by_modality(self, inputs: Sequence[SingleInput | PairInput]) -> list[list[int]] | None:
+        """Group input indices by modality when the batch cannot be encoded together.
+
+        Returns ``None`` when no split is needed or possible: every input shares one
+        modality, the model supports the ``"message"`` format used to combine modalities,
+        some input cannot be classified (its error is left to ``preprocess`` to report),
+        or the batch contains a modality the model does not support at all.
+        """
+        supported = self.modalities
+        if "message" in supported:
+            return None
+        try:
+            modalities = [infer_modality(sample, supported_modalities=supported) for sample in inputs]
+        except (ValueError, TypeError):
+            return None
+        if len(set(modalities)) <= 1:
+            return None
+        if any(not self.supports(modality) for modality in modalities):
+            return None
+        groups: dict[Modality, list[int]] = {}
+        for index, modality in enumerate(modalities):
+            groups.setdefault(modality, []).append(index)
+        return list(groups.values())
 
     def get_model_kwargs(self) -> list[str]:
         """

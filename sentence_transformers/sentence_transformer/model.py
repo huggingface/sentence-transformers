@@ -921,56 +921,76 @@ class SentenceTransformer(BaseModel, FitMixin):
 
         truncate_dim = truncate_dim if truncate_dim is not None else self.truncate_dim
         all_embeddings = []
-        length_sorted_idx = np.argsort([-self._input_length(sen) for sen in inputs])
-        if self._can_flatten_inputs():
-            length_sorted_idx = self._interleave_sorted_indices(length_sorted_idx)
-        inputs_sorted = [inputs[idx] for idx in length_sorted_idx]
+
+        # One forward pass can only process a single modality, so a batch that mixes modalities
+        # cannot be encoded together unless the model combines modalities via the "message"
+        # format. When each modality is supported on its own (e.g. text and image for CLIP),
+        # the inputs are grouped by modality and each group is encoded in homogeneous batches.
+        # The results are reordered back to the input order below, like the length-based sort.
+        # Token embeddings are not split: modalities like image do not produce them, so the
+        # batch is left for ``preprocess`` to reject with a clear modality error.
+        modality_groups = self._group_indices_by_modality(inputs) if output_value != "token_embeddings" else None
+        if modality_groups is None:
+            length_sorted_idx = np.argsort([-self._input_length(sen) for sen in inputs])
+            if self._can_flatten_inputs():
+                length_sorted_idx = self._interleave_sorted_indices(length_sorted_idx)
+            index_groups = [length_sorted_idx]
+        else:
+            index_groups = [
+                np.asarray(group)[np.argsort([-self._input_length(inputs[idx]) for idx in group])]
+                for group in modality_groups
+            ]
+            length_sorted_idx = np.concatenate(index_groups)
 
         is_hpu = self.device.type == "hpu"
-        for start_index in trange(0, len(inputs_sorted), batch_size, desc="Batches", disable=not show_progress_bar):
-            inputs_batch = inputs_sorted[start_index : start_index + batch_size]
-            features = self.preprocess(inputs_batch, prompt=prompt, **kwargs)
+        for index_group in index_groups:
+            inputs_sorted = [inputs[idx] for idx in index_group]
+            for start_index in trange(
+                0, len(inputs_sorted), batch_size, desc="Batches", disable=not show_progress_bar
+            ):
+                inputs_batch = inputs_sorted[start_index : start_index + batch_size]
+                features = self.preprocess(inputs_batch, prompt=prompt, **kwargs)
 
-            if is_hpu:
-                features = self._pad_features_for_hpu(features)
+                if is_hpu:
+                    features = self._pad_features_for_hpu(features)
 
-            features = batch_to_device(features, device)
+                features = batch_to_device(features, device)
 
-            # Route through __call__ so that model.compile() applies to the forward pass.
-            out_features = self(features, **kwargs)
-            if is_hpu:
-                out_features = copy.deepcopy(out_features)
+                # Route through __call__ so that model.compile() applies to the forward pass.
+                out_features = self(features, **kwargs)
+                if is_hpu:
+                    out_features = copy.deepcopy(out_features)
 
-            if truncate_dim is not None:
-                out_features["sentence_embedding"] = truncate_embeddings(
-                    out_features["sentence_embedding"], truncate_dim
-                )
+                if truncate_dim is not None:
+                    out_features["sentence_embedding"] = truncate_embeddings(
+                        out_features["sentence_embedding"], truncate_dim
+                    )
 
-            if output_value == "token_embeddings":
-                embeddings = []
-                for token_emb, attention in zip(out_features[output_value], out_features["attention_mask"]):
-                    last_mask_id = len(attention) - 1
-                    while last_mask_id > 0 and attention[last_mask_id].item() == 0:
-                        last_mask_id -= 1
-                    embeddings.append(token_emb[: last_mask_id + 1])
-            elif output_value is None:
-                embeddings = []
-                for idx in range(len(out_features["sentence_embedding"])):
-                    batch_item = {}
-                    for name, value in out_features.items():
-                        try:
-                            batch_item[name] = value[idx]
-                        except TypeError:
-                            batch_item[name] = value
-                    embeddings.append(batch_item)
-            else:
-                embeddings = out_features[output_value]
-                if normalize_embeddings:
-                    embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
-                if convert_to_numpy:
-                    embeddings = embeddings.cpu()
+                if output_value == "token_embeddings":
+                    embeddings = []
+                    for token_emb, attention in zip(out_features[output_value], out_features["attention_mask"]):
+                        last_mask_id = len(attention) - 1
+                        while last_mask_id > 0 and attention[last_mask_id].item() == 0:
+                            last_mask_id -= 1
+                        embeddings.append(token_emb[: last_mask_id + 1])
+                elif output_value is None:
+                    embeddings = []
+                    for idx in range(len(out_features["sentence_embedding"])):
+                        batch_item = {}
+                        for name, value in out_features.items():
+                            try:
+                                batch_item[name] = value[idx]
+                            except TypeError:
+                                batch_item[name] = value
+                        embeddings.append(batch_item)
+                else:
+                    embeddings = out_features[output_value]
+                    if normalize_embeddings:
+                        embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+                    if convert_to_numpy:
+                        embeddings = embeddings.cpu()
 
-            all_embeddings.extend(embeddings)
+                all_embeddings.extend(embeddings)
 
         all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
 
