@@ -94,3 +94,31 @@ def test_online_contrastive_loss_does_not_warn_for_binary_labels() -> None:
 
     assert not caught
     assert torch.isfinite(value)
+
+
+@pytest.mark.parametrize(
+    ("distances", "labels", "expected"),
+    [
+        ([0.7, 0.2], [1, 0], 1.13),
+        ([0.7, 0.2, 0.3], [1, 0, 0], 1.62),
+        ([0.7, 0.8, 0.2], [1, 1, 0], 1.77),
+    ],
+)
+def test_online_contrastive_keeps_single_hard_pairs(distances, labels, expected):
+    embeddings = torch.tensor(distances, dtype=torch.float64, requires_grad=True).unsqueeze(1)
+    loss = OnlineContrastiveLoss(_EchoModel(), distance_metric=lambda a, b: (a - b).abs().flatten(), margin=1.0)
+    value = loss(
+        [
+            {"sentence_embedding": embeddings},
+            {"sentence_embedding": torch.zeros_like(embeddings)},
+        ],
+        torch.tensor(labels),
+    )
+
+    torch.testing.assert_close(value, torch.tensor(expected, dtype=torch.float64))
+    gradient = torch.autograd.grad(value, embeddings)[0].flatten()
+    expected_gradient = torch.tensor(
+        [2 * distance if label else -2 * (1 - distance) for distance, label in zip(distances, labels)],
+        dtype=torch.float64,
+    )
+    torch.testing.assert_close(gradient, expected_gradient)

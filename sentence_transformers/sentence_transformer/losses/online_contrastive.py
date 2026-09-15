@@ -95,8 +95,8 @@ class OnlineContrastiveLoss(nn.Module):
         poss = distance_matrix[labels == 1]
 
         # select hard positive and hard negative pairs
-        negative_pairs = negs[negs < (poss.max() if len(poss) > 1 else negs.mean())]
-        positive_pairs = poss[poss > (negs.min() if len(negs) > 1 else poss.mean())]
+        negative_pairs = negs[negs < (poss.max() if len(poss) > 0 else negs.mean())]
+        positive_pairs = poss[poss > (negs.min() if len(negs) > 0 else poss.mean())]
 
         positive_loss = positive_pairs.pow(2).sum()
         negative_loss = F.relu(self.margin - negative_pairs).pow(2).sum()
