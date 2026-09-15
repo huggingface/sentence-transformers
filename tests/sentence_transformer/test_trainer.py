@@ -1201,10 +1201,15 @@ def test_trainer_evaluate_caches_eval_dataloaders_per_dataset(
         assert trainer._eval_dataloaders == {}
 
 
-def test_trainer_compiled_model_with_cached_loss(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    # A torch.compile'd model is not subscriptable, so preparing a loss that requires media counts
-    # must look through the compile wrapper to reach the input module
+@pytest.mark.parametrize("compile_before_loss", [False, True])
+def test_trainer_compiled_model_with_cached_loss(
+    stsb_bert_tiny_model: SentenceTransformer, compile_before_loss: bool
+) -> None:
     model = stsb_bert_tiny_model
+    if compile_before_loss:
+        model = torch.compile(model, backend="eager")
     loss = CachedMultipleNegativesRankingLoss(model=model, mini_batch_size=2)
-    SentenceTransformerTrainer(model=torch.compile(model), loss=loss)
-    assert model[0].track_media_counts
+    if not compile_before_loss:
+        model = torch.compile(model, backend="eager")
+    SentenceTransformerTrainer(model=model, loss=loss)
+    assert stsb_bert_tiny_model[0].track_media_counts
