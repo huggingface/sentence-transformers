@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import math
 import random
 from collections.abc import Iterable
 from typing import Any
@@ -309,10 +308,12 @@ class ContrastiveTensionDataLoader:
         sentence_idx = 0
         batch = []
 
-        while sentence_idx + 1 < len(self.sentences):
+        while sentence_idx < len(self.sentences):
             s1 = self.sentences[sentence_idx]
             if len(batch) % self.pos_neg_ratio > 0:  # Negative (different) pair
                 sentence_idx += 1
+                if sentence_idx >= len(self.sentences):
+                    break
                 s2 = self.sentences[sentence_idx]
                 label = 0
             else:  # Positive (identical pair)
@@ -327,4 +328,5 @@ class ContrastiveTensionDataLoader:
                 batch = []
 
     def __len__(self):
-        return math.floor(len(self.sentences) / (2 * self.batch_size))
+        sentences_per_batch = 2 * self.batch_size - self.batch_size // self.pos_neg_ratio
+        return len(self.sentences) // sentences_per_batch
