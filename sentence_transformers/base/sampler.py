@@ -333,8 +333,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
             remaining_labels = [
                 remaining_labels[i] for i in torch.randperm(len(remaining_labels), generator=self.generator)
             ]
-            # A carried pair must not meet the same label at the next round's start:
-            # together they could fill a four-sample batch without any negatives.
+            # Keep consecutive pairs within a batch from sharing a label.
             if batch and remaining_labels[0] == last_label:
                 remaining_labels[0], remaining_labels[1] = remaining_labels[1], remaining_labels[0]
             for label in remaining_labels:
