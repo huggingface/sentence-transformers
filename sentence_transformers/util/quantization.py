@@ -107,7 +107,7 @@ def semantic_search_faiss(
             if exact:
                 corpus_index = faiss.IndexFlatIP(corpus_embeddings.shape[1])
             else:
-                corpus_index = faiss.IndexHNSWFlat(corpus_embeddings.shape[1], 16)
+                corpus_index = faiss.IndexHNSWFlat(corpus_embeddings.shape[1], 16, faiss.METRIC_INNER_PRODUCT)
 
         elif corpus_precision == "ubinary":
             if exact:
