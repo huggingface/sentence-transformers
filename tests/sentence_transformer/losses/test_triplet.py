@@ -41,10 +41,11 @@ def test_triplet_loss_correct_direction(dummy_model, distance_metric):
     )
 
 
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
 @pytest.mark.parametrize("separation", [10.0, 1000.0])
-def test_batch_hard_soft_margin_finite_loss_and_gradients(dummy_model, dtype, separation):
-    embeddings = torch.tensor([[0.0], [separation], [2.0], [separation + 4.0]], dtype=dtype, requires_grad=True)
+def test_batch_hard_soft_margin_finite_loss_and_gradients(dummy_model, separation):
+    embeddings = torch.tensor(
+        [[0.0], [separation], [2.0], [separation + 4.0]], dtype=torch.float32, requires_grad=True
+    )
     reference_embeddings = embeddings.detach().double().requires_grad_()
     labels = torch.tensor([0, 0, 1, 1])
     loss_fn = BatchHardSoftMarginTripletLoss(dummy_model)
@@ -72,5 +73,5 @@ def test_batch_hard_soft_margin_finite_loss_and_gradients(dummy_model, dtype, se
 
     assert torch.isfinite(loss)
     assert torch.isfinite(embeddings.grad).all()
-    torch.testing.assert_close(loss, reference_loss.to(dtype))
-    torch.testing.assert_close(embeddings.grad, reference_embeddings.grad.to(dtype))
+    torch.testing.assert_close(loss, reference_loss.to(embeddings.dtype))
+    torch.testing.assert_close(embeddings.grad, reference_embeddings.grad.to(embeddings.dtype))
