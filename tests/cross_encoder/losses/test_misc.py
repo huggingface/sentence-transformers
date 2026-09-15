@@ -119,8 +119,7 @@ def test_listmle_large_scores_match_sequential_cross_entropy(loss_cls, respect_i
         [torch.tensor([0.0, 1.0]), torch.tensor([1.0, 2.0, 0.0])],
     )
 
-    # Plackett-Luce chooses the next document from the remaining suffix.
-    # Use independent float64 cross-entropies as the value and gradient oracle.
+    # Compare against independent float64 cross-entropies for each suffix.
     scores = model.scores.detach().double().requires_grad_()
     orders = [[0, 1], [2, 3, 4]] if respect_input_order else [[1, 0], [3, 2, 4]]
     query_losses = []
@@ -139,5 +138,4 @@ def test_listmle_large_scores_match_sequential_cross_entropy(loss_cls, respect_i
     torch.testing.assert_close(loss, expected.float(), rtol=2e-4, atol=2e-4)
     loss.backward()
     expected.backward()
-    assert torch.isfinite(model.scores.grad).all()
     torch.testing.assert_close(model.scores.grad, scores.grad.float(), rtol=2e-4, atol=2e-4)

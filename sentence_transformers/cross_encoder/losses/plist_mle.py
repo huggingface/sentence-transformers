@@ -242,8 +242,7 @@ class PListMLELoss(nn.Module):
             sorted_logits = logits_matrix
             sorted_mask = mask
 
-        # Compute log-likelihood using Plackett-Luce model.
-        # A finite padding sentinel also keeps gradients finite for all-padding suffixes.
+        # Compute the Plackett-Luce log-likelihood using log-sum-exp.
         scores = sorted_logits.masked_fill(~sorted_mask, torch.finfo(sorted_logits.dtype).min)
         log_normalizers = torch.flip(torch.logcumsumexp(torch.flip(scores, [1]), dim=1), [1])
         log_probs = sorted_logits - log_normalizers
