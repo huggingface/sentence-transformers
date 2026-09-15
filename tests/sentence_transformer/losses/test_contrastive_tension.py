@@ -5,15 +5,30 @@ import pytest
 from sentence_transformers.sentence_transformer.losses import ContrastiveTensionDataLoader
 
 
-@pytest.mark.parametrize("batch_size, ratio", [(8, 8), (16, 8), (4, 2), (4, 1), (1, 1)])
-@pytest.mark.parametrize("sentence_count", [0, 1, 7, 8, 15, 16, 30, 31, 60])
-def test_contrastive_tension_length_matches_batches(batch_size, ratio, sentence_count):
+@pytest.mark.parametrize(
+    "sentence_count, batch_size, ratio, expected_batches",
+    [
+        (0, 8, 8, 0),
+        (1, 8, 8, 0),
+        (14, 8, 8, 0),
+        (15, 8, 8, 1),
+        (16, 8, 8, 1),
+        (29, 8, 8, 1),
+        (30, 8, 8, 2),
+        (31, 8, 8, 2),
+        (30, 16, 8, 1),
+        (6, 4, 2, 1),
+        (4, 4, 1, 1),
+        (1, 1, 1, 1),
+    ],
+)
+def test_contrastive_tension_length_matches_batches(sentence_count, batch_size, ratio, expected_batches):
     loader = ContrastiveTensionDataLoader(
         [str(index) for index in range(sentence_count)], batch_size=batch_size, pos_neg_ratio=ratio
     )
     batches = list(iter(loader))
 
-    assert len(loader) == len(batches)
+    assert len(loader) == len(batches) == expected_batches
     for batch in batches:
         assert len(batch) == batch_size
         assert sum(example.label for example in batch) == batch_size // ratio
