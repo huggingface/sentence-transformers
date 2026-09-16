@@ -237,6 +237,7 @@ All keyword arguments passed via ``model_kwargs`` will be passed on to :meth:`OR
 * ``provider``: ONNX Runtime provider to use for loading the model, e.g. ``"CPUExecutionProvider"`` . See https://onnxruntime.ai/docs/execution-providers/ for possible providers. If not specified, the strongest provider (E.g. ``"CUDAExecutionProvider"``) will be used.
 * ``file_name``: The name of the ONNX file to load. If not specified, will default to ``"model.onnx"`` or otherwise ``"onnx/model.onnx"``. This argument is useful for specifying optimized or quantized models.
 * ``export``: A boolean flag specifying whether the model will be exported. If not provided, ``export`` will be set to ``True`` if the model repository or directory does not already contain an ONNX model.
+* ``session_options``: An ``onnxruntime.SessionOptions`` instance for configuring ONNX Runtime. For example, adjust ``intra_op_num_threads`` to tune CPU inference performance for your hardware and workload.
 
 .. tip::
 
@@ -574,7 +575,9 @@ I measured GPU throughput on an RTX 3090 and CPU throughput on an i7-13700K. Eac
 
 The GPU Sentence Transformers and ONNX tests use 2,000 samples per dataset. The CPU tests use 1,000 samples for MiniLM and BGE-base and 512 for mxbai-large. Mxbai-large is tested only on short sentences and NQ answers, giving eight CPU model and workload combinations in total.
 
-The throughput comparison uses each backend's best tested batch size, with 8 or 20 threads selected on CPU. After warmup, CPU timings use either the median of five passes or the mean of two passes. The CPU ``torch-fp16`` and ``torch-bf16`` results come from smaller checks on 128 samples, using the FP32-selected settings and two timed passes against matching FP32 controls.
+The throughput comparison uses each backend's best tested batch size. On CPU, each model and backend used its best-performing setting from 8 and 20 threads. ONNX Runtime's intra-op thread count was set explicitly, with inter-op set to 1.
+
+After warmup, CPU timings use either the median of five passes or the mean of two passes. The CPU ``torch-fp16`` and ``torch-bf16`` results come from smaller checks on 128 samples, using the FP32-selected settings and two timed passes against matching FP32 controls.
 
 The ranking changes on Hugging Face Jobs ``cpu-upgrade`` instances, where llama.cpp leads instead of OpenVINO INT8. The cloud figure covers six model and workload combinations, with speedups relative to PyTorch FP32 on that CPU:
 
