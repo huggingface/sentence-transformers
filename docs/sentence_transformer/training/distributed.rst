@@ -49,7 +49,11 @@ In short, **DDP is generally recommended**. You can use DDP by running your norm
 
 .. note::
 
-   When using an `Evaluator <../training_overview.html#evaluator>`_, the evaluator only runs on the first device unlike the training and evaluation datasets, which are shared across all devices. 
+   During DDP training, an `Evaluator <../training_overview.html#evaluator>`_ runs its ``encode()`` and ``predict()`` calls across the existing training processes. Each process handles a different part of the inputs. Process zero combines the predictions in their original order, computes the metrics on the full dataset, and writes the evaluation output once. The metrics are then broadcast to every process for checkpoint selection and early stopping.
+
+   This applies automatically to SentenceTransformer, SparseEncoder, MultiVectorEncoder, and CrossEncoder models evaluated through the trainer. It also covers ``encode_query()``, ``encode_document()``, and ``rank()``, which call ``encode()`` or ``predict()`` internally. Custom evaluator code outside these inference methods runs on process zero. Calling an evaluator directly outside the trainer keeps its normal single-process behavior.
+
+   An explicit ``device`` or ``pool`` keeps its usual behavior. Calls whose inputs or arguments cannot be serialized between processes run on process zero. Predictions are gathered through CPU memory, so the speedup depends on inference cost and communication overhead. This does not add evaluator support for FSDP or DeepSpeed.
 
 Comparison
 ----------

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import math
 import random
 from collections.abc import Iterable
 from typing import Any
@@ -306,25 +305,18 @@ class ContrastiveTensionDataLoader:
 
     def __iter__(self):
         random.shuffle(self.sentences)
-        sentence_idx = 0
-        batch = []
+        sentences = iter(self.sentences)
 
-        while sentence_idx + 1 < len(self.sentences):
-            s1 = self.sentences[sentence_idx]
-            if len(batch) % self.pos_neg_ratio > 0:  # Negative (different) pair
-                sentence_idx += 1
-                s2 = self.sentences[sentence_idx]
-                label = 0
-            else:  # Positive (identical pair)
-                s2 = self.sentences[sentence_idx]
-                label = 1
+        for _ in range(len(self)):
+            batch = []
+            for pair_idx in range(self.batch_size):
+                s1 = next(sentences)
+                label = int(pair_idx % self.pos_neg_ratio == 0)
+                s2 = s1 if label else next(sentences)
+                batch.append(InputExample(texts=[s1, s2], label=label))
 
-            sentence_idx += 1
-            batch.append(InputExample(texts=[s1, s2], label=label))
-
-            if len(batch) >= self.batch_size:
-                yield self.collate_fn(batch) if self.collate_fn is not None else batch
-                batch = []
+            yield self.collate_fn(batch) if self.collate_fn is not None else batch
 
     def __len__(self):
-        return math.floor(len(self.sentences) / (2 * self.batch_size))
+        sentences_per_batch = 2 * self.batch_size - self.batch_size // self.pos_neg_ratio
+        return len(self.sentences) // sentences_per_batch

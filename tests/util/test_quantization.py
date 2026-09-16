@@ -159,6 +159,31 @@ def test_semantic_search_faiss_rejects_unsupported_precision(corpus_precision: s
 
 
 @skip_without_faiss
+@pytest.mark.parametrize("exact", [True, False])
+@pytest.mark.parametrize("corpus_precision", ["float32", "uint8"])
+def test_semantic_search_faiss_preserves_inner_product_metric(corpus_precision: str, exact: bool) -> None:
+    """Choosing approximate search must preserve inner-product rankings and scores."""
+    dtype = np.float32 if corpus_precision == "float32" else np.uint8
+    queries = np.array([[1, 0], [1, 1]], dtype=dtype)
+    corpus = np.array([[1, 0], [2, 0], [0, 3]], dtype=dtype)
+
+    results, _ = semantic_search_faiss(
+        queries,
+        corpus_embeddings=corpus,
+        corpus_precision=corpus_precision,
+        top_k=2,
+        rescore=False,
+        exact=exact,
+    )
+
+    # For the first query, [1, 0] is closest in L2 distance, but [2, 0] has the largest inner product.
+    assert results == [
+        [{"corpus_id": 1, "score": 2.0}, {"corpus_id": 0, "score": 1.0}],
+        [{"corpus_id": 2, "score": 3.0}, {"corpus_id": 1, "score": 2.0}],
+    ]
+
+
+@skip_without_faiss
 @pytest.mark.parametrize("corpus_precision", ["ubinary", "uint8"])
 @pytest.mark.parametrize("rescore", [True, False])
 def test_semantic_search_faiss_drops_padded_indices(corpus_precision: str, rescore: bool) -> None:

@@ -14,6 +14,13 @@ from huggingface_hub.utils import (
 )
 from tqdm.autonotebook import tqdm
 
+# hf_hub v1.31.0+ exports its HTTP library as httpx, allowing a switch to httpx2.
+# Older versions depend on httpx directly, so we can import it safely as a fallback.
+try:
+    from huggingface_hub.utils import httpx
+except ImportError:
+    import httpx
+
 try:
     from huggingface_hub import resolve_revision as _hub_resolve_revision
     from huggingface_hub.errors import RevisionResolutionError
@@ -304,18 +311,12 @@ def http_get(url: str, path: str) -> None:
         path (str): Destination file path on the local filesystem.
 
     Raises:
-        ImportError: If the optional ``httpx`` dependency is not installed.
         httpx.HTTPStatusError: If the HTTP request returns a non-success status code.
         OSError: If the file cannot be written to ``path``.
 
     Returns:
         None
     """
-    try:
-        import httpx
-    except ImportError:
-        raise ImportError("httpx is required to use this function. Please install it via `pip install httpx`.")
-
     if os.path.dirname(path) != "":
         os.makedirs(os.path.dirname(path), exist_ok=True)
 

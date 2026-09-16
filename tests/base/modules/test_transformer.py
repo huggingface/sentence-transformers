@@ -15,7 +15,7 @@ import torch
 from packaging.version import Version
 from packaging.version import parse as parse_version
 from tokenizers.normalizers import NFC, Lowercase, Sequence
-from transformers import AutoConfig, AutoModel, AutoProcessor
+from transformers import AutoConfig, AutoModel, AutoProcessor, MimiConfig, PretrainedConfig, Qwen3Config, Qwen3VLConfig
 from transformers import __version__ as transformers_version
 from transformers.utils import is_peft_available, is_torchvision_available, is_vision_available
 
@@ -107,6 +107,12 @@ class TestSetTemporaryClassAttrs:
 
 
 class TestTransformerInit:
+    @pytest.mark.parametrize("use_cache", [None, False, True])
+    def test_use_cache_default_and_override(self, use_cache):
+        config_kwargs = {} if use_cache is None else {"use_cache": use_cache}
+        transformer = Transformer(TINY_BERT, config_kwargs=config_kwargs)
+        assert transformer.config.use_cache is (use_cache is True)
+
     def test_invalid_transformer_task(self):
         with pytest.raises(ValueError, match="Unsupported transformer_task"):
             Transformer(TINY_BERT, transformer_task="nonexistent-task")
@@ -259,6 +265,115 @@ class TestTransformerInit:
             "tokenizer_name_or_path" in record.message and "deprecated" in record.message for record in caplog.records
         )
         assert transformer is not None
+
+
+class TestUseCache:
+    @pytest.fixture(
+        params=[
+            pytest.param(("qwen3", {}, False), id="qwen3-default"),
+            pytest.param(("qwen3", {"use_cache": False}, False), id="qwen3-disabled"),
+            pytest.param(("qwen3", {"use_cache": True}, True), id="qwen3-enabled"),
+            pytest.param(("qwen3_vl", {}, False), id="qwen3-vl-default"),
+            pytest.param(("qwen3_vl", {"use_cache": False}, False), id="qwen3-vl-disabled"),
+            pytest.param(("qwen3_vl", {"use_cache": True}, True), id="qwen3-vl-enabled"),
+            pytest.param(("qwen3_vl", {"text_config": {"use_cache": True}}, True), id="qwen3-vl-text-enabled"),
+            pytest.param(
+                ("qwen3_vl", {"use_cache": True, "text_config": {"use_cache": False}}, False),
+                id="qwen3-vl-text-overrides-enabled",
+            ),
+            pytest.param(
+                ("qwen3_vl", {"use_cache": False, "text_config": {"use_cache": True}}, True),
+                id="qwen3-vl-text-overrides-disabled",
+            ),
+        ]
+    )
+    def decoder_cache_model(self, request, tmp_path, monkeypatch, bert_tiny_transformer):
+        model_type, config_kwargs, expected = request.param
+        text_config = {
+            "vocab_size": 32,
+            "hidden_size": 32,
+            "intermediate_size": 64,
+            "num_hidden_layers": 2,
+            "num_attention_heads": 4,
+            "num_key_value_heads": 2,
+            "head_dim": 8,
+        }
+        if model_type == "qwen3_vl":
+            config = Qwen3VLConfig(
+                text_config=text_config,
+                vision_config={
+                    "depth": 1,
+                    "hidden_size": 32,
+                    "intermediate_size": 64,
+                    "num_heads": 4,
+                    "out_hidden_size": 32,
+                    "deepstack_visual_indexes": [],
+                },
+            )
+        else:
+            config = Qwen3Config(**text_config)
+        AutoModel.from_config(config).save_pretrained(tmp_path)
+        monkeypatch.setattr(AutoProcessor, "from_pretrained", lambda *args, **kwargs: bert_tiny_transformer.processor)
+        original_kwargs = deepcopy(config_kwargs)
+
+        transformer = Transformer(str(tmp_path), config_kwargs=config_kwargs)
+        assert config_kwargs == original_kwargs
+        return transformer, expected
+
+    def test_decoder_cache_config(self, decoder_cache_model):
+        transformer, expected = decoder_cache_model
+        assert transformer.config.get_text_config().use_cache is expected
+        if isinstance(transformer.config, Qwen3VLConfig):
+            assert not hasattr(transformer.config.vision_config, "use_cache")
+
+    @pytest.mark.skipif(
+        parse_version(torch.__version__) < Version("2.4"),
+        reason="Qwen rotary embeddings call torch.is_autocast_enabled(device_type), which requires torch>=2.4.",
+    )
+    def test_decoder_cache_forward(self, decoder_cache_model):
+        transformer, expected = decoder_cache_model
+        with torch.no_grad():
+            outputs = transformer.model(input_ids=torch.tensor([[1, 2, 3]]))
+            uncached_outputs = transformer.model(input_ids=torch.tensor([[1, 2, 3]]), use_cache=False)
+        assert (outputs.past_key_values is not None) is expected
+        torch.testing.assert_close(outputs.last_hidden_state, uncached_outputs.last_hidden_state)
+
+    @pytest.mark.parametrize("use_cache", [False, True])
+    def test_nested_audio_config(self, use_cache):
+        config = PretrainedConfig()
+        config.sub_configs = {"audio_config": PretrainedConfig}
+        config.audio_config = PretrainedConfig()
+        config.audio_config.sub_configs = {"codec_config": MimiConfig}
+        config.audio_config.codec_config = MimiConfig(use_cache=True)
+        Transformer._configure_use_cache(config, {"use_cache": use_cache})
+        assert config.audio_config.codec_config.use_cache is use_cache
+        assert not hasattr(config, "use_cache")
+        assert not hasattr(config.audio_config, "use_cache")
+
+    def test_config_object_override(self):
+        config = Qwen3VLConfig(text_config={"use_cache": True})
+        text_config = config.text_config
+        original_config = text_config.to_dict()
+        Transformer._configure_use_cache(config, {"use_cache": False, "text_config": text_config})
+        assert config.text_config.use_cache is True
+        assert text_config.to_dict() == original_config
+
+    @pytest.mark.parametrize(
+        ("config_kwargs", "vision_cache", "text_cache"),
+        [
+            ({}, False, False),
+            ({"use_cache": True}, True, True),
+            ({"use_cache": True, "vision_config": {"encoder_config": {"use_cache": False}}}, False, True),
+            ({"vision_config": {"encoder_config": {"use_cache": True}}}, True, False),
+        ],
+    )
+    def test_vision_encoder_cache(self, config_kwargs, vision_cache, text_cache):
+        deepseek_ocr2 = pytest.importorskip("transformers.models.deepseek_ocr2.configuration_deepseek_ocr2")
+        config = deepseek_ocr2.DeepseekOcr2Config()
+        Transformer._configure_use_cache(config, config_kwargs)
+        assert config.vision_config.encoder_config.use_cache is vision_cache
+        assert config.text_config.use_cache is text_cache
+        assert not hasattr(config.vision_config.sam_config, "use_cache")
 
 
 class TestWarnOnUnsupportedAttentionConfig:
@@ -1479,7 +1594,7 @@ class TestModelLoading:
             captured.update(processor_kwargs)
             raise StopLoading
 
-        monkeypatch.setattr(Transformer, "_load_config", lambda *args, **kwargs: (SimpleNamespace(), False))
+        monkeypatch.setattr(Transformer, "_load_config", lambda *args, **kwargs: (PretrainedConfig(), False))
         monkeypatch.setattr(Transformer, "_load_model", lambda *args, **kwargs: torch.nn.Linear(2, 2))
         monkeypatch.setattr(transformer_module.AutoProcessor, "from_pretrained", capture_processor)
 

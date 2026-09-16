@@ -55,6 +55,9 @@ class CrashingModel:
     def encode(self, inputs, device=None, **kwargs):
         self._crash()
 
+    def _inference(self, inputs, device=None, **kwargs):
+        self._crash()
+
     def predict(self, inputs, device=None, **kwargs):
         self._crash()
 

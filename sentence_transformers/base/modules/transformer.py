@@ -698,7 +698,8 @@ class Transformer(InputModule):
         config_kwargs (dict[str, Any], optional): Keyword arguments forwarded to
             ``AutoConfig.from_pretrained`` when loading the config. See the `AutoConfig.from_pretrained
             <https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoConfig.from_pretrained>`_
-            documentation for more details. Defaults to None.
+            documentation for more details. Defaults to None. KV caching is disabled on the loaded
+            config and its sub-configs unless explicitly overridden in these kwargs via ``use_cache``.
         processing_kwargs (dict[str, dict[str, Any]], optional): Keyword arguments applied when *calling*
             the processor during preprocessing. This is a nested dict whose keys are modality names
             (``"text"``, ``"audio"``, ``"image"``, ``"video"``), ``"common"`` for kwargs shared across all
@@ -836,6 +837,7 @@ class Transformer(InputModule):
         self.document_length = document_length
 
         config, is_peft_model = self._load_config(model_name_or_path, backend, config_kwargs)
+        self._configure_use_cache(config, config_kwargs)
         self._warn_on_unsupported_attention_config(config)
 
         if (
@@ -2255,6 +2257,24 @@ class Transformer(InputModule):
             return AutoConfig.from_pretrained(peft_config.base_model_name_or_path, **base_config_kwargs), True
 
         return AutoConfig.from_pretrained(model_name_or_path, **config_kwargs), False
+
+    @staticmethod
+    def _configure_use_cache(
+        config: PretrainedConfig, config_kwargs: dict[str, Any] | PretrainedConfig, use_cache: bool = False
+    ) -> None:
+        """Override Transformers cache settings with False unless explicitly set in ST's config_kwargs.
+
+        Applies recursively to sub-configs, with more specific config_kwargs overrides taking precedence.
+        """
+        if isinstance(config_kwargs, PretrainedConfig):
+            config_kwargs = config_kwargs.to_dict()
+        use_cache = config_kwargs.get("use_cache", use_cache)
+        if hasattr(config, "use_cache"):
+            config.use_cache = use_cache
+        for name in config.sub_configs:
+            sub_config = getattr(config, name, None)
+            if sub_config is not None:
+                Transformer._configure_use_cache(sub_config, config_kwargs.get(name) or {}, use_cache)
 
     @staticmethod
     def _warn_on_unsupported_attention_config(config: PretrainedConfig) -> None:

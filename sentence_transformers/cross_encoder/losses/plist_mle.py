@@ -242,10 +242,10 @@ class PListMLELoss(nn.Module):
             sorted_logits = logits_matrix
             sorted_mask = mask
 
-        # Compute log-likelihood using Plackett-Luce model.
-        scores = sorted_logits.exp().masked_fill(~sorted_mask, 0.0)
-        cumsum_scores = torch.flip(torch.cumsum(torch.flip(scores, [1]), 1), [1])
-        log_probs = sorted_logits - torch.log(cumsum_scores + self.eps)
+        # Compute the Plackett-Luce log-likelihood using log-sum-exp.
+        scores = sorted_logits.masked_fill(~sorted_mask, torch.finfo(sorted_logits.dtype).min)
+        log_normalizers = torch.flip(torch.logcumsumexp(torch.flip(scores, [1]), dim=1), [1])
+        log_probs = sorted_logits - log_normalizers
 
         # Apply position-aware lambda weights if specified. If None, then this loss
         # is just ListMLE.

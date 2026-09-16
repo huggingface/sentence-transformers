@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from sentence_transformers import SparseEncoder
+from sentence_transformers.sparse_encoder.losses.csr import CSRReconstructionLoss
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder
 
 
@@ -101,6 +102,28 @@ def test_csr_training_updates_dead_feature_stats() -> None:
     module({"sentence_embedding": torch.randn(2, 4)})
 
     assert torch.all(module.stats_last_nonzero > 0)
+
+
+def test_csr_training_without_auxiliary_latents() -> None:
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=8, k=2, k_aux=0)
+    module.train()
+
+    features = module({"sentence_embedding": torch.randn(2, 4)})
+
+    assert features["auxiliary_embedding"] is None
+    assert features["decoded_embedding_aux"] is None
+
+    losses = CSRReconstructionLoss(model=None).compute_loss_from_embeddings([features])
+
+    assert torch.isfinite(losses["reconstruction_loss_k"])
+    assert torch.isfinite(losses["reconstruction_loss_4k"])
+    assert losses["reconstruction_loss_aux"].item() == 0.0
+
+    torch.stack(list(losses.values())).sum().backward()
+
+    for parameter in module.parameters():
+        assert parameter.grad is not None
+        assert torch.isfinite(parameter.grad).all()
 
 
 def test_csr_encode_does_not_update_dead_feature_stats(csr_bert_tiny_model: SparseEncoder) -> None:

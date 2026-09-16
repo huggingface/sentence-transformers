@@ -172,8 +172,8 @@ def semantic_search(
     It can be used for Information Retrieval / Semantic Search for corpora up to about 1 Million entries.
 
     Args:
-        query_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the query embeddings. Can be a sparse tensor.
-        corpus_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the corpus embeddings. Can be a sparse tensor.
+        query_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the query embeddings. Can be a sparse COO tensor.
+        corpus_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the corpus embeddings. Can be a sparse COO tensor.
         query_chunk_size (int, optional): Process 100 queries simultaneously. Increasing that value increases the speed, but requires more memory. Defaults to 100.
         corpus_chunk_size (int, optional): Scans the corpus 500k entries at a time. Increasing that value increases the speed, but requires more memory. Defaults to 500000.
         top_k (int, optional): Retrieve top k matching entries. Defaults to 10.

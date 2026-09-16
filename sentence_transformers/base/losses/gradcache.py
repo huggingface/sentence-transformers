@@ -261,6 +261,7 @@ def has_static_embedding_input(model: Any) -> bool:
     """
     from sentence_transformers.sentence_transformer.modules import Router, StaticEmbedding
 
+    model = getattr(model, "_orig_mod", model)
     # A Router keeps its input modules one level down, which is where a StaticEmbedding would sit.
     input_modules = (
         [route[0] for route in model[0].sub_modules.values()] if isinstance(model[0], Router) else [model[0]]

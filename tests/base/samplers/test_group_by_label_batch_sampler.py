@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 import pytest
+import torch
 
 from sentence_transformers.base.sampler import GroupByLabelBatchSampler
 from sentence_transformers.util import is_datasets_available
@@ -236,3 +237,22 @@ def test_batch_guarantees(drop_last: bool) -> None:
                 assert count >= 2, (
                     f"{name}, drop_last={drop_last}: label {label} appears only {count} time(s) in batch {batch_idx}"
                 )
+
+
+@pytest.mark.parametrize("label_sizes, seed", [([4, 4, 4], 0), ([8, 6, 4], 2), ([6, 4, 2], 6)])
+def test_batches_spanning_shuffled_rounds_have_negative_labels(label_sizes: list[int], seed: int) -> None:
+    labels = [label for label, size in enumerate(label_sizes) for _ in range(size)]
+    dataset = Dataset.from_dict({"label": labels})
+    sampler = GroupByLabelBatchSampler(
+        dataset,
+        batch_size=4,
+        drop_last=False,
+        valid_label_columns=["label"],
+        generator=torch.Generator(),
+        seed=seed,
+    )
+    batches = list(sampler)
+    assert len(batches) == len(sampler) > 0
+    for batch in batches:
+        counts = Counter(labels[index] for index in batch)
+        assert sorted(counts.values()) == [2, 2]

@@ -88,6 +88,7 @@ if use_pca:
         activation_function=torch.nn.Identity(),
     )
     dense.linear.weight = torch.nn.Parameter(torch.tensor(pca.components_))
+    dense.to(model.device)
     model.add_module("dense", dense)
 
 

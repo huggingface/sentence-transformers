@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import pytest
+import torch
 from torch.utils.data import BatchSampler, ConcatDataset, SequentialSampler
 
-from sentence_transformers.base.sampler import RoundRobinBatchSampler
+from sentence_transformers.base.sampler import NoDuplicatesBatchSampler, RoundRobinBatchSampler
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -80,3 +81,117 @@ def test_round_robin_batch_sampler_value_error(dummy_concat_dataset: ConcatDatas
         RoundRobinBatchSampler(
             dataset=dummy_concat_dataset, batch_samplers=[batch_sampler_1, batch_sampler_2, batch_sampler_3]
         )
+
+
+@pytest.mark.parametrize(
+    ("dataset_lengths", "drop_last", "expected_batches"),
+    [
+        ((20, 12), True, 6),
+        ((12, 20), True, 6),
+        ((20, 24, 12), True, 9),
+        ((20, 0), True, 0),
+        ((0, 20), False, 0),
+        ((20, 3), True, 0),
+        ((20, 3), False, 2),
+        ((21, 13), False, 8),
+    ],
+)
+def test_round_robin_batch_sampler_stops_at_advertised_length(
+    dataset_lengths: tuple[int, ...], drop_last: bool, expected_batches: int
+) -> None:
+    datasets = [Dataset.from_dict({"data": list(range(length))}) for length in dataset_lengths]
+    concat_dataset = ConcatDataset(datasets)
+    batch_samplers = [
+        BatchSampler(SequentialSampler(range(len(dataset))), batch_size=4, drop_last=drop_last) for dataset in datasets
+    ]
+
+    sampler = RoundRobinBatchSampler(dataset=concat_dataset, batch_samplers=batch_samplers)
+
+    assert len(sampler) == expected_batches
+    assert len(list(sampler)) == len(sampler)
+
+
+@pytest.mark.parametrize(
+    ("values", "drop_last", "expected_batches"),
+    [
+        (([0] * 4, [1] * 6), False, 8),
+        ((list(range(8)), [0, 0, 0, 1]), True, 4),
+        ((list(range(8)), [0] * 4), True, 0),
+    ],
+)
+def test_round_robin_batch_sampler_with_no_duplicates(
+    values: tuple[list[int], list[int]], drop_last: bool, expected_batches: int
+) -> None:
+    datasets = [Dataset.from_dict({"data": data}) for data in values]
+    batch_samplers = [
+        NoDuplicatesBatchSampler(
+            dataset=dataset,
+            batch_size=2,
+            drop_last=drop_last,
+            generator=torch.Generator(),
+            seed=42,
+        )
+        for dataset in datasets
+    ]
+    sampler = RoundRobinBatchSampler(dataset=ConcatDataset(datasets), batch_samplers=batch_samplers)
+
+    batches = list(sampler)
+
+    assert len(batches) == expected_batches
+    assert [int(batch[0] >= len(datasets[0])) for batch in batches] == [0, 1] * (expected_batches // 2)
+
+
+@pytest.mark.parametrize(
+    ("batch_counts", "estimated_counts", "expected_batches"),
+    [
+        ((4, 6), (2, 3), 8),
+        ((4, 1), (4, 2), 2),
+        ((4, 0), (4, 2), 0),
+    ],
+)
+def test_round_robin_batch_sampler_with_estimated_lengths(
+    batch_counts: tuple[int, int], estimated_counts: tuple[int, int], expected_batches: int
+) -> None:
+    class EstimatedBatchSampler(BatchSampler):
+        def __init__(self, dataset: Dataset, estimated_count: int) -> None:
+            super().__init__(SequentialSampler(dataset), batch_size=2, drop_last=True)
+            self.estimated_count = estimated_count
+
+        def __len__(self) -> int:
+            return self.estimated_count
+
+    datasets = [Dataset.from_dict({"data": list(range(count * 2))}) for count in batch_counts]
+    batch_samplers = [
+        EstimatedBatchSampler(dataset, estimated_count) for dataset, estimated_count in zip(datasets, estimated_counts)
+    ]
+    sampler = RoundRobinBatchSampler(dataset=ConcatDataset(datasets), batch_samplers=batch_samplers)
+
+    batches = list(sampler)
+
+    assert len(sampler) != expected_batches
+    assert len(batches) == expected_batches
+    assert [int(batch[0] >= len(datasets[0])) for batch in batches] == [0, 1] * (expected_batches // 2)
+
+
+def test_multi_dataset_batch_sampler_propagates_epoch(dummy_concat_dataset: ConcatDataset) -> None:
+    batch_samplers = [
+        NoDuplicatesBatchSampler(
+            dataset=dataset,
+            batch_size=4,
+            drop_last=True,
+            generator=torch.Generator(),
+            seed=42,
+        )
+        for dataset in dummy_concat_dataset.datasets
+    ]
+    sampler = RoundRobinBatchSampler(
+        dataset=dummy_concat_dataset,
+        batch_samplers=batch_samplers,
+        generator=torch.Generator(),
+        seed=42,
+    )
+
+    sampler.set_epoch(3)
+
+    assert sampler.epoch == 3
+    assert all(batch_sampler.epoch == 3 for batch_sampler in batch_samplers)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import json
+import math
 import os
 import pickle
 import shutil
@@ -11,7 +12,8 @@ import tempfile
 import traceback
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from itertools import chain
 from multiprocessing import Queue
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -28,6 +30,7 @@ import transformers
 from huggingface_hub import CardData, HfApi
 from packaging import version
 from torch import Tensor, nn
+from tqdm.autonotebook import trange
 from transformers import PreTrainedModel, is_datasets_available, is_torch_npu_available
 from transformers.dynamic_module_utils import get_relative_import_files
 from transformers.utils import logging as transformers_logging
@@ -40,6 +43,7 @@ from sentence_transformers.base.model_card import BaseModelCardData, generate_mo
 from sentence_transformers.base.modules import Module, Router, Transformer
 from sentence_transformers.base.peft_mixin import PeftAdapterMixin
 from sentence_transformers.util import (
+    _move_tensors_to_cpu,
     check_version_requirements,
     get_device_name,
     import_module_class,
@@ -51,6 +55,7 @@ from sentence_transformers.util.file_io import _resolve_model_revision
 from sentence_transformers.util.misc import ORIGINAL_TRANSFORMER_MODELS
 
 if TYPE_CHECKING:
+    from accelerate.hooks import ModelHook
     from transformers import PretrainedConfig
 
 logger = transformers_logging.get_logger(__name__)
@@ -88,6 +93,9 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     model_type: str
     # Set per instance by `_load_with_module_classes` before `__init__` runs the loading, never mutated.
     _module_classes: Mapping[str, type[nn.Module]] = {}
+    _distributed_inference: Callable | None = None
+    # The `device_map` this model was loaded with, if any. Set per instance by `__init__`.
+    _device_map: str | dict[str, Any] | None = None
 
     def __init__(
         self,
@@ -194,16 +202,14 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
         # A `device_map` in `model_kwargs` makes accelerate control placement (not `device`), so we detect it
         # here to skip the `self.to(device)` below that would otherwise pull a `device_map="cuda:1"` model to cuda:0.
-        device_map = (model_kwargs or {}).get("device_map") if (backend == "torch" and model_name_or_path) else None
-        device_provided = device is not None
+        device_map = None
+        if backend == "torch" and model_name_or_path and model_kwargs:
+            device_map = model_kwargs.get("device_map")
         if device is None and device_map is None:
             device = get_device_name()
             logger.info(f"No device provided, using {device}")
-        elif device_provided and device_map is not None:
-            logger.warning(
-                "Both `device` and `model_kwargs['device_map']` were provided. `device_map` controls "
-                "device placement, so the `device` argument is ignored."
-            )
+        elif device is not None and device_map is not None:
+            logger.warning(f"Ignoring `device={device}` because `model_kwargs['device_map']` takes priority.")
 
         if device == "hpu" and importlib.util.find_spec("optimum") is not None:
             from optimum.habana.transformers.modeling_utils import adapt_transformers_to_gaudi
@@ -270,18 +276,13 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         # The first module (e.g. Transformer) is the dtype source of truth and downstream
         # modules (Dense, Pooling, etc.) should match it.
         first_param = next(self[0].parameters(), None)
-        if first_param is not None:
-            first_dtype = first_param.dtype
-            for module in list(self.children())[1:]:
-                module.to(first_dtype)
-
-        if device_map is not None:
-            # accelerate already placed the backbone, so leave it untouched and only move the remaining
-            # modules (Pooling, Dense, etc.) onto its device to keep the forward pass on one device.
-            backbone_device = self.device
-            for module in list(self.children())[1:]:
-                module.to(backbone_device)
+        self._device_map = device_map
+        if self._placement_is_delegated:
+            self._align_modules_around_backbone(dtype=first_param.dtype if first_param is not None else None)
         else:
+            if first_param is not None:
+                for module in list(self.children())[1:]:
+                    module.to(first_param.dtype)
             self.to(device)
         self.is_hpu_graph_enabled = False
 
@@ -1516,33 +1517,152 @@ This pull request has been automatically generated to add {self.__class__.__name
                 except TypeError:
                     module.gradient_checkpointing_enable()
 
+    def _align_modules_around_backbone(self, dtype: torch.dtype | None = None) -> torch.device:
+        """Align auxiliary modules without changing loaded backbones or dispatched submodules. Return the device."""
+        device = self.device
+        modules = list(self.modules())
+        placed = set()
+
+        def collect_hook(module: nn.Module, hook: ModelHook | None) -> None:
+            if getattr(hook, "execution_device", None) is not None:
+                if getattr(hook, "place_submodules", True):
+                    placed.update(id(child) for child in module.modules())
+                else:
+                    placed.add(id(module))
+            for child in getattr(hook, "hooks", ()):
+                collect_hook(module, child)
+
+        for module in modules:
+            if self._device_map is not None and isinstance(module, Transformer):
+                placed.update(id(child) for child in module.model.modules())
+            elif self._device_map is not None and isinstance(module, PreTrainedModel):
+                placed.update(id(child) for child in module.modules())
+            collect_hook(module, module.__dict__.get("_hf_hook"))
+
+        def convert(tensor: Tensor) -> Tensor:
+            return tensor.to(device=device, dtype=dtype if tensor.is_floating_point() or tensor.is_complex() else None)
+
+        for module in reversed(modules):
+            if id(module) not in placed:
+                if isinstance(module, BaseModel):
+                    super(BaseModel, module)._apply(convert, recurse=False)
+                else:
+                    module._apply(convert, recurse=False)
+        return device
+
+    @torch.inference_mode(False)
+    def _resolve_inference_device(self, device: int | str | torch.device | None) -> torch.device:
+        """Resolve the input device and skip redundant or delegated model moves."""
+        if self._placement_is_delegated:
+            if device is not None:
+                override = (
+                    "To choose the device yourself, reload the model without a `device_map` or Accelerate hooks."
+                    if self._accelerate_placement_hook is not None
+                    else "Use `model.to(device)` to override it."
+                )
+                logger.warning_once(
+                    f"Ignoring `device={device}`, as a device map or Accelerate hooks control "
+                    f"this model's placement. {override}"
+                )
+            return self._align_modules_around_backbone()
+
+        if device is None:
+            device = self.device
+            target_device = device
+        else:
+            # Tensor devices canonicalize aliases such as cpu:0 and an unindexed cuda device.
+            target_device = torch.empty(0, device=device).device
+        if any(tensor.device != target_device for tensor in chain(self.parameters(), self.buffers())):
+            self.to(device)
+        return target_device
+
+    def to(self, *args: Any, **kwargs: Any) -> Self:
+        """Move and/or cast the parameters and buffers, as :meth:`torch.nn.Module.to` does.
+
+        The warning mirrors the one accelerate patches onto the backbone's own ``to``, which the
+        ``nn.Module._apply`` recursion under this call never reaches.
+        """
+        target = args[0] if args else kwargs.get("device", kwargs.get("tensor"))
+        device_requested = target is not None and not isinstance(target, torch.dtype)
+        if device_requested and self._accelerate_placement_hook is not None:
+            logger.warning_once("You shouldn't move a model that is dispatched using accelerate hooks.")
+        result = super().to(*args, **kwargs)
+        if device_requested:
+            self._device_map = None
+        return result
+
+    def cpu(self) -> Self:
+        """Move the model to the CPU and override its saved device map."""
+        result = super().cpu()
+        self._device_map = None
+        return result
+
+    def cuda(self, device: int | torch.device | None = None) -> Self:
+        """Move the model to a CUDA device and override its saved device map."""
+        result = super().cuda(device=device)
+        self._device_map = None
+        return result
+
+    def _apply(self, *args: Any, **kwargs: Any) -> Self:
+        """Apply a function to every parameter and buffer, as :meth:`torch.nn.Module._apply` does.
+
+        accelerate patches ``to`` and ``cuda`` on the backbone to refuse moves that would strand the
+        weights it offloaded, but ``nn.Module._apply`` recurses past those patches, and ``cpu()`` and
+        ``half()`` never reach them at all. Every mover funnels through here, so the guard lives here.
+        """
+        if self._accelerate_placement_hook is not None and any(
+            tensor.device.type == "meta" for tensor in chain(self.parameters(), self.buffers())
+        ):
+            raise RuntimeError("You can't move a model that has some modules offloaded to cpu or disk.")
+        return super()._apply(*args, **kwargs)
+
+    @property
+    def _accelerate_placement_hook(self) -> ModelHook | None:
+        """The first placement hook, including hooks on ordinary modules and inside SequentialHook."""
+
+        def find_hook(hook: ModelHook | None) -> ModelHook | None:
+            if getattr(hook, "execution_device", None) is not None:
+                return hook
+            for child in getattr(hook, "hooks", ()):
+                if (found := find_hook(child)) is not None:
+                    return found
+            return None
+
+        for module in self.modules():
+            hook = module.__dict__.get("_hf_hook")
+            if hook is not None and (placement_hook := find_hook(hook)) is not None:
+                return placement_hook
+        return None
+
+    @property
+    def _placement_is_delegated(self) -> bool:
+        """Whether a requested device map or live placement hooks control inference placement."""
+        return self._device_map is not None or self._accelerate_placement_hook is not None
+
     @property
     def device(self) -> torch.device:
-        """
-        Get torch.device from module, assuming that the whole module has one device.
-        In case there are no PyTorch parameters, fall back to CPU.
-        """
-        if (transformers_model := self.transformers_model) is not None and hasattr(transformers_model, "device"):
-            return transformers_model.device
+        """Return the execution device, falling back to model tensors and then CPU."""
+        # An offloaded module keeps its parameters on ``meta`` until accelerate streams them in, so the
+        # first parameter is not where the model runs. accelerate resolved that when it dispatched.
+        if (execution_device := getattr(self._accelerate_placement_hook, "execution_device", None)) is not None:
+            return torch.device(execution_device)
 
-        if len(self._modules) and hasattr(self[0], "auto_model") and hasattr(self[0].auto_model, "device"):
-            return self[0].auto_model.device
+        transformers_model = self.transformers_model
+        if (device := getattr(transformers_model, "device", None)) is not None:
+            return device
 
-        try:
-            return next(self.parameters()).device
-        except StopIteration:
-            # Fallback for nn.DataParallel compatibility when parameters() is empty
+        if (parameter := next(self.parameters(), None)) is not None:
+            return parameter.device
+        if (buffer := next(self.buffers(), None)) is not None:
+            return buffer.device
 
-            def find_tensor_attributes(module: nn.Module) -> list[tuple[str, Tensor]]:
-                tuples = [(k, v) for k, v in module.__dict__.items() if torch.is_tensor(v)]
-                return tuples
+        # DataParallel replicas store their weights as ordinary tensor attributes.
+        for module in self.modules():
+            for value in vars(module).values():
+                if torch.is_tensor(value):
+                    return value.device
 
-            gen = self._named_members(get_members_fn=find_tensor_attributes)
-            try:
-                first_tuple = next(gen)
-                return first_tuple[1].device
-            except StopIteration:
-                return torch.device("cpu")
+        return torch.device("cpu")
 
     def start_multi_process_pool(
         self, target_devices: list[str] | None = None
@@ -1563,6 +1683,13 @@ This pull request has been automatically generated to add {self.__class__.__name
         Returns:
             Dict[str, Any]: A dictionary with the target processes, an input queue, and an output queue.
         """
+        if self._accelerate_placement_hook is not None:
+            raise ValueError(
+                "Multi-process encoding places the model on each target device itself, which a model "
+                "dispatched by accelerate does not allow. Load it without a `device_map` to encode "
+                "with a pool."
+            )
+
         if target_devices is None:
             if torch.cuda.is_available():
                 target_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
@@ -1615,24 +1742,79 @@ This pull request has been automatically generated to add {self.__class__.__name
         pool["input"].close()
         pool["output"].close()
 
-    def _multi_process(self, *args, **kwargs):
+    def _inference(self, inputs: list, **kwargs) -> Any:
+        """Run local inference on normalized inputs with resolved arguments."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
-    @staticmethod
+    def _multi_process(
+        self,
+        inputs: Sequence,
+        show_progress_bar: bool | None = True,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        device: str | torch.device | list[str | torch.device] | None = None,
+        chunk_size: int | None = None,
+        **kwargs,
+    ) -> list | Tensor:
+        """Run inference in a provided pool or a temporary pool created from a list of devices."""
+        if chunk_size is not None and chunk_size <= 0:
+            raise ValueError(f"chunk_size must be a positive integer, got {chunk_size}.")
+        if not inputs:
+            return []
+        kwargs["show_progress_bar"] = False
+
+        created_pool = False
+        if pool is None and isinstance(device, list):
+            pool = self.start_multi_process_pool(device)
+            created_pool = True
+
+        try:
+            if chunk_size is None:
+                chunk_size = max(1, min(math.ceil(len(inputs) / len(pool["processes"]) / 10), 5000))
+
+            input_queue: Queue = pool["input"]
+            output_queue: Queue = pool["output"]
+            chunk_starts = range(0, len(inputs), chunk_size)
+            num_chunks = len(chunk_starts)
+            for chunk_id, start in enumerate(chunk_starts):
+                input_queue.put([chunk_id, inputs[start : start + chunk_size], kwargs])
+
+            outputs = [None] * num_chunks
+            for _ in trange(num_chunks, desc="Chunks", disable=not show_progress_bar):
+                chunk_id, output = output_queue.get()
+                outputs[chunk_id] = output
+
+            for output in outputs:
+                if isinstance(output, Exception):
+                    raise output
+
+            if isinstance(outputs[0], Tensor):
+                return torch.cat(outputs)
+            return [item for chunk in outputs for item in chunk]
+        finally:
+            if created_pool:
+                self.stop_multi_process_pool(pool)
+
+    @classmethod
     def _multi_process_worker(
+        cls,
         target_device: str,
         model: BaseModel,
         input_queue: Queue,
         results_queue: Queue,
     ) -> None:
-        """Worker function for multi-process inference. Must be overridden by subclasses.
+        """Run inference on queued chunks in a worker process.
 
-        This is called as the target function in each spawned process by
-        :meth:`start_multi_process_pool`. Subclasses should implement this to
-        read from ``input_queue``, run inference on ``target_device``, and write
-        results to ``results_queue``.
+        Workers are terminated externally via ``stop_multi_process_pool``.
         """
-        raise NotImplementedError("This method should be implemented in subclasses.")
+        while True:
+            chunk_id, inputs, kwargs = input_queue.get()
+            try:
+                outputs = model._inference(inputs, device=target_device, **kwargs)
+                outputs = _move_tensors_to_cpu(outputs)
+            except Exception as exc:
+                results_queue.put(cls._report_worker_failure(chunk_id, exc, target_device))
+            else:
+                results_queue.put([chunk_id, outputs])
 
     @classmethod
     def _report_worker_failure(cls, chunk_id: int, exc: Exception, target_device: str) -> list[int | Exception]:

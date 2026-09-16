@@ -14,14 +14,18 @@ from sentence_transformers.sparse_encoder.model import SparseEncoder
 
 def normalized_mean_squared_error(reconstruction: torch.Tensor, original_input: torch.Tensor) -> torch.Tensor:
     """
+    Normalize MSE by batch variance, falling back to ordinary MSE for zero-variance batches.
+
     :param reconstruction: output of Autoencoder.decode (shape: [batch, n_inputs])
     :param original_input: input of Autoencoder.encode (shape: [batch, n_inputs])
     :return: normalized mean squared error (shape: [1])
     """
     original_input_mean = original_input.mean(dim=0)
-    loss = F.mse_loss(reconstruction, original_input) / F.mse_loss(
-        original_input_mean[None, :].broadcast_to(original_input.shape), original_input
+    normalization_loss = F.mse_loss(original_input_mean[None, :].broadcast_to(original_input.shape), original_input)
+    normalization_loss = torch.where(
+        (normalization_loss == 0) | (original_input == original_input[:1]).all(), 1.0, normalization_loss
     )
+    loss = F.mse_loss(reconstruction, original_input) / normalization_loss
     return loss
 
 
@@ -94,8 +98,11 @@ class CSRReconstructionLoss(nn.Module):
             # L(4k) = ||f(x) - f(dx)_4k||₂²
             L_4k = F.mse_loss(x, recons_4k)
 
-            # L_aux = ||e - ê||₂²
-            L_aux = normalized_mean_squared_error(recons_aux, x - reconsk_pre_bias.detach())
+            if recons_aux is not None:
+                # L_aux = ||e - ê||₂²
+                L_aux = normalized_mean_squared_error(recons_aux, x - reconsk_pre_bias.detach())
+            else:
+                L_aux = torch.zeros_like(L_k)
 
             # Accumulate losses
             total_L_k += L_k

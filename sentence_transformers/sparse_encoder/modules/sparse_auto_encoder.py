@@ -180,7 +180,7 @@ class SparseAutoEncoder(Module):
         recons_k = self.decode(latents_k, info)
         recons_4k = self.decode(latents_4k, info)
 
-        recons_aux = self.decode(latents_auxk, info)
+        recons_aux = self.decode(latents_auxk, info) if latents_auxk is not None else None
 
         # Update the features dictionary
         features.update(

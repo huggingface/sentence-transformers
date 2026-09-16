@@ -24,7 +24,11 @@ from sentence_transformers.base.sampler import (
     SubsetRandomSampler,
 )
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss, MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.losses import (
+    CachedMultipleNegativesRankingLoss,
+    CosineSimilarityLoss,
+    MultipleNegativesRankingLoss,
+)
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util import is_datasets_available, is_training_available
 
@@ -1195,3 +1199,17 @@ def test_trainer_evaluate_caches_eval_dataloaders_per_dataset(
         assert seen["eval_first"][0] is not seen["eval_first"][1]
         assert seen["eval_second"][0] is not seen["eval_second"][1]
         assert trainer._eval_dataloaders == {}
+
+
+@pytest.mark.parametrize("compile_before_loss", [False, True])
+def test_trainer_compiled_model_with_cached_loss(
+    stsb_bert_tiny_model: SentenceTransformer, compile_before_loss: bool
+) -> None:
+    model = stsb_bert_tiny_model
+    if compile_before_loss:
+        model = torch.compile(model, backend="eager")
+    loss = CachedMultipleNegativesRankingLoss(model=model, mini_batch_size=2)
+    if not compile_before_loss:
+        model = torch.compile(model, backend="eager")
+    SentenceTransformerTrainer(model=model, loss=loss)
+    assert stsb_bert_tiny_model[0].track_media_counts

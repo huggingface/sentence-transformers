@@ -318,6 +318,22 @@ def batch_to_device(batch: dict[str, Any], target_device: device) -> dict[str, A
     return batch
 
 
+def _move_tensors_to_device(value: Any, target_device: str | device) -> Any:
+    """Move nested tensors to a device, preserving lists, tuples, dictionaries, and non-tensor values."""
+    target_device = device(target_device)
+    if isinstance(value, Tensor):
+        if target_device.type == "cpu":
+            return value.cpu() if value.device.type != "cpu" else value
+        return value.to(target_device)
+    if isinstance(value, dict):
+        return {key: _move_tensors_to_device(item, target_device) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_move_tensors_to_device(item, target_device) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_move_tensors_to_device(item, target_device) for item in value)
+    return value
+
+
 def _move_tensors_to_cpu(value: Any) -> Any:
     """Move every tensor inside ``value`` to CPU, keeping the surrounding structure.
 
@@ -326,13 +342,7 @@ def _move_tensors_to_cpu(value: Any) -> Any:
     ``stop_multi_process_pool`` tears the producing worker down. Which shape a chunk comes back as
     depends on the ``encode`` or ``predict`` arguments, so every container has to be walked.
     """
-    if isinstance(value, Tensor):
-        return value.cpu() if value.device.type != "cpu" else value
-    if isinstance(value, dict):
-        return {key: _move_tensors_to_cpu(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_move_tensors_to_cpu(item) for item in value]
-    return value
+    return _move_tensors_to_device(value, "cpu")
 
 
 def to_scipy_coo(x: Tensor) -> coo_matrix:

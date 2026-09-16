@@ -25,7 +25,7 @@ Once you have `installed <installation.html>`_ Sentence Transformers, you can ea
 
    - :meth:`SentenceTransformer.similarity_pairwise <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity_pairwise>`
    - `SentenceTransformer > Usage <./sentence_transformer/usage/usage.html>`_
-   - `SentenceTransformer > Usage > Speeding up Inference <./sentence_transformer/usage/efficiency.html>`_
+   - `SentenceTransformer > Speeding up Inference <./sentence_transformer/usage/efficiency.html>`_
    - `SentenceTransformer > Pretrained Models <./sentence_transformer/pretrained_models.html>`_
    - `SentenceTransformer > Training Overview <./sentence_transformer/training_overview.html>`_
    - `SentenceTransformer > Dataset Overview <./sentence_transformer/dataset_overview.html>`_
@@ -101,7 +101,7 @@ Finetuning Sentence Transformer models is easy and requires only a few lines of 
 
 .. tip::
 
-    Read `Sentence Transformer > Usage > Speeding up Inference <sentence_transformer/usage/efficiency.html>`_ for tips on how to speed up inference of models by up to 2x-3x.
+    Read `Sentence Transformer > Speeding up Inference <sentence_transformer/usage/efficiency.html>`_ for tips on how to speed up inference of models by up to 2x-3x.
 
 Cross Encoder
 -------------
@@ -228,7 +228,7 @@ Finetuning CrossEncoder models is easy and requires only a few lines of code. Fo
 
 .. tip::
 
-    Read `CrossEncoder > Usage > Speeding up Inference <cross_encoder/usage/efficiency.html>`_ for tips on how to speed up inference of models by up to 2x-3x.
+    Read `CrossEncoder > Speeding up Inference <cross_encoder/usage/efficiency.html>`_ for tips on how to speed up inference of models by up to 2x-3x.
 
 Sparse Encoder
 --------------
@@ -294,7 +294,7 @@ Finetuning Sparse Encoder models is easy and requires only a few lines of code. 
 
 .. tip::
 
-    Read `Sparse Encoder > Usage > Speeding up Inference <sparse_encoder/usage/efficiency.html>`_ for tips on how to speed up inference of models by up to 2x-3x.
+    Read `Sparse Encoder > Speeding up Inference <sparse_encoder/usage/efficiency.html>`_ for tips on how to speed up inference of models by up to 2x-3x.
 
 Multi-Vector Encoder
 --------------------
@@ -391,7 +391,7 @@ Finetuning Multi-Vector Encoder models is easy and requires only a few lines of 
 
 .. tip::
 
-    Read `Multi-Vector Encoder > Usage > Speeding up Inference <multi_vector_encoder/usage/efficiency.html>`_ for benchmarks and tips on how to speed up inference with the ONNX and OpenVINO backends.
+    Read `Multi-Vector Encoder > Speeding up Inference <multi_vector_encoder/usage/efficiency.html>`_ for benchmarks and tips on how to speed up inference with the ONNX and OpenVINO backends.
 
 Next Steps
 ----------
