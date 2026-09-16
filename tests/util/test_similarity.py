@@ -59,6 +59,19 @@ def test_pairwise_euclidean_sim() -> None:
     assert np.allclose(euclidean_expected, euclidean_calculated)
 
 
+def test_pairwise_euclidean_sim_has_finite_gradients_for_identical_embeddings() -> None:
+    a = torch.tensor([[1.0, 2.0], [4.0, 6.0]], requires_grad=True)
+    b = torch.tensor([[1.0, 2.0], [1.0, 2.0]], requires_grad=True)
+
+    scores = pairwise_euclidean_sim(a, b)
+    torch.testing.assert_close(scores, torch.tensor([0.0, -5.0]))
+    scores.sum().backward()
+
+    expected = torch.tensor([[0.0, 0.0], [-0.6, -0.8]])
+    torch.testing.assert_close(a.grad, expected)
+    torch.testing.assert_close(b.grad, -expected)
+
+
 def test_pairwise_manhattan_sim() -> None:
     a = np.array([[1, 0], [1, 1]], dtype=np.float32)
     b = np.array([[0, 0], [0, 0]], dtype=np.float32)

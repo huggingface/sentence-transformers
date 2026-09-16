@@ -225,7 +225,9 @@ def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray |
     b = _convert_to_float_tensor(b)
     a, b = _match_layouts(a, b)
 
-    return -torch.sqrt(torch.sum((a - b) ** 2, dim=-1)).to_dense()
+    if a.is_sparse:
+        return -torch.sqrt(torch.sum((a - b) ** 2, dim=-1)).to_dense()
+    return -torch.linalg.vector_norm(a - b, dim=-1)
 
 
 # Element budget for one chunk's padded embeddings plus its scoring intermediate when the caller gives
