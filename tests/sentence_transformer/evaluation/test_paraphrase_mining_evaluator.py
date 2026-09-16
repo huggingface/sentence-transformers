@@ -78,7 +78,7 @@ def test_tied_scores_have_attainable_metrics(duplicate_pair: tuple[str, str]) ->
 def test_mixed_score_groups_match_threshold_metrics() -> None:
     model = SentenceTransformer(modules=[BoW(["red", "blue"])], device="cpu")
     texts = {"a": "red", "b": "red", "c": "red blue", "d": "blue"}
-    duplicates = [("a", "b"), ("b", "c"), ("a", "d")]
+    duplicates = [("a", "b"), ("a", "c"), ("b", "c")]
     evaluator = ParaphraseMiningEvaluator(texts, duplicates_list=duplicates, write_csv=False)
     metrics = evaluator(model)
     embeddings = model.encode(list(texts.values()), normalize_embeddings=True)
