@@ -233,7 +233,7 @@ All keyword arguments passed via ``model_kwargs`` will be passed on to :meth:`OR
 * ``provider``: ONNX Runtime provider to use for loading the model, e.g. ``"CPUExecutionProvider"`` . See https://onnxruntime.ai/docs/execution-providers/ for possible providers. If not specified, the strongest provider (E.g. ``"CUDAExecutionProvider"``) will be used.
 * ``file_name``: The name of the ONNX file to load. If not specified, will default to ``"model.onnx"`` or otherwise ``"onnx/model.onnx"``. This argument is useful for specifying optimized or quantized models.
 * ``export``: A boolean flag specifying whether the model will be exported. If not provided, ``export`` will be set to ``True`` if the model repository or directory does not already contain an ONNX model.
-* ``session_options``: An ``onnxruntime.SessionOptions`` instance, useful for controlling ONNX Runtime itself rather than the export, e.g. ``intra_op_num_threads`` when benchmarking on CPU.
+* ``session_options``: An ``onnxruntime.SessionOptions`` instance for configuring ONNX Runtime. For example, adjust ``intra_op_num_threads`` to tune CPU inference performance for your hardware and workload.
 
 .. tip::
 
@@ -542,39 +542,6 @@ Benchmarks
 
 The following images show the benchmark results for the different backends on GPUs and CPUs. Each backend runs at its best batch size per model and dataset, and the bars show the median speedup over PyTorch fp32 across those combinations.
 
-.. note::
-
-   When comparing backends on CPU, set the thread budget explicitly on both sides.
-   ``torch.set_num_threads()`` only affects PyTorch, while ONNX Runtime uses
-   ``SessionOptions.intra_op_num_threads``, which defaults to ``0``, meaning "choose
-   automatically". If only one side is set, part of the measured difference is the
-   thread count rather than the backend.
-
-   .. code-block:: python
-
-      import torch
-      import onnxruntime as ort
-      from sentence_transformers import SentenceTransformer
-
-      THREADS = 8
-
-      torch.set_num_threads(THREADS)
-      torch_model = SentenceTransformer("intfloat/multilingual-e5-large")
-
-      so = ort.SessionOptions()
-      so.intra_op_num_threads = THREADS
-      so.inter_op_num_threads = 1
-      onnx_model = SentenceTransformer(
-          "intfloat/multilingual-e5-large",
-          backend="onnx",
-          model_kwargs={"session_options": so},
-      )
-
-   The size of the effect depends on the workload: a single short query is dominated by
-   per-operation overhead, where ONNX helps most, while a large batch of long texts is
-   dominated by matrix multiplications, where both backends dispatch to the same kernels
-   and the gap narrows.
-
 .. raw:: html
 
    <details>
@@ -619,6 +586,9 @@ The following images show the benchmark results for the different backends on GP
       </li>
       <li>
          <b>Batch sizes: </b>each backend is measured at increasing batch sizes until its throughput declines or memory is exceeded, and the ratios compare peak against peak. Columns still climbing at the largest measured batch size (mainly the Flash Attention ones) are shown conservatively.
+      </li>
+      <li>
+         <b>CPU threads: </b>each model and backend used its best-performing setting from 8 and 20 threads. ONNX Runtime's intra-op thread count was set explicitly, with inter-op set to 1.
       </li>
    </ul>
    Quality ratio: The same models and hardware were used. We compare the evaluation quality against that of PyTorch with fp32, i.e. the default backend and precision.
