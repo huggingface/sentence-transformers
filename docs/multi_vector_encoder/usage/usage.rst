@@ -43,16 +43,7 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    print(scores)
    # tensor([[9.1129, 8.8769]])
 
-Some Multi-Vector Encoder models support inputs beyond text, most notably page images for visual document retrieval. You can check which modalities a model supports using the :attr:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.modalities` property and the :meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.supports` method. The :meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode` method accepts different input formats depending on the modality:
-
-.. tip::
-
-   Multimodal models require additional dependencies. Install them with e.g. ``pip install -U "sentence-transformers[image]"`` for image support. See `Installation <../../installation.html>`_ for all options.
-
-- **Text**: strings.
-- **Image**: PIL images, file paths, URLs, or numpy/torch arrays.
-- **Multimodal dicts**: a dict mapping modality names to values, e.g. ``{"text": ..., "image": ...}``. The keys must be ``"text"``, ``"image"``, ``"audio"``, or ``"video"``, although released late-interaction checkpoints only accept text and images.
-- **Chat messages**: a list of dicts with ``"role"`` and ``"content"`` keys for multimodal models that use an uncommon chat template to combine text and non-text inputs.
+Some Multi-Vector Encoder models support inputs beyond text, most notably page images for visual document retrieval. Use :attr:`model.modalities <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.modalities>` and :meth:`model.supports() <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.supports>` to check modality support. See :doc:`../../input_formats` for accepted representations, metadata, and batching.
 
 The following example loads a ColQwen2.5 model and scores text queries against page images directly, skipping OCR entirely:
 
@@ -204,6 +195,7 @@ Multi-vector models can be loaded from any of the following sources, transparent
    :maxdepth: 1
    :caption: Tasks and Advanced Usage
 
+   ../../input_formats
    ../../../examples/multi_vector_encoder/applications/README
    ../../../examples/multi_vector_encoder/evaluation/README
    custom_models

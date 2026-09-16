@@ -166,36 +166,63 @@ Working with Sentence Transformer models is straightforward:
 
 .. tab:: Sparse Encoder Models
 
-   .. code-block:: python
-   
-      from sentence_transformers import SparseEncoder
-      
-      # 1. Load a pretrained SparseEncoder model
-      model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
-      
-      # The sentences to encode
-      sentences = [
-          "The weather is lovely today.",
-          "It's so sunny outside!",
-          "He drove to the stadium.",
-      ]
-      
-      # 2. Calculate sparse embeddings by calling model.encode()
-      embeddings = model.encode(sentences)
-      print(embeddings.shape)
-      # [3, 30522] - sparse representation with vocabulary size dimensions
-      
-      # 3. Calculate the embedding similarities
-      similarities = model.similarity(embeddings, embeddings)
-      print(similarities)
-      # tensor([[   35.629,     9.154,     0.098],
-      #         [    9.154,    27.478,     0.019],
-      #         [    0.098,     0.019,    29.553]])
+   .. tab:: Text
 
-      # 4. Check sparsity stats
-      stats = SparseEncoder.sparsity(embeddings)
-      print(f"Sparsity: {stats['sparsity_ratio']:.2%}")
-      # Sparsity: 99.84%
+      .. code-block:: python
+
+         from sentence_transformers import SparseEncoder
+
+         # 1. Load a pretrained SparseEncoder model
+         model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
+
+         # The sentences to encode
+         sentences = [
+             "The weather is lovely today.",
+             "It's so sunny outside!",
+             "He drove to the stadium.",
+         ]
+
+         # 2. Calculate sparse embeddings by calling model.encode()
+         embeddings = model.encode(sentences)
+         print(embeddings.shape)
+         # [3, 30522] - sparse representation with vocabulary size dimensions
+
+         # 3. Calculate the embedding similarities
+         similarities = model.similarity(embeddings, embeddings)
+         print(similarities)
+         # tensor([[   35.629,     9.154,     0.098],
+         #         [    9.154,    27.478,     0.019],
+         #         [    0.098,     0.019,    29.553]])
+
+         # 4. Check sparsity stats
+         stats = SparseEncoder.sparsity(embeddings)
+         print(f"Sparsity: {stats['sparsity_ratio']:.2%}")
+         # Sparsity: 99.84%
+
+   .. tab:: Multimodal
+
+      .. code-block:: python
+
+         from sentence_transformers import SparseEncoder
+
+         model = SparseEncoder("naver/v-splade-efficient", trust_remote_code=True)
+
+         queries = [
+             "A contour plot with shaded confidence regions",
+             "How much was spent on natural resources in 1971?",
+         ]
+         images = [
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc1.jpg",
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc2.jpg",
+         ]
+
+         query_embeddings = model.encode_query(queries)
+         document_embeddings = model.encode_document(images)
+
+         similarities = model.similarity(query_embeddings, document_embeddings)
+         print(similarities)
+         # tensor([[1.9358, 0.0000],
+         #         [0.0000, 2.6950]], device='cuda:0')
 
 .. tab:: Multi-Vector Encoder Models
 

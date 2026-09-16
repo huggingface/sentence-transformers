@@ -69,19 +69,9 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    -4.32   Berlin is well known for its museums.
    """
 
-Some CrossEncoder models also support multimodal inputs, allowing you to score pairs that include images, not just text. You can check which modalities a model supports using the :attr:`~sentence_transformers.cross_encoder.model.CrossEncoder.modalities` property and the :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder.supports` method. Each element in a pair can be any of the following:
+Some Cross Encoder models support multimodal pairs, such as a text query and an image document. Use :attr:`model.modalities <sentence_transformers.cross_encoder.model.CrossEncoder.modalities>` and :meth:`model.supports() <sentence_transformers.cross_encoder.model.CrossEncoder.supports>` to check modality support. See :doc:`../../input_formats` for accepted representations, metadata, and batching.
 
-.. tip::
-
-   Multimodal models require additional dependencies. Install them with e.g. ``pip install -U "sentence-transformers[image]"`` for image support. See `Installation <../../installation.html>`_ for all options.
-
-- **Text**: strings.
-- **Image**: PIL images, file paths, URLs, or numpy/torch arrays.
-- **Audio**: file paths, numpy/torch arrays, dicts with ``"array"`` and ``"sampling_rate"`` keys, or (if ``torchcodec`` installed) :class:`torchcodec.AudioDecoder <torchcodec.decoders.AudioDecoder>` instances.
-- **Video**: file paths, numpy/torch arrays, dicts with ``"array"`` and ``"video_metadata"`` keys, or (if ``torchcodec`` installed) :class:`torchcodec.VideoDecoder <torchcodec.decoders.VideoDecoder>` instances.
-- **Multimodal dicts**: a dict mapping modality names to values, e.g. ``{"text": ..., "image": ...}``. The keys must be ``"text"``, ``"image"``, ``"audio"``, or ``"video"``.
-
-The two elements in a pair can have different modalities (e.g. a text query with an image document), depending on the underlying model architecture:
+The following example ranks image, text, and combined text-image documents for a text query:
 
 .. sidebar:: Modality Support
 
@@ -138,6 +128,7 @@ In this example, the multimodal CrossEncoder uses the same modular architecture 
    :maxdepth: 1
    :caption: Tasks and Advanced Usage
 
+   ../../input_formats
    Cross-Encoder vs Bi-Encoder <../../../examples/cross_encoder/applications/README>
    ../../../examples/sentence_transformer/applications/retrieve_rerank/README
    custom_models
