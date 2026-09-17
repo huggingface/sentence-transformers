@@ -19,12 +19,12 @@ logger = logging.getLogger(__name__)
 class CrossEncoderCorrelationEvaluator(BaseEvaluator):
     """
     This evaluator can be used with the CrossEncoder class. Given sentence pairs and continuous scores,
-    it compute the pearson & spearman correlation between the predicted score for the sentence pair
+    it computes the Pearson & Spearman correlation between the predicted score for the sentence pair
     and the gold score.
 
     Args:
         sentence_pairs (List[List[str]]): A list of sentence pairs with each element being a list of two strings.
-        labels (List[int]): A list of integers with the gold labels for each sentence pair.
+        scores (List[float]): A list of scores with the gold score for each sentence pair.
         name (str): Name of the evaluator, useful for the generated model card.
         prompt_name (str, optional): The name of the prompt to use when calling ``model.predict()``.
             Must be a key in the model's ``prompts`` dictionary. Defaults to None.
