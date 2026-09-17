@@ -46,7 +46,8 @@ Note that all the numbers of below are extracted information from different pape
 
 | Model Name                                                                                                                                                | MS MARCO MRR@10 | BEIR-13 avg nDCG@10 | Parameters |
 |-----------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------:|:-------------------:|-----------:|
-| [opensearch-project/opensearch-neural-sparse-encoding-v2-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v2-distill) | NA              | **52.8**            | 67M        |
+| [Linkup-Platform/linkup-sparseup-embed-v1](https://huggingface.co/Linkup-Platform/linkup-sparseup-embed-v1)                                               | NA              | **56.4**            | 150M       |
+| [opensearch-project/opensearch-neural-sparse-encoding-v2-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v2-distill) | NA              | 52.8                | 67M        |
 | [opensearch-project/opensearch-neural-sparse-encoding-v1](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v1)                 | NA              | 52.4                | 133M       |
 | [naver/splade-v3](https://huggingface.co/naver/splade-v3)                                                                                                 | **40.2**        | 51.7                | 109M       |
 | [ibm-granite/granite-embedding-30m-sparse](https://huggingface.co/ibm-granite/granite-embedding-30m-sparse)                                               | NA              | 50.8                | 30M        |
