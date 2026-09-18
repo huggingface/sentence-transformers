@@ -13,9 +13,13 @@ on:
       - "*-pre"
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
 
   check_code_quality:
+    permissions:
+      contents: read
     name: Check code quality
     runs-on: ubuntu-latest
     steps:

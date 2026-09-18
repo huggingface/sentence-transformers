@@ -20,8 +20,12 @@ env:
   HF_HUB_DISABLE_PROGRESS_BARS: 1
   HF_TOKEN: ${{ secrets.HF_TOKEN }}  # Read token to avoid rate limits / gated-repo failures when downloading from the Hub
 
+permissions: {}
+
 jobs:
   test_min_versions:
+    permissions:
+      contents: read
     name: Test minimum dependency versions
     runs-on: ubuntu-latest
     steps:
