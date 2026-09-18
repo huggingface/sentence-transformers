@@ -59,6 +59,16 @@ def test_pairwise_euclidean_sim() -> None:
     assert np.allclose(euclidean_expected, euclidean_calculated)
 
 
+@pytest.mark.parametrize("input_type", [list, np.array, torch.tensor])
+def test_pairwise_euclidean_sim_integer_inputs(input_type) -> None:
+    a = input_type([[1, 2], [4, 6]])
+    b = input_type([[1, 2], [1, 2]])
+
+    scores = pairwise_euclidean_sim(a, b)
+
+    torch.testing.assert_close(scores, torch.tensor([0.0, -5.0]))
+
+
 def test_pairwise_euclidean_sim_has_finite_gradients_for_identical_embeddings() -> None:
     a = torch.tensor([[1.0, 2.0], [4.0, 6.0]], requires_grad=True)
     b = torch.tensor([[1.0, 2.0], [1.0, 2.0]], requires_grad=True)
