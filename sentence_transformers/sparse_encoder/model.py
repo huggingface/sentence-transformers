@@ -99,9 +99,8 @@ class SparseEncoder(BaseModel):
             Valid options are ``"cosine"``, ``"dot"``, ``"euclidean"``, and ``"manhattan"``. If not set, it is
             automatically set to ``"cosine"`` when :meth:`similarity` or :meth:`similarity_pairwise` are first
             called. Defaults to None.
-        max_active_dims (int, optional): The maximum number of active (non-zero) dimensions in the output of the
-            model. ``None`` means no limit, which can be slow or memory-intensive if your model wasn't (yet)
-            finetuned to high sparsity. Defaults to None.
+        max_active_dims (int, optional): Maximum number of active (non-zero) output dimensions. Can be overridden during
+            encoding and is saved and loaded with the model. Defaults to None (use the model's default).
 
     Example:
         ::
@@ -167,6 +166,7 @@ class SparseEncoder(BaseModel):
     ) -> None:
         # Set before super().__init__() so _parse_model_config can check these
         self.similarity_fn_name = similarity_fn_name
+        self.max_active_dims = max_active_dims
 
         super().__init__(
             model_name_or_path=model_name_or_path,
@@ -188,10 +188,13 @@ class SparseEncoder(BaseModel):
         # Narrow the type from BaseModelCardData
         self.model_card_data: SparseEncoderModelCardData
 
-        if max_active_dims is not None and max_active_dims <= 0:
-            raise ValueError(f"max_active_dims must be a positive integer, got {max_active_dims}.")
-        self.max_active_dims = max_active_dims
-        if max_active_dims is None:
+        if self.max_active_dims is not None and (
+            isinstance(self.max_active_dims, bool)
+            or not isinstance(self.max_active_dims, int)
+            or self.max_active_dims <= 0
+        ):
+            raise ValueError(f"max_active_dims must be a positive integer, got {self.max_active_dims}.")
+        if self.max_active_dims is None:
             for module in self._modules.values():
                 if isinstance(module, SparseAutoEncoder):
                     self.max_active_dims = module.k
@@ -800,9 +803,12 @@ class SparseEncoder(BaseModel):
         return all_embeddings
 
     def _get_model_config(self) -> dict[str, Any]:
-        return super()._get_model_config() | {
+        config = super()._get_model_config() | {
             "similarity_fn_name": self._similarity_fn_name,
         }
+        if self.max_active_dims is not None:
+            config["max_active_dims"] = self.max_active_dims
+        return config
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
         super()._parse_model_config(model_config)
@@ -811,6 +817,8 @@ class SparseEncoder(BaseModel):
         saved_similarity = model_config.get("similarity_fn_name")
         if self._similarity_fn_name is None and saved_similarity in self.SUPPORTED_SIMILARITY_FN_NAMES:
             self.similarity_fn_name = saved_similarity
+        if self.max_active_dims is None:
+            self.max_active_dims = model_config.get("max_active_dims", None)
 
     @property
     def similarity_fn_name(self) -> Literal["cosine", "dot", "euclidean", "manhattan"]:

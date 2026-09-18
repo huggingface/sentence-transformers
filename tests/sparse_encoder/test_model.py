@@ -318,7 +318,13 @@ def test_max_active_dims_set_init(splade_bert_tiny_model: SparseEncoder, csr_ber
     splade_bert_tiny_model.save_pretrained(str(tmp_path / "splade_bert_tiny"))
     csr_bert_tiny_model.save_pretrained(str(tmp_path / "csr_bert_tiny"))
 
-    # Load the models with max_active_dims set
+    config_path = tmp_path / "splade_bert_tiny" / "config_sentence_transformers.json"
+    assert "max_active_dims" not in json.loads(config_path.read_text())
+    config_path = tmp_path / "csr_bert_tiny" / "config_sentence_transformers.json"
+    config = json.loads(config_path.read_text())
+    config.pop("max_active_dims", None)
+    config_path.write_text(json.dumps(config))
+
     loaded_model = SparseEncoder(str(tmp_path / "splade_bert_tiny"))
     assert loaded_model.max_active_dims is None
     loaded_model = SparseEncoder(str(tmp_path / "splade_bert_tiny"), max_active_dims=13)
@@ -328,6 +334,49 @@ def test_max_active_dims_set_init(splade_bert_tiny_model: SparseEncoder, csr_ber
     assert loaded_model.max_active_dims == 16  # Based on the SparseAutoEncoder's k value
     loaded_model = SparseEncoder(str(tmp_path / "csr_bert_tiny"), max_active_dims=13)
     assert loaded_model.max_active_dims == 13
+
+
+@pytest.mark.parametrize("model_fixture", ["splade_bert_tiny_model", "csr_bert_tiny_model"])
+@pytest.mark.parametrize("override", [None, 7])
+def test_max_active_dims_save_load(model_fixture: str, override: int | None, request: pytest.FixtureRequest, tmp_path):
+    model = request.getfixturevalue(model_fixture)
+    model.max_active_dims = 13
+    model.save_pretrained(str(tmp_path), create_model_card=False)
+    config = json.loads((tmp_path / "config_sentence_transformers.json").read_text())
+    assert config["max_active_dims"] == 13
+
+    loaded_model = SparseEncoder(str(tmp_path), max_active_dims=override)
+    expected_limit = override if override is not None else 13
+    assert loaded_model.max_active_dims == expected_limit
+    texts = ["The weather is nice!", "Plants use sunlight to make food."]
+    for method in ("encode", "encode_query", "encode_document"):
+        embeddings = getattr(loaded_model, method)(texts, convert_to_sparse_tensor=False)
+        expected = getattr(model, method)(texts, max_active_dims=expected_limit, convert_to_sparse_tensor=False)
+        torch.testing.assert_close(embeddings, expected)
+        assert (torch.count_nonzero(embeddings, dim=-1) <= expected_limit).all()
+
+        embeddings = getattr(loaded_model, method)(texts, max_active_dims=5, convert_to_sparse_tensor=False)
+        expected = getattr(model, method)(texts, max_active_dims=5, convert_to_sparse_tensor=False)
+        torch.testing.assert_close(embeddings, expected)
+        assert (torch.count_nonzero(embeddings, dim=-1) <= 5).all()
+
+
+@pytest.mark.parametrize("max_active_dims", [0, -1, 1.5, "1", True, False])
+@pytest.mark.parametrize("from_config", [False, True])
+def test_max_active_dims_invalid(max_active_dims: int | float | str, from_config: bool, tmp_path):
+    if from_config:
+        model = SparseEncoder(modules=[SpladePooling()])
+        model.save_pretrained(str(tmp_path), create_model_card=False)
+        config_path = tmp_path / "config_sentence_transformers.json"
+        config = json.loads(config_path.read_text())
+        config["max_active_dims"] = max_active_dims
+        config_path.write_text(json.dumps(config))
+        kwargs = {"model_name_or_path": str(tmp_path)}
+    else:
+        kwargs = {"modules": [SpladePooling()], "max_active_dims": max_active_dims}
+
+    with pytest.raises(ValueError, match="max_active_dims must be a positive integer"):
+        SparseEncoder(**kwargs)
 
 
 def test_detect_mlm():
