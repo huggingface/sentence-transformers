@@ -125,7 +125,7 @@ def normalize_embeddings(embeddings: Tensor) -> Tensor:
     indices, values = embeddings.indices(), embeddings.values()
 
     # Compute row norms efficiently
-    row_norms = torch.zeros(embeddings.size(0), device=embeddings.device)
+    row_norms = values.new_zeros(embeddings.size(0))
     row_norms.index_add_(0, indices[0], values**2)
     row_norms = torch.sqrt(row_norms).index_select(0, indices[0])
 
