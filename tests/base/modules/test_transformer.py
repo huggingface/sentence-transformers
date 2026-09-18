@@ -1043,6 +1043,51 @@ def make_modality_kwargs(**text_kwargs):
     return {"text": text_kwargs, "audio": {}, "image": {}, "video": {}}
 
 
+class TestApplyChatTemplate:
+    @pytest.mark.parametrize("use_processor_kwargs", [False, True])
+    @pytest.mark.parametrize("video_flag", [None, False, True])
+    @pytest.mark.parametrize("chat_flag", [None, False, True])
+    def test_load_audio_from_video_routing(self, monkeypatch, video_flag, chat_flag, use_processor_kwargs):
+        monkeypatch.setattr(
+            transformer_module, "_TRANSFORMERS_APPLY_CHAT_TEMPLATE_RECOMMENDS_PROCESSOR_KWARGS", use_processor_kwargs
+        )
+        processor = MagicMock(spec=transformer_module.ProcessorMixin)
+        model = SimpleNamespace(processor=processor)
+        messages = [[{"role": "user", "content": [{"type": "video", "video": "clip.mp4"}]}]]
+        modality_kwargs = make_modality_kwargs(padding=True)
+        modality_kwargs["video"] = {"num_frames": 2}
+        chat_kwargs = {"add_generation_prompt": False}
+        if video_flag is not None:
+            modality_kwargs["video"]["load_audio_from_video"] = video_flag
+        if chat_flag is not None:
+            chat_kwargs["load_audio_from_video"] = chat_flag
+        common_kwargs = {"return_tensors": "pt"}
+        original_kwargs = deepcopy((modality_kwargs, common_kwargs, chat_kwargs))
+
+        result = Transformer._apply_chat_template(model, messages, modality_kwargs, common_kwargs, chat_kwargs)
+
+        expected_flag = chat_flag if chat_flag is not None else bool(video_flag)
+        expected_processor_kwargs = {
+            "text_kwargs": {"padding": True},
+            "images_kwargs": {},
+            "audio_kwargs": {},
+            "videos_kwargs": {"num_frames": 2},
+            "common_kwargs": {"return_tensors": "pt"},
+        }
+        if use_processor_kwargs:
+            expected_processor_kwargs = {"processor_kwargs": expected_processor_kwargs, "return_tensors": "pt"}
+        processor.apply_chat_template.assert_called_once_with(
+            messages,
+            tokenize=True,
+            return_dict=True,
+            load_audio_from_video=expected_flag,
+            add_generation_prompt=False,
+            **expected_processor_kwargs,
+        )
+        assert result is processor.apply_chat_template.return_value
+        assert (modality_kwargs, common_kwargs, chat_kwargs) == original_kwargs
+
+
 class TestProcessChatMessages:
     def test_unsupported_message_modality(self, bert_tiny_transformer):
         """Should raise ValueError when 'message' modality is not in modality_config."""
