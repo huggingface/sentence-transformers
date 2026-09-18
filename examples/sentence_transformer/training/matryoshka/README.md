@@ -95,12 +95,12 @@ As you can see, the similarity between the search query and the correct document
 
 See the following scripts as examples of how to apply the <a href="../../../../docs/package_reference/sentence_transformer/losses.html#matryoshkaloss"><code>MatryoshkaLoss</code></a> in practice:
 
-- **[matryoshka_nli.py](matryoshka_nli.py)**: This example uses the MultipleNegativesRankingLoss with MatryoshkaLoss to train a strong embedding model using Natural Language Inference (NLI) data. It is an adaptation of the [NLI](../nli/README) documentation.
-- **[matryoshka_nli_reduced_dim.py](matryoshka_nli_reduced_dim.py)**: This example uses the MultipleNegativesRankingLoss with MatryoshkaLoss to train a strong embedding model with a small maximum output dimension of 256. It trains using Natural Language Inference (NLI) data, and is an adaptation of the [NLI](../nli/README) documentation.
+- **[matryoshka_nli.py](matryoshka_nli.py)**: This example uses the MultipleNegativesRankingLoss with MatryoshkaLoss to train a strong embedding model using Natural Language Inference (NLI) data. It is an adaptation of the [NLI](../nli/README.md) documentation.
+- **[matryoshka_nli_reduced_dim.py](matryoshka_nli_reduced_dim.py)**: This example uses the MultipleNegativesRankingLoss with MatryoshkaLoss to train a strong embedding model with a small maximum output dimension of 256. It trains using Natural Language Inference (NLI) data, and is an adaptation of the [NLI](../nli/README.md) documentation.
 - **[matryoshka_eval_stsb.py](matryoshka_eval_stsb.py)**: This example evaluates the embedding model trained with MatryoshkaLoss in [matryoshka_nli.py](matryoshka_nli.py) on the test set of the STSBenchmark dataset, and compares it to a non-Matryoshka trained model.
-- **[matryoshka_sts.py](matryoshka_sts.py)**: This example uses the CoSENTLoss with MatryoshkaLoss to train an embedding model on the training set of the STSBenchmark dataset. It is an adaptation of the [STS](../sts/README) documentation.
+- **[matryoshka_sts.py](matryoshka_sts.py)**: This example uses the CoSENTLoss with MatryoshkaLoss to train an embedding model on the training set of the STSBenchmark dataset. It is an adaptation of the [STS](../sts/README.md) documentation.
 
 And the following scripts to see how to apply <a href="../../../../docs/package_reference/sentence_transformer/losses.html#matryoshka2dloss"><code>Matryoshka2dLoss</code></a>:
 
-- **[2d_matryoshka_nli.py](2d_matryoshka_nli.py)**: This example uses the `MultipleNegativesRankingLoss` with `Matryoshka2dLoss` to train a strong embedding model using Natural Language Inference (NLI) data. It is an adaptation of the [NLI](../nli/README) documentation.
-- **[2d_matryoshka_sts.py](2d_matryoshka_sts.py)**: This example uses the `CoSENTLoss` with `Matryoshka2dLoss` to train an embedding model on the training set of the STSBenchmark dataset. It is an adaptation of the [STS](../sts/README) documentation.
+- **[2d_matryoshka_nli.py](2d_matryoshka_nli.py)**: This example uses the `MultipleNegativesRankingLoss` with `Matryoshka2dLoss` to train a strong embedding model using Natural Language Inference (NLI) data. It is an adaptation of the [NLI](../nli/README.md) documentation.
+- **[2d_matryoshka_sts.py](2d_matryoshka_sts.py)**: This example uses the `CoSENTLoss` with `Matryoshka2dLoss` to train an embedding model on the training set of the STSBenchmark dataset. It is an adaptation of the [STS](../sts/README.md) documentation.
