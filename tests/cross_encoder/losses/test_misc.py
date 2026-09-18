@@ -108,6 +108,29 @@ class _ScoreModel(torch.nn.Module):
         return {"scores": self.scores[inputs["indices"]].unsqueeze(-1)}
 
 
+@pytest.mark.parametrize("loss_cls", [LambdaLoss, RankNetLoss])
+@pytest.mark.parametrize("labels", [[0.0, 0.0], [1.0, 1.0], [1.0]])
+def test_ranking_loss_without_ordered_pairs_has_zero_loss_and_gradients(loss_cls, labels):
+    model = _ScoreModel(torch.arange(len(labels), dtype=torch.float32))
+    loss = loss_cls(model)((["query"], [[str(i) for i in range(len(labels))]]), [torch.tensor(labels)])
+
+    torch.testing.assert_close(loss, torch.tensor(0.0))
+    loss.backward()
+    torch.testing.assert_close(model.scores.grad, torch.zeros_like(model.scores))
+
+
+@pytest.mark.parametrize("loss_cls", [LambdaLoss, RankNetLoss])
+def test_ranking_loss_ignores_queries_without_ordered_pairs(loss_cls):
+    model = _ScoreModel(torch.tensor([1.0, -1.0, 0.0, 2.0]))
+    loss_fn = loss_cls(model)
+    expected = loss_fn((["ranked"], [["0", "1"]]), [torch.tensor([1.0, 0.0])])
+    actual = loss_fn(
+        (["ranked", "tied"], [["0", "1"], ["2", "3"]]),
+        [torch.tensor([1.0, 0.0]), torch.tensor([0.0, 0.0])],
+    )
+    torch.testing.assert_close(actual, expected)
+
+
 @pytest.mark.parametrize("loss_cls", [ListMLELoss, PListMLELoss])
 @pytest.mark.parametrize("respect_input_order", [True, False])
 @pytest.mark.parametrize("offset", [0.0, 1000.0, -1000.0])

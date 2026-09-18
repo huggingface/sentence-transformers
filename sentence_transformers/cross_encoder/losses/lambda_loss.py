@@ -324,7 +324,7 @@ class LambdaLoss(nn.Module):
 
         # Apply masks and reduction
         masked_losses = losses[padded_pairs_mask & ndcg_at_k_mask]
-        loss = -torch.mean(masked_losses)
+        loss = -masked_losses.sum() / max(masked_losses.numel(), 1)
         return loss
 
     def get_config_dict(self) -> dict[str, float | int | str | None]:
