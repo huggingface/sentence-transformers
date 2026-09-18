@@ -98,17 +98,20 @@ class CoSENTLoss(nn.Module):
 
         scores = self.similarity_fct(embeddings[0], embeddings[1])
         scores = scores * self.scale
-        scores = scores[:, None] - scores[None, :]
+        if scores.dtype in (torch.float16, torch.bfloat16):
+            scores = scores.float()
 
-        # label matrix indicating which pairs are relevant
-        labels = labels[:, None] < labels[None, :]
-        labels = labels.float()
-
-        # mask out irrelevant pairs so they are negligible after exp()
-        scores = scores - (1 - labels) * 1e12
+        labels, order = labels.sort()
+        scores = scores[order]
+        # For each score, sum exp(-score) over strictly higher labels. Group boundaries
+        # exclude ties, and logcumsumexp avoids materializing the quadratic score matrix.
+        higher_label_start = torch.searchsorted(labels, labels, right=True)
+        suffix_scores = torch.logcumsumexp(-scores.flip(0), dim=0).flip(0)
+        suffix_scores = torch.cat((suffix_scores, scores.new_full((1,), -torch.inf)))
+        scores = scores + suffix_scores[higher_label_start]
 
         # append a zero as e^0 = 1
-        scores = torch.cat((torch.zeros(1).to(scores.device), scores.view(-1)), dim=0)
+        scores = torch.cat((scores.new_zeros(1), scores), dim=0)
         loss = torch.logsumexp(scores, dim=0)
 
         return loss
