@@ -24,7 +24,9 @@ from typing import Any
 
 import torch
 import tqdm
+from packaging.version import Version
 from torch import Tensor
+from torch.nn.parallel import DistributedDataParallel
 from torch.utils.checkpoint import get_device_states, set_device_states
 
 
@@ -279,7 +281,7 @@ def _backward_hook(
 ) -> None:
     """A backward hook to backpropagate the cached gradients mini-batch by mini-batch.
 
-    ``loss_obj`` only needs an ``embed_minibatch_iter(sentence_feature, with_grad, copy_random_state,
+    ``loss_obj`` needs a ``model`` and an ``embed_minibatch_iter(sentence_feature, with_grad, copy_random_state,
     random_states, ranges)`` iterator whose items *start* with the embeddings tensor. Extra elements
     are ignored (e.g. ``CachedGISTEmbedLoss`` also yields the guide model's embeddings).
     :class:`CachedLossMixin` provides the standard implementation, and the cross-encoder
@@ -294,29 +296,72 @@ def _backward_hook(
 
     Every mini-batch is scaled by ``grad_output``, which is whatever the outer backward pass hands us,
     so the fp16 gradient scaler and the gradient accumulation division reach all of them.
+    DDP synchronizes once after replay, unless an outer ``no_sync`` defers synchronization further.
+    Unused parameter detection requires PyTorch >=2.4 to avoid incorrect DDP synchronization.
     """
+    model = getattr(loss_obj.model, "_orig_mod", loss_obj.model)
+    if (
+        isinstance(model, DistributedDataParallel)
+        and model.find_unused_parameters
+        and Version(torch.__version__) < Version("2.4")
+    ):
+        raise ValueError(
+            "Cached losses with DDP find_unused_parameters=True require PyTorch >=2.4 due to "
+            "a gradient synchronization bug (https://github.com/pytorch/pytorch/pull/124193). "
+            "Upgrade PyTorch, or set ddp_find_unused_parameters=False if every trainable parameter "
+            "is used in each mini-batch."
+        )
+    no_sync = model.no_sync if isinstance(model, DistributedDataParallel) else nullcontext
+    remaining = sum(len(column) for column in cache)
+    last_trainable = None
+    synchronized = False
     with torch.enable_grad():
         for sentence_feature, grad, random_state, column_ranges in zip(
             sentence_features, cache, random_states, ranges
         ):
-            for (reps_mb, *_), grad_mb in zip(
-                loss_obj.embed_minibatch_iter(
-                    sentence_feature=sentence_feature,
-                    with_grad=True,
-                    copy_random_state=False,
-                    random_states=random_state,
-                    ranges=column_ranges,
-                ),
-                grad,
-            ):
-                if not reps_mb.requires_grad:
-                    # e.g. a frozen Router route. Skip rather than stop, as with mixed inputs
-                    # a later mini-batch of the same column may still need backprop.
-                    continue
-                # Under autocast the cached gradients are reduced-precision while this re-embedding
-                # (inside backward, outside autocast) is fp32, so compute the surrogate in fp32.
-                surrogate = torch.dot(reps_mb.flatten().float(), grad_mb.flatten().float()) * grad_output
-                surrogate.backward()
+            embed_kwargs = dict(
+                sentence_feature=sentence_feature,
+                with_grad=True,
+                copy_random_state=False,
+                random_states=random_state,
+                ranges=column_ranges,
+            )
+            iterator = loss_obj.embed_minibatch_iter(**embed_kwargs)
+            for index, grad_mb in enumerate(grad):
+                remaining -= 1
+                # Advancing the iterator runs the forward, which must also be inside no_sync.
+                with no_sync() if remaining else nullcontext():
+                    reps_mb, *_ = next(iterator)
+                    if not reps_mb.requires_grad:
+                        continue
+                    last_trainable = (embed_kwargs, index)
+                    # Compute the surrogate in fp32 when cached gradients came from autocast.
+                    surrogate = torch.dot(reps_mb.flatten().float(), grad_mb.flatten().float()) * grad_output
+                    surrogate.backward()
+                    synchronized = remaining == 0
+
+        if (
+            isinstance(model, DistributedDataParallel)
+            and model.require_backward_grad_sync
+            and not synchronized
+            and last_trainable is not None
+        ):
+            # A frozen final mini-batch cannot flush DDP. Replay a trainable one with zero gradient.
+            embed_kwargs, index = last_trainable
+            if embed_kwargs["ranges"] is not None:
+                embed_kwargs = {
+                    **embed_kwargs,
+                    "ranges": [embed_kwargs["ranges"][index]],
+                    "random_states": [embed_kwargs["random_states"][index]],
+                }
+                index = 0
+            model.require_forward_param_sync = False
+            iterator = loss_obj.embed_minibatch_iter(**embed_kwargs)
+            with no_sync():
+                for _ in range(index):
+                    next(iterator)
+            reps_mb, *_ = next(iterator)
+            reps_mb.backward(torch.zeros_like(reps_mb))
 
 
 class CachedLossMixin:
