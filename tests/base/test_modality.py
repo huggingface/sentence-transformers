@@ -5,6 +5,7 @@ import pytest
 import torch
 from jinja2 import Environment
 from PIL import Image
+from transformers.video_utils import make_batched_videos
 
 from sentence_transformers.base.modality import (
     InputFormatter,
@@ -128,6 +129,13 @@ class TestIsAudioUrlOrPath:
 
 
 class TestInferModality:
+    @pytest.mark.parametrize("plural", ["images", "videos", "audios", "texts"])
+    def test_plural_keys_rejected_without_mutating_input(self, plural):
+        sample = {plural: ["a", "b"]}
+        with pytest.raises(ValueError, match="unrecognized modality keys"):
+            infer_modality(sample)
+        assert sample == {plural: ["a", "b"]}
+
     def test_plain_text(self):
         assert infer_modality("hello world") == "text"
 
@@ -627,21 +635,76 @@ class TestParseInputs:
         # The explicit metadata stays with the video it was attached to
         assert metadata[1] == {"fps": 15, "total_num_frames": 6}
 
-    def test_video_metadata_filled_for_frame_list_video(self):
+    @pytest.mark.parametrize("wrapped_frames", [False, True])
+    def test_video_metadata_filled_for_frame_list_video(self, wrapped_frames):
         frames = [np.zeros((3, 8, 8)) for _ in range(4)]
         wrapped = {"array": np.ones((6, 3, 8, 8)), "video_metadata": {"fps": 15, "total_num_frames": 6}}
-        modality, inputs, extra = self.fmt.parse_inputs([{"video": frames}, wrapped])
+        sample = {"array": frames, "video_metadata": None} if wrapped_frames else {"video": frames}
+        modality, inputs, extra = self.fmt.parse_inputs([sample, wrapped])
         assert modality == "video"
         metadata = extra["video"]["video_metadata"]
         assert metadata[0]["total_num_frames"] == 4
         assert metadata[0]["frames_indices"] == [0, 1, 2, 3]
         assert metadata[1] == {"fps": 15, "total_num_frames": 6}
 
+    @pytest.mark.parametrize("container", [list, tuple])
+    @pytest.mark.parametrize("frame_type", ["pil", "numpy", "torch"])
+    @pytest.mark.parametrize("wrapped_frames", [False, True])
+    def test_frames_stay_one_video_in_processor(self, container, frame_type, wrapped_frames):
+        frames = [Image.new("RGB", (4, 4)) for _ in range(2)]
+        if frame_type == "numpy":
+            frames = [np.array(frame) for frame in frames]
+        elif frame_type == "torch":
+            frames = [torch.from_numpy(np.array(frame)) for frame in frames]
+        sample = (
+            {"array": container(frames), "video_metadata": None} if wrapped_frames else {"video": container(frames)}
+        )
+        _, inputs, _ = self.fmt.parse_inputs([sample])
+        videos = make_batched_videos(inputs["video"])
+        assert len(videos) == 1
+        assert videos[0].shape == (2, 4, 4, 3)
+
     def test_video_metadata_key_dropped_when_no_sample_carries_it(self):
         samples = [np.zeros((8, 3, 224, 224)), np.zeros((8, 3, 224, 224))]
         modality, inputs, extra = self.fmt.parse_inputs(samples)
         assert modality == "video"
         assert dict(extra) == {}
+
+    @pytest.mark.parametrize("container", [list, tuple])
+    @pytest.mark.parametrize("wrapped_frames", [False, True])
+    def test_video_collection_metadata_matches_each_content_item(self, container, wrapped_frames):
+        raw = np.zeros((2, 3, 8, 8))
+        frames = [np.zeros((3, 8, 8)) for _ in range(3)]
+        metadata = {"fps": 15, "total_num_frames": 4}
+        wrapped = {"array": np.zeros((4, 3, 8, 8)), "video_metadata": metadata}
+        frame_video = {"array": frames, "video_metadata": None} if wrapped_frames else frames
+        samples = [
+            {"video": container([raw, frame_video])},
+            wrapped,
+        ]
+        modality, inputs, extra = self.fmt.parse_inputs(samples)
+        _, result = self.fmt.batch_to_message(modality, inputs)
+        videos = [item["video"] for messages in result["message"] for item in messages[0]["content"]]
+        entries = extra["video"]["video_metadata"]
+        assert len(videos) == len(entries) == 3
+        assert [len(video) for video in videos] == [2, 3, 4]
+        assert [entry["total_num_frames"] for entry in entries] == [2, 3, 4]
+        assert entries[1]["frames_indices"] == [0, 1, 2]
+        assert entries[2] is metadata
+        assert samples[0]["video"][1] is frame_video
+
+    @pytest.mark.parametrize("container", [list, tuple])
+    def test_audio_collection_unwraps_each_recording(self, container):
+        arrays = [np.zeros(8), np.zeros(16)]
+        samples = [{"audio": container({"array": array, "sampling_rate": 16000} for array in arrays)}]
+        modality, inputs, extra = self.fmt.parse_inputs(samples)
+        _, result = self.fmt.batch_to_message(modality, inputs)
+        content = result["message"][0][0]["content"]
+        assert [item["audio"] for item in content] == arrays
+        assert extra["audio"]["sampling_rate"] == 16000
+        samples[0]["audio"][1]["sampling_rate"] = 8000
+        with pytest.raises(ValueError, match="sampling rates"):
+            self.fmt.parse_inputs(samples)
 
     def test_video_metadata_with_metadata_less_path_raises(self):
         wrapped = {"array": np.ones((4, 3, 8, 8)), "video_metadata": {"fps": 15, "total_num_frames": 4}}
@@ -706,6 +769,34 @@ class TestParseInputs:
         ]
         modality, inputs, extra = self.fmt.parse_inputs(dicts)
         assert list(inputs.keys()) == ["image", "text"]
+
+    @pytest.mark.parametrize("supported_modalities", [None, ["message"], [("image", "text"), "message"]])
+    @pytest.mark.parametrize("collections", [False, True])
+    def test_multimodal_batch_preserves_each_samples_key_order(self, supported_modalities, collections):
+        fmt = InputFormatter(model_type="test", message_format="structured", supported_modalities=supported_modalities)
+        texts = ["text_a", "text_b"] if collections else "text_a"
+        images = ["image_a", "image_b"] if collections else "image_a"
+        samples = [{"text": texts, "image": images}, {"image": images, "text": texts}]
+        modality, inputs, _ = fmt.parse_inputs(samples)
+        assert modality == "message"
+        text_content = [{"type": "text", "text": text} for text in (texts if collections else [texts])]
+        image_content = [{"type": "image", "image": image} for image in (images if collections else [images])]
+        assert inputs["message"] == [
+            [{"role": "user", "content": text_content + image_content}],
+            [{"role": "user", "content": image_content + text_content}],
+        ]
+        assert [list(sample) for sample in samples] == [["text", "image"], ["image", "text"]]
+
+    def test_different_key_orders_keep_native_processor_arguments(self):
+        fmt = InputFormatter(model_type="test", supported_modalities=[("image", "text")])
+        modality, inputs, _ = fmt.parse_inputs(
+            [
+                {"text": "a cat", "image": "cat.jpg"},
+                {"image": "dog.jpg", "text": "a dog"},
+            ]
+        )
+        assert modality == ("image", "text")
+        assert inputs == {"text": ["a cat", "a dog"], "image": ["cat.jpg", "dog.jpg"]}
 
     def test_multimodal_dict_audio_only_wrapper_raw_array(self):
         """A ``{"audio": array}`` wrapper with a raw array should behave like bare audio inputs."""
@@ -879,6 +970,160 @@ class TestParseInputs:
 
 
 class TestBatchToMessage:
+    @pytest.mark.parametrize("container", [list, tuple])
+    @pytest.mark.parametrize("frame_type", ["pil", "numpy", "torch", "path", "url"])
+    @pytest.mark.parametrize("paired", [False, True])
+    def test_video_frames_stay_one_content_item(self, container, frame_type, paired, tmp_path):
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        paths = [str(tmp_path / "frame_a.png"), str(tmp_path / "frame_b.jpg")]
+        if frame_type == "path":
+            for path in paths:
+                Image.new("RGB", (4, 4)).save(path)
+        frames = {
+            "pil": [Image.new("RGB", (4, 4)) for _ in range(2)],
+            "numpy": [np.zeros((4, 4, 3)) for _ in range(2)],
+            "torch": [torch.zeros((3, 4, 4)) for _ in range(2)],
+            "path": paths,
+            "url": ["https://example.com/frame_a.png", "https://example.com/frame_b.jpg"],
+        }[frame_type]
+        value = container(frames)
+        sample = {"text": "Describe this clip", "video": value}
+        modality, inputs, extra = fmt.parse_inputs([("query", sample)] if paired else [sample])
+        if modality != "message":
+            _, inputs = fmt.batch_to_message(modality, inputs)
+        messages = inputs["message"][0]
+        assert len(messages) == (2 if paired else 1)
+        content = messages[-1]["content"]
+        assert [item["type"] for item in content] == ["text", "video"]
+        assert isinstance(content[1]["video"], list)
+        assert len(content[1]["video"]) == len(frames)
+        assert all(actual is expected for actual, expected in zip(content[1]["video"], frames))
+        assert sample["video"] is value
+        assert not extra
+
+    @pytest.mark.parametrize("container", [list, tuple])
+    def test_video_frame_detection_checks_every_item(self, container):
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        frame = np.zeros((3, 4, 4))
+        video = np.zeros((2, 3, 4, 4))
+        modality, inputs, _ = fmt.parse_inputs([{"video": container([frame, video])}])
+        _, inputs = fmt.batch_to_message(modality, inputs)
+        content = inputs["message"][0][0]["content"]
+        assert len(content) == 2
+        assert content[0]["video"] is frame
+        assert content[1]["video"] is video
+
+    def test_ambiguous_frame_urls_can_be_wrapped(self):
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        paths = ["https://example.com/frame/1", "https://example.com/frame/2"]
+        samples = [{"video": paths}, {"video": {"array": paths}}]
+        modality, inputs, _ = fmt.parse_inputs(samples)
+        _, inputs = fmt.batch_to_message(modality, inputs)
+        contents = [messages[0]["content"] for messages in inputs["message"]]
+        assert contents[0] == [{"type": "video", "video": path} for path in paths]
+        assert contents[1] == [{"type": "video", "video": paths}]
+
+    @pytest.mark.parametrize("container", [list, tuple])
+    @pytest.mark.parametrize("text_count", [2, 4])
+    @pytest.mark.parametrize("images_first", [False, True])
+    @pytest.mark.parametrize("paired", [False, True])
+    def test_text_and_image_collections_preserve_content_order(self, container, text_count, images_first, paired):
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        texts = container(f"text {index}" for index in range(text_count))
+        images = container(Image.new("RGB", (2, 2)) for _ in range(2))
+        sample = {"image": images, "text": texts} if images_first else {"text": texts, "image": images}
+        modality, inputs, _ = fmt.parse_inputs([("query", sample)] if paired else [sample])
+        if modality != "message":
+            _, inputs = fmt.batch_to_message(modality, inputs)
+
+        text_content = [{"type": "text", "text": text} for text in texts]
+        image_content = [{"type": "image", "image": image} for image in images]
+        expected = image_content + text_content if images_first else text_content + image_content
+        assert len(inputs["message"]) == 1
+        messages = inputs["message"][0]
+        assert [message["role"] for message in messages] == (["query", "document"] if paired else ["user"])
+        assert messages[-1]["content"] == expected
+
+    @pytest.mark.parametrize("container", [list, tuple])
+    @pytest.mark.parametrize("frame_container", [list, tuple])
+    @pytest.mark.parametrize("wrapped_frames,paired", [(False, False), (True, False), (False, True)])
+    def test_multiple_videos_and_frame_list_preserve_sample_boundaries(
+        self, container, frame_container, wrapped_frames, paired
+    ):
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        frames_a = frame_container(Image.new("RGB", (2, 2)) for _ in range(2))
+        frames_b = frame_container(Image.new("RGB", (2, 2)) for _ in range(3))
+        video_a = {"array": frames_a, "video_metadata": None} if wrapped_frames else frames_a
+        video_b = {"array": frames_b, "video_metadata": None} if wrapped_frames else frames_b
+        samples = [
+            {"text": "two videos", "video": container([video_a, video_b])},
+            {"text": "one video", "video": video_a},
+        ]
+        detected, result, _ = fmt.parse_inputs([("query", sample) for sample in samples] if paired else samples)
+        if detected != "message":
+            _, result = fmt.batch_to_message(detected, result)
+        documents = [[messages[-1]] for messages in result["message"]]
+        assert documents == [
+            [
+                {
+                    "role": "document" if paired else "user",
+                    "content": [
+                        {"type": "text", "text": "two videos"},
+                        {"type": "video", "video": list(frames_a)},
+                        {"type": "video", "video": list(frames_b)},
+                    ],
+                }
+            ],
+            [
+                {
+                    "role": "document" if paired else "user",
+                    "content": [
+                        {"type": "text", "text": "one video"},
+                        {"type": "video", "video": list(frames_a)},
+                    ],
+                }
+            ],
+        ]
+
+    @pytest.mark.parametrize("container", [list, tuple])
+    def test_explicit_text_pair_keeps_pair_roles(self, container):
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        detected, inputs, _ = fmt.parse_inputs([{"text": container(["query", "document"])}])
+        _, result = fmt.batch_to_message(detected, inputs)
+        assert result["message"] == [
+            [
+                {"role": "query", "content": [{"type": "text", "text": "query"}]},
+                {"role": "document", "content": [{"type": "text", "text": "document"}]},
+            ]
+        ]
+
+    @pytest.mark.parametrize("modality", ["image", "audio", "video"])
+    @pytest.mark.parametrize("container", [list, tuple])
+    @pytest.mark.parametrize("with_text", [False, True])
+    def test_media_collection_preserves_sample_boundaries(self, modality, container, with_text):
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        media = {
+            "image": [Image.new("RGB", (2, 2)) for _ in range(3)],
+            "audio": [np.zeros(8) for _ in range(3)],
+            "video": [np.zeros((2, 3, 2, 2)) for _ in range(3)],
+        }[modality]
+        samples = [{modality: container(media[:2])}, {modality: container(media[2:])}]
+        if with_text:
+            samples = [{"text": "19 inch monitor", **sample} for sample in samples]
+
+        detected, inputs, _ = fmt.parse_inputs(samples)
+        _, result = fmt.batch_to_message(detected, inputs)
+
+        assert len(result["message"]) == 2
+        for messages, items in zip(result["message"], [media[:2], media[2:]], strict=True):
+            expected = [{"type": modality, modality: item} for item in items]
+            if with_text:
+                expected.insert(0, {"type": "text", "text": "19 inch monitor"})
+            assert messages == [{"role": "user", "content": expected}]
+        assert list(samples[0]) == (["text", modality] if with_text else [modality])
+        assert samples[0][modality][0] is media[0]
+        assert len(samples[0][modality]) == 2
+
     def setup_method(self):
         self.fmt = InputFormatter(model_type="test", message_format="structured")
 
@@ -922,15 +1167,18 @@ class TestBatchToMessage:
         assert new_mod == "message"
         assert len(new_inputs["message"]) == 2
 
-    def test_two_element_video_not_routed_to_pair(self):
+    def test_two_element_video_not_routed_to_pair(self, tmp_path):
         """A 2-frame video (2 image paths) stays one video message, not a query/document pair (#3840)."""
-        processor_inputs = {"video": [["frame1.png", "frame2.png"]]}
-        modality, result = self.fmt.batch_to_message("video", processor_inputs)
+        frames = [str(tmp_path / "frame1.png"), str(tmp_path / "frame2.png")]
+        for frame in frames:
+            Image.new("RGB", (4, 4)).save(frame)
+        modality, processor_inputs, _ = self.fmt.parse_inputs([{"video": frames}])
+        modality, result = self.fmt.batch_to_message(modality, processor_inputs)
         assert modality == "message"
         messages = result["message"][0]
         # A single "user" message, not a ("query", "document") pair
         assert [msg["role"] for msg in messages] == ["user"]
-        assert messages[0]["content"] == [{"type": "video", "video": ["frame1.png", "frame2.png"]}]
+        assert messages[0]["content"] == [{"type": "video", "video": frames}]
 
     def test_two_element_text_still_routed_to_pair(self):
         """A 2-element text input keeps routing to query/document roles (#3840)."""
@@ -1083,6 +1331,32 @@ class TestIsNonTextPair:
 
 
 class TestPairToMessages:
+    @pytest.mark.parametrize("modalities", [("text", "image"), ("image", "text")])
+    def test_compound_modality_preserves_user_order_in_both_roles(self, modalities):
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        values = {"text": "description", "image": "image_a"}
+        sample = {modality: values[modality] for modality in modalities}
+        result = fmt.pair_to_messages((sample, sample))
+        assert [message["role"] for message in result] == ["query", "document"]
+        for message in result:
+            assert message["content"] == [{"type": modality, modality: values[modality]} for modality in modalities]
+
+    @pytest.mark.parametrize("modality", ["image", "audio", "video"])
+    @pytest.mark.parametrize("container", [list, tuple])
+    @pytest.mark.parametrize("with_text", [False, True])
+    def test_media_collection_matches_single_input_content(self, modality, container, with_text):
+        fmt = InputFormatter(model_type="test", message_format="structured")
+        sample = {modality: container(["a", "b"])}
+        if with_text:
+            sample = {"text": "description", **sample}
+        result = fmt.pair_to_messages(("query", sample))
+        detected, inputs, _ = fmt.parse_inputs([sample])
+        _, single = fmt.batch_to_message(detected, inputs)
+        assert result[1] == {**single["message"][0][0], "role": "document"}
+        assert [item["type"] for item in result[1]["content"]] == (
+            ["text", modality, modality] if with_text else [modality, modality]
+        )
+
     def test_structured_same_modality(self):
         fmt = InputFormatter(model_type="test", message_format="structured")
         img1 = Image.new("RGB", (32, 32))

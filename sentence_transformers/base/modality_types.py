@@ -32,8 +32,8 @@ class AudioDict(TypedDict):
 
 
 class VideoDict(TypedDict):
-    array: np.ndarray | torch.Tensor
-    video_metadata: dict[str, Any]
+    array: np.ndarray | torch.Tensor | list[ImageInput] | tuple[ImageInput, ...]
+    video_metadata: dict[str, Any] | None
 
 
 class MessageDict(TypedDict):
@@ -45,11 +45,21 @@ class MessageDict(TypedDict):
 TextInput: TypeAlias = str
 ImageInput: TypeAlias = str | PILImage | np.ndarray | torch.Tensor
 AudioInput: TypeAlias = str | np.ndarray | torch.Tensor | AudioDict | AudioDecoder
-VideoInput: TypeAlias = str | np.ndarray | torch.Tensor | VideoDict | VideoDecoder
+VideoInput: TypeAlias = (
+    str | np.ndarray | torch.Tensor | VideoDict | VideoDecoder | list[ImageInput] | tuple[ImageInput, ...]
+)
 MessageInput: TypeAlias = MessageDict | list[MessageDict]
-MultimodalInput: TypeAlias = dict[
-    Literal["text", "image", "audio", "video"], TextInput | ImageInput | AudioInput | VideoInput
-]
+
+
+class MultimodalInput(TypedDict, total=False):
+    """One input combining modalities, with optional collections under singular keys."""
+
+    text: TextInput | list[TextInput] | tuple[TextInput, ...]
+    image: ImageInput | list[ImageInput] | tuple[ImageInput, ...]
+    audio: AudioInput | list[AudioInput] | tuple[AudioInput, ...]
+    video: VideoInput | list[VideoInput] | tuple[VideoInput, ...]
+
+
 SingleInput: TypeAlias = TextInput | ImageInput | AudioInput | VideoInput | MessageInput | MultimodalInput
 
 # Pair types for cross-encoder
