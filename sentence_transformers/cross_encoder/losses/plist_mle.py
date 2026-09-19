@@ -34,9 +34,11 @@ class PListMLELambdaWeight(nn.Module):
         if self.rank_discount_fn is not None:
             return self.rank_discount_fn(mask)
 
-        # Apply default rank discount: 2^(num_docs - rank) - 1
+        # Apply default rank discount: 2^(num_docs - rank) - 1, with rank counted from 1 as in
+        # the paper and as in LambdaLoss's own position indices. Counting from 0 raises every
+        # weight one power of two, which does not cancel in the sum-to-1 normalization below.
         num_docs_per_query = mask.sum(dim=1, keepdim=True)
-        ranks = torch.arange(mask.size(1), device=mask.device).expand_as(mask)
+        ranks = torch.arange(1, mask.size(1) + 1, device=mask.device).expand_as(mask)
         weights = torch.pow(2.0, num_docs_per_query - ranks) - 1.0
         weights = weights * mask
         return weights

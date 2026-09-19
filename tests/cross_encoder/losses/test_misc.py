@@ -11,6 +11,7 @@ from sentence_transformers.cross_encoder.losses import (
     LambdaLoss,
     ListMLELoss,
     ListNetLoss,
+    PListMLELambdaWeight,
     PListMLELoss,
     RankNetLoss,
 )
@@ -123,7 +124,7 @@ def test_listmle_large_scores_match_sequential_cross_entropy(loss_cls, respect_i
     scores = model.scores.detach().double().requires_grad_()
     orders = [[0, 1], [2, 3, 4]] if respect_input_order else [[1, 0], [3, 2, 4]]
     query_losses = []
-    for order, weights in zip(orders, [[3 / 4, 1 / 4], [7 / 11, 3 / 11, 1 / 11]]):
+    for order, weights in zip(orders, [[1.0, 0.0], [3 / 4, 1 / 4, 0.0]]):
         terms = torch.stack(
             [
                 torch.nn.functional.cross_entropy(scores[order[index:]].unsqueeze(0), torch.zeros(1, dtype=torch.long))
@@ -139,3 +140,24 @@ def test_listmle_large_scores_match_sequential_cross_entropy(loss_cls, respect_i
     loss.backward()
     expected.backward()
     torch.testing.assert_close(model.scores.grad, scores.grad.float(), rtol=2e-4, atol=2e-4)
+
+
+@pytest.mark.parametrize(
+    ("mask", "expected"),
+    [
+        # Three documents: 2^(3-1)-1, 2^(3-2)-1, 2^(3-3)-1.
+        ([[True, True, True]], [[3.0, 1.0, 0.0]]),
+        # Two real documents padded to width three: the padded column is zeroed, and the
+        # weights are those of a two-document list, not of the padded width.
+        ([[True, True, False]], [[1.0, 0.0, 0.0]]),
+    ],
+)
+def test_plistmle_default_rank_discount_counts_ranks_from_one(mask, expected):
+    """PListMLELambdaWeight's default discount is 2^(n - rank) - 1 with rank starting at 1.
+
+    Counting from 0 instead gives 2^(n - rank + 1) - 1, which is not a multiple of the intended
+    weights, so the sum-to-1 normalization inside the loss does not absorb it: a three-document
+    list is weighted (0.636, 0.273, 0.091) rather than (0.75, 0.25, 0.0).
+    """
+    weights = PListMLELambdaWeight()(torch.tensor(mask))
+    torch.testing.assert_close(weights, torch.tensor(expected))
