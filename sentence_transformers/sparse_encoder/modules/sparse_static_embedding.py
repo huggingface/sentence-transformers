@@ -140,7 +140,7 @@ class SparseStaticEmbedding(InputModule):
                 raise ValueError(f"IDF JSON file not found at {json_path}. Please provide a valid path.")
             json_path = resolved_path
 
-        with open(json_path) as fIn:
+        with open(json_path, encoding="utf-8") as fIn:
             idf = json.load(fIn)
 
         tokens, weights = zip(*idf.items())
