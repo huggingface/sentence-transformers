@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import math
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
+import numpy as np
 import pytest
 from packaging.version import Version
 from tokenizers import Tokenizer
@@ -63,6 +67,59 @@ def test_from_distillation() -> None:
     # that checks the first dimension is close to 29525 and the second dimension is 32.
     assert abs(model.embedding.weight.shape[0] - 29525) < 5
     assert model.embedding.weight.shape[1] == 32
+
+
+def _install_fake_distill(monkeypatch: pytest.MonkeyPatch, tokenizer: Tokenizer, captured: dict[str, Any]):
+    dummy = SimpleNamespace(
+        embedding=np.zeros((4, 3), dtype=np.float32),
+        tokenizer=tokenizer,
+    )
+
+    def fake_distill(
+        model_name: str,
+        vocabulary: list[str] | None = None,
+        device: str | None = None,
+        pca_dims: int | None = 256,
+        apply_zipf: bool = True,
+        use_subword: bool = True,
+        quantize_to: str = "float32",
+        sif_coefficient: float | None = 1e-4,
+        token_remove_pattern: str | None = None,
+        **kwargs: Any,
+    ):
+        captured["model_name"] = model_name
+        captured["device"] = device
+        return dummy
+
+    distill_mod = SimpleNamespace(distill=fake_distill)
+    monkeypatch.setitem(sys.modules, "model2vec", SimpleNamespace(distill=distill_mod))
+    monkeypatch.setitem(sys.modules, "model2vec.distill", distill_mod)
+
+
+def test_from_distillation_defaults_device_when_unspecified(
+    monkeypatch: pytest.MonkeyPatch, tokenizer: Tokenizer
+) -> None:
+    captured: dict[str, Any] = {}
+    _install_fake_distill(monkeypatch, tokenizer, captured)
+    monkeypatch.setattr(
+        "sentence_transformers.sentence_transformer.modules.static_embedding.get_device_name",
+        lambda: "cuda:3",
+    )
+
+    StaticEmbedding.from_distillation("dummy-teacher")
+    assert captured["device"] == "cuda:3"
+
+
+def test_from_distillation_keeps_explicit_device(monkeypatch: pytest.MonkeyPatch, tokenizer: Tokenizer) -> None:
+    captured: dict[str, Any] = {}
+    _install_fake_distill(monkeypatch, tokenizer, captured)
+    monkeypatch.setattr(
+        "sentence_transformers.sentence_transformer.modules.static_embedding.get_device_name",
+        lambda: "cuda:3",
+    )
+
+    StaticEmbedding.from_distillation("dummy-teacher", device="cpu")
+    assert captured["device"] == "cpu"
 
 
 @skip_if_no_model2vec()
