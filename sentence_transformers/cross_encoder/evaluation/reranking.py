@@ -198,6 +198,13 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                 else:
                     docs = documents
                     is_relevant = [int(sample in positive) for sample in documents]
+                    # The positives the first stage did not return, counted the same way the base
+                    # ranking above counts them. The reranker never sees these documents, so they
+                    # sit below everything it scored. Without them the reranked metrics can still
+                    # reach 1.0 while the base cannot, which is both the cap this option documents
+                    # and the only thing that makes the two numbers comparable.
+                    if sum(is_relevant):
+                        is_relevant += [1] * (len(positive) - sum(is_relevant))
             else:
                 docs = positive + negative
                 is_relevant = [1] * len(positive) + [0] * len(negative)
@@ -209,7 +216,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                 sample_metadata.append(None)
                 continue
 
-            sample_metadata.append((is_relevant, len(docs)))
+            sample_metadata.append((is_relevant, len(docs), len(is_relevant) - len(docs)))
             all_pairs.extend([query, doc] for doc in docs)
 
         # Single batched predict call for all query-document pairs
@@ -237,9 +244,16 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                 all_ap_scores.append(0)
                 continue
 
-            is_relevant, num_pairs = meta
+            is_relevant, num_pairs, num_ignored_positives = meta
             pred_scores = all_pred_scores[score_offset : score_offset + num_pairs]
             score_offset += num_pairs
+
+            if num_ignored_positives:
+                # Unscored, so ranked below every document the model did score. One ulp under the
+                # minimum rather than zero or -inf: a cross-encoder logit is not bounded below by
+                # zero, and sklearn's metrics reject a non-finite score.
+                floor = np.nextafter(pred_scores.min(), -np.inf)
+                pred_scores = np.concatenate([pred_scores, np.full(num_ignored_positives, floor)])
 
             mrr, ndcg, ap = self.compute_metrics(is_relevant, pred_scores)
             all_mrr_scores.append(mrr)
