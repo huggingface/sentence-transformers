@@ -314,12 +314,16 @@ def mine_hard_negatives(
             range_min != 0
             or range_max is not None
             or max_score is not None
+            or min_score is not None
+            or absolute_margin is not None
+            or relative_margin is not None
             or margin is not None
             or sampling_strategy != "top"
         ):
             logger.warning(
-                "When using `include_positives=True`, updating `range_min`, `range_max`, `max_score`, `margin`, or "
-                "`sampling_strategy` from the default values may still discard the positive values."
+                "When using `include_positives=True`, updating `range_min`, `range_max`, `max_score`, `min_score`, "
+                "`absolute_margin`, `relative_margin`, or `sampling_strategy` from the default values may still "
+                "discard the positive values."
             )
         if output_format != "n-tuple":
             logger.warning(
