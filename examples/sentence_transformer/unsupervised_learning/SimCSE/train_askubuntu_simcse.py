@@ -103,13 +103,13 @@ latest_output_path = output_path + "-latest"
 model.save_pretrained(latest_output_path)
 
 # (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+# It is recommended to run `hf auth login` to log into your Hugging Face account first
 model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
 try:
     model.push_to_hub(f"{model_name}-askubuntu-simcse")
 except Exception:
     logging.error(
         f"Error uploading model to the Hugging Face Hub:\nTo upload it manually, you can run "
-        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({latest_output_path!r})` "
+        f"`hf auth login`, followed by loading the model using `model = SentenceTransformer({latest_output_path!r})` "
         f"and saving it using `model.push_to_hub('{model_name}-askubuntu-simcse')`."
     )

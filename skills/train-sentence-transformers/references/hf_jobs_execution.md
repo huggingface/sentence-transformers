@@ -5,7 +5,7 @@ Run training on Hugging Face's managed GPUs without provisioning any local infra
 ## Prerequisites
 
 - Hugging Face account with a **Pro, Team, or Enterprise** plan. Jobs are paid.
-- `HF_TOKEN` with **write** permission. Log in once locally with `hf auth login` (the modern command from the `hf` CLI, replacing the deprecated `huggingface-cli login`).
+- `HF_TOKEN` with **write** permission. Log in once locally with `hf auth login` (from the `hf` CLI).
 - Access to the `hf_jobs()` MCP tool, or the `hf` CLI (`curl -LsSf https://hf.co/cli/install.sh | bash -s`).
 
 ## The three submission paths

@@ -143,7 +143,7 @@ class Module(ABC, torch.nn.Module):
             subfolder (str, optional): The subfolder within the model directory to load from, e.g. ``"1_Pooling"``.
                 Defaults to ``""``.
             token (bool | str | None, optional): The token to use for authentication when loading from Hugging Face.
-                If None, tries to use a token saved using ``huggingface-cli login`` or the ``HF_TOKEN`` environment variable.
+                If None, tries to use a token saved using ``hf auth login`` or the ``HF_TOKEN`` environment variable.
                 Defaults to None.
             cache_folder (str | None, optional): The folder to use for caching the model files.
                 If None, uses the default cache folder for Hugging Face, ``~/.cache/huggingface``. Defaults to None.
@@ -195,7 +195,7 @@ class Module(ABC, torch.nn.Module):
                 If None, uses the default configuration file name defined in the ``config_file_name`` class variable.
                 Defaults to None.
             token (bool | str | None, optional): The token to use for authentication when loading from Hugging Face.
-                If None, tries to use a token saved using ``huggingface-cli login`` or the ``HF_TOKEN`` environment variable.
+                If None, tries to use a token saved using ``hf auth login`` or the ``HF_TOKEN`` environment variable.
                 Defaults to None.
             cache_folder (str | None, optional): The folder to use for caching the model files.
                 If None, uses the default cache folder for Hugging Face, ``~/.cache/huggingface``. Defaults to None.
@@ -249,7 +249,7 @@ class Module(ABC, torch.nn.Module):
             subfolder (str, optional): The subfolder within the model directory to load from, e.g. ``"1_Pooling"``.
                 Defaults to ``""``.
             token (bool | str | None, optional): The token to use for authentication when loading from Hugging Face.
-                If None, tries to use a token saved using ``huggingface-cli login`` or the ``HF_TOKEN`` environment variable.
+                If None, tries to use a token saved using ``hf auth login`` or the ``HF_TOKEN`` environment variable.
                 Defaults to None.
             cache_folder (str | None, optional): The folder to use for caching the model files.
                 If None, uses the default cache folder for Hugging Face, ``~/.cache/huggingface``. Defaults to None.
@@ -287,7 +287,7 @@ class Module(ABC, torch.nn.Module):
             subfolder (str, optional): The subfolder within the model directory to load from, e.g. ``"1_Pooling"``.
                 Defaults to ``""``.
             token (bool | str | None, optional): The token to use for authentication when loading from Hugging Face.
-                If None, tries to use a token saved using ``huggingface-cli login`` or the ``HF_TOKEN`` environment variable.
+                If None, tries to use a token saved using ``hf auth login`` or the ``HF_TOKEN`` environment variable.
                 Defaults to None.
             cache_folder (str | None, optional): The folder to use for caching the model files.
                 If None, uses the default cache folder for Hugging Face, ``~/.cache/huggingface``. Defaults to None.
@@ -329,7 +329,7 @@ class Module(ABC, torch.nn.Module):
             subfolder (str, optional): The subfolder within the model directory to load from, e.g. ``"2_Dense"``.
                 Defaults to ``""``.
             token (bool | str | None, optional): The token to use for authentication when loading from Hugging Face.
-                If None, tries to use a token saved using ``huggingface-cli login`` or the ``HF_TOKEN`` environment variable.
+                If None, tries to use a token saved using ``hf auth login`` or the ``HF_TOKEN`` environment variable.
                 Defaults to None.
             cache_folder (str | None, optional): The folder to use for caching the model files.
                 If None, uses the default cache folder for Hugging Face, ``~/.cache/huggingface``. Defaults to None.
