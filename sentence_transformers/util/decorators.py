@@ -86,7 +86,7 @@ def transformer_kwargs_decorator(func):
                     "Please pass `cache_dir` via `model_kwargs`, `processor_kwargs`, and/or `config_kwargs` instead."
                 )
                 for dict_name in ("model_kwargs", "processor_kwargs", "config_kwargs"):
-                    kwargs.setdefault(dict_name, {})
+                    kwargs[dict_name] = dict(kwargs.get(dict_name) or {})
                     kwargs[dict_name].setdefault("cache_dir", cache_dir)
 
         return func(*args, **kwargs)
