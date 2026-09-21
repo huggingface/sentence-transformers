@@ -216,6 +216,62 @@ def test_semantic_search_faiss_preserves_inner_product_metric(corpus_precision: 
     ]
 
 
+@pytest.mark.parametrize(
+    ("search_fn", "precision"),
+    [
+        pytest.param(semantic_search_faiss, "uint8", marks=skip_without_faiss),
+        pytest.param(semantic_search_usearch, "int8", marks=skip_without_usearch),
+    ],
+)
+@pytest.mark.parametrize("calibration_source", ["ranges", "calibration_embeddings", "queries"])
+@pytest.mark.parametrize("reuse_index", [False, True])
+def test_semantic_search_scalar_rescoring_restores_calibration(search_fn, precision, calibration_source, reuse_index):
+    """Rescoring must use the original coordinate system, including constant dimensions.
+
+    These corpus values are exactly representable with the supplied calibration. The two
+    varying dimensions have different scales, so dot products with the raw codes reverse
+    the first query's ranking even when both candidates are retrieved.
+    """
+    ranges = np.array([[-10, -10, 2], [245, 117.5, 2]], dtype=np.float32)
+    corpus = np.array([[4, 0, 2], [0, 1, 2]], dtype=np.float32)
+    queries = np.vstack(([1, 3, 2], ranges)).astype(np.float32)
+    quantized = quantize_embeddings(corpus, precision, ranges=ranges)
+    kwargs = {}
+    if calibration_source == "ranges":
+        # Explicit ranges take precedence over a different calibration corpus.
+        kwargs = {"ranges": ranges, "calibration_embeddings": ranges + 10}
+    elif calibration_source == "calibration_embeddings":
+        kwargs = {"calibration_embeddings": ranges}
+
+    corpus_kwargs = {"corpus_embeddings": quantized}
+    if reuse_index:
+        _, _, index = search_fn(
+            quantize_embeddings(queries, precision, ranges=ranges),
+            corpus_embeddings=quantized,
+            corpus_precision=precision,
+            top_k=2,
+            rescore=False,
+            output_index=True,
+        )
+        corpus_kwargs = {"corpus_index": index}
+
+    results, _ = search_fn(
+        queries,
+        **corpus_kwargs,
+        corpus_precision=precision,
+        top_k=1,
+        rescore_multiplier=3,  # Include every candidate, as well as padding slots.
+        **kwargs,
+    )
+
+    expected_scores = queries @ corpus.T
+    for hits, scores in zip(results, expected_scores):
+        expected_id = int(scores.argmax())
+        assert len(hits) == 1
+        assert hits[0]["corpus_id"] == expected_id
+        assert hits[0]["score"] == pytest.approx(scores[expected_id])
+
+
 @skip_without_faiss
 @pytest.mark.parametrize("corpus_precision", ["ubinary", "uint8"])
 @pytest.mark.parametrize("rescore", [True, False])
