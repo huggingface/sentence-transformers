@@ -30,7 +30,7 @@ class MSEEvaluatorFromDataFrame(BaseEvaluator):
         teacher_model (SentenceTransformer): The teacher model used to compute the sentence embeddings.
         combinations (List[Tuple[str, str]]): Must be of the format ``[('en', 'es'), ('en', 'fr'), ...]``.
             First entry in a tuple is the source language. The sentence in the respective language will be fetched from
-            the dataframe and passed to the teacher model. Second entry in a tuple the the target language. Sentence
+            the dataframe and passed to the teacher model. Second entry in a tuple is the target language. Sentence
             will be fetched from the dataframe and passed to the student model
         batch_size (int, optional): The batch size to compute sentence embeddings. Defaults to 8.
         name (str, optional): The name of the evaluator. Defaults to "".
