@@ -277,6 +277,11 @@ def community_detection(
     if not isinstance(embeddings, torch.Tensor):
         embeddings = torch.tensor(embeddings)
 
+    # encode() of a single text returns a 1D vector. normalize_embeddings uses dim=1,
+    # which IndexErrors on that shape. A length-D vector is one embedding, not D samples.
+    if embeddings.ndim == 1:
+        embeddings = embeddings.unsqueeze(0)
+
     if len(embeddings) < min_community_size:
         return []
 
