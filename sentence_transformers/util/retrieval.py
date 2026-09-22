@@ -11,7 +11,7 @@ from torch import Tensor
 from tqdm.autonotebook import tqdm
 
 from .similarity import cos_sim
-from .tensor import normalize_embeddings
+from .tensor import _convert_to_tensor, normalize_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +186,7 @@ def semantic_search(
     if isinstance(query_embeddings, (np.ndarray, np.generic)):
         query_embeddings = torch.from_numpy(query_embeddings)
     elif isinstance(query_embeddings, list):
-        query_embeddings = torch.stack(query_embeddings)
+        query_embeddings = _convert_to_tensor(query_embeddings)
 
     if len(query_embeddings.shape) == 1:
         query_embeddings = query_embeddings.unsqueeze(0)
@@ -194,7 +194,10 @@ def semantic_search(
     if isinstance(corpus_embeddings, (np.ndarray, np.generic)):
         corpus_embeddings = torch.from_numpy(corpus_embeddings)
     elif isinstance(corpus_embeddings, list):
-        corpus_embeddings = torch.stack(corpus_embeddings)
+        corpus_embeddings = _convert_to_tensor(corpus_embeddings)
+
+    if len(corpus_embeddings.shape) == 1:
+        corpus_embeddings = corpus_embeddings.unsqueeze(0)
 
     # Check that corpus and queries are on the same device
     if corpus_embeddings.device != query_embeddings.device:

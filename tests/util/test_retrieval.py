@@ -39,6 +39,20 @@ def test_semantic_search() -> None:
             assert np.abs(hits[qid][hit_num]["score"] - cos_scores_values[qid][hit_num]) < 0.001
 
 
+def test_semantic_search_accepts_list_of_numpy_embeddings() -> None:
+    """encode() of a single text returns a 1D numpy vector; a list of those used to crash torch.stack."""
+    rng = np.random.default_rng(0)
+    query = rng.standard_normal(16).astype(np.float32)
+    corpus = [rng.standard_normal(16).astype(np.float32) for _ in range(5)]
+    tensor_hits = semantic_search(torch.from_numpy(query), torch.stack([torch.from_numpy(row) for row in corpus]), top_k=2)
+    numpy_hits = semantic_search(query, corpus, top_k=2)
+
+    assert len(numpy_hits) == 1
+    assert len(numpy_hits[0]) == 2
+    assert [hit["corpus_id"] for hit in numpy_hits[0]] == [hit["corpus_id"] for hit in tensor_hits[0]]
+    assert [hit["score"] for hit in numpy_hits[0]] == pytest.approx([hit["score"] for hit in tensor_hits[0]])
+
+
 @pytest.mark.slow
 def test_paraphrase_mining() -> None:
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
