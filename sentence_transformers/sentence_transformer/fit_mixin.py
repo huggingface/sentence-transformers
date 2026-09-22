@@ -330,7 +330,9 @@ class FitMixin:
         num_train_steps = int(steps_per_epoch * epochs)
 
         # Prepare optimizer & scheduler
-        param_optimizer = list(self.named_parameters())
+        # Include the weights that live on the losses (e.g. the SoftmaxLoss classifier), like the Trainer does.
+        # The model weights that the losses share with this model are only yielded once.
+        param_optimizer = list(nn.ModuleDict({"model": self, **loss_fn_dict}).named_parameters())
 
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
