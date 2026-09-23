@@ -358,9 +358,12 @@ def mine_hard_negatives(
     if num_negatives < 1:
         raise ValueError(f"num_negatives must be at least 1, got num_negatives={num_negatives}.")
 
+    # Whether candidates are filtered by score, which is what the CrossEncoder rescoring feeds into
+    score_filtering = any(value is not None for value in (absolute_margin, relative_margin, max_score, min_score))
+
     faiss_cap_note = ""
     if range_max is None:
-        if absolute_margin is not None or relative_margin is not None or max_score is not None:
+        if score_filtering:
             # max_positives + 10 * num_negatives negatives because some might be skipped, and range_min skipped
             range_max = range_min + (num_negatives * 10) + max_positives
         else:
@@ -584,9 +587,7 @@ def mine_hard_negatives(
     del corpus_embeddings
 
     # Rescore with cross_encoder
-    if cross_encoder is not None and (
-        absolute_margin is not None or relative_margin is not None or max_score is not None
-    ):
+    if cross_encoder is not None and score_filtering:
         if use_multi_process:
             pool = cross_encoder.start_multi_process_pool(
                 target_devices=None if isinstance(use_multi_process, bool) else use_multi_process
