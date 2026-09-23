@@ -12,9 +12,27 @@ from sentence_transformers.util.tensor import (
     _convert_to_tensor,
     _move_tensors_to_cpu,
     _move_tensors_to_device,
+    compute_count_vector,
     normalize_embeddings,
     select_max_active_dims,
 )
+
+
+@pytest.mark.parametrize("batched", [False, True])
+@pytest.mark.parametrize("all_zero", [False, True])
+def test_compute_count_vector_ignores_explicit_zeros(batched: bool, all_zero: bool) -> None:
+    indices = [[0, 1, 1, 2]]
+    if batched:
+        indices.insert(0, [0, 0, 0, 1])
+    values = [0.0, 2.0, -2.0, 0.0 if all_zero else 3.0]
+    embeddings = torch.sparse_coo_tensor(indices, values, (2, 4) if batched else (4,))
+    expected = torch.tensor([0, 0, 0 if all_zero else 1, 0], dtype=torch.int32)
+
+    for tensor in (embeddings, embeddings.coalesce(), embeddings.to_dense()):
+        result = compute_count_vector(tensor)
+        assert torch.equal(result, expected)
+        assert result.dtype == torch.int32
+        assert result.device == tensor.device
 
 
 @pytest.mark.parametrize("target_device", ["cpu", torch.device("meta")])
