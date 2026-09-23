@@ -207,7 +207,8 @@ class CachedGISTEmbedLoss(nn.Module):
                         )
                         sentence_feature_minibatch = self.guide.preprocess(decoded)
                         sentence_feature_minibatch = {
-                            key: value.to(self.guide.device) for key, value in sentence_feature_minibatch.items()
+                            key: value.to(self.guide.device) if isinstance(value, Tensor) else value
+                            for key, value in sentence_feature_minibatch.items()
                         }
                     guide_reps = self.guide(sentence_feature_minibatch)["sentence_embedding"]
 
