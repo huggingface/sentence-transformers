@@ -385,16 +385,16 @@ def compute_count_vector(embeddings: torch.Tensor) -> torch.Tensor:
 
     # Coalesce to ensure indices are sorted and unique
     embeddings = embeddings.coalesce()
+    indices = embeddings.indices()[:, embeddings.values() != 0]
 
     count_vector = torch.zeros(embeddings.size(-1), device=embeddings.device, dtype=torch.int32)
     if embeddings.dim() == 1:
         # Single embedding case
-        count_vector[embeddings.indices().squeeze()] = 1
+        count_vector[indices[0]] = 1
         return count_vector
     elif embeddings.dim() == 2:
         # Batch case
-        if embeddings.values().numel() > 0:
-            indices = embeddings.indices()
+        if indices.size(1) > 0:
             # Count how many samples have non-zero values in each dimension
             unique_dims, counts = torch.unique(indices[1], return_counts=True)
             count_vector[unique_dims] = counts.int()
