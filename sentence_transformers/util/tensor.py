@@ -113,13 +113,22 @@ def normalize_embeddings(embeddings: Tensor) -> Tensor:
     Normalizes the embeddings matrix, so that each sentence embedding has unit length.
 
     Args:
-        embeddings (Tensor): The input embeddings matrix.
+        embeddings (Tensor): The input embeddings matrix. A 1D vector, as returned by
+            ``encode()`` for a single string, is treated as one embedding.
 
     Returns:
-        Tensor: The normalized embeddings matrix.
+        Tensor: The normalized embeddings matrix, with the same number of dimensions
+            as the input.
     """
+    # encode() of a single text returns a 1D vector. normalize uses dim=1, which
+    # IndexErrors on that shape. Match select_max_active_dims / community_detection.
+    squeeze = embeddings.ndim == 1
+    if squeeze:
+        embeddings = embeddings.unsqueeze(0)
+
     if not embeddings.is_sparse:
-        return torch.nn.functional.normalize(embeddings, p=2, dim=1)
+        out = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+        return out.squeeze(0) if squeeze else out
 
     embeddings = embeddings.coalesce()
     indices, values = embeddings.indices(), embeddings.values()
@@ -134,7 +143,8 @@ def normalize_embeddings(embeddings: Tensor) -> Tensor:
     normalized_values = values.clone()
     normalized_values[mask] /= row_norms[mask]
 
-    return torch.sparse_coo_tensor(indices, normalized_values, embeddings.size())
+    out = torch.sparse_coo_tensor(indices, normalized_values, embeddings.size())
+    return out.squeeze(0) if squeeze else out
 
 
 @overload
