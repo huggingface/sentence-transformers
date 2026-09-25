@@ -28,9 +28,15 @@ class BatchHardTripletLossDistanceFunction:
                      If false, output is the pairwise euclidean distance matrix.
         Returns:
             pairwise_distances: tensor of shape (batch_size, batch_size)
+                Float16 and bfloat16 inputs are computed in float32, including under autocast.
         """
 
-        dot_product = torch.matmul(embeddings, embeddings.t())
+        # Half-precision Gram matrices can overflow or erase small pairwise distances.
+        # Disable autocast as well: casting the inputs alone would still allow a low-precision matmul.
+        with torch.autocast(device_type=embeddings.device.type, enabled=False):
+            if embeddings.dtype in (torch.float16, torch.bfloat16):
+                embeddings = embeddings.float()
+            dot_product = torch.matmul(embeddings, embeddings.t())
 
         # Get squared L2 norm for each embedding. We can just take the diagonal of `dot_product`.
         # This also provides more numerical stability (the diagonal of the result will be exactly 0).
