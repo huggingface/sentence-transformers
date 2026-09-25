@@ -5,6 +5,8 @@ Computes embeddings
 from __future__ import annotations
 
 import numpy as np
+import torch
+from transformers import DataCollatorWithFlattening
 
 from sentence_transformers import SentenceTransformer
 
@@ -96,3 +98,54 @@ def test_encode_routes_through_module_call(stsb_bert_tiny_model: SentenceTransfo
     finally:
         handle.remove()
     assert calls, "encode() should invoke the model via __call__, not call forward() directly"
+
+
+def _flatten_text_inputs(model: SentenceTransformer) -> None:
+    """Flatten text inputs as Transformer does with Flash Attention 2, which is not available on CPU."""
+    transformer = model[0]
+    transformer.can_flatten_inputs = True
+    transformer.data_collator = DataCollatorWithFlattening(
+        return_seq_idx=True, return_flash_attn_kwargs=True, return_position_ids=True
+    )
+    transformer._flatten_position_offset = transformer._infer_flatten_position_offset()
+
+
+FLATTENING_SENTENCES = [
+    "Hello Word, a test sentence",
+    "Here comes another sentence",
+    "My final sentence",
+    "Sentences",
+    "Sentence five five five five five five five",
+]
+
+
+def test_encode_token_embeddings_with_flattened_inputs(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    model = stsb_bert_tiny_model
+    padded = model.encode(FLATTENING_SENTENCES, output_value="token_embeddings", batch_size=1)
+    _flatten_text_inputs(model)
+
+    # A flattened batch of one input holds exactly that input, so it must give the same token embeddings.
+    flattened = model.encode(FLATTENING_SENTENCES, output_value="token_embeddings", batch_size=1)
+    assert len(flattened) == len(FLATTENING_SENTENCES)
+    for padded_embeddings, flattened_embeddings in zip(padded, flattened):
+        torch.testing.assert_close(flattened_embeddings, padded_embeddings, rtol=1e-4, atol=1e-5)
+
+    # Larger flattened batches pack several inputs into one row: each input must still get its own tokens.
+    # The values can differ here, as the inputs attend to each other without a variable-length attention kernel.
+    flattened = model.encode(FLATTENING_SENTENCES, output_value="token_embeddings", batch_size=2)
+    assert [embeddings.shape for embeddings in flattened] == [embeddings.shape for embeddings in padded]
+
+
+def test_encode_all_outputs_with_flattened_inputs(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    model = stsb_bert_tiny_model
+    padded = model.encode(FLATTENING_SENTENCES, output_value=None, batch_size=2)
+    _flatten_text_inputs(model)
+
+    flattened = model.encode(FLATTENING_SENTENCES, output_value=None, batch_size=2)
+    assert len(flattened) == len(FLATTENING_SENTENCES)
+    for padded_output, flattened_output in zip(padded, flattened):
+        padded_mask = padded_output["attention_mask"].bool()
+        flattened_mask = flattened_output["attention_mask"].bool()
+        assert torch.equal(flattened_output["input_ids"][flattened_mask], padded_output["input_ids"][padded_mask])
+        assert flattened_output["token_embeddings"].shape[0] == flattened_mask.shape[0]
+        assert flattened_output["sentence_embedding"].shape == padded_output["sentence_embedding"].shape

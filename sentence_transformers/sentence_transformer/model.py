@@ -20,7 +20,7 @@ from sentence_transformers.base.modality_types import SingleInput
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
-from sentence_transformers.util import batch_to_device, truncate_embeddings
+from sentence_transformers.util import batch_to_device, repad_flattened_features, truncate_embeddings
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -968,6 +968,11 @@ class SentenceTransformer(BaseModel, FitMixin):
                 out_features["sentence_embedding"] = truncate_embeddings(
                     out_features["sentence_embedding"], truncate_dim
                 )
+
+            if output_value != "sentence_embedding" and "cu_seq_lens_q" in out_features:
+                # Flash Attention input flattening packs the whole batch into a single row without an
+                # attention mask. Re-pad it so that every input gets its own row again below.
+                out_features = repad_flattened_features(out_features)
 
             if output_value == "token_embeddings":
                 embeddings = []
