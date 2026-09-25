@@ -202,12 +202,19 @@ class CachedGISTEmbedLoss(nn.Module):
             else:
                 with torch.no_grad():
                     if self.must_retokenize:
-                        decoded = self.tokenizer.batch_decode(
-                            sentence_feature_minibatch["input_ids"], skip_special_tokens=True
-                        )
+                        input_ids = sentence_feature_minibatch["input_ids"]
+                        if "cu_seq_lens_q" in sentence_feature_minibatch:
+                            # Flattened inputs hold all sequences in one row; restore them before decoding.
+                            flat_input_ids = input_ids[0].tolist()
+                            cu_seq_lens = sentence_feature_minibatch["cu_seq_lens_q"].tolist()
+                            input_ids = [
+                                flat_input_ids[start:end] for start, end in zip(cu_seq_lens[:-1], cu_seq_lens[1:])
+                            ]
+                        decoded = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
                         sentence_feature_minibatch = self.guide.preprocess(decoded)
                         sentence_feature_minibatch = {
-                            key: value.to(self.guide.device) for key, value in sentence_feature_minibatch.items()
+                            key: value.to(self.guide.device) if isinstance(value, Tensor) else value
+                            for key, value in sentence_feature_minibatch.items()
                         }
                     guide_reps = self.guide(sentence_feature_minibatch)["sentence_embedding"]
 
