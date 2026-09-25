@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 
 from sentence_transformers.sparse_encoder.evaluation import ReciprocalRankFusionEvaluator
@@ -72,3 +73,22 @@ def test_rrf_only_scores_retrievers_that_returned_a_document(tmp_path):
 
     assert prediction["documents"][0] == "shared"
     assert results["mrr@3"] == 1.0
+
+
+def test_csv_output_has_one_line_per_row(tmp_path):
+    """The results CSV must not gain an empty row after every row on Windows.
+
+    csv.writer writes its own CRLF line endings, so the file has to be opened with newline="".
+    Running twice covers both the write and the append path.
+    """
+    dense_samples, sparse_samples = _make_samples()
+    evaluator = ReciprocalRankFusionEvaluator(dense_samples=dense_samples, sparse_samples=sparse_samples, at_k=10)
+    evaluator(output_path=str(tmp_path), epoch=0, steps=1)
+    evaluator(output_path=str(tmp_path), epoch=1, steps=2)
+
+    csv_path = tmp_path / evaluator.csv_file
+    assert b"\r\r\n" not in csv_path.read_bytes()
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    assert rows[0] == evaluator.csv_headers
+    assert [row[:2] for row in rows[1:]] == [["0", "1"], ["1", "2"]]
