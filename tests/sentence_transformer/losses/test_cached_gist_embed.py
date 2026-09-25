@@ -61,6 +61,71 @@ def test_accepts_a_tokenizer_without_a_vocab_attribute(loss_class) -> None:
     assert loss.must_retokenize is False
 
 
+@pytest.mark.parametrize("flattened", [False, True])
+def test_cached_gist_retokenizes_each_minibatch_sentence(flattened: bool) -> None:
+    class Student(torch.nn.Module):
+        def forward(self, features):
+            num_sentences = (
+                len(features["cu_seq_lens_q"]) - 1 if "cu_seq_lens_q" in features else len(features["input_ids"])
+            )
+            return {"sentence_embedding": torch.ones(num_sentences, 2)}
+
+    class Guide(torch.nn.Module):
+        device = torch.device("cpu")
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.texts = None
+            self.features = None
+
+        def preprocess(self, texts):
+            self.texts = texts
+            return {
+                "input_ids": torch.ones(len(texts), 1, dtype=torch.long),
+                "modality": "text",
+                "prompt_length": 0,
+            }
+
+        def forward(self, features):
+            self.features = features
+            return {"sentence_embedding": torch.ones(len(features["input_ids"]), 2)}
+
+    class Tokenizer:
+        def batch_decode(self, sequences, skip_special_tokens):
+            return [" ".join(str(int(token)) for token in sequence if token != 0) for sequence in sequences]
+
+    if flattened:
+        cu_seq_lens = torch.tensor([0, 2, 3, 6], dtype=torch.int32)
+        features = {
+            "input_ids": torch.tensor([[11, 12, 13, 14, 15, 16]]),
+            "position_ids": torch.tensor([[0, 1, 0, 0, 1, 2]]),
+            "seq_idx": torch.tensor([[0, 0, 1, 2, 2, 2]]),
+            "cu_seq_lens_q": cu_seq_lens,
+            "cu_seq_lens_k": cu_seq_lens,
+            "max_length_q": 3,
+            "max_length_k": 3,
+        }
+    else:
+        features = {
+            "input_ids": torch.tensor([[11, 12, 0], [13, 0, 0], [14, 15, 16]]),
+            "attention_mask": torch.tensor([[1, 1, 0], [1, 0, 0], [1, 1, 1]]),
+        }
+
+    loss = _make_loss(margin=0.0, mini_batch_size=2)
+    loss.model = Student()
+    guide = Guide()
+    loss.guide = guide
+    loss.tokenizer = Tokenizer()
+    loss.must_retokenize = True
+
+    student_reps, guide_reps, _ = loss.embed_minibatch(features, 1, 3, with_grad=False, copy_random_state=False)
+
+    assert guide.texts == ["13", "14 15 16"]
+    assert student_reps.shape == guide_reps.shape == (2, 2)
+    assert guide.features["modality"] == "text"
+    assert guide.features["prompt_length"] == 0
+
+
 @pytest.fixture
 def simulate_rank1_world2(monkeypatch):
     """Monkeypatch the distributed helpers so ``calculate_loss`` runs the rank=1/world=2
