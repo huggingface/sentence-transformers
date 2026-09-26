@@ -915,6 +915,41 @@ def test_cache(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTrans
     assert len(result1) == len(result2)
 
 
+def test_cache_is_per_model(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, tmp_path: Path
+) -> None:
+    """The cache key must include the model identity: two locally loaded models
+    (for which ``model_card_data.base_model`` is None) used to collapse to the
+    same cache file and silently reuse each other's cached embeddings."""
+    cache_dir = os.path.join(tmp_path, "embeddings_cache")
+    model_a = deepcopy(static_retrieval_mrl_en_v1_model)
+    model_b = deepcopy(static_retrieval_mrl_en_v1_model)
+    with torch.no_grad():
+        for param in model_b.parameters():
+            param.add_(1.0)
+    # Locally loaded models record no base_model, which used to make the cache
+    # hash ignore the model entirely.
+    model_a.model_card_data.base_model = None
+    model_b.model_card_data.base_model = None
+
+    calls: list[str] = []
+    for name, model in (("a", model_a), ("b", model_b)):
+        original_encode = model.encode_query
+
+        def spy(*args, _original=original_encode, _name=name, **kwargs):
+            calls.append(_name)
+            return _original(*args, **kwargs)
+
+        model.encode_query = spy
+
+    mine_hard_negatives(dataset=dataset, model=model_a, cache_folder=cache_dir, verbose=False)
+    mine_hard_negatives(dataset=dataset, model=model_b, cache_folder=cache_dir, verbose=False)
+
+    # The second model must encode its own embeddings instead of loading the
+    # first model's cache files.
+    assert calls == ["a", "b"]
+
+
 def test_cache_respects_prompt(
     dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, tmp_path: Path
 ) -> None:

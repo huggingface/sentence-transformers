@@ -22,6 +22,27 @@ if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
+def _model_fingerprint(first_module) -> str:
+    """A stable identity for a model without ``model_card_data.base_model``.
+
+    Locally loaded models have no base_model recorded, and two different local
+    models would otherwise share one embedding cache and silently reuse each
+    other's cached embeddings. A short sample of the module's state dict
+    distinguishes different weights while keeping identical copies sharing.
+    """
+    try:
+        state = first_module.state_dict()
+        parts = []
+        for index, (key, tensor) in enumerate(sorted(state.items())):
+            if index >= 3:
+                break
+            flat = tensor.detach().flatten()
+            parts.append(f"{key}:{tuple(flat.shape)}:{flat[:8].tolist()}")
+        return ";".join(parts)
+    except Exception:
+        return ""
+
+
 def mine_hard_negatives(
     dataset: Dataset,
     model: SentenceTransformer,
@@ -437,7 +458,7 @@ def mine_hard_negatives(
     if cache_folder:
         os.makedirs(cache_folder, exist_ok=True)
 
-        model_name = model.model_card_data.base_model or ""
+        model_name = model.model_card_data.base_model or _model_fingerprint(model._first_module())
         query_hash = hashlib.sha256(
             repr((model_name, query_prompt, query_prompt_name, queries)).encode(),
             usedforsecurity=False,
