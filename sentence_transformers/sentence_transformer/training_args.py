@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sentence_transformers.base.sampler import BatchSamplers, MultiDatasetBatchSamplers
 from sentence_transformers.base.training_args import BaseTrainingArguments
@@ -16,6 +16,17 @@ class SentenceTransformerTrainingArguments(BaseTrainingArguments):
     Args:
         output_dir (`str`):
             The output directory where the model checkpoints will be written.
+        lazy_preprocessing (`bool`, *optional*, defaults to `False`):
+            Experimental: defer preprocessing to each embedding mini-batch of
+            :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`.
+            Use deterministic preprocessing and raw text or media references in the dataset.
+            Requires fixed-size mini-batches (no ``mini_batch_num_tokens``).
+            Initially validated for single-device, full-precision training and evaluation;
+            distributed training, compiled models, and mixed precision are not validated here.
+            Loss wrappers are not supported in this initial implementation.
+            Batch-dependent preprocessing (for example, dynamic left padding) may produce
+            different inputs than eager whole-batch preprocessing. Custom collators must use
+            ``model.preprocess`` as their ``preprocess_fn``.
         prompts (`Union[Dict[str, Dict[str, str]], Dict[str, str], str]`, *optional*):
             The prompts to use for each column in the training, evaluation and test datasets. Four formats are accepted:
 
@@ -48,6 +59,10 @@ class SentenceTransformerTrainingArguments(BaseTrainingArguments):
             SparseStaticEmbedding module. This is useful when you want to fine-tune specific parts of the model
             with different learning rates.
     """
+
+    lazy_preprocessing: bool = field(
+        default=False, metadata={"help": "Preprocess raw inputs inside cached embedding mini-batches."}
+    )
 
 
 __all__ = ["SentenceTransformerTrainingArguments", "BatchSamplers", "MultiDatasetBatchSamplers"]

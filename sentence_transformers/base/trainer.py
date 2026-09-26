@@ -325,6 +325,21 @@ class BaseTrainer(Trainer, ABC):
         else:
             self.loss = self.prepare_loss(loss, model)
 
+        if getattr(args, "lazy_preprocessing", False) or getattr(self.data_collator, "lazy_preprocessing", False):
+            if not getattr(self.data_collator, "lazy_preprocessing", False):
+                raise ValueError("lazy_preprocessing requires a data collator with lazy_preprocessing=True.")
+            if getattr(self.data_collator, "preprocess_fn", model.preprocess) != model.preprocess:
+                raise ValueError(
+                    "lazy_preprocessing calls model.preprocess inside the loss and cannot use a custom "
+                    "data collator preprocess_fn. Configure preprocessing on the model instead."
+                )
+            losses = self.loss.values() if isinstance(self.loss, dict) else [self.loss]
+            for loss_fn in losses:
+                if not getattr(loss_fn, "supports_lazy_preprocessing", False):
+                    raise ValueError("lazy_preprocessing currently requires CachedMultipleNegativesRankingLoss.")
+                if getattr(loss_fn, "mini_batch_num_tokens", None) is not None:
+                    raise ValueError("lazy_preprocessing does not support mini_batch_num_tokens; use mini_batch_size.")
+
         # If evaluator is a list, we wrap it in a SequentialEvaluator
         if evaluator is not None and not isinstance(evaluator, BaseEvaluator):
             evaluator = SequentialEvaluator(evaluator)
@@ -372,13 +387,16 @@ class BaseTrainer(Trainer, ABC):
                 "e.g. {'column_one': 'query', 'column_two': 'document', 'column_three': 'document'}."
             )
 
-        return self.data_collator_class(
+        collator = self.data_collator_class(
             preprocess_fn=model.preprocess,
             router_mapping=args.router_mapping,
             prompts=args.prompts,
             # Only MultiVectorEncoderTrainingArguments defines max_length so far.
             max_length=getattr(args, "max_length", None),
         )
+        if getattr(args, "lazy_preprocessing", False):
+            collator.lazy_preprocessing = True
+        return collator
 
     def add_model_card_callback(self, default_args_dict: dict[str, Any]) -> None:
         """
@@ -606,6 +624,7 @@ class BaseTrainer(Trainer, ABC):
         """
         # All inputs ending with one of these suffixes are considered to correspond to a feature
         feature_suffixes = (
+            "raw_inputs",  # deferred preprocessing for cached losses
             "input_ids",  # text (Transformers)
             "sentence_embedding",  # BoW
             "pixel_values",  # image (CLIPModel, etc.)

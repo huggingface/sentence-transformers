@@ -27,6 +27,8 @@ import tqdm
 from torch import Tensor
 from torch.utils.checkpoint import get_device_states, set_device_states
 
+from sentence_transformers.util import batch_to_device
+
 
 class RandContext:
     """Snapshot the CPU/CUDA/MPS RNG at init and restore it on enter, so the cached second forward
@@ -69,6 +71,8 @@ def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
     With flattened inputs (from ``DataCollatorWithFlattening``), the batch size is derived
     from ``cu_seq_lens_q`` which has shape ``(num_seqs + 1,)``.
     """
+    if sentence_feature.get("_lazy_preprocessing") is True:
+        return len(sentence_feature["raw_inputs"])
     if "cu_seq_lens_q" in sentence_feature:
         return len(sentence_feature["cu_seq_lens_q"]) - 1
     # Prefer known batch-indexed keys, since flattened tensors like pixel_values can have a
@@ -221,6 +225,8 @@ def _minibatch_ranges(
     ``cu_seq_lens_q`` for flattened inputs, or from the attention mask for padded inputs.
     """
     batch_size = _get_batch_size(sentence_feature)
+    if sentence_feature.get("_lazy_preprocessing") is True and mini_batch_num_tokens is not None:
+        raise ValueError("Raw inputs require mini_batch_size; token counts are unavailable before preprocessing.")
     if mini_batch_num_tokens is None:
         return [(begin, min(begin + mini_batch_size, batch_size)) for begin in range(0, batch_size, mini_batch_size)]
 
@@ -271,7 +277,7 @@ def has_static_embedding_input(model: Any) -> bool:
 
 def _backward_hook(
     grad_output: Tensor,
-    sentence_features: Iterable[dict[str, Tensor]],
+    sentence_features: Iterable[dict[str, Any]],
     loss_obj: Any,
     cache: list[list[Tensor]],
     random_states: list[list[RandContext]],
@@ -351,7 +357,7 @@ class CachedLossMixin:
 
     def embed_minibatch(
         self,
-        sentence_feature: dict[str, Tensor],
+        sentence_feature: dict[str, Any],
         begin: int,
         end: int,
         with_grad: bool,
@@ -361,7 +367,17 @@ class CachedLossMixin:
         """Embed a mini-batch of inputs."""
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
-        sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
+        if sentence_feature.get("_lazy_preprocessing") is True:
+            # Preprocessing must be deterministic: both GradCache passes materialize
+            # the same raw slice. Snapshot device RNG only after preparing the tensors.
+            kwargs = sentence_feature.get("preprocessing_kwargs", {})
+            with torch.no_grad():
+                sentence_feature_minibatch = self.model.preprocess(sentence_feature["raw_inputs"][begin:end], **kwargs)
+            if kwargs.get("task") is not None:
+                sentence_feature_minibatch["task"] = kwargs["task"]
+            sentence_feature_minibatch = batch_to_device(sentence_feature_minibatch, self.model.device)
+        else:
+            sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
         with random_state_context:
             with grad_context():
                 random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
@@ -370,7 +386,7 @@ class CachedLossMixin:
 
     def embed_minibatch_iter(
         self,
-        sentence_feature: dict[str, Tensor],
+        sentence_feature: dict[str, Any],
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
@@ -395,7 +411,7 @@ class CachedLossMixin:
                 random_state=None if random_states is None else random_states[i],
             )
 
-    def forward_cached(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None) -> Tensor:
+    def forward_cached(self, sentence_features: Iterable[dict[str, Any]], labels: Tensor | None = None) -> Tensor:
         """Run the three-step GradCache forward pass. See the module docstring."""
         sentence_features = list(sentence_features)
         grad_enabled = torch.is_grad_enabled()
