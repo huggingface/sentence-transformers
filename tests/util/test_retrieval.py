@@ -117,6 +117,22 @@ def test_paraphrase_mining_embeddings_returns_top_max_pairs(
     assert [score for score, _, _ in pairs] == pytest.approx([score for score, _, _ in expected])
 
 
+@pytest.mark.parametrize("top_k", [1, 3])
+@pytest.mark.parametrize("corpus_chunk_size", [7, 11, 40])
+def test_paraphrase_mining_embeddings_top_k_is_per_sentence(top_k: int, corpus_chunk_size: int) -> None:
+    torch.manual_seed(0)
+    embeddings = torch.randn(40, 8)
+    scores = cos_sim(embeddings, embeddings).fill_diagonal_(-torch.inf)
+    neighbours = scores.topk(top_k, dim=1).indices.tolist()
+    expected = {(min(i, j), max(i, j)) for i, row in enumerate(neighbours) for j in row}
+
+    pairs = paraphrase_mining_embeddings(
+        embeddings, query_chunk_size=5, corpus_chunk_size=corpus_chunk_size, top_k=top_k
+    )
+
+    assert {(i, j) for _, i, j in pairs} == expected
+
+
 def test_community_detection_two_clear_communities():
     """Test case with two clear communities."""
     embeddings = torch.tensor(

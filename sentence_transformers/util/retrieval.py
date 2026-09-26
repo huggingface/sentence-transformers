@@ -118,37 +118,40 @@ def paraphrase_mining_embeddings(
     queued_pairs = set()  # The (i, j) of every pair currently in `pairs`
     min_score = float("-inf")
 
-    for corpus_start_idx in range(0, len(embeddings), corpus_chunk_size):
-        for query_start_idx in range(0, len(embeddings), query_chunk_size):
-            scores = score_function(
-                embeddings[query_start_idx : query_start_idx + query_chunk_size],
-                embeddings[corpus_start_idx : corpus_start_idx + corpus_chunk_size],
-            )
+    for query_start_idx in range(0, len(embeddings), query_chunk_size):
+        query_chunk = embeddings[query_start_idx : query_start_idx + query_chunk_size]
+        chunk_top_k_values, chunk_top_k_idx = [], []
+        for corpus_start_idx in range(0, len(embeddings), corpus_chunk_size):
+            scores = score_function(query_chunk, embeddings[corpus_start_idx : corpus_start_idx + corpus_chunk_size])
+            values, idx = torch.topk(scores, min(top_k, len(scores[0])), dim=1, largest=True, sorted=False)
+            chunk_top_k_values.append(values)
+            chunk_top_k_idx.append(idx + corpus_start_idx)
 
-            scores_top_k_values, scores_top_k_idx = torch.topk(
-                scores, min(top_k, len(scores[0])), dim=1, largest=True, sorted=False
-            )
-            scores_top_k_values = scores_top_k_values.cpu().tolist()
-            scores_top_k_idx = scores_top_k_idx.cpu().tolist()
+        # Keep the top_k over the whole corpus, not the top_k of every corpus chunk
+        scores_top_k_values, positions = torch.topk(
+            torch.cat(chunk_top_k_values, dim=1), min(top_k, len(embeddings)), dim=1, largest=True, sorted=False
+        )
+        scores_top_k_idx = torch.gather(torch.cat(chunk_top_k_idx, dim=1), 1, positions)
+        scores_top_k_values = scores_top_k_values.cpu().tolist()
+        scores_top_k_idx = scores_top_k_idx.cpu().tolist()
 
-            for query_itr in range(len(scores)):
-                i = query_start_idx + query_itr
-                for corpus_itr, score in zip(scores_top_k_idx[query_itr], scores_top_k_values[query_itr]):
-                    j = corpus_start_idx + corpus_itr
-                    if i == j or score <= min_score:
-                        continue
+        for query_itr in range(len(scores_top_k_values)):
+            i = query_start_idx + query_itr
+            for j, score in zip(scores_top_k_idx[query_itr], scores_top_k_values[query_itr]):
+                if i == j or score <= min_score:
+                    continue
 
-                    pair = (i, j) if i < j else (j, i)
-                    if pair in queued_pairs:
-                        continue
+                pair = (i, j) if i < j else (j, i)
+                if pair in queued_pairs:
+                    continue
 
-                    queued_pairs.add(pair)
-                    if len(pairs) < max_pairs:
-                        heapq.heappush(pairs, (score, *pair))
-                    else:
-                        evicted = heapq.heappushpop(pairs, (score, *pair))
-                        queued_pairs.discard(evicted[1:])
-                        min_score = evicted[0]
+                queued_pairs.add(pair)
+                if len(pairs) < max_pairs:
+                    heapq.heappush(pairs, (score, *pair))
+                else:
+                    evicted = heapq.heappushpop(pairs, (score, *pair))
+                    queued_pairs.discard(evicted[1:])
+                    min_score = evicted[0]
 
     # Highest scores first
     return sorted(([score, i, j] for score, i, j in pairs), key=lambda x: x[0], reverse=True)
