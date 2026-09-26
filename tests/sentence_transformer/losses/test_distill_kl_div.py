@@ -102,3 +102,46 @@ def test_distill_kl_div_separate_temperatures() -> None:
         "student_temperature": 0.5,
         "teacher_temperature": 2.0,
     }
+
+
+def test_distill_kl_div_min_max_normalization() -> None:
+    """normalize_student / normalize_teacher rescale each row to [0, 1] before the softmax, so the loss
+    matches the one computed on pre-normalized scores and no longer depends on the teacher's scale."""
+    generator = torch.Generator().manual_seed(13)
+    embeddings = [torch.randn(4, 8, generator=generator) for _ in range(4)]
+    labels = torch.tensor([[9.0, 2.0, -3.0], [4.0, 6.0, 1.0], [0.5, 0.2, 0.1], [-1.0, -8.0, 3.0]])
+
+    both = DistillKLDivLoss(model=None, normalize_student=True, normalize_teacher=True)
+    value = both.compute_loss_from_embeddings(embeddings, labels)
+
+    student_scores = torch.stack([(embeddings[0] * other).sum(-1) for other in embeddings[1:]], dim=1)
+    student = (student_scores - student_scores.amin(1, keepdim=True)) / (
+        student_scores.amax(1, keepdim=True) - student_scores.amin(1, keepdim=True)
+    )
+    teacher = (labels - labels.amin(1, keepdim=True)) / (labels.amax(1, keepdim=True) - labels.amin(1, keepdim=True))
+    expected = torch.nn.functional.kl_div(
+        torch.log_softmax(student, dim=1), torch.softmax(teacher, dim=1), reduction="batchmean"
+    )
+    assert value.item() == pytest.approx(expected.item(), abs=1e-6)
+
+    rescaled = both.compute_loss_from_embeddings(embeddings, labels * 25.0 + 7.0)
+    assert rescaled.item() == pytest.approx(value.item(), abs=1e-6)
+    assert DistillKLDivLoss(model=None).compute_loss_from_embeddings(embeddings, labels).item() != pytest.approx(
+        value.item()
+    )
+    assert both.get_config_dict() == {
+        "similarity_fct": "pairwise_dot_score",
+        "temperature": 1.0,
+        "normalize_student": True,
+        "normalize_teacher": True,
+    }
+
+
+def test_distill_kl_div_min_max_normalization_keeps_excluded_candidates() -> None:
+    """An infinite teacher score marks an excluded candidate: it must not leak into the row's min or
+    max, and must stay at zero probability instead of turning the loss into NaN."""
+    generator = torch.Generator().manual_seed(17)
+    embeddings = [torch.randn(2, 8, generator=generator) for _ in range(4)]
+    loss = DistillKLDivLoss(model=None, normalize_student=True, normalize_teacher=True)
+    value = loss.compute_loss_from_embeddings(embeddings, torch.tensor([[5.0, 1.0, -float("inf")], [4.0, 1.0, 2.0]]))
+    assert torch.isfinite(value)
