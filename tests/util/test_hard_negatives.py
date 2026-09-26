@@ -1147,6 +1147,57 @@ def test_multi_process(
     assert "negative" in result.column_names
 
 
+# Module-level helpers: the pool worker spawn pickles the model (and anything stored on it),
+# so these cannot be closures local to the test function.
+_pool_capture: dict = {}
+
+
+_original_start_multi_process_pool = SentenceTransformer.start_multi_process_pool
+
+
+def _capturing_start_multi_process_pool(self, target_devices=None):
+    pool = _original_start_multi_process_pool(self, target_devices)
+    _pool_capture["pool"] = pool
+    return pool
+
+
+def _failing_encode(*args, **kwargs):
+    raise RuntimeError("simulated encode failure")
+
+
+def test_multi_process_pool_stopped_on_encode_failure(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+) -> None:
+    """An exception while encoding must not leak the multi-process pool workers.
+
+    The pool used to be stopped only after both encodes succeeded, so a failure in
+    ``encode_document``/``encode_query`` left the spawned workers (and any GPU memory they
+    hold) alive for the remainder of the process.
+    """
+    model = static_retrieval_mrl_en_v1_model
+    if os.environ.get("CI"):
+        pytest.skip("Skipping multi-process test in CI environment")
+
+    _pool_capture.clear()
+    monkeypatch = pytest.MonkeyPatch()
+    with monkeypatch.context() as m:
+        m.setattr(SentenceTransformer, "start_multi_process_pool", _capturing_start_multi_process_pool)
+        m.setattr(model, "encode_document", _failing_encode)
+        with pytest.raises(RuntimeError, match="simulated encode failure"):
+            mine_hard_negatives(
+                dataset=dataset,
+                model=model,
+                use_multi_process=["cpu"],
+                verbose=False,
+            )
+
+    for process in _pool_capture["pool"]["processes"]:
+        try:
+            assert not process.is_alive()
+        except ValueError:
+            pass  # process.close() was already called => the worker was stopped
+
+
 def test_empty_dataset(static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
     """Test behavior with an empty dataset."""
     model = static_retrieval_mrl_en_v1_model
