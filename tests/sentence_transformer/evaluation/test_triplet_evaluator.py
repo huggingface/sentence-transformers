@@ -38,6 +38,14 @@ def test_TripletEvaluator(stsb_bert_tiny_model: SentenceTransformer) -> None:
     assert metrics[evaluator.primary_metric] == 0.0
 
 
+def test_triplet_evaluator_main_similarity_function_is_evaluated(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    # The model scores with cosine, so the requested euclidean accuracy must still be computed
+    evaluator = TripletEvaluator(["a"], ["b"], ["c"], main_similarity_function="euclidean", name="dev")
+    metrics = evaluator(stsb_bert_tiny_model)
+    assert evaluator.primary_metric == "dev_euclidean_accuracy"
+    assert evaluator.primary_metric in metrics
+
+
 def test_triplet_evaluator_config_dict_margin() -> None:
     # The default margin is derived from _get_similarity_functions(), so it must stay recognized as
     # the default here rather than being reported as a configured margin.
