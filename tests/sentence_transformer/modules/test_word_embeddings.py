@@ -97,3 +97,26 @@ def test_from_text_file_creates_independent_default_tokenizers(tmp_path):
     assert first_model.tokenizer is not second_model.tokenizer
     assert list(first_model.tokenizer.get_vocab()) == ["PADDING_TOKEN", "apple", "banana"]
     assert list(second_model.tokenizer.get_vocab()) == ["PADDING_TOKEN", "carrot", "date"]
+
+
+def test_hf_tokenizer_preprocess_returns_token_id_lists():
+    """`TransformersTokenizerWrapper.tokenize` must return the full flat token id list.
+
+    transformers >= 5.0 returns a flat `list[int]` from `tokenizer(text)["input_ids"]` for a single
+    string (no batch dimension), so the previous `encoded["input_ids"][0]` returned a single int and
+    `WordEmbeddings.preprocess` crashed with `TypeError: object of type 'int' has no len()`.
+    """
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("hf-internal-testing/tiny-random-bert")
+    vocab_size = int(max(tokenizer.get_vocab().values())) + 1
+    model = WordEmbeddings(
+        tokenizer=tokenizer,
+        embedding_weights=np.random.rand(vocab_size, 4).astype(np.float32),
+    )
+
+    output = model.preprocess(["hello world", "hello there"])
+
+    assert output["input_ids"].shape[0] == 2
+    assert output["input_ids"].dtype == torch.long
+    assert (output["attention_mask"].sum(dim=1) == output["sentence_lengths"]).all()

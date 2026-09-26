@@ -425,7 +425,7 @@ class TransformersTokenizerWrapper(WordTokenizer):
 
     def tokenize(self, sentence: str):
         encoded = self.tokenizer(sentence)
-        return encoded["input_ids"][0]
+        return encoded["input_ids"]
 
     def set_vocab(self, vocab: Iterable[str]):
         pass
