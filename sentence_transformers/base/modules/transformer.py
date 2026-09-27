@@ -56,6 +56,7 @@ from sentence_transformers.base.modality_types import (
     SingleInput,
 )
 from sentence_transformers.base.modules.input_module import InputModule
+from sentence_transformers.base.processing import _get_token_counting_processor, _get_token_lengths_from_features
 from sentence_transformers.util.decorators import transformer_kwargs_decorator
 from sentence_transformers.util.environment import suggest_extra_on_exception
 
@@ -1253,6 +1254,30 @@ class Transformer(InputModule):
             Dictionary containing preprocessed tensors with a ``modality`` key indicating the
             input type and optionally a ``prompt_length`` key for prompt-aware pooling.
         """
+        return self._preprocess(inputs, prompt, processing_kwargs, token_lengths_only=False, **kwargs)
+
+    def _get_token_lengths(
+        self,
+        inputs: Sequence[SingleInput | PairInput],
+        prompt: str | None = None,
+        processing_kwargs: ProcessingKwargs | None = None,
+        **kwargs,
+    ) -> list[int]:
+        """Count tokens using the same input preparation, with pixel processing deferred."""
+        if not inputs:
+            return []
+        features = self._preprocess(inputs, prompt, processing_kwargs, token_lengths_only=True, **kwargs)
+        return _get_token_lengths_from_features(features)
+
+    def _preprocess(
+        self,
+        inputs: Sequence[SingleInput | PairInput],
+        prompt: str | None,
+        processing_kwargs: ProcessingKwargs | None,
+        *,
+        token_lengths_only: bool,
+        **kwargs,
+    ) -> dict[str, Any]:
         if not inputs:
             return {}
 
@@ -1393,6 +1418,17 @@ class Transformer(InputModule):
             processor_inputs["text"] = self.input_formatter.prepend_prompt_to_texts(processor_inputs["text"], prompt)
             prompt_length = self._get_prompt_length(prompt, **kwargs)
 
+        if token_lengths_only and modality not in ("text", "message"):
+            raise ValueError("Lazy mini_batch_num_tokens currently supports text and still-image messages only.")
+        if token_lengths_only and modality == "text" and expansion is None:
+            common_kwargs = {**common_kwargs, "return_tensors": None}
+            modality_kwargs["text"] = {
+                **modality_kwargs["text"],
+                "padding": False,
+                "return_tensors": None,
+                "return_attention_mask": True,
+            }
+
         # Track per-sample image/video counts before the processor flattens them into single tensors.
         # Losses that minibatch VLM inputs (e.g. CachedMNRL) use these counts to slice visual tensors.
         # Only used if the Trainer updated track_media_counts to True. Not gated on self.training:
@@ -1403,13 +1439,38 @@ class Transformer(InputModule):
             num_images_per_sample, num_videos_per_sample = _count_media_per_sample(processor_inputs["message"])
 
         with suggest_extra_on_exception():
-            processor_output = self._call_processor(
-                modality,
-                processor_inputs,
-                modality_kwargs,
-                common_kwargs,
-                chat_template_kwargs=chat_template_kwargs,
-            )
+            if token_lengths_only and modality == "message":
+                messages = processor_inputs["message"]
+                processor = _get_token_counting_processor(self.processor, messages)
+                # Restoring a truncated suffix changes token IDs without changing sequence lengths.
+                template_kwargs = {
+                    key: value for key, value in chat_template_kwargs.items() if key != "restore_suffix"
+                }
+                if "return_tensors" in template_kwargs:
+                    template_kwargs["return_tensors"] = None
+                length_kwargs = {
+                    **modality_kwargs,
+                    "text": {**modality_kwargs["text"], "return_tensors": None},
+                }
+                if processor is self.processor:
+                    length_kwargs["text"].update(padding=False, return_attention_mask=True)
+                processor_output = self._apply_chat_template(
+                    messages,
+                    length_kwargs,
+                    {**common_kwargs, "return_tensors": None},
+                    template_kwargs,
+                    processor=processor,
+                )
+                if processor is not self.processor and processor.tokenizer.lengths:
+                    return {"length": processor.tokenizer.lengths}
+            else:
+                processor_output = self._call_processor(
+                    modality,
+                    processor_inputs,
+                    modality_kwargs,
+                    common_kwargs,
+                    chat_template_kwargs=chat_template_kwargs,
+                )
 
         if num_images_per_sample is not None and "image_grid_thw" in processor_output:
             processor_output["num_images_per_sample"] = torch.tensor(num_images_per_sample, dtype=torch.long)
@@ -1917,11 +1978,13 @@ class Transformer(InputModule):
         modality_kwargs: dict[str, dict[str, Any]],
         common_kwargs: dict[str, Any],
         chat_template_kwargs: dict[str, Any],
+        processor: ProcessorMixin | PreTrainedTokenizerBase | None = None,
     ) -> dict[str, Any]:
         """Call ``apply_chat_template`` with the kwarg routing the processor type expects: nested kwargs for
         a ProcessorMixin, flat with the size kwargs hoisted to the top level for a bare tokenizer. Both the
         real batch and the suffix skeleton renders go through this (the given dicts are never mutated).
         """
+        processor = self.processor if processor is None else processor
         # Fold size kwargs from the chat-template bucket into the text kwargs (chat wins), else
         # apply_chat_template gets them twice (bare tokenizer) or misroutes them (ProcessorMixin).
         if size_keys := _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS & chat_template_kwargs.keys():
@@ -1932,7 +1995,7 @@ class Transformer(InputModule):
         # PaliGemmaProcessor refuses text-only inputs. Fall back to the tokenizer's apply_chat_template
         # (same token ids). Extend the isinstance check if other processors share the constraint.
         if (
-            isinstance(self.processor, PaliGemmaProcessor)
+            isinstance(processor, PaliGemmaProcessor)
             and self.tokenizer is not None
             and self.input_formatter.is_text_only_messages(messages)
         ):
@@ -1950,7 +2013,7 @@ class Transformer(InputModule):
                 **chat_template_kwargs,
             )
 
-        if isinstance(self.processor, ProcessorMixin):
+        if isinstance(processor, ProcessorMixin):
             video_kwargs = dict(modality_kwargs["video"])
             chat_template_kwargs = {
                 "load_audio_from_video": video_kwargs.pop("load_audio_from_video", False),
@@ -1959,7 +2022,7 @@ class Transformer(InputModule):
             # Transformers v5.4.0 prefers us to pass processor_kwargs as a single dict, but there's still some top level
             # kwargs that need to be hoisted out for backwards compatibility.
             if _TRANSFORMERS_APPLY_CHAT_TEMPLATE_RECOMMENDS_PROCESSOR_KWARGS:
-                return self.processor.apply_chat_template(
+                return processor.apply_chat_template(
                     messages,
                     tokenize=True,
                     return_dict=True,
@@ -1973,7 +2036,7 @@ class Transformer(InputModule):
                     },
                     **chat_template_kwargs,
                 )
-            return self.processor.apply_chat_template(
+            return processor.apply_chat_template(
                 messages,
                 tokenize=True,
                 return_dict=True,
@@ -1995,7 +2058,7 @@ class Transformer(InputModule):
         top_level_kwargs |= {
             key: text_kwargs.pop(key) for key in _APPLY_CHAT_TEMPLATE_TOP_LEVEL_KWARGS & text_kwargs.keys()
         }
-        return self.processor.apply_chat_template(
+        return processor.apply_chat_template(
             messages,
             tokenize=True,
             return_dict=True,

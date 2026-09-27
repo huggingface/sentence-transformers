@@ -349,16 +349,14 @@ def test_trainer_accumulation_and_partial_eval_match_eager(tiny_clip, raw_column
         torch.testing.assert_close(results[0][2][name], results[1][2][name], rtol=1e-4, atol=1e-5)
 
 
-@pytest.mark.parametrize("configuration", ["plain_loss", "token_budget", "eager_collator", "wrapped_loss"])
+@pytest.mark.parametrize("configuration", ["plain_loss", "eager_collator", "wrapped_loss"])
 def test_trainer_rejects_incompatible_lazy_configuration(tiny_clip, tmp_path, configuration):
     from sentence_transformers import SentenceTransformerTrainingArguments
 
     loss = (
         MultipleNegativesRankingLoss(tiny_clip)
         if configuration == "plain_loss"
-        else CachedMultipleNegativesRankingLoss(
-            tiny_clip, mini_batch_num_tokens=20 if configuration == "token_budget" else None
-        )
+        else CachedMultipleNegativesRankingLoss(tiny_clip)
     )
     if configuration == "wrapped_loss":
         from sentence_transformers.sentence_transformer.losses import MatryoshkaLoss

@@ -337,8 +337,6 @@ class BaseTrainer(Trainer, ABC):
             for loss_fn in losses:
                 if not getattr(loss_fn, "supports_lazy_preprocessing", False):
                     raise ValueError("lazy_preprocessing currently requires CachedMultipleNegativesRankingLoss.")
-                if getattr(loss_fn, "mini_batch_num_tokens", None) is not None:
-                    raise ValueError("lazy_preprocessing does not support mini_batch_num_tokens; use mini_batch_size.")
 
         # If evaluator is a list, we wrap it in a SequentialEvaluator
         if evaluator is not None and not isinstance(evaluator, BaseEvaluator):

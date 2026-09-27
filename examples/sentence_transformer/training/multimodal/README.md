@@ -82,7 +82,7 @@ After training, the model can be evaluated at each Matryoshka dimension separate
 
 [training_lazy_images.py](training_lazy_images.py) is a single-device Trainer example for
 [issue #3991](https://github.com/huggingface/sentence-transformers/issues/3991). It keeps text and
-local image paths in the outer training batch, opens images only for the current mini-batch,
+local image paths in the outer training batch, decodes image pixels only for the current mini-batch,
 and calls the model's existing processor. The same images are reopened and preprocessed during
 GradCache's backward replay. No processed image batch is cached between the two passes.
 
@@ -136,12 +136,24 @@ Scope of this experimental integration:
 
 - Deterministic image preprocessing and tokenization; no random data augmentation. Model dropout
   is supported because the existing GradCache machinery replays the model's random state.
-- Fixed-size mini-batches with `CachedMultipleNegativesRankingLoss`. Token-budget batching requires
-  lengths that are unavailable before preprocessing, so combining it with lazy preprocessing raises
-  an error. Other losses and loss wrappers are not enabled in this first version.
+- `CachedMultipleNegativesRankingLoss` supports fixed-size mini-batches. With a Qwen2-VL, Qwen2.5-VL,
+  or Qwen3-VL input module and a Transformers processor that supports counting image tokens from dimensions, you can also
+  set `mini_batch_num_tokens` instead of `mini_batch_size`. The lazy path reads image headers and
+  calculates image-token counts from the processor's resize, patch, and merge rules. It tokenizes
+  the rendered text with just one placeholder per image, adding each image's remaining token count
+  arithmetically, without expanding image-token sequences or padding the whole batch. Pixel decoding and image
+  preprocessing still happen only inside each mini-batch. Other losses and loss wrappers are not enabled.
+  A temporary processor adapter preserves native chat-template and special-token handling.
+  Truncation is accounted for in the lengths; cutting into image tokens is rejected, as in the real processor.
+- The token budget counts non-padding tokens, including image placeholders, using the same rule as
+  eager token-budget batching. A sample larger than the budget gets its own mini-batch. This is not
+  a strict bound on padded tensor size or GPU memory. The initial image-length path requires local
+  still images or PIL images and `do_resize=True`. Use the processor's configured image size or set
+  `min_pixels` and `max_pixels` together; per-call `size` overrides are not supported. Unsupported
+  processors or preprocessing options raise an error. Use fixed-size mini-batches for those configurations.
 - Validated with single-device, full-precision training and evaluation. Distributed training,
-  compiled models, mixed precision, and asynchronous mini-batch prefetching are not validated here.
-- Text and local image paths only. Keep the dataset as paths, rather than decoding all images
+  compiled models, and mixed precision are not validated here. Asynchronous mini-batch prefetching is not implemented.
+- Text and local still images (paths or PIL images). Prefer paths to avoid decoding all images
   before passing them to the loss. Inputs must remain unchanged until backward finishes.
 - Existing `prompts` and `router_mapping` training arguments are carried through to each mini-batch.
 - With a custom data collator, enable its `lazy_preprocessing` option too and keep

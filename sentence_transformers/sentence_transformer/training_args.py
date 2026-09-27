@@ -20,7 +20,8 @@ class SentenceTransformerTrainingArguments(BaseTrainingArguments):
             Experimental: defer preprocessing to each embedding mini-batch of
             :class:`~sentence_transformers.sentence_transformer.losses.CachedMultipleNegativesRankingLoss`.
             Use deterministic preprocessing and raw text or media references in the dataset.
-            Requires fixed-size mini-batches (no ``mini_batch_num_tokens``).
+            Supports fixed-size mini-batches; ``mini_batch_num_tokens`` additionally requires
+            an input module that supports counting tokens without processing image pixels.
             Initially validated for single-device, full-precision training and evaluation;
             distributed training, compiled models, and mixed precision are not validated here.
             Loss wrappers are not supported in this initial implementation.
