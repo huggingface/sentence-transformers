@@ -2,7 +2,7 @@
 
 The [Massive Text Embedding Benchmark (MTEB)](https://github.com/embeddings-benchmark/mteb) is a comprehensive benchmark suite for evaluating embedding models across diverse NLP tasks like retrieval, classification, clustering, reranking, and semantic similarity.
 
-This guide walks you through using MTEB with SentenceTransformer models for post-training evaluation. This is *not* designed for use during training, as this risks overfitting on public benchmarks. For evaluation during training, please see the [Evaluator section in the Training Overview](../training_overview.md#evaluator). To fully integrate your model to MTEB, you can follow the [Adding a model to the Leaderboard](https://github.com/embeddings-benchmark/mteb/blob/main/docs/contributing/adding_a_model.md) guide from the MTEB Documentation.
+This guide walks you through using MTEB with SentenceTransformer models for post-training evaluation. This is *not* designed for use during training, as this risks overfitting on public benchmarks. For evaluation during training, please see the [Evaluator section in the Training Overview](../training_overview.md#evaluator). To fully integrate your model to MTEB, you can follow the [Adding a model to the Leaderboard](https://docs.mteb.org/contributing/adding_a_model/) guide from the MTEB Documentation.
 
 ## Installation
 
