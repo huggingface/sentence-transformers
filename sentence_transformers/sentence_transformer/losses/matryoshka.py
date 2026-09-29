@@ -246,15 +246,15 @@ class MatryoshkaLoss(nn.Module):
                 dim = self.matryoshka_dims[idx]
                 weight = self.matryoshka_weights[idx]
                 decorated_forward.set_dim(dim)
-                # If the labels seem to be embeddings, truncate them to match the soon-to-be-truncated predicted embeddings
-                # This allows for MatryoshkaLoss with a direct distillation loss
+                # If the labels seem to be (per-column) embeddings, truncate and normalize them like the predicted
+                # embeddings. This allows for MatryoshkaLoss with a direct distillation loss
                 dim_labels = labels
                 if (
                     isinstance(labels, torch.Tensor)
-                    and labels.ndim == 2
+                    and labels.ndim in (2, 3)
                     and labels.size(-1) == self.model.get_embedding_dimension()
                 ):
-                    dim_labels = labels[:, :dim]
+                    dim_labels = shrink(labels, dim)
 
                 loss += weight * self.loss(sentence_features, dim_labels)
         finally:
