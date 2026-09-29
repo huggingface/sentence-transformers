@@ -883,6 +883,22 @@ def test_encode_document_prompt_priority(splade_bert_tiny_model: SparseEncoder, 
     assert kwargs["prompt_name"] is None
 
 
+@pytest.mark.parametrize("prompt_name", ["passage", "corpus"])
+def test_encode_document_ignores_empty_default_prompt(prompt_name: str) -> None:
+    model = SparseEncoder("sparse-encoder-testing/splade-bert-tiny-nq", prompts={prompt_name: f"{prompt_name}: "})
+    inputs = ["A test document"]
+    expected = model.encode(
+        inputs, prompt_name=prompt_name, task="document", convert_to_sparse_tensor=False, save_to_cpu=True
+    )
+
+    np.testing.assert_array_equal(
+        model.encode_document(inputs, convert_to_sparse_tensor=False, save_to_cpu=True), expected
+    )
+    np.testing.assert_array_equal(
+        model.encode_document(inputs, prompt="", convert_to_sparse_tensor=False, save_to_cpu=True), expected
+    )
+
+
 def test_encode_routes_through_module_call(splade_bert_tiny_model: SparseEncoder) -> None:
     """encode() must run the forward pass via __call__ so that model.compile() applies to inference."""
     model = splade_bert_tiny_model

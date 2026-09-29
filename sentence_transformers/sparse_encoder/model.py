@@ -473,11 +473,14 @@ class SparseEncoder(BaseModel):
                 print(embeddings.shape)
                 # (3, 30522)
         """
-        if prompt_name is None and prompt is None:
+        if prompt_name is None and not prompt:
             for candidate_prompt_name in ["document", "passage", "corpus"]:
-                if candidate_prompt_name in self.prompts:
+                if self.prompts.get(candidate_prompt_name):
                     prompt_name = candidate_prompt_name
                     break
+
+        if not prompt:
+            prompt = None
 
         return self.encode(
             inputs=inputs,

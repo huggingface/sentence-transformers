@@ -551,11 +551,14 @@ class MultiVectorEncoder(BaseModel):
         2. It sets the ``task`` to ``"document"``: the document prefix token is inserted, the max sequence
            length is ``document_length``, and skiplist tokens (e.g. punctuation) are excluded from the output.
         """
-        if prompt_name is None and prompt is None:
+        if prompt_name is None and not prompt:
             for candidate in ("document", "passage", "corpus"):
-                if candidate in self.prompts:
+                if self.prompts.get(candidate):
                     prompt_name = candidate
                     break
+
+        if not prompt:
+            prompt = None
 
         return self.encode(
             inputs=inputs,
