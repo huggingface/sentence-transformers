@@ -150,3 +150,13 @@ def test_scoring_does_not_mutate_numpy_inputs(similarity_fct) -> None:
 
     assert np.array_equal(a, a_before), "scoring mutated the first input array"
     assert np.array_equal(b, b_before), "scoring mutated the second input array"
+
+
+def test_convert_to_tensor_stacks_dense_tensors_preserving_gradients() -> None:
+    embeddings = [torch.tensor([1.0, 2.0], dtype=torch.float64, requires_grad=True) for _ in range(2)]
+
+    result = _convert_to_tensor(embeddings)
+    torch.testing.assert_close(result, torch.stack(embeddings))
+    result.sum().backward()
+    for embedding in embeddings:
+        torch.testing.assert_close(embedding.grad, torch.ones_like(embedding))

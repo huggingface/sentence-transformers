@@ -1198,3 +1198,25 @@ def test_maxsim_device_bounds_residency_by_element_budget() -> None:
     assert scores.shape == (1, 4_000)
     assert scores.device.type == "cpu"
     assert peak < 30 * 1024 * 1024, f"peak VRAM {peak / 1e6:.1f} MB suggests the whole corpus moved"
+
+
+@pytest.mark.parametrize(
+    "score_function",
+    [
+        cos_sim,
+        dot_score,
+        euclidean_sim,
+        manhattan_sim,
+        pairwise_cos_sim,
+        pairwise_dot_score,
+        pairwise_euclidean_sim,
+        pairwise_manhattan_sim,
+    ],
+)
+def test_similarity_accepts_encoded_tensor_list(word_embeddings_model, score_function) -> None:
+    embeddings = word_embeddings_model.encode(["hello world", "sentence embedding"], convert_to_numpy=False)
+    assert isinstance(embeddings, list)
+    assert all(isinstance(embedding, torch.Tensor) for embedding in embeddings)
+
+    expected = score_function(torch.stack(embeddings), torch.stack(embeddings))
+    torch.testing.assert_close(score_function(embeddings, embeddings), expected)

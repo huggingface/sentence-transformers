@@ -41,6 +41,8 @@ def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
         if all(isinstance(x, Tensor) and x.is_sparse for x in a):
             # Stack sparse tensors while preserving sparsity
             return torch.stack([x.coalesce().to(dtype=torch.float32) for x in a])
+        elif a and all(isinstance(x, Tensor) for x in a):
+            return torch.stack(a)
         elif a and all(isinstance(x, np.ndarray) for x in a):
             # torch.tensor reads a list of arrays one element at a time, two orders of magnitude
             # slower than viewing each and stacking once. Ragged lists fail either way.
