@@ -179,7 +179,8 @@ class SparseEncoderTrainer(BaseTrainer):
         is_splade_loss = isinstance(loss, SpladeLoss) if loss is not None else False
         splade_scheduler_callback_index = None
         for idx, callback in enumerate(self.callback_handler.callbacks):
-            if isinstance(callback, SpladeRegularizerWeightSchedulerCallback):
+            # Each SpladeLoss needs its own scheduler, e.g. with one loss per dataset
+            if isinstance(callback, SpladeRegularizerWeightSchedulerCallback) and callback.loss is loss:
                 splade_scheduler_callback_index = idx
                 break
 
