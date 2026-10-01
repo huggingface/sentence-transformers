@@ -135,3 +135,21 @@ def test_csr_encode_does_not_update_dead_feature_stats(csr_bert_tiny_model: Spar
     assert torch.equal(
         sparse_auto_encoder.stats_last_nonzero, torch.zeros_like(sparse_auto_encoder.stats_last_nonzero)
     )
+
+
+def test_csr_4k_latents_contain_the_k_latents() -> None:
+    # Masking the dead latents for the auxiliary loss must not leak into the 4k latents
+    torch.manual_seed(0)
+    module = SparseAutoEncoder(input_dim=16, hidden_dim=64, k=4, k_aux=32)
+    module.train()
+
+    features = module({"sentence_embedding": torch.randn(8, 16)})
+
+    latents_k = features["sentence_embedding"]
+    latents_4k = features["sentence_embedding_encoded_4k"]
+    kept = latents_k != 0
+    assert kept.any()
+    assert torch.equal(latents_4k[kept], latents_k[kept])
+    assert torch.equal(
+        features["sentence_embedding_encoded"], module.encode_pre_act(features["sentence_embedding_backbone"])
+    )
