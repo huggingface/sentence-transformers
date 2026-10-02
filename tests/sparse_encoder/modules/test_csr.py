@@ -126,6 +126,26 @@ def test_csr_training_without_auxiliary_latents() -> None:
         assert torch.isfinite(parameter.grad).all()
 
 
+def test_csr_normalized_perfect_reconstruction_has_zero_loss() -> None:
+    # Encoder rows [I; -I; 0] with the tied decoder reconstruct the layer-normalized input exactly,
+    # so after decode() undoes the normalization the reconstruction equals the raw input
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=16, k=4, k_aux=0, normalize=True)
+    module.train()
+    with torch.no_grad():
+        module.encoder.weight.zero_()
+        module.encoder.weight[:4] = torch.eye(4)
+        module.encoder.weight[4:8] = -torch.eye(4)
+
+    torch.manual_seed(0)
+    embeddings = torch.randn(8, 4) * 0.3 + 1.0
+    features = module({"sentence_embedding": embeddings.clone()})
+
+    torch.testing.assert_close(features["decoded_embedding_k"], embeddings, atol=1e-4, rtol=0)
+
+    losses = CSRReconstructionLoss(model=None).compute_loss_from_embeddings([features])
+    assert losses["reconstruction_loss_k"].item() < 1e-8
+
+
 def test_csr_encode_does_not_update_dead_feature_stats(csr_bert_tiny_model: SparseEncoder) -> None:
     sparse_auto_encoder = csr_bert_tiny_model[-1]
     sparse_auto_encoder.stats_last_nonzero.zero_()
