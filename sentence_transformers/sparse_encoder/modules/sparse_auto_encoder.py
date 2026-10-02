@@ -89,8 +89,6 @@ class SparseAutoEncoder(Module):
     def encode_pre_act(self, x: torch.Tensor) -> torch.Tensor:
         """
         :param x: input data (shape: [batch, input_dim])
-        :param latent_slice: slice of latents to compute
-            Example: latent_slice = slice(0, 10) to compute only the first 10 latents.
         :return: autoencoder latents before activation (shape: [batch, hidden_dim])
         """
         x = x - self.pre_bias

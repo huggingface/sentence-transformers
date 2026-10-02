@@ -1006,7 +1006,6 @@ class SparseEncoder(BaseModel):
             model_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the model. Defaults to None.
             processor_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the processor/tokenizer. Defaults to None.
             config_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the config. Defaults to None.
-            has_modules (bool, optional): Whether the model has modules.json. Defaults to False.
 
         Returns:
             tuple[list[nn.Module], dict[str, Any]]: The modules and an empty kwargs dict.
