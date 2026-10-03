@@ -69,6 +69,27 @@ def test_cached_mnrl_matches_mnrl(
         torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=1e-5, msg=name)
 
 
+def test_gradcache_surrogate_keeps_fp64_precision(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    """The backward hook's surrogate dot product used to hardcode ``.float()``, downcasting a fp64
+    model's cached gradients to fp32 precision before replaying them. A fp64 model's cached loss must
+    match its non-cached counterpart to fp64 accuracy (~1e-12), not merely fp32 accuracy (~1e-7)."""
+    model = stsb_bert_tiny_model.to("cpu").double()
+    disable_dropout(model)
+    model.train()
+    labels = torch.zeros(7, dtype=torch.long)
+
+    cached = CachedMultipleNegativesRankingLoss(model, mini_batch_size=3)
+    cached_loss, cached_grads = _loss_and_grads(model, cached, (COLUMN_A, COLUMN_B), labels)
+    plain = MultipleNegativesRankingLoss(model)
+    plain_loss, plain_grads = _loss_and_grads(model, plain, (COLUMN_A, COLUMN_B), labels)
+
+    assert_trained(cached_grads)
+    assert_trained(plain_grads)
+    assert cached_loss.item() == pytest.approx(plain_loss.item(), rel=1e-10, abs=1e-12)
+    for name, grad in cached_grads.items():
+        torch.testing.assert_close(grad, plain_grads[name], rtol=1e-10, atol=1e-12, msg=name)
+
+
 def test_gradcache_replays_dropout_in_the_backward_pass(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """The backward pass must re-embed exactly what the forward pass embedded, dropout included. The
     cached gradients belong to the first pass's embeddings, so the two must agree bit-for-bit."""

@@ -314,8 +314,19 @@ def _backward_hook(
                     # a later mini-batch of the same column may still need backprop.
                     continue
                 # Under autocast the cached gradients are reduced-precision while this re-embedding
-                # (inside backward, outside autocast) is fp32, so compute the surrogate in fp32.
-                surrogate = torch.dot(reps_mb.flatten().float(), grad_mb.flatten().float()) * grad_output
+                # (inside backward, outside autocast) is fp32, so compute the surrogate in at least
+                # fp32. Promote rather than hardcode .float() so a fp64 model/cache keeps its own
+                # precision instead of being downcast to fp32.
+                surrogate_dtype = torch.promote_types(reps_mb.dtype, grad_mb.dtype)
+                if surrogate_dtype in (torch.float16, torch.bfloat16):
+                    surrogate_dtype = torch.float32
+                surrogate = (
+                    torch.dot(
+                        reps_mb.flatten().to(surrogate_dtype),
+                        grad_mb.flatten().to(surrogate_dtype),
+                    )
+                    * grad_output
+                )
                 surrogate.backward()
 
 
