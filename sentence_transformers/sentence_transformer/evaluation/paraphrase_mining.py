@@ -256,13 +256,13 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
                 connected_subgraph_nodes = set()
                 connected_subgraph_nodes.add(a)
 
-                # Add all nodes in the connected graph
-                neighbor_nodes_queue = list(graph[a])
+                # Add all nodes in the connected graph, following only the pairs marked as duplicates
+                neighbor_nodes_queue = [node for node, is_duplicate in graph[a].items() if is_duplicate]
                 while len(neighbor_nodes_queue) > 0:
                     node = neighbor_nodes_queue.pop(0)
                     if node not in connected_subgraph_nodes:
                         connected_subgraph_nodes.add(node)
-                        neighbor_nodes_queue.extend(graph[node])
+                        neighbor_nodes_queue.extend(n for n, is_duplicate in graph[node].items() if is_duplicate)
 
                 # Ensure transitivity between all nodes in the graph
                 connected_subgraph_nodes = list(connected_subgraph_nodes)
