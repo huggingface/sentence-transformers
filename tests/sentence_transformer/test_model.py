@@ -7,8 +7,10 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
 import re
 import shutil
+import stat
 import tempfile
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -294,6 +296,34 @@ def test_safe_serialization(stsb_bert_tiny_model: SentenceTransformer, safe_seri
                 model.save(cache_folder, safe_serialization=safe_serialization)
                 model_files = list(Path(cache_folder).glob("**/pytorch_model.bin"))
                 assert 1 == len(model_files)
+
+
+@pytest.mark.parametrize("safe_serialization", [True, False])
+def test_saved_weight_files_are_readable(stsb_bert_tiny_model: SentenceTransformer, safe_serialization: bool) -> None:
+    """Regression test for https://github.com/huggingface/sentence-transformers/issues/4010.
+
+    safetensors writes weight files with mode 0o600 regardless of the umask; save() must relax
+    them so the saved weights are as readable as the other files in the model directory.
+    """
+    model = stsb_bert_tiny_model
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache_folder:
+        # For transformers v5.0, safe_serialization is quietly ignored
+        if not safe_serialization and parse(transformers_version) >= Version("5.0.0dev0"):
+            model.save(cache_folder)
+            weight_files = list(Path(cache_folder).glob("**/model.safetensors"))
+        else:
+            model.save(cache_folder, safe_serialization=safe_serialization)
+            weight_files = list(Path(cache_folder).glob("**/model.safetensors")) + list(
+                Path(cache_folder).glob("**/pytorch_model.bin")
+            )
+        assert weight_files, "expected at least one saved weight file"
+
+        sibling_mode = stat.S_IMODE(os.stat(os.path.join(cache_folder, "config_sentence_transformers.json")).st_mode)
+        for weight_file in weight_files:
+            weight_mode = stat.S_IMODE(os.stat(weight_file).st_mode)
+            assert weight_mode == sibling_mode, (
+                f"{weight_file} has mode {oct(weight_mode)}, expected {oct(sibling_mode)} like the other saved files"
+            )
 
 
 def test_load_with_revision() -> None:

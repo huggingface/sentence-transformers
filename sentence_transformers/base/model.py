@@ -62,6 +62,31 @@ if TYPE_CHECKING:
 logger = transformers_logging.get_logger(__name__)
 
 
+def _relax_weight_file_permissions(directory: str) -> None:
+    """Make saved weight files as readable as the other files in the model directory.
+
+    ``safetensors`` creates weight files with mode ``0o600`` regardless of the process umask,
+    so e.g. ``model.safetensors`` ends up unreadable for other users while every sibling file
+    is group/world-readable. Reset the permissions of weight files to ``0o666 & ~umask`` so
+    they match what a regular file creation would produce.
+
+    See https://github.com/huggingface/sentence-transformers/issues/4010.
+    """
+    umask = os.umask(0)
+    os.umask(umask)
+    readable_mode = 0o666 & ~umask
+    for root, _, files in os.walk(directory):
+        for filename in files:
+            is_safetensors = filename == "model.safetensors" or (
+                filename.startswith("model-") and filename.endswith(".safetensors")
+            )
+            is_pytorch_bin = filename == "pytorch_model.bin" or (
+                filename.startswith("pytorch_model-") and filename.endswith(".bin")
+            )
+            if is_safetensors or is_pytorch_bin:
+                os.chmod(os.path.join(root, filename), readable_mode)
+
+
 class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
     """
     Base class for SentenceTransformer, SparseEncoder, and CrossEncoder models.
@@ -770,6 +795,10 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
         if create_model_card:
             self._create_model_card(path, model_name, train_datasets)
+
+        # safetensors writes weight files with mode 0o600, unlike every other saved file;
+        # relax them so the saved model is readable. See _relax_weight_file_permissions.
+        _relax_weight_file_permissions(path)
 
     def _get_model_config(self) -> dict[str, Any]:
         return {
