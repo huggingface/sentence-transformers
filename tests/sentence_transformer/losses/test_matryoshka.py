@@ -6,6 +6,24 @@ import pytest
 import torch
 
 from sentence_transformers.sentence_transformer.losses import MatryoshkaLoss, MSELoss
+from sentence_transformers.sentence_transformer.losses.matryoshka import shrink
+
+
+@pytest.mark.parametrize("dim", [2, 3, 4])
+def test_shrink_float16_normalization(dim: int) -> None:
+    embeddings = torch.tensor(
+        [[0.0, 0.0, 0.0, 0.0], [1e-7, 1e-7, 1e-7, 1e-7], [60000.0, 60000.0, 60000.0, 60000.0]],
+        dtype=torch.float16,
+    )
+    original = embeddings.clone()
+    expected = torch.nn.functional.normalize(embeddings.float()[:, :dim], p=2, dim=-1).to(embeddings.dtype)
+
+    normalized = shrink(embeddings, dim)
+
+    assert torch.isfinite(normalized).all()
+    assert normalized.dtype == embeddings.dtype
+    torch.testing.assert_close(normalized, expected, rtol=0, atol=0)
+    torch.testing.assert_close(embeddings, original, rtol=0, atol=0)
 
 
 @pytest.fixture

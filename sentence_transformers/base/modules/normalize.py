@@ -5,10 +5,10 @@ try:
 except ImportError:
     from typing_extensions import Self
 
-import torch.nn.functional as F
 from torch import Tensor
 
 from sentence_transformers.base.modules.module import Module
+from sentence_transformers.util.tensor import _normalize_embeddings
 
 
 class Normalize(Module):
@@ -39,7 +39,7 @@ class Normalize(Module):
     def forward(self, features: dict[str, Tensor]) -> dict[str, Tensor]:
         x = features.get(self.module_input_name)
         if x is not None:
-            features[self.module_output_name] = F.normalize(x, p=2, dim=-1)
+            features[self.module_output_name] = _normalize_embeddings(x, dim=-1)
         return features
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:

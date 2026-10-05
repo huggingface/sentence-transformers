@@ -4,11 +4,15 @@ import math
 from pathlib import Path
 
 import pytest
+import torch
 from packaging.version import Version
 from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from tokenizers.pre_tokenizers import Whitespace
 from transformers import __version__ as transformers_version
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.base.modules import Normalize
 from sentence_transformers.sentence_transformer.modules.static_embedding import StaticEmbedding
 
 try:
@@ -20,6 +24,38 @@ skip_if_no_model2vec = pytest.mark.skipif(model2vec is None, reason="The model2v
 skip_if_transformers_5_or_higher = pytest.mark.skipif(
     Version(transformers_version) >= Version("5.0.0rc0"), reason="Transformers version is v5.0.0rc0 or higher."
 )
+
+
+@pytest.mark.parametrize("with_normalize_module", [False, True])
+@pytest.mark.parametrize("normalize_on_encode", [False, True])
+@pytest.mark.parametrize("output_type", ["tensor", "numpy", "list"])
+def test_encode_float16_normalization(with_normalize_module, normalize_on_encode, output_type) -> None:
+    tokenizer = Tokenizer(WordLevel({"[UNK]": 0, "zero": 1, "huge": 2, "tiny": 3, "normal": 4}, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = Whitespace()
+    weights = torch.tensor([[0.0, 0.0], [0.0, 0.0], [60000.0, 60000.0], [1e-7, 1e-7], [3.0, 4.0]], dtype=torch.float16)
+    embedding = StaticEmbedding(tokenizer, embedding_weights=weights)
+    modules = [embedding, Normalize()] if with_normalize_module else [embedding]
+    model = SentenceTransformer(modules=modules, device="cpu")
+    model.model_card_data.generate_widget_examples = False
+    texts = ["", "zero", "huge", "tiny", "normal"]
+    expected = torch.cat([weights[:1], weights[1:]], dim=0)
+    if with_normalize_module or normalize_on_encode:
+        expected = torch.nn.functional.normalize(expected.float(), p=2, dim=-1).to(weights.dtype)
+
+    encoded = model.encode(
+        texts,
+        normalize_embeddings=normalize_on_encode,
+        convert_to_tensor=output_type == "tensor",
+        convert_to_numpy=output_type == "numpy",
+    )
+    if output_type == "list":
+        encoded = torch.stack(encoded)
+    elif output_type == "numpy":
+        encoded = torch.from_numpy(encoded)
+
+    assert encoded.dtype == weights.dtype
+    assert torch.isfinite(encoded).all()
+    torch.testing.assert_close(encoded, expected, rtol=0, atol=0)
 
 
 def test_initialization_with_embedding_weights(tokenizer: Tokenizer, embedding_weights) -> None:

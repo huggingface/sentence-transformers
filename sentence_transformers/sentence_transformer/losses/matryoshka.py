@@ -6,11 +6,11 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor, nn
 
 from sentence_transformers.base.losses.gradcache import uses_gradient_cache
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
+from sentence_transformers.util.tensor import _normalize_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def shrink(tensor: Tensor, dim: int) -> Tensor:
             f"Dimension {dim} in matryoshka_dims cannot be greater than the model's embedding dimension: {tensor_dim}"
         )
     tensor = tensor[..., :dim]
-    tensor = F.normalize(tensor, p=2, dim=-1)
+    tensor = _normalize_embeddings(tensor, dim=-1)
     return tensor
 
 

@@ -25,6 +25,7 @@ from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling,
 from sentence_transformers.util import batch_to_device, load_file_path
 from sentence_transformers.util.misc import import_from_string
 from sentence_transformers.util.similarity import SimilarityFunction
+from sentence_transformers.util.tensor import _normalize_embeddings
 
 logger = transformers_logging.get_logger(__name__)
 
@@ -913,7 +914,7 @@ class MultiVectorEncoder(BaseModel):
                     token_embedding[mask] for token_embedding, mask in zip(token_embeddings, masks)
                 ]
                 if normalize_embeddings:
-                    batch_embeddings = [nn.functional.normalize(emb, p=2, dim=-1) for emb in batch_embeddings]
+                    batch_embeddings = [_normalize_embeddings(emb, dim=-1) for emb in batch_embeddings]
 
             # Per-call pooling. The pooling's own ``tasks`` gate decides whether this task is
             # pooled. Compounds on top of any pooling baked into the pipeline (supported, but

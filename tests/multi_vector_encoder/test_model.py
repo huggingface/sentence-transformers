@@ -16,8 +16,38 @@ from sentence_transformers.multi_vector_encoder.modules import (
     MultiVectorMask,
 )
 from sentence_transformers.multi_vector_encoder.scoring import XTRScores, colbert_scores
+from sentence_transformers.sentence_transformer.modules import WordEmbeddings
+from sentence_transformers.sentence_transformer.modules.tokenizer import WhitespaceTokenizer
 from sentence_transformers.util import SimilarityFunction, maxsim, maxsim_pairwise
 from tests.utils import skip_bfloat16_cpu_crash
+
+
+@pytest.mark.parametrize("with_normalize_module", [False, True])
+@pytest.mark.parametrize("normalize_on_encode", [False, True])
+@pytest.mark.parametrize("convert_to_numpy", [False, True])
+def test_encode_float16_token_normalization(with_normalize_module, normalize_on_encode, convert_to_numpy) -> None:
+    tokenizer = WhitespaceTokenizer(["PAD", "zero", "huge", "tiny", "normal"], stop_words=[])
+    weights = torch.tensor([[0.0, 0.0], [0.0, 0.0], [60000.0, 60000.0], [1e-7, 1e-7], [3.0, 4.0]])
+    embedding = WordEmbeddings(tokenizer, embedding_weights=weights).half()
+    modules = [embedding, Normalize(module_input_name="token_embeddings")] if with_normalize_module else [embedding]
+    model = MultiVectorEncoder(modules=modules, device="cpu")
+    model.model_card_data.generate_widget_examples = False
+    expected = embedding.emb_layer.weight.detach()[1:].clone()
+    if with_normalize_module or normalize_on_encode:
+        expected = torch.nn.functional.normalize(expected.float(), p=2, dim=-1).to(expected.dtype)
+
+    encoded = model.encode(
+        ["zero huge tiny normal", "normal"],
+        normalize_embeddings=normalize_on_encode,
+        convert_to_numpy=convert_to_numpy,
+    )
+    if convert_to_numpy:
+        encoded = [torch.from_numpy(tokens) for tokens in encoded]
+
+    assert all(torch.isfinite(tokens).all() for tokens in encoded)
+    assert all(tokens.dtype == expected.dtype for tokens in encoded)
+    torch.testing.assert_close(encoded[0], expected, rtol=0, atol=0)
+    torch.testing.assert_close(encoded[1], expected[-1:], rtol=0, atol=0)
 
 
 @pytest.fixture(scope="module")

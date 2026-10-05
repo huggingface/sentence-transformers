@@ -47,6 +47,43 @@ def test_normalize_embeddings() -> None:
         assert abs(emb_norm.item() - 1) < 0.0001
 
 
+def test_normalize_embeddings_float16_zero_small_and_large_rows() -> None:
+    embeddings = torch.tensor([[0.0, 0.0], [1e-7, 1e-7], [60000.0, 60000.0], [3.0, 4.0]], dtype=torch.float16)
+    original = embeddings.clone()
+    expected = torch.nn.functional.normalize(embeddings.float(), p=2, dim=1).to(embeddings.dtype)
+
+    normalized = normalize_embeddings(embeddings)
+
+    assert normalized.dtype == embeddings.dtype
+    assert normalized.device == embeddings.device
+    assert torch.isfinite(normalized).all()
+    torch.testing.assert_close(normalized, expected, rtol=0, atol=0)
+    torch.testing.assert_close(embeddings, original, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64, torch.bfloat16, torch.complex64])
+def test_normalize_embeddings_keeps_other_dtypes_unchanged(dtype: torch.dtype) -> None:
+    embeddings = torch.tensor([[0.0, 0.0], [3.0, 4.0], [-5.0, 12.0]], dtype=dtype)
+    expected = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+
+    torch.testing.assert_close(normalize_embeddings(embeddings), expected, rtol=0, atol=0)
+
+
+def test_normalize_embeddings_float16_backward_matches_float32() -> None:
+    embeddings = torch.tensor([[3.0, 4.0], [60000.0, 30000.0]], dtype=torch.float16, requires_grad=True)
+    reference = embeddings.detach().float().requires_grad_()
+    weights = torch.tensor([[0.5, -0.25], [-0.125, 0.75]], dtype=torch.float16)
+
+    normalized = normalize_embeddings(embeddings)
+    expected = torch.nn.functional.normalize(reference, p=2, dim=1).to(embeddings.dtype)
+    (normalized * weights).sum().backward()
+    (expected * weights).sum().backward()
+
+    torch.testing.assert_close(normalized, expected, rtol=0, atol=0)
+    assert torch.isfinite(embeddings.grad).all()
+    torch.testing.assert_close(embeddings.grad, reference.grad.to(embeddings.dtype), rtol=0, atol=0)
+
+
 @pytest.mark.parametrize(("array_fn", "dtype"), [(torch.tensor, torch.float32), (np.array, torch.float64)])
 def test_select_max_active_dims_keeps_top_k_without_mutating_input(array_fn, dtype: torch.dtype) -> None:
     """The top-k values by absolute value are kept with their signs, in a new tensor, leaving the input untouched."""

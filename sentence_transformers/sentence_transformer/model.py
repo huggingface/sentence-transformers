@@ -24,6 +24,7 @@ from sentence_transformers.util import batch_to_device, truncate_embeddings
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
+from sentence_transformers.util.tensor import _normalize_embeddings
 
 from .fit_mixin import FitMixin
 from .model_card import SentenceTransformerModelCardData
@@ -989,7 +990,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             else:
                 embeddings = out_features[output_value]
                 if normalize_embeddings:
-                    embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+                    embeddings = _normalize_embeddings(embeddings, dim=1)
                 if save_to_cpu:
                     embeddings = embeddings.cpu()
 

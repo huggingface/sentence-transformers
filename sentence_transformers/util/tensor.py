@@ -119,7 +119,7 @@ def normalize_embeddings(embeddings: Tensor) -> Tensor:
         Tensor: The normalized embeddings matrix.
     """
     if not embeddings.is_sparse:
-        return torch.nn.functional.normalize(embeddings, p=2, dim=1)
+        return _normalize_embeddings(embeddings, dim=1)
 
     embeddings = embeddings.coalesce()
     indices, values = embeddings.indices(), embeddings.values()
@@ -135,6 +135,13 @@ def normalize_embeddings(embeddings: Tensor) -> Tensor:
     normalized_values[mask] /= row_norms[mask]
 
     return torch.sparse_coo_tensor(indices, normalized_values, embeddings.size())
+
+
+def _normalize_embeddings(embeddings: Tensor, dim: int) -> Tensor:
+    # FP16 cannot represent the default epsilon or norms larger than 65504.
+    if embeddings.dtype == torch.float16:
+        return torch.nn.functional.normalize(embeddings.float(), p=2, dim=dim).to(embeddings.dtype)
+    return torch.nn.functional.normalize(embeddings, p=2, dim=dim)
 
 
 @overload
