@@ -49,14 +49,19 @@ class SoftmaxLoss(nn.Module):
             - `Training Examples > Natural Language Inference <../../../examples/sentence_transformer/training/nli/README.html>`_
 
         Requirements:
-            1. input pairs with a class label
+            1. input pairs with a class label or a probability distribution over classes
+
+        Labels can be integer class indices or, when ``num_labels > 1``, floating-point class probabilities with shape
+        ``(batch_size, num_labels)``. Each probability distribution should contain non-negative values that sum to 1.
+        Probability labels require a loss function that supports them, such as the default ``nn.CrossEntropyLoss``.
+        Single-output losses continue to receive flattened labels.
 
         Inputs:
-            +---------------------------------------+--------+
-            | Inputs                                | Labels |
-            +=======================================+========+
-            | (input_A, input_B) pairs              | class  |
-            +---------------------------------------+--------+
+            +---------------------------------------+------------------------------+
+            | Inputs                                | Labels                       |
+            +=======================================+==============================+
+            | (input_A, input_B) pairs               | class or class probabilities |
+            +---------------------------------------+------------------------------+
 
         Example:
             ::
@@ -88,6 +93,11 @@ class SoftmaxLoss(nn.Module):
                     loss=loss,
                 )
                 trainer.train()
+
+        To train with class probabilities instead, use a list of probabilities for each pair in the ``label`` column,
+        e.g. ``"label": [[0.1, 0.8, 0.1], [0.1, 0.1, 0.8], [0.8, 0.1, 0.1], [0.7, 0.2, 0.1]]``.
+        Each position corresponds to its class index. Hard and soft targets can share the same dataset by encoding
+        hard targets as one-hot vectors, e.g. ``"label": [[0.2, 0.3, 0.5], [0.0, 0.0, 1.0]]``.
         """
         super().__init__()
         self.model = model
@@ -141,7 +151,9 @@ class SoftmaxLoss(nn.Module):
         output = self.classifier(features)
 
         if labels is not None:
-            loss = self.loss_fct(output, labels.view(-1))
+            if not (self.num_labels > 1 and labels.is_floating_point() and labels.shape == output.shape):
+                labels = labels.view(-1)
+            loss = self.loss_fct(output, labels)
             return loss
         else:
             return reps, output
