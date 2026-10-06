@@ -711,6 +711,11 @@ class MultiDatasetDefaultBatchSampler(SetEpochMixin, BatchSampler, ABC):
         self.batch_samplers = batch_samplers
         self.generator = generator
         self.seed = seed
+        # Child samplers reseed the shared generator with their own seed, so equal seeds would give equal-size
+        # datasets the same permutation. Offset each child's seed by its dataset index to keep them independent.
+        for idx, sampler in enumerate(batch_samplers):
+            if isinstance(sampler, DefaultBatchSampler) and sampler.seed is not None:
+                sampler.seed += idx
 
     def set_epoch(self, epoch: int) -> None:
         super().set_epoch(epoch)

@@ -4,7 +4,11 @@ import pytest
 import torch
 from torch.utils.data import BatchSampler, ConcatDataset, SequentialSampler
 
-from sentence_transformers.base.sampler import NoDuplicatesBatchSampler, RoundRobinBatchSampler
+from sentence_transformers.base.sampler import (
+    NoDuplicatesBatchSampler,
+    ProportionalBatchSampler,
+    RoundRobinBatchSampler,
+)
 from sentence_transformers.util import is_datasets_available
 
 if is_datasets_available():
@@ -195,3 +199,26 @@ def test_multi_dataset_batch_sampler_propagates_epoch(dummy_concat_dataset: Conc
 
     assert sampler.epoch == 3
     assert all(batch_sampler.epoch == 3 for batch_sampler in batch_samplers)
+
+
+@pytest.mark.parametrize("multi_dataset_sampler_cls", [RoundRobinBatchSampler, ProportionalBatchSampler])
+def test_multi_dataset_batch_sampler_shuffles_equal_size_datasets_independently(
+    multi_dataset_sampler_cls: type[RoundRobinBatchSampler | ProportionalBatchSampler],
+) -> None:
+    # The trainer gives every child sampler the same generator and seed
+    generator = torch.Generator()
+    datasets = [Dataset.from_dict({"data": [f"{name}{i}" for i in range(32)]}) for name in "ab"]
+    batch_samplers = [
+        NoDuplicatesBatchSampler(dataset=dataset, batch_size=4, drop_last=True, generator=generator, seed=42)
+        for dataset in datasets
+    ]
+    sampler = multi_dataset_sampler_cls(
+        dataset=ConcatDataset(datasets), batch_samplers=batch_samplers, generator=generator, seed=42
+    )
+
+    batches = list(sampler)
+    first = [batch for batch in batches if batch[0] < 32]
+    second = [[idx - 32 for idx in batch] for batch in batches if batch[0] >= 32]
+
+    assert len(first) == len(second) == 8
+    assert first != second
