@@ -19,7 +19,7 @@ from sentence_transformers.base.losses.gradcache import (
     has_static_embedding_input,
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.util import all_gather_with_grad, get_rank
+from sentence_transformers.util import all_gather_with_grad, batch_to_device, get_rank
 
 
 class CachedGISTEmbedLoss(nn.Module):
@@ -204,18 +204,13 @@ class CachedGISTEmbedLoss(nn.Module):
                     if self.must_retokenize:
                         input_ids = sentence_feature_minibatch["input_ids"]
                         if "cu_seq_lens_q" in sentence_feature_minibatch:
-                            # Flattened inputs hold all sequences in one row; restore them before decoding.
                             flat_input_ids = input_ids[0].tolist()
                             cu_seq_lens = sentence_feature_minibatch["cu_seq_lens_q"].tolist()
                             input_ids = [
                                 flat_input_ids[start:end] for start, end in zip(cu_seq_lens[:-1], cu_seq_lens[1:])
                             ]
                         decoded = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-                        sentence_feature_minibatch = self.guide.preprocess(decoded)
-                        sentence_feature_minibatch = {
-                            key: value.to(self.guide.device) if isinstance(value, Tensor) else value
-                            for key, value in sentence_feature_minibatch.items()
-                        }
+                        sentence_feature_minibatch = batch_to_device(self.guide.preprocess(decoded), self.guide.device)
                     guide_reps = self.guide(sentence_feature_minibatch)["sentence_embedding"]
 
         return reps, guide_reps, random_state

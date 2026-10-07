@@ -62,7 +62,8 @@ def test_accepts_a_tokenizer_without_a_vocab_attribute(loss_class) -> None:
 
 
 @pytest.mark.parametrize("flattened", [False, True])
-def test_cached_gist_retokenizes_each_minibatch_sentence(flattened: bool) -> None:
+@pytest.mark.parametrize("loss_class", [GISTEmbedLoss, CachedGISTEmbedLoss])
+def test_gist_retokenizes_each_sentence(loss_class, flattened: bool) -> None:
     class Student(torch.nn.Module):
         def forward(self, features):
             num_sentences = (
@@ -111,17 +112,22 @@ def test_cached_gist_retokenizes_each_minibatch_sentence(flattened: bool) -> Non
             "attention_mask": torch.tensor([[1, 1, 0], [1, 0, 0], [1, 1, 1]]),
         }
 
-    loss = _make_loss(margin=0.0, mini_batch_size=2)
+    model = _ModelWithTokenizer(_TokenizerWithoutVocabAttribute())
+    loss = loss_class(model, model)
     loss.model = Student()
     guide = Guide()
     loss.guide = guide
     loss.tokenizer = Tokenizer()
     loss.must_retokenize = True
 
-    student_reps, guide_reps, _ = loss.embed_minibatch(features, 1, 3, with_grad=False, copy_random_state=False)
+    if loss_class is CachedGISTEmbedLoss:
+        student_reps, guide_reps, _ = loss.embed_minibatch(features, 1, 3, with_grad=False, copy_random_state=False)
+        assert guide.texts == ["13", "14 15 16"]
+        assert student_reps.shape == guide_reps.shape == (2, 2)
+    else:
+        assert torch.isfinite(loss([dict(features), dict(features)], labels=None))
+        assert guide.texts == ["11 12", "13", "14 15 16"]
 
-    assert guide.texts == ["13", "14 15 16"]
-    assert student_reps.shape == guide_reps.shape == (2, 2)
     assert guide.features["modality"] == "text"
     assert guide.features["prompt_length"] == 0
 
