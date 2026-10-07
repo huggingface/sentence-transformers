@@ -47,6 +47,34 @@ def test_normalize_embeddings() -> None:
         assert abs(emb_norm.item() - 1) < 0.0001
 
 
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64])
+@pytest.mark.parametrize("default_dtype", [torch.float32, torch.float64])
+def test_normalize_sparse_embeddings_preserves_dtype(dtype: torch.dtype, default_dtype: torch.dtype) -> None:
+    original_default_dtype = torch.get_default_dtype()
+    try:
+        torch.set_default_dtype(default_dtype)
+        embeddings = torch.tensor([[3.0, 4.0], [0.0, 0.0], [-4.0, 3.0]], dtype=dtype).to_sparse()
+
+        normalized = normalize_embeddings(embeddings)
+
+        assert normalized.is_sparse
+        expected = torch.tensor([[0.6, 0.8], [0.0, 0.0], [-0.8, 0.6]], dtype=dtype)
+        torch.testing.assert_close(normalized.to_dense(), expected)
+    finally:
+        torch.set_default_dtype(original_default_dtype)
+
+
+def test_normalize_sparse_embeddings_backward() -> None:
+    values = torch.tensor([3.0, 4.0, -4.0, 3.0], dtype=torch.float64, requires_grad=True)
+    indices = torch.tensor([[0, 0, 2, 2], [0, 1, 0, 1]])
+    embeddings = torch.sparse_coo_tensor(indices, values, (3, 2))
+
+    normalize_embeddings(embeddings).to_dense().sum().backward()
+
+    expected = torch.tensor([0.032, -0.024, 0.168, 0.224], dtype=torch.float64)
+    torch.testing.assert_close(values.grad, expected)
+
+
 @pytest.mark.parametrize(("array_fn", "dtype"), [(torch.tensor, torch.float32), (np.array, torch.float64)])
 def test_select_max_active_dims_keeps_top_k_without_mutating_input(array_fn, dtype: torch.dtype) -> None:
     """The top-k values by absolute value are kept with their signs, in a new tensor, leaving the input untouched."""
