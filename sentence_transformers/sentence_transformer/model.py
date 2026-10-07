@@ -349,8 +349,10 @@ class SentenceTransformer(BaseModel, FitMixin):
 
         This method is a specialized version of :meth:`encode` that differs in exactly two ways:
 
-        1. If no ``prompt_name`` or ``prompt`` is provided, it uses a predefined "query" prompt,
-           if available in the model's ``prompts`` dictionary.
+        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the "query" prompt from the model's ``prompts``
+           dictionary. This prompt is empty unless one is configured, and an empty "query" prompt still counts as
+           the selected prompt: no prompt is applied and ``default_prompt_name`` is not used as a fallback. To
+           prompt queries, configure a "query" prompt explicitly.
         2. It sets the ``task`` to "query". If the model has a :class:`~sentence_transformers.base.modules.Router`
            module, it will use the "query" task type to route the input through the appropriate submodules.
 
