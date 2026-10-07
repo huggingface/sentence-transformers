@@ -507,6 +507,28 @@ def test_distill_kl_div_warns_once_when_the_teacher_collapses(caplog) -> None:
     assert caplog.text == "", "a temperature matched to the spread must not warn"
 
 
+def test_distill_kl_div_min_max_normalization() -> None:
+    """normalize_student / normalize_teacher rescale each row to [0, 1] before the softmax, so the loss
+    no longer depends on the teacher's scale and both flags are recorded in the config."""
+
+    def build_features() -> list[dict[str, Tensor]]:
+        # Rebuilt per call: the loss forward rewrites the attention masks of its features.
+        return [_make_feature(t_tokens=4 + way, batch=2, dim=8, seed=1 + way) for way in range(4)]
+
+    labels = torch.tensor([[8.5, -10.0, 1.0], [7.0, -12.0, 3.0]])
+    loss = mve_losses.MultiVectorDistillKLDivLoss(
+        model=_PassthroughModel(), normalize_student=True, normalize_teacher=True
+    )
+    value = loss(build_features(), labels)
+    assert loss(build_features(), labels * 0.01 - 3.0).item() == pytest.approx(value.item(), abs=1e-6)
+    plain = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel())
+    assert plain(build_features(), labels).item() != pytest.approx(value.item())
+
+    config = loss.get_config_dict()
+    assert (config["normalize_student"], config["normalize_teacher"]) == (True, True)
+    assert "normalize_teacher" not in plain.get_config_dict()
+
+
 @pytest.mark.parametrize(
     ("module", "build_loss"),
     [

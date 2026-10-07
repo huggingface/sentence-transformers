@@ -12,6 +12,7 @@ from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.scoring import colbert_kd_scores
 from sentence_transformers.util import (
     check_teacher_targets,
+    min_max_normalize,
     similarity_fct_name,
     stack_padded_token_embeddings,
 )
@@ -45,6 +46,10 @@ class MultiVectorDistillKLDivLoss(nn.Module):
             zeros once a row's spread divided by the temperature exceeds about 100, and every
             candidate that underflows drops out of the KL entirely, which is the ranking information
             distillation exists to transfer. Defaults to None.
+        normalize_student: Whether to min-max normalize each row of student scores to [0, 1] before
+            the temperature and softmax. Defaults to False.
+        normalize_teacher: Whether to min-max normalize each row of teacher scores to [0, 1] before
+            the temperature and softmax. Defaults to False.
         mini_batch_size: Maximum number of rows per model forward. The merged
             ``batch_size * n_ways`` document batch is split into row chunks, each re-trimmed to its
             own longest document, so a single long outlier document only widens its own chunk.
@@ -111,6 +116,8 @@ class MultiVectorDistillKLDivLoss(nn.Module):
         temperature: float = 1.0,
         student_temperature: float | None = None,
         teacher_temperature: float | None = None,
+        normalize_student: bool = False,
+        normalize_teacher: bool = False,
         mini_batch_size: int | None = None,
     ) -> None:
         super().__init__()
@@ -123,6 +130,8 @@ class MultiVectorDistillKLDivLoss(nn.Module):
             value = getattr(self, label)
             if not 0 < value < math.inf:
                 raise ValueError(f"{label} must be a positive finite number, got {value}.")
+        self.normalize_student = normalize_student
+        self.normalize_teacher = normalize_teacher
         self.mini_batch_size = mini_batch_size
         self.loss_function = nn.KLDivLoss(reduction="batchmean", log_target=True)
         self._checked_teacher_scale = False
@@ -136,6 +145,10 @@ class MultiVectorDistillKLDivLoss(nn.Module):
             config["student_temperature"] = self.student_temperature
         if self.teacher_temperature != self.temperature:
             config["teacher_temperature"] = self.teacher_temperature
+        if self.normalize_student:
+            config["normalize_student"] = self.normalize_student
+        if self.normalize_teacher:
+            config["normalize_teacher"] = self.normalize_teacher
         config["mini_batch_size"] = self.mini_batch_size
         return config
 
@@ -181,8 +194,13 @@ class MultiVectorDistillKLDivLoss(nn.Module):
             documents_mask=documents_mask,
         )
 
+        labels = labels.detach()
+        if self.normalize_student:
+            scores = min_max_normalize(scores)
+        if self.normalize_teacher:
+            labels = min_max_normalize(labels)
         student_log_probs = F.log_softmax(scores / self.student_temperature, dim=-1)
-        teacher_log_probs = F.log_softmax(labels.detach() / self.teacher_temperature, dim=-1)
+        teacher_log_probs = F.log_softmax(labels / self.teacher_temperature, dim=-1)
         if not self._checked_teacher_scale:
             self._checked_teacher_scale = True
             check_teacher_targets(teacher_log_probs.exp(), labels, self.teacher_temperature, type(self).__name__)

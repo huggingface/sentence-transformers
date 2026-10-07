@@ -11,6 +11,7 @@ from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.util import (
     check_teacher_targets,
+    min_max_normalize,
     pairwise_dot_score,
     similarity_fct_name,
 )
@@ -24,6 +25,8 @@ class DistillKLDivLoss(nn.Module):
         temperature: float = 1.0,
         student_temperature: float | None = None,
         teacher_temperature: float | None = None,
+        normalize_student: bool = False,
+        normalize_teacher: bool = False,
     ) -> None:
         """
         Compute the KL divergence loss between probability distributions derived from student and teacher models' similarity scores.
@@ -50,6 +53,10 @@ class DistillKLDivLoss(nn.Module):
                 exact zeros once a row's spread divided by the temperature exceeds about 100, and every
                 candidate that underflows drops out of the KL entirely, which is the ranking
                 information distillation exists to transfer. Defaults to None.
+            normalize_student: Whether to min-max normalize each row of student scores to [0, 1] before
+                the temperature and softmax. Defaults to False.
+            normalize_teacher: Whether to min-max normalize each row of teacher scores to [0, 1] before
+                the temperature and softmax. Defaults to False.
 
         References:
             - For more details, please refer to https://huggingface.co/papers/2010.11386
@@ -163,6 +170,8 @@ class DistillKLDivLoss(nn.Module):
             value = getattr(self, label)
             if not 0 < value < math.inf:
                 raise ValueError(f"{label} must be a positive finite number, got {value}.")
+        self.normalize_student = normalize_student
+        self.normalize_teacher = normalize_teacher
         self.loss_fct = nn.KLDivLoss(reduction="batchmean")
         self._checked_teacher_scale = False
 
@@ -192,12 +201,17 @@ class DistillKLDivLoss(nn.Module):
             [self.similarity_fct(embeddings_query, embeddings_other) for embeddings_other in embeddings[1:]],
             dim=1,
         )
+        if self.normalize_student:
+            student_scores = min_max_normalize(student_scores)
         # Scale student scores by temperature to soften distributions, then apply log-softmax
         student_scores = student_scores / self.student_temperature
         student_log_probs = torch.log_softmax(student_scores, dim=1)
 
         # Compute teacher scores
-        teacher_scores = labels.detach() / self.teacher_temperature
+        labels = labels.detach()
+        if self.normalize_teacher:
+            labels = min_max_normalize(labels)
+        teacher_scores = labels / self.teacher_temperature
         teacher_probs = torch.softmax(teacher_scores, dim=1)
         if not self._checked_teacher_scale:
             self._checked_teacher_scale = True
@@ -218,6 +232,10 @@ class DistillKLDivLoss(nn.Module):
             config["student_temperature"] = self.student_temperature
         if self.teacher_temperature != self.temperature:
             config["teacher_temperature"] = self.teacher_temperature
+        if self.normalize_student:
+            config["normalize_student"] = self.normalize_student
+        if self.normalize_teacher:
+            config["normalize_teacher"] = self.normalize_teacher
         return config
 
     @property
