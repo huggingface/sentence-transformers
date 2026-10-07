@@ -156,7 +156,6 @@ def test_predict_softmax(nli_minilm_model: CrossEncoder):
 
 
 def test_predict_softmax_single_label(reranker_bert_tiny_model: CrossEncoder):
-    # Softmax only applies when num_labels > 1; over a single logit it would make every score 1.0
     model = reranker_bert_tiny_model
     query = "How many people live in Berlin?"
     corpus = [
