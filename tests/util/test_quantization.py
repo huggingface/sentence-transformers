@@ -255,14 +255,19 @@ def test_semantic_search_scalar_rescoring_restores_calibration(search_fn, precis
         )
         corpus_kwargs = {"corpus_index": index}
 
-    results, _ = search_fn(
-        queries,
-        **corpus_kwargs,
-        corpus_precision=precision,
-        top_k=1,
-        rescore_multiplier=3,  # Include every candidate, as well as padding slots.
-        **kwargs,
-    )
+    with patch.object(np, "min", wraps=np.min) as minimum, patch.object(np, "max", wraps=np.max) as maximum:
+        results, _ = search_fn(
+            queries,
+            **corpus_kwargs,
+            corpus_precision=precision,
+            top_k=1,
+            rescore_multiplier=3,  # Include every candidate, as well as padding slots.
+            **kwargs,
+        )
+
+    expected_scans = 0 if calibration_source == "ranges" else 1
+    assert minimum.call_count == expected_scans
+    assert maximum.call_count == expected_scans
 
     expected_scores = queries @ corpus.T
     for hits, scores in zip(results, expected_scores):
