@@ -266,21 +266,9 @@ and many more use-cases.
 
 For all examples, see [examples/sentence_transformer/applications](https://github.com/huggingface/sentence-transformers/tree/main/examples/sentence_transformer/applications).
 
-## Development setup
+## Contributing
 
-After cloning the repo (or a fork) to your machine, in a virtual environment, run:
-
-```
-python -m pip install -e ".[dev]"
-
-pre-commit install
-```
-
-To test your changes, run:
-
-```
-pytest
-```
+See the [contributor guidelines](CONTRIBUTING.md) for contribution expectations, AI usage guidelines, and development setup.
 
 ## Citing & Authors
 

@@ -20,7 +20,6 @@ from torch import nn
 from transformers import PreTrainedTokenizerFast
 
 from sentence_transformers.base.modules.input_module import InputModule
-from sentence_transformers.util import get_device_name
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +184,8 @@ class StaticEmbedding(InputModule):
         Args:
             model_name (str): The name of the model to distill.
             vocabulary (list[str] | None, optional): A list of vocabulary words to use. Defaults to None.
-            device (str): The device to run the distillation on (e.g., 'cpu', 'cuda'). If not specified,
-                the strongest device is automatically detected. Defaults to None.
+            device (str | None, optional): The device to run the distillation on (e.g., 'cpu', 'cuda').
+                If None, `model2vec` automatically selects the device. Defaults to None.
             pca_dims (int | None, optional): The number of dimensions for PCA reduction. Defaults to 256.
             apply_zipf (bool): Whether to apply Zipf's law during distillation. Defaults to True.
             sif_coefficient (float | None, optional): The coefficient for SIF weighting. Defaults to 1e-4.
@@ -230,7 +229,6 @@ class StaticEmbedding(InputModule):
             )
             kwargs = {key: value for key, value in kwargs.items() if key in distill_kwargs}
 
-        device = get_device_name()
         static_model = distill(model_name, **kwargs)
         if isinstance(static_model.embedding, np.ndarray):
             embedding_weights = torch.from_numpy(static_model.embedding).contiguous()

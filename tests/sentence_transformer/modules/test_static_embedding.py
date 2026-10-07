@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import math
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
+import numpy as np
 import pytest
 from packaging.version import Version
 from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
 from transformers import __version__ as transformers_version
 
 from sentence_transformers import SentenceTransformer
@@ -63,6 +68,41 @@ def test_from_distillation() -> None:
     # that checks the first dimension is close to 29525 and the second dimension is 32.
     assert abs(model.embedding.weight.shape[0] - 29525) < 5
     assert model.embedding.weight.shape[1] == 32
+
+
+@pytest.mark.parametrize(
+    "device_kwargs", [{}, {"device": None}, {"device": "cpu"}, {"device": "cuda:1"}, {"device": "mps"}]
+)
+def test_from_distillation_passes_device_to_model2vec(
+    monkeypatch: pytest.MonkeyPatch, device_kwargs: dict[str, str | None]
+) -> None:
+    captured: dict[str, Any] = {}
+    dummy = SimpleNamespace(
+        embedding=np.zeros((1, 3), dtype=np.float32),
+        tokenizer=Tokenizer(WordLevel({"test": 0})),
+    )
+
+    def fake_distill(
+        model_name: str,
+        vocabulary: list[str] | None = None,
+        device: str | None = None,
+        pca_dims: int | None = 256,
+        apply_zipf: bool = True,
+        use_subword: bool = True,
+        quantize_to: str = "float32",
+        sif_coefficient: float | None = 1e-4,
+        token_remove_pattern: str | None = None,
+        **kwargs: Any,
+    ) -> SimpleNamespace:
+        captured["model_name"] = model_name
+        captured["device"] = device
+        return dummy
+
+    distill_mod = SimpleNamespace(distill=fake_distill)
+    monkeypatch.setitem(sys.modules, "model2vec.distill", distill_mod)
+
+    StaticEmbedding.from_distillation("dummy-teacher", **device_kwargs)
+    assert captured == {"model_name": "dummy-teacher", "device": device_kwargs.get("device")}
 
 
 @skip_if_no_model2vec()

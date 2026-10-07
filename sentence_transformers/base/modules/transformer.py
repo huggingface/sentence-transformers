@@ -501,6 +501,7 @@ class ProcessingKwargs(TypedDict, total=False):
     Valid keys: ``"common"``, ``"text"``, ``"audio"``, ``"image"``, ``"video"``, ``"chat_template"``.
     Modality and ``"common"`` kwargs override built-in defaults. ``"chat_template"`` kwargs are
     forwarded to ``apply_chat_template``, except the Sentence Transformers ``restore_suffix`` flag.
+    ``text.logits_to_keep`` is passed to the causal model instead (default 1, 0 for all token logits).
     """
 
     common: dict[str, Any]
@@ -705,6 +706,7 @@ class Transformer(InputModule):
             (``"text"``, ``"audio"``, ``"image"``, ``"video"``), ``"common"`` for kwargs shared across all
             modalities, or ``"chat_template"`` for kwargs forwarded to ``apply_chat_template`` (e.g.
             ``{"add_generation_prompt": True}``). Modality and common kwargs override the built-in defaults.
+            ``text.logits_to_keep`` is passed to the causal model instead (default 1, 0 for all token logits).
             The ``"chat_template"`` dict also accepts ``"restore_suffix"`` (default ``True``), a Sentence
             Transformers flag: fixed tokens a chat template appends after the content (e.g. an assistant
             prefill) are restored when truncation drops them, so models that read the final token position
@@ -1305,6 +1307,7 @@ class Transformer(InputModule):
         for modality_key in modality_kwargs:
             if overrides := effective_processing_kwargs.get(modality_key):  # type: ignore[arg-type]
                 modality_kwargs[modality_key].update(overrides)
+        logits_to_keep = modality_kwargs["text"].pop("logits_to_keep", 1)
 
         # strategy='fixed': pad to the expansion length so the post-tokenization swap below has
         # pad positions to replace. Applied after the merge so processing_kwargs can't break the
@@ -1429,8 +1432,10 @@ class Transformer(InputModule):
             processor_output["prompt_length"] = prompt_length
 
         if self.transformer_task in ("text-generation", "any-to-any"):
+            if isinstance(logits_to_keep, bool) or not isinstance(logits_to_keep, int) or logits_to_keep < 0:
+                raise ValueError("logits_to_keep must be a non-negative integer")
             self._verify_left_padding(processor_output, modality_kwargs, common_kwargs)
-            processor_output["logits_to_keep"] = 1
+            processor_output["logits_to_keep"] = logits_to_keep
 
         # ColBERT-style query expansion: swap pad positions within the width floor for the expansion
         # token id, and mark them via ``query_expansion_positions`` so downstream modules score them.
