@@ -636,6 +636,66 @@ class TestPreprocess:
         )
         assert bert_tiny_transformer.processing_kwargs == before
 
+    def test_preprocess_num_truncated_tokens_exact_count(self, bert_tiny_transformer):
+        """A row that fills the truncation cap reports exactly how many tokens were dropped."""
+        text = "this is a longer sentence that should get truncated"
+        full_len = len(bert_tiny_transformer.tokenizer(text, truncation=False)["input_ids"])
+        result = bert_tiny_transformer.preprocess(
+            [text], processing_kwargs={"text": {"max_length": 5, "truncation": True}}
+        )
+        assert result["num_truncated_tokens"].tolist() == [full_len - 5]
+
+    def test_preprocess_num_truncated_tokens_mixed_batch(self, bert_tiny_transformer):
+        """Only the row that hit the cap is counted; rows below it stay 0 without a re-tokenization."""
+        text = "this is a longer sentence that should get truncated"
+        full_len = len(bert_tiny_transformer.tokenizer(text, truncation=False)["input_ids"])
+        result = bert_tiny_transformer.preprocess(
+            ["hi", text], processing_kwargs={"text": {"max_length": 5, "truncation": True}}
+        )
+        assert result["num_truncated_tokens"].tolist() == [0, full_len - 5]
+
+    def test_preprocess_num_truncated_tokens_under_cap(self, bert_tiny_transformer):
+        """A batch entirely below the cap yields zeros for every row."""
+        result = bert_tiny_transformer.preprocess(
+            ["hello world"], processing_kwargs={"text": {"max_length": 32, "truncation": True}}
+        )
+        assert result["num_truncated_tokens"].tolist() == [0]
+
+    def test_preprocess_num_truncated_tokens_numpy_features(self, bert_tiny_transformer):
+        """The count must work when return_tensors='np' makes the attention_mask a numpy array."""
+        text = "this is a longer sentence that should get truncated"
+        full_len = len(bert_tiny_transformer.tokenizer(text, truncation=False)["input_ids"])
+        result = bert_tiny_transformer.preprocess(
+            [text],
+            processing_kwargs={
+                "common": {"return_tensors": "np"},
+                "text": {"max_length": 5, "truncation": True},
+            },
+        )
+        assert result["num_truncated_tokens"].tolist() == [full_len - 5]
+
+    def test_preprocess_num_truncated_tokens_absent_when_truncation_disabled(self, bert_tiny_transformer):
+        """With truncation explicitly off, nothing can be dropped, so the key is omitted."""
+        result = bert_tiny_transformer.preprocess(
+            ["this is a longer sentence that should get truncated"],
+            processing_kwargs={"text": {"truncation": False}},
+        )
+        assert "num_truncated_tokens" not in result
+
+    def test_preprocess_num_truncated_tokens_default_cap(self, bert_tiny_transformer):
+        """Without any processing_kwargs, the cap is the tokenizer's model_max_length (capped to
+        the config's max_position_embeddings at load time): short inputs report 0, over-long ones
+        the exact loss."""
+        short = bert_tiny_transformer.preprocess(["hello world"])
+        assert short["num_truncated_tokens"].tolist() == [0]
+
+        cap = bert_tiny_transformer.tokenizer.model_max_length
+        text = "alpha bravo charlie delta echo foxtrot golf hotel " * 80
+        full_len = len(bert_tiny_transformer.tokenizer(text, truncation=False)["input_ids"])
+        assert full_len > cap, "test text must exceed the default cap"
+        result = bert_tiny_transformer.preprocess([text])
+        assert result["num_truncated_tokens"].tolist() == [full_len - cap]
+
     def test_causal_task_left_pads_by_default(self):
         """The module sets padding_side to "left" on load, so a ragged batch ends in real tokens."""
         transformer = Transformer(TINY_LLAMA, transformer_task="text-generation")
@@ -946,6 +1006,7 @@ class TestForward:
             {
                 "modality": "text",
                 "num_images_per_sample": torch.zeros(1, dtype=torch.long),
+                "num_truncated_tokens": torch.zeros(1, dtype=torch.long),
                 "num_videos_per_sample": torch.zeros(1, dtype=torch.long),
                 "prompt_length": 1,
                 "query_expansion_positions": torch.zeros_like(features["input_ids"], dtype=torch.bool),
@@ -971,6 +1032,7 @@ class TestForward:
         for banned in (
             "modality",
             "num_images_per_sample",
+            "num_truncated_tokens",
             "num_videos_per_sample",
             "prompt_length",
             "query_expansion_positions",
