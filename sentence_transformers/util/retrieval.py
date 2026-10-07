@@ -126,7 +126,7 @@ def paraphrase_mining_embeddings(
         for corpus_start_idx in range(0, len(embeddings), corpus_chunk_size):
             scores = score_function(
                 query_embeddings, embeddings[corpus_start_idx : corpus_start_idx + corpus_chunk_size]
-            )
+            ).detach()
             chunk_values, chunk_idx = torch.topk(scores, min(top_k, len(scores[0])), dim=1, largest=True, sorted=False)
             chunk_idx = chunk_idx + corpus_start_idx
 
