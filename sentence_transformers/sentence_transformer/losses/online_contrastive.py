@@ -80,6 +80,7 @@ class OnlineContrastiveLoss(nn.Module):
         return self.compute_loss_from_embeddings(embeddings, labels)
 
     def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
+        labels = labels.view(-1)
         if not self._checked_labels:
             self._checked_labels = True
             if labels.ne(0).logical_and(labels.ne(1)).any().item():

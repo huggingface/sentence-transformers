@@ -104,6 +104,7 @@ class BinaryCrossEntropyLoss(nn.Module):
         outputs = self.model(inputs)
         logits = outputs["scores"].view(-1)
         logits = self.activation_fn(logits)
+        labels = labels.view(-1)
         loss = self.bce_with_logits_loss(logits, labels.float())
         return loss
 

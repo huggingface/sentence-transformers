@@ -152,6 +152,7 @@ class BatchHardTripletLoss(nn.Module):
         return self.compute_loss_from_embeddings([rep], labels)
 
     def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
+        labels = labels.view(-1)
         return self.batch_hard_triplet_loss(labels, embeddings[0])
 
     # Hard Triplet Loss
