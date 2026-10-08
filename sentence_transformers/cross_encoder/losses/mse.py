@@ -98,6 +98,7 @@ class MSELoss(nn.Module):
         inputs = batch_to_device(inputs, self.model.device)
         logits = self.model(inputs)["scores"].view(-1)
         logits = self.activation_fn(logits)
+        labels = labels.view(-1)
         loss = self.loss_fct(logits, labels.detach().float())
         return loss
 

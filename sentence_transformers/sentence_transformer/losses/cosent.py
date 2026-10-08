@@ -95,6 +95,7 @@ class CoSENTLoss(nn.Module):
         Returns:
             Loss value
         """
+        labels = labels.view(-1)
 
         scores = self.similarity_fct(embeddings[0], embeddings[1])
         scores = scores * self.scale

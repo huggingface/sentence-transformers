@@ -95,6 +95,7 @@ class BatchAllTripletLoss(nn.Module):
         return self.compute_loss_from_embeddings([rep], labels)
 
     def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
+        labels = labels.view(-1)
         return self.batch_all_triplet_loss(labels, embeddings[0])
 
     def batch_all_triplet_loss(self, labels: Tensor, embeddings: Tensor) -> Tensor:

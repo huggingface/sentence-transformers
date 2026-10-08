@@ -99,6 +99,7 @@ class AnglELoss(CoSENTLoss):
 
             if labels is None:
                 labels = torch.ones(anchor_embeddings.size(0), device=anchor_embeddings.device)
+            labels = labels.view(-1)
 
             combined_labels = torch.cat([labels, (1 - labels).repeat(len(embeddings) - 2)], dim=0)
             return super().compute_loss_from_embeddings(combined_embeddings, combined_labels)
