@@ -182,8 +182,9 @@ class SparseAutoEncoder(Module):
             features["sentence_embedding"] = latents_k
             return features
 
-        x, info = self.prepare(x)
-        latents_pre_act = self.encode_pre_act(x)
+        # decode() maps back to the input space, so the raw input stays the reconstruction target
+        x_prepared, info = self.prepare(x)
+        latents_pre_act = self.encode_pre_act(x_prepared)
 
         latents_k, latents_auxk = self.top_k(latents_pre_act, k)
         latents_4k, _ = self.top_k(latents_pre_act, 4 * k)
