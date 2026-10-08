@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import torch
 
 from sentence_transformers import SparseEncoder
-from sentence_transformers.sparse_encoder.modules import SparseStaticEmbedding
+from sentence_transformers.sparse_encoder.modules import Router, SparseStaticEmbedding
 from tests.sparse_encoder.utils import sparse_allclose
 
 
@@ -62,3 +63,33 @@ def test_sparse_static_embedding_save_load(
     assert torch.allclose(model[0].sub_modules.query[0].weight, loaded_model[0].sub_modules.query[0].weight), (
         "SparseStaticEmbedding weights changed after save and load"
     )
+
+
+def test_sparse_static_embedding_from_json_partial_vocabulary(
+    splade_bert_tiny_model: SparseEncoder, tmp_path: Path
+) -> None:
+    # An IDF file computed on a custom corpus only contains the tokens that occur in that corpus
+    tokenizer = splade_bert_tiny_model.tokenizer
+    idf_path = tmp_path / "idf.json"
+    idf_path.write_text(json.dumps({"paris": 3.1, "capital": 2.4, "france": 2.9}), encoding="utf-8")
+
+    query_module = SparseStaticEmbedding.from_json(str(idf_path), tokenizer=tokenizer, frozen=True)
+    assert query_module.get_embedding_dimension() == len(tokenizer.get_vocab())
+
+    model = SparseEncoder(
+        modules=[
+            Router.for_query_document(
+                query_modules=[query_module],
+                document_modules=[splade_bert_tiny_model[0], splade_bert_tiny_model[1]],
+            )
+        ]
+    )
+    query_embedding = model.encode_query("capital of france", convert_to_sparse_tensor=False)
+    document_embedding = model.encode_document("Paris is the capital of France.", convert_to_sparse_tensor=False)
+    assert query_embedding.shape == document_embedding.shape
+    assert model.similarity(query_embedding, document_embedding).shape == (1, 1)
+    assert query_embedding[tokenizer.convert_tokens_to_ids("capital")] == 2.4
+
+    # Tokens that are not in the IDF file get a weight of 0
+    unknown_embedding = model.encode_query("zebra", convert_to_sparse_tensor=False)
+    assert unknown_embedding.abs().sum() == 0

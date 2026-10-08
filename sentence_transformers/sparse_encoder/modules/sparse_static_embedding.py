@@ -147,8 +147,9 @@ class SparseStaticEmbedding(InputModule):
         token_ids = tokenizer.convert_tokens_to_ids(list(tokens))
         weights = torch.tensor(weights, dtype=torch.float32)
 
-        max_token_id = max(token_ids) + 1
-        weight = torch.zeros(max_token_id, dtype=torch.float32)
+        # Size the weights by the vocabulary, as the IDF file does not have to contain every token
+        vocab_size = max(len(tokenizer.get_vocab()), max(token_ids) + 1)
+        weight = torch.zeros(vocab_size, dtype=torch.float32)
         for token_id, w in zip(token_ids, weights):
             weight[token_id] = w
 
