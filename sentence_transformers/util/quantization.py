@@ -490,14 +490,12 @@ def quantize_embeddings(
                         "or a `calibration_embeddings` that can be used to calculate the buckets."
                     )
                 ranges = np.vstack((np.min(embeddings, axis=0), np.max(embeddings, axis=0)))
-        # Half-precision subtraction can overflow, and dividing a narrow range by 255
-        # can underflow to zero. Compute buckets in at least float32, preserving float64 inputs.
-        calculation_dtype = np.result_type(embeddings.dtype, ranges.dtype, np.float32)
-        starts = ranges[0, :].astype(calculation_dtype, copy=False)
-        steps = (ranges[1, :].astype(calculation_dtype, copy=False) - starts) / 255
+        ranges = ranges.astype(np.float32, copy=False)
+        starts = ranges[0, :]
+        steps = (ranges[1, :] - starts) / 255
         steps = np.where(steps == 0, 1, steps)
 
-        q_vals = np.clip(np.floor((embeddings.astype(calculation_dtype, copy=False) - starts) / steps), 0, 255)
+        q_vals = np.clip(np.floor((embeddings - starts) / steps), 0, 255)
         if precision == "uint8":
             return q_vals.astype(np.uint8)
         elif precision == "int8":
