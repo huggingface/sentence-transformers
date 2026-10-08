@@ -247,7 +247,7 @@ class NanoBEIREvaluator(BaseEvaluator):
         self.score_functions = score_functions
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
         self._score_functions_from_model = score_functions is None
-        self.main_score_function = main_score_function
+        self.main_score_function = SimilarityFunction(main_score_function) if main_score_function else None
         self.truncate_dim = truncate_dim
         self.name = f"NanoBEIR_{aggregate_key}"
         if self.truncate_dim:
