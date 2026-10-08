@@ -135,7 +135,7 @@ def paraphrase_mining_embeddings(
             else:
                 values = torch.cat([scores_top_k_values, chunk_values], dim=1)
                 idx = torch.cat([scores_top_k_idx, chunk_idx], dim=1)
-                scores_top_k_values, top_pos = torch.topk(values, min(top_k, len(values[0])), dim=1, largest=True, sorted=False)
+                scores_top_k_values, top_pos = torch.topk(values, min(top_k, len(values[0])), dim=1, sorted=False)
                 scores_top_k_idx = torch.gather(idx, 1, top_pos)
 
         scores_top_k_values = scores_top_k_values.cpu().tolist()
@@ -294,7 +294,7 @@ def community_detection(
         # Compute cosine similarity scores
         cos_scores = embeddings[start_idx : start_idx + batch_size] @ embeddings.T
 
-        # Use a torch-heavy approach if the embeddings are on CUDA, otherwise a loop-heavy approach
+        # Use a torch-heavy approach if the embeddings are on CUDA, otherwise a loop-heavy one
         if embeddings.device.type in ["cuda", "npu"]:
             # Threshold the cos scores and determine how many close embeddings exist per embedding
             threshold_mask = cos_scores >= threshold
