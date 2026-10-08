@@ -39,6 +39,42 @@ def test_semantic_search() -> None:
             assert np.abs(hits[qid][hit_num]["score"] - cos_scores_values[qid][hit_num]) < 0.001
 
 
+@pytest.mark.parametrize(
+    "query_format", ["tensor", "numpy", "tensor_list", "numpy_list", "single_tensor", "single_numpy"]
+)
+@pytest.mark.parametrize("corpus_format", ["tensor", "numpy", "tensor_list", "numpy_list"])
+def test_semantic_search_input_formats(query_format: str, corpus_format: str) -> None:
+    rng = np.random.default_rng(0)
+    queries = rng.standard_normal((1 if query_format.startswith("single") else 3, 16)).astype(np.float32)
+    corpus = rng.standard_normal((5, 16)).astype(np.float32)
+
+    def convert(embeddings: np.ndarray, input_format: str):
+        if input_format == "tensor":
+            return torch.from_numpy(embeddings)
+        if input_format == "tensor_list":
+            return list(torch.from_numpy(embeddings))
+        if input_format == "numpy_list":
+            return list(embeddings)
+        if input_format == "single_tensor":
+            return torch.from_numpy(embeddings[0])
+        if input_format == "single_numpy":
+            return embeddings[0]
+        return embeddings
+
+    expected = semantic_search(torch.from_numpy(queries), torch.from_numpy(corpus), top_k=2)
+    actual = semantic_search(convert(queries, query_format), convert(corpus, corpus_format), top_k=2)
+
+    assert len(actual) == len(expected)
+    for hits, expected_hits in zip(actual, expected):
+        assert [hit["corpus_id"] for hit in hits] == [hit["corpus_id"] for hit in expected_hits]
+        assert [hit["score"] for hit in hits] == pytest.approx([hit["score"] for hit in expected_hits])
+
+
+@pytest.mark.parametrize("corpus", [torch.empty(0), np.array([])])
+def test_semantic_search_empty_corpus(corpus) -> None:
+    assert semantic_search(torch.ones(2, 16), corpus) == [[], []]
+
+
 @pytest.mark.slow
 def test_paraphrase_mining() -> None:
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
@@ -117,6 +153,32 @@ def test_paraphrase_mining_embeddings_returns_top_max_pairs(
     assert [score for score, _, _ in pairs] == pytest.approx([score for score, _, _ in expected])
 
 
+@pytest.mark.parametrize("corpus_chunk_size", [1, 3, 7, 40])
+@pytest.mark.parametrize("query_chunk_size", [1, 5, 40])
+@pytest.mark.parametrize("top_k", [1, 3])
+@pytest.mark.parametrize("max_pairs", [10, 500000])
+def test_paraphrase_mining_embeddings_top_k_is_per_sentence(
+    query_chunk_size: int, corpus_chunk_size: int, top_k: int, max_pairs: int
+) -> None:
+    torch.manual_seed(0)
+    embeddings = torch.randn(40, 8)
+    scores = cos_sim(embeddings, embeddings).fill_diagonal_(-torch.inf)
+    neighbours = scores.topk(top_k, dim=1).indices.tolist()
+    candidates = {(min(i, j), max(i, j)) for i, row in enumerate(neighbours) for j in row}
+    expected = sorted(([scores[i, j].item(), i, j] for i, j in candidates), reverse=True)[:max_pairs]
+
+    pairs = paraphrase_mining_embeddings(
+        embeddings,
+        query_chunk_size=query_chunk_size,
+        corpus_chunk_size=corpus_chunk_size,
+        top_k=top_k,
+        max_pairs=max_pairs,
+    )
+
+    assert [(i, j) for _, i, j in pairs] == [(i, j) for _, i, j in expected]
+    assert [score for score, _, _ in pairs] == pytest.approx([score for score, _, _ in expected])
+
+
 def test_community_detection_two_clear_communities():
     """Test case with two clear communities."""
     embeddings = torch.tensor(
@@ -184,10 +246,9 @@ def test_community_detection_min_community_size_filtering():
     assert sorted([sorted(community) for community in result]) == sorted([sorted(community) for community in expected])
 
 
-def test_community_detection_min_community_size_larger_than_input():
+@pytest.mark.parametrize("embeddings", [torch.ones(3, 4), torch.empty(0), np.array([]), []])
+def test_community_detection_min_community_size_larger_than_input(embeddings):
     """A dataset smaller than the minimum community size cannot form a community."""
-    embeddings = torch.ones(3, 4)
-
     result = community_detection(embeddings, threshold=0.8, min_community_size=4)
 
     assert result == []
@@ -235,8 +296,10 @@ def test_community_detection_numpy_input():
     expected = [
         [0, 1, 2],  # Single community
     ]
+    original = embeddings.copy()
     result = community_detection(embeddings, threshold=0.8, min_community_size=2)
     assert sorted([sorted(community) for community in result]) == sorted([sorted(community) for community in expected])
+    np.testing.assert_array_equal(embeddings, original)
 
 
 def test_community_detection_large_batch_size():

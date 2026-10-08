@@ -83,6 +83,20 @@ def test_binary_quantize_row_independence(precision: str) -> None:
         assert result[1, 0] == 0x00, f"All-negative row: expected 0, got {result[1, 0]}"
 
 
+@pytest.mark.parametrize("precision", ["binary", "ubinary"])
+@pytest.mark.parametrize("shape", [(16,), (10,), (2, 3, 10)])
+def test_binary_quantize_keeps_leading_dims(precision: str, shape: tuple[int, ...]) -> None:
+    """A single 1-D embedding (e.g. from ``model.encode("text")``) or a 3-D batch packs along the last axis only."""
+    rng = np.random.default_rng(seed=2)
+    embeddings = rng.standard_normal(shape).astype(np.float32)
+
+    result = quantize_embeddings(embeddings, precision)
+
+    expected = quantize_embeddings(embeddings.reshape(-1, shape[-1]), precision).reshape(*shape[:-1], -1)
+    assert result.shape == (*shape[:-1], -(-shape[-1] // 8))
+    np.testing.assert_array_equal(result, expected)
+
+
 @pytest.mark.parametrize("precision", ["int8", "uint8"])
 def test_quantize_clips_out_of_range_values(precision: str) -> None:
     """Values outside the calibration range must saturate, not wrap around, on cast.
@@ -102,6 +116,48 @@ def test_quantize_clips_out_of_range_values(precision: str) -> None:
         expected = np.array([[0, 170, 255]], dtype=np.uint8)
 
     np.testing.assert_array_equal(result, expected)
+
+
+@pytest.mark.parametrize("precision", ["int8", "uint8"])
+@pytest.mark.parametrize("bound", [1e-6, 60000.0])
+@pytest.mark.parametrize("calibration_mode", ["inferred", "ranges", "embeddings"])
+def test_scalar_quantize_float16_uses_float32_arithmetic(precision: str, bound: float, calibration_mode: str) -> None:
+    """A nonconstant fp16 range must not collapse after bucket-step underflow or overflow."""
+    embeddings = np.array([[-bound, 3], [0, 3], [bound, 3]], dtype=np.float16)
+    calibration = embeddings[[0, 2]]
+    kwargs = {}
+    reference_kwargs = {}
+    if calibration_mode == "ranges":
+        kwargs["ranges"] = calibration
+        reference_kwargs["ranges"] = calibration.astype(np.float32)
+    elif calibration_mode == "embeddings":
+        kwargs["calibration_embeddings"] = calibration
+        reference_kwargs["calibration_embeddings"] = calibration.astype(np.float32)
+
+    expected = quantize_embeddings(embeddings.astype(np.float32), precision, **reference_kwargs)
+    with np.errstate(over="raise", invalid="raise", divide="raise"):
+        actual = quantize_embeddings(embeddings, precision, **kwargs)
+
+    np.testing.assert_array_equal(actual, expected)
+    assert len(np.unique(actual[:, 0])) == 3
+
+
+@pytest.mark.parametrize("precision", ["int8", "uint8"])
+def test_scalar_quantize_float16_multi_vector_shared_ranges(precision: str) -> None:
+    embeddings = np.array([[-1e-6, 3], [0, 3], [1e-6, 3]], dtype=np.float16)
+    matrices = [embeddings[:1], embeddings[1:]]
+    expected = quantize_embeddings([matrix.astype(np.float32) for matrix in matrices], precision)
+    actual = quantize_embeddings(matrices, precision)
+    for actual_matrix, expected_matrix in zip(actual, expected):
+        np.testing.assert_array_equal(actual_matrix, expected_matrix)
+
+
+def test_scalar_quantize_float16_tensor() -> None:
+    embeddings = torch.tensor([[-1e-6], [0], [1e-6]], dtype=torch.float16)
+    expected = quantize_embeddings(embeddings.float().numpy(), "uint8")
+    with np.errstate(over="raise", invalid="raise", divide="raise"):
+        actual = quantize_embeddings(embeddings, "uint8")
+    np.testing.assert_array_equal(actual, expected)
 
 
 def test_quantize_multi_vector_handles_empty_matrices() -> None:
@@ -502,3 +558,24 @@ def test_semantic_search_usearch_binary_matches_ubinary(rescore: bool) -> None:
             assert sorted(entry["score"] for entry in binary_results) == sorted(
                 entry["score"] for entry in ubinary_results
             )
+
+
+@pytest.mark.parametrize("precision", ["float32", "int8", "uint8", "binary", "ubinary"])
+@pytest.mark.parametrize("input_type", ["tensor", "list", "ragged"])
+def test_quantize_bfloat16_tensors(precision: str, input_type: str) -> None:
+    embeddings = torch.randn(4, 16, generator=torch.Generator().manual_seed(0)).bfloat16()
+    expected = quantize_embeddings(embeddings.float(), precision=precision)
+
+    if input_type == "list":
+        embeddings = list(embeddings)
+    elif input_type == "ragged":
+        embeddings = [embeddings[:0], embeddings[:1], embeddings[1:]]
+
+    quantized = quantize_embeddings(embeddings, precision=precision)
+    if input_type == "ragged":
+        assert isinstance(quantized, list)
+        assert [matrix.shape[0] for matrix in quantized] == [0, 1, 3]
+        quantized = np.concatenate(quantized)
+
+    np.testing.assert_array_equal(quantized, expected)
+    assert quantized.dtype == expected.dtype

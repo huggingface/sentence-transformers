@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import math
 import os
 from collections import defaultdict
@@ -393,6 +394,41 @@ def test_include_positives(dataset: Dataset, static_retrieval_mrl_en_v1_model: S
 
     # Should use n-tuple format (as enforced by include_positives=True)
     assert "negative_1" in result.column_names
+
+
+@pytest.mark.parametrize("include_positives", [False, True])
+@pytest.mark.parametrize(
+    "mining_kwargs",
+    [
+        {},
+        {"range_min": 1},
+        {"range_max": 5},
+        {"max_score": 0.8},
+        {"min_score": 0.5},
+        {"absolute_margin": 0.1},
+        {"relative_margin": 0.05},
+        {"margin": 0.1},
+        {"sampling_strategy": "random"},
+    ],
+)
+def test_include_positives_warning(
+    dataset: Dataset,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    caplog: pytest.LogCaptureFixture,
+    include_positives: bool,
+    mining_kwargs: dict[str, float | int | str],
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="sentence_transformers.util.hard_negatives"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            include_positives=include_positives,
+            output_format="n-tuple",
+            verbose=False,
+            **mining_kwargs,
+        )
+
+    assert ("may still discard the positive values" in caplog.text) == (include_positives and bool(mining_kwargs))
 
 
 def test_include_positives_with_labeled_formats(

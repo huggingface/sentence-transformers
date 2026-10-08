@@ -24,6 +24,7 @@ from sentence_transformers.util import batch_to_device, truncate_embeddings
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
+from sentence_transformers.util.tensor import _tensor_to_numpy
 
 from .fit_mixin import FitMixin
 from .model_card import SentenceTransformerModelCardData
@@ -904,9 +905,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             if not len(all_embeddings):
                 all_embeddings = np.array([])
             elif isinstance(all_embeddings, Tensor):
-                if all_embeddings.dtype == torch.bfloat16:
-                    all_embeddings = all_embeddings.float()
-                all_embeddings = all_embeddings.cpu().numpy()
+                all_embeddings = _tensor_to_numpy(all_embeddings)
         else:
             all_embeddings = list(
                 torch.from_numpy(all_embeddings) if isinstance(all_embeddings, np.ndarray) else all_embeddings

@@ -91,6 +91,7 @@ The NanoViDoRe column reports the mean NDCG@10 (higher is better) across [NanoVi
 
 | Model | Parameters | Dimensionality | NanoViDoRe | Notes |
 | --- | :---: | :---: | :---: | --- |
+| [perplexity-ai/pplx-embed-v2-late-9b](https://huggingface.co/perplexity-ai/pplx-embed-v2-late-9b) | 8.39B | 128 | 0.6633 | - |
 | [webAI-Official/webAI-ColVec1.1-8b](https://huggingface.co/webAI-Official/webAI-ColVec1.1-8b) | 8.4B | 640 | 0.6580 | needs `trust_remote_code=True` |
 | [webAI-Official/webAI-ColVec1.1-4b](https://huggingface.co/webAI-Official/webAI-ColVec1.1-4b) | 4.5B | 640 | 0.6520 | needs `trust_remote_code=True` |
 | [vultr/VultronRetrieverPrime-Qwen3.5-8B](https://huggingface.co/vultr/VultronRetrieverPrime-Qwen3.5-8B) | 8.39B | 320 | 0.6423 | - |
@@ -98,6 +99,7 @@ The NanoViDoRe column reports the mean NDCG@10 (higher is better) across [NanoVi
 | [tencent/EVIE-Preview-4.5B](https://huggingface.co/tencent/EVIE-Preview-4.5B) | 4.54B | 128 | 0.6405 | - |
 | [nvidia/nemotron-colembed-vl-8b-v2](https://huggingface.co/nvidia/nemotron-colembed-vl-8b-v2) | 8.77B | 4096 | 0.6374 | `revision="refs/pr/4"`, needs `trust_remote_code=True` |
 | [athrael-soju/colqwen3.5-4.5B-v3](https://huggingface.co/athrael-soju/colqwen3.5-4.5B-v3) | 4.54B | 320 | 0.6358 | - |
+| [perplexity-ai/pplx-embed-v2-late-0.6b](https://huggingface.co/perplexity-ai/pplx-embed-v2-late-0.6b) | 594M | 128 | 0.6249 | - |
 | [TomoroAI/tomoro-colqwen3-embed-8b](https://huggingface.co/TomoroAI/tomoro-colqwen3-embed-8b) | 8.8B | 320 | 0.6206 | needs `trust_remote_code=True` |
 | [nvidia/nemotron-colembed-vl-4b-v2](https://huggingface.co/nvidia/nemotron-colembed-vl-4b-v2) | 4.83B | 2560 | 0.6200 | `revision="refs/pr/7"`, needs `trust_remote_code=True` |
 | [OpenSearch-AI/Ops-Colqwen3-4B](https://huggingface.co/OpenSearch-AI/Ops-Colqwen3-4B) | 4.44B | 2560 | 0.6150 | `revision="refs/pr/5"`, needs `trust_remote_code=True` |

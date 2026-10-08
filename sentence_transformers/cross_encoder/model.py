@@ -624,12 +624,12 @@ class CrossEncoder(BaseModel, FitMixin):
             if activation_fn is not None:
                 scores = activation_fn(scores)
 
-            if apply_softmax and scores.ndim > 1:
-                scores = torch.nn.functional.softmax(scores, dim=1)
-
             # Squeeze [batch_size, 1] -> [batch_size] for single-label models
             if num_labels == 1 and scores.ndim > 1:
                 scores = scores.squeeze(-1)
+
+            if apply_softmax and scores.ndim > 1:
+                scores = torch.nn.functional.softmax(scores, dim=1)
 
             pred_scores.extend(scores)
 
@@ -649,7 +649,6 @@ class CrossEncoder(BaseModel, FitMixin):
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
         activation_fn: Callable | None = None,
-        apply_softmax=False,
         device: str | list[str | torch.device] | None = None,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
@@ -673,7 +672,6 @@ class CrossEncoder(BaseModel, FitMixin):
             batch_size (int, optional): Batch size for encoding. Defaults to 32.
             show_progress_bar (bool, optional): Output progress bar. Defaults to None.
             activation_fn ([type], optional): Activation function applied on the logits output of the CrossEncoder. If None, nn.Sigmoid() will be used if num_labels=1, else nn.Identity. Defaults to None.
-            apply_softmax (bool, optional): If there are more than 2 dimensions and apply_softmax=True, applies softmax on the logits output. Defaults to False.
             device (Union[str, List[str]], optional): Device(s) to use for computation. Can be a single device string
                 (e.g., "cuda:0", "cpu"), which moves the model there unless a `device_map` or Accelerate hooks control placement,
                 or a list of devices (e.g., ["cuda:0", "cuda:1"]), which uses multiprocessing automatically.
@@ -739,7 +737,6 @@ class CrossEncoder(BaseModel, FitMixin):
             batch_size=batch_size,
             show_progress_bar=show_progress_bar,
             activation_fn=activation_fn,
-            apply_softmax=apply_softmax,
             convert_to_tensor=True,
             device=device,
             pool=pool,

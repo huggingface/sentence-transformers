@@ -32,6 +32,9 @@ class LabelAccuracyEvaluator(BaseEvaluator):
 
         Args:
             dataloader (DataLoader): the data for the evaluation
+            name (str): Name of the evaluator, used as a suffix of the CSV file name. Defaults to "".
+            softmax_model: Model with a softmax classification head that is used to predict the labels.
+            write_csv (bool): Whether to write the results to a CSV file. Defaults to True.
         """
         super().__init__()
         self.dataloader = dataloader
