@@ -95,7 +95,7 @@ def paraphrase_mining_embeddings(
     score_function: Callable[[Tensor, Tensor], Tensor] = cos_sim,
 ) -> list[list[float | int]]:
     """
-    Given a list of sentences / texts, this function performs paraphrase mining. It compares all sentences against all
+    Given a list of sentences / texts, this function performs paraphrase mining. It compares all sentences
     other sentences and returns a list with the pairs that have the highest cosine similarity score.
 
     Args:
@@ -183,8 +183,8 @@ def semantic_search(
     Args:
         query_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the query embeddings. Can be a sparse COO tensor.
         corpus_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the corpus embeddings. Can be a sparse COO tensor.
-        query_chunk_size (int, optional): Process 100 queries simultaneously. Increasing that value increases the speed, but requires more memory. Defaults to 100.
-        corpus_chunk_size (int, optional): Scans the corpus 500k entries at a time. Increasing that value increases the speed, but requires more memory. Defaults to 500000.
+        query_chunk_size (int, optional): Process 100 queries simultaneously. Increasing that value increases the memory usage. Defaults to 100.
+        corpus_chunk_size (int, optional): Scans the corpus 500k entries at a time. Increasing that value increases the memory usage. Defaults to 500000.
         top_k (int, optional): Retrieve top k matching entries. Defaults to 10.
         score_function (Callable[[:class:`~torch.Tensor`, :class:`~torch.Tensor`], :class:`~torch.Tensor`], optional): Function for computing scores. By default, cosine similarity.
 
@@ -343,7 +343,12 @@ def community_detection(
     used = np.zeros(len(embeddings), dtype=bool)
 
     for community in extracted_communities:
-        # community keeps its topk order, so the central point stays first
+        # community keeps its topk order, so the central point stays first.
+        # If the centre has already been claimed by a larger community, the remaining
+        # members were only close to that centre, not to each other, so drop the whole
+        # community rather than returning an internally inconsistent group.
+        if used[community[0]]:
+            continue
         non_overlapped_community = community[~used[community]]
         if len(non_overlapped_community) >= min_community_size:
             unique_communities.append(non_overlapped_community)
