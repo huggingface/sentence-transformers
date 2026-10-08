@@ -65,7 +65,7 @@ def test_semantic_search_input_formats(query_format: str, corpus_format: str) ->
     actual = semantic_search(convert(queries, query_format), convert(corpus, corpus_format), top_k=2)
 
     assert len(actual) == len(expected)
-    for hits, expected_hits in zip(actual, expected_hits):
+    for hits, expected_hits in zip(actual, expected):
         assert [hit["corpus_id"] for hit in hits] == [hit["corpus_id"] for hit in expected_hits]
         assert [hit["score"] for hit in hits] == pytest.approx([hit["score"] for hit in expected_hits])
 
