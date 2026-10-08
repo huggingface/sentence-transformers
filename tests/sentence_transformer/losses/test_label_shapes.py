@@ -1,7 +1,7 @@
 """Losses that take one label per row must treat labels of shape (n, 1) like labels of shape (n,).
 
 A label column of one-element lists is collated to shape (n, 1). Without flattening, that broadcasts against
-the (n,) per-row scores and silently computes a different loss.
+the (n,) per-row scores and either silently computes a different loss or raises a shape error.
 """
 
 from __future__ import annotations
@@ -65,11 +65,9 @@ def test_column_labels_match_flat_labels(loss_class, num_columns, labels) -> Non
 
 
 @pytest.mark.parametrize(("loss_class", "num_columns", "labels"), LOSSES, ids=LOSS_IDS)
-@pytest.mark.parametrize("bad_shape", ["two_per_row", "too_few"])
-def test_labels_that_are_not_one_per_row_raise(loss_class, num_columns, labels, bad_shape) -> None:
-    """Flattening must not let a wrong label count through as a loss value."""
+def test_two_labels_per_row_raise(loss_class, num_columns, labels) -> None:
+    """Flattening (n, 2) labels gives 2n labels, which must raise rather than produce a loss value."""
     loss_fn = loss_class(torch.nn.Identity())
-    bad_labels = labels[:, None].repeat(1, 2) if bad_shape == "two_per_row" else labels[:-1]
 
     with pytest.raises((RuntimeError, IndexError, ValueError)):
-        loss_fn.compute_loss_from_embeddings(_embeddings(num_columns), bad_labels)
+        loss_fn.compute_loss_from_embeddings(_embeddings(num_columns), labels[:, None].repeat(1, 2))

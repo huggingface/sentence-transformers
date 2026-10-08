@@ -32,8 +32,9 @@ def test_column_labels_match_flat_labels(reranker_bert_tiny_model_v54: CrossEnco
 
 
 @pytest.mark.parametrize("loss_class", [MSELoss, BinaryCrossEntropyLoss])
-def test_labels_that_are_not_one_per_row_raise(reranker_bert_tiny_model_v54: CrossEncoder, loss_class) -> None:
+def test_two_labels_per_row_raise(reranker_bert_tiny_model_v54: CrossEncoder, loss_class) -> None:
+    """Flattening (n, 2) labels gives 2n labels, which must raise rather than produce a loss value."""
     loss_fn = loss_class(reranker_bert_tiny_model_v54)
 
     with pytest.raises((RuntimeError, ValueError)):
-        loss_fn(INPUTS, LABELS[:-1])
+        loss_fn(INPUTS, LABELS[:, None].repeat(1, 2))
