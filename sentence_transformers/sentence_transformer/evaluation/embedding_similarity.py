@@ -175,6 +175,10 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
         if self.precision in ("ubinary", "binary"):
             embeddings1 = np.unpackbits(embeddings1.astype(np.uint8), axis=1)
             embeddings2 = np.unpackbits(embeddings2.astype(np.uint8), axis=1)
+        if self.precision in ("int8", "uint8", "ubinary", "binary"):
+            # Integers break the similarity functions, which normalize, subtract and square their inputs
+            embeddings1 = embeddings1.astype(np.float32)
+            embeddings2 = embeddings2.astype(np.float32)
 
         labels = self.scores
 

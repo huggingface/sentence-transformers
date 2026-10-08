@@ -276,8 +276,6 @@ def community_detection(
     """
     if not isinstance(embeddings, torch.Tensor):
         embeddings = torch.tensor(embeddings)
-    if not embeddings.is_floating_point():
-        embeddings = embeddings.float()
 
     if len(embeddings) < min_community_size:
         return []

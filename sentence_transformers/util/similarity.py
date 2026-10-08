@@ -766,14 +766,14 @@ def _pad_multi_vector_inputs(
     return padded, mask
 
 
-def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:
+def pairwise_angle_sim(x: list | np.ndarray | Tensor, y: list | np.ndarray | Tensor) -> Tensor:
     """
     Computes the absolute normalized angle distance. See :class:`~sentence_transformers.sentence_transformer.losses.AnglELoss`
     or https://huggingface.co/papers/2309.12871 for more information.
 
     Args:
-        x (Tensor): The first tensor.
-        y (Tensor): The second tensor.
+        x (Union[list, np.ndarray, Tensor]): The first tensor.
+        y (Union[list, np.ndarray, Tensor]): The second tensor.
 
     Returns:
         Tensor: Vector with res[i] = angle_sim(a[i], b[i])
