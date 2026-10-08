@@ -79,6 +79,8 @@ class Pooling(Module):
             a tuple/list of mode names to concatenate multiple pooled representations.
             Valid modes: ``"cls"``, ``"max"``, ``"mean"``, ``"mean_sqrt_len_tokens"``,
             ``"weightedmean"``, ``"lasttoken"``. Defaults to ``"mean"``.
+            For ``"weightedmean"``, position weights start at the first non-padding token.
+            Excluding a prompt retains the remaining tokens' original position weights.
         include_prompt: If ``False``, prompt tokens are excluded from pooling. Useful for
             models like `INSTRUCTOR <https://huggingface.co/hkunlp/instructor-large>`_ that
             should not include the prompt in the pooled representation. Defaults to ``True``.
@@ -222,6 +224,11 @@ class Pooling(Module):
                 weights = torch.arange(
                     1, token_embeddings.shape[1] + 1, device=token_embeddings.device, dtype=accumulation_dtype
                 ).view(1, -1, 1)
+                # Preserve original sequence positions when excluding prompt tokens.
+                original_mask = features.get("attention_mask")
+                if original_mask is not None and original_mask.shape == attention_mask.shape:
+                    pad_lengths = original_mask.to(torch.int32).argmax(dim=1)
+                    weights = weights - pad_lengths.view(-1, 1, 1)
                 weighted_mask = mask * weights
                 sum_embeddings = (token_embeddings * weighted_mask).sum(dim=1)
                 output_dtype = token_embeddings.dtype

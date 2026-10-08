@@ -528,6 +528,67 @@ def test_pooling_multi_mode(modes: tuple[str, ...], flattened: bool) -> None:
     assert torch.allclose(output, expected, atol=1e-5)
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("prompt_length", [0, 1])
+@pytest.mark.parametrize("layout", ["left", "right", "flattened", "flattened_without_seq_idx"])
+def test_weightedmean_padding_invariance(dtype: torch.dtype, prompt_length: int, layout: str) -> None:
+    """Weights count real token positions, retaining prompt offsets and padding-free parity."""
+    sequences = [
+        torch.tensor([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]], dtype=dtype),
+        torch.tensor([[2.0, 4.0], [6.0, 8.0], [10.0, 12.0], [14.0, 16.0], [18.0, 20.0]], dtype=dtype),
+    ]
+    expected = []
+    expected_gradients = []
+    for sequence in sequences:
+        weights = torch.arange(1, sequence.shape[0] + 1, dtype=torch.float64)
+        weights[:prompt_length] = 0
+        normalized = weights / weights.sum()
+        expected.append((sequence.double() * normalized.unsqueeze(1)).sum(0))
+        expected_gradients.append(normalized.unsqueeze(1).expand_as(sequence))
+
+    features: dict[str, Any] = {"prompt_length": prompt_length}
+    if layout.startswith("flattened"):
+        embeddings = torch.cat(sequences).unsqueeze(0).requires_grad_()
+        features["cu_seq_lens_q"] = torch.tensor([0, 3, 8], dtype=torch.int32)
+        if layout == "flattened":
+            features["seq_idx"] = torch.tensor([[0, 0, 0, 1, 1, 1, 1, 1]])
+        gradient_reference = torch.cat(expected_gradients).unsqueeze(0)
+    else:
+        embeddings = torch.full((2, 5, 2), 99.0, dtype=dtype)
+        mask = torch.zeros((2, 5), dtype=torch.int64)
+        gradient_reference = torch.zeros_like(embeddings, dtype=torch.float64)
+        for index, sequence in enumerate(sequences):
+            start = 5 - len(sequence) if layout == "left" else 0
+            stop = start + len(sequence)
+            embeddings[index, start:stop] = sequence
+            mask[index, start:stop] = 1
+            gradient_reference[index, start:stop] = expected_gradients[index]
+        embeddings.requires_grad_()
+        features["attention_mask"] = mask
+
+    features["token_embeddings"] = embeddings
+    originals = {key: value.clone() for key, value in features.items() if isinstance(value, torch.Tensor)}
+    pooling = Pooling(embedding_dimension=2, pooling_mode="weightedmean", include_prompt=False)
+    output = pooling(features)["sentence_embedding"]
+    torch.testing.assert_close(output, torch.stack(expected).to(dtype))
+    (gradient,) = torch.autograd.grad(output.sum(), embeddings)
+    torch.testing.assert_close(gradient, gradient_reference.to(dtype))
+    assert output.dtype == dtype
+    for key, original in originals.items():
+        torch.testing.assert_close(features[key], original)
+
+
+@pytest.mark.parametrize("attention_mask", [None, torch.tensor([[0, 1]])])
+def test_weightedmean_missing_or_mismatched_mask(attention_mask: torch.Tensor | None) -> None:
+    """A missing or stale mask retains the all-ones fallback."""
+    pooling = Pooling(embedding_dimension=1, pooling_mode="weightedmean")
+    features = {"token_embeddings": torch.tensor([[[1.0], [3.0], [7.0]]])}
+    if attention_mask is not None:
+        features["attention_mask"] = attention_mask
+    output = pooling(features)["sentence_embedding"]
+    torch.testing.assert_close(output, torch.tensor([[(1.0 + 2 * 3.0 + 3 * 7.0) / 6]]))
+
+
 @pytest.mark.parametrize(
     "pooling_mode",
     ["max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken"],
