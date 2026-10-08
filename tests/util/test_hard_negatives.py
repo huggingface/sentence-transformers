@@ -947,7 +947,10 @@ def test_cache_respects_prompt(
 
 
 def test_multiple_positives_per_query(
-    queries: list[str], passages: list[str], static_retrieval_mrl_en_v1_model: SentenceTransformer
+    queries: list[str],
+    passages: list[str],
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    capsys: pytest.CaptureFixture,
 ):
     """Test dataset with multiple positives per query."""
     model = static_retrieval_mrl_en_v1_model
@@ -958,6 +961,7 @@ def test_multiple_positives_per_query(
     dataset_dup = Dataset.from_dict({"query": queries_dup, "passage": passages_dup})
 
     result = mine_hard_negatives(dataset=dataset_dup, model=model, range_max=3, verbose=False)
+    assert capsys.readouterr().out == ""
 
     # Should still have expected structure
     assert "query" in result.column_names
@@ -1442,17 +1446,21 @@ def test_tiny_corpus(
     assert len(result) >= 1
 
 
-def test_verbose_mode(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
-    """Test that verbose=True doesn't cause any crashes."""
+def test_verbose_mode(
+    dataset: Dataset,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """Test that verbose=True prints statistics."""
     model = static_retrieval_mrl_en_v1_model
 
-    # Simply check that running with verbose=True doesn't crash
     result = mine_hard_negatives(
         dataset=dataset,
         model=model,
         range_max=3,  # Small range to keep test fast
         verbose=True,  # Enable verbose output
     )
+    assert capsys.readouterr().out != ""
 
     # Verify we still get valid results
     assert "query" in result.column_names
@@ -1753,19 +1761,3 @@ def test_missing_negatives_message_names_range_max(capsys: pytest.CaptureFixture
     )
     captured = capsys.readouterr()
     assert "Consider adjusting the range_max parameter if" in captured.out
-
-
-def test_verbose_false_prints_nothing_with_multiple_positives(capsys: pytest.CaptureFixture) -> None:
-    """With verbose=False, a query with several positives must not print the average positives count."""
-    dataset = Dataset.from_dict({"query": ["q", "q"], "positive": ["p", "n_far"]})
-    mine_hard_negatives(
-        dataset=dataset,
-        model=ControlledNegativeScoreModel(),
-        anchor_column_name="query",
-        positive_column_name="positive",
-        corpus=["p", "n_more_similar", "n_far"],
-        num_negatives=1,
-        verbose=False,
-    )
-    captured = capsys.readouterr()
-    assert captured.out == ""
