@@ -97,6 +97,13 @@ class StubQdrantClient:
 
     def __init__(self, *args, **kwargs):
         self.searched = []
+        self.uploaded = []
+
+    def create_collection(self, **kwargs):
+        pass
+
+    def upload_collection(self, vectors, ids, **kwargs):
+        self.uploaded.extend((idx, vector["text"].indices, vector["text"].values) for idx, vector in zip(ids, vectors))
 
     def query_points(self, query, **kwargs):
         self.searched.append((query.indices, query.values))
@@ -111,6 +118,8 @@ def stub_qdrant_module(monkeypatch):
     http = types.ModuleType("qdrant_client.http")
     models = types.ModuleType("qdrant_client.http.models")
     models.SparseVector = StubSparseVector
+    models.SparseVectorParams = types.SimpleNamespace
+    models.SparseIndexParams = types.SimpleNamespace
     http.models = models
     module.http = http
     monkeypatch.setitem(sys.modules, "qdrant_client", module)
@@ -118,9 +127,10 @@ def stub_qdrant_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "qdrant_client.http.models", models)
 
 
-def test_qdrant_single_query_embedding(stub_qdrant_module) -> None:
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_qdrant_single_query_embedding(stub_qdrant_module, dtype: torch.dtype) -> None:
     """Encoding a single query gives a 1-dimensional tensor, whose size(0) is the vocabulary."""
-    query = torch.sparse_coo_tensor(torch.tensor([[3, 8]]), torch.tensor([0.5, 0.25]), (VOCAB_SIZE,)).coalesce()
+    query = torch.sparse_coo_tensor([[3, 8]], [0.5, 0.25], (VOCAB_SIZE,), dtype=dtype).coalesce()
     client = StubQdrantClient()
 
     results, _ = semantic_search_qdrant(query, corpus_index=(client, "collection"), top_k=1)
@@ -129,17 +139,28 @@ def test_qdrant_single_query_embedding(stub_qdrant_module) -> None:
     assert client.searched == [([3, 8], [0.5, 0.25])]
 
 
-def test_qdrant_batch_of_queries(stub_qdrant_module) -> None:
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_qdrant_batch_of_queries(stub_qdrant_module, dtype: torch.dtype) -> None:
     """A batch is searched once per query, each with only the tokens of that query."""
-    query = torch.sparse_coo_tensor(
-        torch.tensor([[0, 0, 1], [3, 8, 5]]), torch.tensor([0.5, 0.25, 0.75]), (2, VOCAB_SIZE)
-    ).coalesce()
+    query = torch.sparse_coo_tensor([[0, 0, 1], [3, 8, 5]], [0.5, 0.25, 0.75], (2, VOCAB_SIZE), dtype=dtype).coalesce()
     client = StubQdrantClient()
 
     results, _ = semantic_search_qdrant(query, corpus_index=(client, "collection"), top_k=1)
 
     assert results == [[{"corpus_id": 0, "score": 1.0}], [{"corpus_id": 0, "score": 1.0}]]
     assert client.searched == [([3, 8], [0.5, 0.25]), ([5], [0.75])]
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_qdrant_uploads_sparse_values(stub_qdrant_module, dtype: torch.dtype) -> None:
+    corpus = torch.sparse_coo_tensor([[1, 0, 1], [5, 3, 5]], [0.5, 0.25, 0.25], (2, VOCAB_SIZE), dtype=dtype)
+    query = torch.sparse_coo_tensor([[3, 5]], [0.25, 0.75], (VOCAB_SIZE,), dtype=dtype)
+
+    results, _, (client, _) = semantic_search_qdrant(query, corpus_embeddings=corpus, output_index=True)
+
+    assert client.uploaded == [(0, [3], [0.25]), (1, [5], [0.75])]
+    assert client.searched == [([3, 5], [0.25, 0.75])]
+    assert results == [[{"corpus_id": 0, "score": 1.0}]]
 
 
 def test_qdrant_rejects_3d_query_embeddings(stub_qdrant_module) -> None:

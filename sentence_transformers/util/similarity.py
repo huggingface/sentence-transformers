@@ -212,7 +212,7 @@ def euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) 
 
 def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:
     """
-    Computes the euclidean distance (i.e., negative distance) between pairs of tensors.
+    Computes the euclidean similarity (i.e., negative distance) between pairs of tensors.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
@@ -225,7 +225,10 @@ def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray |
     b = _convert_to_float_tensor(b)
     a, b = _match_layouts(a, b)
 
-    return -torch.sqrt(torch.sum((a - b) ** 2, dim=-1)).to_dense()
+    diff = a - b
+    if diff.is_sparse or not diff.is_floating_point():
+        return -diff.square().sum(dim=-1).sqrt().to_dense()
+    return -torch.linalg.vector_norm(diff, dim=-1)
 
 
 # Element budget for one chunk's padded embeddings plus its scoring intermediate when the caller gives
@@ -766,27 +769,27 @@ def _pad_multi_vector_inputs(
     return padded, mask
 
 
-def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:
+def pairwise_angle_sim(x: list | np.ndarray | Tensor, y: list | np.ndarray | Tensor) -> Tensor:
     """
     Computes the absolute normalized angle distance. See :class:`~sentence_transformers.sentence_transformer.losses.AnglELoss`
     or https://huggingface.co/papers/2309.12871 for more information.
 
     Args:
-        x (Tensor): The first tensor.
-        y (Tensor): The second tensor.
+        x (Union[list, np.ndarray, Tensor]): The first tensor.
+        y (Union[list, np.ndarray, Tensor]): The second tensor.
 
     Returns:
         Tensor: Vector with res[i] = angle_sim(a[i], b[i])
     """
+    x = _convert_to_float_tensor(x)
+    y = _convert_to_float_tensor(y)
+
     if x.is_sparse or y.is_sparse:
         logger.warning_once("Pairwise angle similarity does not support sparse tensors. Converting to dense.")
         if x.is_sparse:
             x = x.to_dense()
         if y.is_sparse:
             y = y.to_dense()
-
-    x = _convert_to_float_tensor(x)
-    y = _convert_to_float_tensor(y)
 
     # Pad tensors if the embedding dimension is odd, as torch.chunk requires even dimensions
     if x.shape[1] % 2 != 0:

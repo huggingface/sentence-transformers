@@ -41,6 +41,8 @@ def _convert_to_tensor(a: list | np.ndarray | Tensor) -> Tensor:
         if all(isinstance(x, Tensor) and x.is_sparse for x in a):
             # Stack sparse tensors while preserving sparsity
             return torch.stack([x.coalesce().to(dtype=torch.float32) for x in a])
+        elif a and all(isinstance(x, Tensor) for x in a):
+            return torch.stack(a)
         elif a and all(isinstance(x, np.ndarray) for x in a):
             # torch.tensor reads a list of arrays one element at a time, two orders of magnitude
             # slower than viewing each and stacking once. Ragged lists fail either way.
@@ -108,18 +110,25 @@ def _convert_to_batch_tensor(a: list | np.ndarray | Tensor) -> Tensor:
     return a
 
 
+def _tensor_to_numpy(tensor: Tensor) -> np.ndarray:
+    """Convert a tensor to NumPy, upcasting bfloat16 to the supported float32 dtype."""
+    if tensor.dtype == torch.bfloat16:
+        tensor = tensor.float()
+    return tensor.cpu().numpy()
+
+
 def normalize_embeddings(embeddings: Tensor) -> Tensor:
     """
     Normalizes the embeddings matrix, so that each sentence embedding has unit length.
 
     Args:
-        embeddings (Tensor): The input embeddings matrix.
+        embeddings (Tensor): A dense embedding vector or a dense or sparse embeddings matrix.
 
     Returns:
-        Tensor: The normalized embeddings matrix.
+        Tensor: The normalized embeddings, with the same shape as the input.
     """
     if not embeddings.is_sparse:
-        return torch.nn.functional.normalize(embeddings, p=2, dim=1)
+        return torch.nn.functional.normalize(embeddings, p=2, dim=-1)
 
     embeddings = embeddings.coalesce()
     indices, values = embeddings.indices(), embeddings.values()
@@ -366,7 +375,7 @@ def to_scipy_coo(x: Tensor) -> coo_matrix:
     """
     x = x.coalesce()
     indices = x.indices().cpu().numpy()
-    values = x.values().cpu().numpy()
+    values = _tensor_to_numpy(x.values())
     return coo_matrix((values, (indices[0], indices[1])), shape=x.shape)
 
 

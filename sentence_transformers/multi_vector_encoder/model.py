@@ -25,6 +25,7 @@ from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling,
 from sentence_transformers.util import batch_to_device, load_file_path
 from sentence_transformers.util.misc import import_from_string
 from sentence_transformers.util.similarity import SimilarityFunction
+from sentence_transformers.util.tensor import _tensor_to_numpy
 
 logger = transformers_logging.get_logger(__name__)
 
@@ -842,7 +843,7 @@ class MultiVectorEncoder(BaseModel):
             result = self._inference(inputs, device=device, **inference_kwargs)
 
         if convert_to_numpy:
-            result = [(emb.float() if emb.dtype == torch.bfloat16 else emb).cpu().numpy() for emb in result]
+            result = [_tensor_to_numpy(emb) for emb in result]
 
         if is_singular_input:
             result = result[0]

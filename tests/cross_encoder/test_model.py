@@ -155,6 +155,20 @@ def test_predict_softmax(nli_minilm_model: CrossEncoder):
     assert not torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
 
 
+def test_predict_softmax_single_label(reranker_bert_tiny_model: CrossEncoder):
+    model = reranker_bert_tiny_model
+    query = "How many people live in Berlin?"
+    corpus = [
+        "Berlin has a population of 3.5 million.",
+        "Pasta is cooked in boiling water.",
+        "The capital of France is Paris.",
+    ]
+    scores = model.predict([(query, doc) for doc in corpus], convert_to_tensor=True)
+    softmax_scores = model.predict([(query, doc) for doc in corpus], apply_softmax=True, convert_to_tensor=True)
+    assert torch.allclose(softmax_scores, scores)
+    assert model.rank(query, corpus, apply_softmax=True) == model.rank(query, corpus)
+
+
 @skip_bfloat16_cpu_crash
 def test_predict_low_precision_logits_upcast_to_float32(reranker_bert_tiny_model: CrossEncoder) -> None:
     """The activation over cross-encoder logits must run in float32 for low-precision models (HPS).

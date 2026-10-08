@@ -624,12 +624,12 @@ class CrossEncoder(BaseModel, FitMixin):
             if activation_fn is not None:
                 scores = activation_fn(scores)
 
-            if apply_softmax and scores.ndim > 1:
-                scores = torch.nn.functional.softmax(scores, dim=1)
-
             # Squeeze [batch_size, 1] -> [batch_size] for single-label models
             if num_labels == 1 and scores.ndim > 1:
                 scores = scores.squeeze(-1)
+
+            if apply_softmax and scores.ndim > 1:
+                scores = torch.nn.functional.softmax(scores, dim=1)
 
             pred_scores.extend(scores)
 

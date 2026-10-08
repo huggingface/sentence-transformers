@@ -1449,3 +1449,14 @@ def test_conversion_ignores_source_similarity_fn_name(tmp_path) -> None:
 
     overridden = SentenceTransformer(str(tmp_path), similarity_fn_name="dot")
     assert overridden.similarity_fn_name == "dot"
+
+
+@pytest.mark.parametrize("precision", ["int8", "uint8", "binary", "ubinary"])
+def test_encode_precision_with_bfloat16_model(stsb_bert_tiny_model: SentenceTransformer, precision: str) -> None:
+    """encode(precision=...) matches quantizing the float32 numpy output of a bfloat16 model afterwards."""
+    model = stsb_bert_tiny_model.bfloat16()
+    sentences = ["The weather is lovely today.", "It's so sunny outside!", "He drove to the stadium."]
+
+    embeddings = model.encode(sentences, precision=precision)
+
+    np.testing.assert_array_equal(embeddings, util.quantize_embeddings(model.encode(sentences), precision=precision))

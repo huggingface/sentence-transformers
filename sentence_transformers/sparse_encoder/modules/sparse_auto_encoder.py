@@ -88,10 +88,11 @@ class SparseAutoEncoder(Module):
 
     def encode_pre_act(self, x: torch.Tensor) -> torch.Tensor:
         """
-        :param x: input data (shape: [batch, input_dim])
-        :param latent_slice: slice of latents to compute
-            Example: latent_slice = slice(0, 10) to compute only the first 10 latents.
-        :return: autoencoder latents before activation (shape: [batch, hidden_dim])
+        Args:
+            x: input data (shape: [batch, input_dim])
+
+        Returns:
+            autoencoder latents before activation (shape: [batch, hidden_dim])
         """
         x = x - self.pre_bias
         latents_pre_act = F.linear(x, self.encoder.weight, self.latent_bias)
@@ -114,8 +115,13 @@ class SparseAutoEncoder(Module):
         self, x: torch.Tensor, k: int | None = None, compute_aux: bool = True
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """
-        :param x: input data (shape: [batch, input_dim])
-        :return: tuple of (top-k latents (shape: [batch, hidden_dim]), auxiliary latents or None)
+        Args:
+            x: input data (shape: [batch, input_dim])
+            k: number of top latents to keep, defaults to the module's ``k``
+            compute_aux: whether to compute the auxiliary latents
+
+        Returns:
+            tuple of (top-k latents (shape: [batch, hidden_dim]), auxiliary latents or None)
         """
         if k is None:
             k = self.k
@@ -146,8 +152,13 @@ class SparseAutoEncoder(Module):
 
     def decode(self, latents: torch.Tensor, info=None) -> torch.Tensor:
         """
-        :param latents: autoencoder latents (shape: [batch, hidden_dim])
-        :return: reconstructed data (shape: [batch, n_inputs])
+        Args:
+            latents: autoencoder latents (shape: [batch, hidden_dim])
+            info: Normalization metadata returned by ``prepare``, containing ``mu`` and ``std``.
+                Required when ``normalize=True`` to restore the original scale and mean. Ignored otherwise.
+
+        Returns:
+            reconstructed data (shape: [batch, n_inputs])
         """
 
         ret = self.decoder(latents) + self.pre_bias

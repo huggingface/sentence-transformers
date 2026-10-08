@@ -65,3 +65,14 @@ For more details, see [Sentence-BERT: Sentence Embeddings using Siamese BERT-Net
 ```{eval-rst}
 :class:`~sentence_transformers.sentence_transformer.losses.CoSENTLoss` and :class:`~sentence_transformers.sentence_transformer.losses.AnglELoss` are more modern variants of :class:`~sentence_transformers.sentence_transformer.losses.CosineSimilarityLoss` that accept the same data format of a sentence pair with a similarity score ranging from 0.0 to 1.0. Informal experiments indicate that these two produce stronger models than :class:`~sentence_transformers.sentence_transformer.losses.CosineSimilarityLoss`.
 ```
+
+## Run on Hugging Face Jobs
+
+`training_stsbenchmark.py` declares its dependencies in a [PEP 723](https://peps.python.org/pep-0723/) header, so you can run it on a cloud GPU with [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs) straight from its URL:
+
+```bash
+hf jobs uv run --flavor a10g-small -s HF_TOKEN \
+  https://raw.githubusercontent.com/huggingface/sentence-transformers/main/examples/sentence_transformer/training/sts/training_stsbenchmark.py
+```
+
+The run takes about three minutes and pushes the trained model to your namespace on the Hub. The [Cross Encoder](../../../cross_encoder/training/sts/README.md) and [Sparse Encoder](../../../sparse_encoder/training/sts/README.md) STS examples run the same way.

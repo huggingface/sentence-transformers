@@ -881,6 +881,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
         Args:
             repo_id (str): Repository name for your model in the Hub, including the user or organization.
+            organization (str, optional): DEPRECATED, include the organization in ``repo_id`` instead
+                (e.g. ``"organization/repo_id"``).
             token (str, optional): An authentication token (See https://huggingface.co/settings/token)
             private (bool, optional): Set to true, for hosting a private model
             safe_serialization (bool, optional): If true, save the model using safetensors. If false, save the model the traditional PyTorch way
