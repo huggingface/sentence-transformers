@@ -48,12 +48,10 @@ def test_normalize_embeddings() -> None:
 
 
 def test_normalize_embeddings_single_vector() -> None:
-    """A 1D embedding from encode() of one string used to IndexError on dim=1."""
     embedding = torch.tensor([3.0, -4.0, 0.0])
     normalized = normalize_embeddings(embedding)
 
     assert normalized.shape == embedding.shape
-    assert abs(torch.norm(normalized).item() - 1.0) < 1e-5
     assert torch.allclose(normalized, embedding / 5.0)
 
 
