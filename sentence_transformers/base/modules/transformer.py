@@ -629,6 +629,7 @@ _NON_MODEL_FEATURE_KEYS = frozenset(
         # Sentence Transformers' own bookkeeping.
         "modality",
         "num_images_per_sample",
+        "num_truncated_tokens",
         "num_videos_per_sample",
         "prompt_length",
         "query_expansion_positions",
@@ -1405,6 +1406,10 @@ class Transformer(InputModule):
         if self.track_media_counts and modality == "message":
             num_images_per_sample, num_videos_per_sample = _count_media_per_sample(processor_inputs["message"])
 
+        # Capture the text inputs before _call_processor runs: the single-modality path pops
+        # "text" out of processor_inputs, so the truncation counter must not read it afterwards.
+        truncation_texts = processor_inputs.get("text") if modality == "text" else None
+
         with suggest_extra_on_exception():
             processor_output = self._call_processor(
                 modality,
@@ -1418,6 +1423,12 @@ class Transformer(InputModule):
             processor_output["num_images_per_sample"] = torch.tensor(num_images_per_sample, dtype=torch.long)
         if num_videos_per_sample is not None and "video_grid_thw" in processor_output:
             processor_output["num_videos_per_sample"] = torch.tensor(num_videos_per_sample, dtype=torch.long)
+
+        num_truncated_tokens = self._compute_num_truncated_tokens(
+            modality, truncation_texts, processor_output, modality_kwargs, skip=should_flatten
+        )
+        if num_truncated_tokens is not None:
+            processor_output["num_truncated_tokens"] = num_truncated_tokens
 
         if should_flatten:
             # DataCollatorWithFlattening expects list[dict], but the processor returns dict[str, list].
@@ -2221,6 +2232,45 @@ class Transformer(InputModule):
             prompt_length -= 1
         self._prompt_length_mapping[cache_key] = prompt_length
         return prompt_length
+
+    def _compute_num_truncated_tokens(
+        self,
+        modality: Modality,
+        texts: list | None,
+        processor_output: dict[str, Any],
+        modality_kwargs: dict[str, dict[str, Any]],
+        skip: bool,
+    ) -> torch.Tensor | None:
+        """Count, per sample, how many tokens truncation dropped.
+
+        A row can only lose tokens when it filled the truncation cap exactly, so rows below the
+        cap are reported as 0 with no extra work; only candidate rows are re-tokenized without
+        truncation. Returns None when truncation is inactive or the count cannot be determined.
+        """
+        if modality != "text" or texts is None or skip or "attention_mask" not in processor_output:
+            return None
+        # Multimodal processors take text through a different call path; skip them.
+        if not isinstance(self.processor, PreTrainedTokenizerBase):
+            return None
+
+        text_kwargs = modality_kwargs["text"]
+        truncation = text_kwargs.get("truncation", "longest_first")
+        cap = text_kwargs.get("max_length") or getattr(self.tokenizer, "model_max_length", None)
+        # No truncation / explicit opt-out / no real cap (transformers uses a huge sentinel).
+        if not truncation or truncation == "do_not_truncate" or not cap or cap >= 1e12:
+            return None
+
+        kept = torch.as_tensor(processor_output["attention_mask"]).sum(dim=-1)
+        counts = torch.zeros(kept.shape[0], dtype=torch.long)
+        candidates = (kept == cap).nonzero(as_tuple=True)[0]
+        if len(candidates) == 0:
+            return counts
+
+        subset = [texts[i] for i in candidates.tolist()]
+        full = self.processor(subset, truncation=False, padding=False, return_tensors=None)
+        for idx, ids in zip(candidates.tolist(), full["input_ids"]):
+            counts[idx] = max(0, len(ids) - cap)
+        return counts
 
     def _load_config(
         self, model_name_or_path: str, backend: str, config_kwargs: dict[str, Any]
