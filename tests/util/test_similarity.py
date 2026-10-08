@@ -59,6 +59,29 @@ def test_pairwise_euclidean_sim() -> None:
     assert np.allclose(euclidean_expected, euclidean_calculated)
 
 
+@pytest.mark.parametrize("input_type", [list, np.array, torch.tensor])
+def test_pairwise_euclidean_sim_integer_inputs(input_type) -> None:
+    a = input_type([[1, 2], [4, 6]])
+    b = input_type([[1, 2], [1, 2]])
+
+    scores = pairwise_euclidean_sim(a, b)
+
+    torch.testing.assert_close(scores, torch.tensor([0.0, -5.0]))
+
+
+def test_pairwise_euclidean_sim_has_finite_gradients_for_identical_embeddings() -> None:
+    a = torch.tensor([[1.0, 2.0], [4.0, 6.0]], requires_grad=True)
+    b = torch.tensor([[1.0, 2.0], [1.0, 2.0]], requires_grad=True)
+
+    scores = pairwise_euclidean_sim(a, b)
+    torch.testing.assert_close(scores, torch.tensor([0.0, -5.0]))
+    scores.sum().backward()
+
+    expected = torch.tensor([[0.0, 0.0], [-0.6, -0.8]])
+    torch.testing.assert_close(a.grad, expected)
+    torch.testing.assert_close(b.grad, -expected)
+
+
 def test_pairwise_manhattan_sim() -> None:
     a = np.array([[1, 0], [1, 1]], dtype=np.float32)
     b = np.array([[0, 0], [0, 0]], dtype=np.float32)
@@ -1198,3 +1221,25 @@ def test_maxsim_device_bounds_residency_by_element_budget() -> None:
     assert scores.shape == (1, 4_000)
     assert scores.device.type == "cpu"
     assert peak < 30 * 1024 * 1024, f"peak VRAM {peak / 1e6:.1f} MB suggests the whole corpus moved"
+
+
+@pytest.mark.parametrize(
+    "score_function",
+    [
+        cos_sim,
+        dot_score,
+        euclidean_sim,
+        manhattan_sim,
+        pairwise_cos_sim,
+        pairwise_dot_score,
+        pairwise_euclidean_sim,
+        pairwise_manhattan_sim,
+    ],
+)
+def test_similarity_accepts_encoded_tensor_list(word_embeddings_model, score_function) -> None:
+    embeddings = word_embeddings_model.encode(["hello world", "sentence embedding"], convert_to_numpy=False)
+    assert isinstance(embeddings, list)
+    assert all(isinstance(embedding, torch.Tensor) for embedding in embeddings)
+
+    expected = score_function(torch.stack(embeddings), torch.stack(embeddings))
+    torch.testing.assert_close(score_function(embeddings, embeddings), expected)

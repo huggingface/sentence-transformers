@@ -893,6 +893,7 @@ class BaseTrainer(Trainer, ABC):
                     drop_last=self.args.dataloader_drop_last,
                     valid_label_columns=data_collator.valid_label_columns,
                     generator=generator,
+                    seed=self.args.seed,
                 )
                 for sub_dataset in dataset.values()
             ]
@@ -913,6 +914,7 @@ class BaseTrainer(Trainer, ABC):
                 drop_last=self.args.dataloader_drop_last,
                 valid_label_columns=data_collator.valid_label_columns,
                 generator=generator,
+                seed=self.args.seed,
             )
             dataloader_params["batch_sampler"] = batch_sampler
         else:

@@ -1,3 +1,8 @@
+# /// script
+# dependencies = [
+#     "sentence-transformers[train]",
+# ]
+# ///
 """
 This examples trains a CrossEncoder for the STSbenchmark task. A CrossEncoder takes a sentence pair
 as input and outputs a label. Here, it output a continuous labels 0...1 to indicate the similarity between the input pair.

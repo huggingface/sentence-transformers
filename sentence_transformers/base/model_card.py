@@ -811,6 +811,9 @@ class BaseModelCardData(CardData):
         """Save a non-text value to the assets directory, deduplicating by content hash.
 
         Args:
+            value: The non-text value to save, e.g. an image, audio or video.
+            assets_dir: Directory the asset file is written to.
+            idx: Index used to build a unique filename, e.g. ``"image_0.jpg"``.
             prefix: Prepended to filenames, e.g. ``"example_"`` → ``"example_image_0.jpg"``.
 
         Returns the relative path (e.g. ``"assets/image_0.jpg"``) on success, or ``None`` on failure.

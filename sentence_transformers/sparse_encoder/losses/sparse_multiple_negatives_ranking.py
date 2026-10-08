@@ -79,6 +79,13 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
             partition_mode: How to normalize the scores (the softmax denominator):
                 - "joint": One joint softmax over all selected directions.
                 - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
+            hardness_mode: Strategy for applying hardness weighting. ``None`` (default) disables it. Options are
+                ``"in_batch_negatives"``, ``"hard_negatives"`` and ``"all_negatives"``, which add
+                ``hardness_strength * stop_grad(similarity)`` to the logits of the in-batch negatives, the explicit hard
+                negatives, or all negatives respectively. Here, ``similarity`` is the unscaled output
+                of ``similarity_fct`` (dot product by default). See :class:`MultipleNegativesRankingLoss` for details.
+            hardness_strength: Non-negative strength of the hardness weighting. Ignored when ``hardness_mode`` is
+                ``None``.
 
         Requirements:
             1. Need to be used in SpladeLoss or CSRLoss as a loss function.

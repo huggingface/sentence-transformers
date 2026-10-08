@@ -91,6 +91,7 @@ class TripletLoss(nn.Module):
 
         Args:
             embeddings: List of embeddings
+            labels: Unused, the triplet structure defines the targets
 
         Returns:
             Loss value

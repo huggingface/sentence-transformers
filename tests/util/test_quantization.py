@@ -83,6 +83,20 @@ def test_binary_quantize_row_independence(precision: str) -> None:
         assert result[1, 0] == 0x00, f"All-negative row: expected 0, got {result[1, 0]}"
 
 
+@pytest.mark.parametrize("precision", ["binary", "ubinary"])
+@pytest.mark.parametrize("shape", [(16,), (10,), (2, 3, 10)])
+def test_binary_quantize_keeps_leading_dims(precision: str, shape: tuple[int, ...]) -> None:
+    """A single 1-D embedding (e.g. from ``model.encode("text")``) or a 3-D batch packs along the last axis only."""
+    rng = np.random.default_rng(seed=2)
+    embeddings = rng.standard_normal(shape).astype(np.float32)
+
+    result = quantize_embeddings(embeddings, precision)
+
+    expected = quantize_embeddings(embeddings.reshape(-1, shape[-1]), precision).reshape(*shape[:-1], -1)
+    assert result.shape == (*shape[:-1], -(-shape[-1] // 8))
+    np.testing.assert_array_equal(result, expected)
+
+
 @pytest.mark.parametrize("precision", ["int8", "uint8"])
 def test_quantize_clips_out_of_range_values(precision: str) -> None:
     """Values outside the calibration range must saturate, not wrap around, on cast.
@@ -546,3 +560,24 @@ def test_semantic_search_usearch_binary_matches_ubinary(rescore: bool) -> None:
             assert sorted(entry["score"] for entry in binary_results) == sorted(
                 entry["score"] for entry in ubinary_results
             )
+
+
+@pytest.mark.parametrize("precision", ["float32", "int8", "uint8", "binary", "ubinary"])
+@pytest.mark.parametrize("input_type", ["tensor", "list", "ragged"])
+def test_quantize_bfloat16_tensors(precision: str, input_type: str) -> None:
+    embeddings = torch.randn(4, 16, generator=torch.Generator().manual_seed(0)).bfloat16()
+    expected = quantize_embeddings(embeddings.float(), precision=precision)
+
+    if input_type == "list":
+        embeddings = list(embeddings)
+    elif input_type == "ragged":
+        embeddings = [embeddings[:0], embeddings[:1], embeddings[1:]]
+
+    quantized = quantize_embeddings(embeddings, precision=precision)
+    if input_type == "ragged":
+        assert isinstance(quantized, list)
+        assert [matrix.shape[0] for matrix in quantized] == [0, 1, 3]
+        quantized = np.concatenate(quantized)
+
+    np.testing.assert_array_equal(quantized, expected)
+    assert quantized.dtype == expected.dtype
