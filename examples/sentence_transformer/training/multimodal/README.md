@@ -78,6 +78,99 @@ The ``model_kwargs`` enable Flash Attention 2 and bfloat16 precision for faster 
 After training, the model can be evaluated at each Matryoshka dimension separately to measure the performance-efficiency tradeoff.
 ```
 
+## Experimental: preprocess images per GradCache mini-batch
+
+[training_lazy_images.py](training_lazy_images.py) is a single-device Trainer example for
+[issue #3991](https://github.com/huggingface/sentence-transformers/issues/3991). It keeps text and
+local image paths in the outer training batch, decodes image pixels only for the current mini-batch,
+and calls the model's existing processor. The same images are reopened and preprocessed during
+GradCache's backward replay. No processed image batch is cached between the two passes.
+
+Enable this experimental path with `SentenceTransformerTrainingArguments(lazy_preprocessing=True)`
+and `CachedMultipleNegativesRankingLoss`. The default collator keeps raw inputs and resolves the
+usual per-column/per-dataset prompts and Router tasks. GradCache calls the existing model processor
+on each mini-batch, then moves only that mini-batch to the model's device. The default remains
+`False`, preserving eager preprocessing.
+
+```python
+args = SentenceTransformerTrainingArguments(
+    output_dir="output",
+    per_device_train_batch_size=64,
+    lazy_preprocessing=True,
+)
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=dataset,
+    loss=CachedMultipleNegativesRankingLoss(model, mini_batch_size=4),
+)
+trainer.train()
+```
+
+The dataset should contain text strings and image references such as `{"image": "/path/to/image.jpg"}`.
+Use the input format supported by the model's processor. A `datasets.Image` column with automatic
+decoding enabled loads images before collation, so use path dictionaries to defer image decoding.
+
+Create a JSONL file with one positive text/image pair per line. Image paths are relative to the
+JSONL file (absolute paths also work):
+
+```json
+{"query": "A dog running on grass", "image": "images/dog.jpg"}
+{"query": "A page containing a revenue chart", "image": "images/chart.jpg"}
+```
+
+Choose a multimodal model that accepts text and image inputs, then run:
+
+```bash
+python training_lazy_images.py \
+    --model /path/to/model --data pairs.jsonl --output output-lazy \
+    --batch-size 64 --mini-batch-size 4 --device cuda
+```
+
+For an eager reference, repeat the command with `--eager --output output-eager`. Both modes
+print elapsed training time and, on CUDA, peak allocated memory (including the model, activations,
+and optimizer state). Compare runs from the same original model and data; the first step includes
+startup costs, so these timings are a smoke benchmark rather than steady-state throughput.
+
+Scope of this experimental integration:
+
+- Deterministic image preprocessing and tokenization; no random data augmentation. Model dropout
+  is supported because the existing GradCache machinery replays the model's random state.
+- `CachedMultipleNegativesRankingLoss` supports fixed-size mini-batches. With a Qwen2-VL, Qwen2.5-VL,
+  or Qwen3-VL input module and a Transformers processor that supports counting image tokens from dimensions, you can also
+  set `mini_batch_num_tokens` instead of `mini_batch_size`. The lazy path reads image headers and
+  calculates image-token counts from the processor's resize, patch, and merge rules. It tokenizes
+  the rendered text with just one placeholder per image, adding each image's remaining token count
+  arithmetically, without expanding image-token sequences or padding the whole batch. Pixel decoding and image
+  preprocessing still happen only inside each mini-batch. Other losses and loss wrappers are not enabled.
+  A temporary processor adapter preserves native chat-template and special-token handling.
+  Truncation is accounted for in the lengths; cutting into image tokens is rejected, as in the real processor.
+- The token budget counts non-padding tokens, including image placeholders, using the same rule as
+  eager token-budget batching. A sample larger than the budget gets its own mini-batch. This is not
+  a strict bound on padded tensor size or GPU memory. The initial image-length path requires local
+  still images or PIL images and `do_resize=True`. Use the processor's configured image size or set
+  `min_pixels` and `max_pixels` together; per-call `size` overrides are not supported. Unsupported
+  processors or preprocessing options raise an error. Use fixed-size mini-batches for those configurations.
+- Validated with single-device, full-precision training and evaluation. Distributed training,
+  compiled models, and mixed precision are not validated here. Asynchronous mini-batch prefetching is not implemented.
+- Text and local still images (paths or PIL images). Prefer paths to avoid decoding all images
+  before passing them to the loss. Inputs must remain unchanged until backward finishes.
+- Existing `prompts` and `router_mapping` training arguments are carried through to each mini-batch.
+- With a custom data collator, enable its `lazy_preprocessing` option too and keep
+  `preprocess_fn=model.preprocess`. A different preprocessing callable would be bypassed by the loss,
+  so Trainer rejects it; configure processor options on the model instead. The built-in collator
+  emits a small sample-index tensor so Trainer can count even a partial evaluation batch; image
+  tensors are still created only inside the loss.
+- Padding and other batch-dependent preprocessing now use each mini-batch. Determinism guarantees
+  that the two GradCache passes see the same inputs, but does not guarantee identical results to
+  eager whole-batch preprocessing. In particular, dynamic left padding changes absolute token
+  positions in some models. Use fixed-length padding when preserving those positions is required.
+- Images are decoded and processed twice during training. This trades extra CPU/I/O work for
+  bounded processed-image memory; whole-batch embeddings and their cached gradients still grow
+  with the outer batch size. This is not a claim that total training memory is constant.
+
+The example saves the trained model locally. It does not publish it to the Hub.
+
 ## References
 
 ```{eval-rst}

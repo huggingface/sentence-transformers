@@ -24,6 +24,8 @@ from sentence_transformers.util import all_gather_with_grad, cos_sim, get_rank, 
 
 
 class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
+    supports_lazy_preprocessing = True
+
     def __init__(
         self,
         model: SentenceTransformer,
@@ -371,7 +373,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
 
         return sum(losses)
 
-    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
+    def forward(self, sentence_features: Iterable[dict[str, Any]], labels: Tensor) -> Tensor:
         sentence_features = list(sentence_features)
         if len(sentence_features) < 2:
             raise ValueError(f"Expected at least 2 inputs, got {len(sentence_features)}")
