@@ -719,6 +719,89 @@ def test_pooling_weightedmean_external_normalizer_dtype(
     assert torch.isfinite(token_embeddings.grad).all()
 
 
+@pytest.mark.parametrize("pooling_mode", ["mean", "mean_sqrt_len_tokens"])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64])
+@pytest.mark.parametrize("scenario", ["large_sum", "large_count", "empty_prompt"])
+def test_pooling_padded_mean_low_precision(pooling_mode: str, dtype: torch.dtype, scenario: str, device: str) -> None:
+    length = 65536 if scenario == "large_count" else 1024
+    value = 100 if scenario == "large_sum" else 1
+    token_embeddings = torch.full((2, length, 1), value, dtype=dtype, device=device, requires_grad=True)
+    original = token_embeddings.detach().clone()
+    attention_mask = torch.ones(2, length, dtype=torch.long, device=device)
+    attention_mask[0, length // 2 :] = 0
+    original_mask = attention_mask.clone()
+    prompt_length = length if scenario == "empty_prompt" else 0
+    pooling = Pooling(embedding_dimension=1, pooling_mode=pooling_mode, include_prompt=False)
+    output = pooling(
+        {
+            "token_embeddings": token_embeddings,
+            "attention_mask": attention_mask,
+            "prompt_length": prompt_length,
+        }
+    )["sentence_embedding"]
+
+    reference_input = original.double().requires_grad_()
+    mask = attention_mask.double().unsqueeze(-1)
+    mask[:, :prompt_length] = 0
+    denominator = mask.sum(dim=1).clamp_min(1e-9)
+    if pooling_mode == "mean_sqrt_len_tokens":
+        denominator = denominator.sqrt()
+    expected = (reference_input * mask).sum(dim=1) / denominator
+    assert output.dtype == dtype
+    torch.testing.assert_close(output, expected.to(dtype))
+    output.sum().backward()
+    expected.sum().backward()
+    torch.testing.assert_close(token_embeddings.grad, reference_input.grad.to(dtype))
+    assert torch.equal(token_embeddings.detach(), original)
+    assert torch.equal(attention_mask, original_mask)
+
+
+@pytest.mark.parametrize("pooling_mode", ["mean", "mean_sqrt_len_tokens"])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64])
+@pytest.mark.parametrize(
+    "weight_dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64, torch.int64, torch.bool]
+)
+def test_pooling_padded_mean_external_normalizer_dtype(
+    pooling_mode: str, dtype: torch.dtype, weight_dtype: torch.dtype, device: str
+) -> None:
+    token_embeddings = torch.full((1, 1024, 1), 100, dtype=dtype, device=device, requires_grad=True)
+    normalizer = torch.tensor([2048], dtype=weight_dtype, device=device)
+    output = Pooling(embedding_dimension=1, pooling_mode=pooling_mode)(
+        {"token_embeddings": token_embeddings, "token_weights_sum": normalizer}
+    )["sentence_embedding"]
+    normalizer_dtype = torch.float32 if weight_dtype in (torch.int64, torch.bool) else weight_dtype
+    expected_dtype = torch.promote_types(dtype, normalizer_dtype)
+    denominator = normalizer.double()
+    if pooling_mode == "mean_sqrt_len_tokens":
+        denominator = denominator.sqrt()
+    expected = torch.full((1, 1), 102400, dtype=torch.float64, device=device) / denominator
+    assert output.dtype == expected_dtype
+    torch.testing.assert_close(output, expected.to(expected_dtype))
+    output.sum().backward()
+    torch.testing.assert_close(token_embeddings.grad, (1 / denominator).to(dtype).expand_as(token_embeddings))
+
+
+@pytest.mark.parametrize("pooling_mode", ["mean", "mean_sqrt_len_tokens"])
+@pytest.mark.parametrize("default_dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("weight_dtype", [torch.int64, torch.bool])
+def test_pooling_padded_mean_integral_normalizer_default_dtype(
+    pooling_mode: str, default_dtype: torch.dtype, weight_dtype: torch.dtype
+) -> None:
+    original_dtype = torch.get_default_dtype()
+    try:
+        torch.set_default_dtype(default_dtype)
+        output = Pooling(embedding_dimension=1, pooling_mode=pooling_mode)(
+            {
+                "token_embeddings": torch.full((1, 4, 1), 0.5, dtype=torch.float16),
+                "token_weights_sum": torch.ones(1, dtype=weight_dtype),
+            }
+        )["sentence_embedding"]
+        assert output.dtype == default_dtype
+        torch.testing.assert_close(output, torch.tensor([[2.0]], dtype=default_dtype))
+    finally:
+        torch.set_default_dtype(original_dtype)
+
+
 def test_pooling_invalid_mode_raises() -> None:
     with pytest.raises(ValueError, match="Invalid pooling mode"):
         Pooling(embedding_dimension=8, pooling_mode="nonexistent")
