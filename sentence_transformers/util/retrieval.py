@@ -95,7 +95,7 @@ def paraphrase_mining_embeddings(
     score_function: Callable[[Tensor, Tensor], Tensor] = cos_sim,
 ) -> list[list[float | int]]:
     """
-    Given a list of sentences / texts, this function performs paraphrase mining. It compares all sentences
+    Given a list of sentences / texts, this function performs paraphrase mining. It compares all sentences against all
     other sentences and returns a list with the pairs that have the highest cosine similarity score.
 
     Args:
@@ -135,7 +135,7 @@ def paraphrase_mining_embeddings(
             else:
                 values = torch.cat([scores_top_k_values, chunk_values], dim=1)
                 idx = torch.cat([scores_top_k_idx, chunk_idx], dim=1)
-                scores_top_k_values, top_pos = torch.topk(values, min(top_k, len(values[0])), dim=1, sorted=False)
+                scores_top_k_values, top_pos = torch.topk(values, min(top_k, len(values[0])), dim=1, largest=True, sorted=False)
                 scores_top_k_idx = torch.gather(idx, 1, top_pos)
 
         scores_top_k_values = scores_top_k_values.cpu().tolist()
@@ -183,8 +183,8 @@ def semantic_search(
     Args:
         query_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the query embeddings. Can be a sparse COO tensor.
         corpus_embeddings (:class:`~torch.Tensor`): A 2 dimensional tensor with the corpus embeddings. Can be a sparse COO tensor.
-        query_chunk_size (int, optional): Process 100 queries simultaneously. Increasing that value increases the memory usage. Defaults to 100.
-        corpus_chunk_size (int, optional): Scans the corpus 500k entries at a time. Increasing that value increases the memory usage. Defaults to 500000.
+        query_chunk_size (int, optional): Process 100 queries simultaneously. Increasing that value increases the speed, but requires more memory. Defaults to 100.
+        corpus_chunk_size (int, optional): Scans the corpus 500k entries at a time. Increasing that value increases the speed, but requires more memory. Defaults to 500000.
         top_k (int, optional): Retrieve top k matching entries. Defaults to 10.
         score_function (Callable[[:class:`~torch.Tensor`, :class:`~torch.Tensor`], :class:`~torch.Tensor`], optional): Function for computing scores. By default, cosine similarity.
 
@@ -294,7 +294,7 @@ def community_detection(
         # Compute cosine similarity scores
         cos_scores = embeddings[start_idx : start_idx + batch_size] @ embeddings.T
 
-        # Use a torch-heavy approach if the embeddings are on CUDA, otherwise a loop-heavy one
+        # Use a torch-heavy approach if the embeddings are on CUDA, otherwise a loop-heavy approach
         if embeddings.device.type in ["cuda", "npu"]:
             # Threshold the cos scores and determine how many close embeddings exist per embedding
             threshold_mask = cos_scores >= threshold
