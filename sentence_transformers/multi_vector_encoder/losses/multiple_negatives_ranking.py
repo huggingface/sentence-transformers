@@ -142,7 +142,8 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
         sentence_features: Iterable[dict[str, Tensor]],
         labels: Tensor | None = None,
     ) -> Tensor:
-        sentence_features = list(sentence_features)
+        # MultiVectorMask replaces encoder masks with scoring masks; keep those writes local to this loss.
+        sentence_features = [dict(features) for features in sentence_features]
         # The collator stamps each column's tokenization task (column 0 is the query unless
         # router_mapping overrides it). The MultiVectorMask module reads `task` from forward
         # kwargs and rewrites the output attention_mask into the per-row scoring mask.
