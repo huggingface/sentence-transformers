@@ -343,7 +343,12 @@ def community_detection(
     used = np.zeros(len(embeddings), dtype=bool)
 
     for community in extracted_communities:
-        # community keeps its topk order, so the central point stays first
+        # community keeps its topk order, so the central point stays first.
+        # If the centre has already been claimed by a larger community, the remaining
+        # members were only close to that centre, not to each other, so drop the whole
+        # community rather than returning an internally inconsistent group.
+        if used[community[0]]:
+            continue
         non_overlapped_community = community[~used[community]]
         if len(non_overlapped_community) >= min_community_size:
             unique_communities.append(non_overlapped_community)

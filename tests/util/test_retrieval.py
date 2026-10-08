@@ -284,6 +284,39 @@ def test_community_detection_overlapping_communities():
     assert sorted([sorted(community) for community in result]) == sorted([sorted(community) for community in expected])
 
 
+def test_community_detection_drops_community_when_centre_already_claimed():
+    """A community whose centre was already claimed by a larger one must be dropped.
+
+    The remaining members were each close to the removed centre, but not to each other,
+    so returning them as a community violates the threshold contract.
+    See https://github.com/huggingface/sentence-transformers/issues/4140.
+    """
+    import math
+
+    def unit(deg_y: float = 0.0, deg_z: float = 0.0) -> torch.Tensor:
+        y, z = math.radians(deg_y), math.radians(deg_z)
+        v = torch.tensor([math.cos(y) * math.cos(z), math.sin(y) * math.cos(z), math.sin(z)])
+        return v / v.norm()
+
+    embeddings = torch.stack(
+        [
+            unit(),  # 0: centre of the smaller community
+            unit(deg_y=20),  # 1: close to 0, far from 2 and 3
+            unit(deg_y=-20),  # 2: close to 0, far from 1 and 3
+            unit(deg_z=-20),  # 3: close to 0, far from 1 and 2
+            unit(deg_z=22),  # 4: centre of the largest community
+            unit(deg_z=30),
+            unit(deg_z=36),
+            unit(deg_z=40),
+            unit(deg_z=44),
+        ]
+    )
+    result = community_detection(embeddings, threshold=0.9, min_community_size=3)
+    # The smaller community's centre (0) gets absorbed into the larger community around 4.
+    # The residual [1, 2, 3] must NOT survive as a community, because 1-2, 1-3, 2-3 are all < 0.9.
+    assert [sorted(c) for c in result] == [[0, 4, 5, 6, 7, 8]]
+
+
 def test_community_detection_numpy_input():
     """Test case where input is a numpy array instead of a torch tensor."""
     embeddings = np.array(
