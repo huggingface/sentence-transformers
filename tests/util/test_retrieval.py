@@ -39,18 +39,40 @@ def test_semantic_search() -> None:
             assert np.abs(hits[qid][hit_num]["score"] - cos_scores_values[qid][hit_num]) < 0.001
 
 
-def test_semantic_search_accepts_list_of_numpy_embeddings() -> None:
-    """encode() of a single text returns a 1D numpy vector; a list of those used to crash torch.stack."""
+@pytest.mark.parametrize(
+    "query_format", ["tensor", "numpy", "tensor_list", "numpy_list", "single_tensor", "single_numpy"]
+)
+@pytest.mark.parametrize("corpus_format", ["tensor", "numpy", "tensor_list", "numpy_list"])
+def test_semantic_search_input_formats(query_format: str, corpus_format: str) -> None:
     rng = np.random.default_rng(0)
-    query = rng.standard_normal(16).astype(np.float32)
-    corpus = [rng.standard_normal(16).astype(np.float32) for _ in range(5)]
-    tensor_hits = semantic_search(torch.from_numpy(query), torch.stack([torch.from_numpy(row) for row in corpus]), top_k=2)
-    numpy_hits = semantic_search(query, corpus, top_k=2)
+    queries = rng.standard_normal((1 if query_format.startswith("single") else 3, 16)).astype(np.float32)
+    corpus = rng.standard_normal((5, 16)).astype(np.float32)
 
-    assert len(numpy_hits) == 1
-    assert len(numpy_hits[0]) == 2
-    assert [hit["corpus_id"] for hit in numpy_hits[0]] == [hit["corpus_id"] for hit in tensor_hits[0]]
-    assert [hit["score"] for hit in numpy_hits[0]] == pytest.approx([hit["score"] for hit in tensor_hits[0]])
+    def convert(embeddings: np.ndarray, input_format: str):
+        if input_format == "tensor":
+            return torch.from_numpy(embeddings)
+        if input_format == "tensor_list":
+            return list(torch.from_numpy(embeddings))
+        if input_format == "numpy_list":
+            return list(embeddings)
+        if input_format == "single_tensor":
+            return torch.from_numpy(embeddings[0])
+        if input_format == "single_numpy":
+            return embeddings[0]
+        return embeddings
+
+    expected = semantic_search(torch.from_numpy(queries), torch.from_numpy(corpus), top_k=2)
+    actual = semantic_search(convert(queries, query_format), convert(corpus, corpus_format), top_k=2)
+
+    assert len(actual) == len(expected)
+    for hits, expected_hits in zip(actual, expected):
+        assert [hit["corpus_id"] for hit in hits] == [hit["corpus_id"] for hit in expected_hits]
+        assert [hit["score"] for hit in hits] == pytest.approx([hit["score"] for hit in expected_hits])
+
+
+@pytest.mark.parametrize("corpus", [torch.empty(0), np.array([])])
+def test_semantic_search_empty_corpus(corpus) -> None:
+    assert semantic_search(torch.ones(2, 16), corpus) == [[], []]
 
 
 @pytest.mark.slow
@@ -224,10 +246,9 @@ def test_community_detection_min_community_size_filtering():
     assert sorted([sorted(community) for community in result]) == sorted([sorted(community) for community in expected])
 
 
-def test_community_detection_min_community_size_larger_than_input():
+@pytest.mark.parametrize("embeddings", [torch.ones(3, 4), torch.empty(0), np.array([]), []])
+def test_community_detection_min_community_size_larger_than_input(embeddings):
     """A dataset smaller than the minimum community size cannot form a community."""
-    embeddings = torch.ones(3, 4)
-
     result = community_detection(embeddings, threshold=0.8, min_community_size=4)
 
     assert result == []
@@ -275,8 +296,10 @@ def test_community_detection_numpy_input():
     expected = [
         [0, 1, 2],  # Single community
     ]
+    original = embeddings.copy()
     result = community_detection(embeddings, threshold=0.8, min_community_size=2)
     assert sorted([sorted(community) for community in result]) == sorted([sorted(community) for community in expected])
+    np.testing.assert_array_equal(embeddings, original)
 
 
 def test_community_detection_large_batch_size():

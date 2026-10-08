@@ -223,8 +223,7 @@ def select_max_active_dims(
     if max_active_dims <= 0:
         raise ValueError(f"max_active_dims must be a positive integer, got {max_active_dims}.")
 
-    if isinstance(embeddings, np.ndarray):
-        embeddings = torch.tensor(embeddings)
+    embeddings = _convert_to_tensor(embeddings)
 
     embedding_dim = embeddings.shape[-1]
 

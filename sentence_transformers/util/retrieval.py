@@ -192,21 +192,11 @@ def semantic_search(
         List[List[Dict[str, Union[int, float]]]]: A list with one entry for each query. Each entry is a list of dictionaries with the keys 'corpus_id' and 'score', sorted by decreasing cosine similarity scores.
     """
 
-    if isinstance(query_embeddings, (np.ndarray, np.generic)):
-        query_embeddings = torch.from_numpy(query_embeddings)
-    elif isinstance(query_embeddings, list):
-        query_embeddings = _convert_to_tensor(query_embeddings)
+    query_embeddings = _convert_to_tensor(query_embeddings)
+    corpus_embeddings = _convert_to_tensor(corpus_embeddings)
 
     if len(query_embeddings.shape) == 1:
         query_embeddings = query_embeddings.unsqueeze(0)
-
-    if isinstance(corpus_embeddings, (np.ndarray, np.generic)):
-        corpus_embeddings = torch.from_numpy(corpus_embeddings)
-    elif isinstance(corpus_embeddings, list):
-        corpus_embeddings = _convert_to_tensor(corpus_embeddings)
-
-    if len(corpus_embeddings.shape) == 1:
-        corpus_embeddings = corpus_embeddings.unsqueeze(0)
 
     # Check that corpus and queries are on the same device
     if corpus_embeddings.device != query_embeddings.device:
@@ -286,12 +276,10 @@ def community_detection(
     Returns:
         List[List[int]]: A list of communities, where each community is represented as a list of indices.
     """
-    if not isinstance(embeddings, torch.Tensor):
-        embeddings = torch.tensor(embeddings)
-
     if len(embeddings) < min_community_size:
         return []
 
+    embeddings = _convert_to_tensor(embeddings)
     threshold = torch.tensor(threshold, device=embeddings.device)
     embeddings = normalize_embeddings(embeddings)
 
