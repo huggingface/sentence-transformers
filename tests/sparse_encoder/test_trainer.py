@@ -6,9 +6,11 @@ from pathlib import Path
 
 import pytest
 import torch
+from transformers import TrainerState
 
 from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments
 from sentence_transformers.sparse_encoder import losses
+from sentence_transformers.sparse_encoder.callbacks.splade_callbacks import SpladeRegularizerWeightSchedulerCallback
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 if is_datasets_available():
@@ -439,3 +441,35 @@ def test_trainer_prompts(
             )
 
     assert set(tracked_texts) == expected
+
+
+def test_trainer_schedules_every_splade_loss(splade_bert_tiny_model: SparseEncoder) -> None:
+    model = splade_bert_tiny_model
+    loss = {
+        name: losses.SpladeLoss(
+            model=model,
+            loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+            document_regularizer_weight=3e-5,
+            query_regularizer_weight=5e-5,
+        )
+        for name in ("first", "second")
+    }
+    dataset = Dataset.from_dict({"anchor": ["a", "b"], "positive": ["c", "d"]})
+    trainer = SparseEncoderTrainer(
+        model=model, train_dataset=DatasetDict({"first": dataset, "second": dataset}), loss=loss
+    )
+    schedulers = [
+        callback
+        for callback in trainer.callback_handler.callbacks
+        if isinstance(callback, SpladeRegularizerWeightSchedulerCallback)
+    ]
+
+    # 6 steps with the default warmup_ratio of 1/3 give 2 warmup steps, so the quadratic schedule
+    # sets the weights to max * (1 / 2) ** 2 at step 1, for every SpladeLoss
+    state = TrainerState(max_steps=6, global_step=1)
+    for scheduler in schedulers:
+        scheduler.on_train_begin(trainer.args, state, trainer.control)
+        scheduler.on_step_begin(trainer.args, state, trainer.control)
+    for splade_loss in loss.values():
+        assert splade_loss.document_regularizer_weight == pytest.approx(3e-5 / 4)
+        assert splade_loss.query_regularizer_weight == pytest.approx(5e-5 / 4)
