@@ -5,6 +5,7 @@ Tests the correct computation of evaluation scores from BinaryClassificationEval
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -60,6 +61,17 @@ def test_add_transitive_closure_flag_still_expands_duplicates() -> None:
     assert without_closure.total_num_duplicates == 2
     # (0, 1), (1, 2) and the transitively closed (0, 2)
     assert with_closure.total_num_duplicates == 3
+
+
+def test_add_transitive_closure_ignores_non_duplicate_pairs() -> None:
+    """Pairs marked False in ``duplicates_dict`` are not duplicates, so the closure must not follow them."""
+    sentences = {"a": "Hello World", "b": "Hello World!", "c": "The cat is on the table"}
+    duplicates = defaultdict(lambda: defaultdict(bool))
+    duplicates["a"]["b"] = duplicates["b"]["a"] = True
+    duplicates["a"]["c"] = duplicates["c"]["a"] = False
+    evaluator = ParaphraseMiningEvaluator(sentences, duplicates_dict=duplicates, add_transitive_closure=True)
+    assert evaluator.total_num_duplicates == 1
+    assert not evaluator.duplicates["b"]["c"]
 
 
 @pytest.mark.parametrize("duplicate_pair", [("a", "b"), ("a", "c"), ("b", "c")])
