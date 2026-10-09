@@ -13,6 +13,7 @@ Training Examples
    ../../../examples/cross_encoder/training/rerankers/README
    ../../../examples/cross_encoder/training/distillation/README
    ../../../examples/cross_encoder/training/multimodal/README
+   ../../../examples/cross_encoder/training/peft/README
 
 .. toctree::
    :maxdepth: 1
