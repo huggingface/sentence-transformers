@@ -159,13 +159,10 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             # Calculate base metrics for dense retriever
             dense_is_relevant = [int(sample in positive) for sample in dense_docs]
 
-            # Skip if no relevant documents
-            if sum(dense_is_relevant) == 0:
-                dense_mrr, dense_ndcg, dense_ap = 0, 0, 0
-            else:
-                dense_is_relevant += [1] * (len(positive) - sum(dense_is_relevant))
-                dense_pred_scores = np.array(range(len(dense_is_relevant), 0, -1))
-                dense_mrr, dense_ndcg, dense_ap = self.compute_metrics(dense_is_relevant, dense_pred_scores)
+            dense_pred_scores = np.array(range(len(dense_is_relevant), 0, -1))
+            dense_mrr, dense_ndcg, dense_ap = self.compute_metrics(
+                dense_is_relevant, dense_pred_scores, num_positives=len(positive)
+            )
 
             dense_mrr_scores.append(dense_mrr)
             dense_ndcg_scores.append(dense_ndcg)
@@ -174,13 +171,10 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             # Calculate base metrics for sparse retriever
             sparse_is_relevant = [int(sample in positive) for sample in sparse_docs]
 
-            # Skip if no relevant documents
-            if sum(sparse_is_relevant) == 0:
-                sparse_mrr, sparse_ndcg, sparse_ap = 0, 0, 0
-            else:
-                sparse_is_relevant += [1] * (len(positive) - sum(sparse_is_relevant))
-                sparse_pred_scores = np.array(range(len(sparse_is_relevant), 0, -1))
-                sparse_mrr, sparse_ndcg, sparse_ap = self.compute_metrics(sparse_is_relevant, sparse_pred_scores)
+            sparse_pred_scores = np.array(range(len(sparse_is_relevant), 0, -1))
+            sparse_mrr, sparse_ndcg, sparse_ap = self.compute_metrics(
+                sparse_is_relevant, sparse_pred_scores, num_positives=len(positive)
+            )
 
             sparse_mrr_scores.append(sparse_mrr)
             sparse_ndcg_scores.append(sparse_ndcg)
@@ -212,13 +206,10 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             num_queries += 1
             num_positives.append(len(positive))
 
-            # Skip if no relevant documents in fusion results
-            if sum(fusion_is_relevant) == 0:
-                fusion_mrr, fusion_ndcg, fusion_ap = 0, 0, 0
-            else:
-                fusion_is_relevant += [1] * (len(positive) - sum(fusion_is_relevant))
-                fusion_pred_scores = np.array(range(len(fusion_is_relevant), 0, -1))
-                fusion_mrr, fusion_ndcg, fusion_ap = self.compute_metrics(fusion_is_relevant, fusion_pred_scores)
+            fusion_pred_scores = np.array(range(len(fusion_is_relevant), 0, -1))
+            fusion_mrr, fusion_ndcg, fusion_ap = self.compute_metrics(
+                fusion_is_relevant, fusion_pred_scores, num_positives=len(positive)
+            )
 
             fusion_mrr_scores.append(fusion_mrr)
             fusion_ndcg_scores.append(fusion_ndcg)
@@ -321,8 +312,17 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
 
         return metrics
 
-    def compute_metrics(self, y_true, y_pred):
-        """Compute MRR, NDCG, and AP metrics using sklearn"""
+    def compute_metrics(self, y_true, y_pred, num_positives=None):
+        """Compute ranking metrics, including unretrieved positives only in the ideal ranking and AP denominator."""
+        retrieved_positives = sum(y_true)
+        if retrieved_positives == 0:
+            return 0.0, 0.0, 0.0
+        if num_positives is None:
+            num_positives = retrieved_positives
+        # AP uses the full ranking regardless of the MRR/nDCG cutoff.
+        ap = average_precision_score(y_true, y_pred) * retrieved_positives / num_positives
+        if self.at_k == 0:
+            return 0.0, 0.0, ap
         ranking = np.argsort(y_pred)[::-1]
 
         # Calculate MRR@k
@@ -332,11 +332,13 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
                 mrr = 1 / (rank + 1)
                 break
 
-        # Calculate NDCG@k
-        ndcg = ndcg_score([y_true], [y_pred], k=self.at_k)
-
-        # Calculate MAP
-        ap = average_precision_score(y_true, y_pred)
+        # sklearn normalizes by the positives in y_true. Rescale to include all known positives
+        # in the ideal ranking, while leaving unretrieved documents out of the observed ranking.
+        # A single retrieved positive has a perfect observed ranking, but sklearn requires two candidates.
+        ndcg = 1.0 if len(y_true) == 1 else ndcg_score([y_true], [y_pred], k=self.at_k)
+        retrieved_ideal = sum(1 / np.log2(rank + 2) for rank in range(min(self.at_k, retrieved_positives)))
+        full_ideal = sum(1 / np.log2(rank + 2) for rank in range(min(self.at_k, num_positives)))
+        ndcg *= retrieved_ideal / full_ideal
 
         return mrr, ndcg, ap
 
