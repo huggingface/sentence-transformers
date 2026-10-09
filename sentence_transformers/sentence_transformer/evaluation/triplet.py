@@ -126,6 +126,8 @@ class TripletEvaluator(BaseEvaluator):
             SimilarityFunction(main_similarity_function) if main_similarity_function else None
         )
         self.similarity_fn_names = similarity_fn_names or []
+        if not self.similarity_fn_names and self.main_similarity_function is not None:
+            self.similarity_fn_names = [self.main_similarity_function.value]
 
         fn_keys = list(self._get_similarity_functions().keys())
         if unknown_names := sorted(set(self.similarity_fn_names) - set(fn_keys)):
