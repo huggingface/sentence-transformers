@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import queue
+import signal
+import sys
 
 import numpy as np
 import pytest
@@ -57,6 +60,26 @@ def test_multi_process_raises_reported_worker_failure() -> None:
             chunk_size=1,
             show_progress_bar=False,
         )
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGKILL is not available on Windows")
+def test_encode_multi_process_raises_when_workers_are_killed(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    model = stsb_bert_tiny_model
+    sentences = [f"This is sentence {i}" for i in range(40)]
+    pool = model.start_multi_process_pool(["cpu", "cpu"])
+    try:
+        assert model.encode(sentences, pool=pool, chunk_size=10).shape == (len(sentences), 128)
+
+        # Workers that die without raising can't report a failure; encode used to wait for their chunks forever
+        for process in pool["processes"]:
+            os.kill(process.pid, signal.SIGKILL)
+            process.join()
+
+        with pytest.raises(RuntimeError, match="died unexpectedly"):
+            model.encode(sentences, pool=pool, chunk_size=10)
+    finally:
+        model.stop_multi_process_pool(pool)
 
 
 @pytest.mark.slow

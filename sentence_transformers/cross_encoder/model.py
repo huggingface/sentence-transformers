@@ -14,7 +14,7 @@ from transformers.utils import logging as transformers_logging
 from typing_extensions import TypeIs, deprecated
 
 from sentence_transformers.base.modality_types import PairableInput, PairInput
-from sentence_transformers.base.model import BaseModel
+from sentence_transformers.base.model import BaseModel, MultiProcessPool
 from sentence_transformers.base.modules import Dense, Transformer
 from sentence_transformers.cross_encoder.fit_mixin import FitMixin
 from sentence_transformers.cross_encoder.model_card import CrossEncoderModelCardData
@@ -363,7 +363,7 @@ class CrossEncoder(BaseModel, FitMixin):
         convert_to_numpy: Literal[True] = ...,
         convert_to_tensor: Literal[False] = ...,
         device: str | list[str | torch.device] | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> np.ndarray: ...
@@ -382,7 +382,7 @@ class CrossEncoder(BaseModel, FitMixin):
         *,
         convert_to_tensor: Literal[True],
         device: str | list[str | torch.device] | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> torch.Tensor: ...
@@ -401,7 +401,7 @@ class CrossEncoder(BaseModel, FitMixin):
         convert_to_numpy: Literal[False],
         convert_to_tensor: Literal[False] = ...,
         device: str | list[str | torch.device] | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> torch.Tensor: ...
@@ -420,7 +420,7 @@ class CrossEncoder(BaseModel, FitMixin):
         convert_to_numpy: Literal[False],
         convert_to_tensor: Literal[False] = ...,
         device: str | list[str | torch.device] | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> list[torch.Tensor]: ...
@@ -439,7 +439,7 @@ class CrossEncoder(BaseModel, FitMixin):
         convert_to_numpy: bool = ...,
         convert_to_tensor: bool = ...,
         device: str | list[str | torch.device] | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> list[torch.Tensor] | np.ndarray | torch.Tensor: ...
@@ -458,7 +458,7 @@ class CrossEncoder(BaseModel, FitMixin):
         convert_to_numpy: bool = True,
         convert_to_tensor: bool = False,
         device: str | list[str | torch.device] | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        pool: MultiProcessPool | None = None,
         chunk_size: int | None = None,
         **kwargs,
     ) -> list[torch.Tensor] | np.ndarray | torch.Tensor:
@@ -650,7 +650,7 @@ class CrossEncoder(BaseModel, FitMixin):
         show_progress_bar: bool | None = None,
         activation_fn: Callable | None = None,
         device: str | list[str | torch.device] | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        pool: MultiProcessPool | None = None,
         chunk_size: int | None = None,
     ) -> list[dict[Literal["corpus_id", "score", "text"], int | float | str]]:
         """

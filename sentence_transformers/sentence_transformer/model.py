@@ -17,7 +17,7 @@ from transformers.utils import logging as transformers_logging
 from typing_extensions import TypeIs, deprecated
 
 from sentence_transformers.base.modality_types import SingleInput
-from sentence_transformers.base.model import BaseModel
+from sentence_transformers.base.model import BaseModel, MultiProcessPool
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.util import batch_to_device, truncate_embeddings
@@ -237,7 +237,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> np.ndarray: ...
@@ -258,7 +258,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> Tensor: ...
@@ -279,7 +279,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> Tensor: ...
@@ -300,7 +300,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> list[Tensor]: ...
@@ -321,7 +321,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> list[Tensor] | np.ndarray | Tensor | dict[str, Tensor] | list[dict[str, Tensor]]: ...
@@ -341,7 +341,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
         truncate_dim: int | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        pool: MultiProcessPool | None = None,
         chunk_size: int | None = None,
         **kwargs,
     ) -> list[Tensor] | np.ndarray | Tensor | dict[str, Tensor] | list[dict[str, Tensor]]:
@@ -400,7 +400,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> np.ndarray: ...
@@ -421,7 +421,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> Tensor: ...
@@ -442,7 +442,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> Tensor: ...
@@ -463,7 +463,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> list[Tensor]: ...
@@ -484,7 +484,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> list[Tensor] | np.ndarray | Tensor | dict[str, Tensor] | list[dict[str, Tensor]]: ...
@@ -504,7 +504,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
         truncate_dim: int | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        pool: MultiProcessPool | None = None,
         chunk_size: int | None = None,
         **kwargs,
     ) -> list[Tensor] | np.ndarray | Tensor | dict[str, Tensor] | list[dict[str, Tensor]]:
@@ -574,7 +574,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> np.ndarray: ...
@@ -595,7 +595,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> Tensor: ...
@@ -616,7 +616,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> Tensor: ...
@@ -637,7 +637,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> Tensor: ...
@@ -658,7 +658,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> dict[str, Tensor]: ...
@@ -679,7 +679,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> list[Tensor]: ...
@@ -700,7 +700,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> list[Tensor]: ...
@@ -721,7 +721,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> list[dict[str, Tensor]]: ...
@@ -742,7 +742,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
         truncate_dim: int | None = ...,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
+        pool: MultiProcessPool | None = ...,
         chunk_size: int | None = ...,
         **kwargs,
     ) -> list[Tensor] | np.ndarray | Tensor | dict[str, Tensor] | list[dict[str, Tensor]]: ...
@@ -763,7 +763,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         device: str | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
         truncate_dim: int | None = None,
-        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
+        pool: MultiProcessPool | None = None,
         chunk_size: int | None = None,
         **kwargs,
     ) -> list[Tensor] | np.ndarray | Tensor | dict[str, Tensor] | list[dict[str, Tensor]]:
@@ -816,7 +816,7 @@ class SentenceTransformer(BaseModel, FitMixin):
                 provided, multi-process encoding will be used. Defaults to None.
             normalize_embeddings (bool, optional): Whether to normalize returned vectors to have length 1.
             truncate_dim (int, optional): The dimension to truncate sentence embeddings to.
-            pool (Dict[Literal["input", "output", "processes"], Any], optional): A pool created by
+            pool (MultiProcessPool, optional): A pool created by
                 ``start_multi_process_pool()``.
             chunk_size (int, optional): Size of chunks for multi-process encoding.
             **kwargs: Additional keyword arguments to pass to the model's ``preprocess`` and ``forward`` methods.
@@ -1100,7 +1100,7 @@ class SentenceTransformer(BaseModel, FitMixin):
     def encode_multi_process(
         self,
         sentences: list[str],
-        pool: dict[Literal["input", "output", "processes"], Any],
+        pool: MultiProcessPool,
         prompt_name: str | None = None,
         prompt: str | None = None,
         batch_size: int = 32,
