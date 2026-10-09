@@ -366,12 +366,14 @@ class MultiVectorEncoder(BaseModel):
         token_pooling: BaseTokenPooling | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
-        """Compute query embeddings. Uses the "query" prompt if available and routes through the query side.
+        """Compute query embeddings. Uses the "query" prompt and routes through the query side.
 
         See :meth:`encode` for the full parameter documentation. This method differs only by:
 
-        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the predefined ``"query"`` prompt when one
-           exists in the model's ``prompts`` dictionary.
+        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the ``"query"`` prompt from the model's
+           ``prompts`` dictionary. This prompt is empty unless one is configured, and an empty ``"query"`` prompt
+           still counts as the selected prompt: no prompt is applied and ``default_prompt_name`` is not used as a
+           fallback. To prompt queries, configure a ``"query"`` prompt explicitly.
         2. It sets the ``task`` to ``"query"``: the query prefix token is inserted, the max sequence length is
            ``query_length``, and (when ``query_expansion`` is set) the input is extended with expansion tokens.
         """
