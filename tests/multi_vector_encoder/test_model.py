@@ -54,6 +54,18 @@ def test_default_colbert_attributes(model: MultiVectorEncoder) -> None:
     assert mask_module._skiplist_ids is None
 
 
+@pytest.mark.parametrize("prompt_name", ["passage", "corpus"])
+def test_encode_document_ignores_empty_default_prompt(prompt_name: str) -> None:
+    model = MultiVectorEncoder(
+        "multi-vector-encoder-testing/bert-tiny-multi-vector", prompts={prompt_name: f"{prompt_name}: "}
+    )
+    inputs = ["A test document"]
+    expected = model.encode(inputs, prompt_name=prompt_name, task="document")
+
+    for actual in (model.encode_document(inputs), model.encode_document(inputs, prompt="")):
+        torch.testing.assert_close(actual, expected)
+
+
 def test_bare_checkpoint_gets_no_expansion() -> None:
     # A config-only HF checkpoint (no modules.json, no PyLate/Stanford markers) builds without
     # query expansion: the classic ColBERT tricks are explicit recipe choices, not defaults.

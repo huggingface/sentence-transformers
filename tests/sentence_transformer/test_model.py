@@ -1144,6 +1144,18 @@ def test_encode_document_prompt_priority(stsb_bert_tiny_model: SentenceTransform
     assert kwargs["prompt_name"] is None
 
 
+@pytest.mark.parametrize("prompt_name", ["passage", "corpus"])
+def test_encode_document_ignores_empty_default_prompt(prompt_name: str) -> None:
+    model = SentenceTransformer(
+        "sentence-transformers-testing/stsb-bert-tiny-safetensors", prompts={prompt_name: f"{prompt_name}: "}
+    )
+    inputs = ["A test document"]
+    expected = model.encode(inputs, prompt_name=prompt_name, task="document")
+
+    np.testing.assert_array_equal(model.encode_document(inputs), expected)
+    np.testing.assert_array_equal(model.encode_document(inputs, prompt=""), expected)
+
+
 def test_encode_advanced_parameters(stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch):
     """Test that additional parameters are correctly passed to encode"""
     model = stsb_bert_tiny_model
