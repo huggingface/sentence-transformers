@@ -10,7 +10,7 @@ import pytest
 import torch
 from packaging.version import parse as parse_version
 from tokenizers.processors import TemplateProcessing
-from torch.utils.data import ConcatDataset
+from torch.utils.data import ConcatDataset, DataLoader
 from transformers import __version__ as transformers_version
 from transformers.trainer_utils import EvalLoopOutput
 
@@ -29,7 +29,9 @@ from sentence_transformers.sentence_transformer.losses import (
     CachedMultipleNegativesRankingLoss,
     CosineSimilarityLoss,
     MultipleNegativesRankingLoss,
+    SoftmaxLoss,
 )
+from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util import is_datasets_available, is_training_available
 
@@ -1244,3 +1246,41 @@ def test_trainer_compiled_model_with_cached_loss(
         model = torch.compile(model, backend="eager")
     SentenceTransformerTrainer(model=model, loss=loss)
     assert stsb_bert_tiny_model[0].track_media_counts
+
+
+@pytest.mark.parametrize("use_fit", [False, True], ids=["trainer", "fit"])
+def test_training_updates_loss_weights(stsb_bert_tiny_model, tmp_path, monkeypatch, use_fit: bool) -> None:
+    model = stsb_bert_tiny_model
+    loss = SoftmaxLoss(model, model.get_embedding_dimension(), num_labels=3)
+    classifier_weight = loss.classifier.weight.detach().clone()
+    dataset = Dataset.from_dict(
+        {
+            "sentence1": [f"This is sentence {idx}" for idx in range(16)],
+            "sentence2": [f"This is another sentence {idx}" for idx in range(16)],
+            "label": [idx % 3 for idx in range(16)],
+        }
+    )
+
+    if use_fit:
+        monkeypatch.chdir(tmp_path)
+        examples = [InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["label"]) for row in dataset]
+        model.fit(
+            train_objectives=[(DataLoader(examples, batch_size=4), loss)],
+            epochs=1,
+            warmup_steps=0,
+            show_progress_bar=False,
+        )
+    else:
+        args = SentenceTransformerTrainingArguments(
+            output_dir=str(tmp_path),
+            num_train_epochs=1,
+            per_device_train_batch_size=4,
+            save_strategy="no",
+            report_to=[],
+            disable_tqdm=True,
+        )
+        trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=dataset, loss=loss)
+        trainer.train()
+
+    assert not torch.equal(loss.classifier.weight.detach(), classifier_weight)
+    assert all(parameter.grad is None for parameter in loss.parameters())

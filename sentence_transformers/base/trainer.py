@@ -76,6 +76,16 @@ except ImportError:
     TrackioCallback = None
 
 
+class _OptimizerGradientCallback(TrainerCallback):
+    """Clear loss-owned gradients that the Transformers model.zero_grad() calls cannot reach."""
+
+    def on_train_begin(self, args, state, control, optimizer, **kwargs) -> None:
+        optimizer.zero_grad()
+
+    def on_step_end(self, args, state, control, optimizer, **kwargs) -> None:
+        optimizer.zero_grad()
+
+
 class BaseTrainer(Trainer, ABC):
     """
     BaseTrainer is a simple but feature-complete training and eval loop for PyTorch
@@ -336,6 +346,7 @@ class BaseTrainer(Trainer, ABC):
             self.eval_dataset = self.preprocess_dataset(eval_dataset, dataset_name="eval")
         self._eval_dataloaders: dict[str, DataLoader] = {}
         self.add_model_card_callback(default_args_dict)
+        self.add_callback(_OptimizerGradientCallback())
 
     def get_data_collator(
         self,

@@ -330,7 +330,7 @@ class FitMixin:
         num_train_steps = int(steps_per_epoch * epochs)
 
         # Prepare optimizer & scheduler
-        param_optimizer = list(self.named_parameters())
+        param_optimizer = list(nn.ModuleDict({"model": self, **loss_fn_dict}).named_parameters())
 
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
