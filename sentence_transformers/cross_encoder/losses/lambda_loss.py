@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 import torch
@@ -313,16 +314,15 @@ class LambdaLoss(nn.Module):
         # Apply weighting scheme
         weights = self.weighting_scheme(gain, discount, true_sorted_by_preds)
 
-        # Calculate scores differences and probabilities
+        # Calculate weighted log-probabilities directly to avoid underflow and
+        # preserve gradients for strongly misordered pairs.
         scores_diffs = (logits_matrix_sorted[:, :, None] - logits_matrix_sorted[:, None, :]).clamp(min=-1e8, max=1e8)
         scores_diffs.masked_fill_(torch.isnan(scores_diffs), 0.0)
-        weighted_probas = (torch.sigmoid(self.sigma * scores_diffs).clamp(min=self.eps) ** weights).clamp(min=self.eps)
+        losses = weights * nn.functional.logsigmoid(self.sigma * scores_diffs)
 
         # Calculate losses based on specified logarithm base
-        if self.reduction_log == "natural":
-            losses = torch.log(weighted_probas)
-        else:  # binary
-            losses = torch.log2(weighted_probas)
+        if self.reduction_log == "binary":
+            losses = losses / math.log(2)
 
         # Apply masks and reduction
         masked_losses = losses[padded_pairs_mask & ndcg_at_k_mask]
