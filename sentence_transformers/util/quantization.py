@@ -438,6 +438,10 @@ def quantize_embeddings(
     Returns:
         Quantized embeddings with the specified precision. For a list of multi-vector matrices (variable-length
         ``(num_tokens, dim)`` arrays), returns a list of quantized matrices with shared per-dimension buckets.
+
+    Raises:
+        ValueError: If int8 or uint8 ranges would have to be calculated from a single embedding, i.e. neither
+            `ranges` nor `calibration_embeddings` is given.
     """
     if isinstance(embeddings, Tensor):
         embeddings = _tensor_to_numpy(embeddings)
@@ -483,9 +487,17 @@ def quantize_embeddings(
             if calibration_embeddings is not None:
                 ranges = np.vstack((np.min(calibration_embeddings, axis=0), np.max(calibration_embeddings, axis=0)))
             else:
+                # One embedding has the same minimum and maximum in every dimension, so all of its values would land
+                # in the same bucket. A 1D input is one embedding as well.
+                if embeddings.ndim == 1 or embeddings.shape[0] == 1:
+                    raise ValueError(
+                        f"Cannot compute {precision} quantization ranges from a single embedding, as every dimension "
+                        "would collapse into a single bucket. Call `quantize_embeddings` with `ranges` or "
+                        "`calibration_embeddings` computed from a representative set of embeddings instead."
+                    )
                 if embeddings.shape[0] < 100:
                     logger.warning(
-                        f"Computing {precision} quantization buckets based on {len(embeddings)} embedding{'s' if len(embeddings) != 1 else ''}."
+                        f"Computing {precision} quantization buckets based on {len(embeddings)} embeddings."
                         f" {precision} quantization is more stable with `ranges` calculated from more embeddings "
                         "or a `calibration_embeddings` that can be used to calculate the buckets."
                     )
