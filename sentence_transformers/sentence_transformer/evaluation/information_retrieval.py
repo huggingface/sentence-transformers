@@ -375,27 +375,43 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             for name, score_function in self.score_functions.items():
                 pair_scores = score_function(query_embeddings, sub_corpus_embeddings)
 
-                # Get top-k values
+                # Get top-k values, plus one extra candidate to detect ties at the cutoff
                 top_k = min(max_k, len(pair_scores[0]))
-                pair_scores_top_k_values, pair_scores_top_k_idx = torch.topk(
-                    pair_scores, top_k, dim=1, largest=True, sorted=False
+                num_candidates = min(top_k + 1, len(pair_scores[0]))
+                candidate_values, candidate_idx = torch.topk(
+                    pair_scores, num_candidates, dim=1, largest=True, sorted=True
                 )
+                pair_scores_top_k_values = candidate_values[:, :top_k]
+                pair_scores_top_k_idx = candidate_idx[:, :top_k]
                 # torch.topk breaks score ties arbitrarily. Rows with ties at the top_k-th score are
                 # reselected under the (-score, corpus_id) total order used for the final ranking, so
-                # the reported metrics do not depend on corpus_chunk_size.
-                thresholds = pair_scores_top_k_values.min(dim=1, keepdim=True).values
-                has_boundary_ties = ((pair_scores >= thresholds).sum(dim=1) > top_k).cpu().tolist()
+                # the reported metrics do not depend on corpus_chunk_size. More than top_k scores reach
+                # the cutoff exactly when the best score outside the top_k equals the top_k-th score.
+                thresholds = candidate_values[:, top_k - 1 : top_k]
+                if num_candidates > top_k:
+                    has_boundary_ties = (candidate_values[:, top_k] == candidate_values[:, top_k - 1]).cpu().tolist()
+                else:
+                    has_boundary_ties = [False] * len(pair_scores)
+                tie_idx, tie_scores = {}, {}
                 if any(has_boundary_ties):
                     # Order the candidates by (-score, corpus_id) with an integer key, so that only
                     # top_k of them per query reach Python even when the whole chunk is tied: every
                     # score above the cutoff sorts first, then the ties with the lowest corpus_ids.
+                    # Only the tied rows need this, in blocks, so the int64 keys stay small next to
+                    # the (queries x corpus chunk) score matrix.
                     n_corpus = len(self.corpus_ids)
                     chunk_ranks = self.get_corpus_id_ranks()[corpus_start_idx:corpus_end_idx].to(pair_scores.device)
-                    tie_keys = torch.where(pair_scores > thresholds, chunk_ranks, 2 * n_corpus)
-                    tie_keys = torch.where(pair_scores == thresholds, chunk_ranks + n_corpus, tie_keys)
-                    tie_idx = tie_keys.topk(top_k, dim=1, largest=False).indices
-                    tie_scores = pair_scores.gather(1, tie_idx).cpu().tolist()
-                    tie_idx = tie_idx.cpu().tolist()
+                    tied_rows = [row for row, tied in enumerate(has_boundary_ties) if tied]
+                    for block_start in range(0, len(tied_rows), 1024):
+                        rows = torch.tensor(tied_rows[block_start : block_start + 1024], device=pair_scores.device)
+                        row_scores, row_thresholds = pair_scores[rows], thresholds[rows]
+                        tie_keys = torch.where(row_scores > row_thresholds, chunk_ranks, 2 * n_corpus)
+                        tie_keys = torch.where(row_scores == row_thresholds, chunk_ranks + n_corpus, tie_keys)
+                        block_idx = tie_keys.topk(top_k, dim=1, largest=False).indices
+                        block_scores = row_scores.gather(1, block_idx).cpu().tolist()
+                        for row, row_idx, row_tie_scores in zip(rows.tolist(), block_idx.cpu().tolist(), block_scores):
+                            tie_idx[row] = row_idx
+                            tie_scores[row] = row_tie_scores
                 pair_scores_top_k_values = pair_scores_top_k_values.cpu().tolist()
                 pair_scores_top_k_idx = pair_scores_top_k_idx.cpu().tolist()
 
