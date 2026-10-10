@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from sentence_transformers.sentence_transformer.losses import AnglELoss, CoSENTLoss
+from sentence_transformers.sparse_encoder.losses import SparseAnglELoss, SparseCoSENTLoss
 
 
 @pytest.fixture
@@ -57,6 +58,17 @@ def _explicit_cosent_loss(loss_fn, embeddings, labels):
                 terms.append(scores[low] - scores[high])
     # Preserve the gradient connection even when there are no ordered pairs.
     return torch.logsumexp(torch.stack(terms), dim=0) + scores.sum() * 0
+
+
+@pytest.mark.parametrize("loss_class", [CoSENTLoss, AnglELoss, SparseCoSENTLoss, SparseAnglELoss])
+@pytest.mark.parametrize("label_shape", [(0,), (2,), (4,), (3, 1)])
+def test_cosent_rejects_mismatched_label_shapes(dummy_model, loss_class, label_shape):
+    embeddings = [torch.randn(3, 4) for _ in range(2)]
+    labels = torch.zeros(label_shape)
+    loss_fn = loss_class(dummy_model)
+
+    with pytest.raises(ValueError, match="Labels and scores must have the same shape"):
+        loss_fn.compute_loss_from_embeddings(embeddings, labels)
 
 
 @pytest.mark.parametrize("loss_class", [CoSENTLoss, AnglELoss])
