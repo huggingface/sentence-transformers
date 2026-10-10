@@ -237,6 +237,17 @@ def test_pairwise_cos_sim_sparse(sparse_tensors):
     assert torch.allclose(sim_sparse, sim_dense, rtol=1e-5, atol=1e-5)
 
 
+def test_pairwise_cos_sim_single_sparse_vectors():
+    """Two 1D sparse embeddings, as returned by `SparseEncoder.encode()` for single inputs, score like dense ones."""
+    vector1 = torch.tensor([3.0, 4.0, 0.0, 0.0])
+    vector2 = torch.tensor([4.0, 3.0, 0.0, 1.0])
+
+    sim_sparse = pairwise_cos_sim(vector1.to_sparse(), vector2.to_sparse())
+    sim_dense = pairwise_cos_sim(vector1, vector2)
+
+    assert torch.allclose(sim_sparse, sim_dense)
+
+
 def test_pairwise_dot_score_sparse(sparse_tensors):
     """Test pairwise dot product with sparse tensors."""
     tensor1, tensor2 = sparse_tensors
