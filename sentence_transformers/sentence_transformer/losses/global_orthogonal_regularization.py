@@ -4,11 +4,10 @@ from collections.abc import Iterable
 from typing import Any, Literal
 
 import torch
-from torch import Tensor, nn
-
 from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer import SentenceTransformer
-from sentence_transformers.util import cos_sim
+from sentence_transformers.util import _convert_to_batch_tensor, cos_sim, normalize_embeddings
+from torch import Tensor, nn
 
 
 class GlobalOrthogonalRegularizationLoss(nn.Module):
@@ -181,19 +180,46 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
         batch_size = embeddings.size(0)
         hidden_dim = embeddings.size(1)
 
-        # Compute pairwise similarity matrix between all embeddings, and exclude self-similarities
-        sim_matrix = self.similarity_fct(embeddings, embeddings)
-        sim_matrix.fill_diagonal_(0.0)
+        # For B >= 2d, the feature Gram matrix is smaller than the B-by-B cosine matrix.
+        # ||X.T @ X||_F^2 = ||X @ X.T||_F^2, and ||sum(X)||^2 is the sum of its entries.
+        use_feature_gram = (
+            self.similarity_fct is cos_sim and embeddings.layout == torch.strided and batch_size >= 2 * hidden_dim
+        )
+        if use_feature_gram:
+            try:
+                autocast_enabled = torch.is_autocast_enabled(embeddings.device.type)
+            except TypeError:
+                # PyTorch 2.2 and 2.3 expose separate CPU and CUDA autocast queries.
+                autocast_enabled = (
+                    torch.is_autocast_cpu_enabled() if embeddings.device.type == "cpu" else torch.is_autocast_enabled()
+                )
+            use_feature_gram = not autocast_enabled
+        if use_feature_gram:
+            converted = _convert_to_batch_tensor(embeddings)
+            # Near-zero norms amplify rounding differences through normalization's 1e-12 clamp.
+            # Preserve the original summation and gradient for these degenerate inputs.
+            use_feature_gram = bool(torch.all(converted.norm(dim=1) >= 1e-12))
+        if use_feature_gram:
+            normalized = normalize_embeddings(converted)
+            row_squared_norms = normalized.pow(2).sum(dim=1)
+            gram = normalized.T @ normalized
+            similarity_sum = normalized.sum(dim=0).pow(2).sum() - row_squared_norms.sum()
+            squared_similarity_sum = (gram.pow(2).sum() - row_squared_norms.pow(2).sum()).clamp_min(0)
+        else:
+            sim_matrix = self.similarity_fct(embeddings, embeddings)
+            sim_matrix.fill_diagonal_(0.0)
+            similarity_sum = sim_matrix.sum()
+            squared_similarity_sum = sim_matrix.pow(2).sum()
         # Clamped so that a batch of one yields a differentiable 0 for both terms rather than nan
         num_off_diagonal = max(batch_size * (batch_size - 1), 1)
 
         # Mean term: M_1^2 where M_1 = mean of off-diagonal similarities
         # Penalizes high similarities across inputs from the same column (e.g., queries vs other queries)
-        mean_term = (sim_matrix.sum() / num_off_diagonal).pow(2)
+        mean_term = (similarity_sum / num_off_diagonal).pow(2)
 
         # Second moment term: M_2 - 1/d where M_2 = mean of squared off-diagonal similarities and d is embedding dimension
         # Pushes the second moment close to 1/d, encouraging a more uniform distribution
-        second_moment = sim_matrix.pow(2).sum() / num_off_diagonal
+        second_moment = squared_similarity_sum / num_off_diagonal
         second_moment_term = torch.relu(second_moment - (1.0 / hidden_dim))
 
         return mean_term, second_moment_term
