@@ -205,7 +205,7 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         self.sparsity_stats = {"query": defaultdict(list), "corpus": defaultdict(list)}
         self.count_vectors = {}
         self.count_lengths = {"query": [], "corpus": []}
-        metrics = super().__call__(model=model, output_path=output_path, epoch=epoch, steps=steps)
+        metrics = super().__call__(model, output_path, epoch, steps, *args, **kwargs)
         for prefix in ["query", "corpus"]:
             for key, value in self.sparsity_stats[prefix].items():
                 if prefix == "query":
@@ -233,6 +233,21 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
 
         return metrics
 
+    def compute_all_metrics(
+        self,
+        model: SparseEncoder,
+        corpus_model: SparseEncoder | None = None,
+        corpus_embeddings: torch.Tensor | None = None,
+        output_path: str | None = None,
+    ) -> dict[str, float]:
+        if corpus_embeddings is not None:
+            self._record_sparsity_stats(
+                corpus_model if corpus_model is not None else model, corpus_embeddings, "corpus"
+            )
+        return super().compute_all_metrics(
+            model, corpus_model=corpus_model, corpus_embeddings=corpus_embeddings, output_path=output_path
+        )
+
     def embed_inputs(
         self,
         model: SparseEncoder,
@@ -259,8 +274,12 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             max_active_dims=self.max_active_dims,
             **kwargs,
         )
-        stat = model.sparsity(embeddings)
         prefix = "query" if encode_fn_name in ["query", None] else "corpus"
+        self._record_sparsity_stats(model, embeddings, prefix)
+        return embeddings
+
+    def _record_sparsity_stats(self, model: SparseEncoder, embeddings: torch.Tensor, prefix: str) -> None:
+        stat = model.sparsity(embeddings)
         for key, value in stat.items():
             self.sparsity_stats[prefix][key].append(value)
         count_vec = compute_count_vector(embeddings)
@@ -268,8 +287,7 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             self.count_vectors[prefix] += count_vec
         else:
             self.count_vectors[prefix] = count_vec
-        self.count_lengths[prefix].append(len(sentences))
-        return embeddings
+        self.count_lengths[prefix].append(len(embeddings))
 
     def store_metrics_in_model_card_data(
         self, model: SparseEncoder, metrics: dict[str, Any], epoch: int = 0, step: int = 0
