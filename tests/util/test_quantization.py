@@ -119,6 +119,37 @@ def test_quantize_clips_out_of_range_values(precision: str) -> None:
 
 
 @pytest.mark.parametrize("precision", ["int8", "uint8"])
+@pytest.mark.parametrize("shape", [(8,), (1, 8)])
+def test_scalar_quantize_single_embedding_without_calibration_raises(precision: str, shape: tuple[int, ...]) -> None:
+    """Ranges calculated from one embedding put every dimension in one bucket, so this must fail loudly."""
+    embedding = np.random.default_rng(seed=0).standard_normal(shape).astype(np.float32)
+
+    with pytest.raises(ValueError, match="single embedding"):
+        quantize_embeddings(embedding, precision)
+
+
+@pytest.mark.parametrize("precision", ["int8", "uint8"])
+@pytest.mark.parametrize("calibration_mode", ["ranges", "calibration_embeddings"])
+def test_scalar_quantize_single_embedding_with_calibration(precision: str, calibration_mode: str) -> None:
+    """A single embedding still quantizes when the ranges come from elsewhere."""
+    calibration_embeddings = np.array([[0, 0, 0], [255, 510, 765]], dtype=np.float32)
+    kwargs = (
+        {"ranges": calibration_embeddings}
+        if calibration_mode == "ranges"
+        else {"calibration_embeddings": calibration_embeddings}
+    )
+    embedding = np.array([[0, 256, 765]], dtype=np.float32)
+
+    result = quantize_embeddings(embedding, precision, **kwargs)
+
+    if precision == "int8":
+        expected = np.array([[-128, 0, 127]], dtype=np.int8)
+    else:
+        expected = np.array([[0, 128, 255]], dtype=np.uint8)
+    np.testing.assert_array_equal(result, expected)
+
+
+@pytest.mark.parametrize("precision", ["int8", "uint8"])
 @pytest.mark.parametrize("bound", [1e-6, 60000.0])
 @pytest.mark.parametrize("calibration_mode", ["inferred", "ranges", "embeddings"])
 def test_scalar_quantize_float16_uses_float32_arithmetic(precision: str, bound: float, calibration_mode: str) -> None:
