@@ -237,6 +237,30 @@ def test_track_loss_components_detaches_the_accumulated_values() -> None:
     assert accumulated.item() == pytest.approx(12.0)
 
 
+@pytest.mark.parametrize(
+    ("training", "num_calls", "global_step"),
+    [
+        (True, 4, 1),  # gradient accumulation: 4 loss calls, 1 optimizer step since the last log
+        (False, 99, 0),  # evaluation: 99 batches, no optimizer step since the last log
+    ],
+)
+def test_track_loss_components_replaces_nan_with_the_running_mean(training, num_calls, global_step) -> None:
+    trainer = SimpleNamespace(
+        args=SimpleNamespace(logging_nan_inf_filter=True),
+        model=SimpleNamespace(training=training),
+        accum_loss_components={"train": {}, "eval": {}},
+        state=SimpleNamespace(global_step=global_step),
+        _globalstep_last_logged=0,
+    )
+    for _ in range(num_calls):
+        SentenceTransformerTrainer.track_loss_components(trainer, {"base_loss": torch.tensor(1.0)})
+    SentenceTransformerTrainer.track_loss_components(trainer, {"base_loss": torch.tensor(float("nan"))})
+
+    accum = trainer.accum_loss_components["train" if training else "eval"]
+    # A filtered value must not move the logged mean (sum / steps) away from the real values.
+    assert (accum["base_loss"] / accum["steps"]).item() == pytest.approx(1.0)
+
+
 def _run_ddp_evaluation_loop(
     rank: int, world_size: int, port: int, tmp_dir: str, sharded_backend: str | None = None
 ) -> None:
