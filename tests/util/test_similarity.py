@@ -1026,9 +1026,7 @@ def test_maxsim_pairwise_length_mismatch_raises() -> None:
 
 
 def test_maxsim_budget_bounds_the_live_chunk_elements(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The document budget bounds what the chunk loop actually allocates: the 4D score intermediate
-    plus the chunk's padded documents. The padded queries are allocated once outside the loop, so they
-    are chunk-independent and deliberately excluded.
+    """The budget bounds the query and document padding plus the 4D score intermediate.
 
     A small query side against a wide embedding dim, where the padded documents rather than the score
     matrix are the dominant term: dropping them from the budget overshoots ~100x here.
@@ -1037,7 +1035,7 @@ def test_maxsim_budget_bounds_the_live_chunk_elements(monkeypatch: pytest.Monkey
     original = similarity._maxsim_score_documents
 
     def record(a, b, a_mask, b_mask):
-        live = a.shape[0] * a.shape[1] * b.shape[0] * b.shape[1] + b.numel()
+        live = a.shape[0] * a.shape[1] * b.shape[0] * b.shape[1] + a.numel() + b.numel()
         chunks.append((b.shape[0], live))
         return original(a, b, a_mask, b_mask)
 
@@ -1255,3 +1253,242 @@ def test_similarity_accepts_encoded_tensor_list(word_embeddings_model, score_fun
 
     expected = score_function(torch.stack(embeddings), torch.stack(embeddings))
     torch.testing.assert_close(score_function(embeddings, embeddings), expected)
+
+
+@pytest.mark.parametrize("chunk_elements", [5_000, None])
+@pytest.mark.parametrize("input_type", ["list", "tensor", "numpy"])
+@pytest.mark.parametrize("use_masks", [False, True])
+@pytest.mark.parametrize("length_normalize", [False, True])
+def test_maxsim_query_chunking_bounds_padding_and_scores(
+    monkeypatch: pytest.MonkeyPatch,
+    input_type: str,
+    use_masks: bool,
+    length_normalize: bool,
+    chunk_elements: int | None,
+) -> None:
+    widths = [4] * 21
+    widths[10] = 80
+    queries = [
+        (torch.arange(width * 8).reshape(width, 8).float() + index + 1) / 100 for index, width in enumerate(widths)
+    ]
+    documents = [
+        -(torch.arange(width).float()[:, None] / 100 + torch.arange(8).float()[None, :] / 10 + index + 1)
+        for index, width in enumerate([40, 3, 27, 8])
+    ]
+    query_masks = [torch.ones(width) for width in widths]
+    document_masks = [torch.ones(len(document)) for document in documents]
+    for mask in query_masks:
+        mask[1::3] = 0
+        mask[::3] = 0.5
+    for mask in document_masks:
+        mask[::3] = 0
+
+    expected = torch.empty(len(queries), len(documents))
+    for index, query in enumerate(queries):
+        for doc_index, document in enumerate(documents):
+            if use_masks:
+                document = document[document_masks[doc_index].bool()]
+            token_scores = (query @ document.T).max(dim=-1).values.float()
+            if use_masks:
+                token_scores = token_scores * query_masks[index]
+            score = token_scores.sum()
+            if length_normalize:
+                score = score / (query_masks[index].bool().sum() if use_masks else len(query))
+            expected[index, doc_index] = score
+
+    chunks = []
+    original = similarity._maxsim_score_documents
+
+    def record(a, b, a_mask, b_mask):
+        live = a.numel() + b.numel() + a.shape[0] * a.shape[1] * b.shape[0] * b.shape[1]
+        chunks.append((a.shape[0], a.shape[1], live))
+        return original(a, b, a_mask, b_mask)
+
+    monkeypatch.setattr(similarity, "_maxsim_score_documents", record)
+    if input_type != "list":
+        queries = torch.nn.utils.rnn.pad_sequence(queries, batch_first=True)
+        documents = torch.nn.utils.rnn.pad_sequence(documents, batch_first=True)
+        if input_type == "numpy":
+            queries, documents = queries.numpy(), documents.numpy()
+
+    budget = 5_000
+    monkeypatch.setattr(similarity, "_MAXSIM_CHUNK_ELEMENT_BUDGET", budget)
+    scores = maxsim(
+        queries,
+        documents,
+        a_mask=query_masks if use_masks else None,
+        b_mask=document_masks if use_masks else None,
+        chunk_elements=chunk_elements,
+        length_normalize=length_normalize,
+    )
+
+    assert max(live for _, _, live in chunks) <= budget
+    assert all(count == 1 for count, width, _ in chunks if width == 80)
+    if input_type == "list":
+        assert any(width == 4 for _, width, _ in chunks)
+    assert scores.dtype == torch.float32
+    assert scores.device.type == "cpu"
+    torch.testing.assert_close(scores, expected)
+
+
+def test_maxsim_query_chunking_preserves_gradients() -> None:
+    queries = [
+        ((torch.arange(width * 4).reshape(width, 4).float() + 1) / 100).requires_grad_() for width in [2, 18, 3]
+    ]
+    documents = [(-(torch.arange(width * 4).reshape(width, 4).float() + 1) / 100).requires_grad_() for width in [5, 3]]
+    expected = torch.stack(
+        [
+            torch.stack([(query @ document.T).max(dim=-1).values.sum() / len(query) for document in documents])
+            for query in queries
+        ]
+    )
+    scores = maxsim(queries, documents, chunk_elements=150, length_normalize=True)
+    inputs = queries + documents
+    expected_gradients = torch.autograd.grad(expected.sum(), inputs)
+    gradients = torch.autograd.grad(scores.sum(), inputs)
+
+    torch.testing.assert_close(scores, expected)
+    for gradient, expected_gradient in zip(gradients, expected_gradients):
+        torch.testing.assert_close(gradient, expected_gradient)
+
+
+@pytest.mark.parametrize("length_normalize", [False, True])
+@pytest.mark.parametrize("mask_dtype", [torch.bool, torch.float32])
+def test_maxsim_query_chunking_preserves_shared_masks(length_normalize: bool, mask_dtype: torch.dtype) -> None:
+    queries = torch.arange(1, 25).reshape(4, 3, 2).float() / 10
+    documents = -torch.arange(1, 17).reshape(2, 4, 2).float() / 10
+    mask = torch.tensor([[0.5, 0, 1]], dtype=mask_dtype)
+    expected = torch.stack(
+        [
+            torch.stack([((query @ document.T).max(dim=-1).values * mask[0]).sum() for document in documents])
+            for query in queries
+        ]
+    )
+    if length_normalize:
+        expected = expected / mask.bool().sum()
+
+    scores = maxsim(queries, documents, a_mask=mask, chunk_elements=40, length_normalize=length_normalize)
+
+    torch.testing.assert_close(scores, expected)
+
+
+@pytest.mark.parametrize(
+    "device",
+    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA unavailable"))],
+)
+@pytest.mark.parametrize("ragged", [False, True])
+@pytest.mark.parametrize("use_masks", [False, True])
+def test_maxsim_query_chunking_preserves_mixed_dtypes(device: str, ragged: bool, use_masks: bool) -> None:
+    widths = [4, 1, 1] if ragged else [2, 2, 2]
+    queries = [
+        torch.tensor([[1.25, 0.5]], device=device).repeat(widths[0], 1),
+        torch.tensor([[1.00000001, -1]], dtype=torch.float64, device=device).repeat(widths[1], 1),
+        torch.tensor([[16777217, -16777216]], dtype=torch.int64, device=device).repeat(widths[2], 1),
+    ]
+    dtype = torch.float32 if device == "cpu" else torch.float64
+    documents = torch.full((1, 2, 2), 100000000, dtype=dtype, device=device)
+    masks = [torch.full((width,), 0.5, device=device) for width in widths]
+    expected = []
+    for query, mask in zip(queries, masks):
+        query = (query if query.is_floating_point() else query.float()).to(dtype=dtype)
+        token_scores = (query @ documents[0].T).max(dim=-1).values.float()
+        token_scores = token_scores * (mask if use_masks else torch.ones(len(query), dtype=dtype, device=device))
+        expected.append(token_scores.sum() / len(query))
+    expected = torch.stack(expected).unsqueeze(1)
+
+    scores = maxsim(
+        queries,
+        documents,
+        a_mask=masks if use_masks else None,
+        chunk_elements=20 if ragged else 12,
+        length_normalize=True,
+    )
+
+    torch.testing.assert_close(scores, expected)
+
+
+def test_maxsim_query_chunking_preserves_float64_values() -> None:
+    queries = [
+        torch.tensor([[1, -1]], dtype=torch.float64).repeat(8, 1),
+        torch.tensor([[1, -1]], dtype=torch.float32),
+        torch.tensor([[1.00000001, -1]], dtype=torch.float64),
+    ]
+    documents = torch.full((1, 2, 2), 100000000, dtype=torch.float64)
+    expected = torch.stack(
+        [(query.double() @ documents[0].T).max(dim=-1).values.float().double().sum() for query in queries]
+    ).unsqueeze(1)
+
+    scores = maxsim(queries, documents, chunk_elements=40)
+
+    torch.testing.assert_close(scores, expected)
+
+
+@pytest.mark.parametrize(
+    "device",
+    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA unavailable"))],
+)
+@pytest.mark.parametrize("empty_document", [False, True])
+def test_maxsim_document_chunking_preserves_mixed_dtypes(device: str, empty_document: bool) -> None:
+    dtype = torch.float32 if device == "cpu" or empty_document else torch.float64
+    queries = torch.arange(1, 13, device=device).reshape(2, 3, 2).to(dtype=dtype)
+    documents = [
+        torch.ones(2, 2, device=device),
+        torch.full((2, 2), 2.0, dtype=torch.float64, device=device),
+    ]
+    if empty_document:
+        documents = [torch.empty(0, 2, dtype=torch.float64, device=device), documents[0]]
+    expected = torch.stack(
+        [
+            torch.stack(
+                [
+                    (query @ document.to(dtype=dtype).T).max(dim=-1).values.float().to(dtype=dtype).sum()
+                    if len(document)
+                    else query.new_full((), -1e9, dtype=torch.float32)
+                    for document in documents
+                ]
+            )
+            for query in queries
+        ]
+    )
+
+    scores = maxsim(queries, documents, chunk_elements=1 if empty_document else 43)
+
+    torch.testing.assert_close(scores, expected)
+
+
+@pytest.mark.parametrize("length_normalize", [False, True])
+@pytest.mark.parametrize("mask_dtype", [torch.bool, torch.float32])
+def test_maxsim_document_chunking_preserves_shared_masks(length_normalize: bool, mask_dtype: torch.dtype) -> None:
+    queries = torch.arange(1, 13).reshape(2, 3, 2).float()
+    documents = -torch.arange(1, 9).reshape(2, 2, 2).float()
+    mask = torch.tensor([[1, 0]], dtype=mask_dtype)
+    expected = torch.stack(
+        [
+            torch.stack([(query @ document[mask[0].bool()].T).max(dim=-1).values.sum() for document in documents])
+            for query in queries
+        ]
+    )
+    if length_normalize:
+        expected = expected / queries.shape[1]
+
+    scores = maxsim(queries, documents, b_mask=mask, chunk_elements=43, length_normalize=length_normalize)
+
+    torch.testing.assert_close(scores, expected)
+
+
+def test_maxsim_document_chunks_preserve_integer_conversion() -> None:
+    queries = torch.tensor([[[1, -1]]], dtype=torch.float64)
+    documents = [torch.ones(1, 2, dtype=torch.float64), torch.tensor([[16777217, 16777216]])]
+
+    scores = maxsim(queries, documents, chunk_elements=7)
+
+    torch.testing.assert_close(scores, torch.zeros(1, 2, dtype=torch.float64))
+
+
+def test_maxsim_document_chunks_preserve_float32_range() -> None:
+    queries = torch.ones(1, 1, 1, dtype=torch.float16)
+    documents = [torch.full((1, 1), 1e8)]
+
+    scores = maxsim(queries, documents, chunk_elements=1)
+
+    torch.testing.assert_close(scores, torch.tensor([[1e8]]))
