@@ -45,6 +45,39 @@ Cross-Encoder achieve higher performance than Bi-Encoders, however, they do not 
 
 For more details on combing Bi- and Cross-Encoders, see [Application - Information Retrieval](../../sentence_transformer/applications/retrieve_rerank/README.md).
 
+## Reranking Web Search Results
+
+[parallel_search_reranking.py](parallel_search_reranking.py) retrieves web excerpts with
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) and reranks
+them locally with `CrossEncoder.rank`. The anonymous endpoint provides free search
+using Fast mode without an account or API key, at lower rate limits suitable for
+exploration and light use. This example uses Streamable HTTP directly, without an
+LLM or an agent framework.
+
+From the repository root, install Sentence Transformers and the example's optional
+dependencies in a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e . -r examples/cross_encoder/applications/parallel_search_requirements.txt
+python examples/cross_encoder/applications/parallel_search_reranking.py "How does CrossEncoder reranking work" --top-k 3
+```
+
+For a CPU-only PyTorch installation, install PyTorch from its CPU wheel index before
+the editable installation:
+
+```bash
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+The first run downloads `cross-encoder/ms-marco-MiniLM-L6-v2`. Use `--model` to select
+another text reranker and `--top-k` to control how many results are printed. Each
+result includes its score, original URL, title, and excerpts. The scores from the
+default model are logits, not probabilities. Only the returned excerpts are scored;
+long inputs are truncated to the model's maximum input length. Reranking does not
+verify the accuracy of a page or guarantee a better ranking for every query.
+
 ## Training Cross-Encoders
 
 See [Cross-Encoder Training](../../../docs/cross_encoder/training_overview.md) how to train your own Cross-Encoder models.

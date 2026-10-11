@@ -1,0 +1,3 @@
+# Optional dependencies for parallel_search_reranking.py, not the core library.
+mcp>=1.30.0,<2
+httpx>=0.28.1,<1
