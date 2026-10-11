@@ -213,6 +213,7 @@ def euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) 
 def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:
     """
     Computes the euclidean similarity (i.e., negative distance) between pairs of tensors.
+    Supports sparse COO tensors without converting the embeddings to dense.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
@@ -226,7 +227,12 @@ def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray |
     a, b = _match_layouts(a, b)
 
     diff = a - b
-    if diff.is_sparse or not diff.is_floating_point():
+    if diff.is_sparse:
+        squared_norm = torch.sparse.sum(diff.square(), dim=-1).to_dense()
+        # Avoid sqrt's infinite derivative at zero while keeping zero distances exact.
+        zero_mask = squared_norm == 0
+        return -squared_norm.masked_fill(zero_mask, 1).sqrt().masked_fill(zero_mask, 0)
+    if not diff.is_floating_point():
         return -diff.square().sum(dim=-1).sqrt().to_dense()
     return -torch.linalg.vector_norm(diff, dim=-1)
 

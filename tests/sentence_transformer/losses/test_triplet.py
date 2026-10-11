@@ -43,6 +43,27 @@ def test_triplet_loss_correct_direction(dummy_model, distance_metric):
     )
 
 
+@pytest.mark.parametrize("sparse", [False, True])
+@pytest.mark.parametrize("margin", [1.0, 6.0])
+def test_triplet_loss_sparse_euclidean_gradients(dummy_model, sparse, margin):
+    anchor = torch.tensor([[1.0, 0.0, 2.0]], requires_grad=True)
+    positive = anchor.detach().clone().requires_grad_()
+    negative = torch.tensor([[4.0, 0.0, 6.0]], requires_grad=True)
+    embeddings = [anchor, positive, negative]
+    if sparse:
+        embeddings = [embedding.to_sparse() for embedding in embeddings]
+    loss_fn = TripletLoss(model=dummy_model, triplet_margin=margin)
+
+    loss = loss_fn.compute_loss_from_embeddings(embeddings, labels=None)
+    torch.testing.assert_close(loss, torch.tensor(max(margin - 5.0, 0.0)))
+    loss.backward()
+
+    expected = torch.tensor([[0.6, 0.0, 0.8]]) if margin > 5.0 else torch.zeros_like(anchor)
+    torch.testing.assert_close(anchor.grad, expected)
+    torch.testing.assert_close(positive.grad, torch.zeros_like(positive))
+    torch.testing.assert_close(negative.grad, -expected)
+
+
 def _semi_hard_reference(embeddings, labels, distance_metric, margin):
     """Select each negative directly, without the production mining implementation."""
     distances = distance_metric(embeddings)

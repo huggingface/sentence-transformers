@@ -82,6 +82,41 @@ def test_pairwise_euclidean_sim_has_finite_gradients_for_identical_embeddings() 
     torch.testing.assert_close(b.grad, -expected)
 
 
+@pytest.mark.parametrize(("sparse_a", "sparse_b"), [(True, True), (True, False), (False, True), (False, False)])
+@pytest.mark.parametrize("row", [None, 0, 1, 2], ids=["batch", "identical", "nonzero", "empty"])
+def test_pairwise_euclidean_sim_sparse_gradients(sparse_a, sparse_b, row) -> None:
+    a = torch.tensor([[1.0, 0.0, 2.0], [4.0, 0.0, 6.0], [0.0, 0.0, 0.0]])
+    b = torch.tensor([[1.0, 0.0, 2.0], [1.0, 0.0, 2.0], [0.0, 0.0, 0.0]])
+    expected_scores = torch.tensor([0.0, -5.0, 0.0])
+    expected_grad = torch.tensor([[0.0, 0.0, 0.0], [-0.6, 0.0, -0.8], [0.0, 0.0, 0.0]])
+    if row is not None:
+        a, b = a[row], b[row]
+        expected_scores, expected_grad = expected_scores[row], expected_grad[row]
+    a.requires_grad_()
+    b.requires_grad_()
+
+    scores = pairwise_euclidean_sim(a.to_sparse() if sparse_a else a, b.to_sparse() if sparse_b else b)
+    torch.testing.assert_close(scores, expected_scores)
+    scores.sum().backward()
+
+    torch.testing.assert_close(a.grad, expected_grad)
+    torch.testing.assert_close(b.grad, -expected_grad)
+
+
+def test_pairwise_euclidean_sim_uncoalesced_sparse_gradients() -> None:
+    a_values = torch.tensor([2.0, -1.0, 2.0, 2.0, 2.0, 6.0, 1.0, -1.0], requires_grad=True)
+    b_values = torch.tensor([1.0, 2.0, 1.0, 2.0], requires_grad=True)
+    a = torch.sparse_coo_tensor([[0, 0, 0, 1, 1, 1, 2, 2], [0, 0, 2, 0, 0, 2, 1, 1]], a_values, (3, 3))
+    b = torch.sparse_coo_tensor([[0, 0, 1, 1], [0, 2, 0, 2]], b_values, (3, 3))
+
+    scores = pairwise_euclidean_sim(a, b)
+    torch.testing.assert_close(scores, torch.tensor([0.0, -5.0, 0.0]))
+    scores.sum().backward()
+
+    torch.testing.assert_close(a_values.grad, torch.tensor([0.0, 0.0, 0.0, -0.6, -0.6, -0.8, 0.0, 0.0]))
+    torch.testing.assert_close(b_values.grad, torch.tensor([0.0, 0.0, 0.6, 0.8]))
+
+
 def test_pairwise_manhattan_sim() -> None:
     a = np.array([[1, 0], [1, 1]], dtype=np.float32)
     b = np.array([[0, 0], [0, 0]], dtype=np.float32)
