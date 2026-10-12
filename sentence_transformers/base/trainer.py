@@ -1080,7 +1080,6 @@ class BaseTrainer(Trainer, ABC):
         return skip
 
     def _load_from_checkpoint(self, checkpoint_path: str) -> None:
-        # Load into the original model so torch.compile's wrapper and parameter references stay intact.
         model = getattr(self.model, "_orig_mod", self.model)
         # Our own checkpoint of the model being trained, so its module classes are already imported here,
         # yet a programmatically built model never carries trust_remote_code (#3801). Handing those classes
