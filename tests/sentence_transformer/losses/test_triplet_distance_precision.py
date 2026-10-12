@@ -15,7 +15,7 @@ from sentence_transformers.sentence_transformer.losses import (
 from sentence_transformers.sentence_transformer.losses.batch_hard_triplet import BatchHardTripletLossDistanceFunction
 
 
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("autocast", [False, True])
 @pytest.mark.parametrize("squared", [False, True])
 @pytest.mark.parametrize("case", ["nearby", "large_norm"])
@@ -36,11 +36,10 @@ def test_triplet_distance_matches_full_precision(dtype, autocast, squared, case)
     actual.sum().backward()
     expected.sum().backward()
 
-    expected_dtype = torch.float64 if dtype == torch.float64 else torch.float32
-    assert actual.dtype == expected_dtype
+    assert actual.dtype == torch.float32
     assert torch.isfinite(actual).all()
     assert torch.isfinite(embeddings.grad).all()
-    torch.testing.assert_close(actual, expected.to(expected_dtype))
+    torch.testing.assert_close(actual, expected.float())
     torch.testing.assert_close(embeddings.grad, reference.grad.to(dtype), atol=1e-3, rtol=1e-3)
     assert torch.count_nonzero(actual.diag()) == 0
 

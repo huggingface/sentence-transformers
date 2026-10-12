@@ -31,8 +31,6 @@ class BatchHardTripletLossDistanceFunction:
                 Float16 and bfloat16 inputs are computed in float32, including under autocast.
         """
 
-        # Half-precision Gram matrices can overflow or erase small pairwise distances.
-        # Disable autocast as well: casting the inputs alone would still allow a low-precision matmul.
         with torch.autocast(device_type=embeddings.device.type, enabled=False):
             if embeddings.dtype in (torch.float16, torch.bfloat16):
                 embeddings = embeddings.float()
