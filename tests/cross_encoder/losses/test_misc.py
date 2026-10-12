@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 
 import pytest
@@ -8,9 +9,12 @@ import torch
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.losses import (
     ADRMSELoss,
+    BinaryCrossEntropyLoss,
+    CrossEntropyLoss,
     LambdaLoss,
     ListMLELoss,
     ListNetLoss,
+    MSELoss,
     PListMLELoss,
     RankNetLoss,
 )
@@ -90,12 +94,14 @@ def test_listwise_loss_is_padding_invariant(reranker_bert_tiny_model_v54: CrossE
     assert torch.allclose(loss_batched, (loss_a + loss_b) / 2, atol=1e-5)
 
 
-class _ScoreModel(torch.nn.Module):
-    num_labels = 1
-
+class _ScoreModel(CrossEncoder):
     def __init__(self, scores):
-        super().__init__()
+        torch.nn.Module.__init__(self)
         self.scores = torch.nn.Parameter(scores)
+
+    @property
+    def num_labels(self):
+        return 1 if self.scores.ndim == 1 else self.scores.shape[1]
 
     @property
     def device(self):
@@ -105,7 +111,8 @@ class _ScoreModel(torch.nn.Module):
         return {"indices": torch.tensor([int(document) for _, document in pairs])}
 
     def forward(self, inputs):
-        return {"scores": self.scores[inputs["indices"]].unsqueeze(-1)}
+        scores = self.scores[inputs["indices"]]
+        return {"scores": scores.unsqueeze(-1) if scores.ndim == 1 else scores}
 
 
 @pytest.mark.parametrize("loss_cls", [ListMLELoss, PListMLELoss])
@@ -139,3 +146,58 @@ def test_listmle_large_scores_match_sequential_cross_entropy(loss_cls, respect_i
     loss.backward()
     expected.backward()
     torch.testing.assert_close(model.scores.grad, scores.grad.float(), rtol=2e-4, atol=2e-4)
+
+
+POINTWISE_INPUTS = [
+    ["what is the capital of France?", "how tall is mount everest?", "who wrote hamlet?"],
+    ["Paris is the capital of France.", "Bananas are yellow.", "Hamlet was written by Shakespeare."],
+]
+POINTWISE_LABELS = torch.tensor([1.0, 0.0, 1.0])
+
+
+@pytest.mark.parametrize("loss_class", [MSELoss, BinaryCrossEntropyLoss])
+def test_column_labels_match_flat_labels(reranker_bert_tiny_model_v54: CrossEncoder, loss_class) -> None:
+    model = reranker_bert_tiny_model_v54
+    model.eval()  # no dropout, so both forward passes see the same logits
+    loss_fn = loss_class(model)
+    labels = POINTWISE_LABELS.to(model.device)
+
+    expected = loss_fn(POINTWISE_INPUTS, labels)
+    actual = loss_fn(POINTWISE_INPUTS, labels[:, None])
+
+    torch.testing.assert_close(actual, expected)
+
+
+@pytest.mark.parametrize("loss_class", [MSELoss, BinaryCrossEntropyLoss])
+@pytest.mark.parametrize("batch_size", [1, len(POINTWISE_LABELS)])
+@pytest.mark.parametrize("labels_per_row", [2, 3])
+def test_multiple_labels_per_row_raise(
+    reranker_bert_tiny_model_v54: CrossEncoder, loss_class, batch_size, labels_per_row
+) -> None:
+    loss_fn = loss_class(reranker_bert_tiny_model_v54)
+    labels = POINTWISE_LABELS[:batch_size, None].repeat(1, labels_per_row).to(reranker_bert_tiny_model_v54.device)
+    inputs = [column[:batch_size] for column in POINTWISE_INPUTS]
+    message = (
+        f"{loss_class.__name__} expects {batch_size} labels (one per example), "
+        f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+    )
+
+    with pytest.raises(ValueError, match=re.escape(message)):
+        loss_fn(inputs, labels)
+
+
+@pytest.mark.parametrize("batch_size", [1, 3])
+@pytest.mark.parametrize("target_type", ["class", "column", "probabilities"])
+def test_cross_entropy_preserves_class_and_probability_targets(batch_size, target_type):
+    model = _ScoreModel(torch.tensor([[1.0, 2.0, -1.0], [0.0, 1.0, 2.0], [2.0, -1.0, 0.0]])[:batch_size])
+    inputs = (["query"] * batch_size, [str(i) for i in range(batch_size)])
+    labels = torch.tensor([0, 1, 2])[:batch_size]
+    if target_type == "probabilities":
+        labels = torch.nn.functional.one_hot(labels, num_classes=3).float() * 0.7 + 0.1
+    expected = torch.nn.functional.cross_entropy(model.scores, labels)
+    actual_labels = labels[:, None] if target_type == "column" else labels
+    actual = CrossEntropyLoss(model)(inputs, actual_labels)
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(
+        torch.autograd.grad(actual, model.scores)[0], torch.autograd.grad(expected, model.scores)[0]
+    )

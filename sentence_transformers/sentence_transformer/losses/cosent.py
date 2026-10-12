@@ -95,6 +95,12 @@ class CoSENTLoss(nn.Module):
         Returns:
             Loss value
         """
+        batch_size = embeddings[0].shape[0]
+        if labels.numel() != batch_size:
+            raise ValueError(
+                f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+            )
         labels = labels.view(-1)
 
         scores = self.similarity_fct(embeddings[0], embeddings[1])

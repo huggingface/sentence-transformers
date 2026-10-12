@@ -95,7 +95,6 @@ class BatchAllTripletLoss(nn.Module):
         return self.compute_loss_from_embeddings([rep], labels)
 
     def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
-        labels = labels.view(-1)
         return self.batch_all_triplet_loss(labels, embeddings[0])
 
     def batch_all_triplet_loss(self, labels: Tensor, embeddings: Tensor) -> Tensor:
@@ -107,7 +106,14 @@ class BatchAllTripletLoss(nn.Module):
         Returns:
             Label_Sentence_Triplet: scalar tensor containing the triplet loss
         """
-        # Get the pairwise distance matrix
+        batch_size = embeddings.shape[0]
+        if labels.numel() != batch_size:
+            raise ValueError(
+                f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+            )
+        labels = labels.view(-1)
+
         pairwise_dist = self.distance_metric(embeddings)
 
         # Only valid anchor-positive pairs need to be compared with the negatives. With K
