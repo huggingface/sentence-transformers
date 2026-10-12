@@ -528,6 +528,52 @@ def test_pooling_multi_mode(modes: tuple[str, ...], flattened: bool) -> None:
     assert torch.allclose(output, expected, atol=1e-5)
 
 
+@pytest.mark.parametrize("padding_side", ["left", "right"])
+@pytest.mark.parametrize("include_prompt", [False, True])
+def test_weightedmean_padding_invariance(padding_side: str, include_prompt: bool, device: str) -> None:
+    embeddings = _TOKEN_EMBEDDINGS.clone().to(device)
+    mask = _ATTENTION_MASK.clone().to(device)
+    weights = torch.tensor([[1.0, 2.0, 3.0, 0.0], [1.0, 2.0, 3.0, 4.0]], device=device)
+    if padding_side == "left":
+        embeddings[0] = embeddings[0].roll(1, dims=0)
+        mask[0] = mask[0].roll(1)
+        weights[0] = weights[0].roll(1)
+    if not include_prompt:
+        weights[weights == 1] = 0
+    embeddings.requires_grad_()
+    features = {"token_embeddings": embeddings, "attention_mask": mask, "prompt_length": 1}
+    pooling = Pooling(embedding_dimension=_DIM, pooling_mode="weightedmean", include_prompt=include_prompt)
+    output = pooling(features)["sentence_embedding"]
+    expected = _EXPECTED_BY_MODE if include_prompt else _EXPECTED_BY_MODE_WITH_PROMPT_EXCLUDED
+    torch.testing.assert_close(output, expected["weightedmean"].to(device))
+    (gradient,) = torch.autograd.grad(output.sum(), embeddings)
+    expected_gradient = (weights / weights.sum(dim=1, keepdim=True)).unsqueeze(-1).expand_as(embeddings)
+    torch.testing.assert_close(gradient, expected_gradient)
+
+    flat_features = _build_flattened_features(_TOKEN_EMBEDDINGS, _ATTENTION_MASK)
+    flat_features = {
+        key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in flat_features.items()
+    }
+    flat_features["prompt_length"] = 1
+    torch.testing.assert_close(pooling(flat_features)["sentence_embedding"], output)
+
+
+@pytest.mark.parametrize("attention_mask", [None, torch.tensor([[0, 1]])])
+def test_weightedmean_missing_or_mismatched_mask(attention_mask: torch.Tensor | None) -> None:
+    pooling = Pooling(embedding_dimension=1, pooling_mode="weightedmean")
+    features = {"token_embeddings": torch.tensor([[[1.0], [3.0], [7.0]]])}
+    if attention_mask is not None:
+        features["attention_mask"] = attention_mask
+    output = pooling(features)["sentence_embedding"]
+    torch.testing.assert_close(output, torch.tensor([[(1.0 + 2 * 3.0 + 3 * 7.0) / 6]]))
+
+
+def test_weightedmean_empty_sequence() -> None:
+    pooling = Pooling(embedding_dimension=2, pooling_mode="weightedmean")
+    features = {"token_embeddings": torch.empty(1, 0, 2), "attention_mask": torch.empty(1, 0, dtype=torch.long)}
+    torch.testing.assert_close(pooling(features)["sentence_embedding"], torch.zeros(1, 2))
+
+
 @pytest.mark.parametrize(
     "pooling_mode",
     ["max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken"],

@@ -79,6 +79,8 @@ class Pooling(Module):
             a tuple/list of mode names to concatenate multiple pooled representations.
             Valid modes: ``"cls"``, ``"max"``, ``"mean"``, ``"mean_sqrt_len_tokens"``,
             ``"weightedmean"``, ``"lasttoken"``. Defaults to ``"mean"``.
+            For ``"weightedmean"``, position weights start at the first non-padding token.
+            Excluding a prompt retains the remaining tokens' original position weights.
         include_prompt: If ``False``, prompt tokens are excluded from pooling. Useful for
             models like `INSTRUCTOR <https://huggingface.co/hkunlp/instructor-large>`_ that
             should not include the prompt in the pooled representation. Defaults to ``True``.
@@ -222,6 +224,10 @@ class Pooling(Module):
                 weights = torch.arange(
                     1, token_embeddings.shape[1] + 1, device=token_embeddings.device, dtype=accumulation_dtype
                 ).view(1, -1, 1)
+                original_mask = features.get("attention_mask")
+                if original_mask is not None and original_mask.shape == attention_mask.shape and original_mask.numel():
+                    pad_lengths = original_mask.to(torch.int32).argmax(dim=1)
+                    weights = weights - pad_lengths.view(-1, 1, 1)
                 weighted_mask = mask * weights
                 sum_embeddings = (token_embeddings * weighted_mask).sum(dim=1)
                 output_dtype = token_embeddings.dtype
@@ -265,27 +271,27 @@ class Pooling(Module):
         embeddings = all_embeddings
         segment_ids: Tensor | None = None
         effective_lengths = seq_lengths
-        token_positions: Tensor | None = None  # lazily set, needed by weightedmean and prompt filtering
+        token_positions: Tensor | None = None
 
         needs_scatter = any(m not in ("cls", "lasttoken") for m in modes)
         if needs_scatter:
             # Segment IDs map each token to its sequence index: [0, 0, .., 1, 1, .., 2, 2, ..]
             if "seq_idx" in features:
                 segment_ids = features["seq_idx"].squeeze(0).long()
-                num_seqs = int(segment_ids.max().item()) + 1
-                effective_lengths = torch.bincount(segment_ids, minlength=num_seqs)
             else:
                 segment_ids = torch.repeat_interleave(torch.arange(num_seqs, device=device), seq_lengths)
 
-            if prompt_length is not None:
+            if prompt_length or "weightedmean" in modes:
+                offsets = torch.repeat_interleave(cu_seq_lens_q[:-1], seq_lengths)
+                token_positions = torch.arange(all_embeddings.shape[0], device=device) - offsets
+
+            if prompt_length:
                 clamped_prompt = min(prompt_length, int(seq_lengths.min().item()))
                 effective_lengths = seq_lengths - clamped_prompt
-                offsets = torch.repeat_interleave(cu_seq_lens_q[:-1], seq_lengths)
-                within_seq_pos = torch.arange(all_embeddings.shape[0], device=device) - offsets
-                valid = within_seq_pos >= clamped_prompt
+                valid = token_positions >= clamped_prompt
                 embeddings = all_embeddings[valid]
                 segment_ids = segment_ids[valid]
-                token_positions = within_seq_pos[valid]
+                token_positions = token_positions[valid]
 
         output_vectors: list[Tensor] = []
         mean_sum: Tensor | None = None
@@ -314,9 +320,6 @@ class Pooling(Module):
                 output_vectors.append(max_emb)
 
             elif mode == "weightedmean":
-                if token_positions is None:
-                    offsets = torch.repeat_interleave(cu_seq_lens_q[:-1], seq_lengths)
-                    token_positions = torch.arange(embeddings.shape[0], device=device) - offsets
                 weights = (token_positions + 1).to(accumulation_dtype).unsqueeze(1)
                 weighted_emb = embeddings * weights
                 weighted_sum = torch.zeros(num_seqs, hidden_dim, device=device, dtype=accumulation_dtype)

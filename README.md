@@ -32,6 +32,8 @@ See [Installation](https://www.sbert.net/docs/installation.html) in the docs for
 
 See [Quickstart](https://www.sbert.net/docs/quickstart.html) in our documentation.
 
+Log in with `hf auth login` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the [login instructions](https://www.sbert.net/docs/installation.html#log-in-to-hugging-face).
+
 ### Embedding Models
 
 First download a pretrained embedding a.k.a. Sentence Transformer model.

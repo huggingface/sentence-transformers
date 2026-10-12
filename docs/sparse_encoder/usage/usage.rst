@@ -18,6 +18,10 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    4. :meth:`SparseEncoder.sparsity <sentence_transformers.sparse_encoder.model.SparseEncoder.sparsity>`
    5. :doc:`Speeding up Inference <efficiency>`
 
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <../../installation.html#log-in-to-hugging-face>`_.
+
 ::
 
    from sentence_transformers import SparseEncoder

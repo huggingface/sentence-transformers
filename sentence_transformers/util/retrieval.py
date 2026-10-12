@@ -276,10 +276,16 @@ def community_detection(
     Returns:
         List[List[int]]: A list of communities, where each community is represented as a list of indices.
     """
-    if len(embeddings) < min_community_size:
+    if len(embeddings) == 0:
         return []
 
     embeddings = _convert_to_tensor(embeddings)
+    if embeddings.ndim == 1:
+        embeddings = embeddings.unsqueeze(0)
+
+    if len(embeddings) < min_community_size:
+        return []
+
     threshold = torch.tensor(threshold, device=embeddings.device)
     embeddings = normalize_embeddings(embeddings)
 

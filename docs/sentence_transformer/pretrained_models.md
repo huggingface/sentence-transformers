@@ -9,24 +9,38 @@ We provide various pre-trained Sentence Transformers models via our Sentence Tra
 .. note::
     The ``sentence-transformers`` library tag is shared by all four model types, so the community link above also returns Cross Encoder, Sparse Encoder and Multi-Vector Encoder models. Add the ``cross-encoder``, ``sparse`` or ``multi-vector`` tag to jump to one of those instead.
 
+.. sidebar:: Loading Models
+
+    For models from the `Sentence Transformers Hugging Face organization <https://huggingface.co/models?library=sentence-transformers&author=sentence-transformers>`_, you can omit the ``sentence-transformers/`` prefix. For models from other organizations, include the full model ID, as in ``Qwen/Qwen3-Embedding-0.6B`` below.
+
+    Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <../installation.html#log-in-to-hugging-face>`_.
+
 Each of these models can be easily downloaded and used like so:
-
-.. sidebar:: Original Models
-
-    For the original models from the `Sentence Transformers Hugging Face organization <https://huggingface.co/models?library=sentence-transformers&author=sentence-transformers>`_, it is not necessary to include the model author or organization prefix. For example, this snippet loads `sentence-transformers/all-mpnet-base-v2 <https://huggingface.co/sentence-transformers/all-mpnet-base-v2>`_.
 ```
 
 ```python
 from sentence_transformers import SentenceTransformer
 
-# Load https://huggingface.co/sentence-transformers/all-mpnet-base-v2
-model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
-embeddings = model.encode([
-    "The weather is lovely today.",
-    "It's so sunny outside!",
-    "He drove to the stadium.",
-])
-similarities = model.similarity(embeddings, embeddings)
+model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
+
+query = "Which planet is known as the Red Planet?"
+documents = [
+    "Jupiter is the largest planet in our solar system.",
+    "Mars gets its reddish color from iron minerals in its soil.",
+    "Photosynthesis lets plants turn sunlight into energy.",
+]
+
+query_embedding = model.encode_query(query)
+document_embeddings = model.encode_document(documents)
+print(query_embedding.shape, document_embeddings.shape)
+# (1024,) (3, 1024)
+
+scores = model.similarity(query_embedding, document_embeddings)[0]
+for index in scores.argsort(descending=True):
+    print(f"{scores[index]:.4f}: {documents[index]}")
+# 0.6115: Mars gets its reddish color from iron minerals in its soil.
+# 0.4360: Jupiter is the largest planet in our solar system.
+# 0.1893: Photosynthesis lets plants turn sunlight into energy.
 ```
 
 ```{eval-rst}
