@@ -21,6 +21,10 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    .. note::
       MS Marco models return logits rather than scores between 0 and 1. Load the :class:`~sentence_transformers.cross_encoder.model.CrossEncoder` with ``activation_fn=torch.nn.Sigmoid()`` to get scores between 0 and 1. This does not affect the ranking.
 
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <../../installation.html#log-in-to-hugging-face>`_.
+
 ::
 
    from sentence_transformers import CrossEncoder

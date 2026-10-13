@@ -49,14 +49,21 @@ class SoftmaxLoss(nn.Module):
             - `Training Examples > Natural Language Inference <../../../examples/sentence_transformer/training/nli/README.html>`_
 
         Requirements:
-            1. input pairs with a class label
+            1. input pairs with a class label or a probability distribution over classes
+
+            Labels can be integer class indices or, when ``num_labels > 1``, floating-point class probabilities with shape
+            ``(batch_size, num_labels)``, e.g. ``"label": [[0.2, 0.3, 0.5], [0.6, 0.1, 0.3]]`` in the dataset.
+            Probabilities must be non-negative and sum to 1 per pair. They require a compatible loss function,
+            such as the default ``nn.CrossEntropyLoss``.
 
         Inputs:
-            +---------------------------------------+--------+
-            | Inputs                                | Labels |
-            +=======================================+========+
-            | (input_A, input_B) pairs              | class  |
-            +---------------------------------------+--------+
+            +---------------------------------------+---------------------+
+            | Inputs                                | Labels              |
+            +=======================================+=====================+
+            | (input_A, input_B) pairs              | class               |
+            +---------------------------------------+---------------------+
+            | (input_A, input_B) pairs              | class probabilities |
+            +---------------------------------------+---------------------+
 
         Example:
             ::
@@ -141,7 +148,9 @@ class SoftmaxLoss(nn.Module):
         output = self.classifier(features)
 
         if labels is not None:
-            loss = self.loss_fct(output, labels.view(-1))
+            if self.num_labels == 1 or labels.shape != output.shape:
+                labels = labels.view(-1)
+            loss = self.loss_fct(output, labels)
             return loss
         else:
             return reps, output

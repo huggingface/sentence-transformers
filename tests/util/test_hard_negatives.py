@@ -9,6 +9,7 @@ from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 import torch
@@ -16,7 +17,7 @@ from torch import Tensor
 
 from sentence_transformers import CrossEncoder
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.util import is_datasets_available, mine_hard_negatives
+from sentence_transformers.util import cos_sim, is_datasets_available, mine_hard_negatives, pairwise_cos_sim
 
 if is_datasets_available():
     from datasets import Dataset
@@ -1026,7 +1027,10 @@ def test_cache_respects_prompt(
 
 
 def test_multiple_positives_per_query(
-    queries: list[str], passages: list[str], static_retrieval_mrl_en_v1_model: SentenceTransformer
+    queries: list[str],
+    passages: list[str],
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    capsys: pytest.CaptureFixture,
 ):
     """Test dataset with multiple positives per query."""
     model = static_retrieval_mrl_en_v1_model
@@ -1037,6 +1041,7 @@ def test_multiple_positives_per_query(
     dataset_dup = Dataset.from_dict({"query": queries_dup, "passage": passages_dup})
 
     result = mine_hard_negatives(dataset=dataset_dup, model=model, range_max=3, verbose=False)
+    assert capsys.readouterr().out == ""
 
     # Should still have expected structure
     assert "query" in result.column_names
@@ -1224,6 +1229,55 @@ def test_multi_process(
     assert "query" in result.column_names
     assert "passage" in result.column_names
     assert "negative" in result.column_names
+
+
+@pytest.mark.parametrize("failure", ["encode_document", "encode_query", "candidates", "positives", None])
+def test_multi_process_pool_cleanup(failure: str | None) -> None:
+    dataset = Dataset.from_dict({"query": ["q"], "passage": ["p"]})
+    model = Mock(spec=SentenceTransformer, device=torch.device("cpu"))
+    model.encode_document.return_value = torch.eye(2).numpy()
+    model.encode_query.return_value = torch.tensor([[1.0, 0.0]]).numpy()
+    model.similarity.side_effect = cos_sim
+    model.similarity_pairwise.side_effect = pairwise_cos_sim
+    cross_encoder = Mock(spec=CrossEncoder)
+    cross_encoder.predict.side_effect = [torch.tensor([0.9, 0.1]), torch.tensor([0.9])]
+    error = RuntimeError("simulated inference failure")
+    if failure in ("encode_document", "encode_query"):
+        getattr(model, failure).side_effect = error
+    elif failure == "candidates":
+        cross_encoder.predict.side_effect = error
+    elif failure == "positives":
+        cross_encoder.predict.side_effect = [torch.tensor([0.9, 0.1]), error]
+
+    kwargs = dict(
+        dataset=dataset,
+        model=model,
+        corpus=["p", "n"],
+        cross_encoder=cross_encoder,
+        max_score=0.8,
+        range_max=1,
+        num_negatives=1,
+        use_multi_process=["cpu"],
+        verbose=False,
+    )
+    if failure is None:
+        result = mine_hard_negatives(**kwargs)
+        assert result.to_dict() == {"query": ["q"], "passage": ["p"], "negative": ["n"]}
+    else:
+        with pytest.raises(RuntimeError) as exc_info:
+            mine_hard_negatives(**kwargs)
+        assert exc_info.value is error
+
+    model.start_multi_process_pool.assert_called_once_with(target_devices=["cpu"])
+    model.stop_multi_process_pool.assert_called_once_with(model.start_multi_process_pool.return_value)
+    if failure in ("encode_document", "encode_query"):
+        cross_encoder.start_multi_process_pool.assert_not_called()
+        cross_encoder.stop_multi_process_pool.assert_not_called()
+    else:
+        cross_encoder.start_multi_process_pool.assert_called_once_with(target_devices=["cpu"])
+        cross_encoder.stop_multi_process_pool.assert_called_once_with(
+            cross_encoder.start_multi_process_pool.return_value
+        )
 
 
 def test_empty_dataset(static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
@@ -1521,17 +1575,21 @@ def test_tiny_corpus(
     assert len(result) >= 1
 
 
-def test_verbose_mode(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
-    """Test that verbose=True doesn't cause any crashes."""
+def test_verbose_mode(
+    dataset: Dataset,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """Test that verbose=True prints statistics."""
     model = static_retrieval_mrl_en_v1_model
 
-    # Simply check that running with verbose=True doesn't crash
     result = mine_hard_negatives(
         dataset=dataset,
         model=model,
         range_max=3,  # Small range to keep test fast
         verbose=True,  # Enable verbose output
     )
+    assert capsys.readouterr().out != ""
 
     # Verify we still get valid results
     assert "query" in result.column_names
@@ -1832,3 +1890,24 @@ def test_missing_negatives_message_names_range_max(capsys: pytest.CaptureFixture
     )
     captured = capsys.readouterr()
     assert "Consider adjusting the range_max parameter if" in captured.out
+
+
+def test_one_column_dataset_raises_value_error(queries) -> None:
+    dataset = Dataset.from_dict({"anchor": queries[:3]})
+
+    with pytest.raises(ValueError, match="Dataset must contain at least two columns"):
+        mine_hard_negatives(dataset=dataset, model=SimpleNamespace(), verbose=False)
+
+
+def test_default_column_selection_allows_extra_columns() -> None:
+    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"], "metadata": [1]})
+
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=ControlledNegativeScoreModel(),
+        corpus=["p", "n_more_similar", "n_far"],
+        num_negatives=1,
+        verbose=False,
+    )
+
+    assert result.to_dict() == {"query": ["q"], "positive": ["p"], "negative": ["n_more_similar"]}

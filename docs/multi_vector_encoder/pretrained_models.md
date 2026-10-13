@@ -11,6 +11,10 @@ Several Multi-Vector Encoder models have been publicly released on the Hugging F
 That community list is the one that stays current, and we are working to get the ``multi-vector`` tag onto every model that works with :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`. The tables below are what we test against directly, so treat them as a starting point rather than the full set. For text retrieval in particular, any PyLate or Stanford-NLP ColBERT checkpoint loads whether or not it carries the tag yet.
 
 Models integrate seamlessly with this simple interface:
+
+.. sidebar:: Loading Models
+
+    Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <../installation.html#log-in-to-hugging-face>`_.
 ```
 
 ```python

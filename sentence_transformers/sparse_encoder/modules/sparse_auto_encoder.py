@@ -81,8 +81,7 @@ class SparseAutoEncoder(Module):
 
         def auxk_mask_fn(x):
             dead_mask = self.stats_last_nonzero > dead_threshold
-            x.data *= dead_mask  # inplace to save memory
-            return x
+            return x * dead_mask
 
         self.auxk_mask_fn = auxk_mask_fn
 
@@ -182,8 +181,8 @@ class SparseAutoEncoder(Module):
             features["sentence_embedding"] = latents_k
             return features
 
-        x, info = self.prepare(x)
-        latents_pre_act = self.encode_pre_act(x)
+        x_prepared, info = self.prepare(x)
+        latents_pre_act = self.encode_pre_act(x_prepared)
 
         latents_k, latents_auxk = self.top_k(latents_pre_act, k)
         latents_4k, _ = self.top_k(latents_pre_act, 4 * k)
@@ -191,7 +190,12 @@ class SparseAutoEncoder(Module):
         recons_k = self.decode(latents_k, info)
         recons_4k = self.decode(latents_4k, info)
 
-        recons_aux = self.decode(latents_auxk, info) if latents_auxk is not None else None
+        recons_aux = self.decoder(latents_auxk) + self.pre_bias if latents_auxk is not None else None
+        decoder_bias = self.pre_bias
+        if self.normalize:
+            decoder_bias = decoder_bias * info["std"]
+            if recons_aux is not None:
+                recons_aux = recons_aux * info["std"]
 
         # Update the features dictionary
         features.update(
@@ -203,7 +207,7 @@ class SparseAutoEncoder(Module):
                 "decoded_embedding_k": recons_k,
                 "decoded_embedding_4k": recons_4k,
                 "decoded_embedding_aux": recons_aux,
-                "decoded_embedding_k_pre_bias": recons_k - self.pre_bias,
+                "decoded_embedding_k_pre_bias": recons_k - decoder_bias,
             }
         )
         features["sentence_embedding"] = latents_k

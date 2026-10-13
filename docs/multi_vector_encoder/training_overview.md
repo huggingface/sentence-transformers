@@ -51,6 +51,12 @@ Training MultiVectorEncoder models involves between 4 to 6 components:
 </div>
 <p></p>
 
+```{eval-rst}
+.. tip::
+
+   Before downloading training models or datasets, we recommend logging in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models and datasets your account can read. See the `login instructions <../installation.html#log-in-to-hugging-face>`_.
+```
+
 ## Model
 
 ```{eval-rst}
@@ -534,6 +540,27 @@ The :class:`~sentence_transformers.multi_vector_encoder.trainer.MultiVectorEncod
 
 .. tab:: Contrastive (in-batch negatives)
 
+    .. raw:: html
+
+        <div class="sidebar">
+            <p class="sidebar-title">Documentation</p>
+            <ol class="arabic simple">
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/model.html#sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorEncoder</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/model.html#sentence_transformers.multi_vector_encoder.model_card.MultiVectorEncoderModelCardData"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorEncoderModelCardData</span></code></a></p></li>
+                <li><p><a class="reference external" href="https://huggingface.co/docs/datasets/main/en/package_reference/loading_methods#datasets.load_dataset"><code class="xref py py-func docutils literal notranslate"><span class="pre">load_dataset()</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/losses.html#sentence_transformers.multi_vector_encoder.losses.MultiVectorMultipleNegativesRankingLoss"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorMultipleNegativesRankingLoss</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/training_args.html#sentence_transformers.multi_vector_encoder.training_args.MultiVectorEncoderTrainingArguments"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorEncoderTrainingArguments</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/evaluation.html#sentence_transformers.multi_vector_encoder.evaluation.MultiVectorNanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorNanoBEIREvaluator</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/trainer.html#sentence_transformers.multi_vector_encoder.trainer.MultiVectorEncoderTrainer"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorEncoderTrainer</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/model.html#sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.save_pretrained"><code class="xref py py-meth docutils literal notranslate"><span class="pre">MultiVectorEncoder.save_pretrained()</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/model.html#sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.push_to_hub"><code class="xref py py-meth docutils literal notranslate"><span class="pre">MultiVectorEncoder.push_to_hub()</span></code></a></p></li>
+            </ol>
+            <ul class="simple">
+                <li><p><a class="reference internal" href="training/examples.html">Training Examples</a></p></li>
+            </ul>
+            <p>To upload your trained model with <code class="docutils literal notranslate">push_to_hub()</code>, <a class="reference internal" href="../installation.html#log-in-to-hugging-face">log in to Hugging Face</a> with credentials that have write access to the destination repository.</p>
+        </div>
+
     ::
 
         import logging
@@ -629,6 +656,27 @@ The :class:`~sentence_transformers.multi_vector_encoder.trainer.MultiVectorEncod
 
     See `training_kd.py <https://github.com/huggingface/sentence-transformers/blob/main/examples/multi_vector_encoder/training/msmarco/training_kd.py>`_ for a complete knowledge distillation run that additionally builds the model with a LateOn-style bottleneck projection head.
 
+    .. raw:: html
+
+        <div class="sidebar">
+            <p class="sidebar-title">Documentation</p>
+            <ol class="arabic simple">
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/model.html#sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorEncoder</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/model.html#sentence_transformers.multi_vector_encoder.model_card.MultiVectorEncoderModelCardData"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorEncoderModelCardData</span></code></a></p></li>
+                <li><p><a class="reference external" href="https://huggingface.co/docs/datasets/main/en/package_reference/loading_methods#datasets.load_dataset"><code class="xref py py-func docutils literal notranslate"><span class="pre">load_dataset()</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/losses.html#sentence_transformers.multi_vector_encoder.losses.MultiVectorDistillKLDivLoss"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorDistillKLDivLoss</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/training_args.html#sentence_transformers.multi_vector_encoder.training_args.MultiVectorEncoderTrainingArguments"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorEncoderTrainingArguments</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/evaluation.html#sentence_transformers.multi_vector_encoder.evaluation.MultiVectorNanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorNanoBEIREvaluator</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/trainer.html#sentence_transformers.multi_vector_encoder.trainer.MultiVectorEncoderTrainer"><code class="xref py py-class docutils literal notranslate"><span class="pre">MultiVectorEncoderTrainer</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/model.html#sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.save_pretrained"><code class="xref py py-meth docutils literal notranslate"><span class="pre">MultiVectorEncoder.save_pretrained()</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/multi_vector_encoder/model.html#sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.push_to_hub"><code class="xref py py-meth docutils literal notranslate"><span class="pre">MultiVectorEncoder.push_to_hub()</span></code></a></p></li>
+            </ol>
+            <ul class="simple">
+                <li><p><a class="reference internal" href="training/examples.html">Training Examples</a></p></li>
+            </ul>
+            <p>To upload your trained model with <code class="docutils literal notranslate">push_to_hub()</code>, <a class="reference internal" href="../installation.html#log-in-to-hugging-face">log in to Hugging Face</a> with credentials that have write access to the destination repository.</p>
+        </div>
+
     ::
 
         import logging
@@ -722,6 +770,7 @@ The :class:`~sentence_transformers.multi_vector_encoder.trainer.MultiVectorEncod
 
         # 10. (Optional) Push it to the Hugging Face Hub
         model.push_to_hub(run_name)
+
 ```
 
 ### Callbacks
