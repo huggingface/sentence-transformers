@@ -38,12 +38,10 @@ class PListMLELambdaWeight(nn.Module):
         # Apply default rank discount: 2^(num_docs - rank) - 1, with ranks starting at 1.
         num_docs_per_query = mask.sum(dim=1, keepdim=True)
         ranks = torch.arange(1, mask.size(1) + 1, device=mask.device).expand_as(mask)
-        # The loss normalizes each row, so remove a common power of two before exponentiation.
-        # Capping the effective list length at 127 keeps the sum within the float32 range.
+        # Rescale each row to keep its sum at most 2^127 without changing normalized weights.
         scale = (num_docs_per_query - 127).clamp_min(0)
         weights = torch.pow(2.0, num_docs_per_query - ranks - scale) - torch.pow(2.0, -scale)
-        weights = weights * mask
-        return weights
+        return weights * mask
 
 
 class PListMLELoss(nn.Module):

@@ -174,7 +174,8 @@ def test_plistmle_long_lists_match_sequential_cross_entropy(num_docs, respect_in
     query_losses = []
     for order in orders:
         weights = [2 ** (len(order) - rank) - 1 for rank in range(1, len(order) + 1)]
-        normalized_weights = scores.new_tensor([weight / sum(weights) for weight in weights])
+        total_weight = sum(weights)
+        normalized_weights = scores.new_tensor([weight / total_weight for weight in weights])
         terms = torch.stack(
             [
                 torch.nn.functional.cross_entropy(scores[order[index:]].unsqueeze(0), torch.zeros(1, dtype=torch.long))
