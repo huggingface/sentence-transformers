@@ -29,7 +29,8 @@ class PListMLELambdaWeight(nn.Module):
             mask: A boolean mask indicating valid positions [batch_size, num_docs]
 
         Returns:
-            Tensor: Weights for each position [batch_size, num_docs]
+            Tensor: Weights for each position [batch_size, num_docs]. Long lists are rescaled by a
+            common factor to keep the weights and their sum finite without changing their relative values.
         """
         if self.rank_discount_fn is not None:
             return self.rank_discount_fn(mask)
@@ -37,7 +38,10 @@ class PListMLELambdaWeight(nn.Module):
         # Apply default rank discount: 2^(num_docs - rank) - 1, with ranks starting at 1.
         num_docs_per_query = mask.sum(dim=1, keepdim=True)
         ranks = torch.arange(1, mask.size(1) + 1, device=mask.device).expand_as(mask)
-        weights = torch.pow(2.0, num_docs_per_query - ranks) - 1.0
+        # The loss normalizes each row, so remove a common power of two before exponentiation.
+        # Capping the effective list length at 127 keeps the sum within the float32 range.
+        scale = (num_docs_per_query - 127).clamp_min(0)
+        weights = torch.pow(2.0, num_docs_per_query - ranks - scale) - torch.pow(2.0, -scale)
         weights = weights * mask
         return weights
 

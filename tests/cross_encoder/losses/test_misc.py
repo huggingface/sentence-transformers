@@ -16,6 +16,7 @@ from sentence_transformers.cross_encoder.losses import (
     ListMLELoss,
     ListNetLoss,
     MSELoss,
+    PListMLELambdaWeight,
     PListMLELoss,
     RankNetLoss,
 )
@@ -148,6 +149,45 @@ def test_ranking_loss_averages_ordered_pairs_in_mixed_batch(loss_cls):
     actual.backward()
     expected.backward()
     torch.testing.assert_close(model.scores.grad, scores.grad.float())
+
+
+def test_plistmle_default_weights_for_short_lists():
+    mask = torch.arange(4).unsqueeze(0) < torch.arange(1, 5).unsqueeze(1)
+    expected = torch.tensor([[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [3.0, 1.0, 0.0, 0.0], [7.0, 3.0, 1.0, 0.0]])
+    torch.testing.assert_close(PListMLELambdaWeight()(mask), expected)
+
+
+@pytest.mark.parametrize("num_docs", [3, 127, 128, 129, 200, 1000])
+@pytest.mark.parametrize("respect_input_order", [True, False])
+def test_plistmle_long_lists_match_sequential_cross_entropy(num_docs, respect_input_order):
+    model = _ScoreModel(torch.cat([torch.linspace(-1.0, 1.0, num_docs), torch.tensor([1.0, -2.0, 3.0])]))
+    loss_fn = PListMLELoss(model, respect_input_order=respect_input_order)
+    documents = [[str(i) for i in range(num_docs)], [str(i) for i in range(num_docs, num_docs + 3)]]
+    labels = [torch.arange(num_docs), torch.tensor([1.0, 2.0, 0.0])]
+    actual = loss_fn((["long query", "short query"], documents), labels)
+
+    # Independent float64 reference: suffix cross-entropies and exact Python integer weights.
+    scores = model.scores.detach().double().requires_grad_()
+    orders = [list(range(num_docs)), list(range(num_docs, num_docs + 3))]
+    if not respect_input_order:
+        orders = [orders[0][::-1], [num_docs + 1, num_docs, num_docs + 2]]
+    query_losses = []
+    for order in orders:
+        weights = [2 ** (len(order) - rank) - 1 for rank in range(1, len(order) + 1)]
+        normalized_weights = scores.new_tensor([weight / sum(weights) for weight in weights])
+        terms = torch.stack(
+            [
+                torch.nn.functional.cross_entropy(scores[order[index:]].unsqueeze(0), torch.zeros(1, dtype=torch.long))
+                for index in range(len(order))
+            ]
+        )
+        query_losses.append((terms * normalized_weights).sum())
+    expected = torch.stack(query_losses).mean()
+
+    torch.testing.assert_close(actual, expected.float(), rtol=2e-4, atol=2e-4)
+    actual.backward()
+    expected.backward()
+    torch.testing.assert_close(model.scores.grad, scores.grad.float(), rtol=2e-4, atol=2e-4)
 
 
 @pytest.mark.parametrize("loss_cls", [ListMLELoss, PListMLELoss])
