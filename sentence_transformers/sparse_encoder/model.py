@@ -15,7 +15,6 @@ from typing_extensions import deprecated
 
 from sentence_transformers.base import BaseModel
 from sentence_transformers.base.modality_types import TextInput
-from sentence_transformers.base.model import MultiProcessPool
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCardData
@@ -216,7 +215,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> Tensor: ...
@@ -234,7 +233,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> Tensor: ...
@@ -253,7 +252,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> list[Tensor]: ...
@@ -272,7 +271,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> list[Tensor] | Tensor: ...
@@ -290,7 +289,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = False,
         device: str | torch.device | list[str | torch.device] | None = None,
         max_active_dims: int | None = None,
-        pool: MultiProcessPool | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | Tensor:
@@ -363,7 +362,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> Tensor: ...
@@ -381,7 +380,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> Tensor: ...
@@ -400,7 +399,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> list[Tensor]: ...
@@ -419,7 +418,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> list[Tensor] | Tensor: ...
@@ -437,7 +436,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = False,
         device: str | torch.device | list[str | torch.device] | None = None,
         max_active_dims: int | None = None,
-        pool: MultiProcessPool | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | Tensor:
@@ -513,7 +512,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> Tensor: ...
@@ -531,7 +530,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> Tensor: ...
@@ -550,7 +549,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> list[Tensor]: ...
@@ -569,7 +568,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         max_active_dims: int | None = ...,
-        pool: MultiProcessPool | None = ...,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         **kwargs: Any,
     ) -> list[Tensor] | Tensor: ...
@@ -587,7 +586,7 @@ class SparseEncoder(BaseModel):
         save_to_cpu: bool = False,
         device: str | torch.device | list[str | torch.device] | None = None,
         max_active_dims: int | None = None,
-        pool: MultiProcessPool | None = None,
+        pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | Tensor:

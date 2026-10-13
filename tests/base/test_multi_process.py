@@ -9,7 +9,6 @@ import torch
 from torch import Tensor
 
 from sentence_transformers import CrossEncoder, MultiVectorEncoder, SentenceTransformer, SparseEncoder
-from sentence_transformers.base.model import BaseModel
 from sentence_transformers.util import _move_tensors_to_cpu
 from tests.utils import CrashingModel
 
@@ -188,13 +187,13 @@ def test_multi_process_drains_results_after_failure():
     torch.testing.assert_close(result, torch.tensor([[2.0]]))
 
 
-def test_get_worker_result_raises_when_worker_died_without_reporting():
-    # A worker that dies without raising (e.g. killed by a signal) never puts a result on the queue.
+def test_multi_process_raises_when_worker_died_without_reporting():
     dead_worker = SimpleNamespace(is_alive=lambda: False, pid=4321, exitcode=-9)
     pool = {"input": queue.Queue(), "output": queue.Queue(), "processes": [dead_worker]}
+    model = SentenceTransformer.__new__(SentenceTransformer)
 
     with pytest.raises(RuntimeError, match=r"died unexpectedly: pid 4321 \(exit code -9\)"):
-        BaseModel._get_worker_result(pool, poll_interval=0.01)
+        model._multi_process(["text"], pool=pool, chunk_size=1, show_progress_bar=False)
 
 
 @pytest.mark.parametrize("chunk_size", [0, -1])
