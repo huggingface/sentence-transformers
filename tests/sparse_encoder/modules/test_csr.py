@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from sentence_transformers import SparseEncoder
-from sentence_transformers.sparse_encoder.losses.csr import CSRReconstructionLoss
+from sentence_transformers.sparse_encoder.losses.csr import CSRReconstructionLoss, normalized_mean_squared_error
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder
 
 
@@ -126,10 +126,9 @@ def test_csr_training_without_auxiliary_latents() -> None:
         assert torch.isfinite(parameter.grad).all()
 
 
-def test_csr_normalized_perfect_reconstruction_has_zero_loss() -> None:
-    # Encoder rows [I; -I; 0] with the tied decoder reconstruct the layer-normalized input exactly,
-    # so after decode() undoes the normalization the reconstruction equals the raw input
-    module = SparseAutoEncoder(input_dim=4, hidden_dim=16, k=4, k_aux=0, normalize=True)
+@pytest.mark.parametrize("k_aux", [0, 4])
+def test_csr_normalized_perfect_reconstruction_has_zero_loss(k_aux: int) -> None:
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=16, k=4, k_aux=k_aux, normalize=True)
     module.train()
     with torch.no_grad():
         module.encoder.weight.zero_()
@@ -144,6 +143,41 @@ def test_csr_normalized_perfect_reconstruction_has_zero_loss() -> None:
 
     losses = CSRReconstructionLoss(model=None).compute_loss_from_embeddings([features])
     assert losses["reconstruction_loss_k"].item() < 1e-8
+    if k_aux:
+        torch.testing.assert_close(features["decoded_embedding_aux"], torch.zeros_like(embeddings))
+        residual = embeddings - features["decoded_embedding_k"].detach()
+        expected_aux_loss = normalized_mean_squared_error(torch.zeros_like(residual), residual)
+        torch.testing.assert_close(losses["reconstruction_loss_aux"], expected_aux_loss)
+
+
+@pytest.mark.parametrize("normalize", [False, True])
+def test_csr_auxiliary_reconstruction_bias(normalize: bool) -> None:
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=16, k=4, k_aux=4, normalize=normalize)
+    with torch.no_grad():
+        module.encoder.weight.zero_()
+        module.pre_bias.copy_(torch.tensor([0.1, -0.2, 0.3, -0.4]))
+
+    embeddings = torch.tensor([[1.0, 2.0, 3.0, 4.0], [2.0, 4.0, 6.0, 8.0]], requires_grad=True)
+    features = module({"sentence_embedding": embeddings})
+    if normalize:
+        expected_aux = module.pre_bias * embeddings.std(dim=-1, keepdim=True)
+        expected_residual = embeddings - embeddings.mean(dim=-1, keepdim=True).detach()
+    else:
+        expected_aux = module.pre_bias.expand_as(embeddings)
+        expected_residual = embeddings
+
+    torch.testing.assert_close(features["decoded_embedding_aux"], expected_aux)
+    losses = CSRReconstructionLoss(model=None).compute_loss_from_embeddings([features])
+    expected_loss = normalized_mean_squared_error(expected_aux, expected_residual)
+    torch.testing.assert_close(losses["reconstruction_loss_aux"], expected_loss)
+
+    gradients = torch.autograd.grad(
+        losses["reconstruction_loss_aux"], (module.pre_bias, embeddings), retain_graph=True
+    )
+    expected_gradients = torch.autograd.grad(expected_loss, (module.pre_bias, embeddings))
+    for gradient, expected_gradient in zip(gradients, expected_gradients):
+        assert torch.isfinite(gradient).all()
+        torch.testing.assert_close(gradient, expected_gradient)
 
 
 def test_csr_encode_does_not_update_dead_feature_stats(csr_bert_tiny_model: SparseEncoder) -> None:

@@ -171,7 +171,6 @@ class SparseAutoEncoder(Module):
             features["sentence_embedding"] = latents_k
             return features
 
-        # decode() maps back to the input space, so the raw input stays the reconstruction target
         x_prepared, info = self.prepare(x)
         latents_pre_act = self.encode_pre_act(x_prepared)
 
@@ -181,7 +180,12 @@ class SparseAutoEncoder(Module):
         recons_k = self.decode(latents_k, info)
         recons_4k = self.decode(latents_4k, info)
 
-        recons_aux = self.decode(latents_auxk, info) if latents_auxk is not None else None
+        recons_aux = self.decoder(latents_auxk) + self.pre_bias if latents_auxk is not None else None
+        decoder_bias = self.pre_bias
+        if self.normalize:
+            decoder_bias = decoder_bias * info["std"]
+            if recons_aux is not None:
+                recons_aux = recons_aux * info["std"]
 
         # Update the features dictionary
         features.update(
@@ -193,7 +197,7 @@ class SparseAutoEncoder(Module):
                 "decoded_embedding_k": recons_k,
                 "decoded_embedding_4k": recons_4k,
                 "decoded_embedding_aux": recons_aux,
-                "decoded_embedding_k_pre_bias": recons_k - self.pre_bias,
+                "decoded_embedding_k_pre_bias": recons_k - decoder_bias,
             }
         )
         features["sentence_embedding"] = latents_k
