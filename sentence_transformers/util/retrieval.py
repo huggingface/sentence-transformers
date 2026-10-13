@@ -262,7 +262,7 @@ def community_detection(
     """
     Function for Fast Community Detection.
 
-    Finds in the embeddings all communities, i.e. embeddings that are close (closer than threshold).
+    Finds communities of embeddings whose cosine similarity to a central point is at least threshold.
     Returns only communities that are larger than min_community_size. The communities are returned
     in decreasing order. The first element in each list is the central point in the community.
 
@@ -314,8 +314,9 @@ def community_detection(
 
             # Move the batch indices to CPU once, then slice per community
             top_k_indices = top_k_indices.cpu()
-            for count, indices in zip(row_wise_count.tolist(), top_k_indices):
-                extracted_communities.append(indices[:count].numpy().astype(np.uint32))
+            centers = (large_enough_mask.nonzero(as_tuple=True)[0] + start_idx).tolist()
+            for center, count, indices in zip(centers, row_wise_count.tolist(), top_k_indices):
+                extracted_communities.append((center, indices[:count].numpy().astype(np.uint32)))
         else:
             # Minimum size for a community
             top_k_values, _ = cos_scores.topk(k=min_community_size, largest=True)
@@ -332,30 +333,23 @@ def community_detection(
                         top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 
                     extracted_communities.append(
-                        top_idx_large[top_val_large >= threshold].cpu().numpy().astype(np.uint32)
+                        (start_idx + i, top_idx_large[top_val_large >= threshold].cpu().numpy().astype(np.uint32))
                     )
 
     # Largest cluster first
-    extracted_communities = sorted(extracted_communities, key=lambda x: len(x), reverse=True)
+    extracted_communities = sorted(extracted_communities, key=lambda x: len(x[1]), reverse=True)
 
     # Step 2) Remove overlapping communities using a dense boolean mask of already claimed indices
     unique_communities = []
     used = np.zeros(len(embeddings), dtype=bool)
 
-    for community in extracted_communities:
-        # community keeps its topk order, so the central point stays first.
-        # If the centre has already been claimed by a larger community, the remaining
-        # members were only close to that centre, not to each other, so drop the whole
-        # community rather than returning an internally inconsistent group.
-        if used[community[0]]:
+    for center, community in extracted_communities:
+        if used[center]:
             continue
         non_overlapped_community = community[~used[community]]
         if len(non_overlapped_community) >= min_community_size:
-            unique_communities.append(non_overlapped_community)
-            used[non_overlapped_community] = True
+            unique_community = [center] + non_overlapped_community[non_overlapped_community != center].tolist()
+            unique_communities.append(unique_community)
+            used[unique_community] = True
 
-    unique_communities = [
-        community.tolist() for community in sorted(unique_communities, key=lambda x: len(x), reverse=True)
-    ]
-
-    return unique_communities
+    return sorted(unique_communities, key=len, reverse=True)

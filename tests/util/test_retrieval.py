@@ -284,37 +284,39 @@ def test_community_detection_overlapping_communities():
     assert sorted([sorted(community) for community in result]) == sorted([sorted(community) for community in expected])
 
 
-def test_community_detection_drops_community_when_centre_already_claimed():
-    """A community whose centre was already claimed by a larger one must be dropped.
+@pytest.mark.parametrize(
+    "device",
+    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available"))],
+)
+@pytest.mark.parametrize("batch_size", [4, 1024])
+@pytest.mark.parametrize(
+    ("angles", "dtype", "expected"),
+    [
+        pytest.param(
+            [(0, 0), (20, 0), (-20, 0), (0, -20), (0, 22), (0, 30), (0, 36), (0, 40), (0, 44)],
+            torch.float32,
+            [[4, 0, 5, 6, 7, 8]],
+            id="claimed_center",
+        ),
+        pytest.param(
+            [(0, 25.5), (0, 50), (0, 33), (0, 40), (0, -20), (-20, -1), (0, 0), (0, -1), (20, -1), (0, 45)],
+            torch.bfloat16,
+            [[0, 1, 2, 3, 6, 9], [7, 4, 5, 8]],
+            id="tied_center",
+        ),
+    ],
+)
+def test_community_detection_preserves_centers(angles, dtype, expected, batch_size, device):
+    y, z = torch.deg2rad(torch.tensor(angles, dtype=torch.float32)).unbind(dim=1)
+    embeddings = torch.stack((y.cos() * z.cos(), y.sin() * z.cos(), z.sin()), dim=1).to(device=device, dtype=dtype)
+    result = community_detection(embeddings, threshold=0.9, min_community_size=3, batch_size=batch_size)
 
-    The remaining members were each close to the removed centre, but not to each other,
-    so returning them as a community violates the threshold contract.
-    See https://github.com/huggingface/sentence-transformers/issues/4140.
-    """
-    import math
-
-    def unit(deg_y: float = 0.0, deg_z: float = 0.0) -> torch.Tensor:
-        y, z = math.radians(deg_y), math.radians(deg_z)
-        v = torch.tensor([math.cos(y) * math.cos(z), math.sin(y) * math.cos(z), math.sin(z)])
-        return v / v.norm()
-
-    embeddings = torch.stack(
-        [
-            unit(),  # 0: centre of the smaller community
-            unit(deg_y=20),  # 1: close to 0, far from 2 and 3
-            unit(deg_y=-20),  # 2: close to 0, far from 1 and 3
-            unit(deg_z=-20),  # 3: close to 0, far from 1 and 2
-            unit(deg_z=22),  # 4: centre of the largest community
-            unit(deg_z=30),
-            unit(deg_z=36),
-            unit(deg_z=40),
-            unit(deg_z=44),
-        ]
-    )
-    result = community_detection(embeddings, threshold=0.9, min_community_size=3)
-    # The smaller community's centre (0) gets absorbed into the larger community around 4.
-    # The residual [1, 2, 3] must NOT survive as a community, because 1-2, 1-3, 2-3 are all < 0.9.
-    assert [sorted(c) for c in result] == [[0, 4, 5, 6, 7, 8]]
+    assert [sorted(c) for c in result] == [sorted(c) for c in expected]
+    assert [c[0] for c in result] == [c[0] for c in expected]
+    normalized = torch.nn.functional.normalize(embeddings, dim=1)
+    scores = normalized @ normalized.T
+    for community in result:
+        assert (scores[community[0], community] >= 0.9).all()
 
 
 def test_community_detection_numpy_input():
