@@ -20,6 +20,7 @@ import bisect
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, nullcontext
 from functools import partial
+from itertools import accumulate
 from typing import Any
 
 import torch
@@ -28,6 +29,8 @@ from packaging.version import Version
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.checkpoint import get_device_states, set_device_states
+
+from sentence_transformers.util import batch_to_device
 
 
 class RandContext:
@@ -71,6 +74,8 @@ def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
     With flattened inputs (from ``DataCollatorWithFlattening``), the batch size is derived
     from ``cu_seq_lens_q`` which has shape ``(num_seqs + 1,)``.
     """
+    if sentence_feature.get("_lazy_preprocessing") is True:
+        return len(sentence_feature["raw_inputs"])
     if "cu_seq_lens_q" in sentence_feature:
         return len(sentence_feature["cu_seq_lens_q"]) - 1
     # Prefer known batch-indexed keys, since flattened tensors like pixel_values can have a
@@ -213,6 +218,7 @@ def _minibatch_ranges(
     sentence_feature: dict[str, Any],
     mini_batch_size: int,
     mini_batch_num_tokens: int | None = None,
+    token_lengths: list[int] | None = None,
 ) -> list[tuple[int, int]]:
     """Compute the ``(begin, end)`` sequence ranges that split a batch into mini-batches.
 
@@ -220,13 +226,22 @@ def _minibatch_ranges(
     Otherwise, each range greedily packs as many sequences as possible while keeping the total
     number of non-padding tokens at or below ``mini_batch_num_tokens``. A single sequence whose
     length exceeds the budget forms its own mini-batch. Per-sequence token counts are read from
-    ``cu_seq_lens_q`` for flattened inputs, or from the attention mask for padded inputs.
+    ``cu_seq_lens_q`` for flattened inputs, from the attention mask for padded inputs, or supplied
+    as ``token_lengths`` for raw inputs whose processor can count tokens without decoding images.
     """
     batch_size = _get_batch_size(sentence_feature)
+    if (
+        sentence_feature.get("_lazy_preprocessing") is True
+        and mini_batch_num_tokens is not None
+        and token_lengths is None
+    ):
+        raise ValueError("Raw inputs require mini_batch_size; token counts are unavailable before preprocessing.")
     if mini_batch_num_tokens is None:
         return [(begin, min(begin + mini_batch_size, batch_size)) for begin in range(0, batch_size, mini_batch_size)]
 
-    if "cu_seq_lens_q" in sentence_feature:
+    if token_lengths is not None:
+        cumulative_num_tokens = list(accumulate(token_lengths))
+    elif "cu_seq_lens_q" in sentence_feature:
         # cu_seq_lens_q already holds the cumulative token counts [0, len_0, len_0 + len_1, ...]
         cumulative_num_tokens = sentence_feature["cu_seq_lens_q"][1:].tolist()
     elif "attention_mask" in sentence_feature:
@@ -292,7 +307,7 @@ def _ddp_replay_context(model: Any, synchronize: bool) -> Iterator[None]:
 
 def _backward_hook(
     grad_output: Tensor,
-    sentence_features: Iterable[dict[str, Tensor]],
+    sentence_features: Iterable[dict[str, Any]],
     loss_obj: Any,
     cache: list[list[Tensor]],
     random_states: list[list[RandContext]],
@@ -422,7 +437,7 @@ class CachedLossMixin:
 
     def embed_minibatch(
         self,
-        sentence_feature: dict[str, Tensor],
+        sentence_feature: dict[str, Any],
         begin: int,
         end: int,
         with_grad: bool,
@@ -432,16 +447,37 @@ class CachedLossMixin:
         """Embed a mini-batch of inputs."""
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
-        sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
+        if sentence_feature.get("_lazy_preprocessing") is True:
+            # Preprocessing must be deterministic: both GradCache passes materialize
+            # the same raw slice. Snapshot device RNG only after preparing the tensors.
+            kwargs = sentence_feature.get("preprocessing_kwargs", {})
+            with torch.no_grad():
+                sentence_feature_minibatch = self.model.preprocess(sentence_feature["raw_inputs"][begin:end], **kwargs)
+            if kwargs.get("task") is not None:
+                sentence_feature_minibatch["task"] = kwargs["task"]
+            sentence_feature_minibatch = batch_to_device(sentence_feature_minibatch, self.model.device)
+        else:
+            sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
         with random_state_context:
             with grad_context():
                 random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
                 reps = self.model(sentence_feature_minibatch)["sentence_embedding"]  # (mini_batch_size, dim)
         return reps, random_state
 
+    def _get_minibatch_ranges(self, sentence_feature: dict[str, Any]) -> list[tuple[int, int]]:
+        token_lengths = None
+        if sentence_feature.get("_lazy_preprocessing") is True and self.mini_batch_num_tokens is not None:
+            get_token_lengths = getattr(self.model[0], "_get_token_lengths", None)
+            if get_token_lengths is None:
+                raise ValueError("This input module does not support lazy token-budget batching; use mini_batch_size.")
+            token_lengths = get_token_lengths(
+                sentence_feature["raw_inputs"], **sentence_feature.get("preprocessing_kwargs", {})
+            )
+        return _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens, token_lengths)
+
     def embed_minibatch_iter(
         self,
-        sentence_feature: dict[str, Tensor],
+        sentence_feature: dict[str, Any],
         with_grad: bool,
         copy_random_state: bool,
         random_states: list[RandContext] | None = None,
@@ -449,7 +485,7 @@ class CachedLossMixin:
     ) -> Iterator[tuple[Tensor, RandContext | None]]:
         """Do a forward pass on every mini-batch of the input features and yield the embeddings."""
         if ranges is None:
-            ranges = _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
+            ranges = self._get_minibatch_ranges(sentence_feature)
         for i, (begin, end) in enumerate(
             tqdm.tqdm(
                 ranges,
@@ -466,17 +502,14 @@ class CachedLossMixin:
                 random_state=None if random_states is None else random_states[i],
             )
 
-    def forward_cached(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None) -> Tensor:
+    def forward_cached(self, sentence_features: Iterable[dict[str, Any]], labels: Tensor | None = None) -> Tensor:
         """Run the three-step GradCache forward pass. See the module docstring."""
         sentence_features = list(sentence_features)
         grad_enabled = torch.is_grad_enabled()
 
         # Compute the mini-batch boundaries before any forward pass. Modules may modify the
         # features in place while embedding, and step (3) must replay step (1)'s boundaries.
-        ranges = [
-            _minibatch_ranges(sentence_feature, self.mini_batch_size, self.mini_batch_num_tokens)
-            for sentence_feature in sentence_features
-        ]
+        ranges = [self._get_minibatch_ranges(sentence_feature) for sentence_feature in sentence_features]
 
         # Step (1): embed every mini-batch without gradients, keeping the RNG state of each forward
         # pass so that step (3) can reproduce it exactly.

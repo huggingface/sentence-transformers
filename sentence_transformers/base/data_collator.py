@@ -22,6 +22,9 @@ class BaseDataCollator:
     producing ``{column}_input_ids``, ``{column}_attention_mask``, etc.  Handles prompt
     resolution (per-column or per-dataset) and Router task mapping.
 
+    With ``lazy_preprocessing=True``, retain raw inputs and resolved preprocessing
+    options for a compatible cached loss. Preprocessing must be deterministic.
+
     It is important that the columns are in the expected order. For example, if your dataset has columns
     "answer", "question" in that order, then the MultipleNegativesRankingLoss will consider
     "answer" as the anchor and "question" as the positive, and it will (unexpectedly) optimize for
@@ -33,6 +36,7 @@ class BaseDataCollator:
     router_mapping: dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
     prompts: str | dict[str, str] | dict[str, dict[str, str]] | None = field(default_factory=dict, repr=False)
     max_length: int | dict[str, int] | None = field(default=None, repr=False)
+    lazy_preprocessing: bool = False
 
     _warned_columns: set[tuple[str, ...]] = field(default_factory=set, init=False, repr=False)
 
@@ -102,6 +106,10 @@ class BaseDataCollator:
 
         # We should always be able to return a loss, label or not:
         batch = {}
+        if self.lazy_preprocessing:
+            # Trainer/Accelerate infer the batch size from tensors, including the
+            # final partial evaluation batch. This small tensor never reaches the model.
+            batch["sample_indices"] = torch.arange(len(features))
 
         if "dataset_name" in column_names:
             column_names.remove("dataset_name")
@@ -133,6 +141,13 @@ class BaseDataCollator:
             prompt = self._get_prompt_for_column(prompts, column_name)
             inputs = [row[column_name] for row in features]
             max_length = self._get_max_length_for_task(task)
+            if self.lazy_preprocessing:
+                batch[f"{column_name}__lazy_preprocessing"] = True
+                batch[f"{column_name}_raw_inputs"] = inputs
+                batch[f"{column_name}_preprocessing_kwargs"] = {"prompt": prompt, "task": task}
+                if max_length is not None:
+                    batch[f"{column_name}_preprocessing_kwargs"]["max_length"] = max_length
+                continue
             # Only forward the override when set, so preprocess_fns without **kwargs keep working.
             if max_length is not None:
                 preprocessed = self.preprocess_fn(inputs, prompt=prompt, task=task, max_length=max_length)
