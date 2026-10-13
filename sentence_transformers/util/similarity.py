@@ -407,18 +407,17 @@ def maxsim(
         b_mask (Tensor, optional): Boolean or float mask for document tokens, shape ``(batch_b, num_doc_tokens)``,
             ``(num_doc_tokens,)`` alongside a single 2D ``b``, or a list of per-item 1D masks. Tokens with a
             0 / False entry are excluded from the max. Defaults to None (use all tokens).
-        chunk_elements (int, optional): Element budget for the padded queries and documents plus the
-            4D ``(query_chunk, document_chunk, q_tokens, d_tokens)`` scoring intermediate. Both sides
-            are greedily packed into chunks and padded per chunk to limit the effect of long outliers.
-            Query chunks are sized against the widest document, then document chunks are
-            sized for each query chunk. A single query-document pair can exceed the budget. Defaults
-            to None, which applies a 100M-element budget (about 400 MB in fp32, half in bf16 / fp16).
+        chunk_elements (int, optional): Element budget for each chunk's padded query and document
+            embeddings plus the token similarity tensor. Both sides are chunked and padded
+            separately to limit memory use. A single query-document pair can exceed the budget.
+            Defaults to None, which uses 100 million elements (about 400 MB in fp32, half in
+            bf16 / fp16).
         length_normalize (bool, optional): Divide each score by the number of real (unmasked) query
             tokens, yielding MeanMaxSim: scores land in the per-token similarity range (about
             ``[-1, 1]`` for normalized embeddings) independent of the query length. Defaults to False.
-        device (str, torch.device, optional): Device to run the scoring on, moving each budget-sized
-            query and document chunk there. The returned scores stay on the
-            documents' device either way. Defaults to None (the documents' device).
+        device (str, torch.device, optional): Device used for scoring, moving inputs there
+            one chunk at a time. Returned scores stay on the documents' device.
+            Defaults to None (the documents' device).
 
     Returns:
         Tensor: Matrix with ``res[i][j]`` = MaxSim(a[i], b[j]), shape ``(batch_a, batch_b)``, always

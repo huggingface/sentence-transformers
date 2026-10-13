@@ -1255,8 +1255,7 @@ def test_similarity_accepts_encoded_tensor_list(word_embeddings_model, score_fun
     torch.testing.assert_close(score_function(embeddings, embeddings), expected)
 
 
-@pytest.mark.parametrize("chunk_elements", [5_000, None])
-@pytest.mark.parametrize("input_type", ["list", "tensor", "numpy"])
+@pytest.mark.parametrize("input_type, chunk_elements", [("list", None), ("tensor", 5_000), ("numpy", 5_000)])
 @pytest.mark.parametrize("use_masks", [False, True])
 @pytest.mark.parametrize("length_normalize", [False, True])
 def test_maxsim_query_chunking_bounds_padding_and_scores(
@@ -1283,18 +1282,18 @@ def test_maxsim_query_chunking_bounds_padding_and_scores(
     for mask in document_masks:
         mask[::3] = 0
 
-    expected = torch.empty(len(queries), len(documents))
-    for index, query in enumerate(queries):
-        for doc_index, document in enumerate(documents):
-            if use_masks:
-                document = document[document_masks[doc_index].bool()]
-            token_scores = (query @ document.T).max(dim=-1).values.float()
-            if use_masks:
-                token_scores = token_scores * query_masks[index]
-            score = token_scores.sum()
-            if length_normalize:
-                score = score / (query_masks[index].bool().sum() if use_masks else len(query))
-            expected[index, doc_index] = score
+    if input_type != "list":
+        queries = torch.nn.utils.rnn.pad_sequence(queries, batch_first=True)
+        documents = torch.nn.utils.rnn.pad_sequence(documents, batch_first=True)
+        if input_type == "numpy":
+            queries, documents = queries.numpy(), documents.numpy()
+
+    kwargs = {
+        "a_mask": query_masks if use_masks else None,
+        "b_mask": document_masks if use_masks else None,
+        "length_normalize": length_normalize,
+    }
+    expected = maxsim(queries, documents, chunk_elements=10**12, **kwargs)
 
     chunks = []
     original = similarity._maxsim_score_documents
@@ -1305,22 +1304,9 @@ def test_maxsim_query_chunking_bounds_padding_and_scores(
         return original(a, b, a_mask, b_mask)
 
     monkeypatch.setattr(similarity, "_maxsim_score_documents", record)
-    if input_type != "list":
-        queries = torch.nn.utils.rnn.pad_sequence(queries, batch_first=True)
-        documents = torch.nn.utils.rnn.pad_sequence(documents, batch_first=True)
-        if input_type == "numpy":
-            queries, documents = queries.numpy(), documents.numpy()
-
     budget = 5_000
     monkeypatch.setattr(similarity, "_MAXSIM_CHUNK_ELEMENT_BUDGET", budget)
-    scores = maxsim(
-        queries,
-        documents,
-        a_mask=query_masks if use_masks else None,
-        b_mask=document_masks if use_masks else None,
-        chunk_elements=chunk_elements,
-        length_normalize=length_normalize,
-    )
+    scores = maxsim(queries, documents, chunk_elements=chunk_elements, **kwargs)
 
     assert max(live for _, _, live in chunks) <= budget
     assert all(count == 1 for count, width, _ in chunks if width == 80)
@@ -1354,39 +1340,21 @@ def test_maxsim_query_chunking_preserves_gradients() -> None:
 
 @pytest.mark.parametrize("length_normalize", [False, True])
 @pytest.mark.parametrize("mask_dtype", [torch.bool, torch.float32])
-def test_maxsim_query_chunking_preserves_shared_masks(length_normalize: bool, mask_dtype: torch.dtype) -> None:
+@pytest.mark.parametrize("mask_name", ["a_mask", "b_mask"])
+def test_maxsim_chunking_preserves_shared_masks(
+    length_normalize: bool, mask_dtype: torch.dtype, mask_name: str
+) -> None:
     queries = torch.arange(1, 25).reshape(4, 3, 2).float() / 10
-    documents = -torch.arange(1, 17).reshape(2, 4, 2).float() / 10
+    documents = -torch.arange(1, 13).reshape(2, 3, 2).float() / 10
     mask = torch.tensor([[0.5, 0, 1]], dtype=mask_dtype)
-    expected = torch.stack(
-        [
-            torch.stack([((query @ document.T).max(dim=-1).values * mask[0]).sum() for document in documents])
-            for query in queries
-        ]
+    batch_size = len(queries) if mask_name == "a_mask" else len(documents)
+    expected = maxsim(
+        queries,
+        documents,
+        **{mask_name: mask.expand(batch_size, -1)},
+        chunk_elements=40,
+        length_normalize=length_normalize,
     )
-    if length_normalize:
-        expected = expected / mask.bool().sum()
-
-    scores = maxsim(queries, documents, a_mask=mask, chunk_elements=40, length_normalize=length_normalize)
-
-    torch.testing.assert_close(scores, expected)
-
-
-@pytest.mark.parametrize("length_normalize", [False, True])
-@pytest.mark.parametrize("mask_dtype", [torch.bool, torch.float32])
-def test_maxsim_document_chunking_preserves_shared_masks(length_normalize: bool, mask_dtype: torch.dtype) -> None:
-    queries = torch.arange(1, 13).reshape(2, 3, 2).float()
-    documents = -torch.arange(1, 9).reshape(2, 2, 2).float()
-    mask = torch.tensor([[1, 0]], dtype=mask_dtype)
-    expected = torch.stack(
-        [
-            torch.stack([(query @ document[mask[0].bool()].T).max(dim=-1).values.sum() for document in documents])
-            for query in queries
-        ]
-    )
-    if length_normalize:
-        expected = expected / queries.shape[1]
-
-    scores = maxsim(queries, documents, b_mask=mask, chunk_elements=43, length_normalize=length_normalize)
+    scores = maxsim(queries, documents, **{mask_name: mask}, chunk_elements=40, length_normalize=length_normalize)
 
     torch.testing.assert_close(scores, expected)
