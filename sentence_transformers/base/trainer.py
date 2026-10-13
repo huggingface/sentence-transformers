@@ -893,6 +893,7 @@ class BaseTrainer(Trainer, ABC):
                     drop_last=self.args.dataloader_drop_last,
                     valid_label_columns=data_collator.valid_label_columns,
                     generator=generator,
+                    seed=self.args.seed,
                 )
                 for sub_dataset in dataset.values()
             ]
@@ -913,6 +914,7 @@ class BaseTrainer(Trainer, ABC):
                 drop_last=self.args.dataloader_drop_last,
                 valid_label_columns=data_collator.valid_label_columns,
                 generator=generator,
+                seed=self.args.seed,
             )
             dataloader_params["batch_sampler"] = batch_sampler
         else:
@@ -1080,16 +1082,15 @@ class BaseTrainer(Trainer, ABC):
         return skip
 
     def _load_from_checkpoint(self, checkpoint_path: str) -> None:
+        model = getattr(self.model, "_orig_mod", self.model)
         # Our own checkpoint of the model being trained, so its module classes are already imported here,
         # yet a programmatically built model never carries trust_remote_code (#3801). Handing those classes
         # over leaves the backbone on the model's own flag, where stale remote code stays unused.
-        module_classes = {
-            fullname(module): type(module) for module in self.model.modules() if isinstance(module, Module)
-        }
-        loaded_model = self.model.__class__._load_with_module_classes(
-            checkpoint_path, module_classes, trust_remote_code=self.model.trust_remote_code
+        module_classes = {fullname(module): type(module) for module in model.modules() if isinstance(module, Module)}
+        loaded_model = model.__class__._load_with_module_classes(
+            checkpoint_path, module_classes, trust_remote_code=model.trust_remote_code
         )
-        self.model.load_state_dict(loaded_model.state_dict())
+        model.load_state_dict(loaded_model.state_dict())
 
     def preprocess_dataset(
         self, dataset: DatasetDict | Dataset | None = None, dataset_name: str | None = None

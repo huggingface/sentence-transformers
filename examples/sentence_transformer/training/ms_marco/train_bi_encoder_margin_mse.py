@@ -144,13 +144,13 @@ def main():
     model.save_pretrained(final_output_dir)
 
     # 11. (Optional) Push it to the Hugging Face Hub
-    # Run `huggingface-cli login` first if you haven't already.
+    # Run `hf auth login` first if you haven't already.
     try:
         model.push_to_hub(run_name)
     except Exception:
         logging.error(
             f"Error uploading model to the Hugging Face Hub. To upload it manually, run "
-            f"`huggingface-cli login`, then load with `model = SentenceTransformer({final_output_dir!r})` "
+            f"`hf auth login`, then load with `model = SentenceTransformer({final_output_dir!r})` "
             f"and call `model.push_to_hub({run_name!r})`."
         )
 

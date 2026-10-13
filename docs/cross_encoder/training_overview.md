@@ -53,6 +53,12 @@ Training Cross Encoder models involves between 4 to 6 components, just like [tra
 </div>
 <p></p>
 
+```{eval-rst}
+.. tip::
+
+   Before downloading training models or datasets, we recommend logging in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models and datasets your account can read. See the `login instructions <../installation.html#log-in-to-hugging-face>`_.
+```
+
 ## Model
 
 ```{eval-rst}
@@ -753,6 +759,7 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained" title="sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.save_pretrained()</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub" title="sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.push_to_hub()</span></code></a></p></li>
             </ol>
+            <p>To upload your trained model with <code class="docutils literal notranslate">push_to_hub()</code>, <a class="reference internal" href="../installation.html#log-in-to-hugging-face">log in to Hugging Face</a> with credentials that have write access to the destination repository.</p>
         </div>
 
     ::
@@ -860,13 +867,13 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
         model.save_pretrained(final_output_dir)
 
         # 9. (Optional) save the model to the Hugging Face Hub!
-        # It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+        # It is recommended to run `hf auth login` to log into your Hugging Face account first
         try:
             model.push_to_hub(run_name)
         except Exception:
             logging.error(
                 f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
-                f"`huggingface-cli login`, followed by loading the model using `model = CrossEncoder({final_output_dir!r})` "
+                f"`hf auth login`, followed by loading the model using `model = CrossEncoder({final_output_dir!r})` "
                 f"and saving it using `model.push_to_hub('{run_name}')`."
             )
 
@@ -894,6 +901,7 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained" title="sentence_transformers.cross_encoder.model.CrossEncoder.save_pretrained"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.save_pretrained()</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub" title="sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub"><code class="xref py py-meth docutils literal notranslate"><span class="pre">CrossEncoder.push_to_hub()</span></code></a></p></li>
             </ol>
+            <p>To upload your trained model with <code class="docutils literal notranslate">push_to_hub()</code>, <a class="reference internal" href="../installation.html#log-in-to-hugging-face">log in to Hugging Face</a> with credentials that have write access to the destination repository.</p>
         </div>
 
     ::
@@ -1065,13 +1073,13 @@ The :class:`~sentence_transformers.cross_encoder.trainer.CrossEncoderTrainer` is
             model.save_pretrained(final_output_dir)
 
             # 9. (Optional) save the model to the Hugging Face Hub!
-            # It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+            # It is recommended to run `hf auth login` to log into your Hugging Face account first
             try:
                 model.push_to_hub(run_name)
             except Exception:
                 logging.error(
                     f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
-                    f"`huggingface-cli login`, followed by loading the model using `model = CrossEncoder({final_output_dir!r})` "
+                    f"`hf auth login`, followed by loading the model using `model = CrossEncoder({final_output_dir!r})` "
                     f"and saving it using `model.push_to_hub('{run_name}')`."
                 )
 

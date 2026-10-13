@@ -60,6 +60,12 @@ Training Sentence Transformer models involves between 4 to 6 components:
 </div>
 <p></p>
 
+```{eval-rst}
+.. tip::
+
+   Before downloading training models or datasets, we recommend logging in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models and datasets your account can read. See the `login instructions <../installation.html#log-in-to-hugging-face>`_.
+```
+
 ## Model
 
 ```{eval-rst}
@@ -653,6 +659,8 @@ The :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransfor
     #. :class:`SentenceTransformer.push_to_hub <sentence_transformers.sentence_transformer.model.SentenceTransformer.push_to_hub>`
 
     - `Training Examples <training/examples.html>`_
+
+    To upload your trained model with ``push_to_hub()``, `log in to Hugging Face <../installation.html#log-in-to-hugging-face>`_ with credentials that have write access to the destination repository.
 
 ::
 

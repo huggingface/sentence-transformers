@@ -119,6 +119,20 @@ def test_rank_convert_kwargs_deprecated(reranker_bert_tiny_model: CrossEncoder, 
     assert type(ranks[0]["score"]) is float
 
 
+@pytest.mark.parametrize("apply_softmax", [True, False])
+def test_rank_apply_softmax_deprecated(reranker_bert_tiny_model: CrossEncoder, apply_softmax: bool, caplog) -> None:
+    model = reranker_bert_tiny_model
+    query = "How many people live in Berlin?"
+    documents = ["Pasta is cooked in boiling water.", "Berlin has a population of 3.5 million."]
+    expected = model.rank(query, documents)
+    deprecated_kwargs: dict[str, Any] = {"apply_softmax": apply_softmax}
+    with caplog.at_level(logging.WARNING):
+        ranks = model.rank(query, documents, **deprecated_kwargs)
+
+    assert "CrossEncoder.rank `apply_softmax` argument is deprecated" in caplog.text
+    assert ranks == expected
+
+
 def test_rank_multiple_labels(nli_minilm_model: CrossEncoder):
     model = nli_minilm_model
     with pytest.raises(
@@ -138,7 +152,7 @@ def test_rank_multiple_labels(nli_minilm_model: CrossEncoder):
         )
 
 
-def test_predict_softmax(nli_minilm_model: CrossEncoder):
+def test_predict_softmax(nli_minilm_model: CrossEncoder, caplog):
     model = nli_minilm_model
     query = "A man is eating pasta."
 
@@ -153,6 +167,20 @@ def test_predict_softmax(nli_minilm_model: CrossEncoder):
     assert torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
     scores = model.predict([(query, doc) for doc in corpus], apply_softmax=False, convert_to_tensor=True)
     assert not torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
+    assert "`apply_softmax` argument is deprecated" not in caplog.text
+
+
+def test_predict_softmax_single_label(reranker_bert_tiny_model: CrossEncoder):
+    model = reranker_bert_tiny_model
+    query = "How many people live in Berlin?"
+    corpus = [
+        "Berlin has a population of 3.5 million.",
+        "Pasta is cooked in boiling water.",
+        "The capital of France is Paris.",
+    ]
+    scores = model.predict([(query, doc) for doc in corpus], convert_to_tensor=True)
+    softmax_scores = model.predict([(query, doc) for doc in corpus], apply_softmax=True, convert_to_tensor=True)
+    assert torch.allclose(softmax_scores, scores)
 
 
 @skip_bfloat16_cpu_crash

@@ -1,3 +1,8 @@
+# /// script
+# dependencies = [
+#     "sentence-transformers[train]",
+# ]
+# ///
 """
 This examples trains a CrossEncoder for the STSbenchmark task. A CrossEncoder takes a sentence pair
 as input and outputs a label. Here, it output a continuous labels 0...1 to indicate the similarity between the input pair.
@@ -98,12 +103,12 @@ final_output_dir = f"{output_dir}/final"
 model.save_pretrained(final_output_dir)
 
 # 9. (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+# It is recommended to run `hf auth login` to log into your Hugging Face account first
 try:
     model.push_to_hub(run_name)
 except Exception:
     logging.error(
         f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
-        f"`huggingface-cli login`, followed by loading the model using `model = CrossEncoder({final_output_dir!r})` "
+        f"`hf auth login`, followed by loading the model using `model = CrossEncoder({final_output_dir!r})` "
         f"and saving it using `model.push_to_hub('{run_name}')`."
     )

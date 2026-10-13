@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 from torch import Tensor
 
+from .tensor import _tensor_to_numpy
+
 logger = logging.getLogger(__name__)
 
 
@@ -448,6 +450,7 @@ def _dequantize_embeddings(
     ranges: np.ndarray,
 ) -> np.ndarray:
     """Restore scalar-quantized candidates to the coordinate system of the float query."""
+    ranges = ranges.astype(np.float32, copy=False)
     steps = (ranges[1] - ranges[0]) / 255
     steps = np.where(steps == 0, 1, steps)
     # Convert before undoing the signed offset to avoid overflowing int8.
@@ -491,12 +494,12 @@ def quantize_embeddings(
         ``(num_tokens, dim)`` arrays), returns a list of quantized matrices with shared per-dimension buckets.
     """
     if isinstance(embeddings, Tensor):
-        embeddings = embeddings.cpu().numpy()
+        embeddings = _tensor_to_numpy(embeddings)
     elif isinstance(embeddings, list):
         if not embeddings:
             return []
         if isinstance(embeddings[0], Tensor):
-            embeddings = [embedding.cpu().numpy() for embedding in embeddings]
+            embeddings = [_tensor_to_numpy(embedding) for embedding in embeddings]
         if isinstance(embeddings[0], np.ndarray) and embeddings[0].ndim == 2:
             # Calibrate once so all documents use the same ranges.
             if precision.endswith("int8") and ranges is None:
@@ -532,8 +535,9 @@ def quantize_embeddings(
         # Either use the 1. provided ranges, 2. the calibration dataset or 3. the provided embeddings
         if ranges is None:
             ranges = _get_quantization_ranges(embeddings, precision, calibration_embeddings)
+        ranges = ranges.astype(np.float32, copy=False)
         starts = ranges[0, :]
-        steps = (ranges[1, :] - ranges[0, :]) / 255
+        steps = (ranges[1, :] - starts) / 255
         steps = np.where(steps == 0, 1, steps)
 
         q_vals = np.clip(np.floor((embeddings - starts) / steps), 0, 255)
@@ -543,9 +547,9 @@ def quantize_embeddings(
             return (q_vals - 128).astype(np.int8)
 
     if precision == "binary":
-        return (np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1) - 128).astype(np.int8)
+        return (np.packbits(embeddings > 0, axis=-1) - 128).astype(np.int8)
 
     if precision == "ubinary":
-        return np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1)
+        return np.packbits(embeddings > 0, axis=-1)
 
     raise ValueError(f"Precision {precision!r} is not supported")

@@ -9,6 +9,10 @@ Several Sparse Encoder models have been publicly released on the Hugging Face Hu
     The ``sentence-transformers`` library tag is shared by all four model types, so pair it with the ``sparse`` tag to find only the models that load with :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder`. ``cross-encoder`` and ``multi-vector`` are the equivalents for Cross Encoder and Multi-Vector Encoder models, while dense Sentence Transformer models make up the bulk of what the library tag returns on its own.
 
 Models integrate seamlessly with this simple interface:
+
+.. sidebar:: Loading Models
+
+    Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <../installation.html#log-in-to-hugging-face>`_.
 ```
 
 

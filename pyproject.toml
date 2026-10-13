@@ -28,6 +28,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
@@ -124,7 +125,14 @@ line-length = 119
 fix = true
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP"]
+select = [
+    "E",
+    "F",
+    "W",
+    "I",
+    "UP",
+    "D417",  # undocumented-param
+]
 # Skip `E731` (do not assign a lambda expression, use a def)
 ignore = [
     # LineTooLong
@@ -144,6 +152,10 @@ ignore = [
     # Ignore missing required imports
     "I002"
     ]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+ignore-var-parameters = true  # Don't require documenting *args / **kwargs
 
 [tool.ruff.lint.isort]
 known-third-party = ["datasets"]

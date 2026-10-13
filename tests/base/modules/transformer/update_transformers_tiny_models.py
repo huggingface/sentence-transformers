@@ -22,7 +22,6 @@ def find_model_for_architecture(architecture):
     If multiple models exist, prefer the one ending with 'Model'.
     """
     for author in [
-        "trl-internal-testing",
         "tiny-random",
         "hf-internal-testing",
         "hf-tiny-model-private",
@@ -40,10 +39,10 @@ def find_model_for_architecture(architecture):
         for model in models:
             model_id = model.id
             # Check if the model_id contains the architecture name
-            if architecture.lower().replace("_", "").replace("-", "") in model_id.lower().replace("_", "").replace(
-                "-", ""
-            ) and (
-                "tiny-random" in model_id.lower() or "tiny" in model_id.lower() and author == "trl-internal-testing"
+            if (
+                architecture.lower().replace("_", "").replace("-", "")
+                in model_id.lower().replace("_", "").replace("-", "")
+                and "tiny-random" in model_id.lower()
             ):
                 matching_models.append(model_id)
 

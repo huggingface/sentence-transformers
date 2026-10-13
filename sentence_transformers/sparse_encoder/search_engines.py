@@ -8,6 +8,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from sentence_transformers.util.tensor import _tensor_to_numpy
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -92,7 +94,7 @@ def semantic_search_qdrant(
 
         corpus = corpus_embeddings.coalesce()
         indices_arr = corpus.indices().cpu().numpy()
-        values_arr = corpus.values().cpu().numpy()
+        values_arr = _tensor_to_numpy(corpus.values())
         num_vectors = corpus_embeddings.size(0)
         batch_size = 10000
         vectors_batch = []
@@ -134,7 +136,7 @@ def semantic_search_qdrant(
     # Process each query
     query_embeddings = query_embeddings.coalesce()
     query_indices = query_embeddings.indices().cpu().numpy()
-    query_values = query_embeddings.values().cpu().numpy()
+    query_values = _tensor_to_numpy(query_embeddings.values())
     for q_idx in range(query_embeddings.size(0)):
         # Extract query vector
         mask = query_indices[0] == q_idx

@@ -34,9 +34,9 @@ class PListMLELambdaWeight(nn.Module):
         if self.rank_discount_fn is not None:
             return self.rank_discount_fn(mask)
 
-        # Apply default rank discount: 2^(num_docs - rank) - 1
+        # Apply default rank discount: 2^(num_docs - rank) - 1, with ranks starting at 1.
         num_docs_per_query = mask.sum(dim=1, keepdim=True)
-        ranks = torch.arange(mask.size(1), device=mask.device).expand_as(mask)
+        ranks = torch.arange(1, mask.size(1) + 1, device=mask.device).expand_as(mask)
         weights = torch.pow(2.0, num_docs_per_query - ranks) - 1.0
         weights = weights * mask
         return weights
@@ -170,6 +170,8 @@ class PListMLELoss(nn.Module):
         Args:
             inputs: List of (queries, documents_list)
             labels: Ground truth relevance scores, shape (batch_size, num_documents)
+            prompt: Optional prompt passed to the model's preprocessing of the (query, document) pairs.
+            task: Optional task passed to the model's preprocessing of the (query, document) pairs.
 
         Returns:
             Tensor: Mean PListMLE loss over the batch

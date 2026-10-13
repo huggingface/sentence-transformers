@@ -25,6 +25,7 @@ from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling,
 from sentence_transformers.util import batch_to_device, load_file_path
 from sentence_transformers.util.misc import import_from_string
 from sentence_transformers.util.similarity import SimilarityFunction
+from sentence_transformers.util.tensor import _tensor_to_numpy
 
 logger = transformers_logging.get_logger(__name__)
 
@@ -88,7 +89,9 @@ class MultiVectorEncoder(BaseModel):
             modeling files. Defaults to False.
         revision (str, optional): The specific model version to use. Defaults to None.
         local_files_only (bool, optional): Whether to only look at local files. Defaults to False.
-        token (bool or str, optional): Hugging Face authentication token. Defaults to None.
+        token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
+            private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
+            credentials saved with ``hf auth login``, if available.
         model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
             Transformers model. Defaults to None.
         processor_kwargs (dict[str, Any], optional): Keyword arguments passed to the Hugging Face Transformers
@@ -365,12 +368,12 @@ class MultiVectorEncoder(BaseModel):
         token_pooling: BaseTokenPooling | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
-        """Compute query embeddings. Uses the "query" prompt if available and routes through the query side.
+        """Compute query embeddings. Uses the "query" prompt and routes through the query side.
 
         See :meth:`encode` for the full parameter documentation. This method differs only by:
 
-        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the predefined ``"query"`` prompt when one
-           exists in the model's ``prompts`` dictionary.
+        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the ``"query"`` prompt from the model's
+           ``prompts`` dictionary. This defaults to an empty string, which prevents fallback to ``default_prompt_name``.
         2. It sets the ``task`` to ``"query"``: the query prefix token is inserted, the max sequence length is
            ``query_length``, and (when ``query_expansion`` is set) the input is extended with expansion tokens.
         """
@@ -842,7 +845,7 @@ class MultiVectorEncoder(BaseModel):
             result = self._inference(inputs, device=device, **inference_kwargs)
 
         if convert_to_numpy:
-            result = [(emb.float() if emb.dtype == torch.bfloat16 else emb).cpu().numpy() for emb in result]
+            result = [_tensor_to_numpy(emb) for emb in result]
 
         if is_singular_input:
             result = result[0]
