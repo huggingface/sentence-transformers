@@ -346,13 +346,12 @@ def _pad_chunk(
     end: int,
     device: torch.device,
     name: str,
-    dtype: torch.dtype | None = None,
 ) -> tuple[Tensor, Tensor | None]:
     """Pad one chunk of a side onto the scoring device, with its mask narrowed to the chunk's local
     width. Padding the whole batch upfront instead would let one long outlier size the full
     ``(batch, max_len, dim)`` tensor: multi-GB of mostly padding on ragged input."""
     chunk_mask = mask[start:end] if mask is not None else None
-    chunk, chunk_mask = _pad_multi_vector_inputs(embeddings[start:end], chunk_mask, dtype=dtype)
+    chunk, chunk_mask = _pad_multi_vector_inputs(embeddings[start:end], chunk_mask)
     chunk, chunk_mask = _to_device(chunk, chunk_mask, device)
     if chunk_mask is not None:
         # A caller-provided mask spans the global width, the chunk only its local width.
@@ -365,18 +364,6 @@ def _embedding_dim(embeddings: list | np.ndarray | Tensor) -> int:
     if not isinstance(embeddings, list):
         return embeddings.shape[-1]
     return next((len(item[0]) for item in embeddings if len(item)), 1)
-
-
-def _padded_embedding_dtype(embeddings: list) -> torch.dtype:
-    """Resolve the whole list's padding dtype without materializing its padded batch."""
-    first = _convert_to_tensor(embeddings[0])
-    dtype = first.dtype if first.is_floating_point() else torch.float32
-    # CPU padding uses the first dtype, accelerator padding promotes the inputs.
-    if first.device.type != "cpu":
-        for item in embeddings[1:]:
-            tensor = _convert_to_tensor(item)
-            dtype = torch.promote_types(dtype, tensor.dtype if tensor.is_floating_point() else torch.float32)
-    return dtype
 
 
 def _query_token_counts(a: list | np.ndarray | Tensor, a_mask: Tensor | None) -> Tensor:
@@ -445,13 +432,9 @@ def maxsim(
         result_device = _embeddings_device(b) or _embeddings_device(a)
         return torch.zeros(len(a), len(b), dtype=torch.float32, device=result_device)
     query_token_counts = _query_token_counts(a, a_mask) if length_normalize else None
-    num_documents = len(b)
     budget = chunk_elements if chunk_elements is not None else _MAXSIM_CHUNK_ELEMENT_BUDGET
     query_widths = [len(query) for query in a] if isinstance(a, list) else [a.shape[1]] * len(a)
-    if isinstance(b, list):
-        document_widths = [len(document) for document in b]
-    else:
-        document_widths = [b.shape[1]] * num_documents
+    document_widths = [len(document) for document in b] if isinstance(b, list) else [b.shape[1]] * len(b)
     if a_mask is not None:
         a_mask = _fit_mask_width(a_mask, max(query_widths), "a_mask")
         a_mask = a_mask.expand(len(a), -1)
@@ -467,32 +450,18 @@ def maxsim(
     dim = _embedding_dim(b)
     document_width = max(document_widths)
     query_ranges = _chunk_ranges(query_widths, document_width + _embedding_dim(a), budget - document_width * dim)
-    query_dtype = _padded_embedding_dtype(a) if isinstance(a, list) else None
-    # Keep the old document padding dtypes when splitting chunks further.
-    document_groups = [(0, num_documents, None)]
-    if isinstance(b, list):
-        document_groups = []
-        for start, end in _chunk_ranges(document_widths, len(a) * max(query_widths) + dim, budget):
-            dtype = _padded_embedding_dtype(b[start:end])
-            if document_groups and document_groups[-1][2] == dtype:
-                document_groups[-1] = (document_groups[-1][0], end, dtype)
-            else:
-                document_groups.append((start, end, dtype))
     query_score_chunks = []
     for q_start, q_end in query_ranges:
-        chunk_a, chunk_a_mask = _pad_chunk(a, a_mask, q_start, q_end, scoring_device, "a_mask", dtype=query_dtype)
+        chunk_a, chunk_a_mask = _pad_chunk(a, a_mask, q_start, q_end, scoring_device, "a_mask")
+        document_ranges = _chunk_ranges(
+            document_widths, chunk_a.shape[0] * chunk_a.shape[1] + dim, budget - chunk_a.numel()
+        )
         score_chunks = []
-        for start, end, dtype in document_groups:
-            ranges = _chunk_ranges(
-                document_widths[start:end], chunk_a.shape[0] * chunk_a.shape[1] + dim, budget - chunk_a.numel()
+        for d_start, d_end in document_ranges:
+            chunk_b, chunk_b_mask = _pad_chunk(b, b_mask, d_start, d_end, scoring_device, "b_mask")
+            score_chunks.append(
+                _maxsim_score_documents(chunk_a, chunk_b, chunk_a_mask, chunk_b_mask).to(result_device)
             )
-            for d_start, d_end in ranges:
-                chunk_b, chunk_b_mask = _pad_chunk(
-                    b, b_mask, start + d_start, start + d_end, scoring_device, "b_mask", dtype=dtype
-                )
-                score_chunks.append(
-                    _maxsim_score_documents(chunk_a, chunk_b, chunk_a_mask, chunk_b_mask).to(result_device)
-                )
         query_score_chunks.append(score_chunks[0] if len(score_chunks) == 1 else torch.cat(score_chunks, dim=1))
     # cat copies even a single chunk, which is the common case of a batch that fits the budget.
     scores = query_score_chunks[0] if len(query_score_chunks) == 1 else torch.cat(query_score_chunks, dim=0)
@@ -776,7 +745,6 @@ def _pad_tensor_list(tensors: list[Tensor], lengths: Tensor) -> Tensor:
 def _pad_multi_vector_inputs(
     inputs: list | np.ndarray | Tensor,
     mask: Tensor | None,
-    dtype: torch.dtype | None = None,
 ) -> tuple[Tensor, Tensor | None]:
     """Pad a list of variable-length multi-vector tensors into a single 3D tensor with a mask.
 
@@ -788,8 +756,6 @@ def _pad_multi_vector_inputs(
         # Quantized (integer) embeddings are upcast so einsum and the finfo-based masking work.
         tensors = [_convert_to_tensor(t) for t in inputs]
         tensors = [t if t.is_floating_point() else t.float() for t in tensors]
-        if dtype is not None:
-            tensors = [t.to(dtype=dtype) for t in tensors]
         lengths = torch.tensor([t.shape[0] for t in tensors])
         padded = _pad_tensor_list(tensors, lengths)
         if mask is None:
