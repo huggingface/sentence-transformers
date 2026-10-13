@@ -81,7 +81,6 @@ class SparseAutoEncoder(Module):
 
         def auxk_mask_fn(x):
             dead_mask = self.stats_last_nonzero > dead_threshold
-            # Out of place: forward() still needs the unmasked pre-activations for the 4k latents
             return x * dead_mask
 
         self.auxk_mask_fn = auxk_mask_fn
