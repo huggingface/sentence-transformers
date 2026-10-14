@@ -70,7 +70,7 @@ def test_semantic_search_input_formats(query_format: str, corpus_format: str) ->
         assert [hit["score"] for hit in hits] == pytest.approx([hit["score"] for hit in expected_hits])
 
 
-@pytest.mark.parametrize("corpus", [torch.empty(0), np.array([])])
+@pytest.mark.parametrize("corpus", [torch.empty(0), np.array([]), []])
 def test_semantic_search_empty_corpus(corpus) -> None:
     assert semantic_search(torch.ones(2, 16), corpus) == [[], []]
 
