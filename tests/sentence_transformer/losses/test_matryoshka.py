@@ -173,9 +173,6 @@ def test_mse_loss_matryoshka(static_retrieval_mrl_en_v1_model):
 
 @pytest.mark.parametrize("architecture", ["concatenated_pooling", "dense_projection"])
 def test_matryoshka_dims_can_exceed_token_embedding_dimension(architecture: str) -> None:
-    # The sentence embeddings (4 dims) are wider than the token embeddings (2 dims). The Matryoshka
-    # dimensions refer to the sentence embeddings, so the loss must match the base loss on truncated
-    # sentence embeddings.
     word_embeddings = WordEmbeddings(
         WhitespaceTokenizer(vocab=["PAD", "red", "blue", "green"]),
         embedding_weights=torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]),
