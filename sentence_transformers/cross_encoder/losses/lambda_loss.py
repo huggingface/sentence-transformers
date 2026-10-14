@@ -298,8 +298,7 @@ class LambdaLoss(nn.Module):
         if not isinstance(self.weighting_scheme, NDCGLoss1Scheme):
             padded_pairs_mask = padded_pairs_mask & (true_diffs > 0)
 
-        # Create truncation mask if k is specified: following Eq. 18 of the LambdaLoss paper, a pair is kept if
-        # at least one of its two documents is ranked in the top k
+        # Keep pairs with either document in the top k (LambdaLoss paper, Eq. 18).
         k = self.k or max_docs
         ndcg_at_k_mask = torch.zeros((max_docs, max_docs), dtype=torch.bool, device=self.model.device)
         ndcg_at_k_mask[:k, :] = 1

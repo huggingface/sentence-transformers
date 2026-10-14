@@ -153,9 +153,6 @@ def test_ranking_loss_averages_ordered_pairs_in_mixed_batch(loss_cls):
 
 @pytest.mark.parametrize("loss_cls", [LambdaLoss, RankNetLoss])
 def test_ranking_loss_top_k_learns_from_relevant_document_below_cutoff(loss_cls):
-    # The relevant document is ranked third, below the k=1 cutoff. Its pair with the first document still
-    # counts (Eq. 18 of the LambdaLoss paper), but its pair with the second document, ranked entirely
-    # below the cutoff, does not.
     model = _ScoreModel(torch.tensor([2.0, 1.0, 0.0]))
     loss = loss_cls(model, k=1)((["query"], [["0", "1", "2"]]), [torch.tensor([0.0, 0.0, 1.0])])
 
@@ -171,13 +168,10 @@ def test_ranking_loss_top_k_learns_from_relevant_document_below_cutoff(loss_cls)
 
 
 def test_ranknet_top_k_keeps_pairs_with_a_document_in_top_k():
-    # Documents are ranked in input order. With k=2, only the pair of the third and fourth documents
-    # lies entirely below the cutoff.
     model = _ScoreModel(torch.tensor([3.0, 2.0, 1.0, 0.0]))
     loss = RankNetLoss(model, k=2)((["query"], [["0", "1", "2", "3"]]), [torch.tensor([0.0, 1.0, 0.0, 2.0])])
 
     scores = model.scores.detach().double().requires_grad_()
-    # (more relevant, less relevant) document pairs
     pairs = [(1, 0), (1, 2), (3, 0), (3, 1)]
     pair_losses = torch.stack([torch.nn.functional.softplus(scores[less] - scores[more]) for more, less in pairs])
     expected = pair_losses.mean() / math.log(2)

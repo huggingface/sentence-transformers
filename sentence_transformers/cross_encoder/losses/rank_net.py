@@ -27,8 +27,8 @@ class RankNetLoss(LambdaLoss):
 
         Args:
             model (CrossEncoder): CrossEncoder model to be trained
-            k (int, optional): Number of documents to consider for NDCG@K. A document pair contributes to the loss if
-                at least one of the two documents is in the model's top K. Defaults to None (use all documents).
+            k (int, optional): Cutoff for selecting document pairs. A pair contributes to the loss if at least one
+                document is in the model's top K. Defaults to None (use all documents).
             sigma (float): Score difference weight used in sigmoid (default: 1.0)
             eps (float): Small constant for numerical stability (default: 1e-10)
             reduction_log (str): Type of logarithm to use, either "natural" (log) or "binary" (log2).
