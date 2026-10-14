@@ -5,7 +5,12 @@ import warnings
 import pytest
 import torch
 
-from sentence_transformers.sentence_transformer.losses import MatryoshkaLoss, MSELoss
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.base.modules import Dense
+from sentence_transformers.sentence_transformer.losses import MatryoshkaLoss, MSELoss, MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.modules import Pooling, WordEmbeddings
+from sentence_transformers.sentence_transformer.modules.tokenizer import WhitespaceTokenizer
+from sentence_transformers.util import cos_sim
 
 
 @pytest.fixture
@@ -164,3 +169,42 @@ def test_mse_loss_matryoshka(static_retrieval_mrl_en_v1_model):
     output = loss(sentence_features, x)
     assert isinstance(output, torch.Tensor)
     assert output.shape == torch.Size([])  # MSELoss returns a scalar
+
+
+@pytest.mark.parametrize("architecture", ["concatenated_pooling", "dense_projection"])
+def test_matryoshka_dims_can_exceed_token_embedding_dimension(architecture: str) -> None:
+    # The sentence embeddings (4 dims) are wider than the token embeddings (2 dims). The Matryoshka
+    # dimensions refer to the sentence embeddings, so the loss must match the base loss on truncated
+    # sentence embeddings.
+    word_embeddings = WordEmbeddings(
+        WhitespaceTokenizer(vocab=["PAD", "red", "blue", "green"]),
+        embedding_weights=torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]),
+        update_embeddings=True,
+    )
+    if architecture == "concatenated_pooling":
+        modules = [word_embeddings, Pooling(2, ("mean", "max"))]
+    else:
+        modules = [word_embeddings, Pooling(2, "mean"), Dense(2, 4)]
+    model = SentenceTransformer(modules=modules, device="cpu")
+    assert model.get_embedding_dimension() == 4
+
+    anchors, positives = ["red", "blue"], ["green", "red blue"]
+    loss_fn = MatryoshkaLoss(model, MultipleNegativesRankingLoss(model), matryoshka_dims=[4, 2])
+    loss = loss_fn([model.preprocess(anchors), model.preprocess(positives)], None)
+
+    anchor_embeddings = model(model.preprocess(anchors))["sentence_embedding"]
+    positive_embeddings = model(model.preprocess(positives))["sentence_embedding"]
+    expected = sum(
+        torch.nn.functional.cross_entropy(
+            cos_sim(anchor_embeddings[:, :dim], positive_embeddings[:, :dim]) * 20, torch.arange(len(anchors))
+        )
+        for dim in (4, 2)
+    )
+    torch.testing.assert_close(loss, expected)
+
+    loss.backward()
+    grads = [param.grad.clone() for param in model.parameters()]
+    model.zero_grad()
+    expected.backward()
+    for grad, param in zip(grads, model.parameters()):
+        torch.testing.assert_close(grad, param.grad)
