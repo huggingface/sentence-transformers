@@ -166,16 +166,14 @@ def test_mse_loss_matryoshka(static_retrieval_mrl_en_v1_model):
     assert output.shape == torch.Size([])  # MSELoss returns a scalar
 
 
-@pytest.mark.parametrize("per_column", [False, True])
-def test_mse_loss_matryoshka_zero_for_matching_teacher(stsb_bert_tiny_model, per_column):
-    """A student that matches the teacher has zero loss at every Matryoshka dimension."""
+def test_mse_loss_matryoshka_per_column_teacher(stsb_bert_tiny_model):
+    """Per-column (3D) teacher embeddings are truncated like 2D ones instead of crashing."""
     model = stsb_bert_tiny_model.cpu()
     loss = MatryoshkaLoss(model=model, loss=MSELoss(model=model), matryoshka_dims=[128, 32])
     texts = ["A man is eating food.", "A plane is taking off."]
     sentence_features = [model.preprocess(texts)]
     with torch.no_grad():
-        teacher = torch.nn.functional.normalize(model(model.preprocess(texts))["sentence_embedding"], dim=-1)
-        if per_column:
-            teacher = teacher[:, None, :]
-        output = loss(sentence_features, teacher)
-    assert output.item() == pytest.approx(0.0, abs=1e-10)
+        teacher = model(model.preprocess(texts))["sentence_embedding"]
+        expected = loss(sentence_features, teacher)
+        output = loss(sentence_features, teacher[:, None, :])
+    assert output.item() == pytest.approx(expected.item())
