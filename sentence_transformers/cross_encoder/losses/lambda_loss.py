@@ -135,7 +135,8 @@ class LambdaLoss(nn.Module):
 
                 Defaults to NDCGLoss2PPScheme. In the original LambdaLoss paper, the NDCGLoss2PPScheme was shown to reach
                 the strongest performance, with the NDCGLoss2Scheme following closely.
-            k (int, optional): Number of documents to consider for NDCG@K. Defaults to None (use all documents).
+            k (int, optional): Number of documents to consider for NDCG@K. A document pair contributes to the loss if
+                at least one of the two documents is in the model's top K. Defaults to None (use all documents).
             sigma (float): Score difference weight used in sigmoid
             eps (float): Small constant for numerical stability
             reduction_log (str): Type of logarithm to use
@@ -297,10 +298,12 @@ class LambdaLoss(nn.Module):
         if not isinstance(self.weighting_scheme, NDCGLoss1Scheme):
             padded_pairs_mask = padded_pairs_mask & (true_diffs > 0)
 
-        # Create truncation mask if k is specified
+        # Create truncation mask if k is specified: following Eq. 18 of the LambdaLoss paper, a pair is kept if
+        # at least one of its two documents is ranked in the top k
         k = self.k or max_docs
         ndcg_at_k_mask = torch.zeros((max_docs, max_docs), dtype=torch.bool, device=self.model.device)
-        ndcg_at_k_mask[:k, :k] = 1
+        ndcg_at_k_mask[:k, :] = 1
+        ndcg_at_k_mask[:, :k] = 1
 
         # Calculate gains and discounts
         true_sorted_by_preds.clamp_(min=0.0)
