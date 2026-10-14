@@ -396,6 +396,28 @@ def test_router_save_load(static_embedding: StaticEmbedding, tmp_path: Path):
     assert (doc_embeddings_original == doc_embeddings_loaded).all()
 
 
+@pytest.mark.parametrize("safe_serialization", [True, False])
+@pytest.mark.parametrize("share_module", [True, False])
+def test_router_save_load_preserves_shared_modules(tmp_path: Path, share_module, safe_serialization):
+    query = Dense(2, 2, bias=False, activation_function=None, init_weight=torch.eye(2))
+    document = query if share_module else deepcopy(query)
+    router = Router.for_query_document([query], [document])
+    router.save(str(tmp_path), safe_serialization=safe_serialization)
+
+    loaded = Router.load(str(tmp_path), local_files_only=True)
+    inputs = torch.ones(1, 2)
+    optimizer = torch.optim.SGD(loaded.parameters(), lr=0.1)
+    loss = loaded({"sentence_embedding": inputs}, task="query")["sentence_embedding"].sum()
+    loss.backward()
+    optimizer.step()
+
+    query_output = loaded({"sentence_embedding": inputs}, task="query")["sentence_embedding"]
+    document_output = loaded({"sentence_embedding": inputs}, task="document")["sentence_embedding"]
+    torch.testing.assert_close(query_output, torch.full((1, 2), 0.8))
+    torch.testing.assert_close(document_output, torch.full((1, 2), 0.8 if share_module else 1.0))
+    assert (loaded.sub_modules["query"][0] is loaded.sub_modules["document"][0]) == share_module
+
+
 def test_router_save_load_with_custom_default_route(static_embedding: StaticEmbedding, tmp_path: Path):
     """Test saving and loading a model with custom default route."""
     router = Router({"query": [static_embedding], "document": [static_embedding]}, default_route="document")
@@ -654,7 +676,7 @@ def test_router_load_with_config(
 
     # Create and save a Router
     query_module = static_embedding
-    doc_module = static_embedding
+    doc_module = deepcopy(static_embedding)
 
     router = Router({"query": [query_module], "document": [doc_module]}, default_route="query")
     model = SentenceTransformer(modules=[router])
@@ -717,7 +739,7 @@ def test_router_load_forwards_trust_remote_code(
         local_files_only=True,
     )
 
-    assert len(captured) == 2  # one resolution per child route
+    assert len(captured) == 1  # one resolution for the shared child module
     for call in captured:
         assert call["trust_remote_code"] is True
         assert call["model_name_or_path"] == str(tmp_path)
