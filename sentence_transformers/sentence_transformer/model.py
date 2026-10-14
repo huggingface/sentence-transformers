@@ -981,6 +981,11 @@ class SentenceTransformer(BaseModel, FitMixin):
                 for idx in range(len(out_features["sentence_embedding"])):
                     batch_item = {}
                     for name, value in out_features.items():
+                        # Strings such as "modality" describe the whole batch; indexing one
+                        # would return a single character
+                        if isinstance(value, str):
+                            batch_item[name] = value
+                            continue
                         try:
                             batch_item[name] = value[idx]
                         except TypeError:
