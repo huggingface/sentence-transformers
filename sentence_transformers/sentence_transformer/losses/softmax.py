@@ -16,6 +16,41 @@ from sentence_transformers.util.decorators import deprecated_kwargs
 logger = logging.getLogger(__name__)
 
 
+def _probability_sum_atol(dtype: torch.dtype) -> float:
+    # 1e-4 for float32 and wider. A quarter ulp for float16 and bfloat16: wide enough for equal
+    # thirds and equal sevenths after storage rounding, and still tight enough that a float64 sum
+    # rejects values a low-precision reduction would round back to 1.
+    eps = torch.finfo(dtype).eps
+    if eps <= torch.finfo(torch.float32).eps:
+        return 1e-4
+    return float(eps) / 4
+
+
+def _validate_probability_targets(labels: Tensor) -> None:
+    # ``detach`` only drops autograd; the caller's storage is left unchanged. Finite rows are
+    # reported before negative rows, and both before a float64 row sum outside atol of 1.
+    probabilities = labels.detach()
+
+    non_finite_rows = ~torch.isfinite(probabilities).all(dim=-1)
+    if non_finite_rows.any():
+        row = int(non_finite_rows.nonzero(as_tuple=True)[0][0])
+        raise ValueError(f"Probability targets must be finite, but row {row} violates the finite constraint.")
+
+    negative_rows = (probabilities < 0).any(dim=-1)
+    if negative_rows.any():
+        row = int(negative_rows.nonzero(as_tuple=True)[0][0])
+        raise ValueError(
+            f"Probability targets must be non-negative, but row {row} violates the non-negative constraint."
+        )
+
+    row_sums = probabilities.sum(dim=-1, dtype=torch.float64)
+    atol = _probability_sum_atol(probabilities.dtype)
+    mismatched_rows = ~torch.isclose(row_sums, torch.ones_like(row_sums), rtol=0, atol=atol)
+    if mismatched_rows.any():
+        row = int(mismatched_rows.nonzero(as_tuple=True)[0][0])
+        raise ValueError(f"Probability targets must sum to 1 per row, but row {row} violates the row-sum constraint.")
+
+
 class SoftmaxLoss(nn.Module):
     @deprecated_kwargs(sentence_embedding_dimension="embedding_dimension")
     def __init__(
@@ -27,6 +62,7 @@ class SoftmaxLoss(nn.Module):
         concatenation_sent_difference: bool = True,
         concatenation_sent_multiplication: bool = False,
         loss_fct: Callable = nn.CrossEntropyLoss(),
+        validate_probability_targets: bool = False,
     ) -> None:
         """
         This loss was used in our SBERT publication (https://huggingface.co/papers/1908.10084) to train the SentenceTransformer
@@ -43,6 +79,14 @@ class SoftmaxLoss(nn.Module):
             concatenation_sent_difference (bool): Whether to add abs(u-v) for the softmax classifier. Defaults to True.
             concatenation_sent_multiplication (bool): Whether to add u*v for the softmax classifier. Defaults to False.
             loss_fct (Callable): Custom pytorch loss function. If not set, uses nn.CrossEntropyLoss(). Defaults to nn.CrossEntropyLoss().
+            validate_probability_targets (bool): If ``True``, validate floating-point class probabilities
+                before computing the loss. The check runs when ``num_labels > 1`` and ``labels`` is a
+                floating-point tensor with the same shape as the logits. Each row must be finite,
+                non-negative, and sum to 1. Sums are accumulated in ``float64`` and compared with
+                ``torch.isclose`` against 1 at ``rtol=0``. ``atol`` is ``1e-4`` when
+                ``torch.finfo(dtype).eps <= torch.finfo(torch.float32).eps``, and ``eps / 4`` for
+                ``float16`` and ``bfloat16``. The lowest failing row raises ``ValueError``.
+                Defaults to ``False``.
 
         References:
             - Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks: https://huggingface.co/papers/1908.10084
@@ -53,8 +97,13 @@ class SoftmaxLoss(nn.Module):
 
             Labels can be integer class indices or, when ``num_labels > 1``, floating-point class probabilities with shape
             ``(batch_size, num_labels)``, e.g. ``"label": [[0.2, 0.3, 0.5], [0.6, 0.1, 0.3]]`` in the dataset.
-            Probabilities must be non-negative and sum to 1 per pair. They require a compatible loss function,
-            such as the default ``nn.CrossEntropyLoss``.
+            Probabilities must be finite, non-negative, and sum to 1 per pair. ``validate_probability_targets``
+            optionally checks those three constraints when ``labels`` is a floating-point tensor shaped like the
+            logits and ``num_labels > 1``: values must be finite and non-negative, and
+            ``sum(dim=-1, dtype=torch.float64)`` must pass ``torch.isclose`` against 1 with ``rtol=0``.
+            ``atol`` is ``1e-4`` when ``torch.finfo(dtype).eps <= torch.finfo(torch.float32).eps``, and
+            ``eps / 4`` for ``float16`` and ``bfloat16``. The default is ``False``, so targets stay unchecked.
+            Probabilities require a compatible loss function, such as the default ``nn.CrossEntropyLoss``.
 
         Inputs:
             +---------------------------------------+---------------------+
@@ -118,6 +167,7 @@ class SoftmaxLoss(nn.Module):
         logger.info(f"Softmax loss: {num_vectors_concatenated} vectors concatenated")
         self.classifier = nn.Linear(num_vectors_concatenated * embedding_dimension, num_labels, device=model.device)
         self.loss_fct = loss_fct
+        self.validate_probability_targets = validate_probability_targets
 
         if version.parse(transformers.__version__) < version.parse("4.43.0"):
             logger.warning(
@@ -148,7 +198,14 @@ class SoftmaxLoss(nn.Module):
         output = self.classifier(features)
 
         if labels is not None:
-            if self.num_labels == 1 or labels.shape != output.shape:
+            if (
+                self.validate_probability_targets
+                and self.num_labels > 1
+                and labels.is_floating_point()
+                and labels.shape == output.shape
+            ):
+                _validate_probability_targets(labels)
+            elif self.num_labels == 1 or labels.shape != output.shape:
                 labels = labels.view(-1)
             loss = self.loss_fct(output, labels)
             return loss
@@ -161,6 +218,7 @@ class SoftmaxLoss(nn.Module):
             "concatenation_sent_rep": self.concatenation_sent_rep,
             "concatenation_sent_difference": self.concatenation_sent_difference,
             "concatenation_sent_multiplication": self.concatenation_sent_multiplication,
+            "validate_probability_targets": self.validate_probability_targets,
         }
 
     @property
