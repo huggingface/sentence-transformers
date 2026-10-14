@@ -73,7 +73,9 @@ class WordEmbeddings(InputModule):
             inputs = self._prepend_prompt(inputs, prompt)
         tokenized_texts = [self.tokenizer.tokenize(text, **kwargs) for text in inputs]
         sentence_lengths = [len(tokens) for tokens in tokenized_texts]
-        max_len = max(sentence_lengths)
+        # Keep one masked position so that a batch without any known tokens still gives
+        # non-empty tensors, which LSTM and CNN need
+        max_len = max(1, max(sentence_lengths))
 
         input_ids = []
         attention_masks = []
