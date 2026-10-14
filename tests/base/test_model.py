@@ -26,6 +26,18 @@ from sentence_transformers.base.model_card import BaseModelCardData
 from sentence_transformers.base.modules.module import Module
 
 
+@pytest.mark.parametrize("model_class", [SentenceTransformer, MultiVectorEncoder])
+@pytest.mark.parametrize("modality", ["text", ("image", "text")])
+def test_encode_output_value_none_keeps_modality(model_class, modality) -> None:
+    model = model_class("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+    with model.register_forward_hook(lambda module, args, output: output | {"modality": modality}):
+        outputs = model.encode(["Text one"] * 5, batch_size=5, output_value=None)
+
+    assert [output["modality"] for output in outputs] == [modality] * 5
+    assert all(output["input_ids"].ndim == 1 for output in outputs)
+    assert all(output["token_embeddings"].ndim == 2 for output in outputs)
+
+
 def test_set_base_model_uses_resolved_revision_without_hub_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     class ResolvedRevision(str):
         initial = "main"

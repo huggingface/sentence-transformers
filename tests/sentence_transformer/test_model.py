@@ -422,13 +422,6 @@ def test_prompt_output_value_None(stsb_bert_tiny_model) -> None:
     assert set(outputs[1].keys()) == expected_keys
 
 
-@pytest.mark.parametrize("num_texts", [1, 2, 5])
-def test_output_value_None_keeps_modality(stsb_bert_tiny_model, num_texts: int) -> None:
-    outputs = stsb_bert_tiny_model.encode(["Text one"] * num_texts, batch_size=num_texts, output_value=None)
-    assert len(outputs) == num_texts
-    assert [output["modality"] for output in outputs] == ["text"] * num_texts
-
-
 @pytest.mark.parametrize("has_bos_token", [True, False])
 @pytest.mark.parametrize("has_eos_token", [True, False])
 def test_prompt_length_calculation(

@@ -978,18 +978,13 @@ class SentenceTransformer(BaseModel, FitMixin):
                     embeddings.append(token_emb[: last_mask_id + 1])
             elif output_value is None:
                 embeddings = []
-                for idx in range(len(out_features["sentence_embedding"])):
+                for idx in range(len(inputs_batch)):
                     batch_item = {}
                     for name, value in out_features.items():
-                        # Strings such as "modality" describe the whole batch; indexing one
-                        # would return a single character
-                        if isinstance(value, str):
-                            batch_item[name] = value
-                            continue
-                        try:
-                            batch_item[name] = value[idx]
-                        except TypeError:
-                            batch_item[name] = value
+                        is_batch_first = (
+                            isinstance(value, Tensor) and value.ndim > 0 and value.shape[0] == len(inputs_batch)
+                        )
+                        batch_item[name] = value[idx] if is_batch_first else value
                     embeddings.append(batch_item)
             else:
                 embeddings = out_features[output_value]
