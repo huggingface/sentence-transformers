@@ -168,12 +168,17 @@ def test_mse_loss_matryoshka(static_retrieval_mrl_en_v1_model):
 
 def test_mse_loss_matryoshka_per_column_teacher(stsb_bert_tiny_model):
     """Per-column (3D) teacher embeddings are truncated like 2D ones instead of crashing."""
-    model = stsb_bert_tiny_model.cpu()
+    model = stsb_bert_tiny_model.cpu().eval()
     loss = MatryoshkaLoss(model=model, loss=MSELoss(model=model), matryoshka_dims=[128, 32])
-    texts = ["A man is eating food.", "A plane is taking off."]
-    sentence_features = [model.preprocess(texts)]
+    text_columns = [
+        ["A man is eating food.", "A plane is taking off.", "A child is playing outside."],
+        ["Someone is having lunch.", "An aircraft is leaving the runway.", "A girl is riding a bicycle."],
+    ]
     with torch.no_grad():
-        teacher = model(model.preprocess(texts))["sentence_embedding"]
-        expected = loss(sentence_features, teacher)
-        output = loss(sentence_features, teacher[:, None, :])
+        teacher_embeddings = [model(model.preprocess(texts))["sentence_embedding"] for texts in text_columns]
+        expected = torch.stack(
+            [loss([model.preprocess(texts)], teacher) for texts, teacher in zip(text_columns, teacher_embeddings)]
+        ).mean()
+        sentence_features = [model.preprocess(texts) for texts in text_columns]
+        output = loss(sentence_features, torch.stack(teacher_embeddings, dim=1))
     assert output.item() == pytest.approx(expected.item())
