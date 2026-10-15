@@ -520,8 +520,6 @@ class BaseTrainer(Trainer, ABC):
                 if key not in self.accum_loss_components[training_type] or not steps:
                     value = torch.tensor(0.0, dtype=value.dtype, device=value.device)
                 else:
-                    # The accumulator sums one value per call, so average over the calls ("steps"),
-                    # not over optimizer steps, which differ under gradient accumulation and in eval.
                     value = self.accum_loss_components[training_type][key] / steps
 
             if key not in self.accum_loss_components[training_type]:
