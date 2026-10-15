@@ -20,7 +20,6 @@ from torch import nn
 from transformers import PreTrainedTokenizerFast
 
 from sentence_transformers.base.modules.input_module import InputModule
-from sentence_transformers.util import get_device_name
 
 logger = logging.getLogger(__name__)
 
@@ -158,12 +157,33 @@ class StaticEmbedding(InputModule):
         tokenizer = Tokenizer.from_file(tokenizer_path)
 
         weights = cls.load_torch_weights(model_name_or_path=model_name_or_path, **hub_kwargs)
-        try:
-            weights = weights["embedding.weight"]
-        except KeyError:
-            # For compatibility with model2vec models, which are saved with just an "embeddings" key
-            weights = weights["embeddings"]
-        return StaticEmbedding(tokenizer, embedding_weights=weights)
+        if "embedding.weight" in weights:
+            embedding_weights = weights["embedding.weight"]
+        else:
+            # For compatibility with model2vec models, which are saved with an "embeddings" key and optionally
+            # a "mapping" and per-token "weights" (e.g. vocabulary-quantized models)
+            embedding_weights = cls._fold_model2vec_weights(
+                weights["embeddings"], weights.get("mapping"), weights.get("weights")
+            )
+        return StaticEmbedding(tokenizer, embedding_weights=embedding_weights)
+
+    @staticmethod
+    def _fold_model2vec_weights(
+        embeddings: np.ndarray | torch.Tensor,
+        token_mapping: np.ndarray | torch.Tensor | None = None,
+        token_weights: np.ndarray | torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Fold a model2vec token mapping and per-token weights into one row per token id, so that
+        ``embedding[token_id] == embeddings[token_mapping[token_id]] * token_weights[token_id]``, which is
+        what model2vec averages over."""
+        embeddings = torch.as_tensor(embeddings)
+        if token_mapping is not None:
+            embeddings = embeddings[torch.as_tensor(token_mapping, dtype=torch.long)]
+        if token_weights is not None:
+            embeddings = embeddings.to(torch.promote_types(embeddings.dtype, torch.float32))
+            token_weights = torch.as_tensor(token_weights)
+            embeddings = (embeddings * token_weights[:, None]).to(embeddings.dtype)
+        return embeddings.contiguous()
 
     @classmethod
     def from_distillation(
@@ -185,8 +205,8 @@ class StaticEmbedding(InputModule):
         Args:
             model_name (str): The name of the model to distill.
             vocabulary (list[str] | None, optional): A list of vocabulary words to use. Defaults to None.
-            device (str): The device to run the distillation on (e.g., 'cpu', 'cuda'). If not specified,
-                the strongest device is automatically detected. Defaults to None.
+            device (str | None, optional): The device to run the distillation on (e.g., 'cpu', 'cuda').
+                If None, `model2vec` automatically selects the device. Defaults to None.
             pca_dims (int | None, optional): The number of dimensions for PCA reduction. Defaults to 256.
             apply_zipf (bool): Whether to apply Zipf's law during distillation. Defaults to True.
             sif_coefficient (float | None, optional): The coefficient for SIF weighting. Defaults to 1e-4.
@@ -230,10 +250,13 @@ class StaticEmbedding(InputModule):
             )
             kwargs = {key: value for key, value in kwargs.items() if key in distill_kwargs}
 
-        device = get_device_name()
         static_model = distill(model_name, **kwargs)
         if isinstance(static_model.embedding, np.ndarray):
-            embedding_weights = torch.from_numpy(static_model.embedding).contiguous()
+            embedding_weights = cls._fold_model2vec_weights(
+                static_model.embedding,
+                getattr(static_model, "token_mapping", None),
+                getattr(static_model, "weights", None),
+            )
         else:
             embedding_weights = static_model.embedding.weight
         tokenizer: Tokenizer = static_model.tokenizer
@@ -264,7 +287,11 @@ class StaticEmbedding(InputModule):
 
         static_model = StaticModel.from_pretrained(model_id_or_path)
         if isinstance(static_model.embedding, np.ndarray):
-            embedding_weights = torch.from_numpy(static_model.embedding).contiguous()
+            embedding_weights = cls._fold_model2vec_weights(
+                static_model.embedding,
+                getattr(static_model, "token_mapping", None),
+                getattr(static_model, "weights", None),
+            )
         else:
             embedding_weights = static_model.embedding.weight
         tokenizer: Tokenizer = static_model.tokenizer

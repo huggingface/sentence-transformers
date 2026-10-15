@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import MagicMock
 
+import pytest
 import torch
 from torch import nn
 
@@ -170,3 +173,33 @@ def test_dense_config_omits_default_use_residual(tmp_path: Path) -> None:
     assert config["use_residual"] is True
     loaded = Dense.load(str(residual_dir))
     assert loaded.use_residual is True
+
+
+@pytest.mark.parametrize("trust_remote_code", [False, True])
+def test_dense_activation_factory_requires_trust(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, trust_remote_code: bool
+) -> None:
+    dense = Dense(2, 2, bias=False)
+    dense.save(str(tmp_path))
+    config_path = tmp_path / "config.json"
+    config = json.loads(config_path.read_text())
+    config["activation_function"] = "torch.serialization.clear_safe_globals"
+    config_path.write_text(json.dumps(config))
+    factory = MagicMock(return_value=nn.Identity())
+    monkeypatch.setattr(torch.serialization, "clear_safe_globals", factory, raising=False)
+
+    if trust_remote_code:
+        loaded = Dense.load(str(tmp_path), local_files_only=True, trust_remote_code=True)
+        factory.assert_called_once_with()
+        assert isinstance(loaded.activation_function, nn.Identity)
+        torch.testing.assert_close(loaded.linear.weight, dense.linear.weight)
+    else:
+        with pytest.raises(ValueError, match="must be a torch.nn.Module class"):
+            Dense.load(str(tmp_path), local_files_only=True)
+        factory.assert_not_called()
+
+
+def test_dense_rejects_non_module_activation_class(tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text(json.dumps({"activation_function": "torch.device"}))
+    with pytest.raises(ValueError, match="must be a torch.nn.Module class"):
+        Dense.load(str(tmp_path), local_files_only=True)

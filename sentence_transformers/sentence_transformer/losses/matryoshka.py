@@ -56,8 +56,6 @@ class ForwardDecorator:
         # Using cache:
         else:
             output = self.cache[self.idx]
-        if "token_embeddings" in output:
-            output["token_embeddings"] = shrink(output["token_embeddings"], self.dim)
         output["sentence_embedding"] = shrink(output["sentence_embedding"], self.dim)
         self.idx += 1
         return output

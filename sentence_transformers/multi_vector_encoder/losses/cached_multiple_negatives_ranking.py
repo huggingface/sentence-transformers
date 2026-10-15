@@ -125,9 +125,6 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
             trainer.train()
     """
 
-    # Enables per-sample media counting in Transformer.preprocess for VLM minibatching
-    requires_media_counts = True
-
     # Back-propagates from a hook on the returned loss (see `gradcache.uses_gradient_cache`).
     uses_gradient_cache = True
 

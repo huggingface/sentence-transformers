@@ -28,9 +28,12 @@ Once you have `installed <installation.html>`_ Sentence Transformers, you can ea
    - `SentenceTransformer > Speeding up Inference <./sentence_transformer/usage/efficiency.html>`_
    - `SentenceTransformer > Pretrained Models <./sentence_transformer/pretrained_models.html>`_
    - `SentenceTransformer > Training Overview <./sentence_transformer/training_overview.html>`_
-   - `SentenceTransformer > Dataset Overview <./sentence_transformer/dataset_overview.html>`_
    - `SentenceTransformer > Loss Overview <./sentence_transformer/loss_overview.html>`_
    - `SentenceTransformer > Training Examples <./sentence_transformer/training/examples.html>`_
+
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <installation.html#log-in-to-hugging-face>`_.
 
 .. tab:: Text
 
@@ -38,64 +41,54 @@ Once you have `installed <installation.html>`_ Sentence Transformers, you can ea
 
       from sentence_transformers import SentenceTransformer
 
-      # 1. Load a pretrained Sentence Transformer model
-      model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+      model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
 
-      # The sentences to encode
-      sentences = [
-          "The weather is lovely today.",
-          "It's so sunny outside!",
-          "He drove to the stadium.",
+      query = "Which planet is known as the Red Planet?"
+      documents = [
+          "Jupiter is the largest planet in our solar system.",
+          "Mars gets its reddish color from iron minerals in its soil.",
+          "Photosynthesis lets plants turn sunlight into energy.",
       ]
 
-      # 2. Calculate embeddings by calling model.encode()
-      embeddings = model.encode(sentences)
-      print(embeddings.shape)
-      # [3, 384]
+      query_embedding = model.encode_query(query)
+      document_embeddings = model.encode_document(documents)
+      print(query_embedding.shape, document_embeddings.shape)
+      # (1024,) (3, 1024)
 
-      # 3. Calculate the embedding similarities
-      similarities = model.similarity(embeddings, embeddings)
-      print(similarities)
-      # tensor([[1.0000, 0.6660, 0.1046],
-      #         [0.6660, 1.0000, 0.1411],
-      #         [0.1046, 0.1411, 1.0000]])
+      scores = model.similarity(query_embedding, document_embeddings)[0]
+      for index in scores.argsort(descending=True):
+          print(f"{scores[index]:.4f}: {documents[index]}")
+      # 0.6115: Mars gets its reddish color from iron minerals in its soil.
+      # 0.4360: Jupiter is the largest planet in our solar system.
+      # 0.1893: Photosynthesis lets plants turn sunlight into energy.
 
 .. tab:: Multimodal
 
    .. tip::
 
-      Multimodal models require additional dependencies. Install them with e.g. ``pip install -U "sentence-transformers[image]"`` for image support. See `Installation <installation.html>`_ for all options.
+      Install image support and update Transformers with ``pip install -U "sentence-transformers[image]" transformers`` to run this example. See `Installation <installation.html>`_ for all options.
 
    .. code-block:: python
 
       from sentence_transformers import SentenceTransformer
 
-      # 1. Load a model that supports both text and images
-      model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
+      model = SentenceTransformer("google/embeddinggemma-2")
 
-      # 2. Encode images from URLs
-      img_embeddings = model.encode([
+      document_embeddings = model.encode_document([
           "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg",
           "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/bee.jpg",
       ])
-
-      # 3. Encode text queries (one matching + one hard negative per image)
-      text_embeddings = model.encode([
+      query_embeddings = model.encode_query([
           "A green car parked in front of a yellow building",
-          "A red car driving on a highway",
           "A bee on a pink flower",
-          "A wasp on a wooden table",
       ])
+      print(query_embeddings.shape, document_embeddings.shape)
+      # (2, 768) (2, 768)
 
-      # 4. Compute cross-modal similarities
-      similarities = model.similarity(text_embeddings, img_embeddings)
+      similarities = model.similarity(query_embeddings, document_embeddings)
       print(similarities)
-      # tensor([[0.5115, 0.1078],
-      #         [0.1999, 0.1108],
-      #         [0.1255, 0.6749],
-      #         [0.1283, 0.2704]])
-
-With ``SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")`` we pick which `Sentence Transformer model <https://huggingface.co/models?library=sentence-transformers>`_ we load. In this example, we load `sentence-transformers/all-MiniLM-L6-v2 <https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2>`_, which is a MiniLM model finetuned on a large dataset of over 1 billion training pairs. Using :meth:`SentenceTransformer.similarity() <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`, we compute the similarity between all pairs of sentences. As expected, the similarity between semantically related inputs is higher than between unrelated ones. Multimodal models like `Qwen/Qwen3-VL-Embedding-2B <https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B>`_ can also encode images, audio, or video into the same embedding space.
+      # tensor([[0.7468, 0.5783],
+      #         [0.6254, 0.8070]])
 
 Finetuning Sentence Transformer models is easy and requires only a few lines of code. For more information, see the `Training Overview <./sentence_transformer/training_overview.html>`__ section.
 
@@ -124,11 +117,15 @@ The usage for Cross Encoder (a.k.a. reranker) models is similar to Sentence Tran
    **Other useful methods and links:**
 
    - `CrossEncoder > Usage <./cross_encoder/usage/usage.html>`_
+   - `CrossEncoder > Speeding up Inference <./cross_encoder/usage/efficiency.html>`_
    - `CrossEncoder > Pretrained Models <./cross_encoder/pretrained_models.html>`_
    - `CrossEncoder > Training Overview <./cross_encoder/training_overview.html>`_
-   - `CrossEncoder > Dataset Overview <./cross_encoder/dataset_overview.html>`_
    - `CrossEncoder > Loss Overview <./cross_encoder/loss_overview.html>`_
    - `CrossEncoder > Training Examples <./cross_encoder/training/examples.html>`_
+
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <installation.html#log-in-to-hugging-face>`_.
 
 .. tab:: Text
 
@@ -252,10 +249,15 @@ The usage for Sparse Encoder models follows a similar pattern to Sentence Transf
    **Other useful methods and links:**
 
    - `SparseEncoder > Usage <./sparse_encoder/usage/usage.html>`_
+   - `SparseEncoder > Speeding up Inference <./sparse_encoder/usage/efficiency.html>`_
    - `SparseEncoder > Pretrained Models <./sparse_encoder/pretrained_models.html>`_
    - `SparseEncoder > Training Overview <./sparse_encoder/training_overview.html>`_
    - `SparseEncoder > Loss Overview <./sparse_encoder/loss_overview.html>`_
    - `Sparse Encoder > Vector Database Integration <../examples/sparse_encoder/applications/semantic_search/README.html#vector-database-search>`_
+
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <installation.html#log-in-to-hugging-face>`_.
 
 ::
 
@@ -318,9 +320,14 @@ The usage for Multi-Vector Encoder models follows a similar pattern to Sentence 
    **Other useful methods and links:**
 
    - `MultiVectorEncoder > Usage <./multi_vector_encoder/usage/usage.html>`_
+   - `MultiVectorEncoder > Speeding up Inference <./multi_vector_encoder/usage/efficiency.html>`_
    - `MultiVectorEncoder > Pretrained Models <./multi_vector_encoder/pretrained_models.html>`_
    - `MultiVectorEncoder > Training Overview <./multi_vector_encoder/training_overview.html>`_
    - `MultiVectorEncoder > Loss Overview <./multi_vector_encoder/loss_overview.html>`_
+
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <installation.html#log-in-to-hugging-face>`_.
 
 .. tab:: Text
 

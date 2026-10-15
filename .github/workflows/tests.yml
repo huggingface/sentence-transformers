@@ -25,7 +25,7 @@ jobs:
     name: Run unit tests
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         os: [ubuntu-latest, windows-latest]
       fail-fast: false
     runs-on: ${{ matrix.os }}
@@ -60,20 +60,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
 
-      # kenlm doesn't compile on Python 3.13, and pyctcdecode pins numpy<2.0.0
-      # which conflicts with the rest of the stack. transformers[audio] also pulls
-      # librosa, which needs numba, which needs llvmlite. On Python 3.13 uv backtracks
-      # to the old numba 0.53.1, whose pinned llvmlite==0.36.0 only supports Python
-      # <3.10 and fails to build. Exclude all of them on Python 3.13.
-      - name: Create excludes file for packages without Python 3.13 support
+      # pyctcdecode pins numpy<2, but pyarrow>=26 requires numpy>=2 at runtime.
+      # Python 3.13 and 3.14 also need exclusions for kenlm and the librosa dependency chain.
+      - name: Create excludes file for incompatible audio dependencies
         shell: bash
         run: |
-          if [ "${{ matrix.python-version }}" = "3.13" ]; then
-            echo -e "kenlm\npyctcdecode\nlibrosa\nnumba\nllvmlite" > excludes.txt
-          else
-            touch excludes.txt
+          echo "pyctcdecode" > excludes.txt
+          if [[ "${{ matrix.python-version }}" == "3.13" || "${{ matrix.python-version }}" == "3.14" ]]; then
+            echo -e "kenlm\nlibrosa\nnumba\nllvmlite" >> excludes.txt
           fi
       - name: Install dependencies
         run: uv pip install '.[train]' --group test --excludes excludes.txt --system

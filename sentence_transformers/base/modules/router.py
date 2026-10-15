@@ -19,6 +19,7 @@ from sentence_transformers.base.modality_types import MODALITY_TO_PROCESSOR_ARG,
 from sentence_transformers.base.modules.input_module import InputModule
 from sentence_transformers.base.modules.module import Module
 from sentence_transformers.util import import_module_class, load_dir_path
+from sentence_transformers.util.file_io import _validate_relative_path
 
 if TYPE_CHECKING:
     from sentence_transformers.base.model import BaseModel
@@ -660,6 +661,9 @@ class Router(InputModule):
             config = cls.load_config(
                 model_name_or_path=model_name_or_path, config_filename="config.json", subfolder=subfolder, **hub_kwargs
             )
+        for model_id in config["types"]:
+            _validate_relative_path(model_id)
+
         modules = {}
         for model_id, model_type in config["types"].items():
             module_class: type[Module] = module_classes.get(model_type) or import_module_class(

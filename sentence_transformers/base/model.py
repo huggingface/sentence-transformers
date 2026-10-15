@@ -6,6 +6,7 @@ import json
 import math
 import os
 import pickle
+import queue
 import shutil
 import sys
 import tempfile
@@ -52,7 +53,7 @@ from sentence_transformers.util import (
     load_file_path,
     save_to_hub_args_decorator,
 )
-from sentence_transformers.util.file_io import _resolve_model_revision
+from sentence_transformers.util.file_io import _resolve_model_revision, _validate_relative_path
 from sentence_transformers.util.misc import ORIGINAL_TRANSFORMER_MODELS
 
 if TYPE_CHECKING:
@@ -145,8 +146,9 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 a commit id, for a stored model on Hugging Face. Defaults to None.
             local_files_only (bool, optional): Whether to only look at local files (i.e., do not try to download
                 the model). Defaults to False.
-            token (bool or str, optional): Hugging Face authentication token to download private models.
-                Defaults to None.
+            token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
+                private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
+                credentials saved with ``hf auth login``, if available.
             model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
                 Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
@@ -285,6 +287,24 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             self.to(device)
         self.is_hpu_graph_enabled = False
 
+        requested_dtype = (model_kwargs or {}).get("dtype") or (model_kwargs or {}).get("torch_dtype")
+        config_dtype = (config_kwargs or {}).get("dtype") or (config_kwargs or {}).get("torch_dtype")
+        if (
+            model_name_or_path
+            and backend == "torch"
+            and requested_dtype in (None, "auto")
+            and config_dtype in (None, "auto")
+            and self.transformers_model is not None
+            and self.dtype in (torch.float16, torch.bfloat16)
+            and self.device.type == "cpu"
+            and all(parameter.device.type == "cpu" for parameter in self.parameters())
+        ):
+            logger.warning_once(
+                f"This model was loaded in {self.dtype} on CPU. Depending on your CPU, inference may be significantly "
+                "slower than with torch.float32. Consider comparing inference speeds by loading with "
+                '`model_kwargs={"dtype": torch.float32}`.'
+            )
+
         # Validate prompts after model loading (which may have merged config prompts)
         self._validate_prompts()
 
@@ -347,8 +367,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         if self.default_prompt_name:
             logger.warning_once(
                 f"Default prompt name is set to '{self.default_prompt_name}'. "
-                f"This prompt will be applied to all inference calls, except if "
-                f"a `prompt` or `prompt_name` parameter is provided."
+                "This prompt applies unless overridden by `prompt`, `prompt_name`, or a method-specific prompt, "
+                "including an empty prompt."
             )
 
     def _resolve_prompt(self, prompt: str | None, prompt_name: str | None) -> str | None:
@@ -881,6 +901,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
         Args:
             repo_id (str): Repository name for your model in the Hub, including the user or organization.
+            organization (str, optional): DEPRECATED, include the organization in ``repo_id`` instead
+                (e.g. ``"organization/repo_id"``).
             token (str, optional): An authentication token (See https://huggingface.co/settings/token)
             private (bool, optional): Set to true, for hosting a private model
             safe_serialization (bool, optional): If true, save the model using safetensors. If false, save the model the traditional PyTorch way
@@ -1215,6 +1237,9 @@ This pull request has been automatically generated to add {self.__class__.__name
         )
         with open(modules_json_path, encoding="utf8") as fIn:
             modules_config = json.load(fIn)
+
+        for module_config in modules_config:
+            _validate_relative_path(module_config["path"])
 
         modules = OrderedDict()
         module_kwargs = OrderedDict()
@@ -1756,6 +1781,7 @@ This pull request has been automatically generated to add {self.__class__.__name
             p.join()
             p.close()
 
+        pool["input"].cancel_join_thread()
         pool["input"].close()
         pool["output"].close()
 
@@ -1789,7 +1815,6 @@ This pull request has been automatically generated to add {self.__class__.__name
                 chunk_size = max(1, min(math.ceil(len(inputs) / len(pool["processes"]) / 10), 5000))
 
             input_queue: Queue = pool["input"]
-            output_queue: Queue = pool["output"]
             chunk_starts = range(0, len(inputs), chunk_size)
             num_chunks = len(chunk_starts)
             for chunk_id, start in enumerate(chunk_starts):
@@ -1797,7 +1822,7 @@ This pull request has been automatically generated to add {self.__class__.__name
 
             outputs = [None] * num_chunks
             for _ in trange(num_chunks, desc="Chunks", disable=not show_progress_bar):
-                chunk_id, output = output_queue.get()
+                chunk_id, output = self._get_worker_result(pool)
                 outputs[chunk_id] = output
 
             for output in outputs:
@@ -1832,6 +1857,24 @@ This pull request has been automatically generated to add {self.__class__.__name
                 results_queue.put(cls._report_worker_failure(chunk_id, exc, target_device))
             else:
                 results_queue.put([chunk_id, outputs])
+
+    @staticmethod
+    def _get_worker_result(
+        pool: dict[Literal["input", "output", "processes"], Any], poll_interval: float = 1.0
+    ) -> Any:
+        """Wait for a result, checking for dead workers whenever the queue is empty."""
+        while True:
+            try:
+                return pool["output"].get(timeout=poll_interval)
+            except queue.Empty:
+                pass
+            dead = [p for p in pool["processes"] if not p.is_alive()]
+            if dead:
+                details = ", ".join(f"pid {p.pid} (exit code {p.exitcode})" for p in dead)
+                raise RuntimeError(
+                    f"{len(dead)} multi-process pool worker(s) died unexpectedly: {details}. "
+                    "Stop the pool and start a new one before retrying."
+                )
 
     @classmethod
     def _report_worker_failure(cls, chunk_id: int, exc: Exception, target_device: str) -> list[int | Exception]:

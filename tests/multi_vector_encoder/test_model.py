@@ -20,15 +20,11 @@ from sentence_transformers.util import SimilarityFunction, maxsim, maxsim_pairwi
 from tests.utils import skip_bfloat16_cpu_crash
 
 
-@pytest.fixture(scope="module")
-def model() -> MultiVectorEncoder:
-    return MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
-
-
-def test_loads_with_default_modules(model: MultiVectorEncoder) -> None:
+def test_loads_with_default_modules() -> None:
     # Four modules: Transformer + Dense projection (token-level) + MultiVectorMask + Normalize.
     # Fresh MVE constructions carry no query expansion: the classic ColBERT tricks are explicit
     # recipe choices. Legacy PyLate / Stanford saves keep their own expansion configs.
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
     assert len(model) == 4
     assert isinstance(model[0], Transformer)
     assert model[0].query_expansion is None
@@ -40,7 +36,8 @@ def test_loads_with_default_modules(model: MultiVectorEncoder) -> None:
     assert model.get_embedding_dimension() == model[1].out_features
 
 
-def test_default_colbert_attributes(model: MultiVectorEncoder) -> None:
+def test_default_colbert_attributes() -> None:
+    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
     transformer = model[0]
     assert transformer.query_length is None
     assert transformer.document_length is None
@@ -272,14 +269,16 @@ def test_query_expansion_setter_validates_post_init() -> None:
     assert model[0].query_expansion is None
 
 
-def test_encode_document_varies_with_length(model: MultiVectorEncoder) -> None:
+def test_encode_document_varies_with_length(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     embs = model.encode_document(["one short doc", "a much longer document with more tokens to embed"])
     assert len(embs) == 2
     assert embs[1].shape[0] > embs[0].shape[0]
 
 
-def test_encode_routes_through_module_call(model: MultiVectorEncoder) -> None:
+def test_encode_routes_through_module_call(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """encode() must run the forward pass via __call__ so that model.compile() applies to inference."""
+    model = mve_bert_tiny_model
     calls = []
     handle = model.register_forward_hook(lambda module, args, output: calls.append(True))
     try:
@@ -328,17 +327,19 @@ def test_mask_keep_only_token_ids_restricts_document_mask() -> None:
     assert emb.shape[0] == 5
 
 
-def test_mask_keep_only_token_ids_none_is_noop(model: MultiVectorEncoder) -> None:
+def test_mask_keep_only_token_ids_none_is_noop(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """Default ``keep_only_token_ids=None`` means no allowlist: matches pre-P1.2 behavior exactly."""
+    model = mve_bert_tiny_model
     mask_module = model[2]
     assert isinstance(mask_module, MultiVectorMask)
     assert mask_module.keep_only_token_ids is None
 
 
-def test_mask_skiplist_tasks_gate(model: MultiVectorEncoder) -> None:
+def test_mask_skiplist_tasks_gate(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """``skiplist_tasks`` is an allowlist (default documents only, no task counts as document):
     a custom task is no longer skiplisted unless listed, and listing "query" unlocks the
     query-side skiplist some ColBERT variants use."""
+    model = mve_bert_tiny_model
     mask = MultiVectorMask(skiplist_words=["."])
     mask.resolve_with_tokenizer(model.tokenizer)
     period_id = model.tokenizer.convert_tokens_to_ids(".")
@@ -356,10 +357,11 @@ def test_mask_skiplist_tasks_gate(model: MultiVectorEncoder) -> None:
     assert query_side.forward(dict(features), task="query")["attention_mask"].tolist() == [[True, False, True]]
 
 
-def test_mask_repads_flash_attention_flattened_features(model: MultiVectorEncoder) -> None:
+def test_mask_repads_flash_attention_flattened_features(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """Under FA2 unpadding the encoder hands the mask a flat ``(1, sum_lens, ...)`` batch described by
     ``cu_seq_lens_q`` and no ``attention_mask``. The mask re-pads it back to ``(B, T, D)`` before
     applying the skiplist, and this branch is otherwise reachable only with real flash attention."""
+    model = mve_bert_tiny_model
     mask = MultiVectorMask(skiplist_words=["."])
     mask.resolve_with_tokenizer(model.tokenizer)
     period_id = model.tokenizer.convert_tokens_to_ids(".")
@@ -384,21 +386,20 @@ def test_mask_skiplist_tasks_round_trips_through_config(tmp_path) -> None:
     assert restored.skiplist_tasks == ["query"]
 
 
-def test_mask_skiplist_drops_unk_resolving_words(model: MultiVectorEncoder, caplog) -> None:
+def test_mask_skiplist_drops_unk_resolving_words(mve_bert_tiny_model: MultiVectorEncoder, caplog) -> None:
     """``resolve_with_tokenizer`` drops skiplist words that ``convert_tokens_to_ids`` resolves to
     ``unk_token_id``. Otherwise every real ``[UNK]`` document token would be silently excluded from
     MaxSim scoring. The drop emits a one-shot warning so the developer sees it once per process.
     """
-    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-    fresh = MultiVectorEncoder(base)
-    mask_module = fresh[2]
+    model = mve_bert_tiny_model
+    mask_module = model[2]
     assert isinstance(mask_module, MultiVectorMask)
     # ``!!!UNRESOLVABLE!!!`` is not a single vocab token in any reasonable tokenizer, but ``.`` is.
     mask_module.skiplist_words = ["!!!UNRESOLVABLE!!!", "."]
     with caplog.at_level("WARNING"):
-        mask_module.resolve_with_tokenizer(fresh.tokenizer)
+        mask_module.resolve_with_tokenizer(model.tokenizer)
     assert mask_module._skiplist_ids is not None
-    period_id = fresh.tokenizer.convert_tokens_to_ids(".")
+    period_id = model.tokenizer.convert_tokens_to_ids(".")
     assert mask_module._skiplist_ids.tolist() == [period_id], (
         "the unresolvable word should be filtered out. The period should remain."
     )
@@ -407,40 +408,39 @@ def test_mask_skiplist_drops_unk_resolving_words(model: MultiVectorEncoder, capl
     ]
 
 
-def test_mask_skiplist_keeps_explicit_unk_token(model: MultiVectorEncoder) -> None:
+def test_mask_skiplist_keeps_explicit_unk_token(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """A user who explicitly puts the tokenizer's UNK token in the skiplist gets what they asked for
     (the unk_token_id stays in ``_skiplist_ids``). The drop-on-unk filter only fires when a *different*
     word happens to resolve to unk_token_id.
     """
-    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-    fresh = MultiVectorEncoder(base)
-    mask_module = fresh[2]
+    model = mve_bert_tiny_model
+    mask_module = model[2]
     assert isinstance(mask_module, MultiVectorMask)
-    unk_token = fresh.tokenizer.unk_token
-    unk_id = fresh.tokenizer.unk_token_id
+    unk_token = model.tokenizer.unk_token
+    unk_id = model.tokenizer.unk_token_id
     assert unk_token is not None and unk_id is not None
     mask_module.skiplist_words = [unk_token]
-    mask_module.resolve_with_tokenizer(fresh.tokenizer)
+    mask_module.resolve_with_tokenizer(model.tokenizer)
     assert mask_module._skiplist_ids is not None
     assert mask_module._skiplist_ids.tolist() == [unk_id], "explicit UNK in the skiplist must be preserved"
 
 
-def test_mask_skiplist_all_unresolvable_yields_none(model: MultiVectorEncoder) -> None:
+def test_mask_skiplist_all_unresolvable_yields_none(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """When every skiplist word resolves to ``unk_token_id`` (none are real vocab tokens), the resolved
     tensor is ``None`` rather than empty, so ``forward`` treats the skiplist as disabled.
     """
-    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-    fresh = MultiVectorEncoder(base)
-    mask_module = fresh[2]
+    model = mve_bert_tiny_model
+    mask_module = model[2]
     assert isinstance(mask_module, MultiVectorMask)
     mask_module.skiplist_words = ["!!!UNRESOLVABLE!!!", "@@@ALSO_BAD@@@"]
-    mask_module.resolve_with_tokenizer(fresh.tokenizer)
+    mask_module.resolve_with_tokenizer(model.tokenizer)
     assert mask_module._skiplist_ids is None
 
 
-def test_encode_document_default_skiplist_keeps_punctuation(model: MultiVectorEncoder) -> None:
+def test_encode_document_default_skiplist_keeps_punctuation(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     # With the empty default the masking module is a no-op for token count: a punctuated doc
     # should have strictly more tokens than a punctuation-free one (each "," / "." kept).
+    model = mve_bert_tiny_model
     no_punc = model.encode_document(["the cat sat on the mat"])
     with_punc = model.encode_document(["the cat, sat, on, the, mat."])
     assert with_punc[0].shape[0] > no_punc[0].shape[0]
@@ -611,7 +611,6 @@ def _write_stanford_checkpoint(
 
     from safetensors.torch import load_file, save_file
 
-    # Re-save the session-scoped fixture's backbone rather than downloading a second copy.
     model.transformers_model.save_pretrained(str(directory))
     model.tokenizer.save_pretrained(str(directory))
 
@@ -629,10 +628,11 @@ def _write_stanford_checkpoint(
         (directory / "artifact.metadata").write_text(json.dumps(metadata), encoding="utf-8")
 
 
-def test_loads_stanford_colbert_archetype(tmp_path, model: MultiVectorEncoder) -> None:
+def test_loads_stanford_colbert_archetype(tmp_path, mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """The Stanford load path has no non-slow coverage, and ``audit_v2.md`` recorded a misload of
     exactly this archetype as a blocker. Pins that the root ``linear.weight`` becomes the Dense head
     (rather than a fresh random projection) and that artifact.metadata drives the knobs."""
+    model = mve_bert_tiny_model
     from safetensors.torch import load_file
 
     _write_stanford_checkpoint(
@@ -656,10 +656,11 @@ def test_loads_stanford_colbert_archetype(tmp_path, model: MultiVectorEncoder) -
 
 
 def test_stanford_colbert_archetype_without_metadata_uses_defaults(
-    tmp_path, model: MultiVectorEncoder, caplog
+    tmp_path, mve_bert_tiny_model: MultiVectorEncoder, caplog
 ) -> None:
     """``artifact.metadata`` is absent from some Stanford-shaped repos, so the loader falls back to
     the canonical markers and a 32-token query expansion instead of failing."""
+    model = mve_bert_tiny_model
     import string
 
     _write_stanford_checkpoint(tmp_path, model, metadata=None)
@@ -683,10 +684,13 @@ def test_stanford_colbert_archetype_without_metadata_uses_defaults(
         ({"query": "", "document": ""}, {"query": "", "document": ""}),
     ],
 )
-def test_stanford_colbert_archetype_keeps_caller_prompts(tmp_path, model, user_prompts, expected) -> None:
+def test_stanford_colbert_archetype_keeps_caller_prompts(
+    tmp_path, mve_bert_tiny_model, user_prompts, expected
+) -> None:
     """``artifact.metadata`` carries no prompt, so the marker only fills a slot the caller left alone.
     An empty string is the documented way to switch a prompt off and must survive, matching how the
     PyLate branch in ``_parse_model_config`` treats one."""
+    model = mve_bert_tiny_model
     _write_stanford_checkpoint(tmp_path, model, metadata=None)
     loaded = MultiVectorEncoder(str(tmp_path), prompts=user_prompts)
 
@@ -701,10 +705,11 @@ def test_stanford_colbert_archetype_keeps_caller_prompts(tmp_path, model, user_p
     ],
 )
 def test_encode_output_formats(
-    model: MultiVectorEncoder,
+    mve_bert_tiny_model: MultiVectorEncoder,
     convert_to_numpy: bool,
     element_type: type,
 ) -> None:
+    model = mve_bert_tiny_model
     docs = ["short doc", "a considerably longer document with many more distinct tokens than the first one"]
     dim = model.get_embedding_dimension()
     out = model.encode_document(docs, convert_to_numpy=convert_to_numpy)
@@ -716,7 +721,8 @@ def test_encode_output_formats(
     assert out[0].shape[0] < out[1].shape[0]
 
 
-def test_singular_input_unwraps(model: MultiVectorEncoder) -> None:
+def test_singular_input_unwraps(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     emb = model.encode_document("a single doc string")
     assert isinstance(emb, torch.Tensor)
     assert emb.ndim == 2
@@ -725,23 +731,26 @@ def test_singular_input_unwraps(model: MultiVectorEncoder) -> None:
     assert array.ndim == 2
 
 
-def test_encode_defaults_to_tensors_on_model_device(model: MultiVectorEncoder) -> None:
+def test_encode_defaults_to_tensors_on_model_device(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """The default output feeds similarity without a host round trip, so it stays on the model's
     device as tensors. ``convert_to_numpy=True`` remains the opt-out for corpora that outgrow it."""
+    model = mve_bert_tiny_model
     embeddings = model.encode_document(["one doc", "another doc"])
     assert all(isinstance(emb, torch.Tensor) and emb.device == model.device for emb in embeddings)
     assert all(isinstance(emb, np.ndarray) for emb in model.encode_document(["a", "b"], convert_to_numpy=True))
 
 
-def test_convert_to_tensor_is_rejected_by_name(model: MultiVectorEncoder) -> None:
+def test_convert_to_tensor_is_rejected_by_name(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """Variable-length embeddings cannot stack, so unlike every other model type there is no
     `convert_to_tensor` here. Copied-over calls are common enough that the error says so rather than
     falling through to the generic unused-kwarg message."""
+    model = mve_bert_tiny_model
     with pytest.raises(ValueError, match="has no `convert_to_tensor`"):
         model.encode_document(["a doc"], convert_to_tensor=True)
 
 
-def test_similarity_returns_maxsim(model: MultiVectorEncoder) -> None:
+def test_similarity_returns_maxsim(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     q = model.encode_query(["cats and dogs"])
     d = model.encode_document(["cats and dogs are pets", "the weather is nice"])
     scores = model.similarity(q, d)
@@ -752,7 +761,8 @@ def test_similarity_returns_maxsim(model: MultiVectorEncoder) -> None:
     assert torch.allclose(scores[0, 0], pair[0], atol=1e-5)
 
 
-def test_save_and_load_round_trip(model: MultiVectorEncoder) -> None:
+def test_save_and_load_round_trip(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     with tempfile.TemporaryDirectory() as tmpdir:
         model.save_pretrained(tmpdir)
         reloaded = MultiVectorEncoder(tmpdir)
@@ -855,10 +865,11 @@ def test_pinned_sentence_level_dense_survives_load(tmp_path) -> None:
     assert dense.module_output_name == "sentence_embedding"
 
 
-def test_encode_output_value_none_returns_feature_dicts(model: MultiVectorEncoder) -> None:
+def test_encode_output_value_none_returns_feature_dicts(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """``output_value=None`` returns the raw per-input module output dicts (ST parity): every
     feature key a module wrote, with batch-first tensors split per input and other values carried
     as-is. Extra keys from custom modules become user-reachable this way."""
+    model = mve_bert_tiny_model
     outputs = model.encode_query(["short", "a somewhat longer query"], output_value=None)
     assert isinstance(outputs, list) and len(outputs) == 2
     for item in outputs:
@@ -872,14 +883,16 @@ def test_encode_output_value_none_returns_feature_dicts(model: MultiVectorEncode
     assert isinstance(single, dict) and "token_embeddings" in single
 
 
-def test_encode_output_value_rejects_unknown(model: MultiVectorEncoder) -> None:
+def test_encode_output_value_rejects_unknown(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     with pytest.raises(ValueError, match="output_value"):
         model.encode(["x"], output_value="sentence_embedding")
 
 
-def test_encode_output_value_none_with_prompt(model: MultiVectorEncoder) -> None:
+def test_encode_output_value_none_with_prompt(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """Prompts compose with ``output_value=None``: the per-item dicts carry the bookkeeping keys
     (mirrors the SentenceTransformer behaviour)."""
+    model = mve_bert_tiny_model
     outputs = model.encode(["Text one", "Text two"], prompt="query: ", output_value=None)
     assert len(outputs) == 2
     for item in outputs:
@@ -888,8 +901,9 @@ def test_encode_output_value_none_with_prompt(model: MultiVectorEncoder) -> None
         assert item["input_ids"].shape == item["attention_mask"].shape
 
 
-def test_encode_output_value_none_ignores_convert_flags(model: MultiVectorEncoder) -> None:
+def test_encode_output_value_none_ignores_convert_flags(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """The convert_to_* options do not apply to raw feature dicts."""
+    model = mve_bert_tiny_model
     for outputs in (
         model.encode(["x", "y"], output_value=None),
         model.encode(["x", "y"], output_value=None, convert_to_numpy=True),
@@ -1111,9 +1125,10 @@ def test_ir_evaluator_rejects_compiled_xtr_scoring() -> None:
         )
 
 
-def test_similarity_fn_name_setter_rejects_unsupported(model: MultiVectorEncoder) -> None:
+def test_similarity_fn_name_setter_rejects_unsupported(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """Single-vector similarities can't score ragged token embeddings: assignment must fail loud
     instead of deferring the failure to scoring time."""
+    model = mve_bert_tiny_model
     with pytest.raises(ValueError, match="only supports"):
         model.similarity_fn_name = "cosine"
 
@@ -1201,32 +1216,6 @@ def test_query_expansion_without_mask_module_warns(caplog) -> None:
     with caplog.at_level("WARNING"):
         MultiVectorEncoder(modules=modules)
     assert not any("no MultiVectorMask" in record.message for record in caplog.records)
-
-
-def test_media_counts_run_under_eval_mode(monkeypatch) -> None:
-    """trainer.evaluate() collates under model.eval(): the media-count bookkeeping keys on
-    ``track_media_counts`` alone (not ``self.training``), or VLM eval-loss batches lose
-    ``num_images_per_sample`` and fall back to naive sample slicing."""
-    import sentence_transformers.base.modules.transformer as transformer_module
-
-    model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
-    transformer = model[0]
-    transformer.processor.chat_template = (
-        "{% for message in messages %}{% for item in message['content'] %}{{ item['text'] }}{% endfor %}{% endfor %}"
-    )
-    transformer.modality_config = {**transformer.modality_config, "message": transformer.modality_config["text"]}
-    transformer.track_media_counts = True
-    transformer.eval()
-
-    calls: list[int] = []
-
-    def fake_count(messages):
-        calls.append(len(messages))
-        return [0] * len(messages), [0] * len(messages)
-
-    monkeypatch.setattr(transformer_module, "_count_media_per_sample", fake_count)
-    transformer.preprocess(["short input"], task="document")
-    assert calls, "media counting must run in eval mode when track_media_counts is set"
 
 
 def test_user_constructed_model_with_prefix_prompts_round_trips() -> None:
@@ -1408,11 +1397,12 @@ def test_encode_pooling_note_skipped_for_unpooled_tasks(caplog) -> None:
     assert any("compounding" in record.message for record in caplog.records)
 
 
-def test_encode_pooling_applies_to_raw_output(model: MultiVectorEncoder) -> None:
+def test_encode_pooling_applies_to_raw_output(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     # Per-call transforms also apply to raw output, like ST's truncate_dim. The pooling module's
     # forward slices each row by its mask before clustering, so batch padding never reaches the
     # pooling, and the rewritten mask marks the pooled rows: mask-sliced raw output is bit-exact
     # vs the normal (list of 2D) path.
+    model = mve_bert_tiny_model
     texts = [
         "short doc",
         "a fairly long document with plenty of distinct tokens to cluster together here",
@@ -1429,9 +1419,10 @@ def test_encode_pooling_applies_to_raw_output(model: MultiVectorEncoder) -> None
         assert torch.equal(item["token_embeddings"][mask], pooled_reference)
 
 
-def test_encode_pooling_skips_queries_on_raw_output(model: MultiVectorEncoder) -> None:
+def test_encode_pooling_skips_queries_on_raw_output(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     # encode delegates the task gate to the pooling itself: default tasks skip queries, listing
     # "query" pools them.
+    model = mve_bert_tiny_model
     query = "a fairly long query with plenty of distinct tokens to cluster together here"
     unpooled = model.encode_query(query, output_value=None)["token_embeddings"]
     skipped = model.encode_query(query, output_value=None, token_pooling=HierarchicalTokenPooling(pool_factor=2))
@@ -1442,14 +1433,16 @@ def test_encode_pooling_skips_queries_on_raw_output(model: MultiVectorEncoder) -
     assert opted_in["token_embeddings"].shape[0] < unpooled.shape[0]
 
 
-def test_encode_empty_list(model: MultiVectorEncoder) -> None:
+def test_encode_empty_list(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     assert model.encode([]) == []
 
 
-def test_similarity_forwards_scoring_kwargs(model: MultiVectorEncoder) -> None:
+def test_similarity_forwards_scoring_kwargs(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """Extra similarity kwargs reach the scoring function: a tiny element budget reproduces the
     plain scores, an unknown kwarg fails loudly, and a device override leaves the scores on the
     embeddings' own device."""
+    model = mve_bert_tiny_model
     queries = model.encode_query(["What is the capital of France?", "Who painted the Mona Lisa?"])
     documents = model.encode_document(["Paris is big.", "Da Vinci painted.", "Berlin here.", "More text."])
     plain = model.similarity(queries, documents)
@@ -1472,9 +1465,10 @@ def test_similarity_forwards_scoring_kwargs(model: MultiVectorEncoder) -> None:
         assert torch.allclose(scores, plain.cpu(), atol=1e-4)
 
 
-def test_similarity_singular_query(model: MultiVectorEncoder) -> None:
+def test_similarity_singular_query(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     # Mirrors SentenceTransformer.similarity, which auto-batches a singular embedding: similarity
     # on a singular encode output must score as a batch of one instead of crashing in einsum.
+    model = mve_bert_tiny_model
     documents = model.encode_document(["Paris is the capital of France.", "Berlin is big."])
     single = model.encode_query("What is the capital of France?")
     batched = model.similarity(model.encode_query(["What is the capital of France?"]), documents)

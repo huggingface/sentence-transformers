@@ -16,6 +16,7 @@ from transformers.trainer_utils import EvalLoopOutput
 
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
 from sentence_transformers.base.sampler import (
+    BatchSamplers,
     DefaultBatchSampler,
     GroupByLabelBatchSampler,
     NoDuplicatesBatchSampler,
@@ -827,6 +828,36 @@ def test_trainer_get_batch_sampler_class(
     assert isinstance(batch_sampler, NoDuplicatesBatchSampler)
 
 
+@pytest.mark.parametrize(
+    ("batch_sampler", "multi_dataset"),
+    [
+        (BatchSamplers.NO_DUPLICATES, False),
+        (BatchSamplers.GROUP_BY_LABEL, False),
+        (BatchSamplers.NO_DUPLICATES, True),
+    ],
+)
+def test_trainer_batch_sampler_uses_args_seed(
+    stsb_bert_tiny_model: SentenceTransformer, batch_sampler: BatchSamplers, multi_dataset: bool
+) -> None:
+    """Changing ``args.seed`` should change the batch order, as it does for the default batch sampler."""
+    train_dataset = Dataset.from_dict(
+        {"sentence": [f"sentence {i}" for i in range(64)], "label": [i % 4 for i in range(64)]}
+    )
+    if multi_dataset:
+        train_dataset = DatasetDict({"a": train_dataset, "b": train_dataset})
+
+    def get_batches(seed: int) -> list[list[int]]:
+        args = SentenceTransformerTrainingArguments(
+            output_dir="dummy", seed=seed, batch_sampler=batch_sampler, per_device_train_batch_size=8
+        )
+        trainer = SentenceTransformerTrainer(model=stsb_bert_tiny_model, args=args, train_dataset=train_dataset)
+        # Only the batches of the first dataset, as the multi-dataset sampler reorders datasets by itself
+        return [batch for batch in trainer.get_train_dataloader().batch_sampler if max(batch) < 64]
+
+    assert get_batches(1) == get_batches(1)
+    assert get_batches(1) != get_batches(2)
+
+
 def test_trainer_get_batch_sampler_function(
     stsb_bert_tiny_model: SentenceTransformer, stsb_dataset_dict: DatasetDict
 ) -> None:
@@ -1212,4 +1243,3 @@ def test_trainer_compiled_model_with_cached_loss(
     if not compile_before_loss:
         model = torch.compile(model, backend="eager")
     SentenceTransformerTrainer(model=model, loss=loss)
-    assert stsb_bert_tiny_model[0].track_media_counts

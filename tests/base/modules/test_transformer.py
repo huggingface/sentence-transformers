@@ -643,6 +643,45 @@ class TestPreprocess:
         assert transformer.processor.padding_side == "left"
         assert features["attention_mask"][:, -1].all()
 
+    @pytest.mark.skipif(
+        parse_version(torch.__version__) < Version("2.4"),
+        reason="Llama rotary embeddings call torch.is_autocast_enabled(device_type), which requires torch>=2.4.",
+    )
+    @pytest.mark.parametrize("logits_to_keep", [0, 3])
+    def test_causal_logits_processing_kwargs(self, tmp_path, logits_to_keep):
+        transformer = Transformer(
+            TINY_LLAMA,
+            transformer_task="text-generation",
+            processing_kwargs={"text": {"logits_to_keep": logits_to_keep}},
+        ).eval()
+        features = transformer.preprocess(RAGGED_BATCH)
+        assert features["logits_to_keep"] == logits_to_keep
+        with torch.no_grad():
+            all_logits = transformer.model(
+                input_ids=features["input_ids"], attention_mask=features["attention_mask"], logits_to_keep=0
+            ).logits
+            expected = all_logits[:, -logits_to_keep:]
+            torch.testing.assert_close(transformer(deepcopy(features))["causal_logits"], expected)
+
+        transformer.save(str(tmp_path))
+        loaded = Transformer.load(str(tmp_path)).eval()
+        with torch.no_grad():
+            torch.testing.assert_close(loaded(loaded.preprocess(RAGGED_BATCH))["causal_logits"], expected)
+        override = {"text": {"logits_to_keep": 1}}
+        assert loaded.preprocess(RAGGED_BATCH, processing_kwargs=override)["logits_to_keep"] == 1
+        assert (
+            loaded.processing_kwargs == transformer.processing_kwargs == {"text": {"logits_to_keep": logits_to_keep}}
+        )
+        assert override == {"text": {"logits_to_keep": 1}}
+        with pytest.raises(ValueError, match="ends in a padding token"):
+            loaded.preprocess(RAGGED_BATCH, processing_kwargs={"text": {"padding_side": "right"}})
+
+    @pytest.mark.parametrize("logits_to_keep", [-1, 1.5, "1", None, True])
+    def test_causal_invalid_logits_processing_kwargs(self, logits_to_keep):
+        transformer = Transformer(TINY_LLAMA, transformer_task="text-generation")
+        with pytest.raises(ValueError, match="logits_to_keep must be a non-negative integer"):
+            transformer.preprocess(RAGGED_BATCH, processing_kwargs={"text": {"logits_to_keep": logits_to_keep}})
+
     def test_causal_right_padding_via_attribute_raises(self):
         """padding_side is set to "left" on load, so reaching this means it was mutated afterwards."""
         transformer = Transformer(TINY_LLAMA, transformer_task="text-generation")
@@ -708,6 +747,26 @@ class TestPreprocess:
         message = str(exc_info.value)
         assert "ends in a padding token" in message
         assert 'processor.tokenizer.padding_side = "left"' in message
+
+    @pytest.mark.skipif(
+        Version(transformers_version) < Version("5.0.0"), reason="any-to-any requires transformers v5+"
+    )
+    @pytest.mark.skipif(
+        not (is_vision_available() and is_torchvision_available()),
+        reason="Loading the Llava processor requires Pillow and torchvision",
+    )
+    @pytest.mark.parametrize("training", [True, False])
+    def test_num_images_per_sample_without_image_grid(self, training):
+        """Custom training loops need image counts without constructing a Trainer."""
+        from PIL import Image
+
+        transformer = Transformer(TINY_LLAVA, transformer_task="any-to-any")
+        transformer.train(training)
+        image = Image.new("RGB", (32, 32), "red")
+        features = transformer.preprocess(
+            [{"text": "a", "image": image}, {"text": "text only"}, {"text": "b", "image": [image, image]}]
+        )
+        assert features["num_images_per_sample"].tolist() == [1, 0, 2]
 
 
 class TestForward:

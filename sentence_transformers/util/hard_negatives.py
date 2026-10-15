@@ -297,10 +297,9 @@ def mine_hard_negatives(
         anchor_column_name = columns[0]
 
     if not positive_column_name or positive_column_name not in columns:
+        if len(columns) < 2:
+            raise ValueError("Dataset must contain at least two columns to select the positive column automatically.")
         positive_column_name = columns[1]
-
-    if not anchor_column_name and not positive_column_name and len(columns) != 2:
-        raise ValueError("Dataset must contain exactly two columns.")
 
     if as_triplets is not None:
         output_format = "triplet" if as_triplets else "n-tuple"
@@ -314,12 +313,16 @@ def mine_hard_negatives(
             range_min != 0
             or range_max is not None
             or max_score is not None
+            or min_score is not None
+            or absolute_margin is not None
+            or relative_margin is not None
             or margin is not None
             or sampling_strategy != "top"
         ):
             logger.warning(
-                "When using `include_positives=True`, updating `range_min`, `range_max`, `max_score`, `margin`, or "
-                "`sampling_strategy` from the default values may still discard the positive values."
+                "When using `include_positives=True`, updating `range_min`, `range_max`, `max_score`, `min_score`, "
+                "`absolute_margin`, `relative_margin`, or `sampling_strategy` from the default values may still "
+                "discard the positive values."
             )
         if output_format != "n-tuple":
             logger.warning(
@@ -360,7 +363,12 @@ def mine_hard_negatives(
 
     faiss_cap_note = ""
     if range_max is None:
-        if absolute_margin is not None or relative_margin is not None or max_score is not None:
+        if (
+            absolute_margin is not None
+            or relative_margin is not None
+            or max_score is not None
+            or (cross_encoder is not None and min_score is not None)
+        ):
             # max_positives + 10 * num_negatives negatives because some might be skipped, and range_min skipped
             range_max = range_min + (num_negatives * 10) + max_positives
         else:
@@ -427,7 +435,7 @@ def mine_hard_negatives(
     if n_queries != len(all_queries) and verbose:
         print(f"Found {n_queries} unique queries out of {len(all_queries)} total queries.")
 
-    if max_positives > 1:
+    if max_positives > 1 and verbose:
         avg_positives_per_query = np.mean(positives_per_query)
         print(f"Found an average of {avg_positives_per_query:.3f} positives per query.")
 
@@ -468,30 +476,32 @@ def mine_hard_negatives(
             )
         else:
             pool = None
-        if corpus_embeddings is None:
-            corpus_embeddings = model.encode_document(
-                corpus,
-                pool=pool,
-                batch_size=batch_size,
-                normalize_embeddings=True,
-                convert_to_numpy=True,
-                show_progress_bar=True,
-                prompt_name=corpus_prompt_name,
-                prompt=corpus_prompt,
-            )
-        if query_embeddings is None:
-            query_embeddings = model.encode_query(
-                queries,
-                pool=pool,
-                batch_size=batch_size,
-                normalize_embeddings=True,
-                convert_to_numpy=True,
-                show_progress_bar=True,
-                prompt_name=query_prompt_name,
-                prompt=query_prompt,
-            )
-        if use_multi_process:
-            model.stop_multi_process_pool(pool)
+        try:
+            if corpus_embeddings is None:
+                corpus_embeddings = model.encode_document(
+                    corpus,
+                    pool=pool,
+                    batch_size=batch_size,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                    show_progress_bar=True,
+                    prompt_name=corpus_prompt_name,
+                    prompt=corpus_prompt,
+                )
+            if query_embeddings is None:
+                query_embeddings = model.encode_query(
+                    queries,
+                    pool=pool,
+                    batch_size=batch_size,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                    show_progress_bar=True,
+                    prompt_name=query_prompt_name,
+                    prompt=query_prompt,
+                )
+        finally:
+            if use_multi_process:
+                model.stop_multi_process_pool(pool)
 
     if cache_folder:
         if not os.path.exists(query_cache_file):
@@ -585,7 +595,7 @@ def mine_hard_negatives(
 
     # Rescore with cross_encoder
     if cross_encoder is not None and (
-        absolute_margin is not None or relative_margin is not None or max_score is not None
+        absolute_margin is not None or relative_margin is not None or max_score is not None or min_score is not None
     ):
         if use_multi_process:
             pool = cross_encoder.start_multi_process_pool(
@@ -593,25 +603,27 @@ def mine_hard_negatives(
             )
         else:
             pool = None
-        for idx, candidate_idx in tqdm(enumerate(indices), desc="Rescoring with CrossEncoder", total=len(indices)):
-            query = queries[idx]
-            candidate_passages = [corpus[_idx] for _idx in candidate_idx]
-            num_candidates = len(candidate_passages)
-            pred_scores = cross_encoder.predict(
-                list(zip([query] * num_candidates, candidate_passages)),
+        try:
+            for idx, candidate_idx in tqdm(enumerate(indices), desc="Rescoring with CrossEncoder", total=len(indices)):
+                query = queries[idx]
+                candidate_passages = [corpus[_idx] for _idx in candidate_idx]
+                num_candidates = len(candidate_passages)
+                pred_scores = cross_encoder.predict(
+                    list(zip([query] * num_candidates, candidate_passages)),
+                    batch_size=batch_size,
+                    convert_to_tensor=True,
+                    pool=pool,
+                ).to(device)
+                scores[idx] = pred_scores
+            positive_scores = cross_encoder.predict(
+                list(zip(all_queries, positives)),
                 batch_size=batch_size,
                 convert_to_tensor=True,
                 pool=pool,
             ).to(device)
-            scores[idx] = pred_scores
-        positive_scores = cross_encoder.predict(
-            list(zip(all_queries, positives)),
-            batch_size=batch_size,
-            convert_to_tensor=True,
-            pool=pool,
-        ).to(device)
-        if use_multi_process:
-            cross_encoder.stop_multi_process_pool(pool)
+        finally:
+            if use_multi_process:
+                cross_encoder.stop_multi_process_pool(pool)
 
     # Both branches pad short result sets with index -1, which would otherwise resolve to the last
     # corpus entry. Applied after the CrossEncoder rescoring, as that overwrites the score of every
