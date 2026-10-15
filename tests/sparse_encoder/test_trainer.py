@@ -443,7 +443,7 @@ def test_trainer_prompts(
     assert set(tracked_texts) == expected
 
 
-def test_trainer_schedules_every_splade_loss(splade_bert_tiny_model: SparseEncoder) -> None:
+def test_trainer_schedules_every_splade_loss(splade_bert_tiny_model: SparseEncoder, tmp_path: Path) -> None:
     model = splade_bert_tiny_model
     loss = {
         name: losses.SpladeLoss(
@@ -456,7 +456,10 @@ def test_trainer_schedules_every_splade_loss(splade_bert_tiny_model: SparseEncod
     }
     dataset = Dataset.from_dict({"anchor": ["a", "b"], "positive": ["c", "d"]})
     trainer = SparseEncoderTrainer(
-        model=model, train_dataset=DatasetDict({"first": dataset, "second": dataset}), loss=loss
+        model=model,
+        args=SparseEncoderTrainingArguments(output_dir=str(tmp_path), report_to="none"),
+        train_dataset=DatasetDict({"first": dataset, "second": dataset}),
+        loss=loss,
     )
     schedulers = [
         callback
@@ -464,8 +467,6 @@ def test_trainer_schedules_every_splade_loss(splade_bert_tiny_model: SparseEncod
         if isinstance(callback, SpladeRegularizerWeightSchedulerCallback)
     ]
 
-    # 6 steps with the default warmup_ratio of 1/3 give 2 warmup steps, so the quadratic schedule
-    # sets the weights to max * (1 / 2) ** 2 at step 1, for every SpladeLoss
     state = TrainerState(max_steps=6, global_step=1)
     for scheduler in schedulers:
         scheduler.on_train_begin(trainer.args, state, trainer.control)
