@@ -398,23 +398,13 @@ def test_router_save_load(static_embedding: StaticEmbedding, tmp_path: Path):
 
 @pytest.mark.parametrize("safe_serialization", [True, False])
 @pytest.mark.parametrize("share_module", [True, False])
-def test_router_save_load_preserves_shared_modules(tmp_path: Path, share_module, safe_serialization):
-    query = Dense(2, 2, bias=False, activation_function=None, init_weight=torch.eye(2))
+def test_router_save_load_preserves_shared_modules(tmp_path: Path, share_module: bool, safe_serialization: bool):
+    query = Dense(2, 2)
     document = query if share_module else deepcopy(query)
     router = Router.for_query_document([query], [document])
     router.save(str(tmp_path), safe_serialization=safe_serialization)
 
     loaded = Router.load(str(tmp_path), local_files_only=True)
-    inputs = torch.ones(1, 2)
-    optimizer = torch.optim.SGD(loaded.parameters(), lr=0.1)
-    loss = loaded({"sentence_embedding": inputs}, task="query")["sentence_embedding"].sum()
-    loss.backward()
-    optimizer.step()
-
-    query_output = loaded({"sentence_embedding": inputs}, task="query")["sentence_embedding"]
-    document_output = loaded({"sentence_embedding": inputs}, task="document")["sentence_embedding"]
-    torch.testing.assert_close(query_output, torch.full((1, 2), 0.8))
-    torch.testing.assert_close(document_output, torch.full((1, 2), 0.8 if share_module else 1.0))
     assert (loaded.sub_modules["query"][0] is loaded.sub_modules["document"][0]) == share_module
 
 

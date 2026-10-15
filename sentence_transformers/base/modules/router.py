@@ -559,7 +559,6 @@ class Router(InputModule):
         for name, models in self.sub_modules.items():
             model_structure[name] = []
             for module_idx, model in enumerate(models):
-                # A module used in several routes is saved once, so the routes still share it after loading
                 model_id = model_ids.get(id(model))
                 if model_id is None:
                     model_id = f"{name}_{module_idx}_{type(model).__name__}"
