@@ -123,19 +123,19 @@ class BaseModelCardCallback(TrainerCallback):
         # Try to infer the dataset "name", "id" and "revision" from the dataset cache files
         if trainer.train_dataset:
             model.model_card_data.train_datasets = model.model_card_data.extract_dataset_metadata(
-                trainer.train_dataset,
-                model.model_card_data.train_datasets,
-                trainer.loss,
-                "train",
+                dataset=trainer.train_dataset,
+                dataset_metadata=model.model_card_data.train_datasets,
+                loss=trainer.loss,
+                dataset_type="train",
                 router_mapping=args.router_mapping,
             )
 
         if trainer.eval_dataset:
             model.model_card_data.eval_datasets = model.model_card_data.extract_dataset_metadata(
-                trainer.eval_dataset,
-                model.model_card_data.eval_datasets,
-                trainer.loss,
-                "eval",
+                dataset=trainer.eval_dataset,
+                dataset_metadata=model.model_card_data.eval_datasets,
+                loss=trainer.loss,
+                dataset_type="eval",
                 router_mapping=args.router_mapping,
             )
 
@@ -1185,7 +1185,7 @@ class BaseModelCardData(CardData):
         * Loss function name
             - Loss function config
 
-        When provided, ``router_mapping`` selects the same per-column routes for token statistics as for training.
+        When provided, ``router_mapping`` supplies the per-column task used for token statistics.
         """
         if not dataset:
             return {}

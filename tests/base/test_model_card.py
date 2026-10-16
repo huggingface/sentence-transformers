@@ -6,6 +6,7 @@ import io
 import os
 import tempfile
 from contextlib import contextmanager
+from copy import deepcopy
 from unittest.mock import PropertyMock, patch
 
 import numpy as np
@@ -755,41 +756,39 @@ class TestComputeDatasetMetricsNonText:
 @pytest.mark.parametrize("dataset_type", ["train", "eval"])
 @pytest.mark.parametrize("mapping_type", ["single", "shared", "per_dataset"])
 def test_dataset_metrics_respect_router_mapping(word_embeddings_model, tmp_path, dataset_type, mapping_type):
-    router = Router({"left": list(word_embeddings_model), "right": list(word_embeddings_model)}, allow_empty_key=False)
+    left_modules = deepcopy(list(word_embeddings_model))
+    left_modules[0].max_seq_length = 1
+    router = Router({"left": left_modules, "right": list(word_embeddings_model)}, allow_empty_key=False)
     model = SentenceTransformer(modules=[router])
     model.model_card_data.generate_widget_examples = False
     dataset = Dataset.from_dict({"anchor": ["hello", "hello world"], "positive": ["world", "world hello"]})
     router_mapping = {"anchor": "left", "positive": "right"}
-    expected_tasks = ["left", "right"]
+    short_stats = {"min": "1 tokens", "mean": "1.0 tokens", "max": "1 tokens"}
+    long_stats = {"min": "1 tokens", "mean": "1.5 tokens", "max": "2 tokens"}
+    expected_stats = [{"anchor": short_stats, "positive": long_stats}]
     if mapping_type != "single":
         dataset = DatasetDict(first=dataset, second=dataset)
         if mapping_type == "per_dataset":
             router_mapping = {"first": router_mapping, "second": {"anchor": "right", "positive": "left"}}
-            expected_tasks += ["right", "left"]
+            expected_stats.append({"anchor": long_stats, "positive": short_stats})
         else:
-            expected_tasks *= 2
+            expected_stats *= 2
 
     args = SentenceTransformerTrainingArguments(
         output_dir=tmp_path, router_mapping=router_mapping, report_to="none", use_cpu=True
     )
-    with patch.object(model, "preprocess", wraps=model.preprocess) as preprocess:
-        SentenceTransformerTrainer(
-            model=model,
-            args=args,
-            loss=MultipleNegativesRankingLoss(model),
-            **{f"{dataset_type}_dataset": dataset},
-        )
+    SentenceTransformerTrainer(
+        model=model,
+        args=args,
+        loss=MultipleNegativesRankingLoss(model),
+        **{f"{dataset_type}_dataset": dataset},
+    )
 
-    assert [call.kwargs["task"] for call in preprocess.call_args_list] == expected_tasks
     metadata = getattr(model.model_card_data, f"{dataset_type}_datasets")
-    assert len(metadata) == (1 if mapping_type == "single" else 2)
-    for dataset_info in metadata:
-        for column in ("anchor", "positive"):
-            assert dataset_info["stats"][column]["data"] == {
-                "min": "1 tokens",
-                "mean": "1.5 tokens",
-                "max": "2 tokens",
-            }
+    assert [
+        {column: dataset_info["stats"][column]["data"] for column in ("anchor", "positive")}
+        for dataset_info in metadata
+    ] == expected_stats
 
 
 class TestComputeDatasetMetricsStringMediaPath:
