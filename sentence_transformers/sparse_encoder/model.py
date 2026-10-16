@@ -1044,7 +1044,7 @@ class SparseEncoder(BaseModel):
                 model_kwargs=model_kwargs,
                 processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
-                backend=self.backend,
+                backend=self._module_backend,
             )
             logger.info("Detected MLM architecture, using SpladePooling")
             pooling_model = SpladePooling(pooling_strategy="max")
@@ -1061,7 +1061,7 @@ class SparseEncoder(BaseModel):
                 model_kwargs=model_kwargs,
                 processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
-                backend=self.backend,
+                backend=self._module_backend,
             )
             pooling = Pooling(transformer_model.get_embedding_dimension(), pooling_mode="mean")
             sae = SparseAutoEncoder(

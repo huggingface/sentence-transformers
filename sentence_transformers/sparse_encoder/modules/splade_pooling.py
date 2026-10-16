@@ -86,7 +86,8 @@ class SpladePooling(Module):
         attention_mask = features["attention_mask"]  # Shape: [batch_size, seq_length]
 
         # Unsqueeze attention_mask to be [batch_size, seq_length, 1] for broadcasting
-        attention_mask_expanded = attention_mask.unsqueeze(-1).to(mlm_logits.dtype)
+        # Cast before unsqueezing as reverse order results in outputs mismatch for OpenVINO converted models
+        attention_mask_expanded = attention_mask.to(mlm_logits.dtype).unsqueeze(-1)
 
         batch_size, seq_len, vocab_s = mlm_logits.shape
         device = mlm_logits.device
@@ -98,12 +99,16 @@ class SpladePooling(Module):
             pooled_scores = torch.zeros((batch_size, vocab_s), dtype=mlm_logits.dtype, device=device)
 
         # Process in chunks if chunk_size is set, otherwise process the entire sequence at once
-        chunk_size = seq_len if (self.chunk_size is None or self.chunk_size <= 0) else self.chunk_size
+        # Without chunking, the sequence is not sliced, so that tracing the module for export keeps the sequence length dynamic
+        chunked = self.chunk_size is not None and self.chunk_size > 0
+        chunk_size = self.chunk_size if chunked else seq_len
 
-        for i in range(0, seq_len, chunk_size):
+        for i in range(0, seq_len, chunk_size) if chunked else [0]:
             try:
-                current_chunk_logits = mlm_logits[:, i : i + chunk_size, :]
-                current_chunk_mask = attention_mask_expanded[:, i : i + chunk_size, :]
+                current_chunk_logits = mlm_logits[:, i : i + chunk_size, :] if chunked else mlm_logits
+                current_chunk_mask = (
+                    attention_mask_expanded[:, i : i + chunk_size, :] if chunked else attention_mask_expanded
+                )
 
                 masked_current_chunk_logits = current_chunk_logits * current_chunk_mask
 

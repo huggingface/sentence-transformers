@@ -245,7 +245,7 @@ class CrossEncoder(BaseModel, FitMixin):
                 model_kwargs=model_kwargs,
                 processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
-                backend=self.backend,
+                backend=self._module_backend,
             )
             true_token_id = transformer_model.tokenizer.convert_tokens_to_ids("yes")
             false_token_id = transformer_model.tokenizer.convert_tokens_to_ids("no")
@@ -270,9 +270,16 @@ class CrossEncoder(BaseModel, FitMixin):
             model_kwargs=model_kwargs,
             processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
-            backend=self.backend,
+            backend=self._module_backend,
         )
         return [transformer_model], {}
+
+    def _export_sample_inputs(self) -> list[Any]:
+        """Example inputs to trace the model with onnx or openvino"""
+        return [
+            ("This is a sample query.", "This is a sample passage."),
+            ("Another sample query?", "Another sample passage, which is a little bit longer than the first one."),
+        ]
 
     def _resolve_activation_fn(self, activation_fn_path: str) -> Callable | None:
         """Instantiate an activation function from a dotted path string, respecting trust_remote_code."""

@@ -38,6 +38,18 @@ from transformers.dynamic_module_utils import get_relative_import_files
 from transformers.utils import logging as transformers_logging
 
 from sentence_transformers import __version__
+from sentence_transformers.backend.export import (
+    BACKEND_NAMES,
+    check_can_export,
+    export_model,
+    has_exported_files,
+    is_legacy_export,
+    resolve_export_directory,
+    save_export,
+    save_export_artifacts,
+    split_backend_kwargs,
+)
+from sentence_transformers.backend.utils import backend_warn_to_save
 from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.base.modality import infer_batch_modality, is_message_dict, raise_unsupported_modality_error
 from sentence_transformers.base.modality_types import Modality, PairInput, SingleInput
@@ -199,6 +211,11 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self._model_card_vars = {}
         self._model_card_text = None
         self.backend = backend
+        self._exported_model = None
+        self._export_artifacts = None
+        self._export_directory = None
+        # used to keep compatibility with legacy models
+        self._module_backend = backend
 
         if cache_folder is None:
             cache_folder = os.getenv("SENTENCE_TRANSFORMERS_HOME")
@@ -251,6 +268,21 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 "Both `model_name_or_path` and `modules` were provided. The modules are loaded from "
                 "`model_name_or_path`, so the `modules` argument is ignored."
             )
+
+        export = export_kwargs.get("export")
+        is_full_model_export = False
+        backend_kwargs = {}
+        if model_name_or_path and backend != "torch":
+            export_kwargs = model_kwargs or {}
+            if export or not has_exported_files(model_name_or_path, backend, export_kwargs, token, revision):
+                export = is_full_model_export = True
+                logger.warning(f"Exporting the whole model to {BACKEND_NAMES[backend]}.")
+            elif not is_legacy_export(model_name_or_path, backend, export_kwargs, token, revision):
+                is_full_model_export = True
+            if is_full_model_export:
+                self._module_backend = "torch"
+                backend_kwargs, model_kwargs = split_backend_kwargs(model_kwargs, backend)
+
         if model_name_or_path:
             modules, self.module_kwargs = self._load_modules(
                 model_name_or_path,
@@ -277,7 +309,9 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
         self._device_map = device_map
         self._modules_placed = False
-        if self._placement_is_delegated:
+        if is_full_model_export:
+            self._load_exported_model(model_name_or_path, export, backend_kwargs, token, revision, cache_folder)
+        elif self._placement_is_delegated:
             self._place_modules()
         else:
             first_param = next(self[0].parameters(), None)
@@ -583,6 +617,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
     def forward(self, input: dict[str, Tensor], **kwargs) -> dict[str, Tensor]:
         """Forward pass through all modules in the model."""
+        if self._exported_model is not None:
+            return self._forward_exported(input)
         for module_name, module in self.named_children():
             module_kwargs = {}
             if isinstance(module, Router):
@@ -598,6 +634,64 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 }
             input = module(input, **module_kwargs)
         return input
+
+    def _export_sample_inputs(self) -> list[Any]:
+        """Example inputs to trace the model with onnx or openvino"""
+        return ["This is a sample sentence.", "Another sample sentence, which is a little bit longer than the first."]
+
+    def _load_exported_model(
+        self,
+        model_name_or_path: str,
+        export: bool,
+        backend_kwargs: dict[str, Any],
+        token: bool | str | None,
+        revision: Any,
+        cache_folder: str | None,
+    ) -> None:
+        """Load the export of the whole model, which is exported first (from the modules of this model) if ``export``."""
+        backend = self.backend
+        check_can_export(model_name_or_path, backend, export=export)
+        from transformers.exporters import AutoExportedModel
+
+        # The graph is recorded in `export.json`, so `file_name` is not needed to load it
+        subfolder = backend_kwargs.get("subfolder")
+        runner_kwargs = {k: v for k, v in backend_kwargs.items() if k not in ("export", "file_name", "subfolder")}
+        if export:
+            self._export_artifacts = export_model(self, backend)
+            self._exported_model = self._export_artifacts.runtime(**runner_kwargs)
+            backend_warn_to_save(model_name_or_path, os.path.isdir(model_name_or_path), BACKEND_NAMES[backend])
+            return
+
+        # A model is saved with its export in the subfolder named after the backend
+        subfolder = Path(subfolder or "", backend).as_posix()
+        self._export_directory = resolve_export_directory(
+            model_name_or_path, subfolder, token=token, revision=revision, cache_dir=cache_folder
+        )
+        self._exported_model = AutoExportedModel.from_pretrained(
+            model_name_or_path,
+            subfolder=subfolder,
+            token=token,
+            revision=revision,
+            cache_dir=cache_folder,
+            **runner_kwargs,
+        )
+
+    def _forward_exported(self, features: dict[str, Any]) -> dict[str, Any]:
+        """Run the exported graph on the tensors among the features it takes, and return the features with its outputs."""
+        exported_model = self._exported_model
+        missing = [name for name in exported_model.input_names if name not in features]
+        if missing:
+            raise ValueError(
+                f"The exported model requires the features {list(exported_model.input_names)}, but {missing} are "
+                f"missing from the preprocessed inputs {sorted(features)}."
+            )
+        inputs = {
+            name: value
+            for name, value in features.items()
+            if isinstance(value, Tensor) and exported_model.runner.declares(name, value)
+        }
+        outputs = exported_model(**inputs)
+        return {**features, **outputs}
 
     def compile(self, *args, **kwargs) -> None:
         """
@@ -787,6 +881,11 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
         with open(os.path.join(path, "modules.json"), "w", encoding="utf8") as fOut:
             json.dump(modules_config, fOut, indent=2)
+
+        if self._export_artifacts is not None:
+            save_export_artifacts(self._export_artifacts, os.path.join(path, self.backend), self.backend)
+        elif self._exported_model is not None:
+            save_export(self._export_directory, os.path.join(path, self.backend))
 
         if create_model_card:
             self._create_model_card(path, model_name, train_datasets)
@@ -1283,7 +1382,7 @@ This pull request has been automatically generated to add {self.__class__.__name
                         model_kwargs=model_kwargs,
                         processor_kwargs=processor_kwargs,
                         config_kwargs=config_kwargs,
-                        backend=self.backend,
+                        backend=self._module_backend,
                     )
 
                     # Remap new-style keys back to old-style for old custom modules.
@@ -1343,7 +1442,7 @@ This pull request has been automatically generated to add {self.__class__.__name
                     model_kwargs=model_kwargs,
                     processor_kwargs=processor_kwargs,
                     config_kwargs=config_kwargs,
-                    backend=self.backend,
+                    backend=self._module_backend,
                     **extra_load_kwargs,
                 )
 

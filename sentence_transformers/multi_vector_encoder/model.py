@@ -1269,7 +1269,7 @@ class MultiVectorEncoder(BaseModel):
                 model_kwargs=model_kwargs,
                 processor_kwargs=processor_kwargs,
                 config_kwargs=config_kwargs,
-                backend=self.backend,
+                backend=self._module_backend,
                 transformer_task="retrieval",
                 modality_config={"text": dict(embeddings), "image": dict(embeddings)},
                 module_output_name="token_embeddings",
@@ -1288,7 +1288,7 @@ class MultiVectorEncoder(BaseModel):
             model_kwargs=model_kwargs,
             processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
-            backend=self.backend,
+            backend=self._module_backend,
             # _legacy.transformer_config carries already-translated Transformer kwargs, e.g.
             # Stanford artifact.metadata (document_length, query_expansion).
             **self._legacy.transformer_config,
