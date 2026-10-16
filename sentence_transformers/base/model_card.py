@@ -123,12 +123,20 @@ class BaseModelCardCallback(TrainerCallback):
         # Try to infer the dataset "name", "id" and "revision" from the dataset cache files
         if trainer.train_dataset:
             model.model_card_data.train_datasets = model.model_card_data.extract_dataset_metadata(
-                trainer.train_dataset, model.model_card_data.train_datasets, trainer.loss, "train"
+                trainer.train_dataset,
+                model.model_card_data.train_datasets,
+                trainer.loss,
+                "train",
+                router_mapping=args.router_mapping,
             )
 
         if trainer.eval_dataset:
             model.model_card_data.eval_datasets = model.model_card_data.extract_dataset_metadata(
-                trainer.eval_dataset, model.model_card_data.eval_datasets, trainer.loss, "eval"
+                trainer.eval_dataset,
+                model.model_card_data.eval_datasets,
+                trainer.loss,
+                "eval",
+                router_mapping=args.router_mapping,
             )
 
         losses = get_losses(trainer.loss)
@@ -997,7 +1005,7 @@ class BaseModelCardData(CardData):
 
         return [dataset_output]
 
-    def _compute_column_stats(self, dataset: Dataset, column: str) -> dict[str, Any]:
+    def _compute_column_stats(self, dataset: Dataset, column: str, task: str | None = None) -> dict[str, Any]:
         """Compute the stats entry for a single column using bounded-memory chunking.
 
         Iterates at most 100 rows in chunks of 8 so
@@ -1030,7 +1038,8 @@ class BaseModelCardData(CardData):
                 suffix = "characters"
                 # `*ForRetrieval` processors render text as queries regardless of task: request the
                 # query treatment directly instead of triggering the text-as-document warning.
-                task = "query" if getattr(self.model[0], "transformer_task", None) == "retrieval" else "document"
+                if task is None:
+                    task = "query" if getattr(self.model[0], "transformer_task", None) == "retrieval" else "document"
                 for chunk in chunks():
                     tokenized = self.model.preprocess(chunk, task=task)
                     if isinstance(tokenized, (dict, UserDict)) and "attention_mask" in tokenized:
@@ -1161,6 +1170,7 @@ class BaseModelCardData(CardData):
         dataset: Dataset | IterableDataset | None,
         dataset_info: dict[str, Any],
         loss: dict[str, nn.Module] | nn.Module | None,
+        router_mapping: dict[str, str] | None = None,
     ) -> dict[str, str]:
         """
         Given a dataset, compute the following:
@@ -1174,6 +1184,8 @@ class BaseModelCardData(CardData):
         * 3 Example samples
         * Loss function name
             - Loss function config
+
+        When provided, ``router_mapping`` selects the same per-column routes for token statistics as for training.
         """
         if not dataset:
             return {}
@@ -1190,7 +1202,9 @@ class BaseModelCardData(CardData):
         dataset_info["stats"] = {}
         if isinstance(dataset, Dataset):
             for column in dataset_columns:
-                dataset_info["stats"][column] = self._compute_column_stats(dataset, column)
+                dataset_info["stats"][column] = self._compute_column_stats(
+                    dataset, column, task=(router_mapping or {}).get(column)
+                )
 
             def to_html_list(data: dict):
                 if not data:
@@ -1252,7 +1266,9 @@ class BaseModelCardData(CardData):
         dataset_metadata: list[dict[str, Any]],
         loss: nn.Module | dict[str, nn.Module],
         dataset_type: Literal["train", "eval"],
+        router_mapping: dict[str, str] | dict[str, dict[str, str]] | None = None,
     ) -> list[dict[str, Any]]:
+        router_mapping = router_mapping or {}
         if dataset:
             if dataset_metadata and (
                 (isinstance(dataset, DatasetDict) and len(dataset_metadata) != len(dataset))
@@ -1268,18 +1284,22 @@ class BaseModelCardData(CardData):
                 dataset_metadata = self.infer_datasets(dataset)
 
             if isinstance(dataset, DatasetDict):
+                per_dataset_mapping = isinstance(next(iter(router_mapping.values()), None), dict)
                 dataset_metadata = [
                     self.compute_dataset_metrics(
                         dataset_value,
                         dataset_info,
                         loss[dataset_name] if isinstance(loss, dict) else loss,
+                        router_mapping=router_mapping.get(dataset_name, {}) if per_dataset_mapping else router_mapping,
                     )
                     for dataset_name, dataset_value, dataset_info in zip(
                         dataset.keys(), dataset.values(), dataset_metadata
                     )
                 ]
             else:
-                dataset_metadata = [self.compute_dataset_metrics(dataset, dataset_metadata[0], loss)]
+                dataset_metadata = [
+                    self.compute_dataset_metrics(dataset, dataset_metadata[0], loss, router_mapping=router_mapping)
+                ]
 
         # Try to get the number of training samples
         if dataset_type == "train":

@@ -12,8 +12,10 @@ import numpy as np
 import pytest
 import torch
 
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
 from sentence_transformers.base.model_card import BaseModelCardData, generate_model_card
+from sentence_transformers.base.modules import Router
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 try:
@@ -748,6 +750,46 @@ class TestComputeDatasetMetricsNonText:
             # 3 example rows, 1 image column, all distinct = 3 images saved
             for i in range(3):
                 assert os.path.isfile(os.path.join(tmpdir, "assets", f"example_image_{i}.jpg"))
+
+
+@pytest.mark.parametrize("dataset_type", ["train", "eval"])
+@pytest.mark.parametrize("mapping_type", ["single", "shared", "per_dataset"])
+def test_dataset_metrics_respect_router_mapping(word_embeddings_model, tmp_path, dataset_type, mapping_type):
+    router = Router({"left": list(word_embeddings_model), "right": list(word_embeddings_model)}, allow_empty_key=False)
+    model = SentenceTransformer(modules=[router])
+    model.model_card_data.generate_widget_examples = False
+    dataset = Dataset.from_dict({"anchor": ["hello", "hello world"], "positive": ["world", "world hello"]})
+    router_mapping = {"anchor": "left", "positive": "right"}
+    expected_tasks = ["left", "right"]
+    if mapping_type != "single":
+        dataset = DatasetDict(first=dataset, second=dataset)
+        if mapping_type == "per_dataset":
+            router_mapping = {"first": router_mapping, "second": {"anchor": "right", "positive": "left"}}
+            expected_tasks += ["right", "left"]
+        else:
+            expected_tasks *= 2
+
+    args = SentenceTransformerTrainingArguments(
+        output_dir=tmp_path, router_mapping=router_mapping, report_to="none", use_cpu=True
+    )
+    with patch.object(model, "preprocess", wraps=model.preprocess) as preprocess:
+        SentenceTransformerTrainer(
+            model=model,
+            args=args,
+            loss=MultipleNegativesRankingLoss(model),
+            **{f"{dataset_type}_dataset": dataset},
+        )
+
+    assert [call.kwargs["task"] for call in preprocess.call_args_list] == expected_tasks
+    metadata = getattr(model.model_card_data, f"{dataset_type}_datasets")
+    assert len(metadata) == (1 if mapping_type == "single" else 2)
+    for dataset_info in metadata:
+        for column in ("anchor", "positive"):
+            assert dataset_info["stats"][column]["data"] == {
+                "min": "1 tokens",
+                "mean": "1.5 tokens",
+                "max": "2 tokens",
+            }
 
 
 class TestComputeDatasetMetricsStringMediaPath:
