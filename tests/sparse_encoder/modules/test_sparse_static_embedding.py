@@ -3,11 +3,39 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import torch
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from tokenizers.pre_tokenizers import Whitespace
+from transformers import PreTrainedTokenizerFast
 
 from sentence_transformers import SparseEncoder
 from sentence_transformers.sparse_encoder.modules import SparseStaticEmbedding
 from tests.sparse_encoder.utils import sparse_allclose
+
+
+@pytest.mark.parametrize("padding_side", ["left", "right"])
+@pytest.mark.parametrize("pad_token", ["[UNK]", "[PAD]"])
+def test_sparse_static_embedding_padding_preserves_valid_token(padding_side: str, pad_token: str) -> None:
+    backend = Tokenizer(WordLevel({"[UNK]": 0, "[PAD]": 1, "known": 2, "longer": 3}, unk_token="[UNK]"))
+    backend.pre_tokenizer = Whitespace()
+    tokenizer = PreTrainedTokenizerFast(
+        tokenizer_object=backend,
+        unk_token="[UNK]",
+        pad_token=pad_token,
+        padding_side=padding_side,
+        model_max_length=32,
+    )
+    module = SparseStaticEmbedding(tokenizer=tokenizer, weight=torch.tensor([2.0, 5.0, 3.0, 4.0]))
+    model = SparseEncoder(modules=[module], device="cpu")
+    texts = ["unseen", "known longer"]
+
+    single_embeddings = model.encode(texts, batch_size=1, convert_to_sparse_tensor=False)
+    batch_embeddings = model.encode(texts, batch_size=2, convert_to_sparse_tensor=False)
+
+    torch.testing.assert_close(batch_embeddings, single_embeddings)
+    torch.testing.assert_close(batch_embeddings[0], torch.tensor([2.0, 0.0, 0.0, 0.0]))
 
 
 def test_sparse_static_embedding_padding_ignored(inference_free_splade_bert_tiny_model: SparseEncoder) -> None:

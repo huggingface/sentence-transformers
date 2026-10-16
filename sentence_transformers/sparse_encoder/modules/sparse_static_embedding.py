@@ -29,6 +29,7 @@ class SparseStaticEmbedding(InputModule):
     This lightweight module computes sparse representations by mapping input tokens to static weights,
     such as IDF (Inverse Document Frequency) weights. It is designed to encode queries or documents
     into fixed-size embeddings based on the presence of tokens in the input.
+    Padding positions are ignored, even when their token ID also occurs at an unmasked position.
 
     A common scenario is to use this module for encoding queries, and using a heavier module like
     SPLADE (Transformer with "fill-mask" + SpladePooling) for document encoding.
@@ -71,8 +72,8 @@ class SparseStaticEmbedding(InputModule):
         # Create binary mask where 1 indicates token presence, shape: (batch_size, num_dimensions)
         token_presence = torch.zeros(batch_size, self.num_dimensions, device=input_ids.device, dtype=torch.int64)
 
-        # Only consider tokens where attention_mask is 1 by using the attention_mask as scatter values
-        token_presence.scatter_(1, input_ids, attention_mask)
+        # A masked occurrence must not overwrite an unmasked occurrence of the same token.
+        token_presence.scatter_reduce_(1, input_ids, attention_mask, reduce="amax")
 
         # Multiply by weights to get final embeddings
         embeddings = token_presence * self.weight
