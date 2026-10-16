@@ -143,9 +143,7 @@ class SoftmaxLoss(nn.Module):
         if self.concatenation_sent_multiplication:
             vectors_concat.append(rep_a * rep_b)
 
-        # The classifier stays in float32 when the model uses another dtype, so the loss is computed in float32
         features = torch.cat(vectors_concat, 1).to(self.classifier.weight.dtype)
-
         output = self.classifier(features)
 
         if labels is not None:
