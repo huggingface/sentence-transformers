@@ -104,13 +104,19 @@ class MultiVectorEncoder(BaseModel):
         similarity_fn_name (str or SimilarityFunction, optional): The name of the similarity function, either
             ``"maxsim"`` or ``"meanmaxsim"`` (MaxSim divided by the query's token count). Defaults to
             ``"maxsim"``.
+        query_length (int, optional): Override the backbone :class:`~sentence_transformers.base.modules.Transformer`
+            query truncation length after load. ``None`` keeps the checkpoint value. Defaults to None.
+        document_length (int, optional): Override the backbone Transformer document truncation length after
+            load. ``None`` keeps the checkpoint value. Defaults to None.
 
     Note:
         Length / expansion / masking knobs (``query_length``, ``document_length``, ``query_expansion``,
         ``skiplist_words``, …) live on the underlying modules
         (:class:`~sentence_transformers.base.modules.Transformer` and
         :class:`~sentence_transformers.multi_vector_encoder.modules.MultiVectorMask`). Saved checkpoints
-        carry them in their config.
+        carry them in their config. ``query_length`` / ``document_length`` can also be set at
+        construction time or via properties on this class (mirroring :attr:`max_seq_length`), so
+        callers do not need to reach into ``model[0]``.
 
     Example:
         ::
@@ -173,6 +179,8 @@ class MultiVectorEncoder(BaseModel):
         model_card_data: MultiVectorEncoderModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
         similarity_fn_name: str | SimilarityFunction | None = None,
+        query_length: int | None = None,
+        document_length: int | None = None,
     ) -> None:
         # Stash before super().__init__ so _parse_model_config only falls back to saved config when unset.
         self.similarity_fn_name = similarity_fn_name
@@ -212,6 +220,31 @@ class MultiVectorEncoder(BaseModel):
                     "mask, so without one they will not be scored. Add a MultiVectorMask module after "
                     "the Transformer."
                 )
+
+        # Apply after load so constructor overrides beat checkpoint-saved lengths without requiring
+        # callers to mutate ``model[0]`` (see huggingface/sentence-transformers#3996).
+        if query_length is not None:
+            self.query_length = query_length
+        if document_length is not None:
+            self.document_length = document_length
+
+    @property
+    def query_length(self) -> int | None:
+        """Per-task query truncation length on the backbone Transformer, or ``None`` if unset."""
+        return getattr(self[0], "query_length", None)
+
+    @query_length.setter
+    def query_length(self, value: int | None) -> None:
+        self[0].query_length = value
+
+    @property
+    def document_length(self) -> int | None:
+        """Per-task document truncation length on the backbone Transformer, or ``None`` if unset."""
+        return getattr(self[0], "document_length", None)
+
+    @document_length.setter
+    def document_length(self, value: int | None) -> None:
+        self[0].document_length = value
 
     def is_singular_input(self, inputs: Any) -> TypeIs[SingleInput]:
         """Check if the input is a single example rather than a batch. Redeclared with
