@@ -32,8 +32,8 @@ class SparseRerankingEvaluator(RerankingEvaluator):
         samples (list): A list of dictionaries, where each dictionary represents a sample and has the following keys:
 
             - 'query': The search query.
-            - 'positive': A list of positive (relevant) documents.
-            - 'negative': A list of negative (irrelevant) documents.
+            - 'positive': A list of positive (relevant) documents, or a single positive document as a string.
+            - 'negative': A list of negative (irrelevant) documents, or a single negative document as a string.
         at_k (int, optional): Only consider the top k most similar documents to each query for the evaluation. Defaults to 10.
         name (str, optional): Name of the evaluator. Defaults to "".
         write_csv (bool, optional): Write results to CSV file. Defaults to True.

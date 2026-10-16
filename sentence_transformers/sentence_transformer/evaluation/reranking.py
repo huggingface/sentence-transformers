@@ -35,8 +35,8 @@ class RerankingEvaluator(BaseEvaluator):
         samples (list): A list of dictionaries, where each dictionary represents a sample and has the following keys:
 
             - 'query': The search query.
-            - 'positive': A list of positive (relevant) documents.
-            - 'negative': A list of negative (irrelevant) documents.
+            - 'positive': A list of positive (relevant) documents, or a single positive document as a string.
+            - 'negative': A list of negative (irrelevant) documents, or a single negative document as a string.
         at_k (int, optional): Only consider the top k most similar documents to each query for the evaluation. Defaults to 10.
         name (str, optional): Name of the evaluator. Defaults to "".
         write_csv (bool, optional): Write results to CSV file. Defaults to True.
@@ -119,6 +119,16 @@ class RerankingEvaluator(BaseEvaluator):
 
         if isinstance(self.samples, dict):
             self.samples = list(self.samples.values())
+
+        # A single positive or negative document can be given as a string, e.g. from a triplet dataset
+        self.samples = [
+            {
+                **sample,
+                "positive": [sample["positive"]] if isinstance(sample["positive"], str) else sample["positive"],
+                "negative": [sample["negative"]] if isinstance(sample["negative"], str) else sample["negative"],
+            }
+            for sample in self.samples
+        ]
 
         ### Remove sample with empty positive / negative set
         self.samples = [
