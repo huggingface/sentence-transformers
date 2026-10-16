@@ -3,6 +3,8 @@ from __future__ import annotations
 import heapq
 import logging
 from collections.abc import Callable
+from itertools import islice
+from operator import itemgetter
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -10,8 +12,8 @@ import torch
 from torch import Tensor
 from tqdm.autonotebook import tqdm
 
-from .similarity import cos_sim
-from .tensor import _convert_to_tensor, normalize_embeddings
+from .similarity import cos_sim, dot_score
+from .tensor import _convert_to_batch_tensor, _convert_to_tensor, normalize_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -205,52 +207,62 @@ def semantic_search(
 
     queries_result_list = [[] for _ in range(len(query_embeddings))]
 
-    for query_start_idx in range(0, len(query_embeddings), query_chunk_size):
-        query_end_idx = min(query_start_idx + query_chunk_size, len(query_embeddings))
-        if query_embeddings.is_sparse:
-            indices = torch.arange(query_start_idx, query_end_idx, device=query_embeddings.device)
-            query_chunk = query_embeddings.index_select(0, indices)
-        else:
-            query_chunk = query_embeddings[query_start_idx:query_end_idx]
+    # cos_sim normalizes both of its inputs on every call, which would renormalize the same corpus chunk once per
+    # query chunk. Normalizing each corpus chunk once and taking the dot product computes the exact same scores.
+    normalize_chunks = score_function is cos_sim
 
-        # Iterate over chunks of the corpus
-        for corpus_start_idx in range(0, len(corpus_embeddings), corpus_chunk_size):
-            corpus_end_idx = min(corpus_start_idx + corpus_chunk_size, len(corpus_embeddings))
-            if corpus_embeddings.is_sparse:
-                indices = torch.arange(corpus_start_idx, corpus_end_idx, device=corpus_embeddings.device)
-                corpus_chunk = corpus_embeddings.index_select(0, indices)
+    # Iterate over chunks of the corpus. The corpus chunks are the outer loop so that each one is only prepared once,
+    # while every query still receives the corpus chunks in order.
+    for corpus_start_idx in range(0, len(corpus_embeddings), corpus_chunk_size):
+        corpus_end_idx = min(corpus_start_idx + corpus_chunk_size, len(corpus_embeddings))
+        if corpus_embeddings.is_sparse:
+            indices = torch.arange(corpus_start_idx, corpus_end_idx, device=corpus_embeddings.device)
+            corpus_chunk = corpus_embeddings.index_select(0, indices)
+        else:
+            corpus_chunk = corpus_embeddings[corpus_start_idx:corpus_end_idx]
+        if normalize_chunks:
+            corpus_chunk = normalize_embeddings(_convert_to_batch_tensor(corpus_chunk))
+
+        for query_start_idx in range(0, len(query_embeddings), query_chunk_size):
+            query_end_idx = min(query_start_idx + query_chunk_size, len(query_embeddings))
+            if query_embeddings.is_sparse:
+                indices = torch.arange(query_start_idx, query_end_idx, device=query_embeddings.device)
+                query_chunk = query_embeddings.index_select(0, indices)
             else:
-                corpus_chunk = corpus_embeddings[corpus_start_idx:corpus_end_idx]
+                query_chunk = query_embeddings[query_start_idx:query_end_idx]
 
             # Compute cosine similarities
-            cos_scores = score_function(query_chunk, corpus_chunk)
+            if normalize_chunks:
+                cos_scores = dot_score(normalize_embeddings(_convert_to_batch_tensor(query_chunk)), corpus_chunk)
+            else:
+                cos_scores = score_function(query_chunk, corpus_chunk)
 
             # Get top-k scores
             cos_scores_top_k_values, cos_scores_top_k_idx = torch.topk(
                 cos_scores, min(top_k, len(cos_scores[0])), dim=1, largest=True, sorted=False
             )
             cos_scores_top_k_values = cos_scores_top_k_values.cpu().tolist()
-            cos_scores_top_k_idx = cos_scores_top_k_idx.cpu().tolist()
+            cos_scores_top_k_idx = (cos_scores_top_k_idx + corpus_start_idx).cpu().tolist()
 
-            for query_itr in range(len(cos_scores)):
-                for sub_corpus_id, score in zip(cos_scores_top_k_idx[query_itr], cos_scores_top_k_values[query_itr]):
-                    corpus_id = corpus_start_idx + sub_corpus_id
-                    query_id = query_start_idx + query_itr
-                    if len(queries_result_list[query_id]) < top_k:
-                        heapq.heappush(
-                            queries_result_list[query_id], (score, corpus_id)
-                        )  # heap tracks the quantity of the first element in the tuple
-                    else:
-                        heapq.heappushpop(queries_result_list[query_id], (score, corpus_id))
+            for query_results, corpus_ids, scores in zip(
+                queries_result_list[query_start_idx:query_end_idx], cos_scores_top_k_idx, cos_scores_top_k_values
+            ):
+                # The heap tracks the quantity of the first element in the tuple. Fill it up to top_k, then only
+                # keep a new candidate if it beats the current minimum.
+                candidates = zip(scores, corpus_ids)
+                for candidate in islice(candidates, top_k - len(query_results)):
+                    heapq.heappush(query_results, candidate)
+                for candidate in candidates:
+                    heapq.heappushpop(query_results, candidate)
 
     # change the data format and sort
-    for query_id in range(len(queries_result_list)):
-        for doc_itr in range(len(queries_result_list[query_id])):
-            score, corpus_id = queries_result_list[query_id][doc_itr]
-            queries_result_list[query_id][doc_itr] = {"corpus_id": corpus_id, "score": score}
-        queries_result_list[query_id] = sorted(queries_result_list[query_id], key=lambda x: x["score"], reverse=True)
-
-    return queries_result_list
+    return [
+        [
+            {"corpus_id": corpus_id, "score": score}
+            for score, corpus_id in sorted(query_results, key=itemgetter(0), reverse=True)
+        ]
+        for query_results in queries_result_list
+    ]
 
 
 def community_detection(

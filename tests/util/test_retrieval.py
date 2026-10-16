@@ -75,6 +75,26 @@ def test_semantic_search_empty_corpus(corpus) -> None:
     assert semantic_search(torch.ones(2, 16), corpus) == [[], []]
 
 
+@pytest.mark.parametrize("corpus_chunk_size", [1, 7, 1000])
+@pytest.mark.parametrize("query_chunk_size", [1, 4, 100])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16])
+def test_semantic_search_cos_sim_matches_generic_score_function(
+    corpus_chunk_size: int, query_chunk_size: int, dtype: torch.dtype
+) -> None:
+    # cos_sim takes a faster path that normalizes each chunk once, it must return exactly what calling cos_sim does
+    generator = torch.Generator().manual_seed(0)
+    query_embeddings = torch.randn(10, 16, generator=generator).to(dtype)
+    # Coarse values and repeated rows give many tied scores, so the order of ties is checked as well
+    corpus_embeddings = torch.randint(-2, 3, (25, 16), generator=generator).to(dtype).repeat(2, 1)
+
+    kwargs = {"query_chunk_size": query_chunk_size, "corpus_chunk_size": corpus_chunk_size, "top_k": 12}
+    results = semantic_search(query_embeddings, corpus_embeddings, score_function=cos_sim, **kwargs)
+    expected = semantic_search(
+        query_embeddings, corpus_embeddings, score_function=lambda a, b: cos_sim(a, b), **kwargs
+    )
+    assert results == expected
+
+
 @pytest.mark.slow
 def test_paraphrase_mining() -> None:
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
