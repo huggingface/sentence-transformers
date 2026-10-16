@@ -179,6 +179,34 @@ def test_paraphrase_mining_embeddings_top_k_is_per_sentence(
     assert [score for score, _, _ in pairs] == pytest.approx([score for score, _, _ in expected])
 
 
+@pytest.mark.parametrize("corpus_chunk_size", [1, 2, 3])
+@pytest.mark.parametrize("query_chunk_size", [1, 2, 3])
+@pytest.mark.parametrize("top_k", [0, 1, 2, 5])
+def test_paraphrase_mining_embeddings_dot_product_excludes_self(
+    query_chunk_size: int, corpus_chunk_size: int, top_k: int
+) -> None:
+    embeddings = np.array([[1.0], [2.0], [3.0]], dtype=np.float64)
+    scores = embeddings @ embeddings.T
+    candidates = set()
+    for i in range(len(embeddings)):
+        neighbours = sorted((j for j in range(len(embeddings)) if j != i), key=lambda j: scores[i, j], reverse=True)[
+            :top_k
+        ]
+        candidates.update((min(i, j), max(i, j)) for j in neighbours)
+    expected = sorted(([scores[i, j], i, j] for i, j in candidates), reverse=True)
+
+    pairs = paraphrase_mining_embeddings(
+        torch.from_numpy(embeddings),
+        query_chunk_size=query_chunk_size,
+        corpus_chunk_size=corpus_chunk_size,
+        top_k=top_k,
+        score_function=dot_score,
+    )
+
+    assert [(i, j) for _, i, j in pairs] == [(i, j) for _, i, j in expected]
+    assert [score for score, _, _ in pairs] == pytest.approx([score for score, _, _ in expected])
+
+
 def test_community_detection_two_clear_communities():
     """Test case with two clear communities."""
     embeddings = torch.tensor(
