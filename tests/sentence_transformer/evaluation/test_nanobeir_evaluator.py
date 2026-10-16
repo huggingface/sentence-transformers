@@ -7,6 +7,7 @@ import pytest
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
 from sentence_transformers.util import is_datasets_available
+from sentence_transformers.util.similarity import SimilarityFunction
 from tests.utils import is_ci
 
 if not is_datasets_available():
@@ -67,3 +68,15 @@ def test_nanobeir_evaluator_empty_inputs():
     """Test that NanoBEIREvaluator behaves correctly with empty datasets."""
     with pytest.raises(ValueError, match="dataset_names cannot be empty. Use None to evaluate on all datasets."):
         NanoBEIREvaluator(dataset_names=[])
+
+
+def test_nanobeir_evaluator_main_score_function_as_string(static_retrieval_mrl_en_v1_model: SentenceTransformer):
+    """Tests that main_score_function accepts a string, as the signature and docstring promise."""
+    model = static_retrieval_mrl_en_v1_model
+    evaluator = NanoBEIREvaluator(dataset_names=["MSMARCO"], main_score_function="cosine")
+
+    assert evaluator.main_score_function == SimilarityFunction.COSINE
+
+    results = evaluator(model)
+    assert evaluator.primary_metric == "NanoBEIR_mean_cosine_ndcg@10"
+    assert isinstance(results[evaluator.primary_metric], float)
