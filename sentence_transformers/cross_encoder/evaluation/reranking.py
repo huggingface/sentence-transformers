@@ -298,7 +298,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
             os.makedirs(output_path, exist_ok=True)
             csv_path = os.path.join(output_path, self.csv_file)
             output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, mode="a" if output_file_exists else "w", encoding="utf-8") as f:
+            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 if not output_file_exists:
                     writer.writerow(self.csv_headers)
