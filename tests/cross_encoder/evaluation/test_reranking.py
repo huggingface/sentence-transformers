@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import numpy as np
 import pytest
 
 from sentence_transformers import CrossEncoder
@@ -105,3 +108,48 @@ def test_validation_errors() -> None:
         CrossEncoderRerankingEvaluator([{"query": "q", "positive": ["a"], "negative": ["b"], "documents": ["c"]}])(
             None
         )
+
+
+class _PerfectReranker:
+    """Scores the documents the evaluator hands it, positives first, nothing else.
+
+    A stub rather than a real cross encoder: the point is what the evaluator does with a
+    ranking, and only an exact ranking makes the ceiling visible.
+    """
+
+    def __init__(self, positive: list[str]) -> None:
+        self.positive = positive
+        self.model_card_data = SimpleNamespace(set_evaluation_metrics=lambda *args, **kwargs: None)
+
+    def predict(self, pairs, **kwargs):
+        return np.array([1.0 if doc in self.positive else 0.0 for _, doc in pairs])
+
+
+def test_unretrieved_positives_cap_the_reranked_score_too() -> None:
+    """``always_rerank_positives=False`` documents a ceiling below 1.0 when the first stage
+    missed a positive. The base ranking counted those positives; the reranked one dropped
+    them, so a perfect reranker scored 1.0 against a base that could not, and the reported
+    improvement was the retriever's recall gap rather than the model's work."""
+    positive = ["p1", "p2"]
+    samples = [{"query": "q", "positive": positive, "documents": ["n1", "p1", "n2", "n3"]}]
+    evaluator = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, name="recall")
+    results = evaluator(_PerfectReranker(positive))
+
+    ndcg = results[f"recall_ndcg@{evaluator.at_k}"]
+    assert results["recall_map"] < 1.0, "one of the two positives was never scored"
+    assert ndcg < 1.0
+    # And comparable with the base, which charges for the same missed positive.
+    assert results["recall_base_map"] <= results["recall_map"]
+    assert results[f"recall_base_ndcg@{evaluator.at_k}"] <= ndcg
+
+
+def test_retrieved_positives_still_reach_one() -> None:
+    """Nothing missing, nothing to cap: the ceiling stays 1.0."""
+    positive = ["p1"]
+    samples = [{"query": "q", "positive": positive, "documents": ["n1", "p1", "n2"]}]
+    evaluator = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, name="full")
+    results = evaluator(_PerfectReranker(positive))
+
+    assert results["full_map"] == pytest.approx(1.0)
+    assert results[f"full_ndcg@{evaluator.at_k}"] == pytest.approx(1.0)
+    assert results[f"full_mrr@{evaluator.at_k}"] == pytest.approx(1.0)
