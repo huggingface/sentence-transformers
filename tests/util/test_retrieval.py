@@ -181,30 +181,38 @@ def test_paraphrase_mining_embeddings_top_k_is_per_sentence(
 
 @pytest.mark.parametrize("corpus_chunk_size", [1, 2, 3])
 @pytest.mark.parametrize("query_chunk_size", [1, 2, 3])
-@pytest.mark.parametrize("top_k", [0, 1, 2, 5])
+@pytest.mark.parametrize(
+    ("top_k", "expected"),
+    [
+        (0, []),
+        (1, [[6, 1, 2], [3, 0, 2]]),
+        (2, [[6, 1, 2], [3, 0, 2], [2, 0, 1]]),
+        (5, [[6, 1, 2], [3, 0, 2], [2, 0, 1]]),
+    ],
+)
 def test_paraphrase_mining_embeddings_dot_product_excludes_self(
-    query_chunk_size: int, corpus_chunk_size: int, top_k: int
+    query_chunk_size: int, corpus_chunk_size: int, top_k: int, expected: list[list[float | int]]
 ) -> None:
-    embeddings = np.array([[1.0], [2.0], [3.0]], dtype=np.float64)
-    scores = embeddings @ embeddings.T
-    candidates = set()
-    for i in range(len(embeddings)):
-        neighbours = sorted((j for j in range(len(embeddings)) if j != i), key=lambda j: scores[i, j], reverse=True)[
-            :top_k
-        ]
-        candidates.update((min(i, j), max(i, j)) for j in neighbours)
-    expected = sorted(([scores[i, j], i, j] for i, j in candidates), reverse=True)
-
     pairs = paraphrase_mining_embeddings(
-        torch.from_numpy(embeddings),
+        torch.tensor([[1.0], [2.0], [3.0]]),
         query_chunk_size=query_chunk_size,
         corpus_chunk_size=corpus_chunk_size,
         top_k=top_k,
         score_function=dot_score,
     )
 
-    assert [(i, j) for _, i, j in pairs] == [(i, j) for _, i, j in expected]
-    assert [score for score, _, _ in pairs] == pytest.approx([score for score, _, _ in expected])
+    assert pairs == expected
+
+
+def test_paraphrase_mining_embeddings_preserves_score_buffer() -> None:
+    embeddings = torch.tensor([[1.0], [2.0], [3.0]])
+    scores = dot_score(embeddings, embeddings)
+    original_scores = scores.clone()
+
+    pairs = paraphrase_mining_embeddings(embeddings, top_k=1, score_function=lambda a, b: scores)
+
+    assert pairs == [[6, 1, 2], [3, 0, 2]]
+    torch.testing.assert_close(scores, original_scores)
 
 
 def test_community_detection_two_clear_communities():

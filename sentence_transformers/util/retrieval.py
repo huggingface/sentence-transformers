@@ -45,7 +45,7 @@ def paraphrase_mining(
         query_chunk_size (int, optional): Search for most similar pairs for #query_chunk_size at the same time. Decrease, to lower memory footprint (increases run-time). Defaults to 5000.
         corpus_chunk_size (int, optional): Compare a sentence simultaneously against #corpus_chunk_size other sentences. Decrease, to lower memory footprint (increases run-time). Defaults to 100000.
         max_pairs (int, optional): Maximal number of text pairs returned. Defaults to 500000.
-        top_k (int, optional): For each sentence, retrieve up to top_k other sentences, excluding itself. Defaults to 100.
+        top_k (int, optional): For each sentence, we retrieve up to top_k other sentences. Defaults to 100.
         score_function (Callable[[Tensor, Tensor], Tensor], optional): Function for computing scores. Assumed to be symmetric,
             since only one direction's score is kept for each pair. By default, cosine similarity. Defaults to cos_sim.
         truncate_dim (int, optional): The dimension to truncate sentence embeddings to. If None, uses the model's ones. Defaults to None.
@@ -103,7 +103,7 @@ def paraphrase_mining_embeddings(
         query_chunk_size (int): Search for most similar pairs for #query_chunk_size at the same time. Decrease, to lower memory footprint (increases run-time).
         corpus_chunk_size (int): Compare a sentence simultaneously against #corpus_chunk_size other sentences. Decrease, to lower memory footprint (increases run-time).
         max_pairs (int): Maximal number of text pairs returned.
-        top_k (int): For each sentence, retrieve up to top_k other sentences, excluding itself.
+        top_k (int): For each sentence, we retrieve up to top_k other sentences
         score_function (Callable[[Tensor, Tensor], Tensor]): Function for computing scores. Assumed to be symmetric,
             since only one direction's score is kept for each pair. By default, cosine similarity.
 
@@ -125,9 +125,7 @@ def paraphrase_mining_embeddings(
             scores = score_function(
                 query_embeddings, embeddings[corpus_start_idx : corpus_start_idx + corpus_chunk_size]
             ).detach()
-            # Self-similarity need not be the highest score (e.g. with unnormalized dot-product embeddings).
-            scores.diagonal(offset=query_start_idx - corpus_start_idx).fill_(-torch.inf)
-            chunk_values, chunk_idx = torch.topk(scores, min(top_k, len(scores[0])), dim=1, largest=True, sorted=False)
+            chunk_values, chunk_idx = torch.topk(scores, min(top_k + 1, len(scores[0])), dim=1, largest=True)
             chunk_idx = chunk_idx + corpus_start_idx
 
             if scores_top_k_values is None:
@@ -135,7 +133,7 @@ def paraphrase_mining_embeddings(
             else:
                 values = torch.cat([scores_top_k_values, chunk_values], dim=1)
                 idx = torch.cat([scores_top_k_idx, chunk_idx], dim=1)
-                scores_top_k_values, top_pos = torch.topk(values, min(top_k, len(values[0])), dim=1, sorted=False)
+                scores_top_k_values, top_pos = torch.topk(values, min(top_k + 1, len(values[0])), dim=1)
                 scores_top_k_idx = torch.gather(idx, 1, top_pos)
 
         scores_top_k_values = scores_top_k_values.cpu().tolist()
@@ -143,8 +141,11 @@ def paraphrase_mining_embeddings(
 
         for query_itr in range(len(scores_top_k_values)):
             i = query_start_idx + query_itr
-            for j, score in zip(scores_top_k_idx[query_itr], scores_top_k_values[query_itr]):
-                if i == j or score <= min_score:
+            neighbours = [
+                (j, score) for j, score in zip(scores_top_k_idx[query_itr], scores_top_k_values[query_itr]) if i != j
+            ][:top_k]
+            for j, score in neighbours:
+                if score <= min_score:
                     continue
 
                 pair = (i, j) if i < j else (j, i)
