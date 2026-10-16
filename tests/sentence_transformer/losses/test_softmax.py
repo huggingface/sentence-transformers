@@ -25,6 +25,28 @@ def features(model: SentenceTransformer) -> list[dict[str, torch.Tensor]]:
     return [model.preprocess(["red", "blue"]), model.preprocess(["green", "red blue"])]
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16, torch.float64])
+def test_model_dtype_matches_float32_reference(
+    model: SentenceTransformer, features: list[dict[str, torch.Tensor]], dtype: torch.dtype
+) -> None:
+    model.to(dtype=dtype)
+    loss = SoftmaxLoss(model, embedding_dimension=2, num_labels=3)
+    labels = torch.tensor([0, 2])
+
+    value = loss(features, labels)
+    (rep_a, rep_b), logits = loss(features, None)
+    expected_logits = loss.classifier(torch.cat([rep_a, rep_b, (rep_a - rep_b).abs()], 1).float())
+
+    assert loss.classifier.weight.dtype == torch.float32
+    torch.testing.assert_close(logits, expected_logits)
+    torch.testing.assert_close(value, torch.nn.functional.cross_entropy(expected_logits, labels))
+    value.backward()
+    for parameter in (loss.classifier.weight, next(model.parameters())):
+        assert parameter.grad is not None
+        assert torch.isfinite(parameter.grad).all()
+        assert parameter.grad.abs().sum() > 0
+
+
 def test_probability_labels_match_cross_entropy(
     model: SentenceTransformer, features: list[dict[str, torch.Tensor]]
 ) -> None:
