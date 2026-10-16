@@ -421,6 +421,47 @@ def test_semantic_search_faiss_empty_corpus(rescore: bool) -> None:
 
 
 @skip_without_faiss
+@pytest.mark.parametrize("mode", ["ubinary", "uint8_ranges", "uint8_calibration"])
+def test_semantic_search_faiss_empty_queries(mode):
+    import faiss
+
+    dim = 10
+    calibration = np.random.default_rng(0).standard_normal((128, dim)).astype(np.float32)
+    precision = "ubinary" if mode == "ubinary" else "uint8"
+    ranges = np.vstack((calibration.min(axis=0), calibration.max(axis=0)))
+    packed = quantize_embeddings(calibration[:3], precision=precision, ranges=ranges)
+    calibration_kwargs = {}
+    if mode == "uint8_ranges":
+        calibration_kwargs = {"ranges": ranges}
+    elif mode == "uint8_calibration":
+        calibration_kwargs = {"calibration_embeddings": calibration}
+    index = faiss.IndexBinaryFlat(packed.shape[1] * 8) if precision == "ubinary" else faiss.IndexFlatIP(dim)
+    index.add(packed)
+
+    output = semantic_search_faiss(
+        np.empty((0, dim), dtype=np.float32),
+        corpus_index=index,
+        **calibration_kwargs,
+        corpus_precision=precision,
+        top_k=2,
+        rescore=True,
+        rescore_multiplier=2,
+        exact=True,
+        output_index=True,
+    )
+    assert len(output) == 3
+    assert output[0] == []
+    assert isinstance(output[1], float)
+    assert np.isfinite(output[1]) and output[1] >= 0
+    returned_index = output[2]
+    assert isinstance(returned_index, faiss.IndexBinaryFlat if precision == "ubinary" else faiss.IndexFlatIP)
+    assert returned_index.ntotal == len(packed)
+    assert returned_index.d == (packed.shape[1] * 8 if precision == "ubinary" else dim)
+    np.testing.assert_array_equal(returned_index.reconstruct(0), packed[0])
+    assert returned_index is index
+
+
+@skip_without_faiss
 @pytest.mark.parametrize("corpus_precision", ["ubinary", "uint8"])
 def test_semantic_search_faiss_returns_top_k_when_corpus_is_large_enough(corpus_precision: str) -> None:
     """The padding check must not shorten results for a corpus larger than ``top_k``."""

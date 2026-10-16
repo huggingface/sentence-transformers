@@ -157,7 +157,7 @@ def semantic_search_faiss(
     scores, indices = corpus_index.search(query_embeddings, k)
 
     # If rescoring is enabled, we need to rescore the results using the rescore_embeddings
-    if rescore_embeddings is not None:
+    if rescore_embeddings is not None and len(query_embeddings) > 0:
         # FAISS pads short result sets with index -1, and reconstruct(-1) reads out of bounds
         # (or segfaults on an empty index), so the padding slots get a zero placeholder instead
         if corpus_precision == "ubinary":
