@@ -653,6 +653,59 @@ def test_trainer_prompts(
     assert set(tracked_texts) == expected
 
 
+@pytest.mark.parametrize("loss_dict", [False, True])
+def test_trainer_prompts_with_a_dataset_dict_from_another_trainer(
+    stsb_bert_tiny_model: SentenceTransformer, loss_dict: bool, tmp_path: Path
+) -> None:
+    """Per-dataset prompts and losses apply to a DatasetDict that an earlier trainer without them already used."""
+    model = stsb_bert_tiny_model
+    train_dataset = DatasetDict(
+        {
+            "stsb-1": Dataset.from_dict({"sentence1": ["train 1 sentence 1a"], "sentence2": ["train 1 sentence 2a"]}),
+            "stsb-2": Dataset.from_dict({"sentence1": ["train 2 sentence 1a"], "sentence2": ["train 2 sentence 2a"]}),
+        }
+    )
+    loss = MultipleNegativesRankingLoss(model=model)
+    # This trainer does not need the dataset name column
+    SentenceTransformerTrainer(
+        model=model,
+        args=SentenceTransformerTrainingArguments(output_dir=str(tmp_path), report_to=["none"]),
+        train_dataset=train_dataset,
+        loss=loss,
+    )
+
+    tracked_texts = []
+    old_preprocess = model.preprocess
+
+    def preprocess_tracker(texts, prompt=None, **kwargs):
+        tracked_texts.extend([(prompt or "") + text for text in texts])
+        return old_preprocess(texts, prompt=prompt, **kwargs)
+
+    model.preprocess = preprocess_tracker
+    args = SentenceTransformerTrainingArguments(
+        output_dir=str(tmp_path),
+        prompts={"stsb-1": "Prompt 1: ", "stsb-2": "Prompt 2: "},
+        max_steps=2,
+        per_device_train_batch_size=1,
+        report_to=["none"],
+    )
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=args,
+        train_dataset=train_dataset,
+        loss={"stsb-1": loss, "stsb-2": loss} if loss_dict else loss,
+    )
+    tracked_texts.clear()
+    trainer.train()
+
+    assert set(tracked_texts) == {
+        "Prompt 1: train 1 sentence 1a",
+        "Prompt 1: train 1 sentence 2a",
+        "Prompt 2: train 2 sentence 1a",
+        "Prompt 2: train 2 sentence 2a",
+    }
+
+
 @pytest.mark.parametrize("use_eval_dataset", [True, False])
 @pytest.mark.parametrize("use_evaluator", [True, False])
 def test_trainer_no_eval_dataset_with_eval_strategy(

@@ -1113,10 +1113,10 @@ class BaseTrainer(Trainer, ABC):
 
         if self.should_dataset_name_column_be_added(dataset, self.args, self.loss):
             dataset = self.add_dataset_name_column(dataset)
-
-        # Add a tag to the dataset to indicate that it has been preprocessed, to ensure that we don't apply the map or
-        # transform multiple times.
-        dataset._sentence_transformers_preprocessed = True
+            # Add a tag to the dataset to indicate that the dataset name column has been added, to ensure that we
+            # don't apply the map or transform multiple times. Datasets without the column are not tagged, so that
+            # a later trainer that needs the column can still add it.
+            dataset._sentence_transformers_preprocessed = True
 
         return dataset
 
