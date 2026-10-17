@@ -1661,7 +1661,7 @@ def test_mine_hard_negatives_with_prompt(stsb_bert_tiny_model: SentenceTransform
 
     # Verify that preprocess was called without prompts for queries and corpus
     for kwargs in preprocess_calls:
-        assert kwargs == {"task": "query", "prompt": ""} or kwargs == {"task": "document", "prompt": ""}
+        assert kwargs == {"task": "query", "prompt": ""} or kwargs == {"task": "document", "prompt": None}
 
     # Assert basic success criteria
     assert isinstance(result_no_prompt, Dataset)
@@ -1686,7 +1686,10 @@ def test_mine_hard_negatives_with_prompt(stsb_bert_tiny_model: SentenceTransform
 
     # Verify that tokenize was called with prompts, and the corpus without prompts
     for kwargs in preprocess_calls:
-        assert kwargs == {"task": "query", "prompt": query_prompt} or kwargs == {"task": "document", "prompt": ""}
+        assert kwargs == {"task": "query", "prompt": query_prompt} or kwargs == {
+            "task": "document",
+            "prompt": None,
+        }
 
     # Assert basic success criteria
     assert isinstance(result_with_prompt, Dataset)

@@ -134,6 +134,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 name, the value is the prompt text. The prompt text will be prepended before any text during inference.
                 For example: ``{"query": "query: ", "passage": "passage: "}``. If a model has saved prompts, you
                 can override them by passing your own, or pass ``{"query": "", "document": ""}`` to disable them.
+                An unconfigured document prompt remains None, allowing passage or corpus aliases to be selected.
+                An explicit empty document prompt disables this fallback.
                 Defaults to None.
             default_prompt_name (str, optional): The name of the prompt that should be used by default. If not
                 set, no prompt will be applied. Defaults to None.
@@ -351,9 +353,12 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
     def _validate_prompts(self) -> None:
         """Validate prompt configuration and log prompt information."""
-        # Replace any remaining None prompts (not filled by saved config) with empty strings
+        # Replace any remaining None prompts (not filled by saved config) with empty strings, except for
+        # the "document" placeholder. encode_document() keeps that one as None so it can tell an unfilled
+        # placeholder apart from an explicit empty string (which disables prompting) when picking between
+        # the "document", "passage" and "corpus" aliases.
         for key, value in self.prompts.items():
-            if value is None:
+            if value is None and key != "document":
                 self.prompts[key] = ""
         if self.default_prompt_name is not None and self.default_prompt_name not in self.prompts:
             raise ValueError(
@@ -361,7 +366,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 f"dictionary with keys {list(self.prompts.keys())!r}."
             )
 
-        if non_empty_keys := [k for k, v in self.prompts.items() if v != ""]:
+        if non_empty_keys := [k for k, v in self.prompts.items() if v]:
             n = len(non_empty_keys)
             logger.info(f"Loaded {n} prompt{'s' if n > 1 else ''} with these keys: {non_empty_keys}")
         if self.default_prompt_name:
@@ -370,6 +375,22 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 "This prompt applies unless overridden by `prompt`, `prompt_name`, or a method-specific prompt, "
                 "including an empty prompt."
             )
+
+    def _resolve_document_prompt_name(self) -> str | None:
+        """Pick the prompt name :meth:`encode_document` should use when none was passed explicitly.
+
+        Prefers the first configured (non-``None``) candidate among ``"document"``, ``"passage"`` and
+        ``"corpus"``, so the unfilled ``"document"`` placeholder does not shadow a configured ``"passage"``
+        or ``"corpus"`` prompt. An explicit empty string counts as configured and stays authoritative.
+
+        Falls back to the first present candidate (typically the injected empty ``"document"`` prompt) so
+        that ``default_prompt_name`` is not applied to documents when nothing is configured for them.
+        """
+        candidates = ("document", "passage", "corpus")
+        return next(
+            (name for name in candidates if self.prompts.get(name) is not None),
+            next((name for name in candidates if name in self.prompts), None),
+        )
 
     def _resolve_prompt(self, prompt: str | None, prompt_name: str | None) -> str | None:
         """Resolve a prompt from a prompt name or the default prompt name.

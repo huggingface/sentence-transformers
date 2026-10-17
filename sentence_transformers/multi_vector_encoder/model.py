@@ -544,21 +544,19 @@ class MultiVectorEncoder(BaseModel):
         token_pooling: BaseTokenPooling | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
-        """Compute document embeddings. Uses the first available of ``"document"`` / ``"passage"`` / ``"corpus"``
-        prompts and routes through the document side.
+        """Compute document embeddings. Uses the first configured of ``"document"`` / ``"passage"`` /
+        ``"corpus"`` prompts and routes through the document side.
 
         See :meth:`encode` for the full parameter documentation. This method differs only by:
 
-        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the first available of ``"document"`` /
-           ``"passage"`` / ``"corpus"`` from the model's ``prompts`` dictionary.
+        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the first configured of ``"document"`` /
+           ``"passage"`` / ``"corpus"`` from the model's ``prompts`` dictionary. An unconfigured
+           ``"document"`` placeholder is skipped, while an explicit empty string counts as configured.
         2. It sets the ``task`` to ``"document"``: the document prefix token is inserted, the max sequence
            length is ``document_length``, and skiplist tokens (e.g. punctuation) are excluded from the output.
         """
         if prompt_name is None and prompt is None:
-            for candidate in ("document", "passage", "corpus"):
-                if candidate in self.prompts:
-                    prompt_name = candidate
-                    break
+            prompt_name = self._resolve_document_prompt_name()
 
         return self.encode(
             inputs=inputs,
