@@ -15,8 +15,9 @@ class PListMLELambdaWeight(nn.Module):
         Initialize a lambda weight for PListMLE loss.
 
         Args:
-            rank_discount_fn: Function that computes a discount for each rank position.
-                              If None, uses default discount of 2^(num_docs - rank) - 1.
+            rank_discount_fn: Function that computes a discount for each rank position. It receives a float
+                              tensor of 1-based ranks with shape [batch_size, num_docs]; padded positions
+                              are zeroed afterwards. If None, uses default discount of 2^(num_docs - rank) - 1.
         """
         super().__init__()
         self.rank_discount_fn = rank_discount_fn
@@ -32,12 +33,14 @@ class PListMLELambdaWeight(nn.Module):
             Tensor: Weights for each position [batch_size, num_docs]. Long lists are rescaled by a
             common factor to keep the weights and their sum finite without changing their relative values.
         """
+        ranks = torch.arange(1, mask.size(1) + 1, device=mask.device).expand_as(mask)
         if self.rank_discount_fn is not None:
-            return self.rank_discount_fn(mask)
+            # The custom discount receives the 1-based rank of each position; padded positions get no weight.
+            weights = self.rank_discount_fn(ranks.float())
+            return torch.where(mask, weights, torch.zeros_like(weights))
 
         # Apply default rank discount: 2^(num_docs - rank) - 1, with ranks starting at 1.
         num_docs_per_query = mask.sum(dim=1, keepdim=True)
-        ranks = torch.arange(1, mask.size(1) + 1, device=mask.device).expand_as(mask)
         # Rescale each row to keep its sum at most 2^127 without changing normalized weights.
         scale = (num_docs_per_query - 127).clamp_min(0)
         weights = torch.pow(2.0, num_docs_per_query - ranks - scale) - torch.pow(2.0, -scale)
