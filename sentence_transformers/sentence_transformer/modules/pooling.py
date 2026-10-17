@@ -192,7 +192,7 @@ class Pooling(Module):
 
         for mode in modes:
             if mode == "cls":
-                if "cls_token_embeddings" in features:
+                if features.get("cls_token_embeddings") is not None:
                     output_vectors.append(features["cls_token_embeddings"])
                 else:
                     hidden_dim = token_embeddings.shape[-1]
@@ -300,7 +300,7 @@ class Pooling(Module):
 
         for mode in modes:
             if mode == "cls":
-                if "cls_token_embeddings" in features:
+                if features.get("cls_token_embeddings") is not None:
                     output_vectors.append(features["cls_token_embeddings"])
                 else:
                     first_indices = cu_seq_lens_q[:-1]

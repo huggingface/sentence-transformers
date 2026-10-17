@@ -163,3 +163,17 @@ def test_word_embeddings_encode_empty_tokens_batch_invariance(encoder, batch_siz
 
     torch.testing.assert_close(embeddings, expected)
     torch.testing.assert_close(embeddings[1:], torch.zeros_like(embeddings[1:]))
+
+
+def test_word_embeddings_cls_pooling_uses_first_token():
+    """WordEmbeddings has no CLS token and writes ``cls_token_embeddings=None`` into the features. CLS pooling
+    must treat that as absent and use the first token, not crash on the ``None``."""
+    words = WordEmbeddings(
+        tokenizer=WhitespaceTokenizer(vocab=["PADDING_TOKEN", "alpha", "beta", "gamma"]),
+        embedding_weights=torch.tensor([[0.0, 0.0], [1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]),
+    )
+    model = SentenceTransformer(modules=[words, Pooling(2, "cls")], device="cpu")
+
+    embeddings = model.encode(["alpha beta gamma", "beta", "gamma alpha"], convert_to_tensor=True)
+
+    torch.testing.assert_close(embeddings, torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]))
