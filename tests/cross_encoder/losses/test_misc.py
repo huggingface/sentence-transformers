@@ -188,6 +188,23 @@ def test_plistmle_default_weights_for_short_lists():
     torch.testing.assert_close(PListMLELambdaWeight()(mask), expected)
 
 
+def test_plistmle_custom_rank_discount_receives_ranks():
+    # The documented example: def custom_discount(ranks): return 1.0 / torch.log1p(ranks), with ranks [1, 2, ...]
+    received = []
+
+    def custom_discount(ranks):
+        received.append(ranks)
+        return 1.0 / torch.log1p(ranks)
+
+    mask = torch.tensor([[True, True, True], [True, True, False]])
+    weights = PListMLELambdaWeight(rank_discount_fn=custom_discount)(mask)
+
+    torch.testing.assert_close(received[0], torch.tensor([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]]))
+    discounts = 1.0 / torch.log1p(torch.tensor([1.0, 2.0, 3.0]))
+    expected = torch.stack([discounts, discounts * torch.tensor([1.0, 1.0, 0.0])])
+    torch.testing.assert_close(weights, expected)
+
+
 @pytest.mark.parametrize("num_docs", [3, 127, 128, 129, 200, 1000])
 @pytest.mark.parametrize("respect_input_order", [True, False])
 def test_plistmle_long_lists_match_sequential_cross_entropy(num_docs, respect_input_order):
