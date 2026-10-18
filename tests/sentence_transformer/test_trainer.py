@@ -1283,3 +1283,38 @@ def test_training_updates_loss_weights(stsb_bert_tiny_model, tmp_path, monkeypat
 
     assert not torch.equal(loss.classifier.weight.detach(), classifier_weight)
     assert all(parameter.grad is None for parameter in loss.parameters())
+
+
+@pytest.mark.parametrize("num_objectives", [1, 2, 3])
+def test_fit_scheduler_covers_every_objective_step(
+    stsb_bert_tiny_model, tmp_path, monkeypatch, num_objectives: int
+) -> None:
+    """One optimizer takes a step per objective and iteration, so the schedule must span all of them."""
+    monkeypatch.chdir(tmp_path)
+    model = stsb_bert_tiny_model
+    learning_rates = []
+
+    class RecordingAdamW(torch.optim.AdamW):
+        def step(self, *args, **kwargs):
+            learning_rates.append(self.param_groups[0]["lr"])
+            return super().step(*args, **kwargs)
+
+    train_objectives = []
+    for objective in range(num_objectives):
+        examples = [
+            InputExample(texts=[f"This is sentence {idx} {objective}", f"This is another sentence {idx}"], label=0.5)
+            for idx in range(16)
+        ]
+        train_objectives.append((DataLoader(examples, batch_size=4), CosineSimilarityLoss(model)))
+
+    model.fit(
+        train_objectives=train_objectives,
+        epochs=1,
+        warmup_steps=1,
+        optimizer_class=RecordingAdamW,
+        show_progress_bar=False,
+    )
+
+    assert len(learning_rates) == 4 * num_objectives
+    # The first step sits at the start of the warmup, so only that one may have a zero learning rate
+    assert all(learning_rate > 0 for learning_rate in learning_rates[1:])
