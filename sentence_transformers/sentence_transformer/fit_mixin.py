@@ -263,7 +263,16 @@ class FitMixin:
             elif hasattr(data_loader, "dataset") and isinstance(data_loader.dataset, SentenceLabelDataset):
                 batch_sampler = BatchSamplers.GROUP_BY_LABEL
 
-            batch_size = getattr(data_loader, "batch_size", batch_size)
+            loader_batch_size = getattr(data_loader, "batch_size", batch_size)
+            if loader_batch_size is None:
+                # PyTorch sets `DataLoader.batch_size` to None when a custom `batch_sampler` is passed
+                loader_batch_size = getattr(data_loader.batch_sampler, "batch_size", None) or batch_size
+                logger.warning(
+                    f"The DataLoader for training objective {loader_idx} uses a custom `batch_sampler`, whose "
+                    "batch grouping `fit()` does not preserve. We recommend using `SentenceTransformerTrainer` "
+                    "instead, or `old_fit()` if your script was written for Sentence Transformers v2."
+                )
+            batch_size = loader_batch_size
             texts = []
             labels = []
             for batch in data_loader:
