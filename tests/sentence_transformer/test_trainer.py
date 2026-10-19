@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import tempfile
 from contextlib import nullcontext
@@ -10,7 +11,7 @@ import pytest
 import torch
 from packaging.version import parse as parse_version
 from tokenizers.processors import TemplateProcessing
-from torch.utils.data import ConcatDataset, DataLoader
+from torch.utils.data import BatchSampler, ConcatDataset, DataLoader, SequentialSampler
 from transformers import __version__ as transformers_version
 from transformers.trainer_utils import EvalLoopOutput
 
@@ -24,6 +25,7 @@ from sentence_transformers.base.sampler import (
     RoundRobinBatchSampler,
     SubsetRandomSampler,
 )
+from sentence_transformers.sentence_transformer import fit_mixin
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.sentence_transformer.losses import (
     CachedMultipleNegativesRankingLoss,
@@ -1283,3 +1285,30 @@ def test_training_updates_loss_weights(stsb_bert_tiny_model, tmp_path, monkeypat
 
     assert not torch.equal(loss.classifier.weight.detach(), classifier_weight)
     assert all(parameter.grad is None for parameter in loss.parameters())
+
+
+def test_fit_with_custom_batch_sampler(stsb_bert_tiny_model, tmp_path, monkeypatch, caplog) -> None:
+    model = stsb_bert_tiny_model
+    monkeypatch.chdir(tmp_path)
+    training_args = {}
+    original_training_arguments = fit_mixin.SentenceTransformerTrainingArguments
+
+    def record_training_arguments(*args, **kwargs):
+        training_args.update(kwargs)
+        return original_training_arguments(*args, **kwargs)
+
+    monkeypatch.setattr(fit_mixin, "SentenceTransformerTrainingArguments", record_training_arguments)
+
+    examples = [InputExample(texts=[f"This is sentence {idx}", f"This is another sentence {idx}"]) for idx in range(8)]
+    batch_sampler = BatchSampler(SequentialSampler(examples), batch_size=4, drop_last=False)
+    with caplog.at_level(logging.WARNING, logger=fit_mixin.__name__):
+        model.fit(
+            train_objectives=[
+                (DataLoader(examples, batch_sampler=batch_sampler), MultipleNegativesRankingLoss(model))
+            ],
+            epochs=1,
+            show_progress_bar=False,
+        )
+
+    assert training_args["per_device_train_batch_size"] == 4
+    assert "uses a custom `batch_sampler`, which `fit()` does not use" in caplog.text
