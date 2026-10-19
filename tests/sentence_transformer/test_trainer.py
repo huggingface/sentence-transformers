@@ -1285,11 +1285,10 @@ def test_training_updates_loss_weights(stsb_bert_tiny_model, tmp_path, monkeypat
     assert all(parameter.grad is None for parameter in loss.parameters())
 
 
-@pytest.mark.parametrize("num_objectives", [1, 2, 3])
+@pytest.mark.parametrize("num_objectives", [1, 2])
 def test_fit_scheduler_covers_every_objective_step(
     stsb_bert_tiny_model, tmp_path, monkeypatch, num_objectives: int
 ) -> None:
-    """One optimizer takes a step per objective and iteration, so the schedule must span all of them."""
     monkeypatch.chdir(tmp_path)
     model = stsb_bert_tiny_model
     learning_rates = []

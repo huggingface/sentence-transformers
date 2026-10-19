@@ -327,7 +327,6 @@ class FitMixin:
 
         if steps_per_epoch is None or steps_per_epoch == 0:
             steps_per_epoch = min([len(train_dataset) // batch_size for train_dataset in train_dataset_dict.values()])
-        # One optimizer serves all objectives, and the round-robin sampler gives each of them a batch per iteration
         num_train_steps = max_steps if max_steps > 0 else int(steps_per_epoch * epochs) * len(loss_fns)
 
         # Prepare optimizer & scheduler
