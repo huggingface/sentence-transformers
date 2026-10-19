@@ -45,7 +45,6 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
         write_csv (bool, optional): Whether to write the evaluation results to a CSV file. Defaults to True.
         precision (Optional[Literal["float32", "int8", "uint8", "binary", "ubinary"]], optional): The precision
             to use for the embeddings. Can be "float32", "int8", "uint8", "binary", or "ubinary". Defaults to None.
-            For "int8" and "uint8", both sentence lists share the same quantization ranges.
         truncate_dim (Optional[int], optional): The dimension to truncate sentence embeddings to. `None` uses the
             model's current truncation dimension. Defaults to None.
 
