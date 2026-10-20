@@ -12,6 +12,23 @@ from sentence_transformers.sentence_transformer.modules import CNN, LSTM, Poolin
 from sentence_transformers.sentence_transformer.modules.tokenizer import WhitespaceTokenizer
 
 
+@pytest.mark.parametrize("batch_size", [1, 4])
+@pytest.mark.parametrize("pooling_mode", ["max", ("max", "mean")])
+def test_max_pooling_encode_without_known_tokens(batch_size, pooling_mode):
+    words = WordEmbeddings(
+        tokenizer=WhitespaceTokenizer(vocab=["PADDING_TOKEN", "hello", "world"]),
+        embedding_weights=torch.tensor([[0.0, 0.0], [-1.0, -2.0], [-3.0, -4.0]]),
+    )
+    model = SentenceTransformer(modules=[words, Pooling(2, pooling_mode)], device="cpu")
+    texts = ["hello world", "", "unknownword", "the"]
+    embeddings = model.encode(texts, batch_size=batch_size, normalize_embeddings=True, convert_to_tensor=True)
+    known = torch.tensor([[-1.0, -2.0]] if pooling_mode == "max" else [[-1.0, -2.0, -2.0, -3.0]])
+
+    torch.testing.assert_close(embeddings[:1], torch.nn.functional.normalize(known, dim=-1))
+    torch.testing.assert_close(embeddings[1:], torch.zeros_like(embeddings[1:]))
+    assert torch.isfinite(model.similarity(embeddings, embeddings)).all()
+
+
 @pytest.mark.parametrize("trust_remote_code", [False, True])
 def test_word_embeddings_load_routes_tokenizer_class_through_trust_gate(monkeypatch, trust_remote_code):
     """`WordEmbeddings.load` must resolve the config-controlled `tokenizer_class` through the

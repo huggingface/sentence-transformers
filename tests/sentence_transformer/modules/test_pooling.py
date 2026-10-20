@@ -283,6 +283,42 @@ def test_pooling_max_respects_attention_mask() -> None:
     assert torch.allclose(sentence_embedding, torch.tensor([[5.0]]))
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("flattened", [False, True], ids=["padded", "flattened"])
+@pytest.mark.parametrize("prompt_length", [0, 2, 3])
+def test_pooling_max_without_effective_tokens(dtype, flattened, prompt_length) -> None:
+    # Empty text and a prompt covering the entire sequence should both pool to zero.
+    # Keep negative unmasked values to ensure zero cannot replace a real maximum.
+    embeddings = torch.tensor(
+        [
+            [[-8.0, -9.0], [-6.0, -7.0], [50.0, 60.0], [50.0, 60.0]],
+            [[-8.0, -9.0], [-6.0, -7.0], [-4.0, -5.0], [-2.0, -3.0]],
+        ],
+        dtype=dtype,
+        requires_grad=True,
+    )
+    mask = torch.tensor([[1, 1, 0, 0], [1, 1, 1, 1]])
+    if not prompt_length:
+        mask[0] = 0
+    features = (
+        _build_flattened_features(embeddings, mask)
+        if flattened
+        else {"token_embeddings": embeddings, "attention_mask": mask}
+    )
+    features["prompt_length"] = prompt_length
+    original_mask = mask.clone()
+    pooling = Pooling(2, "max", include_prompt=False)
+    output = pooling(features)["sentence_embedding"]
+
+    torch.testing.assert_close(output, torch.tensor([[0.0, 0.0], [-2.0, -3.0]], dtype=dtype))
+    output.sum().backward()
+    expected_gradient = torch.zeros_like(embeddings)
+    expected_gradient[1, 3] = 1
+    torch.testing.assert_close(embeddings.grad, expected_gradient)
+    if not flattened:
+        torch.testing.assert_close(features["attention_mask"], original_mask)
+
+
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int64])
 def test_pooling_mean_and_mean_sqrt_len_tokens(dtype: torch.dtype) -> None:
     dim = 1

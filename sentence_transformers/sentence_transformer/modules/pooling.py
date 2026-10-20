@@ -81,6 +81,7 @@ class Pooling(Module):
             ``"weightedmean"``, ``"lasttoken"``. Defaults to ``"mean"``.
             For ``"weightedmean"``, position weights start at the first non-padding token.
             Excluding a prompt retains the remaining tokens' original position weights.
+            Max pooling returns a zero vector when no tokens remain after masking.
         include_prompt: If ``False``, prompt tokens are excluded from pooling. Useful for
             models like `INSTRUCTOR <https://huggingface.co/hkunlp/instructor-large>`_ that
             should not include the prompt in the pooled representation. Defaults to ``True``.
@@ -202,7 +203,8 @@ class Pooling(Module):
 
             elif mode == "max":
                 mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
-                output_vectors.append(token_embeddings.masked_fill(mask == 0, float("-inf")).max(dim=1).values)
+                max_emb = token_embeddings.masked_fill(mask == 0, float("-inf")).max(dim=1).values
+                output_vectors.append(max_emb.masked_fill(~attention_mask.bool().any(dim=1, keepdim=True), 0))
 
             elif mode in ("mean", "mean_sqrt_len_tokens"):
                 if mean_sum is None:
@@ -324,7 +326,7 @@ class Pooling(Module):
                 expanded_ids = segment_ids.unsqueeze(1).expand(-1, hidden_dim)
                 max_emb = torch.full((num_seqs, hidden_dim), float("-inf"), device=device, dtype=embeddings.dtype)
                 max_emb = max_emb.scatter_reduce(0, expanded_ids, embeddings, reduce="amax")
-                output_vectors.append(max_emb)
+                output_vectors.append(max_emb.masked_fill(effective_lengths.unsqueeze(1) <= 0, 0))
 
             elif mode == "weightedmean":
                 weights = (token_positions + 1).to(accumulation_dtype).unsqueeze(1)
