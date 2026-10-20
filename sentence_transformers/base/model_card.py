@@ -571,30 +571,14 @@ class BaseModelCardData(CardData):
                     random.sample(range(dataset_size), k=min(num_samples_to_check, dataset_size))
                 )
 
-            # The Hub rejects a model card whose widget contains an empty text, which makes `push_to_hub` fail.
-            # Empty texts are also the shortest, so they would be picked first: skip those rows instead
-            non_empty_rows = [
-                row
-                for row in sampled_rows
-                if not any(
-                    value == "" or (isinstance(value, dict) and "" in value.values())
-                    for key, value in row.items()
-                    if key != "dataset_name"
-                )
-            ]
-            if len(non_empty_rows) < len(sampled_rows):
-                logger.warning(
-                    f"{len(sampled_rows) - len(non_empty_rows)} of the {len(sampled_rows)} rows sampled from the "
-                    f"{dataset_name!r} dataset contain an empty text. These rows are not used as widget examples "
-                    "in the model card, but you may want to check your data for empty texts."
-                )
-            sampled_rows = non_empty_rows
-            if not sampled_rows:
-                continue
-
             lengths = {}
             for idx, sample in enumerate(sampled_rows):
-                lengths[idx] = sum(len(value) for key, value in sample.items() if key != "dataset_name")
+                values = [value for key, value in sample.items() if key != "dataset_name"]
+                if any(value == "" or (isinstance(value, dict) and "" in value.values()) for value in values):
+                    continue
+                lengths[idx] = sum(len(value) for value in values)
+            if not lengths:
+                continue
 
             indices, _ = zip(*sorted(lengths.items(), key=lambda x: x[1]))
             target_indices, backup_indices = indices[:num_samples], list(indices[num_samples:][::-1])
