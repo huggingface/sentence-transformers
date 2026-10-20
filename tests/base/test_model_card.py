@@ -12,7 +12,6 @@ from unittest.mock import PropertyMock, patch
 import numpy as np
 import pytest
 import torch
-
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
 from sentence_transformers.base.model_card import BaseModelCardData, generate_model_card
 from sentence_transformers.base.modules import Router
@@ -156,6 +155,59 @@ class TestSetWidgetExamples:
         data.set_widget_examples(Dataset.from_dict({"text": [""] * 10}))
         assert data.widget == []
         assert data.usage_examples is None
+
+    @pytest.mark.parametrize("empty_column", ["anchor", "positive"])
+    def test_widget_examples_keep_texts_from_a_partly_empty_column(self, empty_column) -> None:
+        # Skipping a row wholesale because *one* of its columns is empty throws away the valid texts in
+        # its other columns. When the shortest rows are the empty ones, the whole widget ends up empty
+        # even though the dataset is full of text, so filter the empty texts, not the rows.
+        columns = {key: [f"{key} sentence {i}" for i in range(10)] for key in ("anchor", "positive")}
+        for i in range(10):
+            columns[empty_column][i * 3 % 10] = ""
+
+        data = _make_model_card_data()
+        with (
+            patch(
+                "sentence_transformers.base.model_card.random.sample",
+                side_effect=lambda population, k: list(population)[:k],
+            ),
+            # `num_samples` comes from random.choices, so pin it too: the result must not depend on it.
+            patch(
+                "sentence_transformers.base.model_card.random.choices",
+                side_effect=lambda population, k: list(population)[:k],
+            ),
+        ):
+            data.set_widget_examples(Dataset.from_dict(columns))
+
+        assert data.widget, "rows whose other column holds text must still produce widget examples"
+        assert data.usage_examples and "" not in data.usage_examples
+        for entry in data.widget:
+            texts = [entry["source_sentence"], *entry["sentences"]] if "source_sentence" in entry else [entry["text"]]
+            # Empty texts must not reach the widget: the Hub rejects a card that contains one.
+            assert all(text != "" for text in texts), entry
+
+    def test_widget_examples_keep_the_populated_column_of_an_empty_one(self) -> None:
+        # Models trained with an `anchor`-only (or `positive`-only) dataset save a fully empty column.
+        # The empty column has to drop out of the entries while the populated one still feeds them,
+        # rather than the whole widget coming out empty.
+        columns = {"anchor": [""] * 10, "positive": [f"positive sentence number {i}" for i in range(10)]}
+
+        data = _make_model_card_data()
+        with (
+            patch(
+                "sentence_transformers.base.model_card.random.sample",
+                side_effect=lambda population, k: list(population)[:k],
+            ),
+            patch(
+                "sentence_transformers.base.model_card.random.choices",
+                side_effect=lambda population, k: list(population)[:k],
+            ),
+        ):
+            data.set_widget_examples(Dataset.from_dict(columns))
+
+        assert data.widget, "the populated column must still produce widget examples"
+        assert data.usage_examples and "" not in data.usage_examples
+        assert all(entry["source_sentence"] and all(entry["sentences"]) for entry in data.widget)
 
     def test_generates_examples_for_plain_text_dataset(self) -> None:
         # A plain text dataset (no transform) must still produce widget examples: the skip above is targeted.

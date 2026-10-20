@@ -337,6 +337,17 @@ def get_losses(loss: nn.Module | dict[str, nn.Module]) -> list[nn.Module]:
     return losses
 
 
+def is_empty_text(value: Any) -> bool:
+    """Whether a dataset value holds no text, so it must not reach the model card's widget.
+
+    The Hub rejects a model card whose widget contains an empty string. Nested values (the backwards
+    compatible dict form used with a Router) count as empty when every text inside them is empty.
+    """
+    if isinstance(value, dict):
+        return all(is_empty_text(item) for item in value.values())
+    return value == ""
+
+
 @dataclass
 class BaseModelCardData(CardData):
     """A dataclass storing data used in the model card.
@@ -571,14 +582,19 @@ class BaseModelCardData(CardData):
                     random.sample(range(dataset_size), k=min(num_samples_to_check, dataset_size))
                 )
 
-            lengths = {}
-            for idx, sample in enumerate(sampled_rows):
-                values = [value for key, value in sample.items() if key != "dataset_name"]
-                if any(value == "" or (isinstance(value, dict) and "" in value.values()) for value in values):
-                    continue
-                lengths[idx] = sum(len(value) for value in values)
-            if not lengths:
+            # Drop empty texts per column rather than per row: a row whose *other* columns hold real text
+            # is still usable, because only the texts go into the widget. A row left without any text is
+            # dropped entirely. The Hub rejects a card whose widget holds an empty string, so no empty
+            # value may survive to the widget below.
+            sampled_rows = [
+                {key: value for key, value in sample.items() if key != "dataset_name" and not is_empty_text(value)}
+                for sample in sampled_rows
+            ]
+            sampled_rows = [row for row in sampled_rows if row]
+            if not sampled_rows:
                 continue
+
+            lengths = {idx: sum(len(value) for value in row.values()) for idx, row in enumerate(sampled_rows)}
 
             indices, _ = zip(*sorted(lengths.items(), key=lambda x: x[1]))
             target_indices, backup_indices = indices[:num_samples], list(indices[num_samples:][::-1])
