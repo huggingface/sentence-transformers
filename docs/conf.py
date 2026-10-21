@@ -6,24 +6,20 @@
 
 # -- Path setup --------------------------------------------------------------
 
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-#
-# import os
-# import sys
-# sys.path.insert(0, os.path.abspath('.'))
-
 import datetime
 import importlib
 import inspect
 import os
 import posixpath
 import re
+import sys
 
 import sphinx.ext.autodoc
 from sphinx.application import Sphinx
 from sphinx.writers.html5 import HTML5Translator
+
+# Document this checkout even when another checkout is installed.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # -- Project information -----------------------------------------------------
 

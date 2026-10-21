@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pickle
 import queue
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -184,6 +185,15 @@ def test_multi_process_drains_results_after_failure():
     pool["output"].put([0, torch.tensor([[2.0]])])
     result = model._multi_process(["c"], pool=pool, chunk_size=1, show_progress_bar=False)
     torch.testing.assert_close(result, torch.tensor([[2.0]]))
+
+
+def test_multi_process_raises_when_worker_died_without_reporting():
+    dead_worker = SimpleNamespace(is_alive=lambda: False, pid=4321, exitcode=-9)
+    pool = {"input": queue.Queue(), "output": queue.Queue(), "processes": [dead_worker]}
+    model = SentenceTransformer.__new__(SentenceTransformer)
+
+    with pytest.raises(RuntimeError, match=r"died unexpectedly: pid 4321 \(exit code -9\)"):
+        model._multi_process(["text"], pool=pool, chunk_size=1, show_progress_bar=False)
 
 
 @pytest.mark.parametrize("chunk_size", [0, -1])

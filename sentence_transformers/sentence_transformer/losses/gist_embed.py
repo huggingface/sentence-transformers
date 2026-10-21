@@ -10,7 +10,7 @@ from transformers import PreTrainedTokenizerBase
 from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import all_gather_with_grad, get_rank
+from sentence_transformers.util import all_gather_with_grad, batch_to_device, get_rank
 
 
 class GISTEmbedLoss(nn.Module):
@@ -145,18 +145,17 @@ class GISTEmbedLoss(nn.Module):
         embeddings = embed_columns(self.model, sentence_features)
         with torch.no_grad():
             if self.must_retokenize:
-                decoded = [
-                    self.tokenizer.batch_decode(sentence_feature["input_ids"], skip_special_tokens=True)
-                    for sentence_feature in sentence_features
-                ]
-                guide_features = [self.guide.preprocess(sentences) for sentences in decoded]
-                guide_features = [
-                    {
-                        key: value.to(self.guide.device) if isinstance(value, Tensor) else value
-                        for key, value in guide_feature.items()
-                    }
-                    for guide_feature in guide_features
-                ]
+                guide_features = []
+                for sentence_feature in sentence_features:
+                    input_ids = sentence_feature["input_ids"]
+                    if "cu_seq_lens_q" in sentence_feature:
+                        flat_input_ids = input_ids[0].tolist()
+                        cu_seq_lens = sentence_feature["cu_seq_lens_q"].tolist()
+                        input_ids = [
+                            flat_input_ids[start:end] for start, end in zip(cu_seq_lens[:-1], cu_seq_lens[1:])
+                        ]
+                    decoded = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+                    guide_features.append(batch_to_device(self.guide.preprocess(decoded), self.guide.device))
 
             guide_embeddings = embed_columns(self.guide, guide_features)
 

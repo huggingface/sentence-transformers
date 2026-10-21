@@ -6,14 +6,17 @@ import io
 import os
 import tempfile
 from contextlib import contextmanager
+from copy import deepcopy
 from unittest.mock import PropertyMock, patch
 
 import numpy as np
 import pytest
 import torch
 
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
 from sentence_transformers.base.model_card import BaseModelCardData, generate_model_card
+from sentence_transformers.base.modules import Router
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 try:
@@ -130,6 +133,29 @@ class TestSetWidgetExamples:
         ]
         all_texts = " ".join([*data.usage_examples, *widget_texts])
         assert not any(f"row{i}" in all_texts for i in (5, 6, 7))
+
+    @pytest.mark.parametrize("empty_column", ["anchor", "positive"])
+    @pytest.mark.parametrize("as_dict", [False, True])
+    def test_widget_examples_skip_empty_texts(self, empty_column, as_dict) -> None:
+        columns = {key: [f"{key} sentence {i}" for i in range(10)] for key in ("anchor", "positive")}
+        columns[empty_column][0] = ""
+        if as_dict:
+            columns = {key: [{key: text} for text in texts] for key, texts in columns.items()}
+        data = _make_model_card_data()
+        with patch(
+            "sentence_transformers.base.model_card.random.sample",
+            side_effect=lambda population, k: list(population)[:k],
+        ):
+            data.set_widget_examples(Dataset.from_dict(columns))
+        assert data.widget
+        assert all(entry["source_sentence"] and all(entry["sentences"]) for entry in data.widget)
+        assert "" not in data.usage_examples
+
+    def test_widget_examples_all_empty(self) -> None:
+        data = _make_model_card_data()
+        data.set_widget_examples(Dataset.from_dict({"text": [""] * 10}))
+        assert data.widget == []
+        assert data.usage_examples is None
 
     def test_generates_examples_for_plain_text_dataset(self) -> None:
         # A plain text dataset (no transform) must still produce widget examples: the skip above is targeted.
@@ -748,6 +774,44 @@ class TestComputeDatasetMetricsNonText:
             # 3 example rows, 1 image column, all distinct = 3 images saved
             for i in range(3):
                 assert os.path.isfile(os.path.join(tmpdir, "assets", f"example_image_{i}.jpg"))
+
+
+@pytest.mark.parametrize("dataset_type", ["train", "eval"])
+@pytest.mark.parametrize("mapping_type", ["single", "shared", "per_dataset"])
+def test_dataset_metrics_respect_router_mapping(word_embeddings_model, tmp_path, dataset_type, mapping_type):
+    left_modules = deepcopy(list(word_embeddings_model))
+    left_modules[0].max_seq_length = 1
+    router = Router({"left": left_modules, "right": list(word_embeddings_model)}, allow_empty_key=False)
+    model = SentenceTransformer(modules=[router])
+    model.model_card_data.generate_widget_examples = False
+    dataset = Dataset.from_dict({"anchor": ["hello", "hello world"], "positive": ["world", "world hello"]})
+    router_mapping = {"anchor": "left", "positive": "right"}
+    short_stats = {"min": "1 tokens", "mean": "1.0 tokens", "max": "1 tokens"}
+    long_stats = {"min": "1 tokens", "mean": "1.5 tokens", "max": "2 tokens"}
+    expected_stats = [{"anchor": short_stats, "positive": long_stats}]
+    if mapping_type != "single":
+        dataset = DatasetDict(first=dataset, second=dataset)
+        if mapping_type == "per_dataset":
+            router_mapping = {"first": router_mapping, "second": {"anchor": "right", "positive": "left"}}
+            expected_stats.append({"anchor": long_stats, "positive": short_stats})
+        else:
+            expected_stats *= 2
+
+    args = SentenceTransformerTrainingArguments(
+        output_dir=tmp_path, router_mapping=router_mapping, report_to="none", use_cpu=True
+    )
+    SentenceTransformerTrainer(
+        model=model,
+        args=args,
+        loss=MultipleNegativesRankingLoss(model),
+        **{f"{dataset_type}_dataset": dataset},
+    )
+
+    metadata = getattr(model.model_card_data, f"{dataset_type}_datasets")
+    assert [
+        {column: dataset_info["stats"][column]["data"] for column in ("anchor", "positive")}
+        for dataset_info in metadata
+    ] == expected_stats
 
 
 class TestComputeDatasetMetricsStringMediaPath:

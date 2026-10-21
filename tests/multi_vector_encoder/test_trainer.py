@@ -22,14 +22,6 @@ if not is_training_available():
     )
 
 
-TEST_MODEL = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-
-
-@pytest.fixture
-def model() -> MultiVectorEncoder:
-    return MultiVectorEncoder(TEST_MODEL)
-
-
 @pytest.fixture
 def triplet_dataset() -> Dataset:
     return Dataset.from_dict(
@@ -83,29 +75,34 @@ def _train(model: MultiVectorEncoder, dataset: Dataset, loss: torch.nn.Module) -
         trainer.train()
 
 
-def test_default_loss_is_mnr(model: MultiVectorEncoder, triplet_dataset: Dataset) -> None:
+def test_default_loss_is_mnr(mve_bert_tiny_model: MultiVectorEncoder, triplet_dataset: Dataset) -> None:
+    model = mve_bert_tiny_model
     with tempfile.TemporaryDirectory() as tmpdir:
         args = MultiVectorEncoderTrainingArguments(output_dir=tmpdir, report_to=[], save_strategy="no")
         trainer = MultiVectorEncoderTrainer(model=model, args=args, train_dataset=triplet_dataset)
         assert isinstance(trainer.loss, mve_losses.MultiVectorMultipleNegativesRankingLoss)
 
 
-def test_train_with_mnr(model: MultiVectorEncoder, triplet_dataset: Dataset) -> None:
+def test_train_with_mnr(mve_bert_tiny_model: MultiVectorEncoder, triplet_dataset: Dataset) -> None:
+    model = mve_bert_tiny_model
     loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model)
     _train(model, triplet_dataset, loss)
 
 
-def test_train_with_cached_mnr(model: MultiVectorEncoder, triplet_dataset: Dataset) -> None:
+def test_train_with_cached_mnr(mve_bert_tiny_model: MultiVectorEncoder, triplet_dataset: Dataset) -> None:
+    model = mve_bert_tiny_model
     loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(model, mini_batch_size=2)
     _train(model, triplet_dataset, loss)
 
 
-def test_train_with_distill_kl(model: MultiVectorEncoder, kd_dataset: Dataset) -> None:
+def test_train_with_distill_kl(mve_bert_tiny_model: MultiVectorEncoder, kd_dataset: Dataset) -> None:
+    model = mve_bert_tiny_model
     loss = mve_losses.MultiVectorDistillKLDivLoss(model)
     _train(model, kd_dataset, loss)
 
 
-def test_train_with_margin_mse(model: MultiVectorEncoder) -> None:
+def test_train_with_margin_mse(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     dataset = Dataset.from_dict(
         {
             "query": ["What is AI?", "Capital of France?"],
@@ -118,13 +115,17 @@ def test_train_with_margin_mse(model: MultiVectorEncoder) -> None:
     _train(model, dataset, loss)
 
 
-def test_collator_pads_to_batch_longest_not_model_max_length(model: MultiVectorEncoder) -> None:
+def test_collator_pads_to_batch_longest_not_model_max_length(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """A fresh MVE has ``document_length=None``. Before the fix the collator forced
     ``padding="max_length"`` which silently padded every batch to ``tokenizer.model_max_length``
     (e.g. 512). The collator now defers to the tokenizer default (``longest``) so a batch of short
     sequences stays short, and ``stack_padded_token_embeddings`` handles cross-column ragged T
     inside the losses.
     """
+    model = mve_bert_tiny_model
+    model[0].query_length = None
+    model[0].document_length = None
+    model[0].query_expansion = None
     collator = MultiVectorEncoderDataCollator(preprocess_fn=model.preprocess)
     features = [
         {"query": "short q", "positive": "short positive", "negative": "n"},
@@ -145,11 +146,15 @@ def test_collator_pads_to_batch_longest_not_model_max_length(model: MultiVectorE
         )
 
 
-def test_collator_within_column_rectangular_across_ragged_columns(model: MultiVectorEncoder) -> None:
+def test_collator_within_column_rectangular_across_ragged_columns(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """Within each column every row shares ``T`` (the loss reshapes per-column on ``dim=0``), but
     columns are independently padded to their own batch-longest. Cross-column ragged ``T`` is
     expected and handled downstream by ``stack_padded_token_embeddings``.
     """
+    model = mve_bert_tiny_model
+    model[0].query_length = None
+    model[0].document_length = None
+    model[0].query_expansion = None
     collator = MultiVectorEncoderDataCollator(preprocess_fn=model.preprocess)
     features = [
         {"query": "q", "positive": "this positive is appreciably longer than the query", "negative": "n"},
@@ -172,12 +177,13 @@ def test_collator_within_column_rectangular_across_ragged_columns(model: MultiVe
     assert positive_T > negative_T
 
 
-def test_collator_assigns_task_by_position_regardless_of_name(model: MultiVectorEncoder) -> None:
+def test_collator_assigns_task_by_position_regardless_of_name(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """The collator assigns ``task`` by column POSITION (column 0 = query, the rest = document) to
     match the losses, which score positionally. Column names are not consulted, so a dataset whose
     first column is named "answer" still gets ``task="query"``, matching the loss. ``router_mapping``
     is the explicit override path.
     """
+    model = mve_bert_tiny_model
     seen_tasks: list[str | None] = []
     original_preprocess = model.preprocess
 
@@ -195,8 +201,9 @@ def test_collator_assigns_task_by_position_regardless_of_name(model: MultiVector
     assert seen_tasks == ["query", "document", "document"], f"positional task assignment broken: {seen_tasks}"
 
 
-def test_collator_router_mapping_overrides_positional_default(model: MultiVectorEncoder) -> None:
+def test_collator_router_mapping_overrides_positional_default(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """``router_mapping`` overrides the positional default per column."""
+    model = mve_bert_tiny_model
     seen_tasks: list[str | None] = []
     original_preprocess = model.preprocess
 
@@ -214,10 +221,11 @@ def test_collator_router_mapping_overrides_positional_default(model: MultiVector
     assert seen_tasks == ["document", "query"], f"router_mapping override broken: {seen_tasks}"
 
 
-def test_collator_stamps_resolved_task_into_batch(model: MultiVectorEncoder) -> None:
+def test_collator_stamps_resolved_task_into_batch(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """The collator stamps the task each column was tokenized with as ``{column}_task`` so the
     losses re-run the model under the same task (instead of re-deriving it positionally), also when
     ``router_mapping`` overrides the positional default."""
+    model = mve_bert_tiny_model
     collator = MultiVectorEncoderDataCollator(
         preprocess_fn=model.preprocess,
         router_mapping={"answer": "document", "question": "query"},

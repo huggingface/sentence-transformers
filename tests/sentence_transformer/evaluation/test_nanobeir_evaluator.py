@@ -6,14 +6,9 @@ import pytest
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
-from sentence_transformers.util import is_datasets_available
 from tests.utils import is_ci
 
-if not is_datasets_available():
-    pytest.skip(
-        reason="Datasets are not installed. Please install `datasets` with `pip install datasets`",
-        allow_module_level=True,
-    )
+pytest.importorskip("datasets", exc_type=ModuleNotFoundError)
 
 if is_ci():
     pytest.skip(

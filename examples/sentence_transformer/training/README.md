@@ -15,6 +15,7 @@ For the documentation how to train your own models, see [Training Overview](../.
 - [distillation](distillation/) - Examples to make models smaller, faster and lighter.
 - [hpo](hpo/) - Examples with hyperparameter search to find the best hyperparameters for your task.
 - [matryoshka](matryoshka/) - Examples with training embedding models whose embeddings can be truncated (allowing for faster search) with minimal performance loss.
+- [merging](merging/README.md) - Combine compatible fine-tuned models with mergekit, without additional training.
 - [ms_marco](ms_marco/) - Example training scripts for training on the MS MARCO information retrieval dataset.
 - [multilingual](multilingual/) - Existent monolingual models can be extend to various languages ([paper](https://huggingface.co/papers/2004.09813)). This folder contains a step-by-step guide to extend existent models to new languages.
 - [nli](nli/) - Natural Language Inference (NLI) data can be quite helpful to pre-train and fine-tune models to create meaningful sentence embeddings.

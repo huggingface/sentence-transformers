@@ -138,7 +138,7 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
             if any(len(row) != n_ways for row in documents):
                 raise ValueError("All per-query candidate lists in documents must have the same length.")
             self.documents = [list(row) for row in documents]
-            self.scores = torch.as_tensor(scores, dtype=torch.float32)
+            self.scores = torch.as_tensor(scores, dtype=torch.float32).detach().cpu()
             if self.scores.ndim != 2 or self.scores.shape[1] != n_ways:
                 raise ValueError(
                     f"With per-query candidate documents, scores must be 2-D (num_queries, {n_ways}), "
@@ -146,7 +146,7 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
                 )
         else:
             self.documents = list(documents)
-            self.scores = torch.as_tensor(scores, dtype=torch.float32)
+            self.scores = torch.as_tensor(scores, dtype=torch.float32).detach().cpu()
             if self.scores.ndim != 1:
                 raise ValueError(
                     f"With one document per query, scores must be 1-D, got shape {tuple(self.scores.shape)}. "

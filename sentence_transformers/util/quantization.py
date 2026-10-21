@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 from torch import Tensor
 
+from .tensor import _tensor_to_numpy
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +39,9 @@ def semantic_search_faiss(
     3. The corpus is quantized, i.e. the corpus precision is not float32
     Only if these conditions are true, will we search for `top_k * rescore_multiplier` samples and then rescore to only
     keep `top_k`.
+
+    Scalar-quantized candidates are dequantized before rescoring. Use the same `ranges` or
+    `calibration_embeddings` that were used to quantize the corpus.
 
     Args:
         query_embeddings: Embeddings of the query sentences. Ideally not
@@ -134,6 +139,8 @@ def semantic_search_faiss(
                     'and pass `corpus_precision="..."` to `semantic_search_faiss`.'
                 )
 
+        if rescore_embeddings is not None and corpus_precision == "uint8" and ranges is None:
+            ranges = _get_quantization_ranges(query_embeddings, corpus_precision, calibration_embeddings)
         query_embeddings = quantize_embeddings(
             query_embeddings,
             precision=corpus_precision,
@@ -167,6 +174,12 @@ def semantic_search_faiss(
         if corpus_precision == "ubinary":
             top_k_embeddings = np.unpackbits(top_k_embeddings, axis=-1)[..., : rescore_embeddings.shape[-1]]
         top_k_embeddings = top_k_embeddings.astype(int)
+        if corpus_precision == "uint8":
+            top_k_embeddings = _dequantize_embeddings(
+                top_k_embeddings,
+                corpus_precision,
+                ranges,
+            )
 
         # rescore_embeddings: [num_queries, embedding_dim]
         # top_k_embeddings: [num_queries, top_k, embedding_dim]
@@ -221,6 +234,9 @@ def semantic_search_usearch(
     3. The corpus is quantized, i.e. the corpus precision is not float32
     Only if these conditions are true, will we search for `top_k * rescore_multiplier` samples and then rescore to only
     keep `top_k`.
+
+    Scalar-quantized candidates are dequantized before rescoring. Use the same `ranges` or
+    `calibration_embeddings` that were used to quantize the corpus.
 
     Args:
         query_embeddings: Embeddings of the query sentences. Ideally not
@@ -328,6 +344,8 @@ def semantic_search_usearch(
                     'and pass `corpus_precision="..."` to `semantic_search_usearch`.'
                 )
 
+        if rescore_embeddings is not None and corpus_precision == "int8" and ranges is None:
+            ranges = _get_quantization_ranges(query_embeddings, corpus_precision, calibration_embeddings)
         query_embeddings = quantize_embeddings(
             query_embeddings,
             precision=corpus_precision,
@@ -369,6 +387,12 @@ def semantic_search_usearch(
                 ..., : rescore_embeddings.shape[-1]
             ]
         top_k_embeddings = top_k_embeddings.astype(int)
+        if corpus_precision == "int8":
+            top_k_embeddings = _dequantize_embeddings(
+                top_k_embeddings,
+                corpus_precision,
+                ranges,
+            )
 
         # rescore_embeddings: [num_queries, embedding_dim]
         # top_k_embeddings: [num_queries, top_k, embedding_dim]
@@ -404,6 +428,44 @@ def semantic_search_usearch(
     return outputs
 
 
+def _get_quantization_ranges(
+    embeddings: np.ndarray,
+    precision: Literal["int8", "uint8"],
+    calibration_embeddings: np.ndarray | None,
+) -> np.ndarray:
+    if calibration_embeddings is None:
+        if embeddings.ndim == 1 or embeddings.shape[0] == 1:
+            raise ValueError(
+                f"Cannot compute {precision} quantization ranges from a single embedding. "
+                "Call `quantize_embeddings` with `ranges` or `calibration_embeddings` "
+                "from a representative set of embeddings instead."
+            )
+        if embeddings.shape[0] < 100:
+            logger.warning(
+                f"Computing {precision} quantization buckets based on {len(embeddings)} embeddings."
+                f" {precision} quantization is more stable with `ranges` calculated from more embeddings "
+                "or a `calibration_embeddings` that can be used to calculate the buckets."
+            )
+        calibration_embeddings = embeddings
+    return np.vstack((np.min(calibration_embeddings, axis=0), np.max(calibration_embeddings, axis=0)))
+
+
+def _dequantize_embeddings(
+    embeddings: np.ndarray,
+    precision: Literal["int8", "uint8"],
+    ranges: np.ndarray,
+) -> np.ndarray:
+    """Restore scalar-quantized candidates to the coordinate system of the float query."""
+    ranges = ranges.astype(np.float32, copy=False)
+    steps = (ranges[1] - ranges[0]) / 255
+    steps = np.where(steps == 0, 1, steps)
+    # Convert before undoing the signed offset to avoid overflowing int8.
+    embeddings = embeddings.astype(np.float64)
+    if precision == "int8":
+        embeddings += 128
+    return embeddings * steps + ranges[0]
+
+
 def quantize_embeddings(
     embeddings: Tensor | np.ndarray | list[Tensor] | list[np.ndarray],
     precision: Literal["float32", "int8", "uint8", "binary", "ubinary"],
@@ -436,23 +498,26 @@ def quantize_embeddings(
     Returns:
         Quantized embeddings with the specified precision. For a list of multi-vector matrices (variable-length
         ``(num_tokens, dim)`` arrays), returns a list of quantized matrices with shared per-dimension buckets.
+
+    Raises:
+        ValueError: If int8 or uint8 ranges would have to be inferred from a single embedding without
+            explicit `ranges` or `calibration_embeddings`.
     """
     if isinstance(embeddings, Tensor):
-        embeddings = embeddings.cpu().numpy()
+        embeddings = _tensor_to_numpy(embeddings)
     elif isinstance(embeddings, list):
         if not embeddings:
             return []
         if isinstance(embeddings[0], Tensor):
-            embeddings = [embedding.cpu().numpy() for embedding in embeddings]
+            embeddings = [_tensor_to_numpy(embedding) for embedding in embeddings]
         if isinstance(embeddings[0], np.ndarray) and embeddings[0].ndim == 2:
             # Calibrate once so all documents use the same ranges.
             if precision.endswith("int8") and ranges is None:
-                if calibration_embeddings is None:
-                    calibration_embeddings = np.concatenate(embeddings, axis=0)
-                if len(calibration_embeddings):
-                    ranges = np.vstack(
-                        (np.min(calibration_embeddings, axis=0), np.max(calibration_embeddings, axis=0))
-                    )
+                calibration_data = (
+                    np.concatenate(embeddings, axis=0) if calibration_embeddings is None else calibration_embeddings
+                )
+                if len(calibration_data):
+                    ranges = _get_quantization_ranges(calibration_data, precision, calibration_embeddings)
             return [
                 quantize_embeddings(
                     matrix, precision=precision, ranges=ranges, calibration_embeddings=calibration_embeddings
@@ -478,18 +543,10 @@ def quantize_embeddings(
     if precision.endswith("int8"):
         # Either use the 1. provided ranges, 2. the calibration dataset or 3. the provided embeddings
         if ranges is None:
-            if calibration_embeddings is not None:
-                ranges = np.vstack((np.min(calibration_embeddings, axis=0), np.max(calibration_embeddings, axis=0)))
-            else:
-                if embeddings.shape[0] < 100:
-                    logger.warning(
-                        f"Computing {precision} quantization buckets based on {len(embeddings)} embedding{'s' if len(embeddings) != 1 else ''}."
-                        f" {precision} quantization is more stable with `ranges` calculated from more embeddings "
-                        "or a `calibration_embeddings` that can be used to calculate the buckets."
-                    )
-                ranges = np.vstack((np.min(embeddings, axis=0), np.max(embeddings, axis=0)))
+            ranges = _get_quantization_ranges(embeddings, precision, calibration_embeddings)
+        ranges = ranges.astype(np.float32, copy=False)
         starts = ranges[0, :]
-        steps = (ranges[1, :] - ranges[0, :]) / 255
+        steps = (ranges[1, :] - starts) / 255
         steps = np.where(steps == 0, 1, steps)
 
         q_vals = np.clip(np.floor((embeddings - starts) / steps), 0, 255)
@@ -499,9 +556,9 @@ def quantize_embeddings(
             return (q_vals - 128).astype(np.int8)
 
     if precision == "binary":
-        return (np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1) - 128).astype(np.int8)
+        return (np.packbits(embeddings > 0, axis=-1) - 128).astype(np.int8)
 
     if precision == "ubinary":
-        return np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1)
+        return np.packbits(embeddings > 0, axis=-1)
 
     raise ValueError(f"Precision {precision!r} is not supported")
