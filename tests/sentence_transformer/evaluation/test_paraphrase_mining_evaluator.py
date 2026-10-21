@@ -63,15 +63,25 @@ def test_add_transitive_closure_flag_still_expands_duplicates() -> None:
     assert with_closure.total_num_duplicates == 3
 
 
-def test_add_transitive_closure_ignores_non_duplicate_pairs() -> None:
-    """Pairs marked False in ``duplicates_dict`` are not duplicates, so the closure must not follow them."""
-    sentences = {"a": "Hello World", "b": "Hello World!", "c": "The cat is on the table"}
+@pytest.mark.parametrize("non_duplicate_id", ["a", "c"])
+def test_add_transitive_closure_ignores_non_duplicate_pairs(non_duplicate_id: str) -> None:
+    sentences = {
+        "a": "Hello World",
+        "b": "Hello World!",
+        "c": "Hello, World!",
+        "d": "The cat is on the table",
+    }
     duplicates = defaultdict(lambda: defaultdict(bool))
     duplicates["a"]["b"] = duplicates["b"]["a"] = True
-    duplicates["a"]["c"] = duplicates["c"]["a"] = False
+    duplicates["b"]["c"] = duplicates["c"]["b"] = True
+    duplicates[non_duplicate_id]["d"] = duplicates["d"][non_duplicate_id] = False
     evaluator = ParaphraseMiningEvaluator(sentences, duplicates_dict=duplicates, add_transitive_closure=True)
-    assert evaluator.total_num_duplicates == 1
-    assert not evaluator.duplicates["b"]["c"]
+    assert evaluator.total_num_duplicates == 3
+    assert evaluator.duplicates["a"]["c"]
+    assert evaluator.duplicates["c"]["a"]
+    for id in ("a", "b", "c"):
+        assert not evaluator.duplicates[id]["d"]
+        assert not evaluator.duplicates["d"][id]
 
 
 @pytest.mark.parametrize("duplicate_pair", [("a", "b"), ("a", "c"), ("b", "c")])
