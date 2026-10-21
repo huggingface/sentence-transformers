@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import bisect
 from collections.abc import Iterable, Iterator
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from functools import partial
 from typing import Any
 
 import torch
 import tqdm
+from packaging.version import Version
 from torch import Tensor
+from torch.nn.parallel import DistributedDataParallel
 from torch.utils.checkpoint import get_device_states, set_device_states
 
 
@@ -81,6 +83,12 @@ def _get_batch_size(sentence_feature: dict[str, Any]) -> int:
     )
 
 
+# Indexed per image, not per sample, by gridless VLMs (LLaVA, Gemma3).
+_IMAGE_AXIS_KEYS = ("pixel_values", "image_position_ids", "image_sizes")
+# Processors that pad images per sample (Idefics3, Mllama) emit these.
+_SAMPLE_FIRST_IMAGE_KEYS = ("pixel_attention_mask", "aspect_ratio_ids")
+
+
 def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) -> dict[str, Any]:
     """Create a mini-batch from sentence features, handling padded, flattened, and VLM inputs.
 
@@ -131,6 +139,22 @@ def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) ->
                 token_begin, token_end = 0, 0
             custom_ranges[pixel_key] = (token_begin, token_end)
 
+        num_images = sentence_feature.get("num_images_per_sample")
+        pixel_values = sentence_feature.get("pixel_values")
+        if (
+            num_images is not None
+            and pixel_values is not None
+            and "pixel_values" not in custom_ranges
+            and not any(key in sentence_feature for key in _SAMPLE_FIRST_IMAGE_KEYS)
+            and pixel_values.shape[0] == int(num_images.sum().item())
+        ):
+            image_cumsum = num_images.cumsum(dim=0)
+            image_begin = 0 if begin == 0 else int(image_cumsum[begin - 1].item())
+            image_end = int(image_cumsum[end - 1].item())
+            for key in _IMAGE_AXIS_KEYS:
+                if key in sentence_feature:
+                    custom_ranges[key] = (image_begin, image_end)
+
         # Trim trailing padding columns so short-sequence mini-batches are not embedded at the full
         # batch width (see the docstring). Left padding is kept, to preserve length-derived positions.
         token_axis_end: int | None = None
@@ -155,7 +179,8 @@ def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) ->
                 result[key] = value
             elif key in custom_ranges:
                 r_begin, r_end = custom_ranges[key]
-                result[key] = value[r_begin:r_end]
+                if r_begin != r_end:
+                    result[key] = value[r_begin:r_end]
             elif token_axis_end is not None and value.ndim >= 2 and value.shape[1] == seq_width:
                 result[key] = value[begin:end, :token_axis_end]
             else:
@@ -269,6 +294,25 @@ def has_static_embedding_input(model: Any) -> bool:
     return any(isinstance(module, StaticEmbedding) for module in input_modules)
 
 
+@contextmanager
+def _ddp_replay_context(model: Any, synchronize: bool) -> Iterator[None]:
+    if (
+        isinstance(model, DistributedDataParallel)
+        and model.static_graph
+        and not model._static_graph_delay_allreduce_enqueued
+    ):
+        require_backward_grad_sync = model.require_backward_grad_sync
+        model.require_backward_grad_sync = True
+        try:
+            yield
+        finally:
+            model.require_backward_grad_sync = require_backward_grad_sync
+    else:
+        no_sync = model.no_sync if isinstance(model, DistributedDataParallel) else nullcontext
+        with nullcontext() if synchronize else no_sync():
+            yield
+
+
 def _backward_hook(
     grad_output: Tensor,
     sentence_features: Iterable[dict[str, Tensor]],
@@ -279,7 +323,7 @@ def _backward_hook(
 ) -> None:
     """A backward hook to backpropagate the cached gradients mini-batch by mini-batch.
 
-    ``loss_obj`` only needs an ``embed_minibatch_iter(sentence_feature, with_grad, copy_random_state,
+    ``loss_obj`` needs a ``model`` and an ``embed_minibatch_iter(sentence_feature, with_grad, copy_random_state,
     random_states, ranges)`` iterator whose items *start* with the embeddings tensor. Extra elements
     are ignored (e.g. ``CachedGISTEmbedLoss`` also yields the guide model's embeddings).
     :class:`CachedLossMixin` provides the standard implementation, and the cross-encoder
@@ -294,29 +338,79 @@ def _backward_hook(
 
     Every mini-batch is scaled by ``grad_output``, which is whatever the outer backward pass hands us,
     so the fp16 gradient scaler and the gradient accumulation division reach all of them.
+    DDP synchronizes once after replay, unless an outer ``no_sync`` defers synchronization further.
+    Static-graph DDP also synchronizes its first trainable mini-batch to initialize the reducer,
+    even inside an outer ``no_sync``. Subsequent mini-batches accumulate normally.
+    Unused parameter detection requires PyTorch >=2.4 to avoid incorrect DDP synchronization.
     """
+    model = getattr(loss_obj.model, "_orig_mod", loss_obj.model)
+    if (
+        isinstance(model, DistributedDataParallel)
+        and model.find_unused_parameters
+        and Version(torch.__version__) < Version("2.4")
+    ):
+        raise ValueError(
+            "Cached losses with DDP find_unused_parameters=True require PyTorch >=2.4 due to "
+            "a gradient synchronization bug (https://github.com/pytorch/pytorch/pull/124193). "
+            "Upgrade PyTorch, or set ddp_find_unused_parameters=False if every trainable parameter "
+            "is used in each mini-batch."
+        )
+    remaining = sum(len(column) for column in cache)
+    last_trainable = None
+    synchronized = False
     with torch.enable_grad():
         for sentence_feature, grad, random_state, column_ranges in zip(
             sentence_features, cache, random_states, ranges
         ):
-            for (reps_mb, *_), grad_mb in zip(
-                loss_obj.embed_minibatch_iter(
-                    sentence_feature=sentence_feature,
-                    with_grad=True,
-                    copy_random_state=False,
-                    random_states=random_state,
-                    ranges=column_ranges,
-                ),
-                grad,
-            ):
-                if not reps_mb.requires_grad:
-                    # e.g. a frozen Router route. Skip rather than stop, as with mixed inputs
-                    # a later mini-batch of the same column may still need backprop.
-                    continue
-                # Under autocast the cached gradients are reduced-precision while this re-embedding
-                # (inside backward, outside autocast) is fp32, so compute the surrogate in fp32.
-                surrogate = torch.dot(reps_mb.flatten().float(), grad_mb.flatten().float()) * grad_output
-                surrogate.backward()
+            embed_kwargs = dict(
+                sentence_feature=sentence_feature,
+                with_grad=True,
+                copy_random_state=False,
+                random_states=random_state,
+                ranges=column_ranges,
+            )
+            iterator = loss_obj.embed_minibatch_iter(**embed_kwargs)
+            for index, grad_mb in enumerate(grad):
+                remaining -= 1
+                # Advancing the iterator runs the forward, which must also be inside no_sync.
+                with _ddp_replay_context(model, synchronize=remaining == 0):
+                    reps_mb, *_ = next(iterator)
+                    if not reps_mb.requires_grad:
+                        continue
+                    last_trainable = (embed_kwargs, index)
+                    # Preserve double precision while keeping low-precision replay at least fp32.
+                    surrogate_dtype = torch.promote_types(reps_mb.dtype, grad_mb.dtype)
+                    if surrogate_dtype in (torch.float16, torch.bfloat16):
+                        surrogate_dtype = torch.float32
+                    surrogate = (
+                        torch.dot(reps_mb.flatten().to(surrogate_dtype), grad_mb.flatten().to(surrogate_dtype))
+                        * grad_output
+                    )
+                    surrogate.backward()
+                    synchronized = remaining == 0
+
+        if (
+            isinstance(model, DistributedDataParallel)
+            and model.require_backward_grad_sync
+            and not synchronized
+            and last_trainable is not None
+        ):
+            # A frozen final mini-batch cannot flush DDP. Replay a trainable one with zero gradient.
+            embed_kwargs, index = last_trainable
+            if embed_kwargs["ranges"] is not None:
+                embed_kwargs = {
+                    **embed_kwargs,
+                    "ranges": [embed_kwargs["ranges"][index]],
+                    "random_states": [embed_kwargs["random_states"][index]],
+                }
+                index = 0
+            model.require_forward_param_sync = False
+            iterator = loss_obj.embed_minibatch_iter(**embed_kwargs)
+            with model.no_sync():
+                for _ in range(index):
+                    next(iterator)
+            reps_mb, *_ = next(iterator)
+            reps_mb.backward(torch.zeros_like(reps_mb))
 
 
 class CachedLossMixin:
@@ -330,10 +424,6 @@ class CachedLossMixin:
     mini_batch_size: int
     mini_batch_num_tokens: int | None = None
     show_progress_bar: bool = False
-
-    # Enables per-sample media counting in Transformer.preprocess, so that _create_minibatch can
-    # slice VLM inputs (e.g. Qwen2-VL's flattened pixel_values) along the batch dimension.
-    requires_media_counts = True
 
     # See `uses_gradient_cache`. A subclass that can turn the caching off overrides this per instance.
     uses_gradient_cache: bool = True

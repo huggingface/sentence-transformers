@@ -132,7 +132,15 @@ class Dense(Module):
         config = cls.load_config(model_name_or_path=model_name_or_path, **hub_kwargs)
         if "activation_function" in config:
             if trust_remote_code or config["activation_function"].startswith("torch."):
-                config["activation_function"] = import_from_string(config["activation_function"])()
+                activation_class = import_from_string(config["activation_function"])
+                if not trust_remote_code and not (
+                    inspect.isclass(activation_class) and issubclass(activation_class, nn.Module)
+                ):
+                    raise ValueError(
+                        f"Activation function {config['activation_function']!r} must be a torch.nn.Module class "
+                        "when trust_remote_code=False."
+                    )
+                config["activation_function"] = activation_class()
             else:
                 logger.warning(
                     f"Activation function path '{config['activation_function']}' is not trusted, "

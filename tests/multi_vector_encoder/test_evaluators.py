@@ -13,12 +13,8 @@ from sentence_transformers.multi_vector_encoder.evaluation import (
 )
 
 
-@pytest.fixture(scope="module")
-def model() -> MultiVectorEncoder:
-    return MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
-
-
-def test_information_retrieval_evaluator(model: MultiVectorEncoder) -> None:
+def test_information_retrieval_evaluator(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     queries = {"q0": "What is the capital of France?", "q1": "Who painted the Mona Lisa?"}
     corpus = {
         "d0": "Paris is the capital of France.",
@@ -64,10 +60,11 @@ def test_information_retrieval_evaluator_rejects_xtr_scoring() -> None:
             )
 
 
-def test_ir_evaluator_defers_scoring_resolution_to_call_time(model: MultiVectorEncoder) -> None:
+def test_ir_evaluator_defers_scoring_resolution_to_call_time(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """Default scoring resolves from the evaluated model's ``similarity_fn_name`` inside
     ``__call__``, not eagerly at init: a model carrying a different multi-vector similarity is
     scored and labeled with its own function."""
+    model = mve_bert_tiny_model
     evaluator = MultiVectorInformationRetrievalEvaluator(
         queries={"q0": "What is the capital of France?"},
         corpus={"d0": "Paris is the capital of France.", "d1": "Berlin is the capital of Germany."},
@@ -81,20 +78,17 @@ def test_ir_evaluator_defers_scoring_resolution_to_call_time(model: MultiVectorE
     assert f"late_binding_{model.similarity_fn_name}_ndcg@10" in results
 
     # Reusing the evaluator re-resolves rather than keeping the first model's scoring (#3939).
-    original = model.similarity_fn_name
     model.similarity_fn_name = "meanmaxsim"
-    try:
-        reused = evaluator(model)
-    finally:
-        model.similarity_fn_name = original
+    reused = evaluator(model)
     assert evaluator.score_function_names == ["meanmaxsim"]
     assert evaluator.primary_metric == "late_binding_meanmaxsim_ndcg@10"
     assert "late_binding_meanmaxsim_ndcg@10" in reused
 
 
-def test_ir_evaluator_chunk_elements_reaches_scoring(model: MultiVectorEncoder) -> None:
+def test_ir_evaluator_chunk_elements_reaches_scoring(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """The budget is bound onto the model-resolved scorer and actually invoked: a one-document-per-
     chunk budget must score identically to the default."""
+    model = mve_bert_tiny_model
     kwargs = {
         "queries": {"q0": "What is the capital of France?"},
         "corpus": {"d0": "Paris is the capital of France.", "d1": "Berlin is the capital of Germany."},
@@ -188,7 +182,8 @@ def test_ir_evaluator_rejects_chunk_elements_with_score_functions() -> None:
     )
 
 
-def test_triplet_evaluator(model: MultiVectorEncoder) -> None:
+def test_triplet_evaluator(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     evaluator = MultiVectorTripletEvaluator(
         anchors=["What is the capital of France?"],
         positives=["Paris is the capital of France."],
@@ -201,9 +196,10 @@ def test_triplet_evaluator(model: MultiVectorEncoder) -> None:
     assert 0.0 <= results["triplet_smoke_maxsim_accuracy"] <= 1.0
 
 
-def test_triplet_evaluator_writes_csv_rows(model: MultiVectorEncoder, tmp_path) -> None:
+def test_triplet_evaluator_writes_csv_rows(mve_bert_tiny_model: MultiVectorEncoder, tmp_path) -> None:
     # Regression: the prior bespoke ``__call__`` registered CSV headers but never wrote rows, so
     # ``write_csv=True`` produced a header-only CSV.
+    model = mve_bert_tiny_model
     evaluator = MultiVectorTripletEvaluator(
         anchors=["What is the capital of France?"],
         positives=["Paris is the capital of France."],
@@ -240,7 +236,8 @@ def test_triplet_evaluator_rejects_dense_margin_keys() -> None:
         MultiVectorTripletEvaluator(anchors=["a"], positives=["p"], negatives=["n"], margin={"cosine": 0.5})
 
 
-def test_reranking_evaluator(model: MultiVectorEncoder) -> None:
+def test_reranking_evaluator(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     evaluator = MultiVectorRerankingEvaluator(
         samples=[
             {
@@ -257,9 +254,10 @@ def test_reranking_evaluator(model: MultiVectorEncoder) -> None:
     assert evaluator.primary_metric == "rerank_smoke_ndcg@10"
 
 
-def test_nano_beir_evaluator_emits_lowercase_maxsim_key(model: MultiVectorEncoder) -> None:
+def test_nano_beir_evaluator_emits_lowercase_maxsim_key(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     # The four training examples set ``metric_for_best_model="eval_NanoBEIR_mean_maxsim_ndcg@10"``,
     # so a regression in the lowercase ``maxsim`` segment would break ``load_best_model_at_end``.
+    model = mve_bert_tiny_model
     queries = {"q0": "What is the capital of France?"}
     corpus = {"d0": "Paris is the capital of France.", "d1": "Berlin is the capital of Germany."}
     qrels = {"q0": {"d0"}}
@@ -276,17 +274,14 @@ def test_nano_beir_evaluator_emits_lowercase_maxsim_key(model: MultiVectorEncode
     assert evaluator.primary_metric == "NanoBEIR_mean_maxsim_ndcg@10"
 
     # The aggregate labels track the sub-evaluators, which re-resolve their scoring per call (#3939).
-    original = model.similarity_fn_name
     model.similarity_fn_name = "meanmaxsim"
-    try:
-        reused = evaluator(model)
-    finally:
-        model.similarity_fn_name = original
+    reused = evaluator(model)
     assert "NanoBEIR_mean_meanmaxsim_ndcg@10" in reused
     assert evaluator.primary_metric == "NanoBEIR_mean_meanmaxsim_ndcg@10"
 
 
-def test_distillation_evaluator(model: MultiVectorEncoder) -> None:
+def test_distillation_evaluator(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
     evaluator = MultiVectorDistillationEvaluator(
         queries=["What is the capital of France?", "Who painted the Mona Lisa?"],
         documents=["Paris is the capital of France.", "Leonardo da Vinci painted the Mona Lisa."],
@@ -300,9 +295,10 @@ def test_distillation_evaluator(model: MultiVectorEncoder) -> None:
     assert evaluator.primary_metric == "distill_smoke_spearman"
 
 
-def test_distillation_evaluator_per_query_candidate_sets(model: MultiVectorEncoder) -> None:
+def test_distillation_evaluator_per_query_candidate_sets(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """The KD training format: N candidate documents per query with 2-D teacher scores. The KL is
     computed per query over its own candidate set, mirroring MultiVectorDistillKLDivLoss."""
+    model = mve_bert_tiny_model
     evaluator = MultiVectorDistillationEvaluator(
         queries=["What is the capital of France?", "Who painted the Mona Lisa?"],
         documents=[
@@ -319,6 +315,47 @@ def test_distillation_evaluator_per_query_candidate_sets(model: MultiVectorEncod
     assert results["distill_kd_kl_divergence"] >= 0.0
 
 
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize(
+    ("device", "dtype", "grad_mode"),
+    [
+        pytest.param("cpu", torch.float32, "leaf", id="cpu-grad"),
+        pytest.param("cpu", torch.float64, "nonleaf", id="cpu-cast-grad"),
+        pytest.param(
+            "cuda",
+            torch.float32,
+            "none",
+            id="cuda",
+            marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA unavailable"),
+        ),
+    ],
+)
+def test_distillation_evaluator_tensor_scores(
+    mve_bert_tiny_model: MultiVectorEncoder, nested: bool, dtype: torch.dtype, grad_mode: str, device: str
+) -> None:
+    model = mve_bert_tiny_model
+    queries = ["What is the capital of France?", "Who painted the Mona Lisa?"]
+    documents = ["Paris is the capital of France.", "Leonardo da Vinci painted the Mona Lisa."]
+    scores = [5.0, 3.0]
+    if nested:
+        documents = [
+            [documents[0], "Berlin is the capital of Germany."],
+            [documents[1], "Van Gogh painted The Starry Night."],
+        ]
+        scores = [[5.0, 1.0], [4.5, 0.5]]
+    leaf_scores = torch.tensor(scores, dtype=dtype, device=device, requires_grad=grad_mode != "none")
+    tensor_scores = leaf_scores * 1.0 if grad_mode == "nonleaf" else leaf_scores
+    expected = MultiVectorDistillationEvaluator(queries, documents, scores, write_csv=False)(model)
+    evaluator = MultiVectorDistillationEvaluator(queries, documents, tensor_scores, write_csv=False)
+
+    assert evaluator(model) == pytest.approx(expected)
+    torch.testing.assert_close(tensor_scores, torch.tensor(scores, dtype=dtype, device=device))
+    assert tensor_scores.requires_grad == (grad_mode != "none")
+    if grad_mode != "none":
+        tensor_scores.sum().backward()
+        torch.testing.assert_close(leaf_scores.grad, torch.ones_like(leaf_scores))
+
+
 def _student_kd_scores(model: MultiVectorEncoder, queries: list[str], documents: list[list[str]]) -> torch.Tensor:
     """Mirror the evaluator's student MaxSim scoring so teacher scores can be built from it."""
     n_ways = len(documents[0])
@@ -330,9 +367,10 @@ def _student_kd_scores(model: MultiVectorEncoder, queries: list[str], documents:
     )
 
 
-def test_distillation_evaluator_spearman_is_per_query(model: MultiVectorEncoder) -> None:
+def test_distillation_evaluator_spearman_is_per_query(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """A student reproducing the teacher's within-query ranking exactly must score Spearman 1.0,
     regardless of the per-query score bands."""
+    model = mve_bert_tiny_model
     queries = ["What is the capital of France?", "Who painted the Mona Lisa?"]
     documents = [
         ["Paris is the capital of France.", "Berlin is the capital of Germany.", "Madrid is the capital of Spain."],
@@ -358,9 +396,10 @@ def test_distillation_evaluator_spearman_is_per_query(model: MultiVectorEncoder)
         assert results["distill_offset_spearman"] == pytest.approx(1.0)
 
 
-def test_distillation_evaluator_spearman_skips_constant_queries(model: MultiVectorEncoder) -> None:
+def test_distillation_evaluator_spearman_skips_constant_queries(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     # A constant teacher row has no defined rank correlation: it is skipped from the mean, and 0.0
     # is reported when every query is skipped.
+    model = mve_bert_tiny_model
     queries = ["What is the capital of France?", "Who painted the Mona Lisa?"]
     documents = [
         ["Paris is the capital of France.", "Berlin is the capital of Germany."],
@@ -381,9 +420,10 @@ def test_distillation_evaluator_spearman_skips_constant_queries(model: MultiVect
     assert results["distill_constant_spearman"] == 0.0
 
 
-def test_distillation_evaluator_temperature_matches_training_loss(model: MultiVectorEncoder) -> None:
+def test_distillation_evaluator_temperature_matches_training_loss(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """The nested-path KL equals what MultiVectorDistillKLDivLoss reports for the same queries,
     documents and teacher scores, for shared, per-side, and MeanMaxSim-mirrored settings alike."""
+    model = mve_bert_tiny_model
     from functools import partial
 
     from sentence_transformers.multi_vector_encoder.losses import MultiVectorDistillKLDivLoss
@@ -439,9 +479,10 @@ def test_distillation_evaluator_temperature_matches_training_loss(model: MultiVe
     assert len({round(value, 6) for value in kl_by_config.values()}) == len(configs)
 
 
-def test_distillation_evaluator_flat_kl_is_full_sum(model: MultiVectorEncoder) -> None:
+def test_distillation_evaluator_flat_kl_is_full_sum(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """The flat-path KL is the full divergence between the two dataset-level distributions, not
     divided by the number of pairs, so duplicating every pair leaves it unchanged."""
+    model = mve_bert_tiny_model
     queries = ["What is the capital of France?", "Who painted the Mona Lisa?"]
     documents = ["Paris is the capital of France.", "Leonardo da Vinci painted the Mona Lisa."]
     scores = [0.0, 10.0]

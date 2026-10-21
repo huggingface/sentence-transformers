@@ -6,15 +6,10 @@ import pytest
 import torch
 
 from sentence_transformers.base.sampler import GroupByLabelBatchSampler
-from sentence_transformers.util import is_datasets_available
 
-if is_datasets_available():
-    from datasets import Dataset
-else:
-    pytest.skip(
-        reason='Sentence Transformers was not installed with the `["train"]` extra.',
-        allow_module_level=True,
-    )
+pytest.importorskip("datasets", exc_type=ModuleNotFoundError)
+
+from datasets import Dataset
 
 
 @pytest.fixture
@@ -256,3 +251,28 @@ def test_batches_spanning_shuffled_rounds_have_negative_labels(label_sizes: list
     for batch in batches:
         counts = Counter(labels[index] for index in batch)
         assert sorted(counts.values()) == [2, 2]
+
+
+def test_odd_label_groups_do_not_permanently_exclude_samples() -> None:
+    labels = [0] * 3 + [1] * 3
+    dataset = Dataset.from_dict({"label": labels})
+    sampler = GroupByLabelBatchSampler(
+        dataset,
+        batch_size=4,
+        drop_last=True,
+        valid_label_columns=["label"],
+        generator=torch.Generator(),
+        seed=42,
+    )
+
+    seen = set()
+    for epoch in range(10):
+        sampler.set_epoch(epoch)
+        batches = list(sampler)
+        assert len(batches) == len(sampler) == 1
+        assert sorted(Counter(labels[index] for index in batches[0]).values()) == [2, 2]
+        assert len(set(batches[0])) == 4
+        seen.update(batches[0])
+        assert list(sampler) == batches
+
+    assert seen == set(range(len(dataset)))

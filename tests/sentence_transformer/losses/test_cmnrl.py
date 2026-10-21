@@ -7,6 +7,7 @@ import torch
 import tqdm
 from torch.optim import Adam
 from transformers import set_seed
+from transformers.utils import is_torchvision_available, is_vision_available
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.base.losses.gradcache import (
@@ -249,12 +250,12 @@ class TestCreateMinibatchMixedModality:
         assert _get_batch_size(mixed_modality_features) == 4
 
     def test_minibatch_text_only_samples(self, mixed_modality_features):
-        """Slicing samples 2-3 (text only) should produce empty pixel_values and grid."""
+        """Text-only mini-batches must not invoke the vision encoder."""
         mb = _create_minibatch(mixed_modality_features, 2, 4)
         assert mb["input_ids"].shape == (2, 46)
         assert torch.equal(mb["input_ids"], mixed_modality_features["input_ids"][2:4])
-        assert mb["pixel_values"].shape[0] == 0
-        assert mb["image_grid_thw"].shape == (0, 3)
+        assert "pixel_values" not in mb
+        assert "image_grid_thw" not in mb
 
     def test_minibatch_single_image_sample(self, mixed_modality_features):
         """Slicing sample 1 (1 image, 24 tokens) should get the correct pixel_values slice."""
@@ -340,10 +341,88 @@ class TestCreateMinibatchMixedModality:
         assert mb["pixel_values"].shape[0] == 16
         assert torch.equal(mb["pixel_values"], features["pixel_values"][32:48])
 
-        # Sample 2 (text only) should get empty grid and pixel_values
         mb = _create_minibatch(features, 2, 3)
-        assert mb["image_grid_thw"].shape == (0, 3)
-        assert mb["pixel_values"].shape[0] == 0
+        assert "image_grid_thw" not in mb
+        assert "pixel_values" not in mb
+
+
+class TestCreateMinibatchStackedImages:
+    @pytest.fixture
+    def features(self):
+        # Rows own 1, 0 and 2 images: 3 images for 3 rows, so a row slice looks valid but is wrong.
+        return {
+            "input_ids": torch.arange(3 * 5).reshape(3, 5),
+            "pixel_values": torch.arange(3 * 4, dtype=torch.float).reshape(3, 4),
+            "image_sizes": torch.tensor([[32, 32], [64, 64], [96, 96]]),
+            "image_position_ids": torch.arange(3 * 4 * 2).reshape(3, 4, 2),
+            "num_images_per_sample": torch.tensor([1, 0, 2]),
+        }
+
+    @pytest.mark.parametrize(("begin", "end", "image_begin", "image_end"), [(0, 2, 0, 1), (2, 3, 1, 3)])
+    def test_slices_by_image_count(self, features, begin, end, image_begin, image_end):
+        mb = _create_minibatch(features, begin, end)
+        assert torch.equal(mb["pixel_values"], features["pixel_values"][image_begin:image_end])
+        assert torch.equal(mb["image_sizes"], features["image_sizes"][image_begin:image_end])
+        assert torch.equal(mb["image_position_ids"], features["image_position_ids"][image_begin:image_end])
+
+    def test_text_only_sample_omits_image_inputs(self, features):
+        mb = _create_minibatch(features, 1, 2)
+        assert torch.equal(mb["input_ids"], features["input_ids"][1:2])
+        assert not {"pixel_values", "image_sizes", "image_position_ids"} & mb.keys()
+
+    def test_sample_first_layout_keeps_row_slicing(self, features):
+        features["pixel_attention_mask"] = torch.ones(3, 4, dtype=torch.bool)
+        mb = _create_minibatch(features, 0, 2)
+        assert torch.equal(mb["pixel_values"], features["pixel_values"][0:2])
+
+
+@pytest.mark.skipif(
+    not (is_vision_available() and is_torchvision_available()), reason="Gemma3 requires Pillow and torchvision"
+)
+@pytest.mark.parametrize("mini_batch_size", [1, 2])
+def test_cached_gemma3_mixed_images_matches_non_cached(tmp_path, mini_batch_size):
+    from PIL import Image
+    from transformers import AutoConfig, AutoProcessor, Gemma3Model
+
+    from sentence_transformers.base.modules import Transformer
+    from sentence_transformers.sentence_transformer.modules import Pooling
+    from tests.sentence_transformer.losses.utils import assert_trained, gradients
+
+    set_seed(42)
+    name = "hf-internal-testing/tiny-random-Gemma3ForConditionalGeneration"
+    config = AutoConfig.from_pretrained(name)
+    config.vision_config.image_size = 28
+    config.mm_tokens_per_image = 4
+    Gemma3Model(config).save_pretrained(tmp_path)
+    processor = AutoProcessor.from_pretrained(name, image_seq_length=4)
+    processor.image_processor.size = {"height": 28, "width": 28}
+    processor.save_pretrained(tmp_path)
+    transformer = Transformer(str(tmp_path), processing_kwargs={"image": {"do_pan_and_scan": False}})
+    model = SentenceTransformer(modules=[transformer, Pooling(transformer.get_embedding_dimension())], device="cpu")
+    model.double().eval()
+    wide = Image.new("RGB", (96, 32), "red")
+    square = Image.new("RGB", (32, 32), "blue")
+    anchors = [
+        {"text": "a", "image": wide},
+        {"text": "text only"},
+        {"text": "b", "image": [square, square]},
+    ]
+    positives = ["p1", "p2", "p3"]
+    features = model.preprocess(anchors)
+    assert features["num_images_per_sample"].tolist() == [1, 0, 2]
+
+    results = []
+    for loss in (
+        MultipleNegativesRankingLoss(model),
+        CachedMultipleNegativesRankingLoss(model, mini_batch_size=mini_batch_size),
+    ):
+        model.zero_grad()
+        value = loss([model.preprocess(anchors), model.preprocess(positives)], labels=None)
+        value.backward()
+        results.append((value.detach(), gradients(model)))
+    torch.testing.assert_close(results[0][0], results[1][0], rtol=1e-4, atol=1e-5)
+    assert_trained(results[1][1])
+    torch.testing.assert_close(results[0][1], results[1][1], rtol=1e-3, atol=1e-5)
 
 
 def test_cmnrl_attributes_and_config_back_compat(stsb_bert_tiny_model: SentenceTransformer) -> None:

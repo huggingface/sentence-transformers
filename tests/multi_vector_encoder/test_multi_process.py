@@ -13,12 +13,9 @@ TEXTS = [
 ]
 
 
-@pytest.fixture(scope="module")
-def model() -> MultiVectorEncoder:
-    return MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors", device="cpu")
-
-
-def test_multi_process_matches_single_process(model: MultiVectorEncoder) -> None:
+def test_multi_process_matches_single_process(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
+    model.to("cpu")
     direct = model.encode_document(TEXTS)
     pooled = model.encode_document(TEXTS, device=["cpu", "cpu"])
     assert len(pooled) == len(direct)
@@ -26,7 +23,9 @@ def test_multi_process_matches_single_process(model: MultiVectorEncoder) -> None
         assert torch.allclose(direct_emb, pooled_emb, atol=1e-5)
 
 
-def test_multi_process_output_value_none(model: MultiVectorEncoder) -> None:
+def test_multi_process_output_value_none(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
+    model.to("cpu")
     direct = model.encode_document(TEXTS, output_value=None)
     pooled = model.encode_document(TEXTS, output_value=None, device=["cpu", "cpu"])
     assert len(pooled) == len(direct)
@@ -45,9 +44,11 @@ def test_multi_process_output_value_none(model: MultiVectorEncoder) -> None:
 @pytest.mark.skipif(
     not torch.cuda.is_available(), reason="CUDA must be available to experiment with 2 separate devices"
 )
-def test_multi_process_output_tensors_two_devices(model: MultiVectorEncoder) -> None:
+def test_multi_process_output_tensors_two_devices(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     # Both result shapes are lists here, and a device tensor would only stay readable for as long
     # as the worker that produced it is alive
+    model = mve_bert_tiny_model
+    model.to("cpu")
     embeddings = model.encode_document(TEXTS, device=["cpu", "cuda"])
     assert len(embeddings) == len(TEXTS)
     assert all(emb.device.type == "cpu" for emb in embeddings)

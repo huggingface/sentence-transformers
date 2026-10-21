@@ -26,9 +26,8 @@ class SparseTranslationEvaluator(TranslationEvaluator):
 
     Given two sets of sentences in different languages, e.g. (en_1, en_2, en_3...) and (fr_1, fr_2, fr_3, ...),
     and assuming that fr_i is the translation of en_i.
-    Checks if vec(en_i) has the highest similarity to vec(fr_i). Computes the accuracy in both directions
-
-    The labels need to indicate the similarity between the sentences.
+    Checks whether the most similar sentence has the same text as the expected translation.
+    Computes accuracy in both directions.
 
     Args:
         source_sentences (List[str]): List of sentences in the source language.

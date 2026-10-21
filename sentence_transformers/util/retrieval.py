@@ -3,6 +3,8 @@ from __future__ import annotations
 import heapq
 import logging
 from collections.abc import Callable
+from itertools import islice
+from operator import itemgetter
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -10,8 +12,8 @@ import torch
 from torch import Tensor
 from tqdm.autonotebook import tqdm
 
-from .similarity import cos_sim
-from .tensor import normalize_embeddings
+from .similarity import cos_sim, dot_score
+from .tensor import _convert_to_batch_tensor, _convert_to_tensor, normalize_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -111,44 +113,54 @@ def paraphrase_mining_embeddings(
         List[List[Union[float, int]]]: Returns a list of triplets with the format [score, id1, id2]
     """
 
-    top_k += 1  # A sentence has the highest similarity to itself. Increase +1 as we are interest in distinct pairs
-
     # Mine for duplicates
     pairs = []  # Min-heap of (score, i, j) with i < j, capped at max_pairs entries
     queued_pairs = set()  # The (i, j) of every pair currently in `pairs`
     min_score = float("-inf")
 
-    for corpus_start_idx in range(0, len(embeddings), corpus_chunk_size):
-        for query_start_idx in range(0, len(embeddings), query_chunk_size):
+    for query_start_idx in range(0, len(embeddings), query_chunk_size):
+        query_embeddings = embeddings[query_start_idx : query_start_idx + query_chunk_size]
+
+        # Keep each query's top_k across all corpus chunks, so the candidates don't depend on corpus_chunk_size
+        scores_top_k_values, scores_top_k_idx = None, None
+        for corpus_start_idx in range(0, len(embeddings), corpus_chunk_size):
             scores = score_function(
-                embeddings[query_start_idx : query_start_idx + query_chunk_size],
-                embeddings[corpus_start_idx : corpus_start_idx + corpus_chunk_size],
-            )
+                query_embeddings, embeddings[corpus_start_idx : corpus_start_idx + corpus_chunk_size]
+            ).detach()
+            chunk_values, chunk_idx = torch.topk(scores, min(top_k + 1, len(scores[0])), dim=1, largest=True)
+            chunk_idx = chunk_idx + corpus_start_idx
 
-            scores_top_k_values, scores_top_k_idx = torch.topk(
-                scores, min(top_k, len(scores[0])), dim=1, largest=True, sorted=False
-            )
-            scores_top_k_values = scores_top_k_values.cpu().tolist()
-            scores_top_k_idx = scores_top_k_idx.cpu().tolist()
+            if scores_top_k_values is None:
+                scores_top_k_values, scores_top_k_idx = chunk_values, chunk_idx
+            else:
+                values = torch.cat([scores_top_k_values, chunk_values], dim=1)
+                idx = torch.cat([scores_top_k_idx, chunk_idx], dim=1)
+                scores_top_k_values, top_pos = torch.topk(values, min(top_k + 1, len(values[0])), dim=1)
+                scores_top_k_idx = torch.gather(idx, 1, top_pos)
 
-            for query_itr in range(len(scores)):
-                i = query_start_idx + query_itr
-                for corpus_itr, score in zip(scores_top_k_idx[query_itr], scores_top_k_values[query_itr]):
-                    j = corpus_start_idx + corpus_itr
-                    if i == j or score <= min_score:
-                        continue
+        scores_top_k_values = scores_top_k_values.cpu().tolist()
+        scores_top_k_idx = scores_top_k_idx.cpu().tolist()
 
-                    pair = (i, j) if i < j else (j, i)
-                    if pair in queued_pairs:
-                        continue
+        for query_itr in range(len(scores_top_k_values)):
+            i = query_start_idx + query_itr
+            neighbours = [
+                (j, score) for j, score in zip(scores_top_k_idx[query_itr], scores_top_k_values[query_itr]) if i != j
+            ][:top_k]
+            for j, score in neighbours:
+                if score <= min_score:
+                    continue
 
-                    queued_pairs.add(pair)
-                    if len(pairs) < max_pairs:
-                        heapq.heappush(pairs, (score, *pair))
-                    else:
-                        evicted = heapq.heappushpop(pairs, (score, *pair))
-                        queued_pairs.discard(evicted[1:])
-                        min_score = evicted[0]
+                pair = (i, j) if i < j else (j, i)
+                if pair in queued_pairs:
+                    continue
+
+                queued_pairs.add(pair)
+                if len(pairs) < max_pairs:
+                    heapq.heappush(pairs, (score, *pair))
+                else:
+                    evicted = heapq.heappushpop(pairs, (score, *pair))
+                    queued_pairs.discard(evicted[1:])
+                    min_score = evicted[0]
 
     # Highest scores first
     return sorted(([score, i, j] for score, i, j in pairs), key=lambda x: x[0], reverse=True)
@@ -183,18 +195,11 @@ def semantic_search(
         List[List[Dict[str, Union[int, float]]]]: A list with one entry for each query. Each entry is a list of dictionaries with the keys 'corpus_id' and 'score', sorted by decreasing cosine similarity scores.
     """
 
-    if isinstance(query_embeddings, (np.ndarray, np.generic)):
-        query_embeddings = torch.from_numpy(query_embeddings)
-    elif isinstance(query_embeddings, list):
-        query_embeddings = torch.stack(query_embeddings)
+    query_embeddings = _convert_to_tensor(query_embeddings)
+    corpus_embeddings = _convert_to_tensor(corpus_embeddings)
 
     if len(query_embeddings.shape) == 1:
         query_embeddings = query_embeddings.unsqueeze(0)
-
-    if isinstance(corpus_embeddings, (np.ndarray, np.generic)):
-        corpus_embeddings = torch.from_numpy(corpus_embeddings)
-    elif isinstance(corpus_embeddings, list):
-        corpus_embeddings = torch.stack(corpus_embeddings)
 
     # Check that corpus and queries are on the same device
     if corpus_embeddings.device != query_embeddings.device:
@@ -202,51 +207,59 @@ def semantic_search(
 
     queries_result_list = [[] for _ in range(len(query_embeddings))]
 
-    for query_start_idx in range(0, len(query_embeddings), query_chunk_size):
-        query_end_idx = min(query_start_idx + query_chunk_size, len(query_embeddings))
-        if query_embeddings.is_sparse:
-            indices = torch.arange(query_start_idx, query_end_idx, device=query_embeddings.device)
-            query_chunk = query_embeddings.index_select(0, indices)
-        else:
-            query_chunk = query_embeddings[query_start_idx:query_end_idx]
+    # cos_sim normalizes both of its inputs on every call, which would renormalize the same corpus chunk once per
+    # query chunk. Normalizing each corpus chunk once and taking the dot product computes the exact same scores.
+    normalize_chunks = score_function is cos_sim
 
-        # Iterate over chunks of the corpus
-        for corpus_start_idx in range(0, len(corpus_embeddings), corpus_chunk_size):
-            corpus_end_idx = min(corpus_start_idx + corpus_chunk_size, len(corpus_embeddings))
-            if corpus_embeddings.is_sparse:
-                indices = torch.arange(corpus_start_idx, corpus_end_idx, device=corpus_embeddings.device)
-                corpus_chunk = corpus_embeddings.index_select(0, indices)
+    # Iterate over chunks of the corpus. The corpus chunks are the outer loop so that each one is only prepared once,
+    # while every query still receives the corpus chunks in order.
+    for corpus_start_idx in range(0, len(corpus_embeddings), corpus_chunk_size):
+        corpus_end_idx = min(corpus_start_idx + corpus_chunk_size, len(corpus_embeddings))
+        if corpus_embeddings.is_sparse:
+            indices = torch.arange(corpus_start_idx, corpus_end_idx, device=corpus_embeddings.device)
+            corpus_chunk = corpus_embeddings.index_select(0, indices)
+        else:
+            corpus_chunk = corpus_embeddings[corpus_start_idx:corpus_end_idx]
+        if normalize_chunks:
+            corpus_chunk = normalize_embeddings(_convert_to_batch_tensor(corpus_chunk))
+
+        for query_start_idx in range(0, len(query_embeddings), query_chunk_size):
+            query_end_idx = min(query_start_idx + query_chunk_size, len(query_embeddings))
+            if query_embeddings.is_sparse:
+                indices = torch.arange(query_start_idx, query_end_idx, device=query_embeddings.device)
+                query_chunk = query_embeddings.index_select(0, indices)
             else:
-                corpus_chunk = corpus_embeddings[corpus_start_idx:corpus_end_idx]
+                query_chunk = query_embeddings[query_start_idx:query_end_idx]
 
             # Compute cosine similarities
-            cos_scores = score_function(query_chunk, corpus_chunk)
+            if normalize_chunks:
+                cos_scores = dot_score(normalize_embeddings(_convert_to_batch_tensor(query_chunk)), corpus_chunk)
+            else:
+                cos_scores = score_function(query_chunk, corpus_chunk)
 
             # Get top-k scores
             cos_scores_top_k_values, cos_scores_top_k_idx = torch.topk(
                 cos_scores, min(top_k, len(cos_scores[0])), dim=1, largest=True, sorted=False
             )
             cos_scores_top_k_values = cos_scores_top_k_values.cpu().tolist()
-            cos_scores_top_k_idx = cos_scores_top_k_idx.cpu().tolist()
+            cos_scores_top_k_idx = (cos_scores_top_k_idx + corpus_start_idx).cpu().tolist()
 
-            for query_itr in range(len(cos_scores)):
-                for sub_corpus_id, score in zip(cos_scores_top_k_idx[query_itr], cos_scores_top_k_values[query_itr]):
-                    corpus_id = corpus_start_idx + sub_corpus_id
-                    query_id = query_start_idx + query_itr
-                    if len(queries_result_list[query_id]) < top_k:
-                        heapq.heappush(
-                            queries_result_list[query_id], (score, corpus_id)
-                        )  # heap tracks the quantity of the first element in the tuple
-                    else:
-                        heapq.heappushpop(queries_result_list[query_id], (score, corpus_id))
+            for query_results, corpus_ids, scores in zip(
+                queries_result_list[query_start_idx:query_end_idx], cos_scores_top_k_idx, cos_scores_top_k_values
+            ):
+                # The heap tracks the quantity of the first element in the tuple. Fill it up to top_k, then only
+                # keep a new candidate if it beats the current minimum.
+                candidates = zip(scores, corpus_ids)
+                for candidate in islice(candidates, top_k - len(query_results)):
+                    heapq.heappush(query_results, candidate)
+                for candidate in candidates:
+                    heapq.heappushpop(query_results, candidate)
 
-    # change the data format and sort
-    for query_id in range(len(queries_result_list)):
-        for doc_itr in range(len(queries_result_list[query_id])):
-            score, corpus_id = queries_result_list[query_id][doc_itr]
-            queries_result_list[query_id][doc_itr] = {"corpus_id": corpus_id, "score": score}
-        queries_result_list[query_id] = sorted(queries_result_list[query_id], key=lambda x: x["score"], reverse=True)
-
+    for query_id, query_results in enumerate(queries_result_list):
+        queries_result_list[query_id] = [
+            {"corpus_id": corpus_id, "score": score}
+            for score, corpus_id in sorted(query_results, key=itemgetter(0), reverse=True)
+        ]
     return queries_result_list
 
 
@@ -260,7 +273,7 @@ def community_detection(
     """
     Function for Fast Community Detection.
 
-    Finds in the embeddings all communities, i.e. embeddings that are close (closer than threshold).
+    Finds communities of embeddings whose cosine similarity to a central point is at least threshold.
     Returns only communities that are larger than min_community_size. The communities are returned
     in decreasing order. The first element in each list is the central point in the community.
 
@@ -274,8 +287,12 @@ def community_detection(
     Returns:
         List[List[int]]: A list of communities, where each community is represented as a list of indices.
     """
-    if not isinstance(embeddings, torch.Tensor):
-        embeddings = torch.tensor(embeddings)
+    if len(embeddings) == 0:
+        return []
+
+    embeddings = _convert_to_tensor(embeddings)
+    if embeddings.ndim == 1:
+        embeddings = embeddings.unsqueeze(0)
 
     if len(embeddings) < min_community_size:
         return []
@@ -314,8 +331,9 @@ def community_detection(
 
             # Move the batch indices to CPU once, then slice per community
             top_k_indices = top_k_indices.cpu()
-            for count, indices in zip(row_wise_count.tolist(), top_k_indices):
-                extracted_communities.append(indices[:count].numpy().astype(np.uint32))
+            centers = (large_enough_mask.nonzero(as_tuple=True)[0] + start_idx).tolist()
+            for center, count, indices in zip(centers, row_wise_count.tolist(), top_k_indices):
+                extracted_communities.append((center, indices[:count].numpy().astype(np.uint32)))
         else:
             # Minimum size for a community
             top_k_values, _ = cos_scores.topk(k=min_community_size, largest=True)
@@ -332,25 +350,23 @@ def community_detection(
                         top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
 
                     extracted_communities.append(
-                        top_idx_large[top_val_large >= threshold].cpu().numpy().astype(np.uint32)
+                        (start_idx + i, top_idx_large[top_val_large >= threshold].cpu().numpy().astype(np.uint32))
                     )
 
     # Largest cluster first
-    extracted_communities = sorted(extracted_communities, key=lambda x: len(x), reverse=True)
+    extracted_communities = sorted(extracted_communities, key=lambda x: len(x[1]), reverse=True)
 
     # Step 2) Remove overlapping communities using a dense boolean mask of already claimed indices
     unique_communities = []
     used = np.zeros(len(embeddings), dtype=bool)
 
-    for community in extracted_communities:
-        # community keeps its topk order, so the central point stays first
+    for center, community in extracted_communities:
+        if used[center]:
+            continue
         non_overlapped_community = community[~used[community]]
         if len(non_overlapped_community) >= min_community_size:
-            unique_communities.append(non_overlapped_community)
-            used[non_overlapped_community] = True
+            unique_community = [center] + non_overlapped_community[non_overlapped_community != center].tolist()
+            unique_communities.append(unique_community)
+            used[unique_community] = True
 
-    unique_communities = [
-        community.tolist() for community in sorted(unique_communities, key=lambda x: len(x), reverse=True)
-    ]
-
-    return unique_communities
+    return sorted(unique_communities, key=len, reverse=True)

@@ -16,11 +16,9 @@ from sentence_transformers.sentence_transformer.evaluation import ParaphraseMini
 from sentence_transformers.sentence_transformer.modules import BoW
 
 
-def test_ParaphraseMiningEvaluator(
-    paraphrase_distilroberta_base_v1_model: SentenceTransformer, tmp_path: Path
-) -> None:
+def test_ParaphraseMiningEvaluator(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
     """Tests that the ParaphraseMiningEvaluator can be loaded"""
-    model = paraphrase_distilroberta_base_v1_model
+    model = stsb_bert_tiny_model
     sentences = {
         0: "Hello World",
         1: "Hello World!",

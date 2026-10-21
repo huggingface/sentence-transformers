@@ -22,23 +22,7 @@ if not is_training_available():
     )
 
 
-TEST_MODEL_ID = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-
-
-@pytest.fixture(scope="session")
-def _bert_tiny_mve_model() -> MultiVectorEncoder:
-    model = MultiVectorEncoder(TEST_MODEL_ID)
-    if not model.model_card_data.base_model:
-        model.model_card_data.base_model = TEST_MODEL_ID
-    model.model_card_data.generate_widget_examples = False
-    return model
-
-
-@pytest.fixture()
-def bert_tiny_mve_model(_bert_tiny_mve_model: MultiVectorEncoder) -> MultiVectorEncoder:
-    from copy import deepcopy
-
-    return deepcopy(_bert_tiny_mve_model)
+TEST_MODEL_ID = "multi-vector-encoder-testing/bert-tiny-multi-vector"
 
 
 @pytest.fixture(scope="session")
@@ -243,13 +227,14 @@ class TestModelCardDataDefaults:
     ],
 )
 def test_model_card_base(
-    bert_tiny_mve_model: MultiVectorEncoder,
+    mve_bert_tiny_model: MultiVectorEncoder,
     dummy_dataset: Dataset,
     num_datasets: int,
     expected_substrings: list[str],
     tmp_path: Path,
 ) -> None:
-    model = bert_tiny_mve_model
+    model = mve_bert_tiny_model
+    model.model_card_data.base_model = TEST_MODEL_ID
     model.model_card_data.local_files_only = True  # don't hit the Hub during the test
 
     train_dataset = dummy_dataset
@@ -294,12 +279,15 @@ def test_model_card_base(
     ],
 )
 def test_model_card_renders_query_and_document_lengths(
-    bert_tiny_mve_model: MultiVectorEncoder, knobs: dict[str, Any], expected_rows: str
+    mve_bert_tiny_model: MultiVectorEncoder, knobs: dict[str, Any], expected_rows: str
 ) -> None:
     # The generic Maximum Sequence Length row alone is misleading for ColBERT-style models: the
     # summary must also list the real per-task caps when the Transformer carries them.
-    model = bert_tiny_mve_model
+    model = mve_bert_tiny_model
     model.model_card_data.local_files_only = True
+    model[0].query_length = None
+    model[0].document_length = None
+    model[0].query_expansion = None
     for key, value in knobs.items():
         setattr(model[0], key, value)
 
