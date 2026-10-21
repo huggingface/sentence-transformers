@@ -190,11 +190,7 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             dense_ranks = {doc: rank for rank, doc in enumerate(dense_docs, start=1)}
             sparse_ranks = {doc: rank for rank, doc in enumerate(sparse_docs, start=1)}
 
-            # Combine all unique documents, keeping the retrievers' own order.
-            # A set iterates in an order that varies with PYTHONHASHSEED, and
-            # the sort below is stable, so documents tied on RRF score, which
-            # is every document either retriever returned alone at the same
-            # rank, came out ordered differently on each run.
+            # Combine all unique documents, dense first, then sparse.
             all_docs = dict.fromkeys([*dense_ranks, *sparse_ranks])
 
             # Calculate RRF scores

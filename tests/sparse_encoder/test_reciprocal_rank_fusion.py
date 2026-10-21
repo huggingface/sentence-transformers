@@ -74,11 +74,7 @@ def test_rrf_only_scores_retrievers_that_returned_a_document(tmp_path):
     assert results["mrr@3"] == 1.0
 
 
-def test_tied_documents_keep_the_order_the_retrievers_gave_them(tmp_path):
-    """Documents that tie on RRF score must be ranked in the retrievers' own
-    order. The two lists here are disjoint, so every document ties with the one
-    at its rank in the other list, and fusing through a set ordered those ties
-    differently on every run, moving the reported metrics with them."""
+def test_rrf_ties_preserve_dense_then_sparse_input_order(tmp_path):
     dense_docs = [f"d{i}" for i in range(1, 13)]
     sparse_docs = [f"s{i}" for i in range(1, 13)]
     dense_samples = [{"query_id": "q1", "query": "query", "positive": ["d1"], "documents": dense_docs}]
