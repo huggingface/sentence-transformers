@@ -316,7 +316,10 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                 mrr = 1 / (rank + 1)
                 break
 
-        ndcg = ndcg_score([y_true], [y_pred], k=self.at_k)
+        if len(y_true) == 1 and self.at_k > 0:
+            ndcg = float(y_true[0] > 0)
+        else:
+            ndcg = ndcg_score([y_true], [y_pred], k=self.at_k)
         ap = average_precision_score(y_true, y_pred)
         return mrr, ndcg, ap
 
