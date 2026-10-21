@@ -2,22 +2,37 @@ from __future__ import annotations
 
 import json
 import logging
+import pickle
 import re
 import sys
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 import torch
+import torch.nn.functional as F
 from huggingface_hub import CommitInfo, HfApi, RepoUrl
 from packaging.version import Version, parse
 from PIL import Image
 from pytest import FixtureRequest
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from tokenizers.pre_tokenizers import Whitespace
+from torch import nn
+from transformers import (
+    BertConfig,
+    BertForSequenceClassification,
+    GPT2Config,
+    GPT2LMHeadModel,
+    PreTrainedTokenizerFast,
+)
 from transformers import __version__ as transformers_version
 
 from sentence_transformers import CrossEncoder
+from sentence_transformers.base.modules import Dense
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
@@ -74,8 +89,8 @@ def test_load_with_revision() -> None:
     argvalues=[True, False],
     ids=["return-docs", "no-return-docs"],
 )
-def test_rank(return_documents: bool, request: FixtureRequest) -> None:
-    model = CrossEncoder("cross-encoder/stsb-distilroberta-base")
+def test_rank(return_documents: bool, reranker_bert_tiny_model: CrossEncoder) -> None:
+    model = reranker_bert_tiny_model
     # We want to compute the similarity between the query sentence
     query = "A man is eating pasta."
 
@@ -91,15 +106,19 @@ def test_rank(return_documents: bool, request: FixtureRequest) -> None:
         "A monkey is playing drums.",
         "A cheetah is running behind its prey.",
     ]
-    expected_ranking = [0, 1, 3, 6, 2, 5, 7, 4, 8]
+    scores = model.predict([(query, document) for document in corpus])
+    expected_ranking = [1, 0, 5, 4, 2, 6, 8, 7, 3]
 
     # 1. We rank all sentences in the corpus for the query
     ranks = model.rank(query=query, documents=corpus, return_documents=return_documents)
-    if request.node.callspec.id == "return-docs":
-        assert {*corpus} == {rank.get("text") for rank in ranks}
+    if return_documents:
+        assert [rank["text"] for rank in ranks] == [corpus[index] for index in expected_ranking]
+    else:
+        assert all("text" not in rank for rank in ranks)
 
     pred_ranking = [rank["corpus_id"] for rank in ranks]
     assert pred_ranking == expected_ranking
+    np.testing.assert_allclose([rank["score"] for rank in ranks], scores[expected_ranking])
 
 
 def test_rank_scores_are_floats(reranker_bert_tiny_model: CrossEncoder) -> None:
@@ -119,8 +138,22 @@ def test_rank_convert_kwargs_deprecated(reranker_bert_tiny_model: CrossEncoder, 
     assert type(ranks[0]["score"]) is float
 
 
-def test_rank_multiple_labels(nli_minilm_model: CrossEncoder):
-    model = nli_minilm_model
+@pytest.mark.parametrize("apply_softmax", [True, False])
+def test_rank_apply_softmax_deprecated(reranker_bert_tiny_model: CrossEncoder, apply_softmax: bool, caplog) -> None:
+    model = reranker_bert_tiny_model
+    query = "How many people live in Berlin?"
+    documents = ["Pasta is cooked in boiling water.", "Berlin has a population of 3.5 million."]
+    expected = model.rank(query, documents)
+    deprecated_kwargs: dict[str, Any] = {"apply_softmax": apply_softmax}
+    with caplog.at_level(logging.WARNING):
+        ranks = model.rank(query, documents, **deprecated_kwargs)
+
+    assert "CrossEncoder.rank `apply_softmax` argument is deprecated" in caplog.text
+    assert ranks == expected
+
+
+def test_rank_multiple_labels(multiclass_bert_tiny_model: CrossEncoder):
+    model = multiclass_bert_tiny_model
     with pytest.raises(
         ValueError,
         match=re.escape(
@@ -138,8 +171,8 @@ def test_rank_multiple_labels(nli_minilm_model: CrossEncoder):
         )
 
 
-def test_predict_softmax(nli_minilm_model: CrossEncoder):
-    model = nli_minilm_model
+def test_predict_softmax(multiclass_bert_tiny_model: CrossEncoder, caplog):
+    model = multiclass_bert_tiny_model
     query = "A man is eating pasta."
 
     # With all sentences in the corpus
@@ -153,6 +186,20 @@ def test_predict_softmax(nli_minilm_model: CrossEncoder):
     assert torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
     scores = model.predict([(query, doc) for doc in corpus], apply_softmax=False, convert_to_tensor=True)
     assert not torch.isclose(scores.sum(1), torch.ones(len(corpus), device=scores.device)).all()
+    assert "`apply_softmax` argument is deprecated" not in caplog.text
+
+
+def test_predict_softmax_single_label(reranker_bert_tiny_model: CrossEncoder):
+    model = reranker_bert_tiny_model
+    query = "How many people live in Berlin?"
+    corpus = [
+        "Berlin has a population of 3.5 million.",
+        "Pasta is cooked in boiling water.",
+        "The capital of France is Paris.",
+    ]
+    scores = model.predict([(query, doc) for doc in corpus], convert_to_tensor=True)
+    softmax_scores = model.predict([(query, doc) for doc in corpus], apply_softmax=True, convert_to_tensor=True)
+    assert torch.allclose(softmax_scores, scores)
 
 
 @skip_bfloat16_cpu_crash
@@ -179,7 +226,7 @@ def test_predict_low_precision_logits_upcast_to_float32(reranker_bert_tiny_model
     assert torch.allclose(scores, reference, atol=1e-2)
 
 
-@pytest.mark.parametrize("model_fixture", ["reranker_bert_tiny_model", "nli_minilm_model"])
+@pytest.mark.parametrize("model_fixture", ["reranker_bert_tiny_model", "multiclass_bert_tiny_model"])
 def test_predict_single_input(model_fixture: str, request: FixtureRequest):
     model = request.getfixturevalue(model_fixture)
     nested_pair_score = model.predict([["A man is eating pasta.", "A man is eating food."]])
@@ -789,14 +836,26 @@ def test_default_activation_fn(reranker_bert_tiny_model: CrossEncoder):
     torch.testing.assert_close(activation(scores), torch.sigmoid(scores))
 
 
-def test_bge_reranker_max_length():
-    model = CrossEncoder("BAAI/bge-reranker-base")
-    assert model.max_length == 512
-    assert model.tokenizer.model_max_length == 512
+@pytest.mark.parametrize("tokenizer_max_length, expected_max_length", [(256, 256), (512, 512), (1024, 512)])
+def test_max_length(
+    reranker_bert_tiny_model: CrossEncoder, tmp_path: Path, tokenizer_max_length: int, expected_max_length: int
+) -> None:
+    reranker_bert_tiny_model.model.save_pretrained(tmp_path)
+    reranker_bert_tiny_model.tokenizer.model_max_length = tokenizer_max_length
+    reranker_bert_tiny_model.tokenizer.save_pretrained(tmp_path)
 
-    model.max_length = 256
-    assert model.max_length == 256
-    assert model.tokenizer.model_max_length == 256
+    model = CrossEncoder(str(tmp_path), local_files_only=True)
+    assert model.max_seq_length == expected_max_length
+    assert model.tokenizer.model_max_length == expected_max_length
+    with pytest.warns(DeprecationWarning, match="max_length"):
+        assert model.max_length == expected_max_length
+
+    with pytest.warns(DeprecationWarning, match="max_length"):
+        model.max_length = 128
+    with pytest.warns(DeprecationWarning, match="max_length"):
+        assert model.max_length == 128
+    assert model.max_seq_length == 128
+    assert model.tokenizer.model_max_length == 128
 
 
 def test_predict_with_dataset_column(reranker_bert_tiny_model: CrossEncoder) -> None:
@@ -1181,3 +1240,306 @@ Judge whether the Document meets the requirements based on the Query and the Ins
 
     # Assert scores match expected values with tolerance
     assert scores == pytest.approx(expected_scores, abs=1e-4)
+
+
+class TestKeepInFP32Modules:
+    def test_saved_fp32_selection_and_overrides(self, tmp_path):
+        head = Dense(8, 1, activation_function=None, module_output_name="scores")
+        model = CrossEncoder(modules=[head], keep_in_fp32_modules=["0.linear"], device="cpu")
+        model.save_pretrained(str(tmp_path), create_model_card=False)
+
+        config = json.loads((tmp_path / "config_sentence_transformers.json").read_text())
+        assert config["keep_in_fp32_modules"] == ["0.linear"]
+
+        restored = CrossEncoder(str(tmp_path), device="cpu").bfloat16()
+        x = torch.randn(3, 8, dtype=torch.bfloat16)
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            output = restored({"sentence_embedding": x})["scores"]
+
+        assert output.dtype == torch.float32
+        expected = F.linear(x.float(), restored[0].linear.weight.float(), restored[0].linear.bias.float())
+        torch.testing.assert_close(output, expected, rtol=0, atol=0)
+
+        disabled = CrossEncoder(str(tmp_path), keep_in_fp32_modules=[], device="cpu").bfloat16()
+        assert type(disabled[0].linear) is nn.Linear
+        assert disabled({"sentence_embedding": x})["scores"].dtype == torch.bfloat16
+        assert "keep_in_fp32_modules" not in disabled._get_model_config()
+
+    @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+    @pytest.mark.parametrize(
+        "device",
+        ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required"))],
+    )
+    def test_precision_gradients_and_parameter_identity(self, dtype, device):
+        head = Dense(8, 1, activation_function=None).to(device=device, dtype=dtype)
+        linear = head.linear
+        parameters = list(head.parameters())
+        keys = list(head.state_dict())
+        optimizer = torch.optim.SGD(parameters, lr=0.1)
+
+        observed = []
+        handle = linear.register_forward_hook(lambda module, args, result: observed.append(result.dtype))
+
+        model = CrossEncoder(modules=[head], keep_in_fp32_modules=["0.linear"], device=device)
+        model.to(dtype)
+
+        assert head.linear is linear
+        assert list(head.state_dict()) == keys
+        assert all(before is after for before, after in zip(parameters, head.parameters()))
+        assert optimizer.param_groups[0]["params"][0] is linear.weight
+        assert linear.weight.dtype == dtype
+
+        x = torch.randn(4, 8, device=device, dtype=dtype, requires_grad=True)
+        with torch.autocast(device, dtype=dtype):
+            result = head({"sentence_embedding": x})["sentence_embedding"]
+            following = F.linear(x.float(), linear.weight.float(), linear.bias.float())
+
+        expected = F.linear(x.float(), linear.weight.float(), linear.bias.float())
+        torch.testing.assert_close(result, expected, rtol=0, atol=0)
+        assert result.dtype == torch.float32
+        assert following.dtype == dtype
+        assert observed == [torch.float32]
+
+        actual_grads = torch.autograd.grad(result.sum(), (x, *parameters))
+        expected_grads = torch.autograd.grad(expected.sum(), (x, *parameters))
+        for actual, expected in zip(actual_grads, expected_grads):
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+            assert torch.isfinite(actual).all()
+
+        handle.remove()
+
+    def test_selection_replacement_validation_and_defaults(self):
+        head = Dense(8, 1, activation_function=None, use_residual=True).bfloat16()
+        model = CrossEncoder(modules=[head], device="cpu")
+        assert "keep_in_fp32_modules" not in model._get_model_config()
+
+        model.set_keep_in_fp32_modules(["0.linear", "0.linear"])
+        assert model.keep_in_fp32_modules == ["0.linear"]
+
+        model.set_keep_in_fp32_modules(["0.residual"])
+        assert type(head.linear) is nn.Linear
+
+        with pytest.raises(AttributeError):
+            model.set_keep_in_fp32_modules(["0.linear", "missing"])
+        with pytest.raises(ValueError, match="plain nn.Linear"):
+            model.set_keep_in_fp32_modules(["0.linear", "0"])
+
+        assert type(head.linear) is nn.Linear
+        assert model.keep_in_fp32_modules == ["0.residual"]
+
+        x = torch.randn(3, 8, dtype=torch.bfloat16)
+        assert head.residual(x).dtype == torch.float32
+
+        model.set_keep_in_fp32_modules([])
+        assert type(head.residual) is nn.Linear
+        assert head.residual(x).dtype == torch.bfloat16
+
+    @pytest.mark.parametrize("selection", ["0.linear", [None], {}, 0])
+    def test_invalid_config_selection(self, selection):
+        with pytest.raises(ValueError, match="list of module paths"):
+            CrossEncoder(modules=[Dense(8, 1)], keep_in_fp32_modules=selection, device="cpu")
+
+    def test_unsupported_modules_and_backends(self):
+        class AdaptedLinear(nn.Linear):
+            pass
+
+        head = Dense(8, 1)
+        head.linear = AdaptedLinear(8, 1)
+        with pytest.raises(ValueError, match="plain nn.Linear"):
+            CrossEncoder(modules=[head], keep_in_fp32_modules=["0.linear"], device="cpu")
+
+        head.linear = nn.Linear(8, 1)
+        head.linear.forward = lambda x: x
+        with pytest.raises(ValueError, match="custom forwards"):
+            CrossEncoder(modules=[head], keep_in_fp32_modules=["0.linear"], device="cpu")
+
+        with pytest.raises(ValueError, match="torch backend"):
+            CrossEncoder(modules=[Dense(8, 1)], keep_in_fp32_modules=["0.linear"], backend="onnx", device="cpu")
+
+    def test_copy_pickle_and_compile(self):
+        model = CrossEncoder(modules=[Dense(8, 1)], keep_in_fp32_modules=["0.linear"], device="cpu").bfloat16()
+        x = torch.randn(3, 8, dtype=torch.bfloat16)
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            expected = model({"sentence_embedding": x})["sentence_embedding"]
+
+            for restored in (deepcopy(model), pickle.loads(pickle.dumps(model))):
+                torch.testing.assert_close(restored({"sentence_embedding": x})["sentence_embedding"], expected)
+
+            compiled = torch.compile(model[0], backend="eager", fullgraph=True)
+            torch.testing.assert_close(compiled({"sentence_embedding": x})["sentence_embedding"], expected)
+
+    @pytest.mark.parametrize("offload", [False, True])
+    @pytest.mark.parametrize("selected_before_dispatch", [False, True])
+    def test_accelerate_hooks(self, offload, selected_before_dispatch):
+        pytest.importorskip("accelerate")
+        from accelerate.hooks import AlignDevicesHook, add_hook_to_module, remove_hook_from_module
+
+        head = Dense(8, 1, activation_function=None).bfloat16()
+        model = CrossEncoder(
+            modules=[head], keep_in_fp32_modules=["0.linear"] if selected_before_dispatch else [], device="cpu"
+        )
+        x = torch.randn(3, 8, dtype=torch.bfloat16)
+        expected = F.linear(x.float(), head.linear.weight.float(), head.linear.bias.float())
+        hook = AlignDevicesHook(execution_device="cpu", offload=offload)
+        add_hook_to_module(head.linear, hook)
+        wrapped_forward = head.linear.forward
+
+        for selection in (["0.linear"], [], ["0.linear"]):
+            model.set_keep_in_fp32_modules(selection)
+            with torch.autocast("cpu", dtype=torch.bfloat16):
+                output = head.linear(x)
+            dtype = torch.float32 if selection else torch.bfloat16
+            assert output.dtype == dtype
+            torch.testing.assert_close(output, expected.to(dtype))
+            assert head.linear.forward is wrapped_forward
+            assert head.linear._hf_hook is hook
+            assert head.linear.weight.device.type == ("meta" if offload else "cpu")
+
+        remove_hook_from_module(head.linear)
+        for selection in ([], ["0.linear"], []):
+            model.set_keep_in_fp32_modules(selection)
+            assert head.linear(x).dtype == (torch.float32 if selection else torch.bfloat16)
+
+        add_hook_to_module(head.linear, AlignDevicesHook(execution_device="cpu", offload=offload))
+        model.set_keep_in_fp32_modules(["0.linear"])
+        assert head.linear(x).dtype == torch.float32
+        remove_hook_from_module(head.linear)
+
+    def test_accelerate_hook_preserves_custom_forward_rejection(self):
+        pytest.importorskip("accelerate")
+        from accelerate.hooks import AlignDevicesHook, add_hook_to_module
+
+        head = Dense(8, 1)
+        head.linear.forward = lambda x: x
+        add_hook_to_module(head.linear, AlignDevicesHook(execution_device="cpu"))
+        with pytest.raises(ValueError, match="custom forwards"):
+            CrossEncoder(modules=[head], keep_in_fp32_modules=["0.linear"], device="cpu")
+
+    @pytest.mark.parametrize("architecture", ["classifier", "lm_head"])
+    def test_transformers_heads_and_tied_embeddings(self, architecture):
+        if architecture == "classifier":
+            transformer = BertForSequenceClassification(
+                BertConfig(
+                    vocab_size=32, hidden_size=16, intermediate_size=32, num_hidden_layers=1, num_attention_heads=2
+                )
+            )
+        else:
+            transformer = GPT2LMHeadModel(GPT2Config(vocab_size=32, n_embd=16, n_layer=1, n_head=2, n_positions=16))
+
+        transformer.bfloat16().eval()
+        head = transformer.get_submodule(architecture)
+        original = head.weight
+
+        model = CrossEncoder(modules=[transformer], keep_in_fp32_modules=[f"0.{architecture}"], device="cpu")
+        ids = torch.randint(0, 32, (2, 8))
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            assert model[0](ids).logits.dtype == torch.float32
+
+        assert head.weight is original
+        assert head.weight.dtype == torch.bfloat16
+
+        if architecture == "lm_head":
+            assert head.weight is transformer.get_input_embeddings().weight
+            assert transformer.get_input_embeddings()(ids).dtype == torch.bfloat16
+
+        model.set_keep_in_fp32_modules([])
+        assert type(head) is nn.Linear
+        assert model[0](ids).logits.dtype == torch.bfloat16
+
+    def test_peft_modules_to_save_selection(self):
+        pytest.importorskip("peft")
+        from peft.utils import ModulesToSaveWrapper
+
+        head = Dense(8, 1, activation_function=None).bfloat16()
+        model = CrossEncoder(modules=[head], keep_in_fp32_modules=["0.linear"], device="cpu")
+        original = head.linear
+        wrapper = ModulesToSaveWrapper(original, "first")
+        wrapper.update("second")
+        head.linear = wrapper
+        parameters = list(model.parameters())
+        keys = list(model.state_dict())
+        x = torch.randn(3, 8, dtype=torch.bfloat16)
+
+        for selection in ([], ["0.linear"], []):
+            model.set_keep_in_fp32_modules(selection)
+            expected_dtype = torch.float32 if selection else torch.bfloat16
+            assert head.linear is wrapper
+            assert wrapper.original_module is original
+            assert all(before is after for before, after in zip(parameters, model.parameters()))
+            assert list(model.state_dict()) == keys
+
+            with torch.autocast("cpu", dtype=torch.bfloat16):
+                for adapter in ("first", "second"):
+                    wrapper.set_adapter(adapter)
+                    assert head({"sentence_embedding": x})["sentence_embedding"].dtype == expected_dtype
+
+                wrapper.enable_adapters(False)
+                assert head({"sentence_embedding": x})["sentence_embedding"].dtype == expected_dtype
+                wrapper.enable_adapters(True)
+
+    @pytest.mark.parametrize(
+        "adapter_order, offload",
+        [(None, False), ("before_selection", False), ("after_selection", False), (None, True)],
+    )
+    def test_cross_encoder_checkpoint(self, tmp_path, adapter_order, offload):
+        if offload:
+            pytest.importorskip("accelerate")
+        if adapter_order:
+            pytest.importorskip("peft")
+            from peft import LoraConfig, TaskType
+
+        checkpoint = tmp_path / "checkpoint"
+        BertForSequenceClassification(
+            BertConfig(vocab_size=4, hidden_size=16, intermediate_size=32, num_hidden_layers=1, num_attention_heads=2)
+        ).save_pretrained(checkpoint)
+
+        tokenizer = Tokenizer(WordLevel({"[PAD]": 0, "[UNK]": 1, "a": 2, "b": 3}, unk_token="[UNK]"))
+        tokenizer.pre_tokenizer = Whitespace()
+        PreTrainedTokenizerFast(
+            tokenizer_object=tokenizer, pad_token="[PAD]", unk_token="[UNK]", model_max_length=16
+        ).save_pretrained(checkpoint)
+
+        model = CrossEncoder(
+            str(checkpoint),
+            keep_in_fp32_modules=[] if adapter_order == "before_selection" else ["0.model.classifier"],
+            model_kwargs={"dtype": torch.bfloat16},
+            device="cpu",
+        )
+        if adapter_order:
+            model.add_adapter(
+                LoraConfig(
+                    target_modules=["query", "value"], task_type=TaskType.SEQ_CLS, r=2, modules_to_save=["classifier"]
+                )
+            )
+            if adapter_order == "before_selection":
+                model.set_keep_in_fp32_modules(["0.model.classifier"])
+
+        pairs = [("a", "b"), ("b", "a")]
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            expected = model.predict(pairs, convert_to_tensor=True)
+            assert model.model(**model.preprocess(pairs)).logits.dtype == torch.float32
+
+        assert model.model.classifier.weight.dtype == torch.bfloat16
+
+        saved = tmp_path / "saved"
+        model.save_pretrained(str(saved), create_model_card=False)
+
+        model_kwargs = {"dtype": torch.bfloat16}
+        if offload:
+            model_kwargs.update(
+                device_map={"bert": "cpu", "classifier": "disk"}, offload_folder=str(tmp_path / "offload")
+            )
+        restored = CrossEncoder(str(saved), model_kwargs=model_kwargs, device="cpu")
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            torch.testing.assert_close(restored.predict(pairs, convert_to_tensor=True), expected, rtol=0, atol=0)
+
+        restored.set_keep_in_fp32_modules([])
+        if adapter_order:
+            classifier = restored.model.classifier
+            assert type(classifier.original_module) is nn.Linear
+            assert all(type(module) is nn.Linear for module in classifier.modules_to_save.values())
+        else:
+            assert type(restored.model.classifier) is nn.Linear
+        if offload:
+            assert restored.model.classifier.weight.device.type == "meta"
+            assert restored.model(**restored.preprocess(pairs)).logits.dtype == torch.bfloat16

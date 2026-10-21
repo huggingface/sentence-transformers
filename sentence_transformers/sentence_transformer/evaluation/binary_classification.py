@@ -316,6 +316,8 @@ class BinaryClassificationEvaluator(BaseEvaluator):
     @staticmethod
     def find_best_acc_and_threshold(scores, labels, high_score_more_similar: bool):
         assert len(scores) == len(labels)
+        labels = np.asarray(labels)
+        score_dtype = np.result_type(np.asarray(scores).dtype, np.float16)
         rows = list(zip(scores, labels))
 
         rows = sorted(rows, key=lambda x: x[0], reverse=high_score_more_similar)
@@ -325,18 +327,30 @@ class BinaryClassificationEvaluator(BaseEvaluator):
 
         positive_so_far = 0
         remaining_negatives = sum(labels == 0)
+        if rows:
+            # Start with the threshold that predicts every pair as dissimilar.
+            max_acc = remaining_negatives / len(labels)
+            best_threshold = np.nextafter(
+                rows[0][0], np.inf if high_score_more_similar else -np.inf, dtype=score_dtype
+            )
 
-        for i in range(len(rows) - 1):
-            score, label = rows[i]
+        for i, (score, label) in enumerate(rows):
             if label == 1:
                 positive_so_far += 1
             else:
                 remaining_negatives -= 1
 
+            is_last = i == len(rows) - 1
+            if not is_last and score == rows[i + 1][0]:
+                continue
+
             acc = (positive_so_far + remaining_negatives) / len(labels)
             if acc > max_acc:
                 max_acc = acc
-                best_threshold = (rows[i][0] + rows[i + 1][0]) / 2
+                best_threshold = score if is_last else (score + rows[i + 1][0]) / 2
+                # A rounded midpoint must not include the next score group.
+                if not is_last and best_threshold == rows[i + 1][0]:
+                    best_threshold = score
 
         return max_acc, best_threshold
 
@@ -357,12 +371,15 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         ncorrect = 0
         total_num_duplicates = sum(labels)
 
-        for i in range(len(rows) - 1):
-            score, label = rows[i]
+        for i, (score, label) in enumerate(rows):
             nextract += 1
 
             if label == 1:
                 ncorrect += 1
+
+            is_last = i == len(rows) - 1
+            if not is_last and score == rows[i + 1][0]:
+                continue
 
             if ncorrect > 0:
                 precision = ncorrect / nextract
@@ -372,7 +389,9 @@ class BinaryClassificationEvaluator(BaseEvaluator):
                     best_f1 = f1
                     best_precision = precision
                     best_recall = recall
-                    threshold = (rows[i][0] + rows[i + 1][0]) / 2
+                    threshold = score if is_last else (score + rows[i + 1][0]) / 2
+                    if not is_last and threshold == rows[i + 1][0]:
+                        threshold = score
 
         return best_f1, best_precision, best_recall, threshold
 

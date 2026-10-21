@@ -81,17 +81,17 @@ class SparseAutoEncoder(Module):
 
         def auxk_mask_fn(x):
             dead_mask = self.stats_last_nonzero > dead_threshold
-            x.data *= dead_mask  # inplace to save memory
-            return x
+            return x * dead_mask
 
         self.auxk_mask_fn = auxk_mask_fn
 
     def encode_pre_act(self, x: torch.Tensor) -> torch.Tensor:
         """
-        :param x: input data (shape: [batch, input_dim])
-        :param latent_slice: slice of latents to compute
-            Example: latent_slice = slice(0, 10) to compute only the first 10 latents.
-        :return: autoencoder latents before activation (shape: [batch, hidden_dim])
+        Args:
+            x: input data (shape: [batch, input_dim])
+
+        Returns:
+            autoencoder latents before activation (shape: [batch, hidden_dim])
         """
         x = x - self.pre_bias
         latents_pre_act = F.linear(x, self.encoder.weight, self.latent_bias)
@@ -114,8 +114,13 @@ class SparseAutoEncoder(Module):
         self, x: torch.Tensor, k: int | None = None, compute_aux: bool = True
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """
-        :param x: input data (shape: [batch, input_dim])
-        :return: tuple of (top-k latents (shape: [batch, hidden_dim]), auxiliary latents or None)
+        Args:
+            x: input data (shape: [batch, input_dim])
+            k: number of top latents to keep, defaults to the module's ``k``
+            compute_aux: whether to compute the auxiliary latents
+
+        Returns:
+            tuple of (top-k latents (shape: [batch, hidden_dim]), auxiliary latents or None)
         """
         if k is None:
             k = self.k
@@ -146,8 +151,13 @@ class SparseAutoEncoder(Module):
 
     def decode(self, latents: torch.Tensor, info=None) -> torch.Tensor:
         """
-        :param latents: autoencoder latents (shape: [batch, hidden_dim])
-        :return: reconstructed data (shape: [batch, n_inputs])
+        Args:
+            latents: autoencoder latents (shape: [batch, hidden_dim])
+            info: Normalization metadata returned by ``prepare``, containing ``mu`` and ``std``.
+                Required when ``normalize=True`` to restore the original scale and mean. Ignored otherwise.
+
+        Returns:
+            reconstructed data (shape: [batch, n_inputs])
         """
 
         ret = self.decoder(latents) + self.pre_bias
@@ -171,8 +181,8 @@ class SparseAutoEncoder(Module):
             features["sentence_embedding"] = latents_k
             return features
 
-        x, info = self.prepare(x)
-        latents_pre_act = self.encode_pre_act(x)
+        x_prepared, info = self.prepare(x)
+        latents_pre_act = self.encode_pre_act(x_prepared)
 
         latents_k, latents_auxk = self.top_k(latents_pre_act, k)
         latents_4k, _ = self.top_k(latents_pre_act, 4 * k)
@@ -180,7 +190,12 @@ class SparseAutoEncoder(Module):
         recons_k = self.decode(latents_k, info)
         recons_4k = self.decode(latents_4k, info)
 
-        recons_aux = self.decode(latents_auxk, info) if latents_auxk is not None else None
+        recons_aux = self.decoder(latents_auxk) + self.pre_bias if latents_auxk is not None else None
+        decoder_bias = self.pre_bias
+        if self.normalize:
+            decoder_bias = decoder_bias * info["std"]
+            if recons_aux is not None:
+                recons_aux = recons_aux * info["std"]
 
         # Update the features dictionary
         features.update(
@@ -192,7 +207,7 @@ class SparseAutoEncoder(Module):
                 "decoded_embedding_k": recons_k,
                 "decoded_embedding_4k": recons_4k,
                 "decoded_embedding_aux": recons_aux,
-                "decoded_embedding_k_pre_bias": recons_k - self.pre_bias,
+                "decoded_embedding_k_pre_bias": recons_k - decoder_bias,
             }
         )
         features["sentence_embedding"] = latents_k

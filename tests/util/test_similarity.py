@@ -59,6 +59,29 @@ def test_pairwise_euclidean_sim() -> None:
     assert np.allclose(euclidean_expected, euclidean_calculated)
 
 
+@pytest.mark.parametrize("input_type", [list, np.array, torch.tensor])
+def test_pairwise_euclidean_sim_integer_inputs(input_type) -> None:
+    a = input_type([[1, 2], [4, 6]])
+    b = input_type([[1, 2], [1, 2]])
+
+    scores = pairwise_euclidean_sim(a, b)
+
+    torch.testing.assert_close(scores, torch.tensor([0.0, -5.0]))
+
+
+def test_pairwise_euclidean_sim_has_finite_gradients_for_identical_embeddings() -> None:
+    a = torch.tensor([[1.0, 2.0], [4.0, 6.0]], requires_grad=True)
+    b = torch.tensor([[1.0, 2.0], [1.0, 2.0]], requires_grad=True)
+
+    scores = pairwise_euclidean_sim(a, b)
+    torch.testing.assert_close(scores, torch.tensor([0.0, -5.0]))
+    scores.sum().backward()
+
+    expected = torch.tensor([[0.0, 0.0], [-0.6, -0.8]])
+    torch.testing.assert_close(a.grad, expected)
+    torch.testing.assert_close(b.grad, -expected)
+
+
 def test_pairwise_manhattan_sim() -> None:
     a = np.array([[1, 0], [1, 1]], dtype=np.float32)
     b = np.array([[0, 0], [0, 0]], dtype=np.float32)
@@ -214,6 +237,17 @@ def test_pairwise_cos_sim_sparse(sparse_tensors):
     assert torch.allclose(sim_sparse, sim_dense, rtol=1e-5, atol=1e-5)
 
 
+def test_pairwise_cos_sim_single_sparse_vectors():
+    """Two 1D sparse embeddings, as returned by `SparseEncoder.encode()` for single inputs, score like dense ones."""
+    vector1 = torch.tensor([3.0, 4.0, 0.0, 0.0])
+    vector2 = torch.tensor([4.0, 3.0, 0.0, 1.0])
+
+    sim_sparse = pairwise_cos_sim(vector1.to_sparse(), vector2.to_sparse())
+    sim_dense = pairwise_cos_sim(vector1, vector2)
+
+    assert torch.allclose(sim_sparse, sim_dense)
+
+
 def test_pairwise_dot_score_sparse(sparse_tensors):
     """Test pairwise dot product with sparse tensors."""
     tensor1, tensor2 = sparse_tensors
@@ -363,6 +397,18 @@ def test_similarity_mixed_sparse_dense(sparse_tensors, similarity_fn, pairwise_s
     assert torch.allclose(pairwise_mixed, pairwise_dense, rtol=1e-5, atol=1e-5)
 
 
+@pytest.mark.parametrize("convert_x", [torch.tensor, np.asarray, list])
+@pytest.mark.parametrize("convert_y", [torch.tensor, np.asarray, list])
+def test_pairwise_angle_sim_input_types(convert_x, convert_y) -> None:
+    x = [[1.0, 2.0, 3.0, 4.0], [2.0, -1.0, 0.0, 3.0]]
+    y = [[4.0, 3.0, 2.0, 1.0], [1.0, 0.0, -2.0, 1.0]]
+    expected = pairwise_angle_sim(torch.tensor(x), torch.tensor(y))
+
+    scores = pairwise_angle_sim(convert_x(x), convert_y(y))
+
+    torch.testing.assert_close(scores, expected, check_dtype=False)
+
+
 @pytest.mark.parametrize("sparse_first", [True, False])
 def test_pairwise_angle_sim_mixed_sparse_dense(sparse_tensors, sparse_first) -> None:
     """Test that mixing a sparse and a dense operand matches the all-dense result."""
@@ -408,6 +454,62 @@ def test_pairwise_angle_sim_even_and_odd_sparse_embeddings(splade_bert_tiny_mode
 
     assert sim_even.shape == sim_odd.shape
     assert torch.allclose(sim_even, sim_odd, rtol=1e-5, atol=1e-5)
+
+
+def _pairwise_angle_sim_legacy(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """Pre-#3223 complex-chunk implementation, kept for numerical/gradient parity checks."""
+    if x.shape[1] % 2 != 0:
+        x = torch.nn.functional.pad(x, (0, 1), mode="constant", value=0)
+        y = torch.nn.functional.pad(y, (0, 1), mode="constant", value=0)
+
+    a, b = torch.chunk(x, 2, dim=1)
+    c, d = torch.chunk(y, 2, dim=1)
+
+    z = torch.sum(c**2 + d**2, dim=1, keepdim=True)
+    re = (a * c + b * d) / z
+    im = (b * c - a * d) / z
+
+    dz = torch.sum(a**2 + b**2, dim=1, keepdim=True) ** 0.5
+    dw = torch.sum(c**2 + d**2, dim=1, keepdim=True) ** 0.5
+    re /= dz / dw
+    im /= dz / dw
+
+    norm_angle = torch.sum(torch.concat((re, im), dim=1), dim=1)
+    return torch.abs(norm_angle)
+
+
+@pytest.mark.parametrize("dim", [4, 8, 768, 7, 9])
+def test_pairwise_angle_sim_matches_legacy_values(dim: int) -> None:
+    """Clearer cos+sin form must match the previous complex-chunk outputs (#3223)."""
+    generator = torch.Generator().manual_seed(0)
+    x = torch.randn(32, dim, generator=generator)
+    y = torch.randn(32, dim, generator=generator)
+
+    torch.testing.assert_close(
+        pairwise_angle_sim(x, y),
+        _pairwise_angle_sim_legacy(x, y),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+@pytest.mark.parametrize("dim", [4, 8, 768, 7, 9])
+def test_pairwise_angle_sim_matches_legacy_gradients(dim: int) -> None:
+    """Gradients w.r.t. both inputs must match the previous implementation (#3223)."""
+    generator = torch.Generator().manual_seed(1)
+    x = torch.randn(16, dim, generator=generator)
+    y = torch.randn(16, dim, generator=generator)
+
+    x_new = x.clone().requires_grad_(True)
+    y_new = y.clone().requires_grad_(True)
+    x_old = x.clone().requires_grad_(True)
+    y_old = y.clone().requires_grad_(True)
+
+    pairwise_angle_sim(x_new, y_new).sum().backward()
+    _pairwise_angle_sim_legacy(x_old, y_old).sum().backward()
+
+    torch.testing.assert_close(x_new.grad, x_old.grad, rtol=1e-5, atol=1e-5)
+    torch.testing.assert_close(y_new.grad, y_old.grad, rtol=1e-5, atol=1e-5)
 
 
 LOW_PRECISION_DTYPES = [torch.float16, torch.bfloat16]
@@ -991,9 +1093,7 @@ def test_maxsim_pairwise_length_mismatch_raises() -> None:
 
 
 def test_maxsim_budget_bounds_the_live_chunk_elements(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The document budget bounds what the chunk loop actually allocates: the 4D score intermediate
-    plus the chunk's padded documents. The padded queries are allocated once outside the loop, so they
-    are chunk-independent and deliberately excluded.
+    """The budget bounds the query and document padding plus the 4D score intermediate.
 
     A small query side against a wide embedding dim, where the padded documents rather than the score
     matrix are the dominant term: dropping them from the budget overshoots ~100x here.
@@ -1002,7 +1102,7 @@ def test_maxsim_budget_bounds_the_live_chunk_elements(monkeypatch: pytest.Monkey
     original = similarity._maxsim_score_documents
 
     def record(a, b, a_mask, b_mask):
-        live = a.shape[0] * a.shape[1] * b.shape[0] * b.shape[1] + b.numel()
+        live = a.shape[0] * a.shape[1] * b.shape[0] * b.shape[1] + a.numel() + b.numel()
         chunks.append((b.shape[0], live))
         return original(a, b, a_mask, b_mask)
 
@@ -1198,3 +1298,130 @@ def test_maxsim_device_bounds_residency_by_element_budget() -> None:
     assert scores.shape == (1, 4_000)
     assert scores.device.type == "cpu"
     assert peak < 30 * 1024 * 1024, f"peak VRAM {peak / 1e6:.1f} MB suggests the whole corpus moved"
+
+
+@pytest.mark.parametrize(
+    "score_function",
+    [
+        cos_sim,
+        dot_score,
+        euclidean_sim,
+        manhattan_sim,
+        pairwise_cos_sim,
+        pairwise_dot_score,
+        pairwise_euclidean_sim,
+        pairwise_manhattan_sim,
+    ],
+)
+def test_similarity_accepts_encoded_tensor_list(word_embeddings_model, score_function) -> None:
+    embeddings = word_embeddings_model.encode(["hello world", "sentence embedding"], convert_to_numpy=False)
+    assert isinstance(embeddings, list)
+    assert all(isinstance(embedding, torch.Tensor) for embedding in embeddings)
+
+    expected = score_function(torch.stack(embeddings), torch.stack(embeddings))
+    torch.testing.assert_close(score_function(embeddings, embeddings), expected)
+
+
+@pytest.mark.parametrize("input_type, chunk_elements", [("list", None), ("tensor", 5_000), ("numpy", 5_000)])
+@pytest.mark.parametrize("use_masks", [False, True])
+@pytest.mark.parametrize("length_normalize", [False, True])
+def test_maxsim_query_chunking_bounds_padding_and_scores(
+    monkeypatch: pytest.MonkeyPatch,
+    input_type: str,
+    use_masks: bool,
+    length_normalize: bool,
+    chunk_elements: int | None,
+) -> None:
+    widths = [4] * 21
+    widths[10] = 80
+    queries = [
+        (torch.arange(width * 8).reshape(width, 8).float() + index + 1) / 100 for index, width in enumerate(widths)
+    ]
+    documents = [
+        -(torch.arange(width).float()[:, None] / 100 + torch.arange(8).float()[None, :] / 10 + index + 1)
+        for index, width in enumerate([40, 3, 27, 8])
+    ]
+    query_masks = [torch.ones(width) for width in widths]
+    document_masks = [torch.ones(len(document)) for document in documents]
+    for mask in query_masks:
+        mask[1::3] = 0
+        mask[::3] = 0.5
+    for mask in document_masks:
+        mask[::3] = 0
+
+    if input_type != "list":
+        queries = torch.nn.utils.rnn.pad_sequence(queries, batch_first=True)
+        documents = torch.nn.utils.rnn.pad_sequence(documents, batch_first=True)
+        if input_type == "numpy":
+            queries, documents = queries.numpy(), documents.numpy()
+
+    kwargs = {
+        "a_mask": query_masks if use_masks else None,
+        "b_mask": document_masks if use_masks else None,
+        "length_normalize": length_normalize,
+    }
+    expected = maxsim(queries, documents, chunk_elements=10**12, **kwargs)
+
+    chunks = []
+    original = similarity._maxsim_score_documents
+
+    def record(a, b, a_mask, b_mask):
+        live = a.numel() + b.numel() + a.shape[0] * a.shape[1] * b.shape[0] * b.shape[1]
+        chunks.append((a.shape[0], a.shape[1], live))
+        return original(a, b, a_mask, b_mask)
+
+    monkeypatch.setattr(similarity, "_maxsim_score_documents", record)
+    budget = 5_000
+    monkeypatch.setattr(similarity, "_MAXSIM_CHUNK_ELEMENT_BUDGET", budget)
+    scores = maxsim(queries, documents, chunk_elements=chunk_elements, **kwargs)
+
+    assert max(live for _, _, live in chunks) <= budget
+    assert all(count == 1 for count, width, _ in chunks if width == 80)
+    if input_type == "list":
+        assert any(width == 4 for _, width, _ in chunks)
+    assert scores.dtype == torch.float32
+    assert scores.device.type == "cpu"
+    torch.testing.assert_close(scores, expected)
+
+
+def test_maxsim_query_chunking_preserves_gradients() -> None:
+    queries = [
+        ((torch.arange(width * 4).reshape(width, 4).float() + 1) / 100).requires_grad_() for width in [2, 18, 3]
+    ]
+    documents = [(-(torch.arange(width * 4).reshape(width, 4).float() + 1) / 100).requires_grad_() for width in [5, 3]]
+    expected = torch.stack(
+        [
+            torch.stack([(query @ document.T).max(dim=-1).values.sum() / len(query) for document in documents])
+            for query in queries
+        ]
+    )
+    scores = maxsim(queries, documents, chunk_elements=150, length_normalize=True)
+    inputs = queries + documents
+    expected_gradients = torch.autograd.grad(expected.sum(), inputs)
+    gradients = torch.autograd.grad(scores.sum(), inputs)
+
+    torch.testing.assert_close(scores, expected)
+    for gradient, expected_gradient in zip(gradients, expected_gradients):
+        torch.testing.assert_close(gradient, expected_gradient)
+
+
+@pytest.mark.parametrize("length_normalize", [False, True])
+@pytest.mark.parametrize("mask_dtype", [torch.bool, torch.float32])
+@pytest.mark.parametrize("mask_name", ["a_mask", "b_mask"])
+def test_maxsim_chunking_preserves_shared_masks(
+    length_normalize: bool, mask_dtype: torch.dtype, mask_name: str
+) -> None:
+    queries = torch.arange(1, 25).reshape(4, 3, 2).float() / 10
+    documents = -torch.arange(1, 13).reshape(2, 3, 2).float() / 10
+    mask = torch.tensor([[0.5, 0, 1]], dtype=mask_dtype)
+    batch_size = len(queries) if mask_name == "a_mask" else len(documents)
+    expected = maxsim(
+        queries,
+        documents,
+        **{mask_name: mask.expand(batch_size, -1)},
+        chunk_elements=40,
+        length_normalize=length_normalize,
+    )
+    scores = maxsim(queries, documents, **{mask_name: mask}, chunk_elements=40, length_normalize=length_normalize)
+
+    torch.testing.assert_close(scores, expected)

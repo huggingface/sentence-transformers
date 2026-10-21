@@ -35,9 +35,13 @@ jobs:
 
       - name: Determine PR title
         id: pr_title
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
-            echo "title=Sync $SKILL (${{ github.ref_name }})" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == "push" && "$REF_TYPE" == "tag" ]]; then
+            echo "title=Sync $SKILL ($REF_NAME)" >> "$GITHUB_OUTPUT"
           else
             echo "title=Sync $SKILL (manual trigger)" >> "$GITHUB_OUTPUT"
           fi
@@ -58,7 +62,7 @@ jobs:
           path: skills-repo
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
       - name: Copy skill
         run: |

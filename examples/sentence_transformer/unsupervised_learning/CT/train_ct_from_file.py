@@ -125,13 +125,13 @@ final_output_dir = f"{model_output_path}/final"
 model.save_pretrained(final_output_dir)
 
 # (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+# It is recommended to run `hf auth login` to log into your Hugging Face account first
 model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
 try:
     model.push_to_hub(f"{model_name}-ct-from-file")
 except Exception:
     logging.error(
         f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
-        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
+        f"`hf auth login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
         f"and saving it using `model.push_to_hub('{model_name}-ct-from-file')`."
     )

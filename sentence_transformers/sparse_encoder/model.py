@@ -56,8 +56,9 @@ class SparseEncoder(BaseModel):
             commit id, for a stored model on Hugging Face. Defaults to None.
         local_files_only (bool, optional): Whether to only look at local files (i.e., do not try to download
             the model). Defaults to False.
-        token (bool or str, optional): Hugging Face authentication token to download private models.
-            Defaults to None.
+        token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
+            private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
+            credentials saved with ``hf auth login``, if available.
         model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
             Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
@@ -99,9 +100,8 @@ class SparseEncoder(BaseModel):
             Valid options are ``"cosine"``, ``"dot"``, ``"euclidean"``, and ``"manhattan"``. If not set, it is
             automatically set to ``"cosine"`` when :meth:`similarity` or :meth:`similarity_pairwise` are first
             called. Defaults to None.
-        max_active_dims (int, optional): The maximum number of active (non-zero) dimensions in the output of the
-            model. ``None`` means no limit, which can be slow or memory-intensive if your model wasn't (yet)
-            finetuned to high sparsity. Defaults to None.
+        max_active_dims (int, optional): Maximum number of active (non-zero) output dimensions. Can be overridden during
+            encoding and is saved and loaded with the model. Defaults to None (use the model's default).
 
     Example:
         ::
@@ -167,6 +167,7 @@ class SparseEncoder(BaseModel):
     ) -> None:
         # Set before super().__init__() so _parse_model_config can check these
         self.similarity_fn_name = similarity_fn_name
+        self.max_active_dims = max_active_dims
 
         super().__init__(
             model_name_or_path=model_name_or_path,
@@ -188,10 +189,13 @@ class SparseEncoder(BaseModel):
         # Narrow the type from BaseModelCardData
         self.model_card_data: SparseEncoderModelCardData
 
-        if max_active_dims is not None and max_active_dims <= 0:
-            raise ValueError(f"max_active_dims must be a positive integer, got {max_active_dims}.")
-        self.max_active_dims = max_active_dims
-        if max_active_dims is None:
+        if self.max_active_dims is not None and (
+            isinstance(self.max_active_dims, bool)
+            or not isinstance(self.max_active_dims, int)
+            or self.max_active_dims <= 0
+        ):
+            raise ValueError(f"max_active_dims must be a positive integer, got {self.max_active_dims}.")
+        if self.max_active_dims is None:
             for module in self._modules.values():
                 if isinstance(module, SparseAutoEncoder):
                     self.max_active_dims = module.k
@@ -295,8 +299,8 @@ class SparseEncoder(BaseModel):
 
         This method is a specialized version of :meth:`encode` that differs in exactly two ways:
 
-        1. If no ``prompt_name`` or ``prompt`` is provided, it uses a predefined "query" prompt,
-           if available in the model's ``prompts`` dictionary.
+        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the ``"query"`` prompt from the model's
+           ``prompts`` dictionary. This defaults to an empty string, which prevents fallback to ``default_prompt_name``.
         2. It sets the ``task`` to "query". If the model has a :class:`~sentence_transformers.base.modules.Router`
            module, it will use the "query" task type to route the input through the appropriate submodules.
 
@@ -800,9 +804,12 @@ class SparseEncoder(BaseModel):
         return all_embeddings
 
     def _get_model_config(self) -> dict[str, Any]:
-        return super()._get_model_config() | {
+        config = super()._get_model_config() | {
             "similarity_fn_name": self._similarity_fn_name,
         }
+        if self.max_active_dims is not None:
+            config["max_active_dims"] = self.max_active_dims
+        return config
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
         super()._parse_model_config(model_config)
@@ -811,6 +818,8 @@ class SparseEncoder(BaseModel):
         saved_similarity = model_config.get("similarity_fn_name")
         if self._similarity_fn_name is None and saved_similarity in self.SUPPORTED_SIMILARITY_FN_NAMES:
             self.similarity_fn_name = saved_similarity
+        if self.max_active_dims is None:
+            self.max_active_dims = model_config.get("max_active_dims", None)
 
     @property
     def similarity_fn_name(self) -> Literal["cosine", "dot", "euclidean", "manhattan"]:
@@ -1006,7 +1015,6 @@ class SparseEncoder(BaseModel):
             model_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the model. Defaults to None.
             processor_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the processor/tokenizer. Defaults to None.
             config_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the config. Defaults to None.
-            has_modules (bool, optional): Whether the model has modules.json. Defaults to False.
 
         Returns:
             tuple[list[nn.Module], dict[str, Any]]: The modules and an empty kwargs dict.

@@ -258,6 +258,6 @@ try:
 except Exception:
     logging.error(
         f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}"
-        f"To upload it manually, you can run `huggingface-cli login`, followed by loading the model "
+        f"To upload it manually, you can run `hf auth login`, followed by loading the model "
         f"using `model = CrossEncoder({final_output_dir!r})` and saving it using `model.push_to_hub('{run_name}')`."
     )

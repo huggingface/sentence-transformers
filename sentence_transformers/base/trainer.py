@@ -76,6 +76,16 @@ except ImportError:
     TrackioCallback = None
 
 
+class _OptimizerZeroGradCallback(TrainerCallback):
+    """Clear loss-owned gradients that the Transformers model.zero_grad() calls cannot reach."""
+
+    def on_train_begin(self, args, state, control, optimizer, **kwargs) -> None:
+        optimizer.zero_grad()
+
+    def on_step_end(self, args, state, control, optimizer, **kwargs) -> None:
+        optimizer.zero_grad()
+
+
 class BaseTrainer(Trainer, ABC):
     """
     BaseTrainer is a simple but feature-complete training and eval loop for PyTorch
@@ -336,6 +346,7 @@ class BaseTrainer(Trainer, ABC):
             self.eval_dataset = self.preprocess_dataset(eval_dataset, dataset_name="eval")
         self._eval_dataloaders: dict[str, DataLoader] = {}
         self.add_model_card_callback(default_args_dict)
+        self.add_callback(_OptimizerZeroGradCallback())
 
     def get_data_collator(
         self,
@@ -450,18 +461,6 @@ class BaseTrainer(Trainer, ABC):
         else:
             loss = loss(model).to(model.device)
 
-        # Enable media counting for VLM minibatching, checking submodules for wrapped losses (e.g. MatryoshkaLoss).
-        # Unwrap torch.compile models before indexing, as OptimizedModule isn't subscriptable.
-        if any(getattr(module, "requires_media_counts", False) for module in loss.modules()):
-            base_model = getattr(model, "_orig_mod", model)
-            if isinstance(base_model[0], Router):
-                input_modules = [route[0] for route in base_model[0].sub_modules.values()]  # type: ignore[index]
-            else:
-                input_modules = [base_model[0]]
-            for module in input_modules:
-                if hasattr(module, "track_media_counts"):
-                    module.track_media_counts = True
-
         return loss
 
     @abstractmethod
@@ -522,18 +521,17 @@ class BaseTrainer(Trainer, ABC):
 
     def track_loss_components(self, loss: dict[str, torch.Tensor]) -> None:
         training_type = "train" if self.model.training else "eval"
+        steps = self.accum_loss_components[training_type].get("steps", 0)
         for key, value in loss.items():
             # Accumulate free of the autograd graph, which would otherwise stay alive (with the
             # gradient caches of the Cached* losses) until log() resets the accumulators.
             value = value.detach()
             # if loss is nan or inf simply add the average of previous logged losses
             if self.args.logging_nan_inf_filter and (torch.isnan(value) or torch.isinf(value)):
-                if key not in self.accum_loss_components[training_type]:
+                if key not in self.accum_loss_components[training_type] or not steps:
                     value = torch.tensor(0.0, dtype=value.dtype, device=value.device)
                 else:
-                    value = self.accum_loss_components[training_type][key] / (
-                        1 + self.state.global_step - self._globalstep_last_logged
-                    )
+                    value = self.accum_loss_components[training_type][key] / steps
 
             if key not in self.accum_loss_components[training_type]:
                 self.accum_loss_components[training_type][key] = value
@@ -893,6 +891,7 @@ class BaseTrainer(Trainer, ABC):
                     drop_last=self.args.dataloader_drop_last,
                     valid_label_columns=data_collator.valid_label_columns,
                     generator=generator,
+                    seed=self.args.seed,
                 )
                 for sub_dataset in dataset.values()
             ]
@@ -913,6 +912,7 @@ class BaseTrainer(Trainer, ABC):
                 drop_last=self.args.dataloader_drop_last,
                 valid_label_columns=data_collator.valid_label_columns,
                 generator=generator,
+                seed=self.args.seed,
             )
             dataloader_params["batch_sampler"] = batch_sampler
         else:
@@ -1080,16 +1080,15 @@ class BaseTrainer(Trainer, ABC):
         return skip
 
     def _load_from_checkpoint(self, checkpoint_path: str) -> None:
+        model = getattr(self.model, "_orig_mod", self.model)
         # Our own checkpoint of the model being trained, so its module classes are already imported here,
         # yet a programmatically built model never carries trust_remote_code (#3801). Handing those classes
         # over leaves the backbone on the model's own flag, where stale remote code stays unused.
-        module_classes = {
-            fullname(module): type(module) for module in self.model.modules() if isinstance(module, Module)
-        }
-        loaded_model = self.model.__class__._load_with_module_classes(
-            checkpoint_path, module_classes, trust_remote_code=self.model.trust_remote_code
+        module_classes = {fullname(module): type(module) for module in model.modules() if isinstance(module, Module)}
+        loaded_model = model.__class__._load_with_module_classes(
+            checkpoint_path, module_classes, trust_remote_code=model.trust_remote_code
         )
-        self.model.load_state_dict(loaded_model.state_dict())
+        model.load_state_dict(loaded_model.state_dict())
 
     def preprocess_dataset(
         self, dataset: DatasetDict | Dataset | None = None, dataset_name: str | None = None
@@ -1114,10 +1113,7 @@ class BaseTrainer(Trainer, ABC):
 
         if self.should_dataset_name_column_be_added(dataset, self.args, self.loss):
             dataset = self.add_dataset_name_column(dataset)
-
-        # Add a tag to the dataset to indicate that it has been preprocessed, to ensure that we don't apply the map or
-        # transform multiple times.
-        dataset._sentence_transformers_preprocessed = True
+            dataset._sentence_transformers_preprocessed = True
 
         return dataset
 

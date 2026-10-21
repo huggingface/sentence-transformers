@@ -94,8 +94,9 @@ def main():
     loss = PListMLELoss(model, mini_batch_size=mini_batch_size, respect_input_order=respect_input_order)
 
     # Option 2: Position-Aware ListMLE with custom weighting function (NDCG-like)
-    # def custom_discount(ranks):
-    #     return 1.0 / torch.log1p(ranks)
+    # def custom_discount(mask):
+    #     ranks = mask.cumsum(dim=-1)
+    #     return (1.0 / torch.log1p(ranks)).masked_fill(~mask, 0)
 
     # from sentence_transformers.cross_encoder.losses import PListMLELambdaWeight
     # lambda_weight = PListMLELambdaWeight(rank_discount_fn=custom_discount)
@@ -157,13 +158,13 @@ def main():
     model.save_pretrained(final_output_dir)
 
     # 9. (Optional) save the model to the Hugging Face Hub!
-    # It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+    # It is recommended to run `hf auth login` to log into your Hugging Face account first
     try:
         model.push_to_hub(run_name)
     except Exception:
         logging.error(
             f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
-            f"`huggingface-cli login`, followed by loading the model using `model = CrossEncoder({final_output_dir!r})` "
+            f"`hf auth login`, followed by loading the model using `model = CrossEncoder({final_output_dir!r})` "
             f"and saving it using `model.push_to_hub('{run_name}')`."
         )
 

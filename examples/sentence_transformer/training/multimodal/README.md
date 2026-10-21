@@ -13,32 +13,7 @@ This means multimodal training uses the exact same pipeline as text-only trainin
 
 ## Supported Input Types
 
-```{eval-rst}
-You can check which modalities a model supports using the :attr:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.modalities` property and the :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.supports` method:
-```
-
-```python
-from sentence_transformers import SentenceTransformer
-
-model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
-print(model.modalities)
-# => ['text', 'image', 'message']
-print(model.supports("image"))
-# => True
-print(model.supports("audio"))
-# => False
-```
-
-```{eval-rst}
-The :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode` method accepts a variety of input types depending on the model's supported modalities:
-```
-
-- **Text**: strings.
-- **Image**: PIL images, file paths, URLs, or numpy/torch arrays.
-- **Audio**: file paths, numpy/torch arrays, dicts with `"array"` and `"sampling_rate"` keys, or `torchcodec.AudioDecoder` instances.
-- **Video**: file paths, numpy/torch arrays, dicts with `"array"` and `"video_metadata"` keys, or `torchcodec.VideoDecoder` instances.
-- **Multimodal dicts**: a dict mapping modality names to values, e.g. `{"text": ..., "audio": ...}`. The keys must be `"text"`, `"image"`, `"audio"`, or `"video"`.
-- **Chat messages**: a list of dicts with `"role"` and `"content"` keys for multimodal models that use an uncommon chat template to combine text and non-text inputs.
+Use {attr}`model.modalities <sentence_transformers.sentence_transformer.model.SentenceTransformer.modalities>` and {meth}`model.supports() <sentence_transformers.sentence_transformer.model.SentenceTransformer.supports>` to check modality support. See [Input Formats](../../../../docs/input_formats.rst) for accepted representations, metadata, and examples of combining modalities.
 
 ## Training
 

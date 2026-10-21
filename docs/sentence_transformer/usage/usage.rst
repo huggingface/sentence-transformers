@@ -20,6 +20,10 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    5. :meth:`SentenceTransformer.similarity <sentence_transformers.sentence_transformer.model.SentenceTransformer.similarity>`
    6. :doc:`Speeding up Inference <efficiency>`
 
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <../../installation.html#log-in-to-hugging-face>`_.
+
 ::
 
    from sentence_transformers import SentenceTransformer
@@ -46,18 +50,7 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    #         [0.6660, 1.0000, 0.1411],
    #         [0.1046, 0.1411, 1.0000]])
 
-Some Sentence Transformer models support inputs beyond text, such as images, audio, or video. You can check which modalities a model supports using the :attr:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.modalities` property and the :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.supports` method. The :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.encode` method accepts different input formats depending on the modality:
-
-.. tip::
-
-   Multimodal models require additional dependencies. Install them with e.g. ``pip install -U "sentence-transformers[image]"`` for image support. See `Installation <../../installation.html>`_ for all options.
-
-- **Text**: strings.
-- **Image**: PIL images, file paths, URLs, or numpy/torch arrays.
-- **Audio**: file paths, numpy/torch arrays, dicts with ``"array"`` and ``"sampling_rate"`` keys, or (if ``torchcodec`` installed) :class:`torchcodec.AudioDecoder <torchcodec.decoders.AudioDecoder>` instances.
-- **Video**: file paths, numpy/torch arrays, dicts with ``"array"`` and ``"video_metadata"`` keys, or (if ``torchcodec`` installed) :class:`torchcodec.VideoDecoder <torchcodec.decoders.VideoDecoder>` instances.
-- **Multimodal dicts**: a dict mapping modality names to values, e.g. ``{"text": ..., "audio": ...}``. The keys must be ``"text"``, ``"image"``, ``"audio"``, or ``"video"``.
-- **Chat messages**: a list of dicts with ``"role"`` and ``"content"`` keys for multimodal models that use an uncommon chat template to combine text and non-text inputs.
+Some Sentence Transformer models support inputs beyond text, such as images, audio, or video. Use :attr:`model.modalities <sentence_transformers.sentence_transformer.model.SentenceTransformer.modalities>` and :meth:`model.supports() <sentence_transformers.sentence_transformer.model.SentenceTransformer.supports>` to check modality support. See :doc:`../../input_formats` for accepted representations, metadata, and batching.
 
 The following example loads a multimodal model and computes similarities between text and image embeddings:
 
@@ -143,6 +136,7 @@ These methods accept all the same input types as :meth:`~sentence_transformers.s
    :maxdepth: 1
    :caption: Tasks and Advanced Usage
 
+   ../../input_formats
    ../../../examples/sentence_transformer/applications/computing-embeddings/README
    semantic_textual_similarity
    ../../../examples/sentence_transformer/applications/semantic-search/README

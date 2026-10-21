@@ -216,7 +216,7 @@ student_model.save(final_output_dir)
 # train_loss.save_projection(f"{output_dir}/projection.safetensors")
 
 # (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+# It is recommended to run `hf auth login` to log into your Hugging Face account first
 if "/" in student_model_name:
     student_model_name = student_model_name.split("/")[-1]
 if "/" in teacher_model_name:
@@ -227,6 +227,6 @@ try:
 except Exception:
     logging.error(
         f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, you can run "
-        f"`huggingface-cli login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
+        f"`hf auth login`, followed by loading the model using `model = SentenceTransformer({final_output_dir!r})` "
         f"and saving it using `model.push_to_hub({repo_id!r})`."
     )

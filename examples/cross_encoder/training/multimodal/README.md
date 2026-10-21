@@ -1,13 +1,7 @@
 # Multimodal Training
 
 ```{eval-rst}
-:class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models can be trained on multimodal data, enabling cross-modal reranking where the model scores pairs involving different modalities. Each element in a pair can be:
-
-- **Text**: strings.
-- **Image**: PIL images, file paths, URLs, or numpy/torch arrays.
-- **Audio**: file paths, numpy/torch arrays, dicts with ``"array"`` and ``"sampling_rate"`` keys, or ``torchcodec.AudioDecoder`` instances.
-- **Video**: file paths, numpy/torch arrays, dicts with ``"array"`` and ``"video_metadata"`` keys, or ``torchcodec.VideoDecoder`` instances.
-- **Multimodal dicts**: a dict mapping modality names to values, e.g. ``{"text": ..., "image": ...}``. The keys must be ``"text"``, ``"image"``, ``"audio"``, or ``"video"``.
+:class:`~sentence_transformers.cross_encoder.model.CrossEncoder` models can be trained on multimodal data, enabling cross-modal reranking where the model scores pairs involving different modalities. Use :attr:`model.modalities <sentence_transformers.cross_encoder.model.CrossEncoder.modalities>` and :meth:`model.supports() <sentence_transformers.cross_encoder.model.CrossEncoder.supports>` to check modality support. See :doc:`/docs/input_formats` for input representations and how to construct pairs.
 
 Two architectural approaches are demonstrated here, both training on the `doodles-captions-manual <https://huggingface.co/datasets/julianmoraes/doodles-captions-manual>`_ dataset with :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss` and multi-dataset training (image-to-text and text-to-image directions).
 ```

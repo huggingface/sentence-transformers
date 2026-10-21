@@ -4,6 +4,7 @@ import contextlib
 import json
 import os
 import socket
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,6 +13,10 @@ import pytest
 import torch
 import torch.multiprocessing as mp
 from huggingface_hub import HfApi
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from tokenizers.pre_tokenizers import Whitespace
+from transformers import TrainerCallback
 
 from sentence_transformers import (
     SentenceTransformer,
@@ -19,6 +24,8 @@ from sentence_transformers import (
     SentenceTransformerTrainingArguments,
 )
 from sentence_transformers.base.modules import Normalize, Router
+from sentence_transformers.base.training_args import MultiDatasetBatchSamplers
+from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss, MSELoss, SoftmaxLoss
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util import is_training_available
 
@@ -27,6 +34,8 @@ if not is_training_available():
         reason='Sentence Transformers was not installed with the `["train"]` extra.',
         allow_module_level=True,
     )
+
+from datasets import Dataset, DatasetDict
 
 
 @contextlib.contextmanager
@@ -187,6 +196,34 @@ def test_load_from_checkpoint_reloads_custom_module_classes(
     assert reload_kwargs["trust_remote_code"] is False
 
 
+@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize("load_best_model", [False, True])
+def test_load_from_checkpoint_preserves_compiled_model(
+    stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, compiled: bool, load_best_model: bool
+) -> None:
+    model = stsb_bert_tiny_model
+    training_model = torch.compile(model, backend="eager") if compiled else model
+    args = SentenceTransformerTrainingArguments(output_dir=str(tmp_path / "out"), report_to=[])
+    trainer = SentenceTransformerTrainer(model=training_model, args=args)
+    checkpoint_folder = tmp_path / "checkpoint-1"
+    trainer._save(output_dir=str(checkpoint_folder))
+
+    weights = next(model.parameters())
+    original = weights.detach().clone()
+    with torch.no_grad():
+        weights.add_(1)
+
+    if load_best_model:
+        trainer.state.best_model_checkpoint = str(checkpoint_folder)
+        trainer._load_best_model()
+    else:
+        trainer._load_from_checkpoint(str(checkpoint_folder))
+
+    assert torch.equal(weights, original)
+    assert trainer.model is training_model
+    assert next(trainer.model.parameters()) is weights
+
+
 def test_track_loss_components_detaches_the_accumulated_values() -> None:
     """The component dict values carry the autograd graph and, for the Cached* losses, the
     gradient caches held by their backward hook. Accumulating them undetached would pin
@@ -207,6 +244,39 @@ def test_track_loss_components_detaches_the_accumulated_values() -> None:
     accumulated = trainer.accum_loss_components["train"]["base_loss"]
     assert accumulated.grad_fn is None and not accumulated.requires_grad
     assert accumulated.item() == pytest.approx(12.0)
+
+
+@pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize(
+    ("training", "num_calls", "global_step"),
+    [
+        (True, 4, 1),  # gradient accumulation: 4 loss calls, 1 optimizer step since the last log
+        (False, 99, 0),  # evaluation: 99 batches, no optimizer step since the last log
+    ],
+)
+def test_track_loss_components_replaces_nonfinite_with_the_running_mean(
+    training: bool, num_calls: int, global_step: int, nonfinite: float
+) -> None:
+    trainer = SimpleNamespace(
+        args=SimpleNamespace(logging_nan_inf_filter=True),
+        model=SimpleNamespace(training=training),
+        accum_loss_components={"train": {}, "eval": {}},
+        state=SimpleNamespace(global_step=global_step),
+        _globalstep_last_logged=0,
+    )
+    for value in range(1, num_calls + 1):
+        SentenceTransformerTrainer.track_loss_components(trainer, {"base_loss": torch.tensor(float(value))})
+    SentenceTransformerTrainer.track_loss_components(trainer, {"base_loss": torch.tensor(nonfinite)})
+
+    accum = trainer.accum_loss_components["train" if training else "eval"]
+    assert (accum["base_loss"] / accum["steps"]).item() == pytest.approx((num_calls + 1) / 2)
+
+    # log() resets the accumulators but retains their keys.
+    accum["base_loss"].zero_()
+    accum["steps"].zero_()
+    SentenceTransformerTrainer.track_loss_components(trainer, {"base_loss": torch.tensor(nonfinite)})
+    assert accum["base_loss"].item() == 0.0
+    assert accum["steps"].item() == 1
 
 
 def _run_ddp_evaluation_loop(
@@ -310,3 +380,111 @@ def test_sharded_evaluator_participates_on_all_ranks(tmp_path: Path, sharded_bac
     csv_files = list(tmp_path.glob("out_*/eval/*_results.csv"))
     assert len(csv_files) == 1
     assert len(csv_files[0].read_text().splitlines()) == 2
+
+
+@pytest.fixture
+def loss_training_model() -> SentenceTransformer:
+    tokenizer = Tokenizer(WordLevel({"[UNK]": 0, "hello": 1, "world": 2}, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = Whitespace()
+    weights = torch.arange(24, dtype=torch.float32).reshape(3, 8) / 24
+    model = SentenceTransformer(modules=[StaticEmbedding(tokenizer, embedding_weights=weights)], device="cpu")
+    model.model_card_data.generate_widget_examples = False
+    return model
+
+
+@pytest.mark.parametrize("gradient_accumulation_steps", [1, 2])
+@pytest.mark.parametrize("loss_class", [SoftmaxLoss, CosineSimilarityLoss, MSELoss])
+def test_loss_gradients_match_manual_training(
+    loss_training_model, tmp_path, gradient_accumulation_steps: int, loss_class
+) -> None:
+    model = loss_training_model
+    if loss_class is SoftmaxLoss:
+        loss = SoftmaxLoss(model, model.get_embedding_dimension(), num_labels=3)
+        label = 1
+    elif loss_class is MSELoss:
+        loss = MSELoss(model, projection_dim=12)
+        label = [0.25] * 12
+    else:
+        loss = CosineSimilarityLoss(model)
+        label = 0.5
+    reference_loss = deepcopy(loss)
+    for parameter in loss.parameters():
+        parameter.grad = torch.ones_like(parameter)
+    dataset = Dataset.from_dict({"a": ["hello"] * 12, "b": ["world"] * 12, "label": [label] * 12})
+    args = SentenceTransformerTrainingArguments(
+        output_dir=str(tmp_path),
+        use_cpu=True,
+        max_steps=3,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        optim="sgd",
+        learning_rate=0.1,
+        lr_scheduler_type="constant",
+        max_grad_norm=0.0,
+        save_strategy="no",
+        report_to=[],
+        disable_tqdm=True,
+    )
+    trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=dataset, loss=loss)
+    trainer.train()
+
+    optimizer = torch.optim.SGD(reference_loss.parameters(), lr=0.1)
+    reference_loss.train()
+    for _ in range(3):
+        optimizer.zero_grad()
+        for _ in range(gradient_accumulation_steps):
+            features = [reference_loss.model.preprocess([text] * 2) for text in ["hello", "world"]]
+            (reference_loss(features, torch.tensor([label] * 2)) / gradient_accumulation_steps).backward()
+        optimizer.step()
+
+    for parameter, expected in zip(loss.parameters(), reference_loss.parameters()):
+        torch.testing.assert_close(parameter, expected)
+        assert parameter.grad is None
+
+
+@pytest.mark.parametrize("fp16", [False, True])
+def test_multi_objective_training_only_updates_active_loss(loss_training_model, tmp_path, fp16: bool) -> None:
+    if fp16 and not torch.cuda.is_available():
+        pytest.skip("FP16 training requires CUDA")
+    model = loss_training_model.to("cuda" if fp16 else "cpu")
+    losses = {name: SoftmaxLoss(model, model.get_embedding_dimension(), num_labels=3) for name in ["first", "second"]}
+    parameters = list(torch.nn.ModuleDict(losses).parameters())
+    dataset = Dataset.from_dict({"a": ["hello"] * 8, "b": ["world"] * 8, "label": [1] * 8})
+    active_losses = set()
+    for name, loss in losses.items():
+        loss.register_forward_pre_hook(lambda module, inputs, name=name: active_losses.add(name))
+
+    class CheckGradients(TrainerCallback):
+        def on_step_begin(self, args, state, control, **kwargs):
+            assert all(parameter.grad is None for parameter in parameters)
+            self.before = {name: loss.classifier.weight.detach().clone() for name, loss in losses.items()}
+
+        def on_step_end(self, args, state, control, **kwargs):
+            assert active_losses
+            for name, loss in losses.items():
+                changed = not torch.equal(loss.classifier.weight, self.before[name])
+                assert changed == (name in active_losses)
+            active_losses.clear()
+
+    args = SentenceTransformerTrainingArguments(
+        output_dir=str(tmp_path),
+        use_cpu=not fp16,
+        fp16=fp16,
+        max_steps=4,
+        per_device_train_batch_size=2,
+        multi_dataset_batch_sampler=MultiDatasetBatchSamplers.ROUND_ROBIN,
+        learning_rate=0.01,
+        lr_scheduler_type="constant",
+        save_strategy="no",
+        report_to=[],
+        disable_tqdm=True,
+    )
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=args,
+        train_dataset=DatasetDict({name: dataset for name in losses}),
+        loss=losses,
+        callbacks=[CheckGradients()],
+    )
+    trainer.train()
+    assert all(parameter.grad is None for parameter in parameters)

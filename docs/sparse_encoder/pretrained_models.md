@@ -9,6 +9,10 @@ Several Sparse Encoder models have been publicly released on the Hugging Face Hu
     The ``sentence-transformers`` library tag is shared by all four model types, so pair it with the ``sparse`` tag to find only the models that load with :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder`. ``cross-encoder`` and ``multi-vector`` are the equivalents for Cross Encoder and Multi-Vector Encoder models, while dense Sentence Transformer models make up the bulk of what the library tag returns on its own.
 
 Models integrate seamlessly with this simple interface:
+
+.. sidebar:: Loading Models
+
+    Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <../installation.html#log-in-to-hugging-face>`_.
 ```
 
 
@@ -36,17 +40,20 @@ print(similarities)
 ```
 
 
-## Core SPLADE Models
+## Core Sparse Encoder Models
 
 [MS MARCO Passage Retrieval](https://github.com/microsoft/MSMARCO-Passage-Ranking) serves as the gold standard dataset, featuring authentic user queries from Bing search engine paired with expertly annotated relevant text passages. Models trained on this benchmark demonstrate exceptional effectiveness as embedding models for production search systems. Performance scores reflect evaluation on this dataset, it's a good indication but shouldn't be the only parameters to take into account.
 
 [BEIR (Benchmarking IR)](https://github.com/beir-cellar/beir) provides a heterogeneous benchmark for evaluation of information retrieval models across in our case 13 diverse datasets. The avg nDCG@10 scores represent the average performance across all 13 datasets.
 
-Note that all the numbers of below are extracted information from different papers. These models represent the backbone of sparse neural retrieval:
+The scores below are reported by the model authors. These models represent the backbone of sparse neural retrieval:
 
 | Model Name                                                                                                                                                | MS MARCO MRR@10 | BEIR-13 avg nDCG@10 | Parameters |
 |-----------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------:|:-------------------:|-----------:|
-| [opensearch-project/opensearch-neural-sparse-encoding-v2-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v2-distill) | NA              | **52.8**            | 67M        |
+| [lightonai/SlideOn](https://huggingface.co/lightonai/SlideOn)                                                                                             | NA              | **58.7**            | 174M       |
+| [lightonai/mSlideOn](https://huggingface.co/lightonai/mSlideOn)                                                                                           | NA              | 58.1                | 339M       |
+| [Linkup-Platform/linkup-sparseup-embed-v1](https://huggingface.co/Linkup-Platform/linkup-sparseup-embed-v1)                                               | NA              | 56.4                | 150M       |
+| [opensearch-project/opensearch-neural-sparse-encoding-v2-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v2-distill) | NA              | 52.8                | 67M        |
 | [opensearch-project/opensearch-neural-sparse-encoding-v1](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v1)                 | NA              | 52.4                | 133M       |
 | [naver/splade-v3](https://huggingface.co/naver/splade-v3)                                                                                                 | **40.2**        | 51.7                | 109M       |
 | [ibm-granite/granite-embedding-30m-sparse](https://huggingface.co/ibm-granite/granite-embedding-30m-sparse)                                               | NA              | 50.8                | 30M        |
@@ -61,6 +68,8 @@ Note that all the numbers of below are extracted information from different pape
 | [rasyosef/splade-mini](https://huggingface.co/rasyosef/splade-mini)                                                                                       | 34.1            | 44.5                | 11M        |
 | [rasyosef/splade-tiny](https://huggingface.co/rasyosef/splade-tiny)                                                                                       | 30.9            | 40.6                | 4M         |
 | BM25 (Baseline)                                                                                                                                           | 18.4            | 45.6                | NA         |
+
+The table omits sparsity and retrieval FLOPS, which affect index storage costs and retrieval latency.
 
 ## Inference-Free SPLADE Models
 

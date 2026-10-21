@@ -32,6 +32,10 @@ Working with Sentence Transformer models is straightforward:
    
    We recommend **Python 3.10+** and **PyTorch 1.11.0+**. See `installation <docs/installation.html>`_ for further installation options.
 
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <docs/installation.html#log-in-to-hugging-face>`_.
+
 .. tab:: Embedding Models
 
    .. tab:: Text
@@ -40,27 +44,26 @@ Working with Sentence Transformer models is straightforward:
 
          from sentence_transformers import SentenceTransformer
 
-         # 1. Load a pretrained Sentence Transformer model
-         model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+         model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
 
-         # The sentences to encode
-         sentences = [
-             "The weather is lovely today.",
-             "It's so sunny outside!",
-             "He drove to the stadium.",
+         query = "Which planet is known as the Red Planet?"
+         documents = [
+             "Jupiter is the largest planet in our solar system.",
+             "Mars gets its reddish color from iron minerals in its soil.",
+             "Photosynthesis lets plants turn sunlight into energy.",
          ]
 
-         # 2. Calculate embeddings by calling model.encode()
-         embeddings = model.encode(sentences)
-         print(embeddings.shape)
-         # [3, 384]
+         query_embedding = model.encode_query(query)
+         document_embeddings = model.encode_document(documents)
+         print(query_embedding.shape, document_embeddings.shape)
+         # (1024,) (3, 1024)
 
-         # 3. Calculate the embedding similarities
-         similarities = model.similarity(embeddings, embeddings)
-         print(similarities)
-         # tensor([[1.0000, 0.6660, 0.1046],
-         #         [0.6660, 1.0000, 0.1411],
-         #         [0.1046, 0.1411, 1.0000]])
+         scores = model.similarity(query_embedding, document_embeddings)[0]
+         for index in scores.argsort(descending=True):
+             print(f"{scores[index]:.4f}: {documents[index]}")
+         # 0.6115: Mars gets its reddish color from iron minerals in its soil.
+         # 0.4360: Jupiter is the largest planet in our solar system.
+         # 0.1893: Photosynthesis lets plants turn sunlight into energy.
 
    .. tab:: Multimodal
 
@@ -68,30 +71,23 @@ Working with Sentence Transformer models is straightforward:
 
          from sentence_transformers import SentenceTransformer
 
-         # 1. Load a model that supports both text and images
-         model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
+         model = SentenceTransformer("google/embeddinggemma-2")
 
-         # 2. Encode images from URLs
-         img_embeddings = model.encode([
+         query_embeddings = model.encode_query([
+             "A green car parked in front of a yellow building",
+             "A bee on a pink flower",
+         ])
+         document_embeddings = model.encode_document([
              "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg",
              "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/bee.jpg",
          ])
+         print(query_embeddings.shape, document_embeddings.shape)
+         # (2, 768) (2, 768)
 
-         # 3. Encode text queries (one matching + one hard negative per image)
-         text_embeddings = model.encode([
-             "A green car parked in front of a yellow building",
-             "A red car driving on a highway",
-             "A bee on a pink flower",
-             "A wasp on a wooden table",
-         ])
-
-         # 4. Compute cross-modal similarities
-         similarities = model.similarity(text_embeddings, img_embeddings)
+         similarities = model.similarity(query_embeddings, document_embeddings)
          print(similarities)
-         # tensor([[0.5115, 0.1078],
-         #         [0.1999, 0.1108],
-         #         [0.1255, 0.6749],
-         #         [0.1283, 0.2704]])
+         # tensor([[0.7468, 0.5783],
+         #         [0.6254, 0.8070]])
 
 .. tab:: Reranker Models
 
@@ -166,36 +162,63 @@ Working with Sentence Transformer models is straightforward:
 
 .. tab:: Sparse Encoder Models
 
-   .. code-block:: python
-   
-      from sentence_transformers import SparseEncoder
-      
-      # 1. Load a pretrained SparseEncoder model
-      model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
-      
-      # The sentences to encode
-      sentences = [
-          "The weather is lovely today.",
-          "It's so sunny outside!",
-          "He drove to the stadium.",
-      ]
-      
-      # 2. Calculate sparse embeddings by calling model.encode()
-      embeddings = model.encode(sentences)
-      print(embeddings.shape)
-      # [3, 30522] - sparse representation with vocabulary size dimensions
-      
-      # 3. Calculate the embedding similarities
-      similarities = model.similarity(embeddings, embeddings)
-      print(similarities)
-      # tensor([[   35.629,     9.154,     0.098],
-      #         [    9.154,    27.478,     0.019],
-      #         [    0.098,     0.019,    29.553]])
+   .. tab:: Text
 
-      # 4. Check sparsity stats
-      stats = SparseEncoder.sparsity(embeddings)
-      print(f"Sparsity: {stats['sparsity_ratio']:.2%}")
-      # Sparsity: 99.84%
+      .. code-block:: python
+
+         from sentence_transformers import SparseEncoder
+
+         # 1. Load a pretrained SparseEncoder model
+         model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
+
+         # The sentences to encode
+         sentences = [
+             "The weather is lovely today.",
+             "It's so sunny outside!",
+             "He drove to the stadium.",
+         ]
+
+         # 2. Calculate sparse embeddings by calling model.encode()
+         embeddings = model.encode(sentences)
+         print(embeddings.shape)
+         # [3, 30522] - sparse representation with vocabulary size dimensions
+
+         # 3. Calculate the embedding similarities
+         similarities = model.similarity(embeddings, embeddings)
+         print(similarities)
+         # tensor([[   35.629,     9.154,     0.098],
+         #         [    9.154,    27.478,     0.019],
+         #         [    0.098,     0.019,    29.553]])
+
+         # 4. Check sparsity stats
+         stats = SparseEncoder.sparsity(embeddings)
+         print(f"Sparsity: {stats['sparsity_ratio']:.2%}")
+         # Sparsity: 99.84%
+
+   .. tab:: Multimodal
+
+      .. code-block:: python
+
+         from sentence_transformers import SparseEncoder
+
+         model = SparseEncoder("naver/v-splade-efficient", trust_remote_code=True)
+
+         queries = [
+             "A contour plot with shaded confidence regions",
+             "How much was spent on natural resources in 1971?",
+         ]
+         images = [
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc1.jpg",
+             "https://huggingface.co/datasets/sentence-transformers/example-documents/resolve/main/doc2.jpg",
+         ]
+
+         query_embeddings = model.encode_query(queries)
+         document_embeddings = model.encode_document(images)
+
+         similarities = model.similarity(query_embeddings, document_embeddings)
+         print(similarities)
+         # tensor([[1.9358, 0.0000],
+         #         [0.0000, 2.6950]], device='cuda:0')
 
 .. tab:: Multi-Vector Encoder Models
 

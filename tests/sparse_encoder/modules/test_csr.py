@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from sentence_transformers import SparseEncoder
-from sentence_transformers.sparse_encoder.losses.csr import CSRReconstructionLoss
+from sentence_transformers.sparse_encoder.losses.csr import CSRReconstructionLoss, normalized_mean_squared_error
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder
 
 
@@ -126,6 +126,60 @@ def test_csr_training_without_auxiliary_latents() -> None:
         assert torch.isfinite(parameter.grad).all()
 
 
+@pytest.mark.parametrize("k_aux", [0, 4])
+def test_csr_normalized_perfect_reconstruction_has_zero_loss(k_aux: int) -> None:
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=16, k=4, k_aux=k_aux, normalize=True)
+    module.train()
+    with torch.no_grad():
+        module.encoder.weight.zero_()
+        module.encoder.weight[:4] = torch.eye(4)
+        module.encoder.weight[4:8] = -torch.eye(4)
+
+    torch.manual_seed(0)
+    embeddings = torch.randn(8, 4) * 0.3 + 1.0
+    features = module({"sentence_embedding": embeddings.clone()})
+
+    torch.testing.assert_close(features["decoded_embedding_k"], embeddings, atol=1e-4, rtol=0)
+
+    losses = CSRReconstructionLoss(model=None).compute_loss_from_embeddings([features])
+    assert losses["reconstruction_loss_k"].item() < 1e-8
+    if k_aux:
+        torch.testing.assert_close(features["decoded_embedding_aux"], torch.zeros_like(embeddings))
+        residual = embeddings - features["decoded_embedding_k"].detach()
+        expected_aux_loss = normalized_mean_squared_error(torch.zeros_like(residual), residual)
+        torch.testing.assert_close(losses["reconstruction_loss_aux"], expected_aux_loss)
+
+
+@pytest.mark.parametrize("normalize", [False, True])
+def test_csr_auxiliary_reconstruction_bias(normalize: bool) -> None:
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=16, k=4, k_aux=4, normalize=normalize)
+    with torch.no_grad():
+        module.encoder.weight.zero_()
+        module.pre_bias.copy_(torch.tensor([0.1, -0.2, 0.3, -0.4]))
+
+    embeddings = torch.tensor([[1.0, 2.0, 3.0, 4.0], [2.0, 4.0, 6.0, 8.0]], requires_grad=True)
+    features = module({"sentence_embedding": embeddings})
+    if normalize:
+        expected_aux = module.pre_bias * embeddings.std(dim=-1, keepdim=True)
+        expected_residual = embeddings - embeddings.mean(dim=-1, keepdim=True).detach()
+    else:
+        expected_aux = module.pre_bias.expand_as(embeddings)
+        expected_residual = embeddings
+
+    torch.testing.assert_close(features["decoded_embedding_aux"], expected_aux)
+    losses = CSRReconstructionLoss(model=None).compute_loss_from_embeddings([features])
+    expected_loss = normalized_mean_squared_error(expected_aux, expected_residual)
+    torch.testing.assert_close(losses["reconstruction_loss_aux"], expected_loss)
+
+    gradients = torch.autograd.grad(
+        losses["reconstruction_loss_aux"], (module.pre_bias, embeddings), retain_graph=True
+    )
+    expected_gradients = torch.autograd.grad(expected_loss, (module.pre_bias, embeddings))
+    for gradient, expected_gradient in zip(gradients, expected_gradients):
+        assert torch.isfinite(gradient).all()
+        torch.testing.assert_close(gradient, expected_gradient)
+
+
 def test_csr_encode_does_not_update_dead_feature_stats(csr_bert_tiny_model: SparseEncoder) -> None:
     sparse_auto_encoder = csr_bert_tiny_model[-1]
     sparse_auto_encoder.stats_last_nonzero.zero_()
@@ -134,4 +188,22 @@ def test_csr_encode_does_not_update_dead_feature_stats(csr_bert_tiny_model: Spar
 
     assert torch.equal(
         sparse_auto_encoder.stats_last_nonzero, torch.zeros_like(sparse_auto_encoder.stats_last_nonzero)
+    )
+
+
+def test_csr_4k_latents_contain_the_k_latents() -> None:
+    # Masking the dead latents for the auxiliary loss must not leak into the 4k latents
+    torch.manual_seed(0)
+    module = SparseAutoEncoder(input_dim=16, hidden_dim=64, k=4, k_aux=32)
+    module.train()
+
+    features = module({"sentence_embedding": torch.randn(8, 16)})
+
+    latents_k = features["sentence_embedding"]
+    latents_4k = features["sentence_embedding_encoded_4k"]
+    kept = latents_k != 0
+    assert kept.any()
+    assert torch.equal(latents_4k[kept], latents_k[kept])
+    assert torch.equal(
+        features["sentence_embedding_encoded"], module.encode_pre_act(features["sentence_embedding_backbone"])
     )

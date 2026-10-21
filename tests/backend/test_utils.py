@@ -7,13 +7,13 @@ import huggingface_hub
 import numpy as np
 import pytest
 
-try:
-    import onnx
-    import onnxruntime
-    from onnx import TensorProto, helper, numpy_helper
-    from onnx.external_data_helper import _get_all_tensors, uses_external_data
-except ImportError:
-    pytest.skip("onnx is not available", allow_module_level=True)
+pytest.importorskip("onnx", exc_type=ImportError)
+pytest.importorskip("onnxruntime", exc_type=ImportError)
+
+import onnx
+import onnxruntime
+from onnx import TensorProto, helper, numpy_helper
+from onnx.external_data_helper import _get_all_tensors, uses_external_data
 
 from sentence_transformers.backend.utils import save_or_push_to_hub_model
 

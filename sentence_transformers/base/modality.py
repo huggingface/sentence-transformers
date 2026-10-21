@@ -17,6 +17,7 @@ from typing_extensions import TypeIs
 from sentence_transformers.base.modality_types import (
     MULTIMODAL_DICT_KEYS,
     AudioInput,
+    ImageInput,
     MessageDict,
     MessageFormat,
     Modality,
@@ -144,11 +145,16 @@ def _record_sampling_rate(sampling_rate: int, extra_modality_kwargs: dict[str, d
     extra_modality_kwargs["audio"]["sampling_rate"] = sampling_rate
 
 
-def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict[str, Any]]) -> Any:
+def _unwrap_audio(
+    audio_value: AudioInput | list[AudioInput] | tuple[AudioInput, ...],
+    extra_modality_kwargs: dict[str, dict[str, Any]],
+) -> Any:
     """Unwrap dict-wrapped audio or an ``AudioDecoder`` into a raw array, collecting ``sampling_rate``.
 
     Passes through unchanged if ``audio_value`` is already a raw array/tensor/URL/path.
     """
+    if isinstance(audio_value, (list, tuple)):
+        return [_unwrap_audio(item, extra_modality_kwargs) for item in audio_value]
     if isinstance(audio_value, dict):
         if "sampling_rate" in audio_value:
             _record_sampling_rate(audio_value["sampling_rate"], extra_modality_kwargs)
@@ -161,7 +167,23 @@ def _unwrap_audio(audio_value: AudioInput, extra_modality_kwargs: dict[str, dict
     return audio_value
 
 
-def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict[str, Any]]) -> Any:
+def _as_sequence(value: Any) -> list | tuple:
+    return value if isinstance(value, (list, tuple)) else [value]
+
+
+def _is_video_frames(value: Any) -> TypeIs[list[ImageInput] | tuple[ImageInput, ...]]:
+    if not isinstance(value, (list, tuple)) or not value:
+        return False
+    try:
+        return all(infer_modality(frame) == "image" for frame in value)
+    except ValueError:
+        return False
+
+
+def _unwrap_video(
+    video_value: VideoInput | list[VideoInput] | tuple[VideoInput, ...],
+    extra_modality_kwargs: dict[str, dict[str, Any]],
+) -> Any:
     """Unwrap dict-wrapped video or a ``VideoDecoder`` into a raw array, collecting ``video_metadata``.
 
     Passes through unchanged if ``video_value`` is already a raw array/tensor/URL/path. Appends one
@@ -169,10 +191,15 @@ def _unwrap_video(video_value: VideoInput, extra_modality_kwargs: dict[str, dict
     index-aligned with the videos. :func:`_reconcile_video_metadata` resolves the ``None`` entries
     once the whole batch has been parsed.
     """
+    if _is_video_frames(video_value):
+        video_value = {"array": video_value, "video_metadata": None}
+    if isinstance(video_value, (list, tuple)):
+        return [video for item in video_value for video in _as_sequence(_unwrap_video(item, extra_modality_kwargs))]
     metadata_list = extra_modality_kwargs["video"].setdefault("video_metadata", [])
     if isinstance(video_value, dict):
         metadata_list.append(video_value.get("video_metadata"))
-        return video_value["array"]
+        frames = video_value["array"]
+        return [list(frames)] if isinstance(frames, (list, tuple)) else frames
     if VideoDecoder is not None and isinstance(video_value, VideoDecoder):
         frame_batch = video_value.get_frames_in_range(0, len(video_value))
         metadata_list.append(
@@ -210,9 +237,10 @@ def _reconcile_video_metadata(
             del extra_modality_kwargs["video"]
         return
     videos = [
-        value["video"] if isinstance(mod, tuple) else value
+        video
         for mod, value in typed_inputs
         if mod == "video" or (isinstance(mod, tuple) and "video" in mod)
+        for video in _as_sequence(value["video"] if isinstance(mod, tuple) else value)
     ]
     for index, (entry, video) in enumerate(zip(metadata_list, videos, strict=True)):
         if entry is not None:
@@ -408,8 +436,15 @@ class InputFormatter:
             if isinstance(modality, str):
                 processed_inputs = {modality: processed_inputs}
             else:
-                # Use the first entry's key order to preserve the user's original dict ordering
-                ordered_keys = processed_inputs[0].keys()
+                ordered_keys = tuple(processed_inputs[0])
+                if (self.supported_modalities is None or "message" in self.supported_modalities) and any(
+                    tuple(entry) != ordered_keys for entry in processed_inputs[1:]
+                ):
+                    return (
+                        "message",
+                        {"message": [self.to_message(entry) for entry in processed_inputs]},
+                        extra_modality_kwargs,
+                    )
                 processed_inputs = {mod: [entry[mod] for entry in processed_inputs] for mod in ordered_keys}
         else:
             logger.debug(f"Mixed modalities detected: {unique_modalities}. Converting to 'message' format.")
@@ -489,40 +524,29 @@ class InputFormatter:
         Returns:
             List of two message dictionaries with ``"query"`` and ``"document"`` roles.
         """
-        query_role, doc_role = PAIR_ROLES
-        query_item, doc_item = pair
-        query_modality = infer_modality(query_item)
-        doc_modality = infer_modality(doc_item)
-
-        if self.message_format == "flat":
-            return [
-                {"role": query_role, "content": query_item},
-                {"role": doc_role, "content": doc_item},
-            ]
-
-        def _to_content(modality, item):
-            # Expand compound modalities (e.g. ("image", "text")) into separate content items,
-            # matching the behavior of to_message() for multi-modal inputs.
-            if isinstance(modality, tuple) and isinstance(item, dict):
-                return [{"type": mod, mod: item[mod]} for mod in modality if mod in item]
-            # Unwrap single-key multimodal dict: {"image": pil} -> use pil as the value
-            if isinstance(item, dict) and modality in MULTIMODAL_DICT_KEYS and item.keys() == {modality}:
-                item = item[modality]
-            return [{"type": modality, modality: item}]
-
-        return [
-            {"role": query_role, "content": _to_content(query_modality, query_item)},
-            {"role": doc_role, "content": _to_content(doc_modality, doc_item)},
-        ]
+        messages = []
+        for role, item in zip(PAIR_ROLES, pair, strict=True):
+            modality = infer_modality(item)
+            if self.message_format == "flat":
+                messages.append({"role": role, "content": item})
+            else:
+                typed_input = (
+                    item
+                    if isinstance(item, dict) and (isinstance(modality, tuple) or item.keys() == {modality})
+                    else {modality: item}
+                )
+                messages.extend(self.to_message(typed_input, role=role))
+        return messages
 
     def to_message(self, typed_input: dict[Modality, Any], role: str = "user") -> list[dict[str, Any]]:
         """Convert a typed input dictionary to message format.
 
-        Produces a single message with the given ``role``. For pair/multi-value inputs,
+        Produces a single message with the given ``role``. For query/document pairs,
         use :meth:`pair_to_messages` instead (which is called automatically by :meth:`parse_inputs`).
 
         Args:
-            typed_input: Dictionary mapping modality to input value (single value per modality).
+            typed_input: Dictionary mapping modalities to values. Text, image, audio, and video values can be
+                lists or tuples of items. Image sequences under video represent one video's frames.
             role: Role for the message (default: ``"user"``).
 
         Returns:
@@ -538,10 +562,19 @@ class InputFormatter:
                     "Falling back to structured format."
                 )
 
+        content = []
+        for modality, value in typed_input.items():
+            if modality == "video":
+                items = [value] if _is_video_frames(value) else _as_sequence(value)
+                items = [list(item) if isinstance(item, tuple) else item for item in items]
+            else:
+                items = _as_sequence(value) if modality in MULTIMODAL_DICT_KEYS else [value]
+            content.extend({"type": modality, modality: item} for item in items)
+
         return [
             {
                 "role": role,
-                "content": [{"type": modality, modality: value} for modality, value in typed_input.items()],
+                "content": content,
             }
         ]
 

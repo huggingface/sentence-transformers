@@ -140,13 +140,13 @@ def main():
     model.save_pretrained(final_output_dir)
 
     # 9. (Optional) save the model to the Hugging Face Hub!
-    # It is recommended to run `huggingface-cli login` to log into your Hugging Face account first
+    # It is recommended to run `hf auth login` to log into your Hugging Face account first
     try:
         model.push_to_hub(run_name)
     except Exception:
         logging.error(
             f"Error uploading model to the Hugging Face Hub:\n{traceback.format_exc()}To upload it manually, "
-            f"you can run `huggingface-cli login`, followed by loading the model using "
+            f"you can run `hf auth login`, followed by loading the model using "
             f"`model = MultiVectorEncoder({final_output_dir!r})`, then saving it using "
             f"`model.push_to_hub('{run_name}')`."
         )

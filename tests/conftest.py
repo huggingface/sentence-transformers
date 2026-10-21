@@ -151,21 +151,6 @@ def word_embeddings_model(_word_embeddings_model: SentenceTransformer) -> Senten
     return deepcopy(_word_embeddings_model)
 
 
-@pytest.fixture()
-def stsb_bert_tiny_model_onnx() -> SentenceTransformer:
-    return SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-onnx")
-
-
-@pytest.fixture()
-def stsb_bert_tiny_model_openvino() -> SentenceTransformer:
-    return SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-openvino")
-
-
-@pytest.fixture()
-def paraphrase_distilroberta_base_v1_model() -> SentenceTransformer:
-    return SentenceTransformer("sentence-transformers/paraphrase-distilroberta-base-v1")
-
-
 @pytest.fixture(scope="session")
 def _static_retrieval_mrl_en_v1_model() -> SentenceTransformer:
     model_id = "sentence-transformers/static-retrieval-mrl-en-v1"
@@ -270,8 +255,13 @@ def csr_bert_tiny_model(_csr_bert_tiny_model: SparseEncoder) -> SparseEncoder:
 
 # Tokenization & Datasets
 @pytest.fixture(scope="session")
-def tokenizer() -> Tokenizer:
+def _tokenizer() -> Tokenizer:
     return Tokenizer.from_pretrained("google-bert/bert-base-uncased")
+
+
+@pytest.fixture()
+def tokenizer(_tokenizer: Tokenizer) -> Tokenizer:
+    return deepcopy(_tokenizer)
 
 
 @pytest.fixture

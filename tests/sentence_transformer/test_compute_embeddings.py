@@ -9,11 +9,11 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 
-def test_encode_token_embeddings(paraphrase_distilroberta_base_v1_model: SentenceTransformer) -> None:
+def test_encode_token_embeddings(stsb_bert_tiny_model: SentenceTransformer) -> None:
     """
     Test that encode(output_value='token_embeddings') works
     """
-    model = paraphrase_distilroberta_base_v1_model
+    model = stsb_bert_tiny_model
     sent = [
         "Hello Word, a test sentence",
         "Here comes another sentence",
@@ -28,32 +28,29 @@ def test_encode_token_embeddings(paraphrase_distilroberta_base_v1_model: Sentenc
         assert len(model.preprocess([s])["input_ids"][0]) == e.shape[0]
 
 
-def test_encode_single_sentences(paraphrase_distilroberta_base_v1_model: SentenceTransformer) -> None:
-    model = paraphrase_distilroberta_base_v1_model
+def test_encode_single_sentences(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    model = stsb_bert_tiny_model
+    dimension = model.get_embedding_dimension()
     # Single sentence
     emb = model.encode("Hello Word, a test sentence")
-    assert emb.shape == (768,)
-    assert abs(np.sum(emb) - 7.9811716) < 0.002
+    assert emb.shape == (dimension,)
+    single_embedding = emb
 
     # Single sentence as list
     emb = model.encode(["Hello Word, a test sentence"])
-    assert emb.shape == (1, 768)
-    assert abs(np.sum(emb) - 7.9811716) < 0.002
+    assert emb.shape == (1, dimension)
+    np.testing.assert_allclose(emb[0], single_embedding, atol=1e-5)
 
     # Sentence list
-    emb = model.encode(
-        [
-            "Hello Word, a test sentence",
-            "Here comes another sentence",
-            "My final sentence",
-        ]
-    )
-    assert emb.shape == (3, 768)
-    assert abs(np.sum(emb) - 22.968266) < 0.007
+    sentences = ["Hello Word, a test sentence", "Here comes another sentence", "My final sentence"]
+    emb = model.encode(sentences)
+    assert emb.shape == (3, dimension)
+    np.testing.assert_allclose(emb.sum(axis=1), [-5.098289, -4.975013, -6.540779], rtol=0, atol=0.002)
+    np.testing.assert_allclose(emb, np.stack([model.encode(sentence) for sentence in sentences]), atol=1e-5)
 
 
-def test_encode_normalize(paraphrase_distilroberta_base_v1_model: SentenceTransformer) -> None:
-    model = paraphrase_distilroberta_base_v1_model
+def test_encode_normalize(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    model = stsb_bert_tiny_model
     emb = model.encode(
         [
             "Hello Word, a test sentence",
@@ -62,28 +59,31 @@ def test_encode_normalize(paraphrase_distilroberta_base_v1_model: SentenceTransf
         ],
         normalize_embeddings=True,
     )
-    assert emb.shape == (3, 768)
+    assert emb.shape == (3, model.get_embedding_dimension())
     for norm in np.linalg.norm(emb, axis=1):
         assert abs(norm - 1) < 0.001
 
 
-def test_encode_tuple_sentences(paraphrase_distilroberta_base_v1_model: SentenceTransformer) -> None:
-    model = paraphrase_distilroberta_base_v1_model
+def test_encode_tuple_sentences(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    model = stsb_bert_tiny_model
+    dimension = model.get_embedding_dimension()
     # Input a sentence tuple
     emb = model.encode([("Hello Word, a test sentence", "Second input for model")])
-    assert emb.shape == (1, 768)
-    assert abs(np.sum(emb) - 9.503508) < 0.002
+    assert emb.shape == (1, dimension)
+    single_embedding = emb[0]
+    assert not np.allclose(single_embedding, model.encode("Hello Word, a test sentence"))
 
     # List of sentence tuples
-    emb = model.encode(
-        [
-            ("Hello Word, a test sentence", "Second input for model"),
-            ("My second tuple", "With two inputs"),
-            ("Final tuple", "final test"),
-        ]
-    )
-    assert emb.shape == (3, 768)
-    assert abs(np.sum(emb) - 32.14627) < 0.002
+    pairs = [
+        ("Hello Word, a test sentence", "Second input for model"),
+        ("My second tuple", "With two inputs"),
+        ("Final tuple", "final test"),
+    ]
+    emb = model.encode(pairs)
+    assert emb.shape == (3, dimension)
+    np.testing.assert_allclose(emb.sum(axis=1), [-5.307772, -6.655279, -6.159927], rtol=0, atol=0.002)
+    np.testing.assert_allclose(emb[0], single_embedding, atol=1e-5)
+    np.testing.assert_allclose(emb, np.concatenate([model.encode([pair]) for pair in pairs]), atol=1e-5)
 
 
 def test_encode_routes_through_module_call(stsb_bert_tiny_model: SentenceTransformer) -> None:

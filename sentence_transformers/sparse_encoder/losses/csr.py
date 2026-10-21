@@ -16,9 +16,12 @@ def normalized_mean_squared_error(reconstruction: torch.Tensor, original_input: 
     """
     Normalize MSE by batch variance, falling back to ordinary MSE for zero-variance batches.
 
-    :param reconstruction: output of Autoencoder.decode (shape: [batch, n_inputs])
-    :param original_input: input of Autoencoder.encode (shape: [batch, n_inputs])
-    :return: normalized mean squared error (shape: [1])
+    Args:
+        reconstruction: output of Autoencoder.decode (shape: [batch, n_inputs])
+        original_input: input of Autoencoder.encode (shape: [batch, n_inputs])
+
+    Returns:
+        normalized mean squared error (shape: [1])
     """
     original_input_mean = original_input.mean(dim=0)
     normalization_loss = F.mse_loss(original_input_mean[None, :].broadcast_to(original_input.shape), original_input)
