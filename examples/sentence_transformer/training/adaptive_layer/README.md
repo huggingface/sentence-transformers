@@ -149,6 +149,31 @@ similarities = model.similarity(embeddings[0], embeddings[1:])
 
 As you can see, the similarity between the related sentences is much higher than the unrelated sentence, despite only using 3 layers. Feel free to copy this script locally, modify the `new_num_layers`, and observe the difference in similarities.
 
+## Evaluation during training
+
+To track a reduced layer count during training, you can subclass an evaluator so that it slices the layers temporarily and restores them afterwards. This uses the MPNet layer path from [Inference](#inference); other architectures store their layers elsewhere.
+
+```python
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+
+
+class MPNetLayerEvaluator(EmbeddingSimilarityEvaluator):
+    def __init__(self, *args, num_layers: int, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.num_layers = num_layers
+
+    def __call__(self, model, *args, **kwargs):
+        encoder = model.transformers_model.encoder
+        all_layers = encoder.layer
+        encoder.layer = all_layers[: self.num_layers]
+        try:
+            return super().__call__(model, *args, **kwargs)
+        finally:
+            encoder.layer = all_layers
+```
+
+Create it like the `dev_evaluator` in [adaptive_layer_sts.py](adaptive_layer_sts.py), adding `num_layers` and a distinct `name`, and pass it to the trainer. To track several layer counts, combine one evaluator per count in a [SequentialEvaluator](../../../../docs/package_reference/base/evaluation.rst). This only works in single-process training: with DDP, custom evaluator code runs on process zero, while the other processes still encode with all layers (see [Distributed Training](../../../../docs/sentence_transformer/training/distributed.rst)).
+
 ## Code Examples
 
 See the following scripts as examples of how to apply the <a href="../../../../docs/package_reference/sentence_transformer/losses.html#adaptivelayerloss"><code>AdaptiveLayerLoss</code></a> in practice:
