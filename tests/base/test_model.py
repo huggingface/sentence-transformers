@@ -2117,7 +2117,10 @@ def test_cpu_dtype_warning_once(model_class, dtype, tmp_path: Path, caplog) -> N
 def test_cpu_dtype_warning_skips_other_backends(backend, tmp_path: Path, caplog) -> None:
     model_path = _save_cpu_dtype_checkpoint(tmp_path)
     module = BertModel.from_pretrained(model_path, local_files_only=True)
-    with patch.object(SentenceTransformer, "_load_modules", return_value=([module], None)):
+    with (
+        patch.object(SentenceTransformer, "_load_modules", return_value=([module], None)),
+        patch.object(SentenceTransformer, "_load_or_export_backend_model"),
+    ):
         SentenceTransformer(model_path, device="cpu", backend=backend)
     assert "This model was loaded in" not in caplog.text
 

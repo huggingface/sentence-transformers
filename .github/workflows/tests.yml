@@ -77,6 +77,14 @@ jobs:
       - name: Install model2vec
         run: uv pip install model2vec --system
 
+      # TODO: remove before merging
+      - name: Install transformers with the exporters, and the packages to export to ONNX and OpenVINO
+        run: >
+          uv pip install
+          "transformers @ git+https://github.com/huggingface/transformers.git@exporters-runtime"
+          onnx onnxscript onnxruntime openvino
+          --system
+
       - name: Run unit tests
         run: |
           python -m pytest --durations 20 -sv tests/
