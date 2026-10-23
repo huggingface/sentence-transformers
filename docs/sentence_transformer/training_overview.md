@@ -519,6 +519,38 @@ args = SentenceTransformerTrainingArguments(
 )
 ```
 
+### Batch sizes with cached contrastive losses
+
+For `CachedMultipleNegativesRankingLoss`, the training batch and the cache mini-batch serve different purposes. On a single device, these settings control:
+
+| Setting | What it controls |
+| --- | --- |
+| `per_device_train_batch_size` in the training arguments | The number of examples in one loss calculation. With `(anchor, positive)` pairs and the default loss settings, each anchor is compared with all positives in this batch. |
+| `mini_batch_size` in the loss | How many sequences are embedded at once, and how many rows of the similarity matrix are computed at once. Gradient caching preserves the contrastive pool of the full training batch. |
+| `gradient_accumulation_steps` in the training arguments | How many training batches contribute gradients before an optimizer update. Each batch still has its own contrastive pool; accumulation does not share negatives between these batches. |
+
+For example, given a `model` and an `(anchor, positive)` training dataset:
+
+```python
+from sentence_transformers import SentenceTransformerTrainingArguments
+from sentence_transformers.sentence_transformer.losses import CachedMultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.training_args import BatchSamplers
+
+loss = CachedMultipleNegativesRankingLoss(model, mini_batch_size=16)
+args = SentenceTransformerTrainingArguments(
+    output_dir="models/cached-mnrl",
+    per_device_train_batch_size=128,
+    gradient_accumulation_steps=2,
+    batch_sampler=BatchSamplers.NO_DUPLICATES,
+)
+```
+
+Pass `loss` and `args` to the trainer as usual. With full batches on one device, each loss calculation compares an anchor with 128 positives: its paired positive and 127 in-batch negatives. The encoder processes these inputs in mini-batches of 16 sequences per dataset column. An optimizer update accumulates gradients from 256 training examples, but each anchor's contrastive pool still contains 128 positives. Final or sampler-limited batches can contain fewer examples.
+
+Tune `mini_batch_size` for the available memory and measured training speed. Changing it preserves the intended loss objective; changing `per_device_train_batch_size` changes the contrastive pool, so evaluate the resulting model and retune the learning rate if needed. A smaller cache mini-batch reduces the memory needed for encoder activations and score chunks, but the full batch's inputs, embeddings, and cached gradients still use memory. Larger training batches are not free or guaranteed to improve quality.
+
+For variable-length inputs, `mini_batch_num_tokens` on the loss can replace the sequence-count limit for **embedding** mini-batches with a non-padding token budget. It does not change the contrastive pool, and `mini_batch_size` still controls the number of similarity-matrix rows computed at once. A single sequence longer than the token budget is processed on its own rather than truncated. See the Flash Attention tab in [Speeding up Inference](usage/efficiency) for a training example and suitable attention implementations.
+
 ## Evaluator
 
 ```{eval-rst}
