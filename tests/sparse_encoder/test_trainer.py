@@ -474,3 +474,39 @@ def test_trainer_schedules_every_splade_loss(splade_bert_tiny_model: SparseEncod
     for splade_loss in loss.values():
         assert splade_loss.document_regularizer_weight == pytest.approx(3e-5 / 4)
         assert splade_loss.query_regularizer_weight == pytest.approx(5e-5 / 4)
+
+
+def test_trainer_logs_eval_loss_components_under_the_metric_key_prefix(
+    splade_bert_tiny_model: SparseEncoder, tmp_path: Path
+) -> None:
+    model = splade_bert_tiny_model
+    loss = losses.SpladeLoss(
+        model=model,
+        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        document_regularizer_weight=3e-5,
+        query_regularizer_weight=5e-5,
+    )
+    datasets = {
+        name: Dataset.from_dict(
+            {
+                "anchor": [f"{name} question {i}" for i in range(4)],
+                "positive": [f"{name} answer {i} with some words" for i in range(4)],
+            }
+        )
+        for name in ("a", "b")
+    }
+    trainer = SparseEncoderTrainer(
+        model=model,
+        args=SparseEncoderTrainingArguments(output_dir=str(tmp_path), per_device_eval_batch_size=2, report_to="none"),
+        eval_dataset=DatasetDict(datasets),
+        loss=loss,
+    )
+    trainer.evaluate()  # logged as eval_a_* and eval_b_*
+    trainer.evaluate(datasets["a"], metric_key_prefix="test")
+    trainer.evaluate(datasets["a"])
+
+    # Each evaluation logs the components of its own batches, which add up to its loss
+    components = ("base_loss", "document_regularizer_loss", "query_regularizer_loss")
+    for prefix in ("eval_a", "eval_b", "test", "eval"):
+        logs = next(logs for logs in trainer.state.log_history if f"{prefix}_loss" in logs)
+        assert sum(logs[f"{prefix}_{name}"] for name in components) == pytest.approx(logs[f"{prefix}_loss"], abs=1e-3)
