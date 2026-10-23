@@ -378,37 +378,44 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             for name, score_function in self.score_functions.items():
                 pair_scores = score_function(query_embeddings, sub_corpus_embeddings)
 
-                # Get top-k values
+                # Get top-k values, plus one extra candidate to detect ties at the cutoff
                 top_k = min(max_k, len(pair_scores[0]))
-                pair_scores_top_k_values, pair_scores_top_k_idx = torch.topk(
-                    pair_scores, top_k, dim=1, largest=True, sorted=False
+                num_candidates = min(top_k + 1, len(pair_scores[0]))
+                candidate_values, candidate_idx = torch.topk(
+                    pair_scores, num_candidates, dim=1, largest=True, sorted=True
                 )
+                pair_scores_top_k_values = candidate_values[:, :top_k]
+                pair_scores_top_k_idx = candidate_idx[:, :top_k]
                 # torch.topk breaks score ties arbitrarily. Rows with ties at the top_k-th score are
                 # reselected under the (-score, corpus_id) total order used for the final ranking, so
-                # the reported metrics do not depend on corpus_chunk_size.
-                thresholds = pair_scores_top_k_values.min(dim=1, keepdim=True).values
-                has_boundary_ties = ((pair_scores >= thresholds).sum(dim=1) > top_k).cpu().tolist()
-                if any(has_boundary_ties):
-                    # Order the candidates by (-score, corpus_id) with an integer key, so that only
-                    # top_k of them per query reach Python even when the whole chunk is tied: every
-                    # score above the cutoff sorts first, then the ties with the lowest corpus_ids.
-                    n_corpus = len(self.corpus_ids)
-                    chunk_ranks = self.get_corpus_id_ranks()[corpus_start_idx:corpus_end_idx].to(pair_scores.device)
-                    tie_keys = torch.where(pair_scores > thresholds, chunk_ranks, 2 * n_corpus)
-                    tie_keys = torch.where(pair_scores == thresholds, chunk_ranks + n_corpus, tie_keys)
-                    tie_idx = tie_keys.topk(top_k, dim=1, largest=False).indices
-                    tie_scores = pair_scores.gather(1, tie_idx).cpu().tolist()
-                    tie_idx = tie_idx.cpu().tolist()
+                # the reported metrics do not depend on corpus_chunk_size. A row has such a tie exactly
+                # when the extra candidate scores the same as the top_k-th one.
+                if num_candidates > top_k:
+                    tied_rows = (candidate_values[:, top_k] == candidate_values[:, top_k - 1]).nonzero().squeeze(1)
+                    if len(tied_rows) > 0:
+                        # Order the candidates by (-score, corpus_id) with an integer key, so that only
+                        # top_k of them per query reach Python even when the whole chunk is tied: every
+                        # score above the cutoff sorts first, then the ties with the lowest corpus_ids.
+                        # The key is built in place, so it needs a single integer matrix for the tied rows.
+                        n_corpus = len(self.corpus_ids)
+                        chunk_ranks = self.get_corpus_id_ranks()[corpus_start_idx:corpus_end_idx].to(
+                            pair_scores.device
+                        )
+                        tied_scores = pair_scores[tied_rows]
+                        thresholds = pair_scores_top_k_values[tied_rows, -1:]
+                        tie_keys = (tied_scores <= thresholds).long()
+                        tie_keys.masked_fill_(tied_scores < thresholds, 2)
+                        tie_keys *= n_corpus
+                        tie_keys += chunk_ranks
+                        tie_idx = tie_keys.topk(top_k, dim=1, largest=False).indices
+                        pair_scores_top_k_idx[tied_rows] = tie_idx
+                        pair_scores_top_k_values[tied_rows] = tied_scores.gather(1, tie_idx)
                 pair_scores_top_k_values = pair_scores_top_k_values.cpu().tolist()
                 pair_scores_top_k_idx = pair_scores_top_k_idx.cpu().tolist()
 
                 for query_itr in range(len(query_embeddings)):
-                    if has_boundary_ties[query_itr]:
-                        sub_corpus_ids = tie_idx[query_itr]
-                        scores = tie_scores[query_itr]
-                    else:
-                        sub_corpus_ids = pair_scores_top_k_idx[query_itr]
-                        scores = pair_scores_top_k_values[query_itr]
+                    sub_corpus_ids = pair_scores_top_k_idx[query_itr]
+                    scores = pair_scores_top_k_values[query_itr]
 
                     query_hits = queries_result_list[name][query_itr]
                     for sub_corpus_id, score in zip(sub_corpus_ids, scores):
