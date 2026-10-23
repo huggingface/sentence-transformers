@@ -6,6 +6,7 @@ from typing import Any
 
 from torch import Tensor, nn
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.utils import is_torchdynamo_compiling
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
@@ -41,6 +42,10 @@ class DenoisingAutoEncoderLoss(nn.Module):
         r"""
         This loss expects as input pairs of damaged inputs and the corresponding original ones.
         During training, the decoder reconstructs the original inputs from the encoded embeddings.
+        Target attention masks identify real next-token pairs, including EOS when it is also the padding token.
+        If target attention masks are explicitly omitted during preprocessing, the loss preserves the legacy
+        padding-token-ID masking. That route cannot distinguish real EOS from padding when their IDs are shared;
+        retain target attention masks for shared EOS/PAD tokens or left-padded targets.
         Here the argument 'decoder_name_or_path' indicates the pretrained model (supported by Hugging Face) to be used as the decoder.
         Since decoding process is included, here the decoder should have a class called XXXLMHead (in the context of Hugging Face's Transformers).
         The 'tie_encoder_decoder' flag indicates whether to tie the trainable parameters of encoder and decoder,
@@ -194,15 +199,32 @@ class DenoisingAutoEncoderLoss(nn.Module):
         # Prepare input and output
         target_length = target_features["input_ids"].shape[1]
         decoder_input_ids = target_features["input_ids"].clone()[:, : target_length - 1]
-        label_ids = target_features["input_ids"][:, 1:]
+        target_attention_mask = target_features.get("attention_mask")
+        decoder_attention_mask = None
+        label_ids = target_features["input_ids"][:, 1:].clone()
+        ignore_index = -100
+        if target_attention_mask is None:
+            # Preserve target preprocessing that explicitly omits attention masks.
+            ignore_index = self.tokenizer_decoder.pad_token_id
+        else:
+            # Mask positions rather than token IDs: the decoder may use EOS as its padding token.
+            mask = target_attention_mask.bool()
+            valid_targets = mask[:, :-1] & mask[:, 1:]
+            label_ids.masked_fill_(~valid_targets, -100)
+            # Causal attention already excludes ordinary right padding. A masked position before a
+            # real token (left padding or an internal gap) needs an explicit decoder attention mask.
+            # Keep compiled execution tensor-only instead of branching on a Tensor value.
+            if is_torchdynamo_compiling() or (mask[:, 1:] & ~mask[:, :-1]).any():
+                decoder_attention_mask = target_attention_mask[:, : target_length - 1]
 
         # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             inputs_embeds=None,
-            attention_mask=None,
+            attention_mask=decoder_attention_mask,
             encoder_hidden_states=reps[:, None],  # (bsz, hdim) -> (bsz, 1, hdim)
-            encoder_attention_mask=source_features["attention_mask"][:, 0:1],
+            # Every row has one pooled representation, regardless of source padding placement.
+            encoder_attention_mask=None,
             labels=None,
             return_dict=None,
             use_cache=False,
@@ -210,7 +232,7 @@ class DenoisingAutoEncoderLoss(nn.Module):
 
         # Calculate loss
         lm_logits = decoder_outputs[0]
-        ce_loss_fct = nn.CrossEntropyLoss(ignore_index=self.tokenizer_decoder.pad_token_id)
+        ce_loss_fct = nn.CrossEntropyLoss(ignore_index=ignore_index)
         loss = ce_loss_fct(lm_logits.view(-1, lm_logits.shape[-1]), label_ids.reshape(-1))
         return loss
 
