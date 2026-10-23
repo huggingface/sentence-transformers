@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 import torch
+from transformers import DataCollatorWithFlattening
 
 from sentence_transformers.sentence_transformer.losses import ContrastiveTensionDataLoader, ContrastiveTensionLoss
 
@@ -62,3 +63,24 @@ def test_contrastive_tension_multiple_labels_per_row_raise(batch_size):
     loss = ContrastiveTensionLoss(torch.nn.Identity())
     with pytest.raises(ValueError, match="Target size"):
         loss(features, torch.zeros(batch_size, 3))
+
+
+@pytest.mark.parametrize("second_sentence", [[17], [17, 18]])
+def test_contrastive_tension_infers_labels_for_flattened_inputs(second_sentence):
+    columns = [[[11, 12], [13], [14, 15, 16]], [[11, 12], second_sentence, [14, 15, 16]]]
+    collator = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
+    generator = torch.Generator().manual_seed(42)
+    features = [
+        {
+            **collator([{"input_ids": sentence} for sentence in column]),
+            "sentence_embedding": torch.randn(3, 8, generator=generator, requires_grad=True),
+        }
+        for column in columns
+    ]
+    loss_fn = ContrastiveTensionLoss(torch.nn.Identity())
+    expected = loss_fn(features, torch.tensor([1.0, 0.0, 1.0]))
+    actual = loss_fn(features)
+
+    torch.testing.assert_close(actual, expected)
+    embeddings = [feature["sentence_embedding"] for feature in features]
+    torch.testing.assert_close(torch.autograd.grad(actual, embeddings), torch.autograd.grad(expected, embeddings))
