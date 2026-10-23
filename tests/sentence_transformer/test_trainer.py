@@ -1407,6 +1407,20 @@ def test_fit_scheduler_covers_every_objective_step(
     assert all(learning_rate > 0 for learning_rate in learning_rates[1:])
 
 
+def test_fit_with_uneven_number_of_texts(stsb_bert_tiny_model, tmp_path, monkeypatch) -> None:
+    model = stsb_bert_tiny_model
+    monkeypatch.chdir(tmp_path)
+    examples = [InputExample(texts=[f"anchor {idx}", f"positive {idx}", f"negative {idx}"]) for idx in range(7)] + [
+        InputExample(texts=["anchor 7", "positive 7"])
+    ]
+    with pytest.raises(ValueError, match=r"must have the same number of texts, but got examples with \[2, 3\] texts"):
+        model.fit(
+            train_objectives=[(DataLoader(examples, batch_size=4), MultipleNegativesRankingLoss(model))],
+            epochs=1,
+            show_progress_bar=False,
+        )
+
+
 def test_fit_with_custom_batch_sampler(stsb_bert_tiny_model, tmp_path, monkeypatch, caplog) -> None:
     model = stsb_bert_tiny_model
     monkeypatch.chdir(tmp_path)
