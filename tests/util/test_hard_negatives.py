@@ -1909,3 +1909,39 @@ def test_default_column_selection_allows_extra_columns() -> None:
     )
 
     assert result.to_dict() == {"query": ["q"], "positive": ["p"], "negative": ["n_more_similar"]}
+
+
+@pytest.mark.parametrize("output_scores", [False, True])
+@pytest.mark.parametrize("output_format", ["triplet", "n-tuple", "labeled-pair", "labeled-list"])
+def test_cross_encoder_rescores_without_score_filters(output_scores: bool, output_format: str) -> None:
+    """A supplied reranker controls candidate ordering and scores even without score filters."""
+    teacher_scores = {"p": 0.9, "n_more_similar": 0.1, "n_far": 0.8}
+    cross_encoder = Mock()
+    cross_encoder.predict.side_effect = lambda pairs, **kwargs: torch.tensor(
+        [teacher_scores[document] for _, document in pairs]
+    )
+    result = mine_hard_negatives(
+        dataset=Dataset.from_dict({"query": ["q"], "positive": ["p"]}),
+        model=ControlledNegativeScoreModel(),
+        cross_encoder=cross_encoder,
+        corpus=["p", "n_more_similar", "n_far"],
+        range_max=2,
+        num_negatives=1,
+        output_format=output_format,
+        output_scores=output_scores,
+        verbose=False,
+    )
+    assert cross_encoder.predict.call_count == 2
+    if output_format == "triplet":
+        assert result[0]["negative"] == "n_far"
+    elif output_format == "n-tuple":
+        assert result[0]["negative_1"] == "n_far"
+    elif output_format == "labeled-pair":
+        assert result["positive"] == ["p", "n_far"]
+    else:
+        assert result[0]["positive"] == ["p", "n_far"]
+    if output_scores:
+        if output_format == "labeled-pair":
+            assert result["score"] == pytest.approx([0.9, 0.8])
+        else:
+            assert result[0]["scores"] == pytest.approx([0.9, 0.8])
