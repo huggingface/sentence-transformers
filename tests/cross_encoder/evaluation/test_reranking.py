@@ -79,6 +79,27 @@ def test_single_sample(reranker_bert_tiny_model: CrossEncoder) -> None:
     assert f"single_ndcg@{evaluator.at_k}" in results
 
 
+@pytest.mark.parametrize("at_k", [1, 10])
+@pytest.mark.parametrize("candidate_key", ["negative", "documents"])
+def test_single_relevant_document(reranker_bert_tiny_model: CrossEncoder, at_k: int, candidate_key: str) -> None:
+    """A query with one relevant candidate has perfect base and reranked scores."""
+    sample = {"query": "test", "positive": ["yes"], candidate_key: [] if candidate_key == "negative" else ["yes"]}
+    evaluator = CrossEncoderRerankingEvaluator([sample], at_k=at_k)
+
+    results = evaluator(reranker_bert_tiny_model)
+
+    assert results["map"] == results[f"mrr@{at_k}"] == results[f"ndcg@{at_k}"] == 1.0
+    if candidate_key == "documents":
+        assert results["base_map"] == results[f"base_mrr@{at_k}"] == results[f"base_ndcg@{at_k}"] == 1.0
+
+
+@pytest.mark.parametrize("label", [0, 1])
+def test_single_document_ndcg(label: int) -> None:
+    """The sole candidate has NDCG one if relevant and zero otherwise."""
+    evaluator = CrossEncoderRerankingEvaluator([])
+    assert evaluator.compute_metrics([label], [0.5])[1] == float(label > 0)
+
+
 def test_string_positive(reranker_bert_tiny_model: CrossEncoder) -> None:
     """Positive as a string (not list) is handled correctly."""
     samples = [
