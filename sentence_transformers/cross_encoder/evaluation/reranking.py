@@ -180,7 +180,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
             negative = instance.get("negative", None)
             documents = instance.get("documents", None)
 
-            if documents:
+            if documents is not None:
                 base_is_relevant = [int(sample in positive) for sample in documents]
                 if sum(base_is_relevant) == 0:
                     base_mrr, base_ndcg, base_ap = 0, 0, 0

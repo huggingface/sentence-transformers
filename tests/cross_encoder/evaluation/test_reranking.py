@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import math
+from unittest.mock import Mock
+
+import numpy as np
 import pytest
 
 from sentence_transformers import CrossEncoder
@@ -105,3 +109,100 @@ def test_validation_errors() -> None:
         CrossEncoderRerankingEvaluator([{"query": "q", "positive": ["a"], "negative": ["b"], "documents": ["c"]}])(
             None
         )
+
+
+@pytest.mark.parametrize("at_k", [1, 10])
+@pytest.mark.parametrize("positive", [[], ["positive"], ["positive1", "positive2"]])
+def test_empty_documents_without_positive_injection(positive: list[str], at_k: int) -> None:
+    """A zero-hit query contributes zero metrics without invoking the reranker."""
+    model = Mock()
+    evaluator = CrossEncoderRerankingEvaluator(
+        [{"query": "no hits", "positive": positive, "documents": []}],
+        always_rerank_positives=False,
+        at_k=at_k,
+        name="empty",
+    )
+
+    results = evaluator(model)
+
+    assert results == {
+        "empty_map": 0.0,
+        f"empty_mrr@{at_k}": 0.0,
+        f"empty_ndcg@{at_k}": 0.0,
+        "empty_base_map": 0.0,
+        f"empty_base_mrr@{at_k}": 0.0,
+        f"empty_base_ndcg@{at_k}": 0.0,
+    }
+    model.predict.assert_not_called()
+    assert evaluator.primary_metric in results
+
+
+@pytest.mark.parametrize("positive", [[], ["positive1", "positive2"]])
+def test_empty_documents_with_positive_injection(positive: list[str]) -> None:
+    """The explicit positive-injection option still applies to an empty retrieval."""
+    model = Mock()
+    model.predict.return_value = np.array([0.8, 0.4])
+    evaluator = CrossEncoderRerankingEvaluator(
+        [{"query": "no hits", "positive": positive, "documents": []}],
+        always_rerank_positives=True,
+    )
+
+    results = evaluator(model)
+
+    expected_reranked = 1.0 if positive else 0.0
+    assert results["map"] == results["mrr@10"] == results["ndcg@10"] == expected_reranked
+    assert results["base_map"] == results["base_mrr@10"] == results["base_ndcg@10"] == 0.0
+    if positive:
+        model.predict.assert_called_once()
+        assert model.predict.call_args.args[0] == [["no hits", doc] for doc in positive]
+    else:
+        model.predict.assert_not_called()
+
+
+@pytest.mark.parametrize("at_k", [1, 2, 10])
+def test_empty_documents_remain_in_macro_average(at_k: int) -> None:
+    """Empty results between nonempty samples must not shift predictions or vanish from the denominator."""
+    samples = [
+        {"query": "empty1", "positive": ["missing1"], "documents": []},
+        {"query": "found1", "positive": ["positive1"], "documents": ["negative1", "positive1"]},
+        {"query": "empty2", "positive": ["missing2"], "documents": []},
+        {"query": "found2", "positive": ["positive2"], "documents": ["positive2", "negative2"]},
+    ]
+    model = Mock()
+    model.predict.return_value = np.array([0.2, 0.9, 0.8, 0.1])
+    evaluator = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, at_k=at_k)
+
+    results = evaluator(model)
+
+    assert results["map"] == results[f"mrr@{at_k}"] == results[f"ndcg@{at_k}"] == 0.5
+    assert results["base_map"] == 0.375
+    assert results[f"base_mrr@{at_k}"] == (0.25 if at_k == 1 else 0.375)
+    assert results[f"base_ndcg@{at_k}"] == pytest.approx(0.25 if at_k == 1 else (1 / math.log2(3) + 1) / 4)
+    model.predict.assert_called_once()
+    assert model.predict.call_args.args[0] == [
+        ["found1", "negative1"],
+        ["found1", "positive1"],
+        ["found2", "positive2"],
+        ["found2", "negative2"],
+    ]
+
+
+def test_empty_documents_preserve_duplicate_candidate_scoring() -> None:
+    """The zero-hit fix does not deduplicate or reweight an existing candidate ranking."""
+    samples = [
+        {"query": "empty", "positive": ["missing"], "documents": []},
+        {"query": "found", "positive": ["positive"], "documents": ["negative", "positive", "positive"]},
+    ]
+    model = Mock()
+    model.predict.return_value = np.array([0.2, 0.9, 0.9])
+
+    results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False)(model)
+
+    assert results["map"] == results["mrr@10"] == results["ndcg@10"] == 0.5
+    assert results["base_map"] == pytest.approx((1 / 2 + 2 / 3) / 4)
+    assert results["base_mrr@10"] == 0.25
+    assert model.predict.call_args.args[0] == [
+        ["found", "negative"],
+        ["found", "positive"],
+        ["found", "positive"],
+    ]
