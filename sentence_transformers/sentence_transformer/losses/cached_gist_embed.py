@@ -264,11 +264,15 @@ class CachedGISTEmbedLoss(nn.Module):
 
         batch_size = anchors.size(0)
         offset = 0
+        all_anchors, all_anchors_guide = anchors, anchors_guide
 
         if self.gather_across_devices:
-            # Gather the candidates across all devices, with gradients, but not the anchors. We compute only this
-            # device's anchors with all candidates from all devices, such that the backward pass on the document
-            # embeddings can flow back to the original devices.
+            # Gather the candidates across all devices, with gradients. We compute only this device's anchors with
+            # all candidates from all devices, such that the backward pass on the document embeddings can flow back
+            # to the original devices. The anchors are gathered only as candidates for the anchor-anchor term.
+            if self.contrast_anchors:
+                all_anchors = all_gather_with_grad(anchors)
+                all_anchors_guide = all_gather_with_grad(anchors_guide)
             candidates = [all_gather_with_grad(candidate) for candidate in candidates]
             candidates_guide = [all_gather_with_grad(candidate) for candidate in candidates_guide]
             # All have this shape: 1 + nneg items of (batch_size * world_size, embedding_dim)
@@ -323,8 +327,8 @@ class CachedGISTEmbedLoss(nn.Module):
             scores = [ap_sim]
 
             if self.contrast_anchors:
-                aa_sim = self.sim_matrix(anchors[begin:end], anchors)
-                guided_aa_sim = self.sim_matrix(anchors_guide[begin:end], anchors_guide)
+                aa_sim = self.sim_matrix(anchors[begin:end], all_anchors)
+                guided_aa_sim = self.sim_matrix(anchors_guide[begin:end], all_anchors_guide)
                 aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
                 scores.append(aa_sim)
 
