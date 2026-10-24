@@ -347,7 +347,7 @@ def test_load_local_with_normalize_at_model_root(stsb_bert_tiny_model: SentenceT
 
 def test_prompts(stsb_bert_tiny_model: SentenceTransformer, caplog: pytest.LogCaptureFixture) -> None:
     model = stsb_bert_tiny_model
-    assert model.prompts == {"query": "", "document": ""}
+    assert model.prompts == {"query": "", "document": None}
     assert model.default_prompt_name is None
     texts = ["How to bake a chocolate cake", "Symptoms of the flu"]
     no_prompt_embedding = model.encode(texts)
@@ -400,7 +400,7 @@ def test_save_load_prompts() -> None:
         prompts={"query": "query: "},
         default_prompt_name="query",
     )
-    assert model.prompts == {"query": "query: ", "document": ""}
+    assert model.prompts == {"query": "query: ", "document": None}
     assert model.default_prompt_name == "query"
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
@@ -410,11 +410,11 @@ def test_save_load_prompts() -> None:
         assert config_path.exists()
         with open(config_path, encoding="utf8") as f:
             saved_config = json.load(f)
-        assert saved_config["prompts"] == {"query": "query: ", "document": ""}
+        assert saved_config["prompts"] == {"query": "query: ", "document": None}
         assert saved_config["default_prompt_name"] == "query"
 
         fresh_model = SentenceTransformer(str(model_path))
-        assert fresh_model.prompts == {"query": "query: ", "document": ""}
+        assert fresh_model.prompts == {"query": "query: ", "document": None}
         assert fresh_model.default_prompt_name == "query"
 
 
@@ -1461,12 +1461,12 @@ def test_conversion_ignores_source_prompts_and_default_prompt_name(tmp_path) -> 
     source.save_pretrained(str(tmp_path / "source"))
 
     model = SentenceTransformer(str(tmp_path / "source"))
-    assert model.prompts == {"query": "", "document": ""}
+    assert model.prompts == {"query": "", "document": None}
     assert model.default_prompt_name is None
 
     model.save_pretrained(str(tmp_path / "resaved"))
     reloaded = SentenceTransformer(str(tmp_path / "resaved"))
-    assert reloaded.prompts == {"query": "", "document": ""}
+    assert reloaded.prompts == {"query": "", "document": None}
     assert reloaded.default_prompt_name is None
 
     # Explicitly passed prompts are user intent and still apply on a converted load.

@@ -446,8 +446,10 @@ class SparseEncoder(BaseModel):
 
         This method is a specialized version of :meth:`encode` that differs in exactly two ways:
 
-        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the first available prompt from the following
-           candidates: ``"document"``, ``"passage"``, ``"corpus"`` (checked in that order).
+        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the first configured prompt from the
+           following candidates: ``"document"``, ``"passage"``, ``"corpus"`` (checked in that order). An
+           unconfigured ``"document"`` placeholder is skipped, while an explicit empty string counts as
+           configured.
         2. It sets the ``task`` to "document". If the model has a :class:`~sentence_transformers.base.modules.Router`
            module, it will use the "document" task type to route the input through the appropriate submodules.
 
@@ -478,10 +480,7 @@ class SparseEncoder(BaseModel):
                 # (3, 30522)
         """
         if prompt_name is None and prompt is None:
-            for candidate_prompt_name in ["document", "passage", "corpus"]:
-                if candidate_prompt_name in self.prompts:
-                    prompt_name = candidate_prompt_name
-                    break
+            prompt_name = self._resolve_document_prompt_name()
 
         return self.encode(
             inputs=inputs,
