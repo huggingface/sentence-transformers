@@ -342,7 +342,13 @@ def test_community_detection_overlapping_communities():
 
 @pytest.mark.parametrize(
     "device",
-    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available"))],
+    [
+        "cpu",
+        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available")),
+        pytest.param(
+            "mps", marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS not available")
+        ),
+    ],
 )
 @pytest.mark.parametrize("batch_size", [4, 1024])
 @pytest.mark.parametrize(
