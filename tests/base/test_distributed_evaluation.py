@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import socket
 from datetime import timedelta
 
 import numpy as np
@@ -64,14 +63,14 @@ def _assert_output_equal(actual, expected):
             _assert_output_equal(value, reference)
 
 
-def _run_distributed_inference(rank, world_size, port, model_type, use_cuda):
+def _run_distributed_inference(rank, world_size, init_method, model_type, use_cuda):
     torch.set_num_threads(1)
     device = torch.device(f"cuda:{rank}" if use_cuda else "cpu")
     if use_cuda:
         torch.cuda.set_device(device)
     dist.init_process_group(
         "nccl" if use_cuda else "gloo",
-        init_method=f"tcp://127.0.0.1:{port}",
+        init_method=init_method,
         rank=rank,
         world_size=world_size,
         timeout=timedelta(seconds=30),
@@ -224,8 +223,6 @@ def test_distributed_evaluation_without_process_group(enabled):
         ),
     ],
 )
-def test_distributed_evaluator_inference(model_type, use_cuda):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    mp.spawn(_run_distributed_inference, args=(2, port, model_type, use_cuda), nprocs=2, join=True)
+def test_distributed_evaluator_inference(model_type, use_cuda, tmp_path):
+    init_method = (tmp_path / "store").as_uri()
+    mp.spawn(_run_distributed_inference, args=(2, init_method, model_type, use_cuda), nprocs=2, join=True)

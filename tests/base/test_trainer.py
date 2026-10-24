@@ -3,14 +3,15 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import socket
 from copy import deepcopy
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 import torch
+import torch.distributed as dist
 import torch.multiprocessing as mp
 from huggingface_hub import HfApi
 from tokenizers import Tokenizer
@@ -280,15 +281,29 @@ def test_track_loss_components_replaces_nonfinite_with_the_running_mean(
 
 
 def _run_ddp_evaluation_loop(
-    rank: int, world_size: int, port: int, tmp_dir: str, sharded_backend: str | None = None
+    rank: int, world_size: int, init_method: str, tmp_dir: str, sharded_backend: str | None = None
 ) -> None:
     os.environ["RANK"] = str(rank)
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["LOCAL_RANK"] = str(rank)
     os.environ["LOCAL_WORLD_SIZE"] = str(world_size)
-    os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = str(port)
+    dist.init_process_group(
+        "gloo",
+        init_method=init_method,
+        rank=rank,
+        world_size=world_size,
+        timeout=timedelta(seconds=30),
+    )
+    try:
+        _run_ddp_evaluation_loop_in_group(rank, world_size, tmp_dir, sharded_backend)
+    finally:
+        if dist.is_initialized():
+            dist.destroy_process_group()
 
+
+def _run_ddp_evaluation_loop_in_group(
+    rank: int, world_size: int, tmp_dir: str, sharded_backend: str | None = None
+) -> None:
     from datasets import Dataset
 
     from sentence_transformers.base.evaluation import BaseEvaluator
@@ -349,11 +364,8 @@ def _run_ddp_evaluation_loop(
 def test_evaluator_runs_once_and_broadcasts_under_ddp(tmp_path: Path) -> None:
     """Share evaluator inference across ranks and broadcast the full-dataset metrics."""
     world_size = 2
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-
-    mp.spawn(_run_ddp_evaluation_loop, args=(world_size, port, str(tmp_path)), nprocs=world_size, join=True)
+    init_method = (tmp_path / "store").as_uri()
+    mp.spawn(_run_ddp_evaluation_loop, args=(world_size, init_method, str(tmp_path)), nprocs=world_size, join=True)
 
     called = sorted(p.name for p in tmp_path.glob("called_rank_*"))
     assert called == ["called_rank_0"], "only world rank 0 should call the evaluator"
@@ -368,11 +380,13 @@ def test_evaluator_runs_once_and_broadcasts_under_ddp(tmp_path: Path) -> None:
 @pytest.mark.parametrize("sharded_backend", ["fsdp", "deepspeed"])
 def test_sharded_evaluator_participates_on_all_ranks(tmp_path: Path, sharded_backend: str) -> None:
     """Exercise backend routing with a collective evaluator on two CPU ranks."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-
-    mp.spawn(_run_ddp_evaluation_loop, args=(2, port, str(tmp_path), sharded_backend), nprocs=2, join=True)
+    init_method = (tmp_path / "store").as_uri()
+    mp.spawn(
+        _run_ddp_evaluation_loop,
+        args=(2, init_method, str(tmp_path), sharded_backend),
+        nprocs=2,
+        join=True,
+    )
 
     assert sorted(path.name for path in tmp_path.glob("called_rank_*")) == ["called_rank_0", "called_rank_1"]
     scores = [json.loads(path.read_text()) for path in sorted(tmp_path.glob("metrics_rank_*.json"))]
