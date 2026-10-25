@@ -1909,3 +1909,29 @@ def test_default_column_selection_allows_extra_columns() -> None:
     )
 
     assert result.to_dict() == {"query": ["q"], "positive": ["p"], "negative": ["n_more_similar"]}
+
+
+@pytest.mark.parametrize(
+    ("positives", "include_positives", "expected_negatives"),
+    [
+        (["p", "q"], False, ["n_more_similar", "n_more_similar"]),
+        (["p", "q"], True, ["n_more_similar", "n_more_similar"]),
+        (["q", "p"], True, ["q", "p"]),
+    ],
+)
+def test_anchor_is_not_mined_as_its_own_negative(
+    positives: list[str], include_positives: bool, expected_negatives: list[str]
+) -> None:
+    dataset = Dataset.from_dict({"query": ["q", "p"], "positive": positives})
+
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=ControlledNegativeScoreModel(),
+        corpus=["n_more_similar", "n_far"],
+        num_negatives=1,
+        include_positives=include_positives,
+        output_format="n-tuple",
+        verbose=False,
+    )
+
+    assert result["negative_1"] == expected_negatives

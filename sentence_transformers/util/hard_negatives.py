@@ -630,12 +630,13 @@ def mine_hard_negatives(
     # candidate.
     scores[indices == -1] = -float("inf")
 
-    if not include_positives:
-        # for each query, create a mask that is True for the positives and False for the negatives in the indices
-        positive_mask = torch.stack(
-            [torch.isin(indices[q_idx], positive_indices[q_idx]) for q_idx in range(n_queries)]
-        )
+    # for each query, create a mask that is True for the positives and False for the negatives in the indices
+    positive_mask = torch.stack([torch.isin(indices[q_idx], positive_indices[q_idx]) for q_idx in range(n_queries)])
 
+    query_corpus_indices = torch.tensor([corpus_idx.get(query, -1) for query in queries], device=device)
+    scores[(indices == query_corpus_indices.unsqueeze(1)) & ~positive_mask] = -float("inf")
+
+    if not include_positives:
         # Scores is a [num_queries, range_max] tensor, where we set the values to -inf to disqualify the corresponding
         # positive candidates
         scores[positive_mask] = -float("inf")
