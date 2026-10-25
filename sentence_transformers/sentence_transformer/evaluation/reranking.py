@@ -12,7 +12,6 @@ import tqdm
 from sklearn.metrics import average_precision_score, ndcg_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.util import cos_sim
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -40,7 +39,7 @@ class RerankingEvaluator(BaseEvaluator):
         at_k (int, optional): Only consider the top k most similar documents to each query for the evaluation. Defaults to 10.
         name (str, optional): Name of the evaluator. Defaults to "".
         write_csv (bool, optional): Write results to CSV file. Defaults to True.
-        similarity_fct (Callable[[torch.Tensor, torch.Tensor], torch.Tensor], optional): Similarity function between sentence embeddings. By default, cosine similarity. Defaults to cos_sim.
+        similarity_fct (Callable[[torch.Tensor, torch.Tensor], torch.Tensor], optional): Similarity function between sentence embeddings. Defaults to None, which uses the model's similarity function.
         batch_size (int, optional): Batch size to compute sentence embeddings. Defaults to 64.
         show_progress_bar (bool, optional): Show progress bar when computing embeddings. Defaults to False.
         use_batched_encoding (bool, optional): Whether or not to encode queries and documents in batches for greater speed, or 1-by-1 to save memory. Defaults to True.
@@ -94,7 +93,7 @@ class RerankingEvaluator(BaseEvaluator):
         at_k: int = 10,
         name: str = "",
         write_csv: bool = True,
-        similarity_fct: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = cos_sim,
+        similarity_fct: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
         batch_size: int = 64,
         show_progress_bar: bool = False,
         use_batched_encoding: bool = True,
@@ -238,6 +237,7 @@ class RerankingEvaluator(BaseEvaluator):
         all_mrr_scores = []
         all_ndcg_scores = []
         all_ap_scores = []
+        similarity_fct = self.similarity_fct if self.similarity_fct is not None else model.similarity
 
         all_query_embs = self.embed_inputs(
             model,
@@ -270,7 +270,7 @@ class RerankingEvaluator(BaseEvaluator):
             if num_pos == 0 or num_neg == 0:
                 continue
 
-            pred_scores = self.similarity_fct(query_emb, docs_emb)
+            pred_scores = similarity_fct(query_emb, docs_emb)
             if len(pred_scores.shape) > 1:
                 pred_scores = pred_scores[0]
 
@@ -311,6 +311,7 @@ class RerankingEvaluator(BaseEvaluator):
         all_mrr_scores = []
         all_ndcg_scores = []
         all_ap_scores = []
+        similarity_fct = self.similarity_fct if self.similarity_fct is not None else model.similarity
 
         for instance in tqdm.tqdm(self.samples, disable=not self.show_progress_bar, desc="Samples"):
             query = instance["query"]
@@ -326,7 +327,7 @@ class RerankingEvaluator(BaseEvaluator):
             query_emb = self.embed_inputs(model, [query], encode_fn_name="query", show_progress_bar=False)
             docs_emb = self.embed_inputs(model, docs, encode_fn_name="document", show_progress_bar=False)
 
-            pred_scores = self.similarity_fct(query_emb, docs_emb)
+            pred_scores = similarity_fct(query_emb, docs_emb)
             if len(pred_scores.shape) > 1:
                 pred_scores = pred_scores[0]
 

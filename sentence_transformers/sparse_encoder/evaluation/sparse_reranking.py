@@ -122,7 +122,6 @@ class SparseRerankingEvaluator(RerankingEvaluator):
     ):
         self.max_active_dims = max_active_dims
         self.sparsity_stats = defaultdict(list)
-        self._user_similarity_fct = similarity_fct
         super().__init__(
             samples=samples,
             at_k=at_k,
@@ -142,8 +141,6 @@ class SparseRerankingEvaluator(RerankingEvaluator):
         self, model: SparseEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
         self.sparsity_stats = defaultdict(list)
-        if self._user_similarity_fct is None:
-            self.similarity_fct = model.similarity
         metrics = super().__call__(model=model, output_path=output_path, epoch=epoch, steps=steps)
         for key, value in self.sparsity_stats.items():
             self.sparsity_stats[key] = sum(value) / len(value)
