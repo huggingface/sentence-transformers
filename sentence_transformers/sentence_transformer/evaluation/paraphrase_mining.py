@@ -26,7 +26,7 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
             For example, sentences_map[id] => sentence.
         duplicates_list (List[Tuple[str, str]], optional): A list with id pairs [(id1, id2), (id1, id5)]
             that identifies the duplicates / paraphrases in the sentences_map. Defaults to None.
-        duplicates_dict (Dict[str, Dict[str, bool]], optional): A default dictionary mapping [id1][id2]
+        duplicates_dict (Dict[str, Dict[str, bool]], optional): A dictionary mapping [id1][id2]
             to true if id1 and id2 are duplicates. Must be symmetric, i.e., if [id1][id2] => True,
             then [id2][id1] => True. Defaults to None.
         add_transitive_closure (bool, optional): If true, it adds a transitive closure,
@@ -124,7 +124,12 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
         # Store the flag under a private name, as `self.add_transitive_closure` refers to the static method
         self._add_transitive_closure = add_transitive_closure
 
-        self.duplicates = duplicates_dict if duplicates_dict is not None else defaultdict(lambda: defaultdict(bool))
+        # Copy into a nested defaultdict: lookups of unlabeled pairs must return False rather than raise a
+        # KeyError for a plain dict, and adding pairs or the transitive closure must not modify the caller's dict
+        self.duplicates = defaultdict(lambda: defaultdict(bool))
+        if duplicates_dict is not None:
+            for id1, id1_duplicates in duplicates_dict.items():
+                self.duplicates[id1].update(id1_duplicates)
         if duplicates_list is not None:
             for id1, id2 in duplicates_list:
                 if id1 in sentences_map and id2 in sentences_map:

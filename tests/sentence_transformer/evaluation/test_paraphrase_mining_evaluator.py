@@ -109,3 +109,29 @@ def test_mixed_score_groups_match_threshold_metrics() -> None:
     assert metrics["average_precision"] == pytest.approx(average_precision_score(labels, scores))
     assert metrics["f1"] == pytest.approx(max(f1_score(labels, scores >= threshold) for threshold in scores))
     assert metrics["f1"] == pytest.approx(f1_score(labels, scores >= metrics["threshold"]))
+
+
+@pytest.mark.parametrize("add_transitive_closure", [False, True])
+def test_plain_duplicates_dict(add_transitive_closure: bool) -> None:
+    """A plain (e.g. JSON-loaded) duplicates_dict that only lists the duplicates must work, and must not be modified."""
+    model = SentenceTransformer(modules=[BoW(["red", "blue"])], device="cpu")
+    texts = {"a": "red", "b": "red", "c": "red blue", "d": "blue"}
+    duplicates_dict = {"a": {"b": True}, "b": {"a": True, "c": True}, "c": {"b": True, "d": False}}
+    original = json.loads(json.dumps(duplicates_dict))
+    evaluator = ParaphraseMiningEvaluator(
+        texts,
+        duplicates_list=[("c", "d")],
+        duplicates_dict=duplicates_dict,
+        add_transitive_closure=add_transitive_closure,
+        write_csv=False,
+    )
+    metrics = evaluator(model)
+    assert duplicates_dict == original
+    expected = ParaphraseMiningEvaluator(
+        texts,
+        duplicates_list=[("a", "b"), ("b", "c"), ("c", "d")],
+        add_transitive_closure=add_transitive_closure,
+        write_csv=False,
+    )
+    assert evaluator.total_num_duplicates == expected.total_num_duplicates
+    assert metrics == expected(model)
