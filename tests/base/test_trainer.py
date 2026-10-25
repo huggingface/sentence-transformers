@@ -473,6 +473,48 @@ def test_loss_gradients_match_manual_training(
         assert parameter.grad is None
 
 
+@pytest.mark.parametrize("loss_class", [SoftmaxLoss, CosineSimilarityLoss, MSELoss])
+def test_resume_from_checkpoint_restores_loss_weights(loss_training_model, tmp_path, loss_class) -> None:
+    """Weights that live on the loss (the SoftmaxLoss classifier, the MSELoss projection) are trained, but are
+    not part of the model checkpoint. Resuming must restore them rather than continue from a fresh init."""
+
+    def make_loss(model):
+        if loss_class is SoftmaxLoss:
+            return SoftmaxLoss(model, model.get_embedding_dimension(), num_labels=3), 1
+        if loss_class is MSELoss:
+            return MSELoss(model, projection_dim=12), [0.25] * 12
+        return CosineSimilarityLoss(model), 0.5
+
+    def train(model, loss, label, resume_from_checkpoint=None):
+        dataset = Dataset.from_dict({"a": ["hello"] * 4, "b": ["world"] * 4, "label": [label] * 4})
+        args = SentenceTransformerTrainingArguments(
+            output_dir=str(tmp_path),
+            use_cpu=True,
+            max_steps=2,
+            per_device_train_batch_size=2,
+            learning_rate=0.1,
+            save_steps=2,
+            report_to=[],
+            disable_tqdm=True,
+        )
+        trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=dataset, loss=loss)
+        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+
+    initial_model = deepcopy(loss_training_model)
+    loss, label = make_loss(loss_training_model)
+    train(loss_training_model, loss, label)
+    trained_state = {name: tensor.clone() for name, tensor in loss.state_dict().items()}
+    checkpoint = tmp_path / "checkpoint-2"
+    assert (checkpoint / "loss.pt").exists() == (loss_class is not CosineSimilarityLoss)
+
+    resumed_loss, _ = make_loss(initial_model)
+    train(initial_model, resumed_loss, label, resume_from_checkpoint=str(checkpoint))
+    resumed_state = resumed_loss.state_dict()
+    assert resumed_state.keys() == trained_state.keys()
+    for name, tensor in trained_state.items():
+        torch.testing.assert_close(resumed_state[name], tensor, msg=name)
+
+
 @pytest.mark.parametrize("fp16", [False, True])
 def test_multi_objective_training_only_updates_active_loss(loss_training_model, tmp_path, fp16: bool) -> None:
     if fp16 and not torch.cuda.is_available():
