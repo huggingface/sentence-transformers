@@ -6,6 +6,7 @@ from ...base.evaluation.evaluator import BaseEvaluator, SentenceEvaluator
 from ...base.evaluation.sequential import SequentialEvaluator
 from ...util.similarity import SimilarityFunction
 from .binary_classification import BinaryClassificationEvaluator
+from .embedding_export import EmbeddingExportEvaluator
 from .embedding_similarity import EmbeddingSimilarityEvaluator
 from .information_retrieval import InformationRetrievalEvaluator
 from .label_accuracy import LabelAccuracyEvaluator
@@ -22,6 +23,7 @@ __all__ = [
     "SentenceEvaluator",
     "SimilarityFunction",
     "BinaryClassificationEvaluator",
+    "EmbeddingExportEvaluator",
     "EmbeddingSimilarityEvaluator",
     "InformationRetrievalEvaluator",
     "LabelAccuracyEvaluator",
