@@ -972,9 +972,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             if output_value == "token_embeddings":
                 embeddings = []
                 for token_emb, attention in zip(out_features[output_value], out_features["attention_mask"]):
-                    # Strip padding on both sides, as the tokenizer may pad on the left
-                    token_positions = attention.nonzero().flatten().tolist() or [0]
-                    embeddings.append(token_emb[token_positions[0] : token_positions[-1] + 1])
+                    embeddings.append(token_emb[attention.bool()])
             elif output_value is None:
                 embeddings = []
                 for idx in range(len(inputs_batch)):
