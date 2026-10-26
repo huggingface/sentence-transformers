@@ -73,6 +73,14 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    -4.32   Berlin is well known for its museums.
    """
 
+.. note::
+
+   :meth:`CrossEncoder.predict <sentence_transformers.cross_encoder.model.CrossEncoder.predict>` applies
+   ``model.activation_fn`` before returning scores. For a one-label model, the fallback activation is
+   ``torch.nn.Sigmoid``, but a saved model configuration can select a different activation, such as
+   ``torch.nn.Identity`` for raw logits. Check ``model.activation_fn`` before post-processing the scores,
+   and do not apply the same activation a second time. Pass ``activation_fn`` to ``predict()`` to override it.
+
 Some Cross Encoder models support multimodal pairs, such as a text query and an image document. Use :attr:`model.modalities <sentence_transformers.cross_encoder.model.CrossEncoder.modalities>` and :meth:`model.supports() <sentence_transformers.cross_encoder.model.CrossEncoder.supports>` to check modality support. See :doc:`../../input_formats` for accepted representations, metadata, and batching.
 
 The following example ranks image, text, and combined text-image documents for a text query:
