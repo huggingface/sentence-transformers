@@ -1239,14 +1239,14 @@ def test_multi_process_pool_cleanup(failure: str | None) -> None:
     model.similarity.side_effect = cos_sim
     model.similarity_pairwise.side_effect = pairwise_cos_sim
     cross_encoder = Mock(spec=CrossEncoder)
-    cross_encoder.predict.side_effect = [torch.tensor([0.9, 0.1]), torch.tensor([0.9])]
+    cross_encoder.predict.side_effect = [torch.tensor([0.9, 0.1, 0.1]), torch.tensor([0.9])]
     error = RuntimeError("simulated inference failure")
     if failure in ("encode_document", "encode_query"):
         getattr(model, failure).side_effect = error
     elif failure == "candidates":
         cross_encoder.predict.side_effect = error
     elif failure == "positives":
-        cross_encoder.predict.side_effect = [torch.tensor([0.9, 0.1]), error]
+        cross_encoder.predict.side_effect = [torch.tensor([0.9, 0.1, 0.1]), error]
 
     kwargs = dict(
         dataset=dataset,
@@ -1335,7 +1335,7 @@ def test_num_negatives_exceeds_range_window_capped_by_faiss(
     faiss = pytest.importorskip("faiss")
     monkeypatch.setattr(faiss, "get_num_gpus", lambda: 1)
 
-    with pytest.raises(ValueError, match="range_max was capped to 2047 because FAISS on GPU"):
+    with pytest.raises(ValueError, match="range_max was capped to 2046 because FAISS on GPU"):
         mine_hard_negatives(
             dataset=dataset,
             model=static_retrieval_mrl_en_v1_model,
@@ -1422,7 +1422,7 @@ def test_range_min_above_faiss_capped_range_max(
     faiss = pytest.importorskip("faiss")
     monkeypatch.setattr(faiss, "get_num_gpus", lambda: 1)
 
-    with pytest.raises(ValueError, match="range_min must be smaller than range_max.*range_max was capped to 2047"):
+    with pytest.raises(ValueError, match="range_min must be smaller than range_max.*range_max was capped to 2046"):
         mine_hard_negatives(
             dataset=dataset,
             model=static_retrieval_mrl_en_v1_model,
@@ -1815,6 +1815,9 @@ class ControlledNegativeScoreModel:
     def encode_document(self, texts, **kwargs):
         return torch.stack([self.embeddings[text] for text in texts]).numpy()
 
+    def get_embedding_dimension(self):
+        return 2
+
     def similarity(self, queries, corpus):
         return torch.as_tensor(queries, dtype=torch.float32) @ torch.as_tensor(corpus, dtype=torch.float32).T
 
@@ -1935,3 +1938,42 @@ def test_anchor_is_not_mined_as_its_own_negative(
     )
 
     assert result["negative_1"] == expected_negatives
+
+
+@pytest.mark.parametrize("use_faiss", [False, True])
+@pytest.mark.parametrize("output_format", ["triplet", "n-tuple"])
+@pytest.mark.parametrize("sampling_strategy", ["top", "random"])
+def test_anchor_exclusion_preserves_candidate_window(
+    use_faiss: bool, output_format: str, sampling_strategy: str
+) -> None:
+    if use_faiss:
+        pytest.importorskip("faiss")
+    model = ControlledNegativeScoreModel()
+    model.embeddings = {
+        text: torch.tensor([score, math.sqrt(1 - score**2)])
+        for text, score in [("q", 1.0), ("p", 0.99), ("n1", 0.9), ("n2", 0.8), ("n3", 0.7)]
+    }
+    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"]})
+
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        corpus=["q", "n1", "n2", "n3"],
+        range_max=3,
+        num_negatives=3,
+        use_faiss=use_faiss,
+        output_format=output_format,
+        sampling_strategy=sampling_strategy,
+        verbose=False,
+    )
+
+    if output_format == "triplet":
+        assert result.to_dict() == {"query": ["q"] * 3, "positive": ["p"] * 3, "negative": ["n1", "n2", "n3"]}
+    else:
+        assert result.to_dict() == {
+            "query": ["q"],
+            "positive": ["p"],
+            "negative_1": ["n1"],
+            "negative_2": ["n2"],
+            "negative_3": ["n3"],
+        }

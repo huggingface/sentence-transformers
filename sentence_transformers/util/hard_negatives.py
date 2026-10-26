@@ -361,6 +361,7 @@ def mine_hard_negatives(
     if num_negatives < 1:
         raise ValueError(f"num_negatives must be at least 1, got num_negatives={num_negatives}.")
 
+    num_extra_candidates = max_positives + 1
     faiss_cap_note = ""
     if range_max is None:
         if (
@@ -374,20 +375,19 @@ def mine_hard_negatives(
         else:
             # max_positives, num_negatives negatives, and range_min skipped
             range_max = range_min + num_negatives + max_positives
-        if use_faiss and range_max + max_positives > 2048:
-            # FAISS on GPU raises if asked to retrieve more than 2048 documents per query, and the search
-            # retrieves range_max + max_positives of them. FAISS on CPU has no such limit.
+        if use_faiss and range_max + num_extra_candidates > 2048:
+            # FAISS on GPU limits retrieval to 2048 candidates, including those we exclude.
             if getattr(faiss, "get_num_gpus", lambda: 0)() > 0:
-                range_max = 2048 - max_positives
+                range_max = 2048 - num_extra_candidates
                 faiss_cap_note = (
                     f" Note that range_max was capped to {range_max} because FAISS on GPU can only retrieve up to"
-                    " 2048 documents per query, some of which are reserved for the positives. Passing use_faiss=False"
+                    " 2048 documents per query, some of which are reserved for excluded candidates. Passing use_faiss=False"
                     " lifts that cap, although it can cost a lot more memory."
                 )
                 if verbose:
                     print(
                         "Using FAISS on GPU, we can only retrieve up to 2048 documents per query, some of which "
-                        f"are reserved for the positives. Setting range_max to {range_max}."
+                        f"are reserved for excluded candidates. Setting range_max to {range_max}."
                     )
         if verbose:
             print(f"Setting range_max to {range_max} based on the provided parameters.")
@@ -429,6 +429,7 @@ def mine_hard_negatives(
     queries_idx = {query: idx for idx, query in enumerate(queries)}
     n_queries = len(queries)
     batch_idx = torch.arange(n_queries).unsqueeze(-1)
+    query_corpus_indices = [corpus_idx.get(query, -1) for query in queries]
 
     device = model.device
 
@@ -514,6 +515,7 @@ def mine_hard_negatives(
             if verbose:
                 print(f"[Cache] Saved corpus embeddings to {corpus_cache_file}")
 
+    candidate_count = range_max + num_extra_candidates
     if use_faiss:
         index = faiss.IndexFlatIP(model.get_embedding_dimension())
         # Move the index to the GPU if available
@@ -532,8 +534,7 @@ def mine_hard_negatives(
         # Iterate over query embeddings in batches so we can track the progress
         for i in trange(0, len(query_embeddings), faiss_batch_size, desc="Querying FAISS index"):
             query_chunk = query_embeddings[i : i + faiss_batch_size]
-            # Keep the range_max + max_positives highest scores. We offset by max_positives to leave room for the positive pair(s).
-            scores, indices = index.search(query_chunk, k=range_max + max_positives)
+            scores, indices = index.search(query_chunk, k=candidate_count)
             scores_list.append(scores)
             indices_list.append(indices)
         scores = torch.from_numpy(np.concatenate(scores_list, axis=0)).to(device)
@@ -544,21 +545,19 @@ def mine_hard_negatives(
         indices_list = []
         corpus_embeddings = torch.as_tensor(corpus_embeddings)
         # torch.topk raises if k exceeds the corpus size, so cap it here and pad back up below.
-        k = min(range_max + max_positives, len(corpus))
+        k = min(candidate_count, len(corpus))
         # Compute the similarity scores between the queries and the corpus in batches, to avoid
         # materializing the full (n_queries, n_corpus) similarity matrix
         for i in trange(0, len(query_embeddings), faiss_batch_size, desc="Computing similarity scores"):
             chunk_scores = model.similarity(query_embeddings[i : i + faiss_batch_size], corpus_embeddings).to(device)
 
-            # Keep only the range_max + max_positives highest scores. We offset by max_positives to leave room for the positive pair(s).
             chunk_scores, chunk_indices = torch.topk(chunk_scores, k=k, dim=1)
             scores_list.append(chunk_scores)
             indices_list.append(chunk_indices)
         scores = torch.cat(scores_list, dim=0)
         indices = torch.cat(indices_list, dim=0)
 
-        # Pad back up to range_max + max_positives columns with index -1, mirroring the FAISS branch.
-        missing = (range_max + max_positives) - scores.size(1)
+        missing = candidate_count - scores.size(1)
         if missing > 0:
             scores = torch.cat([scores, scores.new_full((scores.size(0), missing), -float("inf"))], dim=1)
             indices = torch.cat([indices, indices.new_full((indices.size(0), missing), -1)], dim=1)
@@ -572,6 +571,8 @@ def mine_hard_negatives(
         query_idx = queries_idx[query]
         if corpus_idx[positive] not in positive_indices[query_idx]:
             positive_indices[query_idx].append(corpus_idx[positive])
+        if include_positives and query == positive:
+            query_corpus_indices[query_idx] = -1
 
     n_positives = [len(p) for p in positive_indices]
 
@@ -630,15 +631,13 @@ def mine_hard_negatives(
     # candidate.
     scores[indices == -1] = -float("inf")
 
-    # for each query, create a mask that is True for the positives and False for the negatives in the indices
-    positive_mask = torch.stack([torch.isin(indices[q_idx], positive_indices[q_idx]) for q_idx in range(n_queries)])
-
-    query_corpus_indices = torch.tensor([corpus_idx.get(query, -1) for query in queries], device=device)
-    scores[(indices == query_corpus_indices.unsqueeze(1)) & ~positive_mask] = -float("inf")
+    query_corpus_indices = torch.tensor(query_corpus_indices, device=device)
+    scores[indices == query_corpus_indices.unsqueeze(1)] = -float("inf")
 
     if not include_positives:
-        # Scores is a [num_queries, range_max] tensor, where we set the values to -inf to disqualify the corresponding
-        # positive candidates
+        positive_mask = torch.stack(
+            [torch.isin(indices[q_idx], positive_indices[q_idx]) for q_idx in range(n_queries)]
+        )
         scores[positive_mask] = -float("inf")
 
     num_candidates = scores.numel()
