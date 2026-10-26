@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 from pathlib import Path, PureWindowsPath
 
 from huggingface_hub import hf_hub_download, snapshot_download
@@ -316,10 +317,10 @@ def load_dir_path(
 def http_get(url: str, path: str) -> None:
     """Download a URL to a local file with a progress bar.
 
-    The content is streamed in chunks and first written to a temporary
-    ``"<path>_part"`` file, which is atomically moved to ``path`` once the
-    download has completed successfully. Parent directories of ``path`` are
-    created automatically if they do not exist.
+    The content is streamed in chunks into a unique temporary directory beside
+    ``path``, then atomically moved to ``path`` once the download has completed
+    successfully. Concurrent downloads have independent temporary files.
+    Parent directories of ``path`` are created automatically if they do not exist.
 
     Args:
         url (str): The HTTP(S) URL to download.
@@ -335,7 +336,6 @@ def http_get(url: str, path: str) -> None:
     if os.path.dirname(path) != "":
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    download_filepath = path + "_part"
     with httpx.stream("GET", url, follow_redirects=True) as response:
         response.raise_for_status()
         content_length = response.headers.get("Content-Length")
@@ -345,15 +345,13 @@ def http_get(url: str, path: str) -> None:
         )
 
         try:
-            with open(download_filepath, "wb") as file_binary:
-                for chunk in response.iter_bytes(chunk_size=1024):
-                    if chunk:
-                        progress.update(len(chunk))
-                        file_binary.write(chunk)
-            os.replace(download_filepath, path)
-        except Exception:
-            if os.path.exists(download_filepath):
-                os.remove(download_filepath)
-            raise
+            with tempfile.TemporaryDirectory(dir=os.path.dirname(path) or ".", prefix=".st-download-") as temp_dir:
+                download_filepath = os.path.join(temp_dir, "download")
+                with open(download_filepath, "wb") as file_binary:
+                    for chunk in response.iter_bytes(chunk_size=1024):
+                        if chunk:
+                            progress.update(len(chunk))
+                            file_binary.write(chunk)
+                os.replace(download_filepath, path)
         finally:
             progress.close()
