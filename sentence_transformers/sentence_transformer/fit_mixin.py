@@ -279,12 +279,9 @@ class FitMixin:
                 batch_texts, batch_labels = zip(*[(example.texts, example.label) for example in batch])
                 texts += batch_texts
                 labels += batch_labels
-            # `zip(*texts)` would silently cut every example down to the one with the fewest texts
-            num_texts = sorted({len(example_texts) for example_texts in texts})
-            if len(num_texts) > 1:
+            if len({len(example_texts) for example_texts in texts}) > 1:
                 raise ValueError(
-                    f"All InputExamples for training objective {loader_idx} must have the same number of texts, "
-                    f"but got examples with {num_texts} texts."
+                    f"All InputExamples for training objective {loader_idx} must have the same number of texts."
                 )
             dataset = Dataset.from_dict({f"sentence_{idx}": text for idx, text in enumerate(zip(*texts))})
             # Add label column, unless all labels are 0 (the default value for `labels` in InputExample)
