@@ -4,6 +4,8 @@ Tests the RerankingEvaluator
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 import torch
 from datasets import Dataset
@@ -55,22 +57,21 @@ def test_reranking_evaluator_string_documents(
 
 @pytest.mark.parametrize("use_batched_encoding", [True, False])
 @pytest.mark.parametrize(
-    ("similarity_fn_name", "similarity_fct", "expected_score"),
+    ("similarity_fn_name", "similarity_kwargs", "expected_score"),
     [
-        ("dot", None, 1.0),
-        ("euclidean", None, 1.0),
-        ("manhattan", None, 1.0),
-        ("cosine", None, 0.0),
-        ("dot", cos_sim, 0.0),
+        ("dot", {}, 1.0),
+        ("dot", {"similarity_fct": None}, 1.0),
+        ("euclidean", {}, 1.0),
+        ("manhattan", {}, 1.0),
+        ("cosine", {}, 0.0),
+        ("dot", {"similarity_fct": cos_sim}, 0.0),
     ],
 )
 def test_reranking_evaluator_similarity(
-    use_batched_encoding: bool, similarity_fn_name: str, similarity_fct, expected_score: float
+    use_batched_encoding: bool, similarity_fn_name: str, similarity_kwargs: dict, expected_score: float
 ) -> None:
-    """Without a similarity_fct, documents are ranked with the model's own similarity function"""
     tokenizer = Tokenizer(WordLevel({"[UNK]": 0, "alpha": 1, "beta": 2, "gamma": 3}, unk_token="[UNK]"))
     tokenizer.pre_tokenizer = Whitespace()
-    # Against "alpha", the positive "beta" ranks first on dot, euclidean and manhattan, but second on cosine
     model = SentenceTransformer(
         modules=[
             StaticEmbedding(
@@ -86,9 +87,12 @@ def test_reranking_evaluator_similarity(
         at_k=1,
         write_csv=False,
         use_batched_encoding=use_batched_encoding,
-        similarity_fct=similarity_fct,
+        **similarity_kwargs,
     )
 
-    metrics = evaluator(model)
-    assert metrics["mrr@1"] == expected_score
-    assert metrics["ndcg@1"] == expected_score
+    cosine_model = deepcopy(model)
+    cosine_model.similarity_fn_name = "cosine"
+    for current_model, score in [(model, expected_score), (cosine_model, 0.0), (model, expected_score)]:
+        metrics = evaluator(current_model)
+        assert metrics["mrr@1"] == score
+        assert metrics["ndcg@1"] == score
