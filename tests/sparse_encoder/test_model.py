@@ -720,7 +720,7 @@ def test_similarity_fn_name_constructor_overrides_saved(splade_bert_tiny_model: 
 
 def test_prompts(splade_bert_tiny_model: SparseEncoder, caplog: pytest.LogCaptureFixture) -> None:
     model = splade_bert_tiny_model
-    assert model.prompts == {"query": "", "document": ""}
+    assert model.prompts == {"query": "", "document": None}
     assert model.default_prompt_name is None
     texts = ["How to bake a chocolate cake", "Symptoms of the flu"]
     no_prompt_embedding = model.encode(texts, convert_to_sparse_tensor=False, save_to_cpu=True)
@@ -782,7 +782,7 @@ def test_save_load_prompts() -> None:
         prompts={"query": "query: "},
         default_prompt_name="query",
     )
-    assert model.prompts == {"query": "query: ", "document": ""}
+    assert model.prompts == {"query": "query: ", "document": None}
     assert model.default_prompt_name == "query"
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_folder:
@@ -792,11 +792,11 @@ def test_save_load_prompts() -> None:
         assert config_path.exists()
         with open(config_path, encoding="utf8") as f:
             saved_config = json.load(f)
-        assert saved_config["prompts"] == {"query": "query: ", "document": ""}
+        assert saved_config["prompts"] == {"query": "query: ", "document": None}
         assert saved_config["default_prompt_name"] == "query"
 
         fresh_model = SparseEncoder(str(model_path))
-        assert fresh_model.prompts == {"query": "query: ", "document": ""}
+        assert fresh_model.prompts == {"query": "query: ", "document": None}
         assert fresh_model.default_prompt_name == "query"
 
 
@@ -987,7 +987,7 @@ def test_conversion_ignores_source_prompts_and_similarity(tmp_path) -> None:
     source.save_pretrained(str(tmp_path))
 
     model = SparseEncoder(str(tmp_path))
-    assert model.prompts == {"query": "", "document": ""}
+    assert model.prompts == {"query": "", "document": None}
     assert model.default_prompt_name is None
     assert model.similarity_fn_name == "dot"
 

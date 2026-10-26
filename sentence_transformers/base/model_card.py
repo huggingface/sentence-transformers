@@ -1336,7 +1336,7 @@ class BaseModelCardData(CardData):
             return
 
         for ir_prompt_name in ["query", "document", "passage", "corpus"]:
-            if ir_prompt_name in model.prompts and len(model.prompts[ir_prompt_name]) > 0:
+            if model.prompts.get(ir_prompt_name):
                 self.ir_model = True
                 return
 

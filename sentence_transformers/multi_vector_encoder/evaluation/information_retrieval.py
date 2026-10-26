@@ -168,9 +168,12 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         ):
             if explicit_prompt is None:
                 continue
-            # Mirror encode_query / encode_document: the first present role key is the prompt the
-            # model would have used.
-            role = next((key for key in role_keys if key in model.prompts), None)
+            # Mirror encode_query / encode_document, including the document alias selection.
+            role = (
+                model._resolve_document_prompt_name()
+                if param_name == "corpus_prompt"
+                else next((key for key in role_keys if key in model.prompts), None)
+            )
             registered = model.prompts.get(role) if role is not None else None
             if registered and not explicit_prompt.startswith(registered):
                 logger.warning_once(

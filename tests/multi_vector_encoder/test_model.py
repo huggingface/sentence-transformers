@@ -957,7 +957,7 @@ def test_conversion_ignores_prompts_from_sparse_save(tmp_path) -> None:
     sparse.save_pretrained(str(tmp_path))
 
     model = MultiVectorEncoder(str(tmp_path))
-    assert model.prompts == {"query": "", "document": ""}
+    assert model.prompts == {"query": "", "document": None}
     assert model.default_prompt_name is None
     assert model.similarity_fn_name == "maxsim"
 
