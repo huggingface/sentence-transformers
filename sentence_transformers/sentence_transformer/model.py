@@ -18,7 +18,7 @@ from typing_extensions import TypeIs, deprecated
 
 from sentence_transformers.base.modality_types import SingleInput
 from sentence_transformers.base.model import BaseModel
-from sentence_transformers.base.modules import Transformer
+from sentence_transformers.base.modules import Router, Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.util import batch_to_device, truncate_embeddings
 from sentence_transformers.util.decorators import deprecated_kwargs
@@ -222,6 +222,83 @@ class SentenceTransformer(BaseModel, FitMixin):
                     "Instructor models require `include_prompt=False` in the pooling configuration. "
                     "Either update the model configuration or call `model.set_pooling_include_prompt(False)` after loading the model."
                 )
+
+    def save_route(
+        self,
+        path: str,
+        route: str,
+        *,
+        model_name: str | None = None,
+        create_model_card: bool = True,
+        train_datasets: list[str] | None = None,
+        safe_serialization: bool = True,
+    ) -> None:
+        """Save one Router route as a standalone SentenceTransformer.
+
+        Replaces the model's single top-level Router with the selected route's
+        modules and includes all modules before and after it. Prompts, the default
+        prompt name, similarity function, and truncation dimension are preserved.
+        Other routes are excluded from the saved checkpoint.
+
+        Use the same encoding method on the exported model as on the original,
+        for example ``encode_query`` or ``encode_document``. Task-dependent
+        preprocessing and prompt selection still depend on that method; exporting
+        a route does not make its task the default for ``encode``.
+
+        Args:
+            path: Directory in which to save the standalone model.
+            route: Exact key in the Router's ``sub_modules`` dictionary, for
+                example ``"query"`` or ``"document"``.
+            model_name: Optional model name for the model card. Defaults to None.
+            create_model_card: Whether to generate a model card. Defaults to True.
+            train_datasets: Optional training dataset names, as in ``save``.
+                Defaults to None.
+            safe_serialization: Whether to use safetensors. Defaults to True.
+
+        Raises:
+            ValueError: If the model does not have exactly one top-level Router,
+                the route is unknown, or the selected pipeline contains a nested Router.
+
+        Example::
+
+            model.save_route("query_encoder", route="query")
+            query_encoder = SentenceTransformer("query_encoder")
+            embeddings = query_encoder.encode_query(["What is the capital of France?"])
+        """
+        routers = [module for module in self if isinstance(module, Router)]
+        if len(routers) != 1:
+            raise ValueError("save_route requires exactly one top-level Router module.")
+        router = routers[0]
+        if route not in router.sub_modules:
+            raise ValueError(f"Unknown route {route!r}. Available routes: {list(router.sub_modules)}")
+
+        modules = OrderedDict()
+        module_kwargs = {}
+        for name, module in self.named_children():
+            selected = list(router.sub_modules[route]) if module is router else [module]
+            for child in selected:
+                if any(isinstance(descendant, Router) for descendant in child.modules()):
+                    raise ValueError("save_route does not support nested Router modules in the selected pipeline.")
+                new_name = str(len(modules))
+                modules[new_name] = child
+                if module is not router and self.module_kwargs and name in self.module_kwargs:
+                    module_kwargs[new_name] = list(self.module_kwargs[name])
+
+        # A shallow view avoids copying weights or constructing a second model,
+        # which could move modules or rerun their on_model_ready hooks.
+        exported = copy.copy(self)
+        exported._modules = modules
+        exported.module_kwargs = module_kwargs
+        exported.model_card_data = copy.deepcopy(self.model_card_data, memo={id(self): exported})
+        # Generate a card for the selected architecture rather than reuse the full model's card.
+        exported._model_card_text = None
+        exported.save(
+            path,
+            model_name=model_name,
+            create_model_card=create_model_card,
+            train_datasets=train_datasets,
+            safe_serialization=safe_serialization,
+        )
 
     @overload
     def encode_query(

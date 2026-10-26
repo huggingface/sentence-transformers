@@ -473,3 +473,29 @@ This way, users can specify the ``task`` keyword argument when calling :meth:`Se
    model = SentenceTransformer("your-username/your-model-id", trust_remote_code=True)
    texts = [...]
    model.encode(texts, task="default")
+
+Exporting a Router Route
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Asymmetric models can use a :class:`~sentence_transformers.base.modules.Router` to
+select separate query and document encoders. To deploy these encoders separately,
+use :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer.save_route`:
+
+.. code-block:: python
+
+   model.save_route("query_encoder", route="query")
+   model.save_route("document_encoder", route="document")
+
+   query_encoder = SentenceTransformer("query_encoder")
+   document_encoder = SentenceTransformer("document_encoder")
+   query_embeddings = query_encoder.encode_query(queries)
+   document_embeddings = document_encoder.encode_document(documents)
+
+Each checkpoint contains the selected route plus any modules before and after the
+Router, with the original prompts, similarity function, and truncation dimension.
+Use the same encoding method as before export: ``encode_query`` and
+``encode_document`` still select their respective prompts and task-dependent
+preprocessing. Plain ``encode`` retains its original default prompt behavior.
+
+This method accepts exact route keys and supports one top-level Router. Nested
+Routers in the selected pipeline are not supported.
