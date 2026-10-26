@@ -132,6 +132,42 @@ These methods accept all the same input types as :meth:`~sentence_transformers.s
    # tensor([[0.3907, 0.1490],
    #         [0.1235, 0.4872]])
 
+Configuring the Encoding Progress Bar
+-------------------------------------
+
+Use ``show_progress_bar=True`` or ``False`` when calling ``model.encode()`` to show or hide the batch progress bar. The default, ``None``, shows it when the encoding logger's effective level is ``INFO`` or ``DEBUG``.
+
+For additional configuration, use `tqdm's options <https://tqdm.github.io/docs/tqdm/>`_. For example, with tqdm 4.66.0 or newer, set ``TQDM_MININTERVAL`` before starting Python to reduce how often progress is printed:
+
+.. code-block:: bash
+
+   TQDM_MININTERVAL=5 python encode.py
+
+This sets a minimum update interval of five seconds for bars that use tqdm's default ``mininterval``. Set environment variables before importing Sentence Transformers or tqdm. Explicit arguments take precedence over environment defaults: in particular, use ``show_progress_bar`` to control visibility because ``encode()`` explicitly passes ``disable`` to tqdm.
+
+To configure options in Python, such as clearing the bar when it finishes (``leave=False``) or adapting its width to the terminal (``dynamic_ncols=True``), temporarily wrap the progress factory used by ``encode()``:
+
+.. code-block:: python
+
+   from functools import partial
+   from importlib import import_module
+   from unittest.mock import patch
+
+   from sentence_transformers import SentenceTransformer
+
+   model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+   sentences = ["The weather is lovely today.", "It's so sunny outside!"]
+
+   encoding_module = import_module(SentenceTransformer.__module__)
+   custom_trange = partial(encoding_module.trange, leave=False, dynamic_ncols=True)
+
+   with patch.object(encoding_module, "trange", custom_trange):
+       embeddings = model.encode(sentences, show_progress_bar=True)
+
+The context manager restores the original progress factory on exit, including when encoding raises an exception. Wrapping the existing factory preserves its terminal or notebook implementation. Patching ``tqdm.trange`` alone does not affect the reference already imported by Sentence Transformers.
+
+This workaround uses an implementation detail and may need updating in future versions. It changes the module's progress factory for all calls in the current process while the context is active, so avoid overlapping it with concurrent encoding calls. It applies to the single-process batch bar; it does not customize progress bars in worker processes.
+
 .. toctree::
    :maxdepth: 1
    :caption: Tasks and Advanced Usage
