@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import inspect
 import logging
 import math
@@ -81,7 +82,8 @@ class StaticEmbedding(InputModule):
         super().__init__()
 
         if isinstance(tokenizer, PreTrainedTokenizerFast):
-            tokenizer = tokenizer._tokenizer
+            # Copy the backend tokenizer, as calling the transformers tokenizer sets its padding and truncation
+            tokenizer = copy.deepcopy(tokenizer._tokenizer)
         elif not isinstance(tokenizer, Tokenizer):
             raise ValueError(
                 "The tokenizer must be fast (i.e. Rust-backed) to use this class. "

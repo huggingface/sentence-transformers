@@ -10,14 +10,11 @@ from datetime import datetime
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.base.training_args import (
-    BatchSamplers,
-    MultiDatasetBatchSamplers,
-    SentenceTransformerTrainingArguments,
-)
+from sentence_transformers.base.sampler import BatchSamplers, MultiDatasetBatchSamplers
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util.similarity import SimilarityFunction
 
 # Set the log level to INFO to get more information

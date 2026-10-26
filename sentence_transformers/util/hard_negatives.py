@@ -181,7 +181,9 @@ def mine_hard_negatives(
         corpus (List[str], optional): A list containing documents as strings that will be used as candidate negatives
             in addition to the second column in `dataset`. Defaults to None, in which case the second column in
             `dataset` will exclusively be used as the negative candidate corpus.
-        cross_encoder (CrossEncoder, optional): A CrossEncoder model to use for rescoring the candidates. Defaults to None.
+        cross_encoder (CrossEncoder, optional): A CrossEncoder model to use for rescoring the candidates and positives,
+            even when no score filters are set. Its scores determine the candidate ordering and, when
+            ``output_scores=True``, the returned scores. Defaults to None.
         range_min (int): Minimum rank of the closest matches to consider as negatives. Must be non-negative.
             Defaults to 0.
         range_max (int, optional): Maximum rank of the closest matches to consider as negatives. Must leave at least
@@ -595,9 +597,7 @@ def mine_hard_negatives(
     del corpus_embeddings
 
     # Rescore with cross_encoder
-    if cross_encoder is not None and (
-        absolute_margin is not None or relative_margin is not None or max_score is not None or min_score is not None
-    ):
+    if cross_encoder is not None:
         if use_multi_process:
             pool = cross_encoder.start_multi_process_pool(
                 target_devices=None if isinstance(use_multi_process, bool) else use_multi_process
