@@ -5,15 +5,18 @@ Computes embeddings
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from sentence_transformers import SentenceTransformer
 
 
-def test_encode_token_embeddings(stsb_bert_tiny_model: SentenceTransformer) -> None:
+@pytest.mark.parametrize("padding_side", ["right", "left"])
+def test_encode_token_embeddings(stsb_bert_tiny_model: SentenceTransformer, padding_side: str) -> None:
     """
     Test that encode(output_value='token_embeddings') works
     """
     model = stsb_bert_tiny_model
+    model.tokenizer.padding_side = padding_side
     sent = [
         "Hello Word, a test sentence",
         "Here comes another sentence",
