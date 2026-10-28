@@ -68,6 +68,10 @@ if is_training_available():
 
 logger = logging.getLogger(__name__)
 
+# Weights that a loss owns outside the model (e.g. the SoftmaxLoss classifier), saved with the optimizer
+# state in each checkpoint so that resuming training does not start them from scratch again.
+LOSS_STATE_NAME = "loss.pt"
+
 # The TrackioCallback is only available in the v4.54+ of transformers, but I'd like to keep Sentence Transformers
 # compatible with older versions of transformers as well, so we import it conditionally
 try:
@@ -1066,6 +1070,7 @@ class BaseTrainer(Trainer, ABC):
             OPTIMIZER_NAME_BIN,
             SCHEDULER_NAME,
             SCALER_NAME,
+            LOSS_STATE_NAME,
             TRAINER_STATE_NAME,
             TRAINING_ARGS_NAME,
             CONFIG_NAME,
@@ -1094,6 +1099,41 @@ class BaseTrainer(Trainer, ABC):
             checkpoint_path, module_classes, trust_remote_code=model.trust_remote_code
         )
         model.load_state_dict(loaded_model.state_dict())
+
+    def _loss_state_dict(self) -> dict[str, torch.Tensor]:
+        """The parameters and buffers of the loss(es) that are not part of the model, e.g. the SoftmaxLoss
+        classifier, the MSELoss projection or the ContrastiveTensionLoss model copy. The optimizer trains
+        them, but the model checkpoint does not contain them."""
+        loss_model = nn.Sequential(OrderedDict(self.loss)) if isinstance(self.loss, dict) else self.loss
+        model = getattr(self.model, "_orig_mod", self.model)
+        model_tensors = {id(tensor) for tensor in model.parameters()} | {id(tensor) for tensor in model.buffers()}
+        # Match by identity rather than by name: the loss may hold the model behind a DDP or torch.compile
+        # wrapper, and a loss weight tied to a model weight is already saved with the model.
+        model_names = {
+            name
+            for name, tensor in [
+                *loss_model.named_parameters(remove_duplicate=False),
+                *loss_model.named_buffers(remove_duplicate=False),
+            ]
+            if id(tensor) in model_tensors
+        }
+        return {name: tensor for name, tensor in loss_model.state_dict().items() if name not in model_names}
+
+    def _save_optimizer_and_scheduler(self, output_dir: str) -> None:
+        super()._save_optimizer_and_scheduler(output_dir)
+        if self.args.should_save and (loss_state_dict := self._loss_state_dict()):
+            torch.save(loss_state_dict, os.path.join(output_dir, LOSS_STATE_NAME))
+
+    def _load_optimizer_and_scheduler(self, checkpoint: str | None) -> None:
+        if checkpoint is not None and os.path.isfile(loss_state_path := os.path.join(checkpoint, LOSS_STATE_NAME)):
+            loss_model = nn.Sequential(OrderedDict(self.loss)) if isinstance(self.loss, dict) else self.loss
+            loss_state_dict = torch.load(loss_state_path, map_location="cpu", weights_only=True)
+            unexpected_keys = loss_model.load_state_dict(loss_state_dict, strict=False).unexpected_keys
+            if unexpected_keys:
+                logger.warning(
+                    f"Some loss weights from {loss_state_path} were not used when resuming: {unexpected_keys}"
+                )
+        super()._load_optimizer_and_scheduler(checkpoint)
 
     def preprocess_dataset(
         self, dataset: DatasetDict | Dataset | None = None, dataset_name: str | None = None
