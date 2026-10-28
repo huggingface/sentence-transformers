@@ -1051,6 +1051,37 @@ def test_multiple_positives_per_query(
     assert len(result) >= len(dataset_dup)
 
 
+@pytest.mark.parametrize("output_format", ["triplet", "n-tuple"])
+def test_multiple_positives_are_never_mined_as_negatives(
+    queries: list[str], passages: list[str], static_retrieval_mrl_en_v1_model: SentenceTransformer, output_format: str
+) -> None:
+    """No positive of a query is mined as its negative, even when the candidate window spans the whole corpus."""
+    model = static_retrieval_mrl_en_v1_model
+    # The first query has 3 positives, the second 2 and the third 1, over a corpus of 6 passages
+    queries_dup = queries[:3] + queries[:2] + queries[:1]
+    passages_dup = passages[:6]
+    dataset_dup = Dataset.from_dict({"query": queries_dup, "passage": passages_dup})
+
+    result = mine_hard_negatives(
+        dataset=dataset_dup,
+        model=model,
+        num_negatives=3,
+        range_max=3,
+        output_format=output_format,
+        verbose=False,
+    )
+    assert len(result) > 0
+
+    positives_per_query = defaultdict(set)
+    for query, positive in zip(queries_dup, passages_dup):
+        positives_per_query[query].add(positive)
+
+    negative_columns = [column for column in result.column_names if column.startswith("negative")]
+    for row in result:
+        for column in negative_columns:
+            assert row[column] not in positives_per_query[row["query"]]
+
+
 @pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
 def test_faiss_multiple_positives_matches_non_faiss(
     queries: list[str], passages: list[str], static_retrieval_mrl_en_v1_model: SentenceTransformer
