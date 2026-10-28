@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import pickle
 import re
 import sys
 import tempfile
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -862,6 +864,19 @@ def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEn
         str(tmp_path), activation_fn=torch.nn.Identity(), trust_remote_code=True, local_files_only=True
     )
     torch.testing.assert_close(loaded_model.predict(inputs, convert_to_tensor=True), raw_scores)
+
+
+@pytest.mark.parametrize(
+    "activation_fn",
+    [torch.relu, lambda scores: scores, functools.partial(torch.clamp, min=0.0)],
+    ids=["builtin", "lambda", "partial"],
+)
+def test_save_rejects_plain_function_activation_fn(
+    reranker_bert_tiny_model: CrossEncoder, tmp_path: Path, activation_fn: Callable
+) -> None:
+    reranker_bert_tiny_model.activation_fn = activation_fn
+    with pytest.raises(ValueError, match="plain function"):
+        reranker_bert_tiny_model.save_pretrained(tmp_path)
 
 
 def test_default_activation_fn(reranker_bert_tiny_model: CrossEncoder):

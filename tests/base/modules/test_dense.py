@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import functools
 import json
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -203,3 +205,14 @@ def test_dense_rejects_non_module_activation_class(tmp_path: Path) -> None:
     (tmp_path / "config.json").write_text(json.dumps({"activation_function": "torch.device"}))
     with pytest.raises(ValueError, match="must be a torch.nn.Module class"):
         Dense.load(str(tmp_path), local_files_only=True)
+
+
+@pytest.mark.parametrize(
+    "activation_function",
+    [torch.relu, nn.functional.silu, lambda x: x, functools.partial(nn.functional.gelu, approximate="tanh")],
+    ids=["builtin", "function", "lambda", "partial"],
+)
+def test_dense_save_rejects_plain_function_activation(tmp_path: Path, activation_function: Callable) -> None:
+    dense = Dense(2, 2, activation_function=activation_function)
+    with pytest.raises(ValueError, match="plain function"):
+        dense.save(str(tmp_path))

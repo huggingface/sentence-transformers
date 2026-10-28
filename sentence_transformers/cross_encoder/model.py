@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import inspect
 import logging
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
@@ -119,7 +121,8 @@ class CrossEncoder(BaseModel, FitMixin):
             the max length of the model will be used. Defaults to None.
         activation_fn (Callable, optional): Activation function applied on top of the model's logits during
             :meth:`predict`. If None, ``nn.Sigmoid()`` is used when ``num_labels=1``, else ``nn.Identity()``.
-            Defaults to None.
+            Use a ``torch.nn.Module`` (e.g. ``nn.Identity()``) if the model will be saved: plain functions
+            raise an error on save. Defaults to None.
         keep_in_fp32_modules (list[str], optional): Paths to plain linear layers that compute and return
             fp32, including under autocast. Parameter storage is unchanged. None inherits the saved
             selection, or selects nothing for a model without one. Pass [] to disable a saved selection.
@@ -850,6 +853,12 @@ class CrossEncoder(BaseModel, FitMixin):
         return True
 
     def _get_model_config(self) -> dict[str, Any]:
+        if inspect.isroutine(self.activation_fn) or isinstance(self.activation_fn, functools.partial):
+            raise ValueError(
+                f"Cannot save activation function {self.activation_fn!r}: plain functions can't be restored "
+                "from the configuration, so loading would fall back to the default activation function. "
+                "Please use a `torch.nn.Module` instead, e.g. `torch.nn.Identity()` instead of `lambda x: x`."
+            )
         config = super()._get_model_config() | {
             "activation_fn": fullname(self.activation_fn),
         }
