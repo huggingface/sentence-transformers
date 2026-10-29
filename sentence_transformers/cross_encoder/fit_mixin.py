@@ -66,7 +66,7 @@ class SaveModelCallback(TrainerCallback):
         **kwargs,
     ) -> None:
         if self.evaluator is not None and self.save_best_model:
-            metric_key = getattr(self.evaluator, "primary_metric", "evaluator")
+            metric_key = getattr(self.evaluator, "primary_metric", None) or "evaluator"
             for key, value in metrics.items():
                 if key.endswith(metric_key):
                     if self.best_metric is None or self.is_better(value):
@@ -134,7 +134,7 @@ class OriginalCallback(TrainerCallback):
         metrics: dict[str, Any],
         **kwargs,
     ) -> None:
-        metric_key = getattr(self.evaluator, "primary_metric", "evaluator")
+        metric_key = getattr(self.evaluator, "primary_metric", None) or "evaluator"
         for key, value in metrics.items():
             if key.endswith(metric_key):
                 return self.callback(value, state.epoch, state.global_step)
@@ -349,6 +349,10 @@ class FitMixin:
             optimizers=(optimizer, scheduler_obj),
             callbacks=callbacks,
         )
+        # Set the trainer on the EvaluatorCallback, required to pass its metrics to the other callbacks
+        for trainer_callback in trainer.callback_handler.callbacks:
+            if isinstance(trainer_callback, EvaluatorCallback):
+                trainer_callback.trainer = trainer
 
         if output_path is not None:
             trainer.add_callback(SaveModelCallback(output_path, evaluator, save_best_model))

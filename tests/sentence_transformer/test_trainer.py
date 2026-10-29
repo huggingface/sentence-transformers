@@ -16,6 +16,7 @@ from transformers import __version__ as transformers_version
 from transformers.trainer_utils import EvalLoopOutput
 
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.base.sampler import (
     BatchSamplers,
     DefaultBatchSampler,
@@ -1435,3 +1436,30 @@ def test_fit_with_custom_batch_sampler(stsb_bert_tiny_model, tmp_path, monkeypat
         show_progress_bar=False,
     )
     assert "uses a custom `batch_sampler`, whose batch grouping `fit()` does not preserve" in caplog.text
+
+
+def test_fit_with_float_evaluator_saves_best_model_and_calls_callback(
+    stsb_bert_tiny_model, tmp_path, monkeypatch
+) -> None:
+    class FloatEvaluator(BaseEvaluator):
+        # Returns a single score and keeps the default `primary_metric=None`
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1) -> float:
+            return float(epoch)
+
+    model = stsb_bert_tiny_model
+    monkeypatch.chdir(tmp_path)
+    examples = [InputExample(texts=[f"This is sentence {idx}", f"This is another sentence {idx}"]) for idx in range(8)]
+    output_path = tmp_path / "output"
+    callback_epochs = []
+    model.fit(
+        train_objectives=[(DataLoader(examples, batch_size=4), MultipleNegativesRankingLoss(model))],
+        evaluator=FloatEvaluator(),
+        epochs=2,
+        warmup_steps=0,
+        output_path=str(output_path),
+        callback=lambda score, epoch, steps: callback_epochs.append(epoch),
+        show_progress_bar=False,
+    )
+
+    assert callback_epochs == [1.0, 2.0]
+    assert (output_path / "modules.json").exists()

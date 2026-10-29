@@ -9,8 +9,10 @@ import pytest
 import torch
 from torch.utils.data import DataLoader
 
+from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, CrossEncoderTrainingArguments
 from sentence_transformers.cross_encoder.data_collator import CrossEncoderDataCollator
+from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
 from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss
 from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import is_datasets_available, is_training_available
@@ -407,3 +409,38 @@ def test_fit_with_loss_fct(
 
     assert not torch.equal(weights, before)
     assert torch.isfinite(weights).all()
+
+
+@pytest.mark.parametrize("evaluator_type", ["correlation", "float"])
+def test_fit_saves_best_model_and_calls_callback_after_each_epoch(
+    evaluator_type: str, reranker_bert_tiny_model: CrossEncoder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CrossEncoder.fit() evaluates after each epoch, saves the best model to `output_path` and calls `callback`."""
+
+    class FloatEvaluator(BaseEvaluator):
+        # Returns a single score and keeps the default `primary_metric=None`
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1) -> float:
+            return float(epoch)
+
+    monkeypatch.chdir(tmp_path)
+    model = reranker_bert_tiny_model
+    examples = [InputExample(texts=[f"query {idx}", f"passage {idx}"], label=float(idx % 2)) for idx in range(8)]
+    if evaluator_type == "correlation":
+        evaluator = CrossEncoderCorrelationEvaluator.from_input_examples(examples, name="dev")
+    else:
+        evaluator = FloatEvaluator()
+    output_path = tmp_path / "output"
+    callback_epochs = []
+    model.fit(
+        train_dataloader=DataLoader(examples, batch_size=4),
+        evaluator=evaluator,
+        epochs=2,
+        warmup_steps=0,
+        output_path=str(output_path),
+        callback=lambda score, epoch, steps: callback_epochs.append(epoch),
+        show_progress_bar=False,
+    )
+
+    assert callback_epochs == [1.0, 2.0]
+    assert (output_path / "modules.json").exists()
+    assert CrossEncoder(str(output_path)).predict([("query 0", "passage 0")]).shape == (1,)
