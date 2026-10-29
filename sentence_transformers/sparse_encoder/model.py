@@ -1469,5 +1469,5 @@ print(similarities)
 
 ---
 *This PR was auto-generated with \
-[`push_to_hub`](https://sbert.net/docs/package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.SparseEncoder.push_to_hub).*
+[`push_to_hub`](https://sbert.net/docs/package_reference/sparse_encoder/model.html#sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub).*
 """

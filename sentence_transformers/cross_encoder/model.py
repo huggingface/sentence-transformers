@@ -895,5 +895,5 @@ print(rankings)
 
 ---
 *This PR was auto-generated with \
-[`push_to_hub`](https://sbert.net/docs/package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.CrossEncoder.push_to_hub).*
+[`push_to_hub`](https://sbert.net/docs/package_reference/cross_encoder/model.html#sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub).*
 """

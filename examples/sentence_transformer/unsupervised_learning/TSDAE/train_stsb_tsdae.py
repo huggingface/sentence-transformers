@@ -98,7 +98,7 @@ Dataset({
 """
 # As you can see, the noisy text is applied on the fly when the sample is accessed.
 
-# 3. Define our training loss: https://sbert.net/docs/package_reference/sentence_transformer/losses.html#denoisingautoencoderLoss
+# 3. Define our training loss: https://sbert.net/docs/package_reference/sentence_transformer/losses.html#denoisingautoencoderloss
 # Note that this will likely result in warnings as we're loading 'model_name' as a decoder, but it likely won't
 # have weights for that yet. This is fine, as we'll be training it from scratch.
 train_loss = DenoisingAutoEncoderLoss(model, decoder_name_or_path=model_name, tie_encoder_decoder=True)

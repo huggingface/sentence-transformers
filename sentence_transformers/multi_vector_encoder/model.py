@@ -1618,5 +1618,5 @@ print(scores)
 
 ---
 *This PR was auto-generated with \
-[`push_to_hub`](https://sbert.net/docs/package_reference/multi_vector_encoder/MultiVectorEncoder.html#sentence_transformers.multi_vector_encoder.MultiVectorEncoder.push_to_hub).*
+[`push_to_hub`](https://sbert.net/docs/package_reference/multi_vector_encoder/model.html#sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.push_to_hub).*
 """
