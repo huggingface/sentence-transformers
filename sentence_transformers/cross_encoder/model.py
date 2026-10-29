@@ -122,7 +122,7 @@ class CrossEncoder(BaseModel, FitMixin):
         activation_fn (Callable, optional): Activation function applied on top of the model's logits during
             :meth:`predict`. If None, ``nn.Sigmoid()`` is used when ``num_labels=1``, else ``nn.Identity()``.
             Use a ``torch.nn.Module`` (e.g. ``nn.Identity()``) if the model will be saved: plain functions
-            raise an error on save. Defaults to None.
+            emit a warning on save. Defaults to None.
         keep_in_fp32_modules (list[str], optional): Paths to plain linear layers that compute and return
             fp32, including under autocast. Parameter storage is unchanged. None inherits the saved
             selection, or selects nothing for a model without one. Pass [] to disable a saved selection.
@@ -854,9 +854,9 @@ class CrossEncoder(BaseModel, FitMixin):
 
     def _get_model_config(self) -> dict[str, Any]:
         if inspect.isroutine(self.activation_fn) or isinstance(self.activation_fn, functools.partial):
-            raise ValueError(
-                f"Cannot save activation function {self.activation_fn!r}: plain functions can't be restored "
-                "from the configuration, so loading would fall back to the default activation function. "
+            logger.warning(
+                f"Saving activation function {self.activation_fn!r}: plain functions can't be restored "
+                "from the configuration, so loading with default settings will use the default activation function. "
                 "Please use a `torch.nn.Module` instead, e.g. `torch.nn.Identity()` instead of `lambda x: x`."
             )
         config = super()._get_model_config() | {

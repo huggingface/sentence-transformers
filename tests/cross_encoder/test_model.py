@@ -868,15 +868,25 @@ def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEn
 
 @pytest.mark.parametrize(
     "activation_fn",
-    [torch.relu, lambda scores: scores, functools.partial(torch.clamp, min=0.0)],
-    ids=["builtin", "lambda", "partial"],
+    [torch.relu, lambda scores: scores, functools.partial(torch.clamp, min=0.0), torch.sigmoid],
+    ids=["builtin", "lambda", "partial", "default"],
 )
-def test_save_rejects_plain_function_activation_fn(
-    reranker_bert_tiny_model: CrossEncoder, tmp_path: Path, activation_fn: Callable
+def test_save_warns_for_plain_function_activation_fn(
+    reranker_bert_tiny_model: CrossEncoder,
+    tmp_path: Path,
+    activation_fn: Callable,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    reranker_bert_tiny_model.activation_fn = activation_fn
-    with pytest.raises(ValueError, match="plain function"):
-        reranker_bert_tiny_model.save_pretrained(tmp_path)
+    model = reranker_bert_tiny_model
+    model.activation_fn = activation_fn
+    inputs = [["Hello there!", "Hello, World!"]]
+    expected = model.predict(inputs, convert_to_tensor=True)
+    with caplog.at_level(logging.WARNING, logger="sentence_transformers.cross_encoder.model"):
+        model.save_pretrained(tmp_path)
+    assert "plain functions can't be restored" in caplog.text
+
+    loaded = CrossEncoder(str(tmp_path), activation_fn=activation_fn, local_files_only=True)
+    torch.testing.assert_close(loaded.predict(inputs, convert_to_tensor=True), expected)
 
 
 def test_default_activation_fn(reranker_bert_tiny_model: CrossEncoder):
