@@ -121,6 +121,9 @@ def semantic_search_qdrant(
                     collection_name=collection_name,
                     vectors=vectors_batch,
                     ids=range(insert_idx, insert_idx + len(vectors_batch)),
+                    # Without waiting, Qdrant acknowledges before the points are searchable,
+                    # so the queries below could miss documents of a freshly built index
+                    wait=True,
                 )
                 insert_idx += len(vectors_batch)
                 vectors_batch = []

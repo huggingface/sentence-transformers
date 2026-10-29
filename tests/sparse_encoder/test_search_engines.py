@@ -98,12 +98,14 @@ class StubQdrantClient:
     def __init__(self, *args, **kwargs):
         self.searched = []
         self.uploaded = []
+        self.upload_waits = []
 
     def create_collection(self, **kwargs):
         pass
 
     def upload_collection(self, vectors, ids, **kwargs):
         self.uploaded.extend((idx, vector["text"].indices, vector["text"].values) for idx, vector in zip(ids, vectors))
+        self.upload_waits.append(kwargs.get("wait", False))
 
     def query_points(self, query, **kwargs):
         self.searched.append((query.indices, query.values))
@@ -161,6 +163,16 @@ def test_qdrant_uploads_sparse_values(stub_qdrant_module, dtype: torch.dtype) ->
     assert client.uploaded == [(0, [3], [0.25]), (1, [5], [0.75])]
     assert client.searched == [([3, 5], [0.25, 0.75])]
     assert results == [[{"corpus_id": 0, "score": 1.0}]]
+
+
+def test_qdrant_waits_for_upload_before_searching(stub_qdrant_module) -> None:
+    """Qdrant's upload defaults to not waiting, which lets the search run before the corpus is searchable."""
+    corpus = torch.sparse_coo_tensor([[0, 1], [3, 5]], [0.5, 0.25], (2, VOCAB_SIZE))
+    query = torch.sparse_coo_tensor([[3]], [1.0], (VOCAB_SIZE,))
+
+    _, _, (client, _) = semantic_search_qdrant(query, corpus_embeddings=corpus, output_index=True)
+
+    assert client.upload_waits == [True]
 
 
 def test_qdrant_rejects_3d_query_embeddings(stub_qdrant_module) -> None:
