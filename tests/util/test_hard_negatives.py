@@ -1051,35 +1051,94 @@ def test_multiple_positives_per_query(
     assert len(result) >= len(dataset_dup)
 
 
-@pytest.mark.parametrize("output_format", ["triplet", "n-tuple"])
-def test_multiple_positives_are_never_mined_as_negatives(
-    queries: list[str], passages: list[str], static_retrieval_mrl_en_v1_model: SentenceTransformer, output_format: str
+@pytest.mark.parametrize("dataset_format", ["numpy", "pandas", "torch"])
+def test_formatted_dataset(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, dataset_format: str
 ) -> None:
-    """No positive of a query is mined as its negative, even when the candidate window spans the whole corpus."""
     model = static_retrieval_mrl_en_v1_model
-    # The first query has 3 positives, the second 2 and the third 1, over a corpus of 6 passages
-    queries_dup = queries[:3] + queries[:2] + queries[:1]
-    passages_dup = passages[:6]
+    expected = mine_hard_negatives(dataset, model, output_scores=True, verbose=False)
+    result = mine_hard_negatives(dataset.with_format(dataset_format), model, output_scores=True, verbose=False)
+    assert result.to_dict() == expected.to_dict()
+
+
+def test_custom_dataset_transform(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
+    rng = random.Random(42)
+
+    def augment(batch):
+        return {name: [text + rng.choice([" short", " long"]) for text in texts] for name, texts in batch.items()}
+
+    transformed = dataset.with_transform(augment)
+    materialized = Dataset.from_dict({name: list(transformed[name]) for name in dataset.column_names})
+    model = static_retrieval_mrl_en_v1_model
+    expected = mine_hard_negatives(materialized, model, output_scores=True, verbose=False)
+    rng.seed(42)
+    result = mine_hard_negatives(transformed, model, output_scores=True, verbose=False)
+    assert result.to_dict() == expected.to_dict()
+
+
+@pytest.mark.parametrize("output_format", ["triplet", "n-tuple"])
+@pytest.mark.parametrize("output_scores", [False, True])
+@pytest.mark.parametrize("num_negatives", [3, 4])
+def test_uneven_positives_match_expected_rows(
+    queries: list[str],
+    passages: list[str],
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    output_format: str,
+    output_scores: bool,
+    num_negatives: int,
+) -> None:
+    model = static_retrieval_mrl_en_v1_model
+    queries_dup = queries[:3] + queries[:2] + queries[:1] + queries[:1]
+    passages_dup = passages[:6] + passages[:1]
     dataset_dup = Dataset.from_dict({"query": queries_dup, "passage": passages_dup})
 
     result = mine_hard_negatives(
         dataset=dataset_dup,
         model=model,
-        num_negatives=3,
-        range_max=3,
+        num_negatives=num_negatives,
+        range_max=num_negatives,
         output_format=output_format,
+        output_scores=output_scores,
         verbose=False,
     )
-    assert len(result) > 0
 
-    positives_per_query = defaultdict(set)
-    for query, positive in zip(queries_dup, passages_dup):
-        positives_per_query[query].add(positive)
+    query_embeddings = model.encode_query(queries[:3], normalize_embeddings=True)
+    passage_embeddings = model.encode_document(passages[:6], normalize_embeddings=True)
+    similarities = model.similarity(query_embeddings, passage_embeddings).tolist()
+    positives_per_query = defaultdict(list)
+    for query, positive in dict.fromkeys(zip(queries_dup, passages_dup)):
+        positives_per_query[query].append(positive)
 
-    negative_columns = [column for column in result.column_names if column.startswith("negative")]
-    for row in result:
-        for column in negative_columns:
-            assert row[column] not in positives_per_query[row["query"]]
+    expected = []
+    for query, scores in zip(queries[:3], similarities):
+        scores = dict(zip(passages[:6], scores))
+        negatives = sorted(
+            (passage for passage in scores if passage not in positives_per_query[query]),
+            key=scores.get,
+            reverse=True,
+        )[:num_negatives]
+        for positive in positives_per_query[query]:
+            row = {"query": query, "passage": positive}
+            if output_format == "triplet":
+                expected.extend(
+                    {**row, "negative": negative, "scores": [scores[positive], scores[negative]]}
+                    for negative in negatives
+                )
+            elif len(negatives) == num_negatives:
+                expected.append(
+                    {
+                        **row,
+                        **{f"negative_{i}": negative for i, negative in enumerate(negatives, start=1)},
+                        "scores": [scores[positive]] + [scores[negative] for negative in negatives],
+                    }
+                )
+
+    assert len(result) == len(expected)
+    for row, expected_row in zip(result, expected):
+        expected_scores = expected_row.pop("scores")
+        if output_scores:
+            assert row.pop("scores") == pytest.approx(expected_scores, abs=1e-5)
+        assert row == expected_row
 
 
 @pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")

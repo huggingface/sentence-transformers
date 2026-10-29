@@ -411,8 +411,8 @@ def mine_hard_negatives(
         )
 
     log_counters = {}
-    queries = dataset[anchor_column_name][:]
-    positives = dataset[positive_column_name][:]
+    queries = list(dataset[anchor_column_name])
+    positives = list(dataset[positive_column_name])
     separate_corpus = corpus is not None
     if not separate_corpus:
         corpus = positives
@@ -585,11 +585,12 @@ def mine_hard_negatives(
         positives.extend([corpus[doc_idx] for doc_idx in positive_indices[idx]])
         all_queries.extend([queries[idx]] * n_positives[idx])
 
-    positive_indices = [torch.tensor(p) for p in positive_indices]
+    positive_query_indices = [idx for idx in range(n_queries) for _ in range(n_positives[idx])]
+    flat_positive_indices = [idx for row in positive_indices for idx in row]
 
     # Compute the positive scores
-    query_embeddings = query_embeddings[[idx for idx in range(n_queries) for _ in range(n_positives[idx])]]
-    positive_embeddings = corpus_embeddings[torch.cat(positive_indices).tolist()]
+    query_embeddings = query_embeddings[positive_query_indices]
+    positive_embeddings = corpus_embeddings[flat_positive_indices]
     positive_scores = model.similarity_pairwise(query_embeddings, positive_embeddings).to(device)
 
     del query_embeddings
@@ -635,12 +636,11 @@ def mine_hard_negatives(
     scores[indices == query_corpus_indices.unsqueeze(1)] = -float("inf")
 
     if not include_positives:
-        # One key per (query, corpus index) pair; the +1 keeps the -1 padding index from aliasing a real index
-        n_keys = len(corpus) + 1
-        positive_query_idx = torch.arange(n_queries).repeat_interleave(torch.tensor(n_positives))
-        positive_keys = (positive_query_idx * n_keys + torch.cat(positive_indices) + 1).sort().values
-        positive_keys = positive_keys.to(indices.device)
-        candidate_keys = torch.arange(n_queries, device=indices.device).unsqueeze(1) * n_keys + indices + 1
+        # Reserve one key per query for the -1 padding index.
+        key_stride = len(corpus) + 1
+        positive_keys = torch.tensor(positive_query_indices) * key_stride + torch.tensor(flat_positive_indices) + 1
+        positive_keys = positive_keys.sort().values.to(indices.device)
+        candidate_keys = torch.arange(n_queries, device=indices.device).unsqueeze(1) * key_stride + indices + 1
         key_pos = torch.searchsorted(positive_keys, candidate_keys).clamp(max=len(positive_keys) - 1)
         positive_mask = positive_keys[key_pos] == candidate_keys
         scores[positive_mask] = -float("inf")
@@ -742,39 +742,26 @@ def mine_hard_negatives(
 
         # If calling as triples and there are multiple positives per query, we will explode the dataset into triplets.
         indices_to_keep = negative_scores != -float("inf")
-        # the anchor_indices and pos_indices matrices are shaped [n_total_queries, n_negatives]
-        anchor_indices = torch.arange(n_queries, device=indices.device).repeat_interleave(positives_per_row)
-        anchor_indices = anchor_indices.unsqueeze(1).expand_as(indices)
-        pos_indices = torch.cat(positive_indices).to(indices.device).unsqueeze(1).expand_as(indices)
-
+        row_indices = indices_to_keep.nonzero(as_tuple=True)[0].tolist()
         indices = indices[indices_to_keep]
         negative_scores = negative_scores[indices_to_keep]
-        anchor_indices = anchor_indices[indices_to_keep]
-        positive_indices = pos_indices[indices_to_keep]
 
         # Positive scores aligned per (anchor, positive, negative) triplet
         positive_triplet_scores = positive_scores.repeat(num_negatives, 1).T[indices_to_keep]
 
-        # Base textual fields
         dataset_data = {
             anchor_column_name: [],
             positive_column_name: [],
             "negative": [],
         }
-
         if output_scores:
-            # Single `scores` field containing [pos_score, neg_score]
             dataset_data["scores"] = []
 
-        for anchor_idx, positive_idx, negative_idx, pos_score, neg_score in zip(
-            anchor_indices.tolist(),
-            positive_indices.tolist(),
-            indices.tolist(),
-            positive_triplet_scores.tolist(),
-            negative_scores.tolist(),
+        for row_idx, negative_idx, pos_score, neg_score in zip(
+            row_indices, indices.tolist(), positive_triplet_scores.tolist(), negative_scores.tolist()
         ):
-            dataset_data[anchor_column_name].append(queries[anchor_idx])
-            dataset_data[positive_column_name].append(corpus[positive_idx])
+            dataset_data[anchor_column_name].append(all_queries[row_idx])
+            dataset_data[positive_column_name].append(positives[row_idx])
             dataset_data["negative"].append(corpus[negative_idx])
             if output_scores:
                 dataset_data["scores"].append([pos_score, neg_score])
