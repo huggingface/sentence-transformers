@@ -4,6 +4,7 @@ Utility Functions
 
 .. toctree::
 
+   backend
    dataset
    distributed
    environment
