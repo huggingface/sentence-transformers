@@ -1827,6 +1827,53 @@ class ControlledNegativeScoreModel:
         )
 
 
+@pytest.mark.parametrize("margin", ["absolute_margin", "relative_margin"])
+@pytest.mark.parametrize("verbose", [False, True])
+def test_min_score_after_margin_removes_all_candidates(margin: str, verbose: bool) -> None:
+    """Combining score filters returns no negatives when the margin excludes every candidate."""
+    model = ControlledNegativeScoreModel()
+    model.embeddings = {
+        "q": torch.tensor([1.0, 0.0]),
+        "p": torch.tensor([0.0, 1.0]),
+        **{text: torch.tensor([1.0, 0.0]) for text in ["n1", "n2", "n3"]},
+    }
+    result = mine_hard_negatives(
+        dataset=Dataset.from_dict({"query": ["q"], "positive": ["p"]}),
+        model=model,
+        corpus=["n1", "n2", "n3"],
+        range_max=1,
+        num_negatives=1,
+        min_score=0.1,
+        use_faiss=False,
+        verbose=verbose,
+        **{margin: 0.1},
+    )
+    assert result.to_dict() == {"query": [], "positive": [], "negative": []}
+
+
+def test_min_score_counts_only_remaining_candidates(capsys: pytest.CaptureFixture) -> None:
+    """The lower score bound must not count positives or negatives removed by earlier filters."""
+    model = ControlledNegativeScoreModel()
+    model.embeddings = {
+        text: torch.tensor([score, math.sqrt(1 - score**2)])
+        for text, score in [("q", 1.0), ("p", 0.9), ("close", 0.85), ("keep", 0.6), ("low", 0.2)]
+    }
+    result = mine_hard_negatives(
+        dataset=Dataset.from_dict({"query": ["q"], "positive": ["p"]}),
+        model=model,
+        corpus=["close", "keep", "low"],
+        range_max=3,
+        num_negatives=1,
+        absolute_margin=0.1,
+        min_score=0.3,
+        use_faiss=False,
+        verbose=True,
+    )
+    assert result["negative"] == ["keep"]
+    output = capsys.readouterr().out
+    assert any("Skipped 1 potential negatives" in line and "min_score" in line for line in output.splitlines())
+
+
 def test_relative_margin_with_negative_positive_score() -> None:
     """`relative_margin` must not keep a negative that is more similar to the anchor than the
     positive pair when the positive-pair score is negative (#3819)."""

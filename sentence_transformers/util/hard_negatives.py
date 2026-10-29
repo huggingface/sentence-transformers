@@ -690,7 +690,7 @@ def mine_hard_negatives(
 
     # Remove based on min_score
     if min_score is not None:
-        removed_indices = scores < min_score
+        removed_indices = (scores < min_score) & (scores != -float("inf"))
         scores[removed_indices] = -float("inf")
 
         num_skipped = removed_indices.sum().item()
