@@ -67,7 +67,7 @@ Training Sparse Encoder models involves between 4 to 6 components:
 ## Model
 ```{eval-rst}
 
-Sparse Encoder models consist of a sequence of `Modules <../package_reference/sentence_transformer/modules.html>`_,  `Sparse Encoder specific Modules <../package_reference/sparse_encoder/modules.html>`_ or `Custom Modules <../sentence_transformer/usage/custom_models.html#advanced-custom-modules>`_, allowing for a lot of flexibility. If you want to further finetune a SparseEncoder model (e.g. it has a `modules.json file <https://huggingface.co/naver/splade-cocondenser-ensembledistil/tree/main/modules.json>`_), then you don't have to worry about which modules are used::
+Sparse Encoder models consist of a sequence of `Modules <../package_reference/sentence_transformer/modules.html>`_,  `Sparse Encoder specific Modules <../package_reference/sparse_encoder/modules.html>`_ or `Custom Modules <../sentence_transformer/usage/custom_models.html#advanced-custom-modules>`_, allowing for a lot of flexibility. If you want to further finetune a SparseEncoder model (e.g. it has a `modules.json file <https://huggingface.co/naver/splade-cocondenser-ensembledistil/blob/main/modules.json>`_), then you don't have to worry about which modules are used::
 
     from sentence_transformers import SparseEncoder
 

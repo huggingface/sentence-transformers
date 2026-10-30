@@ -60,7 +60,7 @@ Training MultiVectorEncoder models involves between 4 to 6 components:
 ## Model
 
 ```{eval-rst}
-Multi-vector models consist of a sequence of `Modules <../package_reference/sentence_transformer/modules.html>`_, `Multi-Vector Encoder specific Modules <../package_reference/multi_vector_encoder/modules.html>`_ or `Custom Modules <usage/custom_models.html>`_, allowing for a lot of flexibility. If you want to further finetune an existing multi-vector model (e.g. it has a `modules.json file <https://huggingface.co/lightonai/LateOn/tree/main/modules.json>`_), then you don't have to worry about which modules are used::
+Multi-vector models consist of a sequence of `Modules <../package_reference/sentence_transformer/modules.html>`_, `Multi-Vector Encoder specific Modules <../package_reference/multi_vector_encoder/modules.html>`_ or `Custom Modules <usage/custom_models.html>`_, allowing for a lot of flexibility. If you want to further finetune an existing multi-vector model (e.g. it has a `modules.json file <https://huggingface.co/lightonai/LateOn/blob/main/modules.json>`_), then you don't have to worry about which modules are used::
 
     from sentence_transformers import MultiVectorEncoder
 
