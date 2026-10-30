@@ -92,6 +92,31 @@ def test_BinaryClassificationEvaluator_best_threshold_matches_predictions(
     )
 
 
+@pytest.mark.parametrize("high_score_more_similar", [True, False])
+@pytest.mark.parametrize("seed", range(5))
+def test_BinaryClassificationEvaluator_best_thresholds_match_brute_force(high_score_more_similar, seed) -> None:
+    # Rounded scores give many tied groups; every cut between groups is tried and none may beat the returned one
+    rng = np.random.default_rng(seed)
+    scores = rng.standard_normal(300).round(1).astype(np.float32)
+    labels = rng.integers(0, 2, 300)
+
+    def predict(threshold):
+        return scores >= threshold if high_score_more_similar else scores <= threshold
+
+    cuts = [predict(score) for score in np.unique(scores)] + [np.zeros_like(labels, dtype=bool)]
+    accuracy, accuracy_threshold = evaluation.BinaryClassificationEvaluator.find_best_acc_and_threshold(
+        scores, labels, high_score_more_similar
+    )
+    assert accuracy == pytest.approx(max(accuracy_score(labels, cut) for cut in cuts))
+    assert accuracy == pytest.approx(accuracy_score(labels, predict(accuracy_threshold)))
+
+    f1, _, _, f1_threshold = evaluation.BinaryClassificationEvaluator.find_best_f1_and_threshold(
+        scores, labels, high_score_more_similar
+    )
+    assert f1 == pytest.approx(max(f1_score(labels, cut, zero_division=0) for cut in cuts))
+    assert f1 == pytest.approx(f1_score(labels, predict(f1_threshold)))
+
+
 @pytest.mark.parametrize("similarity_fn_name", ["euclidean", "manhattan"])
 @pytest.mark.parametrize("sentences_type", [list, tuple, np.array])
 def test_BinaryClassificationEvaluator_distance_metrics_direction(similarity_fn_name: str, sentences_type) -> None:

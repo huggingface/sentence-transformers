@@ -314,86 +314,79 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         )
 
     @staticmethod
+    def _sorted_score_groups(scores, labels, high_score_more_similar: bool):
+        """Sort the pairs from most to least similar and, for each group of tied scores, return the position of its
+        last pair and how many positive pairs score at least as similar as it. Only these positions are valid cuts,
+        since a threshold can't split tied pairs."""
+        order = np.argsort(scores, kind="stable")
+        if high_score_more_similar:
+            order = order[::-1]
+        sorted_scores = scores[order]
+        group_ends = np.flatnonzero(np.append(sorted_scores[1:] != sorted_scores[:-1], True))
+        positives_so_far = np.cumsum(labels[order] == 1)[group_ends]
+        return sorted_scores, group_ends, positives_so_far
+
+    @staticmethod
+    def _threshold_after(sorted_scores, end: int):
+        """Threshold between the group ending at `end` and the next one, so it includes the first but not the second."""
+        score = sorted_scores[end]
+        if end == len(sorted_scores) - 1:
+            return score
+        next_score = sorted_scores[end + 1]
+        threshold = (score + next_score) / 2
+        # A rounded midpoint must not include the next score group.
+        return score if threshold == next_score else threshold
+
+    @staticmethod
     def find_best_acc_and_threshold(scores, labels, high_score_more_similar: bool):
         assert len(scores) == len(labels)
+        scores = np.asarray(scores)
         labels = np.asarray(labels)
-        score_dtype = np.result_type(np.asarray(scores).dtype, np.float16)
-        rows = list(zip(scores, labels))
+        if len(labels) == 0:
+            return 0, -1
 
-        rows = sorted(rows, key=lambda x: x[0], reverse=high_score_more_similar)
+        sorted_scores, group_ends, positives_so_far = BinaryClassificationEvaluator._sorted_score_groups(
+            scores, labels, high_score_more_similar
+        )
+        total_negatives = (labels == 0).sum()
+        negatives_so_far = group_ends + 1 - positives_so_far
+        accuracies = (positives_so_far + total_negatives - negatives_so_far) / len(labels)
 
-        max_acc = 0
-        best_threshold = -1
+        best = np.argmax(accuracies)
+        # Start with the threshold that predicts every pair as dissimilar.
+        max_acc = total_negatives / len(labels)
+        if accuracies[best] > max_acc:
+            return accuracies[best], BinaryClassificationEvaluator._threshold_after(sorted_scores, group_ends[best])
 
-        positive_so_far = 0
-        remaining_negatives = sum(labels == 0)
-        if rows:
-            # Start with the threshold that predicts every pair as dissimilar.
-            max_acc = remaining_negatives / len(labels)
-            best_threshold = np.nextafter(
-                rows[0][0], np.inf if high_score_more_similar else -np.inf, dtype=score_dtype
-            )
-
-        for i, (score, label) in enumerate(rows):
-            if label == 1:
-                positive_so_far += 1
-            else:
-                remaining_negatives -= 1
-
-            is_last = i == len(rows) - 1
-            if not is_last and score == rows[i + 1][0]:
-                continue
-
-            acc = (positive_so_far + remaining_negatives) / len(labels)
-            if acc > max_acc:
-                max_acc = acc
-                best_threshold = score if is_last else (score + rows[i + 1][0]) / 2
-                # A rounded midpoint must not include the next score group.
-                if not is_last and best_threshold == rows[i + 1][0]:
-                    best_threshold = score
-
+        score_dtype = np.result_type(scores.dtype, np.float16)
+        best_threshold = np.nextafter(
+            sorted_scores[0], np.inf if high_score_more_similar else -np.inf, dtype=score_dtype
+        )
         return max_acc, best_threshold
 
     @staticmethod
     def find_best_f1_and_threshold(scores, labels, high_score_more_similar: bool):
         assert len(scores) == len(labels)
-
         scores = np.asarray(scores)
         labels = np.asarray(labels)
+        if len(labels) == 0:
+            return 0, 0, 0, 0
 
-        rows = list(zip(scores, labels))
+        sorted_scores, group_ends, positives_so_far = BinaryClassificationEvaluator._sorted_score_groups(
+            scores, labels, high_score_more_similar
+        )
+        has_positives = positives_so_far > 0
+        if not has_positives.any():
+            return 0, 0, 0, 0
 
-        rows = sorted(rows, key=lambda x: x[0], reverse=high_score_more_similar)
+        group_ends, ncorrect = group_ends[has_positives], positives_so_far[has_positives]
+        precisions = ncorrect / (group_ends + 1)
+        recalls = ncorrect / labels.sum()
+        f1_scores = 2 * precisions * recalls / (precisions + recalls)
 
-        best_f1 = best_precision = best_recall = 0
-        threshold = 0
-        nextract = 0
-        ncorrect = 0
-        total_num_duplicates = sum(labels)
-
-        for i, (score, label) in enumerate(rows):
-            nextract += 1
-
-            if label == 1:
-                ncorrect += 1
-
-            is_last = i == len(rows) - 1
-            if not is_last and score == rows[i + 1][0]:
-                continue
-
-            if ncorrect > 0:
-                precision = ncorrect / nextract
-                recall = ncorrect / total_num_duplicates
-                f1 = 2 * precision * recall / (precision + recall)
-                if f1 > best_f1:
-                    best_f1 = f1
-                    best_precision = precision
-                    best_recall = recall
-                    threshold = score if is_last else (score + rows[i + 1][0]) / 2
-                    if not is_last and threshold == rows[i + 1][0]:
-                        threshold = score
-
-        return best_f1, best_precision, best_recall, threshold
+        best = np.argmax(f1_scores)
+        threshold = BinaryClassificationEvaluator._threshold_after(sorted_scores, group_ends[best])
+        return f1_scores[best], float(precisions[best]), recalls[best], threshold
 
     def get_config_dict(self):
         config_dict = {}
