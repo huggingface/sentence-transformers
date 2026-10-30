@@ -113,12 +113,13 @@ def paraphrase_mining_embeddings(
         List[List[Union[float, int]]]: Returns a list of triplets with the format [score, id1, id2]
     """
 
-    # Mine for duplicates
-    pairs = []  # Min-heap of (score, i, j) with i < j, capped at max_pairs entries
-    queued_pairs = set()  # The (i, j) of every pair currently in `pairs`
-    min_score = float("-inf")
+    # Mine for duplicates. Each unordered pair (i, j) with i < j is keyed as i * n_embeddings + j, and the best
+    # max_pairs unique pairs found so far are kept in the order they were first found
+    n_embeddings = len(embeddings)
+    pair_keys = torch.empty(0, dtype=torch.long)
+    pair_scores = torch.empty(0)
 
-    for query_start_idx in range(0, len(embeddings), query_chunk_size):
+    for query_start_idx in range(0, n_embeddings, query_chunk_size):
         query_embeddings = embeddings[query_start_idx : query_start_idx + query_chunk_size]
 
         # Keep each query's top_k across all corpus chunks, so the candidates don't depend on corpus_chunk_size
@@ -138,32 +139,48 @@ def paraphrase_mining_embeddings(
                 scores_top_k_values, top_pos = torch.topk(values, min(top_k + 1, len(values[0])), dim=1)
                 scores_top_k_idx = torch.gather(idx, 1, top_pos)
 
-        scores_top_k_values = scores_top_k_values.cpu().tolist()
-        scores_top_k_idx = scores_top_k_idx.cpu().tolist()
+        # Skip each sentence's match with itself, then keep its first top_k other neighbours
+        device = scores_top_k_idx.device
+        query_idx = torch.arange(query_start_idx, query_start_idx + len(scores_top_k_idx), device=device)
+        query_idx = query_idx.unsqueeze(1).expand_as(scores_top_k_idx)
+        is_other = scores_top_k_idx != query_idx
+        is_neighbour = is_other & (is_other.cumsum(dim=1) <= top_k)
+        query_idx = query_idx[is_neighbour]
+        neighbour_idx = scores_top_k_idx[is_neighbour]
 
-        for query_itr in range(len(scores_top_k_values)):
-            i = query_start_idx + query_itr
-            neighbours = [
-                (j, score) for j, score in zip(scores_top_k_idx[query_itr], scores_top_k_values[query_itr]) if i != j
-            ][:top_k]
-            for j, score in neighbours:
-                if score <= min_score:
-                    continue
+        chunk_keys = torch.minimum(query_idx, neighbour_idx) * n_embeddings + torch.maximum(query_idx, neighbour_idx)
+        chunk_scores = scores_top_k_values[is_neighbour]
+        if len(pair_scores) >= max_pairs > 0:
+            # A candidate below the lowest kept score can't make the final max_pairs anymore
+            is_contender = chunk_scores >= pair_scores.min()
+            chunk_keys, chunk_scores = chunk_keys[is_contender], chunk_scores[is_contender]
+        pair_keys = torch.cat([pair_keys.to(device), chunk_keys])
+        pair_scores = torch.cat([pair_scores.to(device), chunk_scores])
+        pair_keys, pair_scores = _keep_top_unique_pairs(pair_keys, pair_scores, max_pairs)
 
-                pair = (i, j) if i < j else (j, i)
-                if pair in queued_pairs:
-                    continue
+    # Highest scores first, ties in the order they were found
+    pair_scores, order = pair_scores.sort(descending=True, stable=True)
+    pair_keys = pair_keys[order]
+    return [
+        [score, i, j]
+        for score, i, j in zip(
+            pair_scores.tolist(), (pair_keys // n_embeddings).tolist(), (pair_keys % n_embeddings).tolist()
+        )
+    ]
 
-                queued_pairs.add(pair)
-                if len(pairs) < max_pairs:
-                    heapq.heappush(pairs, (score, *pair))
-                else:
-                    evicted = heapq.heappushpop(pairs, (score, *pair))
-                    queued_pairs.discard(evicted[1:])
-                    min_score = evicted[0]
 
-    # Highest scores first
-    return sorted(([score, i, j] for score, i, j in pairs), key=lambda x: x[0], reverse=True)
+def _keep_top_unique_pairs(pair_keys: Tensor, pair_scores: Tensor, max_pairs: int) -> tuple[Tensor, Tensor]:
+    """Keep the first occurrence of each pair, then the max_pairs highest-scoring ones, preserving their order."""
+    sorted_keys, order = pair_keys.sort(stable=True)
+    is_first = torch.ones_like(sorted_keys, dtype=torch.bool)
+    is_first[1:] = sorted_keys[1:] != sorted_keys[:-1]
+    first_positions = order[is_first].sort().values
+    pair_keys, pair_scores = pair_keys[first_positions], pair_scores[first_positions]
+
+    if len(pair_scores) > max_pairs:
+        top_positions = pair_scores.topk(max(max_pairs, 0)).indices.sort().values
+        pair_keys, pair_scores = pair_keys[top_positions], pair_scores[top_positions]
+    return pair_keys, pair_scores
 
 
 def information_retrieval(*args, **kwargs) -> list[list[dict[str, int | float]]]:

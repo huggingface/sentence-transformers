@@ -115,7 +115,7 @@ def test_paraphrase_mining() -> None:
             assert (a, b) in [(0, 1), (2, 3), (2, 4), (3, 4), (5, 6), (5, 7), (6, 7)]
 
 
-@pytest.mark.parametrize(("max_pairs", "expected_count"), [(0, 0), (1, 1), (2, 2)])
+@pytest.mark.parametrize(("max_pairs", "expected_count"), [(-1, 0), (0, 0), (1, 1), (2, 2)])
 def test_paraphrase_mining_embeddings_respects_max_pairs_capacity(max_pairs: int, expected_count: int) -> None:
     embeddings = torch.zeros(3, 2)
     scores = torch.tensor(
@@ -233,6 +233,35 @@ def test_paraphrase_mining_embeddings_preserves_score_buffer() -> None:
 
     assert pairs == [[6, 1, 2], [3, 0, 2]]
     torch.testing.assert_close(scores, original_scores)
+
+
+@pytest.mark.parametrize("input_format", ["numpy", "tensor_list", "numpy_list"])
+def test_paraphrase_mining_embeddings_input_formats(input_format: str) -> None:
+    embeddings = torch.randn(30, 8, generator=torch.Generator().manual_seed(0))
+    converted = {
+        "numpy": embeddings.numpy(),
+        "tensor_list": list(embeddings),
+        "numpy_list": list(embeddings.numpy()),
+    }[input_format]
+
+    expected = paraphrase_mining_embeddings(embeddings, top_k=5, max_pairs=40)
+    assert paraphrase_mining_embeddings(converted, top_k=5, max_pairs=40) == expected
+
+
+@pytest.mark.parametrize(("query_chunk_size", "corpus_chunk_size"), [(1, 1), (7, 11), (30, 30)])
+def test_paraphrase_mining_embeddings_duplicate_sentences(query_chunk_size: int, corpus_chunk_size: int) -> None:
+    # Three copies of every sentence: each copy's top 2 are its other copies, all tied at the top score
+    generator = torch.Generator().manual_seed(0)
+    embeddings = torch.randn(10, 8, generator=generator).repeat(3, 1)
+
+    pairs = paraphrase_mining_embeddings(
+        embeddings, query_chunk_size=query_chunk_size, corpus_chunk_size=corpus_chunk_size, top_k=2, max_pairs=30
+    )
+
+    expected = {pair for idx in range(10) for pair in [(idx, idx + 10), (idx, idx + 20), (idx + 10, idx + 20)]}
+    assert len(pairs) == len(expected)
+    assert {(i, j) for _, i, j in pairs} == expected
+    assert [score for score, _, _ in pairs] == pytest.approx([1.0] * len(expected))
 
 
 def test_community_detection_two_clear_communities():
