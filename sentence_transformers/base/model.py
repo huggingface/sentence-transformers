@@ -38,6 +38,14 @@ from transformers.dynamic_module_utils import get_relative_import_files
 from transformers.utils import logging as transformers_logging
 
 from sentence_transformers import __version__
+from sentence_transformers.backend.export import (
+    ExportedModule,
+    export,
+    get_export_formats,
+    load_exported_model,
+    resolve_backend,
+)
+from sentence_transformers.backend.utils import backend_warn_to_save
 from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.base.modality import infer_batch_modality, is_message_dict, raise_unsupported_modality_error
 from sentence_transformers.base.modality_types import Modality, PairInput, SingleInput
@@ -199,7 +207,15 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self.module_kwargs = None
         self._model_card_vars = {}
         self._model_card_text = None
+        backend = resolve_backend(backend, (model_kwargs or {}).get("export_config"))
         self.backend = backend
+        self._exported_model = None
+        if backend != "torch":
+            export_formats = get_export_formats()
+            if backend not in export_formats:
+                raise ValueError(
+                    f"Unsupported backend '{backend}'. `backend` should be one of {['torch', *export_formats]}."
+                )
 
         if cache_folder is None:
             cache_folder = os.getenv("SENTENCE_TRANSFORMERS_HOME")
@@ -304,6 +320,17 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 f"This model was loaded in {self.dtype} on CPU. Depending on your CPU, inference may be significantly "
                 "slower than with torch.float32. Consider comparing inference speeds by loading with "
                 '`model_kwargs={"dtype": torch.float32}`.'
+            )
+
+        if backend != "torch" and model_name_or_path:
+            self._load_or_export_backend_model(
+                model_name_or_path,
+                model_kwargs=model_kwargs or {},
+                token=token,
+                cache_folder=cache_folder,
+                revision=revision,
+                local_files_only=local_files_only,
+                device=device,
             )
 
         # Validate prompts after model loading (which may have merged config prompts)
@@ -582,8 +609,45 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
         return 1
 
+    def _load_or_export_backend_model(
+        self,
+        model_name_or_path: str,
+        model_kwargs: dict[str, Any],
+        token: bool | str | None,
+        cache_folder: str | None,
+        revision: str | None,
+        local_files_only: bool,
+        device: str | torch.device | None = None,
+    ) -> None:
+        """
+        Load exported model from the subfolder named after the backend, or export the model if there is none.
+
+        Models that were exported with previous sentence-transformers version only have their Transformer module
+        exported. These are loaded by the Transformer module itself.
+        """
+        if any(getattr(module, "_legacy_backend_export", False) for module in self.modules()):
+            return
+
+        load_kwargs = {
+            "token": token,
+            "cache_dir": cache_folder,
+            "revision": revision,
+            "local_files_only": local_files_only,
+        }
+        if not (model_kwargs.get("export") or model_kwargs.get("export_config")):
+            self._exported_model = load_exported_model(model_name_or_path, self.backend, device=device, **load_kwargs)
+        if self._exported_model is not None:
+            return
+
+        logger.info(f"Exporting {model_name_or_path} with the {self.backend!r} backend.")
+        artifacts = export(self, self.backend, export_config=model_kwargs.get("export_config"))
+        self._exported_model = ExportedModule(artifacts, device=device)
+        backend_warn_to_save(model_name_or_path, os.path.isdir(model_name_or_path), self.backend)
+
     def forward(self, input: dict[str, Tensor], **kwargs) -> dict[str, Tensor]:
         """Forward pass through all modules in the model."""
+        if self._exported_model is not None:
+            return self._exported_model(input, **kwargs)
         for module_name, module in self.named_children():
             module_kwargs = {}
             if isinstance(module, Router):
@@ -788,6 +852,9 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
 
         with open(os.path.join(path, "modules.json"), "w", encoding="utf8") as fOut:
             json.dump(modules_config, fOut, indent=2)
+
+        if self._exported_model is not None:
+            self._exported_model.save(path)
 
         if create_model_card:
             self._create_model_card(path, model_name, train_datasets)
@@ -1786,6 +1853,9 @@ This pull request has been automatically generated to add {self.__class__.__name
         # first parameter is not where the model runs. accelerate resolved that when it dispatched.
         if (execution_device := getattr(self._accelerate_placement_hook, "execution_device", None)) is not None:
             return torch.device(execution_device)
+
+        if getattr(self, "_exported_model", None) is not None:
+            return self._exported_model.device
 
         transformers_model = self.transformers_model
         if (device := getattr(transformers_model, "device", None)) is not None:

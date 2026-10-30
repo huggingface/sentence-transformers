@@ -5,6 +5,7 @@ import inspect
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from dataclasses import fields
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, get_args, get_type_hints
 
 import torch
@@ -46,7 +47,8 @@ from transformers.utils.import_utils import is_peft_available
 from transformers.utils.peft_utils import find_adapter_config_file
 from typing_extensions import NotRequired
 
-from sentence_transformers.backend import load_onnx_model, load_openvino_model
+from sentence_transformers.backend import backend_should_export, load_onnx_model, load_openvino_model
+from sentence_transformers.backend.export import LEGACY_BACKEND_FILES, has_export_config
 from sentence_transformers.base.modality import InputFormatter, format_modality, raise_unsupported_modality_error
 from sentence_transformers.base.modality_types import (
     MODALITY_TO_PROCESSOR_ARG,
@@ -825,6 +827,28 @@ class Transformer(InputModule):
                 "Unknown keys will be ignored. Did you mean to nest them under "
                 "'common' or a modality key ('text', 'audio', 'image', 'video')?"
             )
+        if backend != "torch" and backend not in LEGACY_BACKEND_FILES:
+            raise ValueError(f"Unsupported backend '{backend}'. `backend` should be `torch`, `onnx`, or `openvino`.")
+        # The whole model was exported with transformers.exporters, which runs in place of the PyTorch model
+        self._skip_torch_model = (
+            backend != "torch"
+            and not (model_kwargs.get("export") or model_kwargs.get("export_config"))
+            and has_export_config(
+                model_name_or_path,
+                backend,
+                **{
+                    k: model_kwargs[k]
+                    for k in ("cache_dir", "revision", "token", "local_files_only")
+                    if k in model_kwargs
+                },
+            )
+        )
+        # Models exported by previous versions of sentence-transformers only have their Transformer exported
+        self._legacy_backend_export = (
+            backend != "torch"
+            and not self._skip_torch_model
+            and self._is_legacy_backend_export(model_name_or_path, backend, model_kwargs)
+        )
         self.backend = backend
         self.do_lower_case = do_lower_case
         self._prompt_length_mapping = {}
@@ -852,17 +876,29 @@ class Transformer(InputModule):
             # and num_labels is not specified, we default to 1 label for CrossEncoder-like behavior
             config.num_labels = 1
 
-        self.model = self._load_model(
-            model_name_or_path, transformer_task, config, backend, is_peft_model, **model_kwargs
-        )
+        # Only legacy models should be loaded using load_onnx_model / load_openvino_model
+        load_backend = backend if self._legacy_backend_export else "torch"
+        load_kwargs = model_kwargs
+        if not self._legacy_backend_export:
+            load_kwargs = {key: value for key, value in model_kwargs.items() if key not in ("export", "export_config")}
+        self._config = config
+        if self._skip_torch_model:
+            # The exported graph runs in place of the model, so the PyTorch model is not loaded
+            self.model = None
+            self._declared_forward_params = set()
+            self.model_forward_params = None
+        else:
+            self.model = self._load_model(
+                model_name_or_path, transformer_task, config, load_backend, is_peft_model, **load_kwargs
+            )
 
-        # ``None`` = forward accepts ``**kwargs`` (pass all but undeclared ST bookkeeping).
-        # Set = declared params plus safety net.
-        forward_signature = inspect.signature(self.model.forward)
-        self._declared_forward_params = set(forward_signature.parameters)
-        self.model_forward_params: set[str] | None = None
-        if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in forward_signature.parameters.values()):
-            self.model_forward_params = self._declared_forward_params | _FORWARD_SAFETY_NET_KEYS
+            # ``None`` = forward accepts ``**kwargs`` (pass all but undeclared ST bookkeeping).
+            # Set = declared params plus safety net.
+            forward_signature = inspect.signature(self.model.forward)
+            self._declared_forward_params = set(forward_signature.parameters)
+            self.model_forward_params = None
+            if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in forward_signature.parameters.values()):
+                self.model_forward_params = self._declared_forward_params | _FORWARD_SAFETY_NET_KEYS
 
         if max_seq_length is not None and "model_max_length" not in processor_kwargs:
             processor_kwargs["model_max_length"] = max_seq_length
@@ -947,7 +983,7 @@ class Transformer(InputModule):
                 "The `tokenizer_name_or_path` argument is deprecated and will be removed in a future version. "
                 "Please use the same path for the model and processor."
             )
-            self.model.config.tokenizer_class = self.processor.__class__.__name__
+            self.config.tokenizer_class = self.processor.__class__.__name__
 
         # Evaluate whether we can skip padding
         self.unpad_inputs = unpad_inputs
@@ -1143,10 +1179,10 @@ class Transformer(InputModule):
             return self.tokenizer.model_max_length
 
         # Get text config for multi-modal models that don't have a tokenizer
-        if hasattr(self.model.config, "get_text_config"):
-            text_config = self.model.config.get_text_config()
+        if hasattr(self.config, "get_text_config"):
+            text_config = self.config.get_text_config()
         else:
-            text_config = self.model.config
+            text_config = self.config
 
         if hasattr(text_config, "max_position_embeddings"):
             return text_config.max_position_embeddings
@@ -1166,7 +1202,7 @@ class Transformer(InputModule):
     @property
     def config(self) -> PretrainedConfig:
         """The underlying model configuration."""
-        return self.model.config
+        return self.model.config if self.model is not None else self._config
 
     @property
     def modalities(self) -> list[Modality]:
@@ -1671,8 +1707,8 @@ class Transformer(InputModule):
         features[self.module_output_name] = embedding
 
         if (
-            hasattr(self.model.config, "output_hidden_states")
-            and self.model.config.output_hidden_states
+            hasattr(self.config, "output_hidden_states")
+            and self.config.output_hidden_states
             and "hidden_states" in model_output
         ):
             features["all_layer_embeddings"] = model_output["hidden_states"]
@@ -1689,12 +1725,12 @@ class Transformer(InputModule):
             ValueError: If the embedding dimension cannot be determined from the model config.
         """
         # Edge case for timm models
-        if isinstance(self.model.config, TimmWrapperConfig):
-            return self.model.config.num_features
+        if isinstance(self.config, TimmWrapperConfig):
+            return self.config.num_features
 
         # `*ForRetrieval` heads project down to `config.embedding_dim`, not the backbone hidden size.
-        if self.transformer_task == "retrieval" and getattr(self.model.config, "embedding_dim", None) is not None:
-            return self.model.config.embedding_dim
+        if self.transformer_task == "retrieval" and getattr(self.config, "embedding_dim", None) is not None:
+            return self.config.embedding_dim
 
         def get_hidden_size_from_config(config):
             # If we're directly outputting sentence embeddings from the transformer (e.g., using the pooler output),
@@ -1717,23 +1753,23 @@ class Transformer(InputModule):
                 return config.hidden_dim
             return None
 
-        if (hidden_size := get_hidden_size_from_config(self.model.config)) is not None:
+        if (hidden_size := get_hidden_size_from_config(self.config)) is not None:
             return hidden_size
 
         # Text config hidden size has priority
-        if hasattr(self.model.config, "text_config"):
-            if (hidden_size := get_hidden_size_from_config(self.model.config.text_config)) is not None:
+        if hasattr(self.config, "text_config"):
+            if (hidden_size := get_hidden_size_from_config(self.config.text_config)) is not None:
                 return hidden_size
 
         # Afterwards we check all sub-configs
-        if hasattr(self.model.config, "sub_configs"):
-            for sub_config_name in self.model.config.sub_configs.keys():
-                sub_config = getattr(self.model.config, sub_config_name)
+        if hasattr(self.config, "sub_configs"):
+            for sub_config_name in self.config.sub_configs.keys():
+                sub_config = getattr(self.config, sub_config_name)
                 if (hidden_size := get_hidden_size_from_config(sub_config)) is not None:
                     return hidden_size
 
         raise ValueError(
-            f"Could not determine embedding dimension from model config. Config type: {type(self.model.config).__name__}."
+            f"Could not determine embedding dimension from model config. Config type: {type(self.config).__name__}."
         )
 
     def _call_processor(
@@ -2302,6 +2338,27 @@ class Transformer(InputModule):
         )
         warn_if_unsupported("is_causal", False, _TRANSFORMERS_SUPPORTS_IS_CAUSAL_FALSE, "5.2.0")
 
+    @staticmethod
+    def _is_legacy_backend_export(model_name_or_path: str, backend: str, model_kwargs: dict[str, Any]) -> bool:
+        """Whether the model has files exported with ``backend`` by a previous version of sentence-transformers.
+
+        These only hold the Transformer model in the ``<backend>`` subfolder, without the ``export.json`` that an export
+        of the whole model has at the root of the model. Nothing is legacy if the export is explicitly requested.
+        """
+        if model_kwargs.get("export") or model_kwargs.get("export_config"):
+            return False
+
+        file_name, file_glob = LEGACY_BACKEND_FILES[backend]
+        load_path = Path(model_name_or_path)
+        legacy_kwargs = {
+            k: model_kwargs[k] for k in ("file_name", "subfolder", "revision", "token") if k in model_kwargs
+        }
+        # If converted model found, it will be considered legacy
+        should_export, _ = backend_should_export(
+            load_path, load_path.exists(), legacy_kwargs, file_name, file_glob, backend
+        )
+        return not should_export
+
     def _load_model(
         self,
         model_name_or_path: str,
@@ -2598,7 +2655,10 @@ class Transformer(InputModule):
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
         """Save the model, processor, and module config to ``output_path``."""
-        self.model.save_pretrained(output_path, safe_serialization=safe_serialization)
+        if self.model is None:
+            self.config.save_pretrained(output_path)
+        else:
+            self.model.save_pretrained(output_path, safe_serialization=safe_serialization)
         self.processor.save_pretrained(output_path)
         self.save_config(output_path)
 
@@ -2823,4 +2883,4 @@ class Transformer(InputModule):
         return config_dict
 
     def __repr__(self) -> str:
-        return f"Transformer({dict(self.get_config_dict(), architecture=self.model.__class__.__name__)})"
+        return f"Transformer({dict(self.get_config_dict(), architecture=self.__class__.__name__ if self.model is None else self.model.__class__.__name__)})"

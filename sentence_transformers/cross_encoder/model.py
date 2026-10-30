@@ -389,7 +389,7 @@ class CrossEncoder(BaseModel, FitMixin):
             if isinstance(module, Dense) and module.module_output_name == "scores":
                 return module.out_features
             if isinstance(module, Transformer):
-                return module.model.config.num_labels
+                return module.config.num_labels
             if isinstance(module, LogitScore):
                 return 1
         # Default to 1, not commonly reached
