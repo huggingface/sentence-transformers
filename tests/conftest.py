@@ -118,6 +118,16 @@ def cache_hub_revision_resolution():
 
 
 # Sentence Transformers
+@pytest.fixture(params=["cpu", "cuda", "neuron"])
+def inference_device(request) -> str:
+    device = request.param
+    if device == "neuron" and not hasattr(torch, "neuron"):
+        pytest.importorskip("torch_neuronx", exc_type=ImportError)
+    if device != "cpu" and not (hasattr(torch, device) and getattr(torch, device).is_available()):
+        pytest.skip(f"{device} is not available")
+    return device
+
+
 @pytest.fixture(scope="session")
 def _stsb_bert_tiny_model() -> SentenceTransformer:
     model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"

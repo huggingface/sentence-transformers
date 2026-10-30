@@ -87,19 +87,23 @@ def test_load_with_pytorch_bin(stsb_bert_tiny_model: SentenceTransformer) -> Non
     ), "Ensure that Safetensors and PyTorch loaded models result in identical embeddings"
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test moving devices effectively.")
-def test_to() -> None:
-    model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors", device="cpu")
+def test_to(inference_device: str) -> None:
+    model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors", device=inference_device)
+    assert model.device.type == inference_device
+    model.cpu()
 
-    test_device = torch.device("cuda")
+    test_device = torch.device(inference_device)
     assert model.device.type == "cpu"
-    assert test_device.type == "cuda"
 
     model.to(test_device)
-    assert model.device.type == "cuda", "The model device should have updated"
+    assert model.device.type == inference_device, "The model device should have updated"
 
     model.encode("Test sentence")
-    assert model.device.type == "cuda", "Encoding shouldn't change the device"
+    assert model.device.type == inference_device, "Encoding shouldn't change the device"
+
+    if inference_device == "neuron":
+        with pytest.raises(ValueError, match="fresh parent process"):
+            model.start_multi_process_pool(["neuron:0"])
 
     assert model._target_device == model.device, "Prevent backwards compatibility failure for _target_device"
     model._target_device = "cpu"

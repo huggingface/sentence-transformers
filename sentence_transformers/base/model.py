@@ -128,7 +128,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 Face Hub with that name. Defaults to None.
             modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used
                 to create custom models from scratch. Defaults to None.
-            device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used
+            device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``, ``"neuron"``) that should be used
                 for computation. If None, checks if a GPU can be used. If a ``device_map`` is provided via
                 ``model_kwargs``, that controls device placement and this argument is ignored. Defaults to None.
             prompts (dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt
@@ -1816,9 +1816,9 @@ This pull request has been automatically generated to add {self.__class__.__name
 
         Args:
             target_devices (List[str], optional): PyTorch target devices, e.g. ["cuda:0", "cuda:1", ...],
-                ["npu:0", "npu:1", ...], or ["cpu", "cpu", "cpu", "cpu"]. If target_devices is None and CUDA/NPU
-                is available, then all available CUDA/NPU devices will be used. If target_devices is None and
-                CUDA/NPU is not available, then 4 CPU devices will be used.
+                ["npu:0", "npu:1", ...], ["neuron:0", "neuron:1", ...], or ["cpu", "cpu", "cpu", "cpu"].
+                If target_devices is None, all available CUDA, NPU, or Neuron devices will be used, in that
+                order of preference. If none are available, then 4 CPU devices will be used.
 
         Returns:
             Dict[str, Any]: A dictionary with the target processes, an input queue, and an output queue.
@@ -1835,11 +1835,42 @@ This pull request has been automatically generated to add {self.__class__.__name
                 target_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
             elif is_torch_npu_available():
                 target_devices = [f"npu:{i}" for i in range(torch.npu.device_count())]
+            elif hasattr(torch, "neuron") and torch.neuron.is_available():
+                target_devices = [f"neuron:{i}" for i in range(torch.neuron.device_count())]
             else:
-                logger.info("CUDA/NPU is not available. Starting 4 CPU workers")
+                logger.info("CUDA/NPU/Neuron is not available. Starting 4 CPU workers")
                 target_devices = ["cpu"] * 4
 
         logger.info(f"Starting multi-process pool on devices: {', '.join(map(str, target_devices))}")
+
+        neuron_worker_cores = {}
+        if any(str(device).split(":")[0] == "neuron" for device in target_devices):
+            import torch_neuronx  # noqa: F401 -- register the native device
+
+            if torch.neuron.is_initialized():
+                raise ValueError(
+                    "Neuron multiprocessing requires a fresh parent process with the model loaded on CPU "
+                    "(`device='cpu'`). A parent that has used Neuron retains its cores until it exits."
+                )
+            visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES")
+            if visible_cores:
+                neuron_cores = []
+                for part in visible_cores.split(","):
+                    bounds = [int(value) for value in part.strip().split("-")]
+                    neuron_cores.extend(range(bounds[0], bounds[-1] + 1))
+            else:
+                neuron_cores = list(range(torch.neuron.device_count()))
+            for device in target_devices:
+                if str(device).split(":")[0] != "neuron":
+                    continue
+                index = torch.device(device).index
+                index = torch.neuron.current_device() if index is None else index
+                if index >= len(neuron_cores):
+                    raise ValueError(f"Neuron device index {index} exceeds the {len(neuron_cores)} visible cores.")
+                core = neuron_cores[index]
+                if core in neuron_worker_cores.values():
+                    raise ValueError("Each Neuron worker must use a different core.")
+                neuron_worker_cores[str(device)] = core
 
         # Move model to CPU and share memory so child processes can access it.
         # Note: this modifies the model in-place, the model will remain on CPU after this call.
@@ -1851,12 +1882,26 @@ This pull request has been automatically generated to add {self.__class__.__name
         processes = []
 
         for device_id in target_devices:
-            p = ctx.Process(
-                target=self.__class__._multi_process_worker,
-                args=(device_id, self, input_queue, output_queue),
-                daemon=True,
-            )
-            p.start()
+            worker_device = device_id
+            is_neuron = str(device_id) in neuron_worker_cores
+            if is_neuron:
+                # Set visibility before spawn imports torch and caches the device count.
+                # Each child sees its assigned core as neuron:0.
+                os.environ["NEURON_RT_VISIBLE_CORES"] = str(neuron_worker_cores[str(device_id)])
+                worker_device = "neuron:0"
+            try:
+                p = ctx.Process(
+                    target=self.__class__._multi_process_worker,
+                    args=(worker_device, self, input_queue, output_queue),
+                    daemon=True,
+                )
+                p.start()
+            finally:
+                if is_neuron:
+                    if visible_cores is None:
+                        os.environ.pop("NEURON_RT_VISIBLE_CORES", None)
+                    else:
+                        os.environ["NEURON_RT_VISIBLE_CORES"] = visible_cores
             processes.append(p)
 
         return {"input": input_queue, "output": output_queue, "processes": processes}
@@ -1949,6 +1994,9 @@ This pull request has been automatically generated to add {self.__class__.__name
         while True:
             chunk_id, inputs, kwargs = input_queue.get()
             try:
+                if str(target_device).split(":")[0] == "neuron" and not hasattr(torch, "neuron"):
+                    import torch_neuronx  # noqa: F401 -- register the device in spawned workers
+
                 outputs = model._inference(inputs, device=target_device, **kwargs)
                 outputs = _move_tensors_to_cpu(outputs)
             except Exception as exc:

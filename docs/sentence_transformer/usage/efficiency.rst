@@ -37,7 +37,7 @@ Sentence Transformers supports 3 backends for computing embeddings, each with it
 PyTorch
 -------
 
-The PyTorch backend is the default backend for Sentence Transformers. If you don't specify a device, it will use the strongest available option across "cuda", "mps", and "cpu". Its default usage looks like this:
+The PyTorch backend is the default backend for Sentence Transformers. If you don't specify a device, it selects an available accelerator, including Neuron when registered, and otherwise uses CPU. Its default usage looks like this:
 
 .. code-block:: python
 
@@ -201,6 +201,44 @@ If you're using a GPU, then you can use the following options to speed up your i
 .. note::
 
    When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU can help (e.g. ``SentenceTransformer(..., device="cpu")`` or ``model.encode(..., device="cpu")``).
+
+AWS Neuron
+~~~~~~~~~~
+
+Native Neuron inference uses the default PyTorch backend on AWS Trainium devices.
+Install a compatible PyTorch and ``torch_neuronx`` SDK with native ``torch.neuron`` support, following the
+`AWS Neuron documentation <https://awsdocs-neuron.readthedocs-hosted.com/en/latest/>`_. Import ``torch_neuronx``
+to register the device before loading your model:
+
+.. code-block:: python
+
+   import torch_neuronx
+   from sentence_transformers import SentenceTransformer
+
+   model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device="neuron:0")
+   embeddings = model.encode(["This is an example sentence", "Each sentence is converted"])
+
+You can also move a loaded model with ``model.to("neuron:0")`` or pass ``device="neuron:0"`` to ``encode``.
+Without an explicit device, Sentence Transformers selects Neuron when it is available and no higher-priority
+accelerator is available. The first call for a new input shape can take longer while Neuron compiles operations;
+warm up representative batches before measuring throughput.
+
+For multi-device inference, pass the visible logical device indices to ``encode``:
+
+.. code-block:: python
+
+   # Run in a fresh process: the parent must not have allocated Neuron tensors.
+   model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device="cpu")
+   embeddings = model.encode(sentences, device=["neuron:0", "neuron:1"])
+
+``start_multi_process_pool()`` also discovers available Neuron devices automatically. Each worker uses one
+logical device; ``torch.neuron.device_count()`` reports the number exposed by the runtime, which may differ
+from the number of physical chips. Workers partition ``NEURON_RT_VISIBLE_CORES`` when it is set. Neuron
+reserves cores exclusively per process, so a parent that has already used Neuron cannot start a Neuron pool;
+moving its model back to CPU does not release its cores. This integration covers inference; Neuron training
+is not validated.
+
+Multi-device inference uses independent model replicas, not tensor parallelism.
 
 ONNX
 ----

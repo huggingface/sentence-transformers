@@ -76,7 +76,7 @@ class MultiVectorEncoder(BaseModel):
             from the Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used
             to create custom MultiVectorEncoder models from scratch. Defaults to None.
-        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used
+        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``, ``"neuron"``) that should be used
             for computation. If None, checks if a GPU can be used. Defaults to None.
         prompts (dict[str, str], optional): Standard ST prompts dict, prepended to inputs by the encode methods.
             For ColBERT-style models supply ``{"query": "[Q] ", "document": "[D] "}`` (or whatever the model's

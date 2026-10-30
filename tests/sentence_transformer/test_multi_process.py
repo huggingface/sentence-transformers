@@ -90,19 +90,32 @@ def test_encode_multi_process(
 
 
 @pytest.mark.slow
-def test_multi_process_encode_same_as_standard_encode(stsb_bert_tiny_model: SentenceTransformer):
-    model = stsb_bert_tiny_model
+def test_multi_process_encode_same_as_standard_encode(inference_device: str):
+    if inference_device == "neuron" and torch.neuron.is_initialized():
+        pytest.skip("Run this test in a fresh process: earlier Neuron tests still own the cores")
+    # Neuron workers reserve their own cores; the parent must keep the model on CPU.
+    model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors", device="cpu")
     # Test that multi-process encoding gives the same result as standard encoding
     texts = ["First sentence.", "Second sentence.", "Third sentence."] * 5
 
     # Standard encode
-    embeddings_standard = model.encode(texts)
+    embeddings_standard = model.encode(texts, device="cpu")
 
-    # Multi-process encode with device=["cpu"] * 2
-    embeddings_multi = model.encode(texts, device=["cpu"] * 2)
+    if inference_device == "cpu":
+        devices = ["cpu"] * 2
+    else:
+        count = getattr(torch, inference_device).device_count()
+        # Spread up to four workers across the visible devices.
+        devices = [f"{inference_device}:{i}" for i in range(0, count, max(1, count // 4))][:4]
+    pool = model.start_multi_process_pool(devices)
+    try:
+        embeddings_multi = model.encode(texts, pool=pool, chunk_size=2, batch_size=2)
+    finally:
+        model.stop_multi_process_pool(pool)
 
     # Should produce the same embeddings
-    assert np.allclose(embeddings_standard, embeddings_multi, atol=1e-6)
+    atol = 1e-3 if inference_device == "neuron" else 1e-6
+    np.testing.assert_allclose(embeddings_standard, embeddings_multi, atol=atol, rtol=1e-5)
 
 
 @pytest.mark.slow
