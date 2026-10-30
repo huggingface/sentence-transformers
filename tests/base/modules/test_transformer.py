@@ -1772,6 +1772,29 @@ class TestModelLoading:
         assert reloaded.model.classifier.out_features == 1
         assert reloaded.model._hf_peft_config_loaded
 
+    @pytest.mark.skipif(not is_peft_available(), reason="PEFT must be available to test PEFT support.")
+    @pytest.mark.parametrize(
+        ("transformer_task", "task_type"),
+        [("feature-extraction", "FEATURE_EXTRACTION"), ("sequence-classification", "SEQ_CLS")],
+    )
+    def test_peft_roundtrip_keeps_adapter_trainable(self, tmp_path, transformer_task, task_type):
+        """A saved adapter reloads as trainable as `add_adapter` left it, so training can continue (#3434)."""
+        from peft import LoraConfig
+
+        module = Transformer(TINY_BERT, transformer_task=transformer_task)
+        module.model.add_adapter(LoraConfig(target_modules=["query", "value"], task_type=task_type, r=8))
+        trainable = {name for name, param in module.named_parameters() if param.requires_grad}
+        assert trainable
+        module.save(str(tmp_path))
+
+        reloaded = Transformer(str(tmp_path), transformer_task=transformer_task)
+        assert {name for name, param in reloaded.named_parameters() if param.requires_grad} == trainable
+
+        # A backward pass reaches exactly these parameters
+        features = reloaded.preprocess(["Hello there!", "How are you?"])
+        reloaded(features)[reloaded.module_output_name].sum().backward()
+        assert {name for name, param in reloaded.named_parameters() if param.grad is not None} == trainable
+
     def test_peft_non_torch_backend_error(self, monkeypatch):
         """PEFT models should raise an error for non-torch backends."""
         monkeypatch.setattr(transformer_module, "find_adapter_config_file", lambda *a, **kw: "some_file")
