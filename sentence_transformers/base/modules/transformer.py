@@ -855,6 +855,11 @@ class Transformer(InputModule):
         self.model = self._load_model(
             model_name_or_path, transformer_task, config, backend, is_peft_model, **model_kwargs
         )
+        if getattr(self.model, "peft_config", None):
+            # `from_pretrained` loads an adapter checkpoint's adapter with `is_trainable=False`, i.e. frozen for
+            # inference, and has no option to change that. Setting the adapter again makes it trainable like after
+            # `add_adapter`, so that training can continue from a saved adapter model.
+            self.model.set_adapter(self.model.active_adapters())
 
         # ``None`` = forward accepts ``**kwargs`` (pass all but undeclared ST bookkeeping).
         # Set = declared params plus safety net.
