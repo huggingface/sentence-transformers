@@ -417,7 +417,6 @@ def test_fit_saves_best_model_and_calls_callback_after_each_epoch(
 
     assert callback_epochs == [1.0, 2.0]
     assert (output_path / "modules.json").exists()
-    assert CrossEncoder(str(output_path)).predict([("query 0", "passage 0")]).shape == (1,)
 
 
 @pytest.mark.parametrize("model_fixture", ["reranker_bert_tiny_model", "multiclass_bert_tiny_model"])

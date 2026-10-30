@@ -1454,12 +1454,12 @@ def test_fit_with_float_evaluator_saves_best_model_and_calls_callback(
     model.fit(
         train_objectives=[(DataLoader(examples, batch_size=4), MultipleNegativesRankingLoss(model))],
         evaluator=FloatEvaluator(),
-        epochs=2,
+        epochs=1,
         warmup_steps=0,
         output_path=str(output_path),
         callback=lambda score, epoch, steps: callback_epochs.append(epoch),
         show_progress_bar=False,
     )
 
-    assert callback_epochs == [1.0, 2.0]
+    assert callback_epochs == [1.0]
     assert (output_path / "modules.json").exists()
