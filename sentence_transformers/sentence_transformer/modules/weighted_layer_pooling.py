@@ -24,11 +24,9 @@ class WeightedLayerPooling(Module):
         self.embedding_dimension = embedding_dimension
         self.layer_start = layer_start
         self.num_hidden_layers = num_hidden_layers
-        self.layer_weights = (
-            layer_weights
-            if layer_weights is not None
-            else nn.Parameter(torch.tensor([1] * (num_hidden_layers + 1 - layer_start), dtype=torch.float))
-        )
+        if layer_weights is None:
+            layer_weights = torch.ones(num_hidden_layers + 1 - layer_start, dtype=torch.float)
+        self.layer_weights = layer_weights if isinstance(layer_weights, nn.Parameter) else nn.Parameter(layer_weights)
 
     def forward(self, features: dict[str, Tensor]):
         ft_all_layers = features.get("all_layer_embeddings")
