@@ -55,7 +55,8 @@ class MultiVectorMask(Module):
             ``["query", "document"]`` for variants that also drop query-side skiplist tokens from
             scoring.
         keep_only_token_ids: Allowlist of token IDs to keep in document scoring. Defaults to ``None``
-            (no allowlist: every non-skiplisted real token is scored). Set this to the model's
+            (no allowlist: every non-skiplisted real token is scored). An empty list excludes all document tokens.
+            Set this to the model's
             image-patch token id (``processor.tokenizer.convert_tokens_to_ids(processor.image_token)``,
             which works for both the ColPali and ColQwen2 families, unlike ``image_token_id``) to
             reproduce colpali-engine's ``mask_non_image_embeddings=True`` behaviour: only image
@@ -145,7 +146,7 @@ class MultiVectorMask(Module):
         ):
             skip = self._skiplist_ids.to(input_ids.device)
             new_mask = ~torch.isin(input_ids, skip) & new_mask
-        if task != "query" and self.keep_only_token_ids:
+        if task != "query" and self.keep_only_token_ids is not None:
             keep = torch.as_tensor(self.keep_only_token_ids, dtype=torch.long, device=input_ids.device)
             new_mask = torch.isin(input_ids, keep) & new_mask
         features["attention_mask"] = new_mask
