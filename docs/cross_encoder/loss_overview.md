@@ -28,6 +28,45 @@ Loss functions play a critical role in the performance of your fine-tuned Cross 
 | `(anchor, positive, negative) triplets`           | `none`                                   | `1`                           | <a href="../package_reference/cross_encoder/losses.html#multiplenegativesrankingloss">`MultipleNegativesRankingLoss`</a><br><a href="../package_reference/cross_encoder/losses.html#cachedmultiplenegativesrankingloss">`CachedMultipleNegativesRankingLoss`</a>                                                                                                                                                                                                                                                                                                                                                                                 |
 | `(anchor, positive, negative_1, ..., negative_n)` | `none`                                   | `1`                           | <a href="../package_reference/cross_encoder/losses.html#multiplenegativesrankingloss">`MultipleNegativesRankingLoss`</a><br><a href="../package_reference/cross_encoder/losses.html#cachedmultiplenegativesrankingloss">`CachedMultipleNegativesRankingLoss`</a>                                                                                                                                                                                                                                                                                                                                                                                 |
 | `(query, [doc1, doc2, ..., docN])`                | `[score1, score2, ..., scoreN]`          | `1`                           | <ol style="margin-bottom: 0;line-height: inherit;"><li><a href="../package_reference/cross_encoder/losses.html#lambdaloss">`LambdaLoss`</a></li><li><a href="../package_reference/cross_encoder/losses.html#plistmleloss">`PListMLELoss`</a></li><li><a href="../package_reference/cross_encoder/losses.html#listnetloss">`ListNetLoss`</a></li><li><a href="../package_reference/cross_encoder/losses.html#ranknetloss">`RankNetLoss`</a></li><li><a href="../package_reference/cross_encoder/losses.html#listmleloss">`ListMLELoss`</a></li><li><a href="../package_reference/cross_encoder/losses.html#adrmseloss">`ADRMSELoss`</a></li></ol> |
+| `(anchor, positive, [negative_1, ..., negative_n])` | `none` | `1` | [`MultipleNegativesRankingLoss`](../package_reference/cross_encoder/losses.html#multiplenegativesrankingloss), [`CachedMultipleNegativesRankingLoss`](../package_reference/cross_encoder/losses.html#cachedmultiplenegativesrankingloss) |
+
+## Variable-length hard negatives
+
+`MultipleNegativesRankingLoss` and `CachedMultipleNegativesRankingLoss` also accept exactly three text input columns: `(anchor, positive, [negative_1, ..., negative_n])`, without labels. The negative list can be empty or have a different length for each row. Keep one row per anchor-positive pair rather than repeating it once per negative: each row contributes one cross-entropy term to the batch mean.
+
+All explicit hard negatives are included. `num_negatives` controls **additional in-batch negatives**, sampled without replacement from other rows' positives and hard negatives. Each row uses at most the number available to it. Set it to `None` to use every other row's candidates, or `0` to use only the explicit hard negatives. A singleton batch with no hard negatives has zero loss. No placeholder strings are needed; only real candidate pairs are passed to the model.
+
+For list-valued inputs, opt into individual-text duplicate checking with `flatten_list_values=True`. The default `BatchSamplers.NO_DUPLICATES` and `NO_DUPLICATES_HASHED` retain whole-list comparisons for backwards compatibility: they do not detect a text shared between different lists, and repeated empty lists can unnecessarily shrink batches. The callable sampler configuration below checks the text inside each list instead; it also supports `precompute_hashes=True`.
+
+```python
+from functools import partial
+
+from datasets import Dataset
+from sentence_transformers.base.sampler import NoDuplicatesBatchSampler
+from sentence_transformers.cross_encoder import (
+    CrossEncoder,
+    CrossEncoderTrainer,
+    CrossEncoderTrainingArguments,
+    losses,
+)
+
+model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
+dataset = Dataset.from_dict({
+    "query": ["What are pandas?", "What is the capital of France?", "Where is the Nile?"],
+    "positive": ["Pandas are bears.", "Paris is France's capital.", "The Nile is in Africa."],
+    "negatives": [[], ["Berlin is Germany's capital."], ["The Amazon is in South America.", "The Rhine is in Europe."]],
+})
+loss = losses.CachedMultipleNegativesRankingLoss(model, num_negatives=4, mini_batch_size=16)
+args = CrossEncoderTrainingArguments(
+    output_dir="models/ragged-reranker",
+    per_device_train_batch_size=16,
+    batch_sampler=partial(NoDuplicatesBatchSampler, flatten_list_values=True),
+)
+trainer = CrossEncoderTrainer(model=model, args=args, train_dataset=dataset, loss=loss)
+trainer.train()
+```
+
+The sampler prevents text overlap **between rows**; ensure each row's own positive and hard negatives are valid and distinct yourself. This format still has one positive per row, and does not add multi-positive supervision or cross-device candidate gathering. It is specific to these two **CrossEncoder** losses; it does not enable list-valued negatives for SentenceTransformer embedding losses.
 
 ## Distillation
 

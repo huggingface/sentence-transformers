@@ -379,6 +379,15 @@ def _sample_value_str(value: Any) -> str:
         return str(value)
 
 
+def _sample_value_strings(value: Any, flatten_list_values: bool = False) -> Iterator[str]:
+    # Only text lists represent multiple candidates. Numeric lists, media and other
+    # structured values retain their historical whole-value duplicate key.
+    if flatten_list_values and isinstance(value, list) and all(isinstance(item, str) for item in value):
+        yield from value
+    else:
+        yield _sample_value_str(value)
+
+
 def _xxhash_int64(value: str) -> int:
     # Convert uint64 -> int64 to keep values compatible with Arrow int64 storage.
     hashed = xxhash.xxh64_intdigest(value.encode("utf-8"))
@@ -388,7 +397,7 @@ def _xxhash_int64(value: str) -> int:
 
 
 def _hash_batch(
-    batch: dict[str, list[Any]], columns: list[str], exclude_columns: set[str]
+    batch: dict[str, list[Any]], columns: list[str], exclude_columns: set[str], flatten_list_values: bool = False
 ) -> dict[str, list[list[int]]]:
     # Must be defined at module scope because datasets.map with num_proc pickles this function.
     # Build per-row hash lists so we can later do fast overlap checks without re-reading the dataset.
@@ -401,9 +410,8 @@ def _hash_batch(
         row_hashes: list[int] = []
         for column in active_columns:
             value = batch[column][row_idx]
-            # Keep semantics aligned with the non-hash path, which compares
-            # stringified per-column values (including list values as a whole).
-            row_hashes.append(_xxhash_int64(_sample_value_str(value)))
+            # Use the same duplicate keys as the non-hash path.
+            row_hashes.extend(_xxhash_int64(item) for item in _sample_value_strings(value, flatten_list_values))
         hashes.append(row_hashes)
     return {"__hashes": hashes}
 
@@ -420,6 +428,7 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         precompute_hashes: bool = False,
         precompute_num_proc: int | None = None,
         precompute_batch_size: int = 1000,
+        flatten_list_values: bool = False,
     ) -> None:
         """
         This sampler creates batches such that each batch contains samples where the values are unique,
@@ -459,6 +468,12 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 is True.
             precompute_batch_size (int, optional): Batch size for ``datasets.map`` hashing.
                 Defaults to 1000.
+            flatten_list_values (bool, optional): If True, check each string in list-valued text
+                columns separately, including against scalar text columns. Empty lists contribute
+                no duplicate keys. Useful for variable-length lists of hard negatives. Other value
+                types are unchanged. Defaults to False, which compares each list as a whole.
+                With precomputed hashes, storage is proportional to the number of text values,
+                plus one offset per row when list lengths vary.
         """
         super().__init__(
             dataset,
@@ -474,7 +489,9 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
         self.precompute_hashes = precompute_hashes
         self.precompute_num_proc = precompute_num_proc
         self.precompute_batch_size = precompute_batch_size
+        self.flatten_list_values = flatten_list_values
         self._row_hashes: np.ndarray | None = None
+        self._row_hash_offsets: np.ndarray | None = None
         if self.precompute_hashes:
             if xxhash is None:
                 raise ImportError(
@@ -501,7 +518,11 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
             batch_size=self.precompute_batch_size,
             num_proc=self.precompute_num_proc,
             remove_columns=columns,
-            fn_kwargs={"columns": columns, "exclude_columns": _EXCLUDE_DATASET_COLUMNS},
+            fn_kwargs={
+                "columns": columns,
+                "exclude_columns": _EXCLUDE_DATASET_COLUMNS,
+                "flatten_list_values": self.flatten_list_values,
+            },
             desc="Hashing dataset values",
         )
         import pyarrow as pa
@@ -519,16 +540,19 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
                 return
 
             offsets = column.offsets.to_numpy(zero_copy_only=False)
-            row_size = int(offsets[1] - offsets[0])
-            # Dense ndarray storage below requires a fixed number of hashed
-            # values per row to allow safe reshape(row_count, row_size).
-            if row_size < 0 or not np.all(np.diff(offsets) == row_size):
-                raise ValueError("Hashed rows have varying lengths.")
-            # If every row has the same length, store as a dense ndarray to reduce overhead.
+            row_sizes = np.diff(offsets)
             values = column.values.to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
-            if values.size != row_count * row_size:
+            if np.any(row_sizes < 0) or offsets[0] != 0 or offsets[-1] != values.size:
                 raise ValueError("Unexpected hashed value buffer size.")
-            self._row_hashes = values.reshape((row_count, row_size))
+            if np.all(row_sizes == row_sizes[0]):
+                # Keep dense storage for ordinary fixed-column datasets.
+                self._row_hashes = values.reshape((row_count, int(row_sizes[0])))
+            else:
+                # Ragged text lists need only a packed hash buffer and row offsets,
+                # not padding to the longest list or one Python object per row.
+                self._row_hashes = values
+                self._row_hash_offsets = offsets
+
         finally:
             # Drop the temporary dataset to release Arrow buffers promptly.
             del hash_ds
@@ -554,15 +578,19 @@ class NoDuplicatesBatchSampler(DefaultBatchSampler):
             row_hashes: np.ndarray = self._row_hashes
 
             def get_sample_values(index: int) -> set[str] | np.ndarray:
+                if self._row_hash_offsets is not None:
+                    start, end = self._row_hash_offsets[index : index + 2]
+                    return row_hashes[start:end]
                 return row_hashes[index]
 
         else:
 
             def get_sample_values(index: int) -> set[str] | np.ndarray:
                 return {
-                    _sample_value_str(value)
+                    item
                     for key, value in self.dataset[index].items()
                     if key not in _EXCLUDE_DATASET_COLUMNS
+                    for item in _sample_value_strings(value, self.flatten_list_values)
                 }
 
         def _has_overlap(sample_values: set[str] | np.ndarray, batch_values: set[str | np.int64]) -> bool:

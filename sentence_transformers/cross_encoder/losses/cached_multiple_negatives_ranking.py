@@ -59,7 +59,9 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
 
         Args:
             model (:class:`~sentence_transformers.cross_encoder.model.CrossEncoder`): A CrossEncoder model to be trained.
-            num_negatives (int, optional): Number of in-batch negatives to sample for each anchor. Defaults to 4.
+            num_negatives (int, optional): Maximum number of in-batch negatives to sample without replacement for each
+                anchor, excluding its own positive and hard negatives. Use None for all available candidates or 0
+                for no in-batch negatives. All explicit hard negatives are always included. Defaults to 4.
             scale (int, optional): Output of similarity function is multiplied by scale value. Defaults to 10.0.
             activation_fn (:class:`~torch.nn.Module`): Activation function applied to the logits before computing the loss. Defaults to :class:`~torch.nn.Sigmoid`.
             mini_batch_size (int, optional): Mini-batch size for the forward pass. This informs the memory usage. Defaults to 32.
@@ -91,8 +93,16 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
             | (anchor, positive, negative_1, ..., negative_n) | none   | 1                             |
             +-------------------------------------------------+--------+-------------------------------+
 
+        Variable-length hard negatives:
+            Use exactly three input columns: ``(anchor, positive, [negative_1, ..., negative_n])``.
+            Each negative list may have a different length, including zero. The loss averages over anchors,
+            not candidate pairs, so rows with more negatives do not receive extra weight. This format is
+            supported by the CrossEncoder variants of these losses, not the SentenceTransformer variants.
+            See `Variable-length hard negatives <../../../docs/cross_encoder/loss_overview.html#variable-length-hard-negatives>`_
+            for a training example and the list-aware no-duplicates sampler configuration.
+
         Recommendations:
-            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`) to
+            - For scalar text columns, use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
             - Use :class:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` with ``output_format="n-tuple"`` or
               ``output_format="triplet"`` to convert question-answer pairs to triplets with hard negatives.
@@ -218,33 +228,47 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
             task=sentence_feature["task"],
         )
 
-    def calculate_loss_and_cache_gradients(self, logits: list[Tensor], batch_size: int) -> tuple[Tensor, list[Tensor]]:
+    def calculate_loss_and_cache_gradients(
+        self, logits: list[Tensor], batch_size: int, candidate_counts: list[int] | None = None
+    ) -> tuple[Tensor, list[Tensor]]:
         """Calculate the cross-entropy loss and return it alongside the gradients wrt. the logits."""
-        loss = self.calculate_loss(logits, batch_size)
+        loss = (
+            self.calculate_loss(logits, batch_size)
+            if candidate_counts is None
+            else self.calculate_loss(logits, batch_size, candidate_counts)
+        )
         loss.backward()
         loss = loss.detach().requires_grad_()
         cache = [logit.grad for logit in logits]
         return loss, cache
 
     def forward(
-        self, inputs: list[list[str]], labels: Tensor | None = None, prompt: str | None = None, task: str | None = None
+        self,
+        inputs: list[list[str] | list[list[str]]],
+        labels: Tensor | None = None,
+        prompt: str | None = None,
+        task: str | None = None,
     ) -> Tensor:
         # Step (1): A quick prediction step without gradients/computation graphs to get all the logits
-        anchors = inputs[0][::]
-        candidates = inputs[1][::]
-        batch_size = len(anchors)
+        batch_size = len(inputs[0])
+        candidate_counts = None
+        if ragged := self._get_ragged_pairs(inputs):
+            pairs, candidate_counts = ragged
+        else:
+            anchors = inputs[0][::]
+            candidates = inputs[1][::]
 
-        # In-batch negatives:
-        for negatives in self.get_in_batch_negatives(inputs[0], inputs[1:]):
-            anchors.extend(inputs[0])
-            candidates.extend(negatives)
+            # In-batch negatives:
+            for negatives in self.get_in_batch_negatives(inputs[0], inputs[1:]):
+                anchors.extend(inputs[0])
+                candidates.extend(negatives)
 
-        # Hard negatives:
-        for negatives in inputs[2:]:
-            anchors.extend(inputs[0])
-            candidates.extend(negatives)
+            # Hard negatives:
+            for negatives in inputs[2:]:
+                anchors.extend(inputs[0])
+                candidates.extend(negatives)
 
-        pairs = list(zip(anchors, candidates))
+            pairs = list(zip(anchors, candidates))
         grad_enabled = torch.is_grad_enabled()
 
         logits = []
@@ -262,10 +286,15 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
 
         if not grad_enabled:
             # If grad is not enabled (e.g. in evaluation), then we don't have to worry about the gradients or backward hook
-            return self.calculate_loss(logits, batch_size)
+            if candidate_counts is None:
+                return self.calculate_loss(logits, batch_size)
+            return self.calculate_loss(logits, batch_size, candidate_counts)
 
         # Step (2): Calculate the loss, backward up to the logits and cache the gradients wrt. to the logits
-        loss, cache = self.calculate_loss_and_cache_gradients(logits, batch_size)
+        if candidate_counts is None:
+            loss, cache = self.calculate_loss_and_cache_gradients(logits, batch_size)
+        else:
+            loss, cache = self.calculate_loss_and_cache_gradients(logits, batch_size, candidate_counts)
 
         # Step (3): a 2nd prediction step with gradients, connecting the cached gradients into
         # the backward chain. The hook gets this pass's cache, so another forward cannot clobber it.
