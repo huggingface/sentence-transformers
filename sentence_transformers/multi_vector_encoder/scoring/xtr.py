@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+from transformers.utils import is_torchdynamo_compiling
 
 from sentence_transformers.util.similarity import _chunk_ranges, _fill_empty_document_scores, _zero_row_mask
 from sentence_transformers.util.tensor import _convert_to_tensor
@@ -37,10 +38,15 @@ def xtr_scores(
         top_k: Positive number of top token matches to retain per query token across all Q*N documents.
         chunk_elements: Element budget for the matmul + ``masked_fill`` phase, matching
             :func:`~sentence_transformers.util.similarity.maxsim`'s parameter of the same name:
-            documents are scored in chunks packed to stay under the budget. The chunks are
-            concatenated before the global top-k, so scoring semantics are unchanged and the full
-            score grid is still materialized: this trims the transient matmul peak, not the overall
-            peak. Defaults to None (single matmul).
+            CPU eager training scoring streams global top-k candidates and recomputes only winning dot products
+            for autograd, avoiding the full token similarity grid when the estimated winner gathers
+            are smaller. The budget covers a matmul chunk, not all live state: top-k candidates,
+            per-document reductions and gathered embeddings also consume memory. Cutoff ties require
+            a full token-score row to preserve top-k selection. This path requires enabled autograd and at
+            least one input requiring gradients. Inference, non-CPU devices, compilation, nonfinite or
+            sentinel scores, and shapes with expensive winner gathers retain the legacy dense reduction.
+            Memory savings trade off against additional selection work; no latency improvement is
+            guaranteed. Defaults to None (legacy single matmul).
 
     Notes:
         Adapted from PyLate / PrimeQA (Apache 2.0). Pass this (or :class:`XTRScores`, a configured reusable
@@ -73,6 +79,26 @@ def xtr_scores(
     if queries_mask is None:
         # Match the document-side fallback: zero-padded query rows must not contribute to scores or Z.
         queries_mask = _zero_row_mask(queries_embeddings).bool()
+
+    if (
+        chunk_elements is not None
+        and queries_embeddings.device.type == "cpu"
+        and documents_embeddings.device.type == "cpu"
+        and not is_torchdynamo_compiling()
+        and torch.is_grad_enabled()
+        and not torch.is_inference_mode_enabled()
+        and (queries_embeddings.requires_grad or documents_embeddings.requires_grad)
+    ):
+        streamed = _streaming_xtr_scores(
+            queries_embeddings,
+            documents_embeddings,
+            queries_mask,
+            docs_mask_flat.reshape(D, N, Dt),
+            top_k,
+            chunk_elements,
+        )
+        if streamed is not None:
+            return streamed
 
     if chunk_elements is None:
         D_flat = docs_flat.reshape(Db * Dt, H).T
@@ -240,3 +266,87 @@ class XTRKDScores(XTRScores):
             top_k=self.top_k,
             chunk_elements=self.chunk_elements,
         )
+
+
+def _streaming_xtr_scores(
+    q: torch.Tensor,
+    d: torch.Tensor,
+    queries_mask: torch.Tensor,
+    documents_mask: torch.Tensor,
+    top_k: int,
+    chunk_elements: int,
+) -> torch.Tensor | None:
+    """Score finite CPU eager inputs without retaining the full token-score grid.
+
+    Return None to retain legacy exceptional behavior or avoid an obviously adverse shape.
+    Selection is nondifferentiable in both implementations. Only the selected per-document
+    winners need a differentiable dot product; ties within a document keep the first token's
+    gradient, matching torch.max. Gather/scatter and matmul accumulation order can differ in
+    reduced precision, so gradient equivalence is numerical, not bitwise.
+    """
+    Q, T, H = q.shape
+    D, N, L, _ = d.shape
+    B = D * N
+    # Each winner gathers both a query and a document vector for the differentiable bmm.
+    # Short documents with large embedding dimensions can cost more than the dense grid.
+    if 2 * min(top_k, B) * H >= B * L:
+        return None
+    qf, df = q.reshape(Q * T, H), d.reshape(B * L, H)
+    # Preserve legacy exceptional and nonfinite behavior, including dense backward's 0*Inf.
+    if not Q or not T or not B or not L or not torch.isfinite(q).all() or not torch.isfinite(d).all():
+        return None
+    qm = q.any(-1) if queries_mask is None else queries_mask
+    dm = d.any(-1) if documents_mask is None else documents_mask
+    dm = dm.reshape(-1).bool()
+    k = min(top_k, len(df))
+    keep = min(k + 1, len(df))
+    with torch.no_grad():
+        vals = None
+        ids = torch.empty(Q * T, 0, dtype=torch.long, device=q.device)
+        for begin, end in _chunk_ranges([L] * B, Q * T + H, chunk_elements):
+            lo, hi = begin * L, end * L
+            scores = qf @ df[lo:hi].T
+            sentinel = torch.finfo(scores.dtype).min
+            if not torch.isfinite(scores).all() or ((scores == sentinel) & dm[lo:hi]).any():
+                return None
+            if vals is None:
+                vals = scores.new_empty(Q * T, 0)
+            scores.masked_fill_(~dm[lo:hi], sentinel)
+            local_values, local_ids = scores.topk(min(keep, hi - lo), dim=-1, sorted=False)
+            merged = torch.cat((vals, local_values), dim=-1)
+            merged_ids = torch.cat((ids, local_ids + lo), dim=-1)
+            vals, ix = merged.topk(min(keep, merged.shape[-1]), dim=-1, sorted=True)
+            ids = merged_ids.gather(-1, ix)
+        if not torch.isfinite(vals).all():
+            return None
+        # Resolve ambiguous real cutoff ties with legacy topk on one complete row. Mask-only
+        # and inactive-query ties cannot change the output and do not need this extra work.
+        if keep > k:
+            ambiguous = (
+                ((vals[:, k - 1] == vals[:, k]) & (vals[:, k] != sentinel) & qm.reshape(-1).bool()).nonzero().flatten()
+            )
+            for r in ambiguous:
+                # torch.topk's arbitrary boundary-tie membership is reproduced on a full row,
+                # never on the full query-token by document-token score matrix.
+                full_row = qf[r : r + 1] @ df.T
+                full_row.masked_fill_(~dm, sentinel)
+                rv, ri = full_row.topk(k, dim=-1, sorted=False)
+                vals[r, :k], ids[r, :k] = rv[0], ri[0]
+        vals, ids = vals[:, :k], ids[:, :k]
+        valid = dm[ids] & qm.reshape(-1, 1).bool()
+        docids = ids // L
+        maxima = vals.new_full((Q * T, B), sentinel)
+        maxima.scatter_reduce_(1, docids, vals, reduce="amax", include_self=True)
+        # max(dim) assigns gradients only to the first winning token, not equally to ties.
+        wins = valid & (vals == maxima.gather(1, docids))
+        winner_ids = torch.full((Q * T, B), len(df), dtype=torch.long, device=q.device)
+        winner_ids.scatter_reduce_(1, docids, torch.where(wins, ids, len(df)), reduce="amin", include_self=True)
+        row, col = (winner_ids < len(df)).nonzero(as_tuple=True)
+        token = winner_ids[row, col]
+        alpha = (winner_ids < len(df)).reshape(Q, T, B)
+    # Differentiable dot products only for per-query-token, per-document winners.
+    dot = torch.bmm(qf[row].unsqueeze(1), df[token].unsqueeze(-1)).reshape(-1).float()
+    out = torch.zeros(Q * T, B, dtype=torch.float32, device=q.device).index_put((row, col), dot)
+    out = out.reshape(Q, T, B) * qm.unsqueeze(-1)
+    score = out.sum(1) / alpha.float().sum(1).clamp(min=1)
+    return _fill_empty_document_scores(score, ~dm.reshape(B, L).any(-1))
