@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import pickle
 from contextlib import nullcontext
+from copy import deepcopy
 
 import pytest
 import torch
@@ -207,3 +209,42 @@ def test_csr_4k_latents_contain_the_k_latents() -> None:
     assert torch.equal(
         features["sentence_embedding_encoded"], module.encode_pre_act(features["sentence_embedding_backbone"])
     )
+
+
+def test_csr_pickle_roundtrip() -> None:
+    # Multi-process encoding and DataLoader workers started with "spawn" pickle the model
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=8, k=2, k_aux=4, dead_threshold=1)
+    module.stats_last_nonzero.copy_(torch.arange(8))
+
+    restored = pickle.loads(pickle.dumps(module))
+
+    for name, tensor in module.state_dict().items():
+        assert torch.equal(restored.state_dict()[name], tensor)
+    embeddings = torch.randn(2, 4)
+    with torch.inference_mode():
+        expected = module({"sentence_embedding": embeddings})["sentence_embedding"]
+        assert torch.equal(restored({"sentence_embedding": embeddings})["sentence_embedding"], expected)
+    latents = torch.ones(2, 8)
+    assert torch.equal(restored.auxk_mask_fn(latents), latents * (torch.arange(8) > 1))
+
+
+def test_csr_copy_masks_with_its_own_dead_feature_stats() -> None:
+    # A copy (e.g. made by merge_models or the test fixtures) must pick its auxiliary latents from its own stats
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=8, k=2, k_aux=4, dead_threshold=1)
+    copied = deepcopy(module)
+    copied.stats_last_nonzero.fill_(2)  # every latent of the copy is dead, and none of the original's
+
+    latents = torch.ones(2, 8)
+    assert torch.equal(copied.auxk_mask_fn(latents), latents)
+    assert torch.equal(module.auxk_mask_fn(latents), torch.zeros_like(latents))
+
+
+def test_csr_auxk_mask_uses_the_current_dead_threshold() -> None:
+    # dead_threshold is saved from the attribute, so changing it after init must change which latents are dead
+    module = SparseAutoEncoder(input_dim=4, hidden_dim=8, k=2, k_aux=4, dead_threshold=1)
+    module.stats_last_nonzero.fill_(2)
+
+    latents = torch.ones(2, 8)
+    assert torch.equal(module.auxk_mask_fn(latents), latents)
+    module.dead_threshold = 2
+    assert torch.equal(module.auxk_mask_fn(latents), torch.zeros_like(latents))

@@ -79,11 +79,17 @@ class SparseAutoEncoder(Module):
         self.stats_last_nonzero: torch.Tensor
         self.register_buffer("stats_last_nonzero", torch.zeros(hidden_dim, dtype=torch.long))
 
-        def auxk_mask_fn(x):
-            dead_mask = self.stats_last_nonzero > dead_threshold
-            return x * dead_mask
+    def auxk_mask_fn(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: autoencoder latents before activation (shape: [batch, hidden_dim])
 
-        self.auxk_mask_fn = auxk_mask_fn
+        Returns:
+            the latents with all but the dead ones (``stats_last_nonzero > dead_threshold``) set to zero
+            (shape: [batch, hidden_dim])
+        """
+        dead_mask = self.stats_last_nonzero > self.dead_threshold
+        return x * dead_mask
 
     def encode_pre_act(self, x: torch.Tensor) -> torch.Tensor:
         """

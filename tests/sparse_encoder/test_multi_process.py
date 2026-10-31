@@ -30,6 +30,18 @@ def test_multi_process_encode_same_as_standard_encode(splade_bert_tiny_model: Sp
 
 
 @pytest.mark.slow
+def test_multi_process_encode_csr_model(csr_bert_tiny_model: SparseEncoder):
+    # CSR models have to be picklable as well, to be sent to the worker processes
+    model = csr_bert_tiny_model
+    texts = ["First sentence.", "Second sentence.", "Third sentence."] * 5
+
+    embeddings_standard = model.encode(texts).cpu()
+    embeddings_multi = model.encode(texts, device=["cpu"] * 2)
+
+    assert sparse_allclose(embeddings_standard, embeddings_multi, atol=1e-5)
+
+
+@pytest.mark.slow
 def test_multi_process_pool(splade_bert_tiny_model: SparseEncoder):
     # Test the start_multi_process_pool and stop_multi_process_pool functions
     model = splade_bert_tiny_model
