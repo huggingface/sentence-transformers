@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.util import pytorch_cos_sim
+from sentence_transformers.util import normalize_embeddings
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -113,38 +113,47 @@ class TranslationEvaluator(BaseEvaluator):
 
         logger.info(f"Evaluating translation matching Accuracy of the model on the {self.name} dataset{out_txt}:")
 
-        embeddings1 = torch.stack(self.embed_inputs(model, self.source_sentences))
-        embeddings2 = torch.stack(self.embed_inputs(model, self.target_sentences))
-
-        cos_sims = pytorch_cos_sim(embeddings1, embeddings2).detach().cpu().numpy()
+        embeddings1 = normalize_embeddings(torch.stack(self.embed_inputs(model, self.source_sentences)))
+        embeddings2 = normalize_embeddings(torch.stack(self.embed_inputs(model, self.target_sentences)))
 
         correct_src2trg = 0
         correct_trg2src = 0
+        num_sentences = len(self.source_sentences)
+        best_source_scores = np.full(num_sentences, -np.inf)
+        best_source_indices = np.zeros(num_sentences, dtype=int)
 
-        for i in range(len(cos_sims)):
-            max_idx = np.argmax(cos_sims[i])
+        # Keep only one block of the quadratic similarity matrix in memory.
+        for start in range(0, num_sentences, 1024):
+            cos_sims = (embeddings1[start : start + 1024] @ embeddings2.T).detach().cpu().numpy()
+            block_source_indices = np.argmax(cos_sims, axis=0)
+            block_source_scores = cos_sims[block_source_indices, np.arange(num_sentences)]
+            better = (block_source_scores > best_source_scores) | (
+                np.isnan(block_source_scores) & ~np.isnan(best_source_scores)
+            )
+            best_source_scores[better] = block_source_scores[better]
+            best_source_indices[better] = start + block_source_indices[better]
 
-            if self.target_sentences[i] == self.target_sentences[max_idx]:
-                correct_src2trg += 1
-            elif self.print_wrong_matches:
-                print("\nIncorrect  : Source", i, "is most similar to target", max_idx, "instead of target", i)
-                print("Source     :", self.source_sentences[i])
-                print("Pred Target:", self.target_sentences[max_idx], f"(Score: {cos_sims[i][max_idx]:.4f})")
-                print("True Target:", self.target_sentences[i], f"(Score: {cos_sims[i][i]:.4f})")
+            for row, max_idx in enumerate(np.argmax(cos_sims, axis=1)):
+                i = start + row
+                if self.target_sentences[i] == self.target_sentences[max_idx]:
+                    correct_src2trg += 1
+                elif self.print_wrong_matches:
+                    print("\nIncorrect  : Source", i, "is most similar to target", max_idx, "instead of target", i)
+                    print("Source     :", self.source_sentences[i])
+                    print("Pred Target:", self.target_sentences[max_idx], f"(Score: {cos_sims[row][max_idx]:.4f})")
+                    print("True Target:", self.target_sentences[i], f"(Score: {cos_sims[row][i]:.4f})")
 
-                results = enumerate(cos_sims[i])
-                results = sorted(results, key=lambda x: x[1], reverse=True)
-                for idx, score in results[:5]:
-                    print("\t", idx, f"(Score: {score:.4f})", self.target_sentences[idx])
+                    results = enumerate(cos_sims[row])
+                    results = sorted(results, key=lambda x: x[1], reverse=True)
+                    for idx, score in results[:5]:
+                        print("\t", idx, f"(Score: {score:.4f})", self.target_sentences[idx])
 
-        cos_sims = cos_sims.T
-        for i in range(len(cos_sims)):
-            max_idx = np.argmax(cos_sims[i])
+        for i, max_idx in enumerate(best_source_indices):
             if self.source_sentences[i] == self.source_sentences[max_idx]:
                 correct_trg2src += 1
 
-        acc_src2trg = correct_src2trg / len(cos_sims)
-        acc_trg2src = correct_trg2src / len(cos_sims)
+        acc_src2trg = correct_src2trg / num_sentences
+        acc_trg2src = correct_trg2src / num_sentences
 
         logger.info(f"Accuracy src2trg: {acc_src2trg * 100:.2f}")
         logger.info(f"Accuracy trg2src: {acc_trg2src * 100:.2f}")
