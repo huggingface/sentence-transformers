@@ -189,11 +189,9 @@ def test_proportional_no_duplicates(
         assert all(len(batch) == batch_size for batch in batches)
         assert len(sum(batches, [])) == 36
     else:
-        # If we don't drop incomplete batches, we should be able to do 18 batches, and get more data.
-        # Note: we don't get all data, because the NoDuplicatesBatchSampler will estimate the number of batches
-        # and it would require more (non-complete) batches to get all data.
-        assert len(batches) == 18
-        assert len(sum(batches, [])) == 34
+        # Incomplete batches can exceed the estimated count; every row must still be sampled.
+        assert len(batches) > len(batch_sampler)
+        assert sorted(index for batch in batches for index in batch) == list(range(len(concat_dataset)))
 
 
 @pytest.mark.parametrize("drop_last", [True, False])
