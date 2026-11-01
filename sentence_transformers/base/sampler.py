@@ -775,18 +775,25 @@ class ProportionalBatchSampler(MultiDatasetDefaultBatchSampler):
         sample_offsets = [0] + list(accumulate(num_samples))
 
         num_batches = [len(sampler) for sampler in self.batch_samplers]
-        dataset_indices = [idx for idx, length in enumerate(num_batches) for _ in range(length)]
-        dataset_idx_sampler = SubsetRandomSampler(dataset_indices, generator=self.generator)
-
         batch_samplers = [iter(sampler) for sampler in self.batch_samplers]
-        for dataset_idx in dataset_idx_sampler:
-            sample_offset = sample_offsets[dataset_idx]
-            try:
-                yield [idx + sample_offset for idx in next(batch_samplers[dataset_idx])]
-            except StopIteration:
-                continue
+        active = set(range(len(batch_samplers)))
+        # Child lengths can be estimates (e.g. NoDuplicatesBatchSampler). Use them
+        # as sampling weights, but stop only when the iterators are exhausted.
+        while active:
+            dataset_indices = [
+                idx for idx, length in enumerate(num_batches) if idx in active for _ in range(max(1, length))
+            ]
+            for dataset_idx in SubsetRandomSampler(dataset_indices, generator=self.generator):
+                if dataset_idx not in active:
+                    continue
+                sample_offset = sample_offsets[dataset_idx]
+                try:
+                    yield [idx + sample_offset for idx in next(batch_samplers[dataset_idx])]
+                except StopIteration:
+                    active.remove(dataset_idx)
 
     def __len__(self) -> int:
+        """Return the number of batches, estimated when child sampler lengths are estimates."""
         return sum([len(sampler) for sampler in self.batch_samplers])
 
 
