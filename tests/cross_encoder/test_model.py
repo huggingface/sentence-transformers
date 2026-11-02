@@ -426,26 +426,26 @@ def test_bfloat16() -> None:
     assert isinstance(ranking, list)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test moving devices effectively.")
-@pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_device_assignment(device):
-    model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce", device=device)
-    assert model.device.type == device
+def test_device_assignment(inference_device: str) -> None:
+    model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce", device=inference_device)
+    assert model.device.type == inference_device
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test moving devices effectively.")
-def test_device_switching():
-    # test assignment using .to
+def test_device_switching(inference_device: str) -> None:
     model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce", device="cpu")
     assert model.device.type == "cpu"
     assert model.model.device.type == "cpu"
 
-    model.to("cuda")
-    assert model.device.type == "cuda"
-    assert model.model.device.type == "cuda"
+    model.to(inference_device)
+    assert model.device.type == inference_device
+    assert model.model.device.type == inference_device
 
-    del model
-    torch.cuda.empty_cache()
+    scores = model.predict([["Hello there!", "Hello, World!"]], convert_to_tensor=True)
+    assert scores.shape == (1,)
+    assert scores.device.type == inference_device
+
+    model.cpu()
+    assert model.device.type == "cpu"
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test moving devices effectively.")

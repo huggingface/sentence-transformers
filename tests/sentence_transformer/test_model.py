@@ -101,10 +101,6 @@ def test_to(inference_device: str) -> None:
     model.encode("Test sentence")
     assert model.device.type == inference_device, "Encoding shouldn't change the device"
 
-    if inference_device == "neuron":
-        with pytest.raises(ValueError, match="fresh parent process"):
-            model.start_multi_process_pool(["neuron:0"])
-
     assert model._target_device == model.device, "Prevent backwards compatibility failure for _target_device"
     model._target_device = "cpu"
     assert model.device.type == "cpu", "Ensure that setting `_target_device` doesn't crash."

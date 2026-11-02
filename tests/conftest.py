@@ -117,17 +117,16 @@ def cache_hub_revision_resolution():
         file_io._hub_resolve_revision = resolve_revision
 
 
-# Sentence Transformers
 @pytest.fixture(params=["cpu", "cuda", "neuron"])
-def inference_device(request) -> str:
+def inference_device(request: pytest.FixtureRequest) -> str:
+    """Run each dependent test once per listed device, skipping unavailable accelerators."""
     device = request.param
-    if device == "neuron" and not hasattr(torch, "neuron"):
-        pytest.importorskip("torch_neuronx", exc_type=ImportError)
     if device != "cpu" and not (hasattr(torch, device) and getattr(torch, device).is_available()):
         pytest.skip(f"{device} is not available")
     return device
 
 
+# Sentence Transformers
 @pytest.fixture(scope="session")
 def _stsb_bert_tiny_model() -> SentenceTransformer:
     model_id = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
