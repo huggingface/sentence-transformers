@@ -48,6 +48,7 @@ The NanoBEIR column reports the mean NDCG@10 (higher is better) across the 13 [N
 
 | Model | Parameters | Dimensionality | NanoBEIR | Notes |
 | --- | :---: | :---: | :---: | --- |
+| [multi-vector-encoder/merged-GLInt-LateOn](https://huggingface.co/multi-vector-encoder/merged-GLInt-LateOn) | 149M | 128 | 0.7061 | - |
 | [chungimungi/GLInt](https://huggingface.co/chungimungi/GLInt) | 149M | 128 | 0.6914 | - |
 | [lightonai/LateOn-regularized](https://huggingface.co/lightonai/LateOn-regularized) | 149M | 128 | 0.6897 | - |
 | [lightonai/LateOn-hpool-regularized](https://huggingface.co/lightonai/LateOn-hpool-regularized) | 149M | 128 | 0.6876 | - |
