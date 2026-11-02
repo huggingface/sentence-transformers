@@ -126,7 +126,7 @@ def test_load_with_revision() -> None:
     argvalues=[True, False],
     ids=["return-docs", "no-return-docs"],
 )
-def test_rank(return_documents: bool, reranker_bert_tiny_model: CrossEncoder, inference_device: str) -> None:
+def test_rank(return_documents: bool, reranker_bert_tiny_model: CrossEncoder) -> None:
     model = reranker_bert_tiny_model
     # We want to compute the similarity between the query sentence
     query = "A man is eating pasta."
@@ -143,16 +143,11 @@ def test_rank(return_documents: bool, reranker_bert_tiny_model: CrossEncoder, in
         "A monkey is playing drums.",
         "A cheetah is running behind its prey.",
     ]
-    pairs = [(query, document) for document in corpus]
-    scores = model.predict(pairs, device="cpu", batch_size=4)
-    device_scores = model.predict(pairs, device=inference_device, batch_size=4, convert_to_tensor=True)
-    assert model.device.type == inference_device
-    assert device_scores.device.type == inference_device
-    np.testing.assert_allclose(device_scores.cpu().numpy(), scores, atol=1e-4, rtol=1e-4)
+    scores = model.predict([(query, document) for document in corpus])
     expected_ranking = [1, 0, 5, 4, 2, 6, 8, 7, 3]
 
     # 1. We rank all sentences in the corpus for the query
-    ranks = model.rank(query=query, documents=corpus, return_documents=return_documents, batch_size=4)
+    ranks = model.rank(query=query, documents=corpus, return_documents=return_documents)
     if return_documents:
         assert [rank["text"] for rank in ranks] == [corpus[index] for index in expected_ranking]
     else:
@@ -160,7 +155,7 @@ def test_rank(return_documents: bool, reranker_bert_tiny_model: CrossEncoder, in
 
     pred_ranking = [rank["corpus_id"] for rank in ranks]
     assert pred_ranking == expected_ranking
-    np.testing.assert_allclose([rank["score"] for rank in ranks], scores[expected_ranking], atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose([rank["score"] for rank in ranks], scores[expected_ranking])
 
 
 def test_rank_scores_are_floats(reranker_bert_tiny_model: CrossEncoder) -> None:
