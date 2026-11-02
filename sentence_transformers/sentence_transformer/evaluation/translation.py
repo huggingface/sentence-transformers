@@ -9,7 +9,6 @@ import numpy as np
 import torch
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.util import normalize_embeddings
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -25,6 +24,9 @@ class TranslationEvaluator(BaseEvaluator):
     and assuming that fr_i is the translation of en_i.
     Checks whether the most similar sentence has the same text as the expected translation.
     Computes accuracy in both directions.
+
+    Similarities are computed with the model's configured ``similarity_fn_name`` rather than always using cosine
+    similarity. Scores are computed in blocks to avoid keeping the full source-by-target matrix in memory.
 
     Args:
         source_sentences (List[str]): List of sentences in the source language.
@@ -113,8 +115,8 @@ class TranslationEvaluator(BaseEvaluator):
 
         logger.info(f"Evaluating translation matching Accuracy of the model on the {self.name} dataset{out_txt}:")
 
-        embeddings1 = normalize_embeddings(torch.stack(self.embed_inputs(model, self.source_sentences)))
-        embeddings2 = normalize_embeddings(torch.stack(self.embed_inputs(model, self.target_sentences)))
+        embeddings1 = self.embed_inputs(model, self.source_sentences)
+        embeddings2 = torch.stack(self.embed_inputs(model, self.target_sentences))
 
         correct_src2trg = 0
         correct_trg2src = 0
@@ -124,26 +126,27 @@ class TranslationEvaluator(BaseEvaluator):
 
         # Keep only one block of the quadratic similarity matrix in memory.
         for start in range(0, num_sentences, 1024):
-            cos_sims = (embeddings1[start : start + 1024] @ embeddings2.T).detach().cpu().numpy()
-            block_source_indices = np.argmax(cos_sims, axis=0)
-            block_source_scores = cos_sims[block_source_indices, np.arange(num_sentences)]
+            similarities = model.similarity(torch.stack(embeddings1[start : start + 1024]), embeddings2)
+            similarities = similarities.detach().cpu().numpy()
+            block_source_indices = np.argmax(similarities, axis=0)
+            block_source_scores = similarities[block_source_indices, np.arange(num_sentences)]
             better = (block_source_scores > best_source_scores) | (
                 np.isnan(block_source_scores) & ~np.isnan(best_source_scores)
             )
             best_source_scores[better] = block_source_scores[better]
             best_source_indices[better] = start + block_source_indices[better]
 
-            for row, max_idx in enumerate(np.argmax(cos_sims, axis=1)):
+            for row, max_idx in enumerate(np.argmax(similarities, axis=1)):
                 i = start + row
                 if self.target_sentences[i] == self.target_sentences[max_idx]:
                     correct_src2trg += 1
                 elif self.print_wrong_matches:
                     print("\nIncorrect  : Source", i, "is most similar to target", max_idx, "instead of target", i)
                     print("Source     :", self.source_sentences[i])
-                    print("Pred Target:", self.target_sentences[max_idx], f"(Score: {cos_sims[row][max_idx]:.4f})")
-                    print("True Target:", self.target_sentences[i], f"(Score: {cos_sims[row][i]:.4f})")
+                    print("Pred Target:", self.target_sentences[max_idx], f"(Score: {similarities[row][max_idx]:.4f})")
+                    print("True Target:", self.target_sentences[i], f"(Score: {similarities[row][i]:.4f})")
 
-                    results = enumerate(cos_sims[row])
+                    results = enumerate(similarities[row])
                     results = sorted(results, key=lambda x: x[1], reverse=True)
                     for idx, score in results[:5]:
                         print("\t", idx, f"(Score: {score:.4f})", self.target_sentences[idx])

@@ -18,23 +18,37 @@ from sentence_transformers.util import cos_sim
 
 @pytest.fixture
 def translation_word_model() -> SentenceTransformer:
-    vocab = ["pad", "alpha", "beta", "gamma", "alias", "delta"]
+    vocab = ["pad", "alpha", "beta", "gamma", "alias", "delta", "scaled", "near"]
     weights = torch.tensor(
-        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [2.0, 0.0, 0.0],
+            [1.0, 0.01, 0.0],
+        ]
     )
-    model = SentenceTransformer(modules=[WordEmbeddings(WhitespaceTokenizer(vocab=vocab), weights), Pooling(3)])
+    model = SentenceTransformer(
+        modules=[WordEmbeddings(WhitespaceTokenizer(vocab=vocab), weights), Pooling(3)], device="cpu"
+    )
     model.model_card_data.generate_widget_examples = False
     return model
 
 
 @pytest.mark.parametrize("num_sentences", [17, 1024, 2051])
-def test_translation_blocks_match_full_matrix(translation_word_model, num_sentences):
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_translation_blocks_match_full_matrix(translation_word_model, num_sentences, dtype):
     words = ["alpha", "beta", "gamma", "alias"]
     sources = [words[i % 4] for i in range(num_sentences)]
     targets = [words[(3 * i + 1) % 4] for i in range(num_sentences)]
     sources[-1] = targets[0] = "delta"
-    model = translation_word_model
-    scores = cos_sim(model.encode(sources), model.encode(targets))
+    model = translation_word_model.to(dtype=dtype)
+    source_embeddings = model.encode(sources, convert_to_tensor=True)
+    assert source_embeddings.dtype == dtype
+    scores = model.similarity(source_embeddings, model.encode(targets, convert_to_tensor=True))
     expected_forward = (
         sum(targets[i] == targets[j] for i, j in enumerate(scores.argmax(dim=1).tolist())) / num_sentences
     )
@@ -46,6 +60,28 @@ def test_translation_blocks_match_full_matrix(translation_word_model, num_senten
 
     assert metrics["src2trg_accuracy"] == expected_forward
     assert metrics["trg2src_accuracy"] == expected_reverse
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_translation_low_precision_does_not_round_near_matches_to_ties(translation_word_model, dtype):
+    model = translation_word_model.to(dtype=dtype)
+    sentences = ["alpha"] * 1024 + ["near"]
+
+    metrics = TranslationEvaluator(sentences, sentences)(model)
+
+    assert metrics["src2trg_accuracy"] == 1.0
+    assert metrics["trg2src_accuracy"] == 1.0
+
+
+@pytest.mark.parametrize("similarity_fn_name,expected_forward", [("cosine", 0.5), ("dot", 0.0)])
+def test_translation_uses_configured_similarity(translation_word_model, similarity_fn_name, expected_forward):
+    model = translation_word_model
+    model.similarity_fn_name = similarity_fn_name
+
+    metrics = TranslationEvaluator(["alpha", "beta"], ["alpha", "scaled"])(model)
+
+    assert metrics["src2trg_accuracy"] == expected_forward
+    assert metrics["trg2src_accuracy"] == 0.5
 
 
 def test_translation_prints_wrong_matches_after_block_boundary(translation_word_model, capsys):
@@ -95,6 +131,7 @@ def test_mismatched_pairs_still_count_as_wrong(stsb_bert_tiny_model: SentenceTra
 def test_tied_scores_only_credit_matching_text(sources, targets, expected_src2trg, expected_trg2src):
     model = Mock()
     model.encode.return_value = [torch.ones(2) for _ in sources]
+    model.similarity = cos_sim
 
     metrics = TranslationEvaluator(source_sentences=sources, target_sentences=targets)(model)
 

@@ -29,6 +29,9 @@ class SparseTranslationEvaluator(TranslationEvaluator):
     Checks whether the most similar sentence has the same text as the expected translation.
     Computes accuracy in both directions.
 
+    Uses the model's configured ``similarity_fn_name`` (dot product by default for sparse encoders), rather than
+    always using cosine similarity. Similarities are scored in blocks without densifying the sparse embeddings.
+
     Args:
         source_sentences (List[str]): List of sentences in the source language.
         target_sentences (List[str]): List of sentences in the target language.
