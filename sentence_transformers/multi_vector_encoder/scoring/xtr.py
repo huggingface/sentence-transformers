@@ -44,7 +44,8 @@ def xtr_scores(
             per-document reductions and gathered embeddings also consume memory. Cutoff ties require
             a full token-score row to preserve top-k selection. This path requires enabled autograd and at
             least one input requiring gradients. Inference, non-CPU devices, compilation, nonfinite or
-            sentinel scores, and shapes with expensive winner gathers retain the legacy dense reduction.
+            sentinel scores, gradient-requiring query masks, and shapes with expensive winner gathers
+            retain the legacy dense reduction.
             Memory savings trade off against additional selection work; no latency improvement is
             guaranteed. Defaults to None (legacy single matmul).
 
@@ -85,6 +86,7 @@ def xtr_scores(
         and queries_embeddings.device.type == "cpu"
         and documents_embeddings.device.type == "cpu"
         and not is_torchdynamo_compiling()
+        and not queries_mask.requires_grad
         and torch.is_grad_enabled()
         and not torch.is_inference_mode_enabled()
         and (queries_embeddings.requires_grad or documents_embeddings.requires_grad)

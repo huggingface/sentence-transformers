@@ -253,3 +253,27 @@ def test_streaming_xtr_nested_inference_retains_legacy(monkeypatch):
         actual = module.xtr_scores(query, document, top_k=7, chunk_elements=200)
     torch.testing.assert_close(actual, expected)
     assert not actual.requires_grad
+
+
+@pytest.mark.parametrize("mask_values", [[0.0, 1.0], [0.0, 0.0], [0.0, 0.5], [0.25, 1.0]])
+def test_streaming_xtr_learnable_query_mask_retains_gradients(monkeypatch, mask_values):
+    import importlib
+
+    module = importlib.import_module("sentence_transformers.multi_vector_encoder.scoring.xtr")
+
+    def unexpected_streaming(*args, **kwargs):
+        raise AssertionError("Differentiable query masks must retain dense mask gradients")
+
+    monkeypatch.setattr(module, "_streaming_xtr_scores", unexpected_streaming)
+    query = torch.ones(1, 2, 1, requires_grad=True)
+    document = torch.arange(1.0, 9.0).reshape(1, 1, 8, 1).requires_grad_()
+    query_mask = torch.tensor([mask_values], requires_grad=True)
+    document_mask = torch.ones(1, 1, 8, dtype=torch.bool)
+    expected = module.xtr_scores(query, document, query_mask, document_mask, top_k=1)
+    actual = module.xtr_scores(query, document, query_mask, document_mask, top_k=1, chunk_elements=1)
+    inputs = (query, document, query_mask)
+    expected_grads = torch.autograd.grad(expected.sum(), inputs, retain_graph=True)
+    actual_grads = torch.autograd.grad(actual.sum(), inputs)
+    torch.testing.assert_close(actual, expected)
+    for actual_grad, expected_grad in zip(actual_grads, expected_grads):
+        torch.testing.assert_close(actual_grad, expected_grad)
