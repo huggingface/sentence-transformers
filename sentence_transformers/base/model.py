@@ -33,7 +33,7 @@ from huggingface_hub import CardData, HfApi
 from packaging import version
 from torch import Tensor, nn
 from tqdm.autonotebook import trange
-from transformers import PreTrainedModel, is_datasets_available, is_torch_npu_available
+from transformers import PreTrainedModel, is_datasets_available
 from transformers.dynamic_module_utils import get_relative_import_files
 from transformers.utils import logging as transformers_logging
 
@@ -210,7 +210,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         if backend == "torch" and model_name_or_path and model_kwargs:
             device_map = model_kwargs.get("device_map")
         if device is None and device_map is None:
-            device = get_device_name()
+            device = self.get_device_name()
             logger.info(f"No device provided, using {device}")
         elif device is not None and device_map is not None:
             logger.warning(f"Ignoring `device={device}` because `model_kwargs['device_map']` takes priority.")
@@ -1779,6 +1779,10 @@ This pull request has been automatically generated to add {self.__class__.__name
         """Whether a requested device map or live placement hooks control inference placement."""
         return self._device_map is not None or self._accelerate_placement_hook is not None
 
+    def get_device_name(self) -> str:
+        """Choose a default device for model loading and multi-process pools."""
+        return get_device_name()
+
     @property
     def device(self) -> torch.device:
         """Return the execution device, falling back to model tensors and then CPU."""
@@ -1817,8 +1821,9 @@ This pull request has been automatically generated to add {self.__class__.__name
         Args:
             target_devices (List[str], optional): PyTorch target devices, e.g. ["cuda:0", "cuda:1", ...],
                 ["npu:0", "npu:1", ...], ["neuron:0", "neuron:1", ...], or ["cpu", "cpu", "cpu", "cpu"].
-                If target_devices is None, all available CUDA, NPU, or Neuron devices will be used, in that
-                order of preference. If none are available, then 4 CPU devices will be used.
+                If target_devices is None, :meth:`get_device_name` selects the device type. All available
+                devices of that type are used for CUDA, NPU, and Neuron. Other types use 4 CPU workers.
+                Neuron pools require a fresh process with the model loaded on CPU.
 
         Returns:
             Dict[str, Any]: A dictionary with the target processes, an input queue, and an output queue.
@@ -1831,14 +1836,11 @@ This pull request has been automatically generated to add {self.__class__.__name
             )
 
         if target_devices is None:
-            if torch.cuda.is_available():
-                target_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
-            elif is_torch_npu_available():
-                target_devices = [f"npu:{i}" for i in range(torch.npu.device_count())]
-            elif hasattr(torch, "neuron") and torch.neuron.is_available():
-                target_devices = [f"neuron:{i}" for i in range(torch.neuron.device_count())]
+            device_type = self.get_device_name().split(":")[0]
+            if device_type in ("cuda", "npu", "neuron"):
+                target_devices = [f"{device_type}:{i}" for i in range(getattr(torch, device_type).device_count())]
             else:
-                logger.info("CUDA/NPU/Neuron is not available. Starting 4 CPU workers")
+                logger.info("No supported multi-process accelerator is available. Starting 4 CPU workers")
                 target_devices = ["cpu"] * 4
 
         logger.info(f"Starting multi-process pool on devices: {', '.join(map(str, target_devices))}")

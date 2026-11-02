@@ -37,7 +37,7 @@ class SparseEncoder(BaseModel):
             Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
             create custom SparseEncoder models from scratch. Defaults to None.
-        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``, ``"neuron"``) that should be used for
+        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used for
             computation. If None, checks if a GPU can be used. If a ``device_map`` is provided via
             ``model_kwargs``, that controls device placement and this argument is ignored. Defaults to None.
         prompts (dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt name,
@@ -200,6 +200,11 @@ class SparseEncoder(BaseModel):
                 if isinstance(module, SparseAutoEncoder):
                     self.max_active_dims = module.k
                     break
+
+    def get_device_name(self) -> str:
+        """Select the default device, using CPU when Neuron or HPU is detected."""
+        device = super().get_device_name()
+        return "cpu" if device.startswith(("neuron", "hpu")) else device
 
     # Ordered overloads: the first match wins, so the all-defaults signatures come first and the
     # convert_to_tensor=False deviation pins its flag as a required keyword.
