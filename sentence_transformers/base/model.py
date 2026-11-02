@@ -1855,31 +1855,36 @@ This pull request has been automatically generated to add {self.__class__.__name
         input_queue = ctx.Queue()
         output_queue = ctx.Queue()
         processes = []
+        pool = {"input": input_queue, "output": output_queue, "processes": processes}
 
-        for device_id in target_devices:
-            worker_device = device_id
-            core = neuron_worker_cores.get(str(device_id))
-            if core is not None:
-                visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES")
-                # Spawn must inherit visibility before torch caches the device count.
-                os.environ["NEURON_RT_VISIBLE_CORES"] = str(core)
-                worker_device = "neuron:0"
-            try:
-                p = ctx.Process(
-                    target=self.__class__._multi_process_worker,
-                    args=(worker_device, self, input_queue, output_queue),
-                    daemon=True,
-                )
-                p.start()
-            finally:
+        try:
+            for device_id in target_devices:
+                worker_device = device_id
+                core = neuron_worker_cores.get(str(device_id))
                 if core is not None:
-                    if visible_cores is None:
-                        os.environ.pop("NEURON_RT_VISIBLE_CORES", None)
-                    else:
-                        os.environ["NEURON_RT_VISIBLE_CORES"] = visible_cores
-            processes.append(p)
+                    visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES")
+                    # Spawn must inherit visibility before torch caches the device count.
+                    os.environ["NEURON_RT_VISIBLE_CORES"] = str(core)
+                    worker_device = "neuron:0"
+                try:
+                    p = ctx.Process(
+                        target=self.__class__._multi_process_worker,
+                        args=(worker_device, self, input_queue, output_queue),
+                        daemon=True,
+                    )
+                    p.start()
+                finally:
+                    if core is not None:
+                        if visible_cores is None:
+                            os.environ.pop("NEURON_RT_VISIBLE_CORES", None)
+                        else:
+                            os.environ["NEURON_RT_VISIBLE_CORES"] = visible_cores
+                processes.append(p)
+        except BaseException:
+            self.stop_multi_process_pool(pool)
+            raise
 
-        return {"input": input_queue, "output": output_queue, "processes": processes}
+        return pool
 
     @staticmethod
     def _get_neuron_worker_cores(target_devices: list[str]) -> dict[str, int]:
