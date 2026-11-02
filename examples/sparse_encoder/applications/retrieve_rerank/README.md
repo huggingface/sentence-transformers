@@ -40,7 +40,7 @@ This script provides a complete evaluation pipeline comparing different retrieva
 
 ### Evaluation Results
 
-Example results from running the hybrid search evaluation on [NanoNFCorpus](https://huggingface.co/datasets/zeta-alpha-ai/NanoNFCorpus):
+Example results from running the hybrid search evaluation on [NanoNFCorpus](https://huggingface.co/datasets/zeta-alpha-ai/NanoNFCorpus). Reranking uses `always_rerank_positives=False`, so each reranker receives only the documents returned by its retrieval stage. MAP and NDCG use all known positives for normalization.
 
 ```
 ================================================================================
@@ -50,19 +50,14 @@ METHOD                            NDCG@10     MRR@10        MAP
 --------------------------------------------------------------------------------
 Sparse Retrieval                    32.20      46.91      14.30
 Dense Retrieval                     27.35      41.59       8.95
-Sparse + Reranking                  37.36      57.21      32.12
-Dense + Reranking                   37.56      58.27      31.93
-Hybrid RRF                          32.95      50.19      22.64
-Hybrid RRF + Reranking              36.16      55.77      27.01
+Sparse + Reranking                  34.30      55.21      14.14
+Dense + Reranking                   34.63      55.10      13.63
+Hybrid RRF                          33.02      50.19      12.84
+Hybrid RRF + Reranking              35.34      55.27      14.61
 ================================================================================
 ```
 
-**Key Observations**:
-
-- Re-ranking consistently improves performance across all retrieval methods
-- Sparse retrieval seems to already give strong first results
-- Both sparse and dense re-ranking achieve similar high performance
-- Hybrid approaches provide balanced results
+In this run, reranking improves MRR@10 and NDCG@10 for all three retrieval methods. MAP improves for dense and hybrid retrieval and decreases slightly for sparse retrieval.
 
 ## Pre-trained Models
 

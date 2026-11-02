@@ -149,7 +149,9 @@ sparse_samples = [
 ]
 
 # Initialize the evaluator for sparse reranking
-sparse_reranking_evaluator = CrossEncoderRerankingEvaluator(samples=sparse_samples, show_progress_bar=True)
+sparse_reranking_evaluator = CrossEncoderRerankingEvaluator(
+    samples=sparse_samples, always_rerank_positives=False, show_progress_bar=True
+)
 os.makedirs(f"runs/{sparse_encoder_model_name}/result/rerank_{cross_encoder_model_name}", exist_ok=True)
 
 # Run evaluation
@@ -186,7 +188,9 @@ dense_samples = [
 ]
 
 # Initialize the evaluator for dense reranking
-dense_reranking_evaluator = CrossEncoderRerankingEvaluator(samples=dense_samples, show_progress_bar=True)
+dense_reranking_evaluator = CrossEncoderRerankingEvaluator(
+    samples=dense_samples, always_rerank_positives=False, show_progress_bar=True
+)
 os.makedirs(f"runs/{bi_encoder_model_name}/result/rerank_{cross_encoder_model_name}", exist_ok=True)
 
 # Run evaluation
@@ -238,7 +242,9 @@ fused_pred_data = load_dataset(
 
 # Initialize the reranking evaluator for the fused results
 logger.info("Setting up reranking for hybrid search results")
-fusion_reranking_evaluator = CrossEncoderRerankingEvaluator(samples=fused_pred_data, show_progress_bar=True)
+fusion_reranking_evaluator = CrossEncoderRerankingEvaluator(
+    samples=fused_pred_data, always_rerank_positives=False, show_progress_bar=True
+)
 
 # Run reranking on the fused results
 fusion_reranking_path = f"{rrf_output_path}/rerank_{cross_encoder_model_name}"
