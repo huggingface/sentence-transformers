@@ -41,8 +41,8 @@ def xtr_scores(
             CPU eager training scoring streams global top-k candidates and recomputes only winning dot products
             for autograd, avoiding the full token similarity grid when the estimated winner gathers
             are smaller. The budget covers a matmul chunk, not all live state: top-k candidates,
-            per-document reductions and gathered embeddings also consume memory. Cutoff ties require
-            a full token-score row to preserve top-k selection. This path requires enabled autograd and at
+            per-document reductions and gathered embeddings also consume memory. Active real-token cutoff
+            ties retain the original chunked scorer. This path requires enabled autograd and at
             least one input requiring gradients. Inference, non-CPU devices, compilation, nonfinite or
             sentinel scores, gradient-requiring query masks, and shapes with expensive winner gathers
             retain the legacy dense reduction.
@@ -321,19 +321,11 @@ def _streaming_xtr_scores(
             ids = merged_ids.gather(-1, ix)
         if not torch.isfinite(vals).all():
             return None
-        # Resolve ambiguous real cutoff ties with legacy topk on one complete row. Mask-only
-        # and inactive-query ties cannot change the output and do not need this extra work.
-        if keep > k:
-            ambiguous = (
-                ((vals[:, k - 1] == vals[:, k]) & (vals[:, k] != sentinel) & qm.reshape(-1).bool()).nonzero().flatten()
-            )
-            for r in ambiguous:
-                # torch.topk's arbitrary boundary-tie membership is reproduced on a full row,
-                # never on the full query-token by document-token score matrix.
-                full_row = qf[r : r + 1] @ df.T
-                full_row.masked_fill_(~dm, sentinel)
-                rv, ri = full_row.topk(k, dim=-1, sorted=False)
-                vals[r, :k], ids[r, :k] = rv[0], ri[0]
+        # Keep the original chunked GEMMs and native full-grid topk for cutoff ties.
+        # Recomputing even one full row can change GEMM rounding and select a different
+        # document. Mask-only and inactive-query ties cannot change the output.
+        if keep > k and ((vals[:, k - 1] == vals[:, k]) & (vals[:, k] != sentinel) & qm.reshape(-1).bool()).any():
+            return None
         vals, ids = vals[:, :k], ids[:, :k]
         valid = dm[ids] & qm.reshape(-1, 1).bool()
         docids = ids // L
