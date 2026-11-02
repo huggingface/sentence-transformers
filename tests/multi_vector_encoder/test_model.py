@@ -741,17 +741,29 @@ def test_encode_output_formats(
     mve_bert_tiny_model: MultiVectorEncoder,
     convert_to_numpy: bool,
     element_type: type,
+    inference_device: str,
 ) -> None:
     model = mve_bert_tiny_model
-    docs = ["short doc", "a considerably longer document with many more distinct tokens than the first one"]
+    docs = [
+        "short doc",
+        "a considerably longer document with many more distinct tokens than the first one",
+        "third doc",
+    ]
     dim = model.get_embedding_dimension()
-    out = model.encode_document(docs, convert_to_numpy=convert_to_numpy)
+    reference = model.encode_document(docs, device="cpu", convert_to_numpy=True, batch_size=2)
+    out = model.encode_document(docs, device=inference_device, convert_to_numpy=convert_to_numpy, batch_size=2)
+    assert model.device.type == inference_device
 
     # A variable-length list with one 2D entry per document.
     assert isinstance(out, list)
     assert len(out) == len(docs)
     assert all(isinstance(emb, element_type) and emb.ndim == 2 and emb.shape[1] == dim for emb in out)
     assert out[0].shape[0] < out[1].shape[0]
+    for actual, expected in zip(out, reference):
+        if isinstance(actual, torch.Tensor):
+            assert actual.device.type == inference_device
+            actual = actual.cpu().numpy()
+        np.testing.assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
 
 
 def test_singular_input_unwraps(mve_bert_tiny_model: MultiVectorEncoder) -> None:
@@ -788,16 +800,25 @@ def test_convert_to_tensor_is_rejected_by_name(mve_bert_tiny_model: MultiVectorE
         model.encode_document(["a doc"], convert_to_tensor=True)
 
 
-def test_similarity_returns_maxsim(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+def test_similarity_returns_maxsim(mve_bert_tiny_model: MultiVectorEncoder, inference_device: str) -> None:
     model = mve_bert_tiny_model
+    model.to("cpu")
+    reference_q = model.encode_query(["cats and dogs"])
+    reference_d = model.encode_document(["cats and dogs are pets", "the weather is nice"])
+    reference_scores = model.similarity(reference_q, reference_d)
+    model.to(inference_device)
     q = model.encode_query(["cats and dogs"])
     d = model.encode_document(["cats and dogs are pets", "the weather is nice"])
     scores = model.similarity(q, d)
     assert scores.shape == (1, 2)
+    assert scores.device.type == inference_device
+    torch.testing.assert_close(scores.cpu(), reference_scores, atol=1e-3, rtol=1e-4)
     # maxsim_pairwise should match the diagonal scoring for a single query/doc.
     pair = model.similarity_pairwise([q[0]], [d[0]])
     assert pair.shape == (1,)
     assert torch.allclose(scores[0, 0], pair[0], atol=1e-5)
+    singular = model.similarity(q[0], d[0])
+    torch.testing.assert_close(singular, scores[:1, :1])
 
 
 def test_save_and_load_round_trip(mve_bert_tiny_model: MultiVectorEncoder) -> None:
