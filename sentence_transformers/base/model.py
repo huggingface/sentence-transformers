@@ -285,6 +285,14 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             if first_param is not None:
                 for module in list(self.children())[1:]:
                     module.to(first_param.dtype)
+            # The loop above sees a Router as one module, so also cast each route to the dtype of its first module
+            for router in self.modules():
+                if isinstance(router, Router):
+                    for route in router.sub_modules.values():
+                        first_param = next(route[0].parameters(), None) if len(route) else None
+                        if first_param is not None:
+                            for module in route[1:]:
+                                module.to(first_param.dtype)
             self.to(device)
         self.is_hpu_graph_enabled = False
 
