@@ -225,9 +225,12 @@ For multi-device inference, pass the visible logical device indices to ``encode`
 
 .. code-block:: python
 
-   # Run in a fresh process: the parent must not have allocated Neuron tensors.
-   model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device="cpu")
-   embeddings = model.encode(sentences, device=["neuron:0", "neuron:1"])
+   from sentence_transformers import SentenceTransformer
+
+   if __name__ == "__main__":
+       model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device="cpu")
+       sentences = ["This is an example sentence", "Each sentence is converted"]
+       embeddings = model.encode(sentences, device=["neuron:0", "neuron:1"])
 
 ``start_multi_process_pool()`` also detects Neuron devices automatically, using one worker per logical device
 (respecting ``NEURON_RT_VISIBLE_CORES`` if set). Multi-device inference uses independent model replicas. Since
