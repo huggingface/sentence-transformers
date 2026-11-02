@@ -74,9 +74,7 @@ evaluator = SparseInformationRetrievalEvaluator(
     batch_size=12,
     write_predictions=True,
 )
-sparse_results = evaluator(
-    sparse_encoder, output_path=f"runs/{sparse_encoder_model_name}/result", write_predictions=True
-)
+sparse_results = evaluator(sparse_encoder, output_path=f"runs/{sparse_encoder_model_name}/result")
 logger.info(
     f"Sparse retrieval evaluation complete. NDCG@10: {sparse_results.get(f'{sparse_encoder_similarity_fn_name}_ndcg@10'):.4f}"
 )

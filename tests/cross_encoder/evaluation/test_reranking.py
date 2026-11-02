@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from math import log2
 from unittest.mock import Mock
 
 import numpy as np
@@ -133,46 +133,59 @@ def test_empty_documents() -> None:
     assert model.predict.call_args.args[0] == [["found", "positive"], ["found", "negative"]]
 
 
-class _PerfectReranker:
-    """Scores the documents the evaluator hands it, positives first, nothing else.
+@pytest.mark.parametrize("always_rerank_positives", [False, True])
+@pytest.mark.parametrize("at_k", [1, 10])
+def test_missing_positives(always_rerank_positives: bool, at_k: int) -> None:
+    samples = [{"query": "q", "positive": ["p1", "p2"], "documents": ["n1", "p1", "n2", "n3"]}]
+    model = Mock()
+    model.predict.return_value = np.array(
+        [2.0, 1.0, 0.0, -1.0, -2.0] if always_rerank_positives else [0.0, 1.0, -1.0, -2.0]
+    )
 
-    A stub rather than a real cross encoder: the point is what the evaluator does with a
-    ranking, and only an exact ranking makes the ceiling visible.
-    """
+    results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=always_rerank_positives, at_k=at_k)(
+        model
+    )
 
-    def __init__(self, positive: list[str]) -> None:
-        self.positive = positive
-        self.model_card_data = SimpleNamespace(set_evaluation_metrics=lambda *args, **kwargs: None)
-
-    def predict(self, pairs, **kwargs):
-        return np.array([1.0 if doc in self.positive else 0.0 for _, doc in pairs])
-
-
-def test_unretrieved_positives_cap_the_reranked_score_too() -> None:
-    """``always_rerank_positives=False`` documents a ceiling below 1.0 when the first stage
-    missed a positive. The base ranking counted those positives; the reranked one dropped
-    them, so a perfect reranker scored 1.0 against a base that could not, and the reported
-    improvement was the retriever's recall gap rather than the model's work."""
-    positive = ["p1", "p2"]
-    samples = [{"query": "q", "positive": positive, "documents": ["n1", "p1", "n2", "n3"]}]
-    evaluator = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, name="recall")
-    results = evaluator(_PerfectReranker(positive))
-
-    ndcg = results[f"recall_ndcg@{evaluator.at_k}"]
-    assert results["recall_map"] < 1.0, "one of the two positives was never scored"
-    assert ndcg < 1.0
-    # And comparable with the base, which charges for the same missed positive.
-    assert results["recall_base_map"] <= results["recall_map"]
-    assert results[f"recall_base_ndcg@{evaluator.at_k}"] <= ndcg
+    ideal_dcg = 1 + 1 / log2(3) if at_k > 1 else 1
+    assert results == pytest.approx(
+        {
+            "map": 1.0 if always_rerank_positives else 0.5,
+            f"mrr@{at_k}": 1.0,
+            f"ndcg@{at_k}": 1.0 if always_rerank_positives else 1 / ideal_dcg,
+            "base_map": 0.25,
+            f"base_mrr@{at_k}": 0.5 if at_k > 1 else 0.0,
+            f"base_ndcg@{at_k}": 1 / log2(3) / ideal_dcg if at_k > 1 else 0.0,
+        }
+    )
+    expected_docs = ["p1", "p2", "n1", "n2", "n3"] if always_rerank_positives else samples[0]["documents"]
+    model.predict.assert_called_once()
+    assert model.predict.call_args.args[0] == [["q", doc] for doc in expected_docs]
 
 
-def test_retrieved_positives_still_reach_one() -> None:
-    """Nothing missing, nothing to cap: the ceiling stays 1.0."""
-    positive = ["p1"]
-    samples = [{"query": "q", "positive": positive, "documents": ["n1", "p1", "n2"]}]
-    evaluator = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, name="full")
-    results = evaluator(_PerfectReranker(positive))
+@pytest.mark.parametrize("num_positives", [1, 3])
+@pytest.mark.parametrize("documents", [["p1"], ["p1", "n1", "n2"]])
+def test_unchanged_ranking(num_positives: int, documents: list[str]) -> None:
+    positives = [f"p{i}" for i in range(1, num_positives + 1)]
+    samples = [{"query": "q", "positive": positives, "documents": documents}]
+    model = Mock()
+    model.predict.return_value = np.array([3.0, 2.0, 1.0][: len(documents)])
 
-    assert results["full_map"] == pytest.approx(1.0)
-    assert results[f"full_ndcg@{evaluator.at_k}"] == pytest.approx(1.0)
-    assert results[f"full_mrr@{evaluator.at_k}"] == pytest.approx(1.0)
+    results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False)(model)
+
+    expected = {
+        "map": 1.0 / num_positives,
+        "mrr@10": 1.0,
+        "ndcg@10": 1.0 if num_positives == 1 else 1 / (1 + 1 / log2(3) + 0.5),
+    }
+    assert results == pytest.approx({**expected, **{f"base_{key}": value for key, value in expected.items()}})
+
+
+def test_missing_positives_with_tied_scores() -> None:
+    samples = [{"query": "q", "positive": ["p1", "p2"], "documents": ["p1", "n1"]}]
+    model = Mock()
+    model.predict.return_value = np.array([0.0, 0.0])
+
+    results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, at_k=1)(model)
+
+    assert results["map"] == pytest.approx(0.25)
+    assert results["ndcg@1"] == pytest.approx(0.5)
