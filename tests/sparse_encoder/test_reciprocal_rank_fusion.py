@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from math import log2
 
@@ -144,3 +145,38 @@ def test_zero_cutoff(documents: list[str]) -> None:
         assert results[f"{prefix}map"] == pytest.approx(1 / (2 * len(documents)))
         assert results[f"{prefix}mrr@0"] == 0.0
         assert results[f"{prefix}ndcg@0"] == 0.0
+
+
+def test_csv_output_has_one_line_per_row(tmp_path):
+    dense_samples, sparse_samples = _make_samples()
+    evaluator = ReciprocalRankFusionEvaluator(dense_samples=dense_samples, sparse_samples=sparse_samples, at_k=10)
+    evaluator(output_path=str(tmp_path), epoch=0, steps=1)
+    evaluator(output_path=str(tmp_path), epoch=1, steps=2)
+
+    csv_path = tmp_path / evaluator.csv_file
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    assert rows[0] == evaluator.csv_headers
+    assert [row[:2] for row in rows[1:]] == [["0", "1"], ["1", "2"]]
+
+
+def test_rrf_ties_preserve_dense_then_sparse_input_order(tmp_path):
+    dense_docs = [f"d{i}" for i in range(1, 13)]
+    sparse_docs = [f"s{i}" for i in range(1, 13)]
+    dense_samples = [{"query_id": "q1", "query": "query", "positive": ["d1"], "documents": dense_docs}]
+    sparse_samples = [{"query_id": "q1", "query": "query", "positive": ["d1"], "documents": sparse_docs}]
+    evaluator = ReciprocalRankFusionEvaluator(
+        dense_samples=dense_samples,
+        sparse_samples=sparse_samples,
+        at_k=24,
+        write_csv=False,
+        write_predictions=True,
+    )
+
+    results = evaluator(output_path=str(tmp_path))
+
+    with (tmp_path / evaluator.predictions_file).open(encoding="utf-8") as prediction_file:
+        prediction = json.loads(prediction_file.readline())
+
+    assert prediction["documents"] == [doc for pair in zip(dense_docs, sparse_docs) for doc in pair]
+    assert results["mrr@24"] == 1.0

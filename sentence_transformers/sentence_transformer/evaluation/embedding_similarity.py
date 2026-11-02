@@ -165,8 +165,14 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
 
         logger.info(f"EmbeddingSimilarityEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
-        embeddings1 = self.embed_inputs(model, self.sentences1)
-        embeddings2 = self.embed_inputs(model, self.sentences2)
+        if self.precision in ("int8", "uint8"):
+            # Calibrate both sides together so the same sentence has the same quantized embedding.
+            embeddings = self.embed_inputs(model, [*self.sentences1, *self.sentences2])
+            embeddings1 = embeddings[: len(self.sentences1)]
+            embeddings2 = embeddings[len(self.sentences1) :]
+        else:
+            embeddings1 = self.embed_inputs(model, self.sentences1)
+            embeddings2 = self.embed_inputs(model, self.sentences2)
         # Binary and ubinary embeddings are packed, so we need to unpack them for the distance metrics
         if self.precision == "binary":
             # Widen first, as numpy refuses to add 128 to an int8 array (128 doesn't fit in int8)

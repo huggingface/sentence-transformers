@@ -6,9 +6,11 @@ from pathlib import Path
 
 import pytest
 import torch
+from transformers import TrainerState
 
 from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments
 from sentence_transformers.sparse_encoder import losses
+from sentence_transformers.sparse_encoder.callbacks.splade_callbacks import SpladeRegularizerWeightSchedulerCallback
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 if is_datasets_available():
@@ -439,3 +441,89 @@ def test_trainer_prompts(
             )
 
     assert set(tracked_texts) == expected
+
+
+def test_trainer_schedules_every_splade_loss(splade_bert_tiny_model: SparseEncoder, tmp_path: Path) -> None:
+    model = splade_bert_tiny_model
+    loss = {
+        name: losses.SpladeLoss(
+            model=model,
+            loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+            document_regularizer_weight=3e-5,
+            query_regularizer_weight=5e-5,
+        )
+        for name in ("first", "second")
+    }
+    dataset = Dataset.from_dict({"anchor": ["a", "b"], "positive": ["c", "d"]})
+    trainer = SparseEncoderTrainer(
+        model=model,
+        args=SparseEncoderTrainingArguments(output_dir=str(tmp_path), report_to="none"),
+        train_dataset=DatasetDict({"first": dataset, "second": dataset}),
+        loss=loss,
+    )
+    schedulers = [
+        callback
+        for callback in trainer.callback_handler.callbacks
+        if isinstance(callback, SpladeRegularizerWeightSchedulerCallback)
+    ]
+
+    state = TrainerState(max_steps=6, global_step=1)
+    for scheduler in schedulers:
+        scheduler.on_train_begin(trainer.args, state, trainer.control)
+        scheduler.on_step_begin(trainer.args, state, trainer.control)
+    for splade_loss in loss.values():
+        assert splade_loss.document_regularizer_weight == pytest.approx(3e-5 / 4)
+        assert splade_loss.query_regularizer_weight == pytest.approx(5e-5 / 4)
+
+
+@pytest.mark.parametrize("during_training", [False, True])
+def test_trainer_logs_eval_loss_components_under_the_metric_key_prefix(
+    splade_bert_tiny_model: SparseEncoder, tmp_path: Path, during_training: bool
+) -> None:
+    model = splade_bert_tiny_model
+    loss = losses.SpladeLoss(
+        model=model,
+        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        document_regularizer_weight=3e-5,
+        query_regularizer_weight=5e-5,
+    )
+    datasets = {
+        name: Dataset.from_dict(
+            {
+                "anchor": [f"{name} question {i}" for i in range(4)],
+                "positive": [f"{name} answer {i} with some words" for i in range(4)],
+            }
+        )
+        for name in ("a", "b")
+    }
+    trainer = SparseEncoderTrainer(
+        model=model,
+        args=SparseEncoderTrainingArguments(
+            output_dir=str(tmp_path),
+            max_steps=2,
+            eval_strategy="steps",
+            eval_steps=1,
+            logging_steps=1,
+            save_strategy="no",
+            per_device_eval_batch_size=2,
+            report_to="none",
+        ),
+        train_dataset=datasets["a"],
+        eval_dataset=DatasetDict(datasets),
+        loss=loss,
+    )
+    if during_training:
+        trainer.train()
+    else:
+        trainer.evaluate()
+    trainer.evaluate(datasets["a"], metric_key_prefix="test")
+    trainer.evaluate(datasets["a"])
+
+    components = ("base_loss", "document_regularizer_loss", "query_regularizer_loss")
+    for prefix in ("eval_a", "eval_b", "test", "eval"):
+        matching_logs = [logs for logs in trainer.state.log_history if f"{prefix}_loss" in logs]
+        assert matching_logs
+        for logs in matching_logs:
+            assert sum(logs[f"{prefix}_{name}"] for name in components) == pytest.approx(
+                logs[f"{prefix}_loss"], abs=1e-3
+            )

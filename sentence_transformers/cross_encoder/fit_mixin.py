@@ -21,7 +21,7 @@ from sentence_transformers.sentence_transformer.datasets.no_duplicates_dataloade
 from sentence_transformers.sentence_transformer.datasets.sentence_label import SentenceLabelDataset
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.readers import InputExample
-from sentence_transformers.util import is_datasets_available
+from sentence_transformers.util import batch_to_device, is_datasets_available
 
 if is_datasets_available():
     from datasets import Dataset
@@ -66,7 +66,7 @@ class SaveModelCallback(TrainerCallback):
         **kwargs,
     ) -> None:
         if self.evaluator is not None and self.save_best_model:
-            metric_key = getattr(self.evaluator, "primary_metric", "evaluator")
+            metric_key = getattr(self.evaluator, "primary_metric", None) or "evaluator"
             for key, value in metrics.items():
                 if key.endswith(metric_key):
                     if self.best_metric is None or self.is_better(value):
@@ -134,7 +134,7 @@ class OriginalCallback(TrainerCallback):
         metrics: dict[str, Any],
         **kwargs,
     ) -> None:
-        metric_key = getattr(self.evaluator, "primary_metric", "evaluator")
+        metric_key = getattr(self.evaluator, "primary_metric", None) or "evaluator"
         for key, value in metrics.items():
             if key.endswith(metric_key):
                 return self.callback(value, state.epoch, state.global_step)
@@ -149,22 +149,19 @@ class FitMixinLoss(nn.Module):
         self.loss_fct = loss_fct
         self.activation_fn = activation_fn
 
-    def forward(self, inputs: list[list[str]], labels: Tensor) -> Tensor:
+    def forward(
+        self, inputs: list[list[str]], labels: Tensor, prompt: str | None = None, task: str | None = None
+    ) -> Tensor:
         if len(inputs) != 2:
             raise ValueError(
-                f"BinaryCrossEntropyLoss expects a dataset with two non-label columns, but got a dataset with {len(inputs)} columns."
+                f"{self.loss_fct} expects a dataset with two non-label columns, but got a dataset with {len(inputs)} columns."
             )
 
         pairs = list(zip(inputs[0], inputs[1]))
-        tokens = self.model.tokenizer(
-            pairs,
-            padding=True,
-            truncation=True,
-            return_tensors="pt",
-        )
-        tokens.to(self.model.device)
-        logits = self.model(**tokens)[0]
-        if self.model.config.num_labels == 1:
+        tokens = self.model.preprocess(pairs, prompt=prompt, task=task)
+        tokens = batch_to_device(tokens, self.model.device)
+        logits = self.model(tokens)["scores"]
+        if self.model.num_labels == 1:
             logits = logits.view(-1)
             labels = labels.float()
         else:
@@ -261,6 +258,14 @@ class FitMixin:
         train_dataloader.collate_fn = identity
 
         batch_size = getattr(train_dataloader, "batch_size", 8)
+        if batch_size is None:
+            # PyTorch sets `DataLoader.batch_size` to None when a custom `batch_sampler` is passed
+            batch_size = getattr(train_dataloader.batch_sampler, "batch_size", None) or 8
+            logger.warning(
+                "The DataLoader uses a custom `batch_sampler`, whose batch grouping `fit()` does not preserve. "
+                "We recommend using `CrossEncoderTrainer` instead, or `old_fit()` if your script was written for "
+                "Sentence Transformers v3."
+            )
         if isinstance(train_dataloader, NoDuplicatesDataLoader):
             batch_sampler = BatchSamplers.NO_DUPLICATES
         elif hasattr(train_dataloader, "dataset") and isinstance(train_dataloader.dataset, SentenceLabelDataset):
@@ -352,6 +357,10 @@ class FitMixin:
             optimizers=(optimizer, scheduler_obj),
             callbacks=callbacks,
         )
+        # Set the trainer on the EvaluatorCallback, required to pass its metrics to the other callbacks
+        for trainer_callback in trainer.callback_handler.callbacks:
+            if isinstance(trainer_callback, EvaluatorCallback):
+                trainer_callback.trainer = trainer
 
         if output_path is not None:
             trainer.add_callback(SaveModelCallback(output_path, evaluator, save_best_model))

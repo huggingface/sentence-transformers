@@ -160,16 +160,59 @@ class TestTransformerKwargsDecorator:
         }
         assert "cache_dir" in caplog.text
 
-    def test_cache_dir_does_not_override_existing(self, caplog):
+    @pytest.mark.parametrize("name", ["model_kwargs", "processor_kwargs", "config_kwargs"])
+    @pytest.mark.parametrize("existing_cache_dir", ["/existing", None])
+    def test_cache_dir_does_not_override_existing(self, caplog, name, existing_cache_dir):
         @transformer_kwargs_decorator
         def func(**kwargs):
             return kwargs
 
         with caplog.at_level(logging.WARNING):
-            result = func(cache_dir="/tmp/cache", model_kwargs={"cache_dir": "/existing"})
+            result = func(cache_dir="/tmp/cache", **{name: {"cache_dir": existing_cache_dir}})
 
-        assert result["model_kwargs"]["cache_dir"] == "/existing"
-        assert result["processor_kwargs"]["cache_dir"] == "/tmp/cache"
+        for key in ("model_kwargs", "processor_kwargs", "config_kwargs"):
+            assert result[key]["cache_dir"] == (existing_cache_dir if key == name else "/tmp/cache")
+
+    @pytest.mark.parametrize(
+        "name",
+        ["model_kwargs", "processor_kwargs", "config_kwargs", "model_args", "tokenizer_args", "config_args"],
+    )
+    def test_cache_dir_accepts_none_kwargs(self, name):
+        @transformer_kwargs_decorator
+        def func(**kwargs):
+            return kwargs
+
+        result = func(cache_dir="/tmp/cache", **{name: None})
+
+        assert result == {
+            "model_kwargs": {"cache_dir": "/tmp/cache"},
+            "processor_kwargs": {"cache_dir": "/tmp/cache"},
+            "config_kwargs": {"cache_dir": "/tmp/cache"},
+        }
+
+    @pytest.mark.parametrize(
+        "name, target",
+        [
+            ("model_kwargs", "model_kwargs"),
+            ("processor_kwargs", "processor_kwargs"),
+            ("config_kwargs", "config_kwargs"),
+            ("model_args", "model_kwargs"),
+            ("tokenizer_args", "processor_kwargs"),
+            ("config_args", "config_kwargs"),
+        ],
+    )
+    def test_cache_dir_does_not_mutate_kwargs(self, name, target):
+        @transformer_kwargs_decorator
+        def func(**kwargs):
+            return kwargs
+
+        options = {"revision": "main"}
+        first = func(cache_dir="/first/cache", **{name: options})
+        second = func(cache_dir="/second/cache", **{name: options})
+
+        assert options == {"revision": "main"}
+        assert first[target] == {"revision": "main", "cache_dir": "/first/cache"}
+        assert second[target] == {"revision": "main", "cache_dir": "/second/cache"}
 
     def test_cache_dir_none_no_warning(self, caplog):
         @transformer_kwargs_decorator

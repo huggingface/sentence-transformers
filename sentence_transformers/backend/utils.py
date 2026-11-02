@@ -283,7 +283,7 @@ print(similarities)
 ```
 
 ---
-*This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util.html#sentence_transformers.backend.{export_function_name}).*
+*This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util/backend.html#sentence_transformers.backend.{export_function_name}).*
 """
                 elif model is None or isinstance(model, SentenceTransformer):
                     commit_description = f"""\
@@ -319,7 +319,7 @@ print(similarities)
 ```
 
 ---
-*This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util.html#sentence_transformers.backend.{export_function_name}).*
+*This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util/backend.html#sentence_transformers.backend.{export_function_name}).*
 """
                 elif isinstance(model, MultiVectorEncoder):
                     commit_description = f"""\
@@ -360,7 +360,7 @@ print(scores)
 ```
 
 ---
-*This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util.html#sentence_transformers.backend.{export_function_name}).*
+*This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util/backend.html#sentence_transformers.backend.{export_function_name}).*
 """
                 elif isinstance(model, CrossEncoder):
                     commit_description = f"""\
@@ -401,7 +401,7 @@ print(scores)
 ```
 
 ---
-*This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util.html#sentence_transformers.backend.{export_function_name}).*
+*This PR was auto-generated with [`{export_function_name}`](https://sbert.net/docs/package_reference/util/backend.html#sentence_transformers.backend.{export_function_name}).*
 """
 
             huggingface_hub.upload_folder(

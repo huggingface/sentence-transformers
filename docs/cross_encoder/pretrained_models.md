@@ -10,6 +10,10 @@ We have released various pre-trained Cross Encoder models via our Cross Encoder 
     The ``sentence-transformers`` library tag is shared by all four model types, and Cross Encoders are the one type without a single clean filter on top of it. The community link above uses the ``text-ranking`` pipeline tag, which covers rerankers but not the classification models further down this page. Models trained with recent versions also carry a ``cross-encoder`` tag, though most of the models on this page predate it. ``sparse`` and ``multi-vector`` are the equivalents for Sparse Encoder and Multi-Vector Encoder models, while dense Sentence Transformer models make up the bulk of what the library tag returns on its own.
 
 Each of these models can be easily downloaded and used like so:
+
+.. sidebar:: Loading Models
+
+    Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <../installation.html#log-in-to-hugging-face>`_.
 ```
 
 ```python

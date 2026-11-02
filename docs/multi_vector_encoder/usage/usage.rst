@@ -20,6 +20,10 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    6. :meth:`MultiVectorEncoder.similarity_pairwise <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.similarity_pairwise>`
    7. :doc:`Speeding up Inference <efficiency>`
 
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <../../installation.html#log-in-to-hugging-face>`_.
+
 ::
 
    from sentence_transformers import MultiVectorEncoder

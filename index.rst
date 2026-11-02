@@ -1,7 +1,7 @@
 
 .. tip::
 
-   Sentence Transformers v6.0 recently released, introducing the :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`, a fourth model family for ColBERT-style late-interaction retrieval using token-level (multi-vector) embeddings, covering both text retrieval and ColPali-style visual document retrieval. Existing ColBERT, PyLate, and ColPali models load out of the box, with full training and evaluation support. Read the `Multi-Vector Encoder quickstart <docs/quickstart.html#multi-vector-encoder>`_, the `Multi-Vector (Late Interaction) Embedding Models <https://huggingface.co/blog/multi-vector-encoder>`_ blogpost for inference, the `Training and Finetuning Multi-Vector Embedding Models <https://huggingface.co/blog/train-multi-vector-encoder>`_ blogpost for training, the `v6.0 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v6.0.0>`_, or the `migration guide <docs/migration_guide.html>`_ for more details.
+   Sentence Transformers v6.2 is now out, featuring model merging across all four model types, faster model loading, and automatic distributed evaluation during DDP training. This release also includes lower-memory training losses, multi-vector compression improvements, and fixes throughout training and inference. Read the `v6.2 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v6.2.0>`_ for examples and all changes.
 
 SentenceTransformers Documentation
 ==================================
@@ -32,6 +32,10 @@ Working with Sentence Transformer models is straightforward:
    
    We recommend **Python 3.10+** and **PyTorch 1.11.0+**. See `installation <docs/installation.html>`_ for further installation options.
 
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <docs/installation.html#log-in-to-hugging-face>`_.
+
 .. tab:: Embedding Models
 
    .. tab:: Text
@@ -40,27 +44,26 @@ Working with Sentence Transformer models is straightforward:
 
          from sentence_transformers import SentenceTransformer
 
-         # 1. Load a pretrained Sentence Transformer model
-         model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+         model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
 
-         # The sentences to encode
-         sentences = [
-             "The weather is lovely today.",
-             "It's so sunny outside!",
-             "He drove to the stadium.",
+         query = "Which planet is known as the Red Planet?"
+         documents = [
+             "Jupiter is the largest planet in our solar system.",
+             "Mars gets its reddish color from iron minerals in its soil.",
+             "Photosynthesis lets plants turn sunlight into energy.",
          ]
 
-         # 2. Calculate embeddings by calling model.encode()
-         embeddings = model.encode(sentences)
-         print(embeddings.shape)
-         # [3, 384]
+         query_embedding = model.encode_query(query)
+         document_embeddings = model.encode_document(documents)
+         print(query_embedding.shape, document_embeddings.shape)
+         # (1024,) (3, 1024)
 
-         # 3. Calculate the embedding similarities
-         similarities = model.similarity(embeddings, embeddings)
-         print(similarities)
-         # tensor([[1.0000, 0.6660, 0.1046],
-         #         [0.6660, 1.0000, 0.1411],
-         #         [0.1046, 0.1411, 1.0000]])
+         scores = model.similarity(query_embedding, document_embeddings)[0]
+         for index in scores.argsort(descending=True):
+             print(f"{scores[index]:.4f}: {documents[index]}")
+         # 0.6115: Mars gets its reddish color from iron minerals in its soil.
+         # 0.4360: Jupiter is the largest planet in our solar system.
+         # 0.1893: Photosynthesis lets plants turn sunlight into energy.
 
    .. tab:: Multimodal
 
@@ -68,30 +71,23 @@ Working with Sentence Transformer models is straightforward:
 
          from sentence_transformers import SentenceTransformer
 
-         # 1. Load a model that supports both text and images
-         model = SentenceTransformer("Qwen/Qwen3-VL-Embedding-2B")
+         model = SentenceTransformer("google/embeddinggemma-2")
 
-         # 2. Encode images from URLs
-         img_embeddings = model.encode([
+         query_embeddings = model.encode_query([
+             "A green car parked in front of a yellow building",
+             "A bee on a pink flower",
+         ])
+         document_embeddings = model.encode_document([
              "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg",
              "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/bee.jpg",
          ])
+         print(query_embeddings.shape, document_embeddings.shape)
+         # (2, 768) (2, 768)
 
-         # 3. Encode text queries (one matching + one hard negative per image)
-         text_embeddings = model.encode([
-             "A green car parked in front of a yellow building",
-             "A red car driving on a highway",
-             "A bee on a pink flower",
-             "A wasp on a wooden table",
-         ])
-
-         # 4. Compute cross-modal similarities
-         similarities = model.similarity(text_embeddings, img_embeddings)
+         similarities = model.similarity(query_embeddings, document_embeddings)
          print(similarities)
-         # tensor([[0.5115, 0.1078],
-         #         [0.1999, 0.1108],
-         #         [0.1255, 0.6749],
-         #         [0.1283, 0.2704]])
+         # tensor([[0.7468, 0.5783],
+         #         [0.6254, 0.8070]])
 
 .. tab:: Reranker Models
 

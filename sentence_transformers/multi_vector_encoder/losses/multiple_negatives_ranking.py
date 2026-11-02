@@ -104,10 +104,6 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
             trainer.train()
     """
 
-    # Enables per-sample media counting in Transformer.preprocess, so mini-batching can slice VLM
-    # inputs (e.g. Qwen2-VL's flattened pixel_values) along the batch dimension.
-    requires_media_counts = True
-
     def __init__(
         self,
         model: MultiVectorEncoder,
@@ -142,7 +138,7 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
         sentence_features: Iterable[dict[str, Tensor]],
         labels: Tensor | None = None,
     ) -> Tensor:
-        sentence_features = list(sentence_features)
+        sentence_features = [dict(features) for features in sentence_features]
         # The collator stamps each column's tokenization task (column 0 is the query unless
         # router_mapping overrides it). The MultiVectorMask module reads `task` from forward
         # kwargs and rewrites the output attention_mask into the per-row scoring mask.

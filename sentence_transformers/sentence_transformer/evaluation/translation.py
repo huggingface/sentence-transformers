@@ -23,9 +23,8 @@ class TranslationEvaluator(BaseEvaluator):
     """
     Given two sets of sentences in different languages, e.g. (en_1, en_2, en_3...) and (fr_1, fr_2, fr_3, ...),
     and assuming that fr_i is the translation of en_i.
-    Checks if vec(en_i) has the highest similarity to vec(fr_i). Computes the accuracy in both directions
-
-    The labels need to indicate the similarity between the sentences.
+    Checks whether the most similar sentence has the same text as the expected translation.
+    Computes accuracy in both directions.
 
     Args:
         source_sentences (List[str]): List of sentences in the source language.
@@ -125,7 +124,7 @@ class TranslationEvaluator(BaseEvaluator):
         for i in range(len(cos_sims)):
             max_idx = np.argmax(cos_sims[i])
 
-            if i == max_idx:
+            if self.target_sentences[i] == self.target_sentences[max_idx]:
                 correct_src2trg += 1
             elif self.print_wrong_matches:
                 print("\nIncorrect  : Source", i, "is most similar to target", max_idx, "instead of target", i)
@@ -141,7 +140,7 @@ class TranslationEvaluator(BaseEvaluator):
         cos_sims = cos_sims.T
         for i in range(len(cos_sims)):
             max_idx = np.argmax(cos_sims[i])
-            if i == max_idx:
+            if self.source_sentences[i] == self.source_sentences[max_idx]:
                 correct_trg2src += 1
 
         acc_src2trg = correct_src2trg / len(cos_sims)

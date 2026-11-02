@@ -79,6 +79,8 @@ class Pooling(Module):
             a tuple/list of mode names to concatenate multiple pooled representations.
             Valid modes: ``"cls"``, ``"max"``, ``"mean"``, ``"mean_sqrt_len_tokens"``,
             ``"weightedmean"``, ``"lasttoken"``. Defaults to ``"mean"``.
+            For ``"weightedmean"``, position weights start at the first non-padding token.
+            Excluding a prompt retains the remaining tokens' original position weights.
         include_prompt: If ``False``, prompt tokens are excluded from pooling. Useful for
             models like `INSTRUCTOR <https://huggingface.co/hkunlp/instructor-large>`_ that
             should not include the prompt in the pooled representation. Defaults to ``True``.
@@ -141,11 +143,9 @@ class Pooling(Module):
                     token_embeddings.shape[:-1], device=token_embeddings.device, dtype=torch.int64
                 )
 
-            if prompt_length is not None:
-                # Not written back into features: the wrapper losses re-embed the dicts they get.
-                attention_mask = self._exclude_prompt_from_mask(attention_mask, prompt_length)
-
-            output_vectors = self._forward_padded(token_embeddings, attention_mask, features)
+            output_vectors = self._forward_padded(
+                token_embeddings, attention_mask, features, prompt_length=prompt_length
+            )
 
         features["sentence_embedding"] = torch.cat(output_vectors, dim=-1)
         return features
@@ -173,21 +173,28 @@ class Pooling(Module):
         token_embeddings: Tensor,
         attention_mask: Tensor,
         features: dict[str, Tensor],
+        prompt_length: int | None = None,
     ) -> list[Tensor]:
+        original_mask = attention_mask
+        if prompt_length:
+            attention_mask = self._exclude_prompt_from_mask(attention_mask, prompt_length)
+
         modes = (self.pooling_mode,) if isinstance(self.pooling_mode, str) else self.pooling_mode
         output_vectors: list[Tensor] = []
+        accumulation_dtype = (
+            torch.float32 if token_embeddings.dtype in (torch.float16, torch.bfloat16) else token_embeddings.dtype
+        )
 
         # Pre-compute shared state for mean variants to avoid duplicate work.
         mean_sum: Tensor | None = None
         mean_mask: Tensor | None = None
+        mean_output_dtype = token_embeddings.dtype
 
         for mode in modes:
             if mode == "cls":
                 if "cls_token_embeddings" in features:
                     output_vectors.append(features["cls_token_embeddings"])
                 else:
-                    # argmax on a 0/1 mask returns the first real token per row: index 0
-                    # for right-padding, first non-pad index for left-padding.
                     hidden_dim = token_embeddings.shape[-1]
                     first_indices = attention_mask.to(torch.int).argmax(dim=1)
                     gather_indices = first_indices.unsqueeze(-1).unsqueeze(1).expand(-1, 1, hidden_dim)
@@ -199,35 +206,40 @@ class Pooling(Module):
 
             elif mode in ("mean", "mean_sqrt_len_tokens"):
                 if mean_sum is None:
-                    mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
-                    mean_sum = (token_embeddings * mask).sum(dim=1)
+                    mask = attention_mask.unsqueeze(-1).to(token_embeddings.dtype)
+                    mean_sum = (token_embeddings * mask).sum(dim=1, dtype=accumulation_dtype)
                     if "token_weights_sum" in features:
-                        mean_mask = features["token_weights_sum"].unsqueeze(-1).expand_as(mean_sum)
+                        mean_mask = features["token_weights_sum"].unsqueeze(-1)
+                        mean_output_dtype = torch.promote_types(mean_output_dtype, mean_mask.dtype)
+                        mean_mask = mean_mask.to(torch.promote_types(accumulation_dtype, mean_mask.dtype))
                     else:
-                        mean_mask = mask.sum(dim=1)
+                        mean_mask = mask.sum(dim=1, dtype=accumulation_dtype)
                     mean_mask = torch.clamp(mean_mask, min=1e-9)
 
-                if mode == "mean":
-                    output_vectors.append(mean_sum / mean_mask)
-                else:
-                    output_vectors.append(mean_sum / torch.sqrt(mean_mask))
+                denominator = mean_mask if mode == "mean" else torch.sqrt(mean_mask)
+                mean_embedding = mean_sum / denominator
+                if mean_output_dtype.is_floating_point:
+                    mean_embedding = mean_embedding.to(mean_output_dtype)
+                output_vectors.append(mean_embedding)
 
             elif mode == "weightedmean":
-                mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
-                weights = (
-                    torch.arange(start=1, end=token_embeddings.shape[1] + 1, device=token_embeddings.device)
-                    .unsqueeze(0)
-                    .unsqueeze(-1)
-                    .expand_as(token_embeddings)
-                    .to(token_embeddings.dtype)
-                )
+                mask = attention_mask.unsqueeze(-1).to(accumulation_dtype)
+                weights = torch.arange(
+                    1, token_embeddings.shape[1] + 1, device=token_embeddings.device, dtype=accumulation_dtype
+                ).view(1, -1, 1)
+                if original_mask.numel():
+                    pad_lengths = original_mask.to(torch.int32).argmax(dim=1)
+                    weights = weights - pad_lengths.view(-1, 1, 1)
                 weighted_mask = mask * weights
                 sum_embeddings = (token_embeddings * weighted_mask).sum(dim=1)
+                output_dtype = token_embeddings.dtype
                 if "token_weights_sum" in features:
-                    sum_mask = features["token_weights_sum"].unsqueeze(-1).expand_as(sum_embeddings)
+                    sum_mask = features["token_weights_sum"].unsqueeze(-1)
+                    output_dtype = torch.promote_types(output_dtype, sum_mask.dtype)
+                    sum_mask = sum_mask.to(torch.promote_types(accumulation_dtype, sum_mask.dtype))
                 else:
                     sum_mask = weighted_mask.sum(dim=1)
-                output_vectors.append(sum_embeddings / torch.clamp(sum_mask, min=1e-9))
+                output_vectors.append((sum_embeddings / torch.clamp(sum_mask, min=1e-9)).to(output_dtype))
 
             elif mode == "lasttoken":
                 bs, seq_len, hidden_dim = token_embeddings.shape
@@ -261,51 +273,52 @@ class Pooling(Module):
         embeddings = all_embeddings
         segment_ids: Tensor | None = None
         effective_lengths = seq_lengths
-        token_positions: Tensor | None = None  # lazily set, needed by weightedmean and prompt filtering
+        token_positions: Tensor | None = None
 
         needs_scatter = any(m not in ("cls", "lasttoken") for m in modes)
         if needs_scatter:
             # Segment IDs map each token to its sequence index: [0, 0, .., 1, 1, .., 2, 2, ..]
             if "seq_idx" in features:
                 segment_ids = features["seq_idx"].squeeze(0).long()
-                num_seqs = int(segment_ids.max().item()) + 1
-                effective_lengths = torch.bincount(segment_ids, minlength=num_seqs)
             else:
                 segment_ids = torch.repeat_interleave(torch.arange(num_seqs, device=device), seq_lengths)
 
-            if prompt_length is not None:
-                clamped_prompt = min(prompt_length, int(seq_lengths.min().item()))
-                effective_lengths = seq_lengths - clamped_prompt
+            if prompt_length or "weightedmean" in modes:
                 offsets = torch.repeat_interleave(cu_seq_lens_q[:-1], seq_lengths)
-                within_seq_pos = torch.arange(all_embeddings.shape[0], device=device) - offsets
-                valid = within_seq_pos >= clamped_prompt
+                token_positions = torch.arange(all_embeddings.shape[0], device=device) - offsets
+
+            if prompt_length:
+                effective_lengths = seq_lengths - prompt_length
+                valid = token_positions >= prompt_length
                 embeddings = all_embeddings[valid]
                 segment_ids = segment_ids[valid]
-                token_positions = within_seq_pos[valid]
+                token_positions = token_positions[valid]
 
         output_vectors: list[Tensor] = []
         mean_sum: Tensor | None = None
+        accumulation_dtype = torch.float32 if embeddings.dtype in (torch.float16, torch.bfloat16) else embeddings.dtype
 
         for mode in modes:
             if mode == "cls":
-                output_vectors.append(features.get("cls_token_embeddings", all_embeddings[cu_seq_lens_q[:-1]]))
+                if "cls_token_embeddings" in features:
+                    output_vectors.append(features["cls_token_embeddings"])
+                else:
+                    first_indices = cu_seq_lens_q[:-1]
+                    if prompt_length:
+                        first_indices = first_indices + torch.where(seq_lengths > prompt_length, prompt_length, 0)
+                    output_vectors.append(all_embeddings[first_indices])
 
             elif mode == "lasttoken":
                 output_vectors.append(all_embeddings[cu_seq_lens_q[1:] - 1])
 
             elif mode in ("mean", "mean_sqrt_len_tokens"):
                 if mean_sum is None:
-                    mean_sum = torch.zeros(num_seqs, hidden_dim, device=device, dtype=embeddings.dtype)
-                    mean_sum = mean_sum.index_add(0, segment_ids, embeddings)
-                if mode == "mean":
-                    output_vectors.append(
-                        mean_sum / torch.clamp(effective_lengths.unsqueeze(1), min=1e-9).to(mean_sum.dtype)
-                    )
-                else:
-                    output_vectors.append(
-                        mean_sum
-                        / torch.sqrt(torch.clamp(effective_lengths.unsqueeze(1).float(), min=1e-9)).to(mean_sum.dtype)
-                    )
+                    mean_sum = torch.zeros(num_seqs, hidden_dim, device=device, dtype=accumulation_dtype)
+                    mean_sum = mean_sum.index_add(0, segment_ids, embeddings.to(accumulation_dtype))
+                denominator = torch.clamp(effective_lengths.unsqueeze(1), min=1e-9).to(mean_sum.dtype)
+                if mode == "mean_sqrt_len_tokens":
+                    denominator = denominator.sqrt()
+                output_vectors.append((mean_sum / denominator).to(embeddings.dtype))
 
             elif mode == "max":
                 expanded_ids = segment_ids.unsqueeze(1).expand(-1, hidden_dim)
@@ -314,16 +327,13 @@ class Pooling(Module):
                 output_vectors.append(max_emb)
 
             elif mode == "weightedmean":
-                if token_positions is None:
-                    offsets = torch.repeat_interleave(cu_seq_lens_q[:-1], seq_lengths)
-                    token_positions = torch.arange(embeddings.shape[0], device=device) - offsets
-                weights = (token_positions + 1).to(embeddings.dtype).unsqueeze(1)
+                weights = (token_positions + 1).to(accumulation_dtype).unsqueeze(1)
                 weighted_emb = embeddings * weights
-                weighted_sum = torch.zeros(num_seqs, hidden_dim, device=device, dtype=embeddings.dtype)
+                weighted_sum = torch.zeros(num_seqs, hidden_dim, device=device, dtype=accumulation_dtype)
                 weighted_sum = weighted_sum.index_add(0, segment_ids, weighted_emb)
-                weight_sum = torch.zeros(num_seqs, 1, device=device, dtype=embeddings.dtype)
+                weight_sum = torch.zeros(num_seqs, 1, device=device, dtype=accumulation_dtype)
                 weight_sum = weight_sum.index_add(0, segment_ids, weights)
-                output_vectors.append(weighted_sum / torch.clamp(weight_sum, min=1e-9))
+                output_vectors.append((weighted_sum / torch.clamp(weight_sum, min=1e-9)).to(embeddings.dtype))
 
         return output_vectors
 

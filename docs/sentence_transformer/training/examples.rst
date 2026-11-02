@@ -32,5 +32,6 @@ Training Examples
    :maxdepth: 1
    :caption: Advanced Usage
 
+   ../../../examples/sentence_transformer/training/merging/README
    ../../../examples/sentence_transformer/training/hpo/README
    distributed

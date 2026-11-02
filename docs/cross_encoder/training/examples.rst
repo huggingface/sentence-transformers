@@ -18,4 +18,5 @@ Training Examples
    :maxdepth: 1
    :caption: Advanced Usage
 
+   ../../../examples/cross_encoder/training/merging/README
    ../../sentence_transformer/training/distributed

@@ -111,6 +111,8 @@ class ListNetLoss(nn.Module):
         Args:
             inputs: List of (queries, documents_list)
             labels: Ground truth relevance scores, shape (batch_size, num_documents)
+            prompt: Optional prompt passed to the model's preprocessing of the (query, document) pairs.
+            task: Optional task passed to the model's preprocessing of the (query, document) pairs.
 
         Returns:
             Tensor: Mean ListNet loss over the batch

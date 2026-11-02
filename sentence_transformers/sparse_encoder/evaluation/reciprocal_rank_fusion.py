@@ -184,8 +184,8 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             dense_ranks = {doc: rank for rank, doc in enumerate(dense_docs, start=1)}
             sparse_ranks = {doc: rank for rank, doc in enumerate(sparse_docs, start=1)}
 
-            # Combine all unique documents
-            all_docs = set(dense_ranks.keys()) | set(sparse_ranks.keys())
+            # Combine all unique documents, dense first, then sparse.
+            all_docs = dict.fromkeys([*dense_ranks, *sparse_ranks])
 
             # Calculate RRF scores
             rrf_scores = {}
@@ -278,7 +278,7 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             if self.write_csv:
                 csv_path = os.path.join(output_path, self.csv_file)
                 output_file_exists = os.path.isfile(csv_path)
-                with open(csv_path, mode="a" if output_file_exists else "w", encoding="utf-8") as f:
+                with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     if not output_file_exists:
                         writer.writerow(self.csv_headers)

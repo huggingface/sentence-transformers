@@ -410,7 +410,12 @@ def resolve_ids(
                 id_values.extend(id_batch[id_col])
             keys = np.asarray(id_values)
             # numpy pads a string array to its longest id, so past 128 bytes it costs more than the dict.
-            if keys.ndim == 1 and keys.dtype.kind in "iufUS" and keys.itemsize <= 128:
+            if (
+                keys.ndim == 1
+                and keys.dtype.kind in "iufUS"
+                and keys.itemsize <= 128
+                and getattr(dataset.features[id_col], "dtype", None) != "uint64"
+            ):
                 index = _SortedIdIndex(keys)
             else:
                 # Mixed-type, wide, or otherwise non-sortable ids: the dict handles any hashable key.

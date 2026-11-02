@@ -52,7 +52,7 @@ Sparse Retrieval                    32.20      46.91      14.30
 Dense Retrieval                     27.35      41.59       8.95
 Sparse + Reranking                  34.30      55.21      14.14
 Dense + Reranking                   34.63      55.10      13.63
-Hybrid RRF                          32.95      50.19      12.81
+Hybrid RRF                          33.02      50.19      12.84
 Hybrid RRF + Reranking              35.34      55.27      14.61
 ================================================================================
 ```

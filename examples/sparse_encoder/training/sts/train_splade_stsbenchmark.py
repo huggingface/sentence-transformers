@@ -1,3 +1,8 @@
+# /// script
+# dependencies = [
+#     "sentence-transformers[train]",
+# ]
+# ///
 """
 This example trains a SparseEncoder for the Semantic Textual Similarity Benchmark dataset.
 The training script fine-tunes a SparseEncoder using the Splade loss function for retrieval.

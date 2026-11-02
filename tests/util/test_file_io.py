@@ -128,6 +128,102 @@ def test_load_file_path_local_exists(tmp_path: Path) -> None:
     assert Path(result) == target
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/outside_model/2_Dense",
+        "../outside_model/2_Dense",
+        "nested/../../outside_model",
+        "nested/../2_Dense",
+        r"..\outside_model\2_Dense",
+        r"nested/..\outside_model",
+        r"C:\outside_model\2_Dense",
+        "C:/outside_model/2_Dense",
+        "C:outside_model",
+        r"\outside_model\2_Dense",
+        r"\\server\share\outside_model",
+        r"\\?\C:\outside_model",
+        "2_Dense\0ignored",
+        None,
+        123,
+        [],
+        {},
+    ],
+)
+@pytest.mark.parametrize("argument", ["subfolder", "filename", "directory"])
+def test_load_paths_reject_unsafe_paths_before_hub_lookup(
+    path: str | int | list | dict | None, argument: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    download = MagicMock()
+    snapshot = MagicMock()
+    monkeypatch.setattr("sentence_transformers.util.file_io.hf_hub_download", download)
+    monkeypatch.setattr("sentence_transformers.util.file_io.snapshot_download", snapshot)
+
+    with pytest.raises(ValueError, match="Invalid model path"):
+        if argument == "directory":
+            load_dir_path("some-org/some-model", path)
+        elif argument == "filename":
+            load_file_path("some-org/some-model", path)
+        else:
+            load_file_path("some-org/some-model", "config.json", subfolder=path)
+
+    download.assert_not_called()
+    snapshot.assert_not_called()
+
+
+@pytest.mark.parametrize("filename", ["config.json", "model.safetensors"])
+@pytest.mark.parametrize("absolute", [False, True])
+def test_load_paths_reject_existing_external_files(tmp_path: Path, filename: str, absolute: bool) -> None:
+    model = tmp_path / "model"
+    model.mkdir()
+    outside_model = tmp_path / "outside_model"
+    outside_model.mkdir()
+    (outside_model / filename).write_bytes(b"private model data")
+    subfolder = str(outside_model) if absolute else "../outside_model"
+
+    with pytest.raises(ValueError, match="Invalid model path"):
+        load_file_path(str(model), filename, subfolder=subfolder)
+    with pytest.raises(ValueError, match="Invalid model path"):
+        load_file_path(str(model), Path(subfolder) / filename)
+    with pytest.raises(ValueError, match="Invalid model path"):
+        load_dir_path(str(model), subfolder)
+    if absolute:
+        with pytest.raises(ValueError, match="Invalid model path"):
+            load_file_path("some-org/some-model", filename, subfolder=subfolder)
+
+
+@pytest.mark.parametrize("subfolder", ["", ".", "1_Pooling", "nested/1_Pooling", Path("nested/1_Pooling")])
+def test_load_paths_allow_relative_paths(tmp_path: Path, subfolder: str | Path) -> None:
+    directory = tmp_path / subfolder
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / "config.json"
+    target.write_text("{}")
+
+    assert Path(load_file_path(str(tmp_path), "config.json", subfolder=subfolder)) == target
+    assert Path(load_file_path(str(tmp_path), Path(subfolder) / "config.json")) == target
+    assert Path(load_dir_path(str(tmp_path), subfolder)) == directory
+
+
+@pytest.mark.parametrize("filename", ["config.json", "model.safetensors"])
+def test_load_file_path_allows_hub_cache_symlinks(tmp_path: Path, filename: str) -> None:
+    snapshot = tmp_path / "snapshots" / "revision"
+    module = snapshot / "2_Dense"
+    module.mkdir(parents=True)
+    blobs = tmp_path / "blobs"
+    blobs.mkdir()
+    blob = blobs / "hash"
+    blob.write_bytes(b"cached model data")
+    target = module / filename
+    try:
+        target.symlink_to(blob)
+    except OSError as exc:
+        pytest.skip(f"Symlinks are unavailable: {exc}")
+
+    result = load_file_path(str(snapshot), filename, subfolder="2_Dense")
+    assert Path(result) == target
+    assert Path(result).read_bytes() == blob.read_bytes()
+
+
 def test_load_file_path_nonlocal_path_calls_hub(monkeypatch: pytest.MonkeyPatch) -> None:
     """When the path is not an existing local directory, the local-dir guard must
     not fire and `hf_hub_download` should still be invoked.

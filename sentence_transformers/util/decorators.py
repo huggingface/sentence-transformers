@@ -86,7 +86,7 @@ def transformer_kwargs_decorator(func):
                     "Please pass `cache_dir` via `model_kwargs`, `processor_kwargs`, and/or `config_kwargs` instead."
                 )
                 for dict_name in ("model_kwargs", "processor_kwargs", "config_kwargs"):
-                    kwargs.setdefault(dict_name, {})
+                    kwargs[dict_name] = dict(kwargs.get(dict_name) or {})
                     kwargs[dict_name].setdefault("cache_dir", cache_dir)
 
         return func(*args, **kwargs)
@@ -157,10 +157,8 @@ def cross_encoder_init_args_decorator(func):
             logger.warning(
                 f"The CrossEncoder `classifier_dropout` argument is deprecated. Please use `config_kwargs={{'classifier_dropout': {classifier_dropout}}}` instead."
             )
-            if "config_kwargs" not in kwargs:
-                kwargs["config_kwargs"] = {"classifier_dropout": classifier_dropout}
-            else:
-                kwargs["config_kwargs"]["classifier_dropout"] = classifier_dropout
+            kwargs["config_kwargs"] = dict(kwargs.get("config_kwargs") or {})
+            kwargs["config_kwargs"]["classifier_dropout"] = classifier_dropout
 
         return func(self, *args, **kwargs)
 
@@ -177,6 +175,7 @@ def cross_encoder_predict_rank_args_decorator(func: F) -> F:
     * ``num_workers`` -> removed (no-op)
     * ``convert_to_numpy`` / ``convert_to_tensor`` -> removed (no-op) on methods that no longer
       declare them, which is ``rank`` but not ``predict``
+    * ``apply_softmax`` -> removed (no-op) on ``rank``
     """
     method = func.__name__
     parameters = inspect.signature(func).parameters
@@ -190,6 +189,13 @@ def cross_encoder_predict_rank_args_decorator(func: F) -> F:
             logger.warning_once(
                 f"The CrossEncoder.{method} `num_workers` argument is deprecated and has no effect. "
                 "It will be removed in a future version."
+            )
+
+        if method == "rank" and "apply_softmax" in kwargs:
+            kwargs.pop("apply_softmax")
+            logger.warning_once(
+                "The CrossEncoder.rank `apply_softmax` argument is deprecated and has no effect, as "
+                "`rank` only supports models with `num_labels=1`. It will be removed in a future version."
             )
 
         for name in dropped_convert_kwargs:

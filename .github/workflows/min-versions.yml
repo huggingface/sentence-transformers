@@ -9,10 +9,6 @@ on:
     branches:
       - main
       - "*-release"
-    paths:
-      - "pyproject.toml"
-      - "sentence_transformers/**"
-      - ".github/workflows/min-versions.yml"
   workflow_dispatch:
 
 env:
@@ -50,15 +46,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Setup Python environment
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.10"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
-
-      - name: Install FFmpeg libraries (needed to build av)
-        run: sudo apt-get update && sudo apt-get install -y libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
 
       - name: Install with minimum versions
         # Runtime deps at lowest resolution & dev tools at normal resolution
@@ -67,7 +60,7 @@ jobs:
         # accelerate>=1.13.0 because older accelerate cannot dispatch streaming (IterableDataset) batches
         # with string columns, breaking the streaming trainer tests
         run: |
-          uv pip install '.[train]' 'transformers[vision,audio,video]' 'av>=12.0.0' 'scipy>=1.7.2' 'accelerate>=1.13.0' --resolution lowest-direct --system
+          uv pip install '.[train]' 'transformers[vision,audio,video]' 'av>=12.0.0' 'scipy>=1.7.2' 'accelerate>=1.13.0' --resolution lowest-direct --only-binary av --system
           uv pip install pytest pytest-cov pytest-env pytest-subtests pytest-xdist peft --system
 
       - name: Show installed versions

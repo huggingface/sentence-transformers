@@ -94,8 +94,9 @@ def main():
     loss = PListMLELoss(model, mini_batch_size=mini_batch_size, respect_input_order=respect_input_order)
 
     # Option 2: Position-Aware ListMLE with custom weighting function (NDCG-like)
-    # def custom_discount(ranks):
-    #     return 1.0 / torch.log1p(ranks)
+    # def custom_discount(mask):
+    #     ranks = mask.cumsum(dim=-1)
+    #     return (1.0 / torch.log1p(ranks)).masked_fill(~mask, 0)
 
     # from sentence_transformers.cross_encoder.losses import PListMLELambdaWeight
     # lambda_weight = PListMLELambdaWeight(rank_discount_fn=custom_discount)

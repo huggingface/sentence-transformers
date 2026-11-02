@@ -58,10 +58,16 @@ Training Sparse Encoder models involves between 4 to 6 components:
 </div>
 <p></p>
 
+```{eval-rst}
+.. tip::
+
+   Before downloading training models or datasets, we recommend logging in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models and datasets your account can read. See the `login instructions <../installation.html#log-in-to-hugging-face>`_.
+```
+
 ## Model
 ```{eval-rst}
 
-Sparse Encoder models consist of a sequence of `Modules <../package_reference/sentence_transformer/modules.html>`_,  `Sparse Encoder specific Modules <../package_reference/sparse_encoder/modules.html>`_ or `Custom Modules <../sentence_transformer/usage/custom_models.html#advanced-custom-modules>`_, allowing for a lot of flexibility. If you want to further finetune a SparseEncoder model (e.g. it has a `modules.json file <https://huggingface.co/naver/splade-cocondenser-ensembledistil/tree/main/modules.json>`_), then you don't have to worry about which modules are used::
+Sparse Encoder models consist of a sequence of `Modules <../package_reference/sentence_transformer/modules.html>`_,  `Sparse Encoder specific Modules <../package_reference/sparse_encoder/modules.html>`_ or `Custom Modules <../sentence_transformer/usage/custom_models.html#advanced-custom-modules>`_, allowing for a lot of flexibility. If you want to further finetune a SparseEncoder model (e.g. it has a `modules.json file <https://huggingface.co/naver/splade-cocondenser-ensembledistil/blob/main/modules.json>`_), then you don't have to worry about which modules are used::
 
     from sentence_transformers import SparseEncoder
 
@@ -78,8 +84,8 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.transformer.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.splade_pooling.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.modules.SpladePooling</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.modules.SpladePooling</span></code></a></li>
             </ul>
         </div>
 
@@ -122,10 +128,10 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.router.Router"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Router</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.sparse_static_embedding.SparseStaticEmbedding"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.modules.SparseStaticEmbedding</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.transformer.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.splade_pooling.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.modules.SpladePooling</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Router"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Router</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.SparseStaticEmbedding"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.modules.SparseStaticEmbedding</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.modules.SpladePooling</span></code></a></li>
             </ul>
         </div>
 
@@ -204,9 +210,9 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.transformer.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.pooling.Pooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.Pooling</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.sparse_auto_encoder.SparseAutoEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.modules.SparseAutoEncoder</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.Pooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.Pooling</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.SparseAutoEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.modules.SparseAutoEncoder</span></code></a></li>
             </ul>
         </div>
 
@@ -503,6 +509,7 @@ args = SparseEncoderTrainingArguments(
 
 ```{eval-rst}
 You can provide the :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` with an ``eval_dataset`` to get the evaluation loss during training, but it may be useful to get more concrete metrics during training, too. For this, you can use evaluators to assess the model's performance with useful metrics before, during, or after training. You can use both an ``eval_dataset`` and an evaluator, one or the other, or neither. They evaluate based on the ``eval_strategy`` and ``eval_steps`` `Training Arguments <#training-arguments>`_.
+During `Distributed Data Parallel (DDP) training <../sentence_transformer/training/distributed.html>`_, the trainer automatically distributes evaluator inference across the training processes.
 
 Here are the implemented Evaluators that come with Sentence Transformers for Sparse Encoder models:
 
@@ -530,7 +537,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.sparse_nano_beir.SparseNanoBEIREvaluator" title="sentence_transformers.sparse_encoder.evaluation.sparse_nano_beir.SparseNanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator" title="sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator</span></code></a></li>
             </ul>
         </div>
 
@@ -552,7 +559,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/stsb">sentence-transformers/stsb</a></li>
-                <li><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.sparse_embedding_similarity.SparseEmbeddingSimilarityEvaluator" title="sentence_transformers.sparse_encoder.evaluation.sparse_embedding_similarity.SparseEmbeddingSimilarityEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.evaluation.SparseEmbeddingSimilarityEvaluator</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.SparseEmbeddingSimilarityEvaluator" title="sentence_transformers.sparse_encoder.evaluation.SparseEmbeddingSimilarityEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.evaluation.SparseEmbeddingSimilarityEvaluator</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/util/similarity.html#sentence_transformers.util.similarity.SimilarityFunction" title="sentence_transformers.util.similarity.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.util.similarity.SimilarityFunction</span></code></a></li>
             </ul>
         </div>
@@ -585,7 +592,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/all-nli">sentence-transformers/all-nli</a></li>
-                <li><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.sparse_triplet.SparseTripletEvaluator" title="sentence_transformers.sparse_encoder.evaluation.sparse_triplet.SparseTripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator" title="sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/util/similarity.html#sentence_transformers.util.similarity.SimilarityFunction" title="sentence_transformers.util.similarity.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.util.similarity.SimilarityFunction</span></code></a></li>
             </ul>
         </div>
@@ -617,9 +624,6 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
 
     If you evaluate after training, but before saving the model, your automatically generated model card will still include the test results.
 
-.. warning::
-
-    When using `Distributed Training <../sentence_transformer/training/distributed.html>`_, the evaluator only runs on the first device, unlike the training and evaluation datasets, which are shared across all devices.
 ```
 
 ## Trainer 
@@ -634,24 +638,25 @@ The :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ol class="arabic">
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model.SparseEncoder" title="sentence_transformers.sparse_encoder.model.SparseEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder</span></code></a></p>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/model.html#sentence_transformers.sparse_encoder.model.SparseEncoder" title="sentence_transformers.sparse_encoder.model.SparseEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder</span></code></a></p>
                 <ol class="loweralpha simple">
-                    <li><p><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.transformer.Transformer" title="sentence_transformers.base.modules.transformer.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Transformer</span></code></a></p></li>
-                    <li><p><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.splade_pooling.SpladePooling" title="sentence_transformers.sparse_encoder.modules.splade_pooling.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">SpladePooling</span></code></a></p></li>
+                    <li><p><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Transformer" title="sentence_transformers.base.modules.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Transformer</span></code></a></p></li>
+                    <li><p><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.SpladePooling" title="sentence_transformers.sparse_encoder.modules.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">SpladePooling</span></code></a></p></li>
                 </ol>
                 </li>
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData" title="sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoderModelCardData</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/model.html#sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData" title="sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoderModelCardData</span></code></a></p></li>
                 <li><p><a class="reference external" href="https://huggingface.co/docs/datasets/main/en/package_reference/loading_methods#datasets.load_dataset" title="(in datasets vmain)"><code class="xref py py-func docutils literal notranslate"><span class="pre">load_dataset()</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/losses.html#sentence_transformers.sparse_encoder.losses.sparse_multiple_negatives_ranking.SparseMultipleNegativesRankingLoss" title="sentence_transformers.sparse_encoder.losses.sparse_multiple_negatives_ranking.SparseMultipleNegativesRankingLoss"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseMultipleNegativesRankingLoss</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/losses.html#sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss" title="sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseMultipleNegativesRankingLoss</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/sparse_encoder/training_args.html#sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments" title="sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoderTrainingArguments</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.sparse_triplet.SparseTripletEvaluator" title="sentence_transformers.sparse_encoder.evaluation.sparse_triplet.SparseTripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseTripletEvaluator</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator" title="sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseTripletEvaluator</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/sparse_encoder/trainer.html#sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer" title="sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoderTrainer</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model.SparseEncoder.save_pretrained" title="sentence_transformers.sparse_encoder.model.SparseEncoder.save_pretrained"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder.save_pretrained</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub" title="sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder.push_to_hub</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/model.html#sentence_transformers.sparse_encoder.model.SparseEncoder.save_pretrained" title="sentence_transformers.sparse_encoder.model.SparseEncoder.save_pretrained"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder.save_pretrained</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/model.html#sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub" title="sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder.push_to_hub</span></code></a></p></li>
             </ol>
             <ul class="simple">
             <li><p><a class="reference external" href="training/examples.html">Training Examples</a></p></li>
             </ul>
+            <p>To upload your trained model with <code class="docutils literal notranslate">push_to_hub()</code>, <a class="reference internal" href="../installation.html#log-in-to-hugging-face">log in to Hugging Face</a> with credentials that have write access to the destination repository.</p>
         </div>
 
     ::
@@ -751,26 +756,27 @@ The :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ol class="arabic">
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model.SparseEncoder" title="sentence_transformers.sparse_encoder.model.SparseEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder</span></code></a></p>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/model.html#sentence_transformers.sparse_encoder.model.SparseEncoder" title="sentence_transformers.sparse_encoder.model.SparseEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder</span></code></a></p>
                 <ol class="loweralpha simple">
-                    <li><p><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.sparse_static_embedding.SparseStaticEmbedding" title="sentence_transformers.sparse_encoder.modules.sparse_static_embedding.SparseStaticEmbedding"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseStaticEmbedding</span></code></a></p></li>
-                    <li><p><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.transformer.Transformer" title="sentence_transformers.base.modules.transformer.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Transformer</span></code></a></p></li>
-                    <li><p><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.splade_pooling.SpladePooling" title="sentence_transformers.sparse_encoder.modules.splade_pooling.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">SpladePooling</span></code></a></p></li>
-                    <li><p><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.router.Router" title="sentence_transformers.base.modules.router.Router"><code class="xref py py-class docutils literal notranslate"><span class="pre">Router</span></code></a></p></li>
+                    <li><p><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.SparseStaticEmbedding" title="sentence_transformers.sparse_encoder.modules.SparseStaticEmbedding"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseStaticEmbedding</span></code></a></p></li>
+                    <li><p><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Transformer" title="sentence_transformers.base.modules.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Transformer</span></code></a></p></li>
+                    <li><p><a class="reference internal" href="../package_reference/sparse_encoder/modules.html#sentence_transformers.sparse_encoder.modules.SpladePooling" title="sentence_transformers.sparse_encoder.modules.SpladePooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">SpladePooling</span></code></a></p></li>
+                    <li><p><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Router" title="sentence_transformers.base.modules.Router"><code class="xref py py-class docutils literal notranslate"><span class="pre">Router</span></code></a></p></li>
                 </ol>
                 </li>
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData" title="sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoderModelCardData</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/model.html#sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData" title="sentence_transformers.sparse_encoder.model_card.SparseEncoderModelCardData"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoderModelCardData</span></code></a></p></li>
                 <li><p><a class="reference external" href="https://huggingface.co/docs/datasets/main/en/package_reference/loading_methods#datasets.load_dataset" title="(in datasets vmain)"><code class="xref py py-func docutils literal notranslate"><span class="pre">load_dataset()</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/losses.html#sentence_transformers.sparse_encoder.losses.sparse_multiple_negatives_ranking.SparseMultipleNegativesRankingLoss" title="sentence_transformers.sparse_encoder.losses.sparse_multiple_negatives_ranking.SparseMultipleNegativesRankingLoss"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseMultipleNegativesRankingLoss</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/losses.html#sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss" title="sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseMultipleNegativesRankingLoss</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/sparse_encoder/training_args.html#sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments" title="sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoderTrainingArguments</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.sparse_triplet.SparseTripletEvaluator" title="sentence_transformers.sparse_encoder.evaluation.sparse_triplet.SparseTripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseTripletEvaluator</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/evaluation.html#sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator" title="sentence_transformers.sparse_encoder.evaluation.SparseTripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseTripletEvaluator</span></code></a></p></li>
                 <li><p><a class="reference internal" href="../package_reference/sparse_encoder/trainer.html#sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer" title="sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoderTrainer</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model.SparseEncoder.save_pretrained" title="sentence_transformers.sparse_encoder.model.SparseEncoder.save_pretrained"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder.save_pretrained</span></code></a></p></li>
-                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub" title="sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder.push_to_hub</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/model.html#sentence_transformers.sparse_encoder.model.SparseEncoder.save_pretrained" title="sentence_transformers.sparse_encoder.model.SparseEncoder.save_pretrained"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder.save_pretrained</span></code></a></p></li>
+                <li><p><a class="reference internal" href="../package_reference/sparse_encoder/model.html#sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub" title="sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub"><code class="xref py py-class docutils literal notranslate"><span class="pre">SparseEncoder.push_to_hub</span></code></a></p></li>
             </ol>
             <ul class="simple">
             <li><p><a class="reference external" href="training/examples.html">Training Examples</a></p></li>
             </ul>
+            <p>To upload your trained model with <code class="docutils literal notranslate">push_to_hub()</code>, <a class="reference internal" href="../installation.html#log-in-to-hugging-face">log in to Hugging Face</a> with credentials that have write access to the destination repository.</p>
         </div>
 
     :: 

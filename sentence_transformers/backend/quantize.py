@@ -182,6 +182,7 @@ def export_static_quantized_openvino_model(
         quantization_config = OVQuantizationConfig()
 
     ov_config = OVConfig(quantization_config=quantization_config)
+    quantization_config = ov_config.quantization_config
     quantizer = OVQuantizer.from_pretrained(ov_model)
 
     if any(param is not None for param in [dataset_name, dataset_config_name, dataset_split, column_name]) and not all(

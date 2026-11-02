@@ -24,6 +24,7 @@ from sentence_transformers.util import batch_to_device, truncate_embeddings
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
+from sentence_transformers.util.tensor import _tensor_to_numpy
 
 from .fit_mixin import FitMixin
 from .model_card import SentenceTransformerModelCardData
@@ -63,8 +64,9 @@ class SentenceTransformer(BaseModel, FitMixin):
             commit id, for a stored model on Hugging Face. Defaults to None.
         local_files_only (bool, optional): Whether to only look at local files (i.e., do not try to download
             the model). Defaults to False.
-        token (bool or str, optional): Hugging Face authentication token to download private models.
-            Defaults to None.
+        token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
+            private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
+            credentials saved with ``hf auth login``, if available.
         use_auth_token (bool or str, optional): Deprecated. Use ``token`` instead.
         model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
             Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
@@ -349,8 +351,8 @@ class SentenceTransformer(BaseModel, FitMixin):
 
         This method is a specialized version of :meth:`encode` that differs in exactly two ways:
 
-        1. If no ``prompt_name`` or ``prompt`` is provided, it uses a predefined "query" prompt,
-           if available in the model's ``prompts`` dictionary.
+        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the ``"query"`` prompt from the model's
+           ``prompts`` dictionary. This defaults to an empty string, which prevents fallback to ``default_prompt_name``.
         2. It sets the ``task`` to "query". If the model has a :class:`~sentence_transformers.base.modules.Router`
            module, it will use the "query" task type to route the input through the appropriate submodules.
 
@@ -904,9 +906,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             if not len(all_embeddings):
                 all_embeddings = np.array([])
             elif isinstance(all_embeddings, Tensor):
-                if all_embeddings.dtype == torch.bfloat16:
-                    all_embeddings = all_embeddings.float()
-                all_embeddings = all_embeddings.cpu().numpy()
+                all_embeddings = _tensor_to_numpy(all_embeddings)
         else:
             all_embeddings = list(
                 torch.from_numpy(all_embeddings) if isinstance(all_embeddings, np.ndarray) else all_embeddings
@@ -972,19 +972,16 @@ class SentenceTransformer(BaseModel, FitMixin):
             if output_value == "token_embeddings":
                 embeddings = []
                 for token_emb, attention in zip(out_features[output_value], out_features["attention_mask"]):
-                    last_mask_id = len(attention) - 1
-                    while last_mask_id > 0 and attention[last_mask_id].item() == 0:
-                        last_mask_id -= 1
-                    embeddings.append(token_emb[: last_mask_id + 1])
+                    embeddings.append(token_emb[attention.bool()])
             elif output_value is None:
                 embeddings = []
-                for idx in range(len(out_features["sentence_embedding"])):
+                for idx in range(len(inputs_batch)):
                     batch_item = {}
                     for name, value in out_features.items():
-                        try:
-                            batch_item[name] = value[idx]
-                        except TypeError:
-                            batch_item[name] = value
+                        is_batch_first = (
+                            isinstance(value, Tensor) and value.ndim > 0 and value.shape[0] == len(inputs_batch)
+                        )
+                        batch_item[name] = value[idx] if is_batch_first else value
                     embeddings.append(batch_item)
             else:
                 embeddings = out_features[output_value]
@@ -1155,6 +1152,14 @@ class SentenceTransformer(BaseModel, FitMixin):
         Returns:
             Optional[int]: The number of dimensions in the output of `encode`. If it's not known, it's `None`.
         """
+        output_dim = self._get_untruncated_embedding_dimension()
+        if self.truncate_dim is not None:
+            if output_dim is None:
+                return self.truncate_dim
+            return min(output_dim, self.truncate_dim)
+        return output_dim
+
+    def _get_untruncated_embedding_dimension(self) -> int | None:
         output_dim = None
         for module in reversed(self._modules.values()):
             for name in (
@@ -1167,12 +1172,8 @@ class SentenceTransformer(BaseModel, FitMixin):
                     output_dim = method()
                     break
             if output_dim is not None:
-                break
-        if self.truncate_dim is not None:
-            if output_dim is None:
-                return self.truncate_dim
-            return min(output_dim, self.truncate_dim)
-        return output_dim
+                return output_dim
+        return None
 
     @deprecated(
         "The `get_sentence_embedding_dimension` method has been renamed to `get_embedding_dimension`.",
@@ -1337,5 +1338,5 @@ print(similarities)
 
 ---
 *This PR was auto-generated with \
-[`push_to_hub`](https://sbert.net/docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.SentenceTransformer.push_to_hub).*
+[`push_to_hub`](https://sbert.net/docs/package_reference/sentence_transformer/model.html#sentence_transformers.sentence_transformer.model.SentenceTransformer.push_to_hub).*
 """

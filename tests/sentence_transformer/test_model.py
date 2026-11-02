@@ -41,7 +41,7 @@ from sentence_transformers.sentence_transformer.modules import (
     WeightedLayerPooling,
 )
 from sentence_transformers.util.similarity import SimilarityFunction
-from tests.utils import is_ci
+from tests.utils import is_ci, skip_bfloat16_cpu_crash
 
 skip_if_torch_cannot_load_bin = pytest.mark.skipif(
     parse(torch.__version__) < Version("2.6"),
@@ -325,6 +325,24 @@ def test_load_local_without_normalize_directory(stsb_bert_tiny_model: SentenceTr
         # This fails in v2.3.0
         fresh_tiny_model = SentenceTransformer(str(model_path))
         assert isinstance(fresh_tiny_model, SentenceTransformer)
+
+
+def test_load_local_with_normalize_at_model_root(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+    model = stsb_bert_tiny_model
+    model.add_module("Normalize", Normalize())
+    sentences = ["This is a test sentence", "This is another test sentence"]
+    embeddings = model.encode(sentences, convert_to_tensor=True)
+    model.save(str(tmp_path))
+
+    shutil.rmtree(tmp_path / "2_Normalize")
+    modules_path = tmp_path / "modules.json"
+    modules_config = json.loads(modules_path.read_text(encoding="utf-8"))
+    modules_config[-1]["path"] = ""
+    modules_path.write_text(json.dumps(modules_config), encoding="utf-8")
+
+    loaded_model = SentenceTransformer(str(tmp_path), local_files_only=True)
+    assert isinstance(loaded_model[-1], Normalize)
+    assert torch.equal(embeddings, loaded_model.encode(sentences, convert_to_tensor=True))
 
 
 def test_prompts(stsb_bert_tiny_model: SentenceTransformer, caplog: pytest.LogCaptureFixture) -> None:
@@ -1144,6 +1162,27 @@ def test_encode_document_prompt_priority(stsb_bert_tiny_model: SentenceTransform
     assert kwargs["prompt_name"] is None
 
 
+@pytest.mark.parametrize(
+    "prompts",
+    [{"retrieval": "Retrieve: "}, {"query": "", "retrieval": "Retrieve: "}],
+    ids=["unconfigured_query_prompt", "explicit_empty_query_prompt"],
+)
+def test_encode_query_empty_query_prompt_skips_default_prompt_name(prompts: dict[str, str]) -> None:
+    """An empty "query" prompt is still the prompt encode_query() selects, so ``default_prompt_name`` is not
+    used as a fallback. This keeps ``prompts={"query": ""}`` usable for disabling query prompting."""
+    model = SentenceTransformer(
+        "sentence-transformers-testing/stsb-bert-tiny-safetensors",
+        prompts=prompts,
+        default_prompt_name="retrieval",
+    )
+    inputs = ["What is the capital of France?"]
+    unprompted = model.encode(inputs, prompt="", task="query")
+
+    np.testing.assert_array_equal(model.encode_query(inputs), unprompted)
+    # Plain encode() does fall back to the default prompt
+    assert not np.array_equal(model.encode(inputs, task="query"), unprompted)
+
+
 def test_encode_advanced_parameters(stsb_bert_tiny_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch):
     """Test that additional parameters are correctly passed to encode"""
     model = stsb_bert_tiny_model
@@ -1449,3 +1488,15 @@ def test_conversion_ignores_source_similarity_fn_name(tmp_path) -> None:
 
     overridden = SentenceTransformer(str(tmp_path), similarity_fn_name="dot")
     assert overridden.similarity_fn_name == "dot"
+
+
+@skip_bfloat16_cpu_crash
+@pytest.mark.parametrize("precision", ["int8", "uint8", "binary", "ubinary"])
+def test_encode_precision_with_bfloat16_model(stsb_bert_tiny_model: SentenceTransformer, precision: str) -> None:
+    """encode(precision=...) matches quantizing the float32 numpy output of a bfloat16 model afterwards."""
+    model = stsb_bert_tiny_model.bfloat16()
+    sentences = ["The weather is lovely today.", "It's so sunny outside!", "He drove to the stadium."]
+
+    embeddings = model.encode(sentences, precision=precision)
+
+    np.testing.assert_array_equal(embeddings, util.quantize_embeddings(model.encode(sentences), precision=precision))

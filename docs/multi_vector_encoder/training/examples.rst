@@ -10,6 +10,8 @@ This page provides examples showing how to train Multi-Vector Encoder models for
    ../../../examples/multi_vector_encoder/training/msmarco/README
    ../../../examples/multi_vector_encoder/training/miriad/README
    ../../../examples/multi_vector_encoder/training/xtr/README
+   ../../../examples/multi_vector_encoder/training/token_pooling/README
+   ../../../examples/multi_vector_encoder/training/matryoshka/README
    ../../../examples/multi_vector_encoder/training/multimodal/README
    ../../../examples/multi_vector_encoder/training/peft/README
 
@@ -17,4 +19,5 @@ This page provides examples showing how to train Multi-Vector Encoder models for
    :maxdepth: 1
    :caption: Advanced Usage
 
+   ../../../examples/multi_vector_encoder/training/merging/README
    ../../sentence_transformer/training/distributed

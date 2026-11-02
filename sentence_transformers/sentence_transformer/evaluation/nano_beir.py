@@ -247,7 +247,7 @@ class NanoBEIREvaluator(BaseEvaluator):
         self.score_functions = score_functions
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
         self._score_functions_from_model = score_functions is None
-        self.main_score_function = main_score_function
+        self.main_score_function = SimilarityFunction(main_score_function) if main_score_function else None
         self.truncate_dim = truncate_dim
         self.name = f"NanoBEIR_{aggregate_key}"
         if self.truncate_dim:
@@ -338,13 +338,12 @@ class NanoBEIREvaluator(BaseEvaluator):
                 self._append_csv_headers(self.score_function_names)
                 self.primary_metric = None
 
-        num_underscores_in_name = self.name.count("_")
         for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
             logger.info(f"Evaluating {evaluator.name}")
             evaluation = evaluator(model, output_path, epoch, steps)
             for full_key, metric_value in evaluation.items():
-                splits = full_key.split("_", maxsplit=num_underscores_in_name)
-                metric = splits[-1]
+                # The dataset evaluator prefixes its metrics with its own name
+                metric = full_key.removeprefix(f"{evaluator.name}_")
                 if metric not in per_metric_results:
                     per_metric_results[metric] = []
                 per_dataset_results[full_key] = metric_value

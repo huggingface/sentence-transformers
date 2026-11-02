@@ -23,6 +23,7 @@ import sentence_transformers.util.distributed as distributed_module
 from sentence_transformers.base.losses.gradcache import _minibatch_ranges
 from sentence_transformers.base.losses.merged_forward import column_merging_disabled, merge_feature_batches
 from sentence_transformers.multi_vector_encoder import losses as mve_losses
+from sentence_transformers.multi_vector_encoder.modules import MultiVectorMask
 
 
 class _PassthroughModel(nn.Module):
@@ -56,6 +57,31 @@ def varlen_features() -> list[dict[str, Tensor]]:
         _make_feature(t_tokens=10, batch=batch, dim=dim, seed=2),  # positive (T=10)
         _make_feature(t_tokens=14, batch=batch, dim=dim, seed=3),  # negative (T=14)
     ]
+
+
+@pytest.mark.parametrize(
+    "loss_cls",
+    [
+        mve_losses.MultiVectorMultipleNegativesRankingLoss,
+        mve_losses.MultiVectorDistillKLDivLoss,
+        mve_losses.MultiVectorMarginMSELoss,
+    ],
+)
+def test_losses_preserve_encoder_masks(varlen_features, loss_cls) -> None:
+    for features in varlen_features:
+        features["input_ids"] = torch.zeros_like(features["attention_mask"], dtype=torch.long)
+        features["input_ids"][:, 0] = 1
+        features["attention_mask"][:, -1] = False
+    varlen_features[0]["query_expansion_positions"] = ~varlen_features[0]["attention_mask"]
+    original_masks = [features["attention_mask"].clone() for features in varlen_features]
+    loss = loss_cls(model=MultiVectorMask(keep_only_token_ids=[1]))
+    labels = torch.tensor([[2.0, 1.0]]).expand(4, 2)
+
+    with column_merging_disabled():
+        loss(varlen_features, labels)
+
+    for features, original_mask in zip(varlen_features, original_masks):
+        torch.testing.assert_close(features["attention_mask"], original_mask)
 
 
 def test_mnr_handles_varlen_document_columns(varlen_features) -> None:

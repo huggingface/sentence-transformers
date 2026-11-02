@@ -12,6 +12,8 @@ from scipy.stats import spearmanr
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.base.modality import is_message_dict
+from sentence_transformers.multi_vector_encoder.evaluation.utils import pooling_config
+from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.util import similarity_fct_name
 
 if TYPE_CHECKING:
@@ -77,6 +79,10 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
         batch_size: Batch size for encoding.
         show_progress_bar: Whether to show a progress bar.
         write_csv: Whether to write per-call results to a CSV file under ``output_path``.
+        truncate_dim: Truncate and L2-normalize each token embedding before scoring.
+            Defaults to None (use the model's default dimension).
+        token_pooling: Pooling applied during encoding. The pooler's ``tasks`` select which inputs
+            are pooled. Defaults to None (use the model's default pooler).
 
     Example:
         ::
@@ -120,6 +126,8 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
         batch_size: int = 16,
         show_progress_bar: bool = False,
         write_csv: bool = True,
+        truncate_dim: int | None = None,
+        token_pooling: BaseTokenPooling | None = None,
     ) -> None:
         super().__init__()
         if not (len(queries) == len(documents) == len(scores)):
@@ -138,7 +146,7 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
             if any(len(row) != n_ways for row in documents):
                 raise ValueError("All per-query candidate lists in documents must have the same length.")
             self.documents = [list(row) for row in documents]
-            self.scores = torch.as_tensor(scores, dtype=torch.float32)
+            self.scores = torch.as_tensor(scores, dtype=torch.float32).detach().cpu()
             if self.scores.ndim != 2 or self.scores.shape[1] != n_ways:
                 raise ValueError(
                     f"With per-query candidate documents, scores must be 2-D (num_queries, {n_ways}), "
@@ -146,7 +154,7 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
                 )
         else:
             self.documents = list(documents)
-            self.scores = torch.as_tensor(scores, dtype=torch.float32)
+            self.scores = torch.as_tensor(scores, dtype=torch.float32).detach().cpu()
             if self.scores.ndim != 1:
                 raise ValueError(
                     f"With one document per query, scores must be 1-D, got shape {tuple(self.scores.shape)}. "
@@ -164,6 +172,8 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
         self.batch_size = batch_size
         self.show_progress_bar = show_progress_bar
         self.write_csv = write_csv
+        self.truncate_dim = truncate_dim
+        self.token_pooling = token_pooling
 
         self.csv_file = "distillation_evaluation" + (f"_{name}" if name else "") + "_results.csv"
         self.csv_headers = ["epoch", "steps", "kl_divergence", "spearman"]
@@ -185,6 +195,8 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
             self.queries,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
+            token_pooling=self.token_pooling,
+            truncate_dim=self.truncate_dim,
         )
         if self.nested_documents:
             n_ways = len(self.documents[0])
@@ -193,6 +205,8 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
                 flat_documents,
                 batch_size=self.batch_size,
                 show_progress_bar=self.show_progress_bar,
+                token_pooling=self.token_pooling,
+                truncate_dim=self.truncate_dim,
             )
             # Regroup per way and score pairwise with the model's own similarity, giving the same
             # (num_queries, n_ways) student scores as the KD loss computes at training time.
@@ -208,6 +222,8 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
                 self.documents,
                 batch_size=self.batch_size,
                 show_progress_bar=self.show_progress_bar,
+                token_pooling=self.token_pooling,
+                truncate_dim=self.truncate_dim,
             )
             pairwise = self.similarity_fct if self.similarity_fct is not None else model.similarity_pairwise
             student_scores = pairwise(query_embeddings, doc_embeddings).cpu()
@@ -263,4 +279,8 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
             config_dict["teacher_temperature"] = self.teacher_temperature
         if self.similarity_fct is not None:
             config_dict["similarity_fct"] = similarity_fct_name(self.similarity_fct)
+        if self.truncate_dim is not None:
+            config_dict["truncate_dim"] = self.truncate_dim
+        if self.token_pooling is not None:
+            config_dict["token_pooling"] = pooling_config(self.token_pooling)
         return config_dict

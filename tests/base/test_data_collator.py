@@ -57,6 +57,19 @@ class TestLabelExtraction:
         assert "label" in batch
         assert torch.equal(batch["label"], torch.tensor([0.5]))
 
+    @pytest.mark.parametrize("label_shape", [(), (3,), (2, 3)])
+    def test_tensor_formatted_dataset_labels(self, label_shape):
+        from datasets import Dataset
+
+        labels = torch.randn(2, *label_shape)
+        dataset = Dataset.from_dict({"sentence": ["hello", "world"], "label": labels.tolist()}).with_format(
+            "torch", columns=["label"], output_all_columns=True
+        )
+        batch = make_collator()([dataset[0], dataset[1]])
+
+        torch.testing.assert_close(batch["label"], labels)
+        assert "label_input_ids" not in batch
+
 
 class TestResolveRouterMapping:
     def test_flat_mapping_returned_as_is(self):

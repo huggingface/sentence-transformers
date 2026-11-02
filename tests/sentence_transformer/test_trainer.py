@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import runpy
 import tempfile
 from contextlib import nullcontext
 from copy import deepcopy
@@ -10,12 +11,14 @@ import pytest
 import torch
 from packaging.version import parse as parse_version
 from tokenizers.processors import TemplateProcessing
-from torch.utils.data import ConcatDataset
+from torch.utils.data import BatchSampler, ConcatDataset, DataLoader, SequentialSampler
 from transformers import __version__ as transformers_version
 from transformers.trainer_utils import EvalLoopOutput
 
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.base.sampler import (
+    BatchSamplers,
     DefaultBatchSampler,
     GroupByLabelBatchSampler,
     NoDuplicatesBatchSampler,
@@ -28,7 +31,9 @@ from sentence_transformers.sentence_transformer.losses import (
     CachedMultipleNegativesRankingLoss,
     CosineSimilarityLoss,
     MultipleNegativesRankingLoss,
+    SoftmaxLoss,
 )
+from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 from sentence_transformers.util import is_datasets_available, is_training_available
 
@@ -40,6 +45,93 @@ if not is_training_available():
         reason='Sentence Transformers was not installed with the `["train"]` extra.',
         allow_module_level=True,
     )
+
+
+def test_trainer_gradient_checkpointing(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+    dataset = Dataset.from_dict({"anchor": ["a", "b"], "positive": ["c", "d"]})
+    args = SentenceTransformerTrainingArguments(
+        output_dir=str(tmp_path),
+        max_steps=1,
+        per_device_train_batch_size=2,
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+        report_to="none",
+        save_strategy="no",
+    )
+    trainer = SentenceTransformerTrainer(
+        model=stsb_bert_tiny_model,
+        args=args,
+        train_dataset=dataset,
+        loss=MultipleNegativesRankingLoss(stsb_bert_tiny_model),
+    )
+
+    assert trainer.train().global_step == 1
+    assert stsb_bert_tiny_model.transformers_model.is_gradient_checkpointing
+
+
+def test_mlm_example_trains_with_transformers_v5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from tokenizers import Tokenizer, models, pre_tokenizers
+    from transformers import BertConfig, BertForMaskedLM, PreTrainedTokenizerFast, TrainingArguments
+
+    vocab = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]", "hello", "world", "train", "##ing"]
+    backend = Tokenizer(models.WordPiece({token: index for index, token in enumerate(vocab)}, unk_token="[UNK]"))
+    backend.pre_tokenizer = pre_tokenizers.Whitespace()
+    backend.post_processor = TemplateProcessing(single="[CLS] $A [SEP]", special_tokens=[("[CLS]", 2), ("[SEP]", 3)])
+    tokenizer = PreTrainedTokenizerFast(
+        tokenizer_object=backend,
+        model_max_length=512,
+        pad_token="[PAD]",
+        unk_token="[UNK]",
+        cls_token="[CLS]",
+        sep_token="[SEP]",
+        mask_token="[MASK]",
+    )
+    initial_model = BertForMaskedLM(
+        BertConfig(
+            vocab_size=len(vocab), hidden_size=16, num_hidden_layers=1, num_attention_heads=2, intermediate_size=32
+        )
+    )
+    dataset = Dataset.from_dict(
+        {
+            "text": [
+                "hello world training " * 20,
+                "hello world",
+                "world hello training " * 20,
+                "training hello world " * 20,
+                "short",
+                "   ",
+            ]
+        }
+    )
+    monkeypatch.setattr("datasets.load_dataset", lambda *args, **kwargs: dataset)
+    monkeypatch.setattr("transformers.AutoTokenizer.from_pretrained", lambda *args, **kwargs: tokenizer)
+    monkeypatch.setattr(
+        "transformers.AutoModelForMaskedLM.from_pretrained", lambda *args, **kwargs: deepcopy(initial_model)
+    )
+    monkeypatch.setattr(
+        "transformers.TrainingArguments", lambda **kwargs: TrainingArguments(**{**kwargs, "max_steps": 3})
+    )
+    script = (
+        Path(__file__).resolve().parents[2] / "examples/sentence_transformer/unsupervised_learning/MLM/train_mlm.py"
+    )
+    monkeypatch.chdir(tmp_path)
+    result = runpy.run_path(str(script), run_name="__main__")
+
+    assert len(result["train_dataset"]) == 3
+    assert len(result["eval_dataset"]) == 1
+    assert result["trainer"].state.global_step == 3
+    assert (Path(result["output_dir"]) / "model.safetensors").exists()
+    weights = result["model"].bert.embeddings.word_embeddings.weight.detach().cpu()
+    assert torch.isfinite(weights).all()
+    assert not torch.equal(weights, initial_model.bert.embeddings.word_embeddings.weight)
+    assert torch.isfinite(torch.tensor(result["trainer"].evaluate()["eval_loss"]))
+    examples = [result["train_dataset"][0], result["train_dataset"][1]]
+    lengths = [len(example["input_ids"]) for example in examples]
+    assert lengths[0] != lengths[1]
+    batch = result["data_collator"](examples)
+    assert batch["input_ids"].shape == (2, max(lengths))
+    assert batch["attention_mask"].shape == batch["input_ids"].shape
+    assert (batch["labels"][batch["attention_mask"] == 0] == -100).all()
 
 
 def test_trainer_multi_dataset_errors(
@@ -827,6 +919,36 @@ def test_trainer_get_batch_sampler_class(
     assert isinstance(batch_sampler, NoDuplicatesBatchSampler)
 
 
+@pytest.mark.parametrize(
+    ("batch_sampler", "multi_dataset"),
+    [
+        (BatchSamplers.NO_DUPLICATES, False),
+        (BatchSamplers.GROUP_BY_LABEL, False),
+        (BatchSamplers.NO_DUPLICATES, True),
+    ],
+)
+def test_trainer_batch_sampler_uses_args_seed(
+    stsb_bert_tiny_model: SentenceTransformer, batch_sampler: BatchSamplers, multi_dataset: bool
+) -> None:
+    """Changing ``args.seed`` should change the batch order, as it does for the default batch sampler."""
+    train_dataset = Dataset.from_dict(
+        {"sentence": [f"sentence {i}" for i in range(64)], "label": [i % 4 for i in range(64)]}
+    )
+    if multi_dataset:
+        train_dataset = DatasetDict({"a": train_dataset, "b": train_dataset})
+
+    def get_batches(seed: int) -> list[list[int]]:
+        args = SentenceTransformerTrainingArguments(
+            output_dir="dummy", seed=seed, batch_sampler=batch_sampler, per_device_train_batch_size=8
+        )
+        trainer = SentenceTransformerTrainer(model=stsb_bert_tiny_model, args=args, train_dataset=train_dataset)
+        # Only the batches of the first dataset, as the multi-dataset sampler reorders datasets by itself
+        return [batch for batch in trainer.get_train_dataloader().batch_sampler if max(batch) < 64]
+
+    assert get_batches(1) == get_batches(1)
+    assert get_batches(1) != get_batches(2)
+
+
 def test_trainer_get_batch_sampler_function(
     stsb_bert_tiny_model: SentenceTransformer, stsb_dataset_dict: DatasetDict
 ) -> None:
@@ -1212,4 +1334,132 @@ def test_trainer_compiled_model_with_cached_loss(
     if not compile_before_loss:
         model = torch.compile(model, backend="eager")
     SentenceTransformerTrainer(model=model, loss=loss)
-    assert stsb_bert_tiny_model[0].track_media_counts
+
+
+@pytest.mark.parametrize("use_fit", [False, True], ids=["trainer", "fit"])
+def test_training_updates_loss_weights(stsb_bert_tiny_model, tmp_path, monkeypatch, use_fit: bool) -> None:
+    model = stsb_bert_tiny_model
+    loss = SoftmaxLoss(model, model.get_embedding_dimension(), num_labels=3)
+    classifier_weight = loss.classifier.weight.detach().clone()
+    dataset = Dataset.from_dict(
+        {
+            "sentence1": [f"This is sentence {idx}" for idx in range(16)],
+            "sentence2": [f"This is another sentence {idx}" for idx in range(16)],
+            "label": [idx % 3 for idx in range(16)],
+        }
+    )
+
+    if use_fit:
+        monkeypatch.chdir(tmp_path)
+        examples = [InputExample(texts=[row["sentence1"], row["sentence2"]], label=row["label"]) for row in dataset]
+        model.fit(
+            train_objectives=[(DataLoader(examples, batch_size=4), loss)],
+            epochs=1,
+            warmup_steps=0,
+            show_progress_bar=False,
+        )
+    else:
+        args = SentenceTransformerTrainingArguments(
+            output_dir=str(tmp_path),
+            num_train_epochs=1,
+            per_device_train_batch_size=4,
+            save_strategy="no",
+            report_to=[],
+            disable_tqdm=True,
+        )
+        trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=dataset, loss=loss)
+        trainer.train()
+
+    assert not torch.equal(loss.classifier.weight.detach(), classifier_weight)
+    assert all(parameter.grad is None for parameter in loss.parameters())
+
+
+@pytest.mark.parametrize("num_objectives", [1, 2])
+def test_fit_scheduler_covers_every_objective_step(
+    stsb_bert_tiny_model, tmp_path, monkeypatch, num_objectives: int
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    model = stsb_bert_tiny_model
+    learning_rates = []
+
+    class RecordingAdamW(torch.optim.AdamW):
+        def step(self, *args, **kwargs):
+            learning_rates.append(self.param_groups[0]["lr"])
+            return super().step(*args, **kwargs)
+
+    train_objectives = []
+    for objective in range(num_objectives):
+        examples = [
+            InputExample(texts=[f"This is sentence {idx} {objective}", f"This is another sentence {idx}"], label=0.5)
+            for idx in range(16)
+        ]
+        train_objectives.append((DataLoader(examples, batch_size=4), CosineSimilarityLoss(model)))
+
+    model.fit(
+        train_objectives=train_objectives,
+        epochs=1,
+        warmup_steps=1,
+        optimizer_class=RecordingAdamW,
+        show_progress_bar=False,
+    )
+
+    assert len(learning_rates) == 4 * num_objectives
+    # The first step sits at the start of the warmup, so only that one may have a zero learning rate
+    assert all(learning_rate > 0 for learning_rate in learning_rates[1:])
+
+
+def test_fit_with_uneven_number_of_texts(stsb_bert_tiny_model, tmp_path, monkeypatch) -> None:
+    model = stsb_bert_tiny_model
+    monkeypatch.chdir(tmp_path)
+    examples = [
+        InputExample(texts=["anchor", "positive", "negative"]),
+        InputExample(texts=["anchor", "positive"]),
+    ]
+    with pytest.raises(ValueError, match="training objective 1 must have the same number of texts"):
+        model.fit(train_objectives=[(DataLoader(examples), MultipleNegativesRankingLoss(model))])
+
+
+def test_fit_with_custom_batch_sampler(stsb_bert_tiny_model, tmp_path, monkeypatch, caplog) -> None:
+    model = stsb_bert_tiny_model
+    monkeypatch.chdir(tmp_path)
+
+    def check_batch_size(trainer, **kwargs):
+        assert trainer.args.per_device_train_batch_size == 4
+
+    monkeypatch.setattr(SentenceTransformerTrainer, "train", check_batch_size)
+
+    examples = [InputExample(texts=[f"This is sentence {idx}", f"This is another sentence {idx}"]) for idx in range(8)]
+    batch_sampler = BatchSampler(SequentialSampler(examples), batch_size=4, drop_last=False)
+    model.fit(
+        train_objectives=[(DataLoader(examples, batch_sampler=batch_sampler), MultipleNegativesRankingLoss(model))],
+        epochs=1,
+        show_progress_bar=False,
+    )
+    assert "uses a custom `batch_sampler`, whose batch grouping `fit()` does not preserve" in caplog.text
+
+
+def test_fit_with_float_evaluator_saves_best_model_and_calls_callback(
+    stsb_bert_tiny_model, tmp_path, monkeypatch
+) -> None:
+    class FloatEvaluator(BaseEvaluator):
+        # Returns a single score and keeps the default `primary_metric=None`
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1) -> float:
+            return float(epoch)
+
+    model = stsb_bert_tiny_model
+    monkeypatch.chdir(tmp_path)
+    examples = [InputExample(texts=[f"This is sentence {idx}", f"This is another sentence {idx}"]) for idx in range(8)]
+    output_path = tmp_path / "output"
+    callback_epochs = []
+    model.fit(
+        train_objectives=[(DataLoader(examples, batch_size=4), MultipleNegativesRankingLoss(model))],
+        evaluator=FloatEvaluator(),
+        epochs=1,
+        warmup_steps=0,
+        output_path=str(output_path),
+        callback=lambda score, epoch, steps: callback_epochs.append(epoch),
+        show_progress_bar=False,
+    )
+
+    assert callback_epochs == [1.0]
+    assert (output_path / "modules.json").exists()

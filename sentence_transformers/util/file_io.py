@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from huggingface_hub import hf_hub_download, snapshot_download
 from huggingface_hub.utils import (
@@ -149,6 +149,15 @@ def is_sentence_transformer_model(
     )
 
 
+def _validate_relative_path(path: str | Path) -> None:
+    """Reject rooted paths and parent traversal in both POSIX and Windows syntax."""
+    if not isinstance(path, (str, Path)):
+        raise ValueError(f"Invalid model path {path!r}: expected a relative path.")
+    windows_path = PureWindowsPath(path)
+    if windows_path.anchor or ".." in windows_path.parts or "\0" in str(path):
+        raise ValueError(f"Invalid model path {str(path)!r}: expected a relative path without '..' components.")
+
+
 def load_file_path(
     model_name_or_path: str,
     filename: str | Path,
@@ -171,6 +180,7 @@ def load_file_path(
         local_files_only (bool, optional): Whether to only consider local files. Defaults to False.
 
     Raises:
+        ValueError: If ``subfolder`` or ``filename`` is rooted or contains parent traversal.
         Exception: Errors that are not unambiguously "this file is not on the Hub"
             propagate to the caller (e.g. authentication, rate-limit, network). Only
             ``EntryNotFoundError``, ``HFValidationError``, and ``LocalEntryNotFoundError``
@@ -180,6 +190,9 @@ def load_file_path(
         Optional[str]: The path to the loaded file, or ``None`` if the file is not present
         locally and the Hub confirms it is not in the repo (or no valid repo id was given).
     """
+    _validate_relative_path(subfolder)
+    _validate_relative_path(filename)
+
     # If file is local
     file_path = Path(model_name_or_path, subfolder, filename)
     if file_path.exists():
@@ -229,6 +242,7 @@ def load_dir_path(
         local_files_only (bool, optional): Whether to only use local files. Defaults to False.
 
     Raises:
+        ValueError: If ``subfolder`` is rooted or contains parent traversal.
         Exception: Errors that are not unambiguously "this is not on the Hub" propagate
             to the caller. ``HFValidationError`` and ``LocalEntryNotFoundError`` are
             converted to a ``None`` return. Other failures (auth, rate-limit, network)
@@ -239,6 +253,7 @@ def load_dir_path(
         Optional[str]: The subfolder path, or ``None`` if the parent is a local directory
         without the subfolder, or no valid repo id was given.
     """
+    _validate_relative_path(subfolder)
     if isinstance(subfolder, Path):
         subfolder = subfolder.as_posix()
 

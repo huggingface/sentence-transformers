@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import inspect
 import logging
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
@@ -7,9 +9,11 @@ from typing import Any, Literal, overload
 
 import numpy as np
 import torch
-from torch import nn
+import torch.nn.functional as F
+from torch import Tensor, nn
 from tqdm.autonotebook import trange
 from transformers import AutoConfig, PretrainedConfig, PreTrainedModel, is_datasets_available
+from transformers.utils import is_peft_available
 from transformers.utils import logging as transformers_logging
 from typing_extensions import TypeIs, deprecated
 
@@ -27,6 +31,12 @@ from sentence_transformers.util.decorators import (
 
 # NOTE: transformers wraps the regular logging module for e.g. warning_once
 logger = transformers_logging.get_logger(__name__)
+
+
+class _Float32Linear(nn.Linear):
+    def forward(self, input: Tensor) -> Tensor:
+        with torch.autocast(device_type=input.device.type, enabled=False):
+            return F.linear(input.float(), self.weight.float(), self.bias.float() if self.bias is not None else None)
 
 
 class CrossEncoder(BaseModel, FitMixin):
@@ -63,8 +73,9 @@ class CrossEncoder(BaseModel, FitMixin):
             commit id, for a stored model on Hugging Face. Defaults to None.
         local_files_only (bool, optional): Whether to only look at local files (i.e., do not try to download
             the model). Defaults to False.
-        token (bool or str, optional): Hugging Face authentication token to download private models.
-            Defaults to None.
+        token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
+            private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
+            credentials saved with ``hf auth login``, if available.
         model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
             Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
@@ -110,7 +121,13 @@ class CrossEncoder(BaseModel, FitMixin):
             the max length of the model will be used. Defaults to None.
         activation_fn (Callable, optional): Activation function applied on top of the model's logits during
             :meth:`predict`. If None, ``nn.Sigmoid()`` is used when ``num_labels=1``, else ``nn.Identity()``.
-            Defaults to None.
+            Use a ``torch.nn.Module`` (e.g. ``nn.Identity()``) if the model will be saved: plain functions
+            emit a warning on save. Defaults to None.
+        keep_in_fp32_modules (list[str], optional): Paths to plain linear layers that compute and return
+            fp32, including under autocast. Parameter storage is unchanged. None inherits the saved
+            selection, or selects nothing for a model without one. Pass [] to disable a saved selection.
+            This feature is experimental. Its API and behavior may change, and it may be removed in a future release.
+            See :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder.set_keep_in_fp32_modules`.
 
     Example:
         ::
@@ -166,18 +183,18 @@ class CrossEncoder(BaseModel, FitMixin):
         num_labels: int | None = None,
         max_length: int | None = None,
         activation_fn: Callable | None = None,
+        keep_in_fp32_modules: list[str] | None = None,
     ) -> None:
         # Preserve an explicit activation before parsing the saved configuration.
         self.activation_fn = activation_fn
+        self.keep_in_fp32_modules = keep_in_fp32_modules
 
         if num_labels is not None:
-            if config_kwargs is None:
-                config_kwargs = {}
+            config_kwargs = dict(config_kwargs or {})
             config_kwargs["num_labels"] = num_labels
 
         if max_length is not None:
-            if processor_kwargs is None:
-                processor_kwargs = {}
+            processor_kwargs = dict(processor_kwargs or {})
             processor_kwargs["model_max_length"] = max_length
 
         super().__init__(
@@ -201,6 +218,61 @@ class CrossEncoder(BaseModel, FitMixin):
 
         if self.activation_fn is None:
             self.activation_fn = self.get_default_activation_fn()
+        self.set_keep_in_fp32_modules([] if self.keep_in_fp32_modules is None else self.keep_in_fp32_modules)
+
+    def set_keep_in_fp32_modules(self, module_names: list[str]) -> None:
+        """Run selected linear layers in fp32, even when autocast is enabled.
+
+        Selected layers return fp32 outputs during inference and training, while their stored
+        weights retain their dtype. This requires the torch backend.
+
+        The selection is saved with the model and restored when loading. Accelerate device
+        placement and offloading hooks are preserved.
+
+        Note:
+            This feature is experimental. Its API and behavior may change, and it may be removed
+            in a future release.
+
+        Args:
+            module_names: Paths to ``torch.nn.Linear`` layers from ``named_modules()``, such as
+                ``"2.linear"`` or ``"0.model.classifier"``. Replaces the previous selection.
+                Pass an empty list to disable fp32 computation for previously selected layers.
+        """
+        if not isinstance(module_names, (list, tuple)) or any(not isinstance(name, str) for name in module_names):
+            raise ValueError("keep_in_fp32_modules must be a list of module paths.")
+        if module_names and self.backend != "torch":
+            raise ValueError("keep_in_fp32_modules is supported only by the torch backend.")
+
+        names = list(dict.fromkeys(module_names))
+        selected = {self.get_submodule(name) for name in names}
+        previous = {self.get_submodule(name) for name in self.keep_in_fp32_modules or []}
+        if (selected or previous) and is_peft_available():
+            from peft.utils import ModulesToSaveWrapper
+
+            for modules in (selected, previous):
+                for module in list(modules):
+                    if isinstance(module, ModulesToSaveWrapper):
+                        modules.remove(module)
+                        modules.update([module.original_module, *module.modules_to_save.values()])
+
+        forward_names = {}
+        for module in selected | previous:
+            if type(module) not in (nn.Linear, _Float32Linear):
+                raise ValueError("keep_in_fp32_modules supports only plain nn.Linear layers.")
+            forward_name = "_old_forward" if hasattr(module, "_hf_hook") else "forward"
+            forward = getattr(module, forward_name, None)
+            if getattr(forward, "__self__", None) is not module or getattr(forward, "__func__", None) not in (
+                nn.Linear.forward,
+                _Float32Linear.forward,
+            ):
+                raise ValueError("keep_in_fp32_modules does not support custom forwards on selected layers.")
+            forward_names[module] = forward_name
+        for module, forward_name in forward_names.items():
+            cls = _Float32Linear if module in selected else nn.Linear
+            module.__class__ = cls
+            if forward_name in module.__dict__:
+                setattr(module, forward_name, cls.forward.__get__(module))
+        self.keep_in_fp32_modules = names
 
     def _load_default_modules(
         self,
@@ -624,12 +696,12 @@ class CrossEncoder(BaseModel, FitMixin):
             if activation_fn is not None:
                 scores = activation_fn(scores)
 
-            if apply_softmax and scores.ndim > 1:
-                scores = torch.nn.functional.softmax(scores, dim=1)
-
             # Squeeze [batch_size, 1] -> [batch_size] for single-label models
             if num_labels == 1 and scores.ndim > 1:
                 scores = scores.squeeze(-1)
+
+            if apply_softmax and scores.ndim > 1:
+                scores = torch.nn.functional.softmax(scores, dim=1)
 
             pred_scores.extend(scores)
 
@@ -649,7 +721,6 @@ class CrossEncoder(BaseModel, FitMixin):
         batch_size: int = 32,
         show_progress_bar: bool | None = None,
         activation_fn: Callable | None = None,
-        apply_softmax=False,
         device: str | list[str | torch.device] | None = None,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
@@ -673,7 +744,6 @@ class CrossEncoder(BaseModel, FitMixin):
             batch_size (int, optional): Batch size for encoding. Defaults to 32.
             show_progress_bar (bool, optional): Output progress bar. Defaults to None.
             activation_fn ([type], optional): Activation function applied on the logits output of the CrossEncoder. If None, nn.Sigmoid() will be used if num_labels=1, else nn.Identity. Defaults to None.
-            apply_softmax (bool, optional): If there are more than 2 dimensions and apply_softmax=True, applies softmax on the logits output. Defaults to False.
             device (Union[str, List[str]], optional): Device(s) to use for computation. Can be a single device string
                 (e.g., "cuda:0", "cpu"), which moves the model there unless a `device_map` or Accelerate hooks control placement,
                 or a list of devices (e.g., ["cuda:0", "cuda:1"]), which uses multiprocessing automatically.
@@ -739,7 +809,6 @@ class CrossEncoder(BaseModel, FitMixin):
             batch_size=batch_size,
             show_progress_bar=show_progress_bar,
             activation_fn=activation_fn,
-            apply_softmax=apply_softmax,
             convert_to_tensor=True,
             device=device,
             pool=pool,
@@ -784,12 +853,23 @@ class CrossEncoder(BaseModel, FitMixin):
         return True
 
     def _get_model_config(self) -> dict[str, Any]:
-        return super()._get_model_config() | {
+        if inspect.isroutine(self.activation_fn) or isinstance(self.activation_fn, functools.partial):
+            logger.warning(
+                f"Saving activation function {self.activation_fn!r}: plain functions can't be restored "
+                "from the configuration, so loading with default settings will use the default activation function. "
+                "Please use a `torch.nn.Module` instead, e.g. `torch.nn.Identity()` instead of `lambda x: x`."
+            )
+        config = super()._get_model_config() | {
             "activation_fn": fullname(self.activation_fn),
         }
+        if self.keep_in_fp32_modules:
+            config["keep_in_fp32_modules"] = self.keep_in_fp32_modules
+        return config
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
         super()._parse_model_config(model_config)
+        if self.keep_in_fp32_modules is None:
+            self.keep_in_fp32_modules = model_config.get("keep_in_fp32_modules")
         if self.activation_fn is None and "activation_fn" in model_config:
             activation_fn_path = model_config["activation_fn"]
             if activation_fn_path is not None:
@@ -824,5 +904,5 @@ print(rankings)
 
 ---
 *This PR was auto-generated with \
-[`push_to_hub`](https://sbert.net/docs/package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.CrossEncoder.push_to_hub).*
+[`push_to_hub`](https://sbert.net/docs/package_reference/cross_encoder/model.html#sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub).*
 """

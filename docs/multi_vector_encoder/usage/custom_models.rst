@@ -155,7 +155,8 @@ A worked example that bakes document token pooling into the shipped model::
     model.push_to_hub("username/colbertv2-pooled")
 
 Every consumer of the saved checkpoint now receives pooled document embeddings (queries stay
-unpooled), with the pooling stored as a fifth entry in ``modules.json``.
+unpooled), with the pooling stored as a fifth entry in ``modules.json``. ``HierarchicalTokenPooling``
+normalizes all output tokens by default, including protected tokens.
 
 Loading Multi-Vector Encoder Models
 -----------------------------------

@@ -60,6 +60,12 @@ Training Sentence Transformer models involves between 4 to 6 components:
 </div>
 <p></p>
 
+```{eval-rst}
+.. tip::
+
+   Before downloading training models or datasets, we recommend logging in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models and datasets your account can read. See the `login instructions <../installation.html#log-in-to-hugging-face>`_.
+```
+
 ## Model
 
 ```{eval-rst}
@@ -81,8 +87,8 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.transformer.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.pooling.Pooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.Pooling</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.Pooling"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.Pooling</span></code></a></li>
             </ul>
         </div>
 
@@ -125,9 +131,9 @@ But if instead you want to train from another checkpoint, or from scratch, then 
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/blog/static-embeddings">Static Embedding Models</a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.static_embedding.StaticEmbedding"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.StaticEmbedding</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.static_embedding.StaticEmbedding.from_model2vec"><code class="xref py py-meth docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.StaticEmbedding.from_model2vec</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.static_embedding.StaticEmbedding.from_distillation"><code class="xref py py-meth docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.StaticEmbedding.from_distillation</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.StaticEmbedding"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.StaticEmbedding</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.StaticEmbedding.from_model2vec"><code class="xref py py-meth docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.StaticEmbedding.from_model2vec</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/modules.html#sentence_transformers.sentence_transformer.modules.StaticEmbedding.from_distillation"><code class="xref py py-meth docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.modules.StaticEmbedding.from_distillation</span></code></a></li>
             </ul>
         </div>
 
@@ -157,10 +163,10 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.transformer.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
-                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.transformer.Transformer.modalities"><code class="xref py py-attr docutils literal notranslate"><span class="pre">Transformer.modalities</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.base.modules.Transformer</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/base/modules.html#sentence_transformers.base.modules.Transformer.modalities"><code class="xref py py-attr docutils literal notranslate"><span class="pre">Transformer.modalities</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/sentence_transformer/model.html#sentence_transformers.sentence_transformer.model.SentenceTransformer.supports"><code class="xref py py-meth docutils literal notranslate"><span class="pre">SentenceTransformer.supports()</span></code></a></li>
-                <li><a class="reference external" href="training/examples.html#multimodal">Multimodal Training Examples</a></li>
+                <li><a class="reference external" href="../../examples/sentence_transformer/training/multimodal/README.html">Multimodal Training Examples</a></li>
             </ul>
         </div>
 
@@ -188,7 +194,7 @@ But if instead you want to train from another checkpoint, or from scratch, then 
         print(model.supports("image"))
         # True
 
-    The ``"message"`` modality means the model can handle mixed-modality inputs (e.g. an image and text together) via the chat template format. Multimodal training data can include text strings, PIL images, image file paths or URLs, audio arrays, or multimodal dicts like ``{"image": <PIL.Image>, "text": "describe this"}``. See the `multimodal training examples <training/examples.html#multimodal>`_ for full training scripts.
+    The ``"message"`` modality means the model can handle mixed-modality inputs (e.g. an image and text together) via the chat template format. Multimodal training data can include text strings, PIL images, image file paths or URLs, audio arrays, or multimodal dicts like ``{"image": <PIL.Image>, "text": "describe this"}``. See the `multimodal training examples <../../examples/sentence_transformer/training/multimodal/README.html>`_ for full training scripts.
 
 .. tab:: Multimodal via Router
 
@@ -517,6 +523,7 @@ args = SentenceTransformerTrainingArguments(
 
 ```{eval-rst}
 You can provide the :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransformerTrainer` with an ``eval_dataset`` to get the evaluation loss during training, but it may be useful to get more concrete metrics during training, too. For this, you can use evaluators to assess the model's performance with useful metrics before, during, or after training. You can use both an ``eval_dataset`` and an evaluator, one or the other, or neither. They evaluate based on the ``eval_strategy`` and ``eval_steps`` `Training Arguments <#training-arguments>`_.
+During `Distributed Data Parallel (DDP) training <training/distributed.html>`_, the trainer automatically distributes evaluator inference across the training processes.
 
 Here are the implemented Evaluators that come with Sentence Transformers:
 
@@ -546,7 +553,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/stsb">sentence-transformers/stsb</a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.sentence_transformer.evaluation.embedding_similarity.EmbeddingSimilarityEvaluator" title="sentence_transformers.sentence_transformer.evaluation.embedding_similarity.EmbeddingSimilarityEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator" title="sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.evaluation.EmbeddingSimilarityEvaluator</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/util/similarity.html#sentence_transformers.util.similarity.SimilarityFunction" title="sentence_transformers.util.similarity.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.util.similarity.SimilarityFunction</span></code></a></li>
             </ul>
         </div>
@@ -578,7 +585,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
                 <li><a class="reference external" href="https://huggingface.co/datasets/sentence-transformers/all-nli">sentence-transformers/all-nli</a></li>
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.sentence_transformer.evaluation.triplet.TripletEvaluator" title="sentence_transformers.sentence_transformer.evaluation.triplet.TripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.evaluation.TripletEvaluator</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.sentence_transformer.evaluation.TripletEvaluator" title="sentence_transformers.sentence_transformer.evaluation.TripletEvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.evaluation.TripletEvaluator</span></code></a></li>
                 <li><a class="reference internal" href="../package_reference/util/similarity.html#sentence_transformers.util.similarity.SimilarityFunction" title="sentence_transformers.util.similarity.SimilarityFunction"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.util.similarity.SimilarityFunction</span></code></a></li>
             </ul>
         </div>
@@ -610,7 +617,7 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
         <div class="sidebar">
             <p class="sidebar-title">Documentation</p>
             <ul class="simple">
-                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.sentence_transformer.evaluation.nano_beir.NanoBEIREvaluator" title="sentence_transformers.sentence_transformer.evaluation.nano_beir.NanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator</span></code></a></li>
+                <li><a class="reference internal" href="../package_reference/sentence_transformer/evaluation.html#sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator" title="sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator"><code class="xref py py-class docutils literal notranslate"><span class="pre">sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator</span></code></a></li>
             </ul>
         </div>
 
@@ -630,9 +637,6 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
 
     If you evaluate after training, but before saving the model, your automatically generated model card will still include the test results.
 
-.. warning::
-
-    When using `Distributed Training <training/distributed.html>`_, the evaluator only runs on the first device, unlike the training and evaluation datasets, which are shared across all devices. 
 ```
 
 ## Trainer
@@ -653,6 +657,8 @@ The :class:`~sentence_transformers.sentence_transformer.trainer.SentenceTransfor
     #. :class:`SentenceTransformer.push_to_hub <sentence_transformers.sentence_transformer.model.SentenceTransformer.push_to_hub>`
 
     - `Training Examples <training/examples.html>`_
+
+    To upload your trained model with ``push_to_hub()``, `log in to Hugging Face <../installation.html#log-in-to-hugging-face>`_ with credentials that have write access to the destination repository.
 
 ::
 

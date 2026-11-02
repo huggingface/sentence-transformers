@@ -36,6 +36,9 @@ class MSEEvaluator(BaseEvaluator):
         truncate_dim (int, optional): The dimension to truncate sentence embeddings to. `None` uses the model's current truncation
             dimension. Defaults to None.
 
+    Raises:
+        ValueError: If source_sentences and target_sentences have different lengths.
+
     Example:
         ::
 
@@ -81,6 +84,11 @@ class MSEEvaluator(BaseEvaluator):
         truncate_dim: int | None = None,
     ):
         super().__init__()
+        if len(source_sentences) != len(target_sentences):
+            raise ValueError(
+                f"source_sentences ({len(source_sentences)}) and target_sentences ({len(target_sentences)}) "
+                "must have the same length."
+            )
         self.truncate_dim = truncate_dim
         self.target_sentences = target_sentences
         self.show_progress_bar = show_progress_bar
@@ -110,7 +118,7 @@ class MSEEvaluator(BaseEvaluator):
         target_embeddings = self.embed_inputs(model, self.target_sentences)
 
         mse = ((self.source_embeddings - target_embeddings) ** 2).mean()
-        mse = mse * 100
+        mse = (mse * 100).item()
 
         logger.info(f"MSE evaluation (lower = better) on the {self.name} dataset{out_txt}:")
         logger.info(f"MSE (*100):\t{mse:4f}")

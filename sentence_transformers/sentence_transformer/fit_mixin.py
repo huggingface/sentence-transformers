@@ -69,7 +69,7 @@ class SaveModelCallback(TrainerCallback):
         **kwargs,
     ) -> None:
         if self.evaluator is not None and self.save_best_model:
-            metric_key = getattr(self.evaluator, "primary_metric", "evaluator")
+            metric_key = getattr(self.evaluator, "primary_metric", None) or "evaluator"
             for key, value in metrics.items():
                 if key.endswith(metric_key):
                     if self.best_metric is None or self.is_better(value):
@@ -148,7 +148,7 @@ class OriginalCallback(TrainerCallback):
         metrics: dict[str, Any],
         **kwargs,
     ) -> None:
-        metric_key = getattr(self.evaluator, "primary_metric", "evaluator")
+        metric_key = getattr(self.evaluator, "primary_metric", None) or "evaluator"
         for key, value in metrics.items():
             if key.endswith(metric_key):
                 return self.callback(value, state.epoch, state.global_step)
@@ -263,13 +263,26 @@ class FitMixin:
             elif hasattr(data_loader, "dataset") and isinstance(data_loader.dataset, SentenceLabelDataset):
                 batch_sampler = BatchSamplers.GROUP_BY_LABEL
 
-            batch_size = getattr(data_loader, "batch_size", batch_size)
+            loader_batch_size = getattr(data_loader, "batch_size", batch_size)
+            if loader_batch_size is None:
+                # PyTorch sets `DataLoader.batch_size` to None when a custom `batch_sampler` is passed
+                loader_batch_size = getattr(data_loader.batch_sampler, "batch_size", None) or batch_size
+                logger.warning(
+                    f"The DataLoader for training objective {loader_idx} uses a custom `batch_sampler`, whose "
+                    "batch grouping `fit()` does not preserve. We recommend using `SentenceTransformerTrainer` "
+                    "instead, or `old_fit()` if your script was written for Sentence Transformers v2."
+                )
+            batch_size = loader_batch_size
             texts = []
             labels = []
             for batch in data_loader:
                 batch_texts, batch_labels = zip(*[(example.texts, example.label) for example in batch])
                 texts += batch_texts
                 labels += batch_labels
+            if len({len(example_texts) for example_texts in texts}) > 1:
+                raise ValueError(
+                    f"All InputExamples for training objective {loader_idx} must have the same number of texts."
+                )
             dataset = Dataset.from_dict({f"sentence_{idx}": text for idx, text in enumerate(zip(*texts))})
             # Add label column, unless all labels are 0 (the default value for `labels` in InputExample)
             add_label_column = True
@@ -327,10 +340,10 @@ class FitMixin:
 
         if steps_per_epoch is None or steps_per_epoch == 0:
             steps_per_epoch = min([len(train_dataset) // batch_size for train_dataset in train_dataset_dict.values()])
-        num_train_steps = int(steps_per_epoch * epochs)
+        num_train_steps = max_steps if max_steps > 0 else int(steps_per_epoch * epochs) * len(loss_fns)
 
         # Prepare optimizer & scheduler
-        param_optimizer = list(self.named_parameters())
+        param_optimizer = list(nn.ModuleDict({"model": self, **loss_fn_dict}).named_parameters())
 
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [

@@ -368,6 +368,9 @@ class InformationRetrievalEvaluator(BaseEvaluator):
                     prompt_name=self.corpus_prompt_name,
                     prompt=self.corpus_prompt,
                 )
+            elif isinstance(corpus_embeddings, Tensor) and corpus_embeddings.is_sparse:
+                indices = torch.arange(corpus_start_idx, corpus_end_idx, device=corpus_embeddings.device)
+                sub_corpus_embeddings = corpus_embeddings.index_select(0, indices)
             else:
                 sub_corpus_embeddings = corpus_embeddings[corpus_start_idx:corpus_end_idx]
 

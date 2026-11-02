@@ -99,10 +99,6 @@ class MultiVectorDistillKLDivLoss(nn.Module):
             trainer.train()
     """
 
-    # Enables per-sample media counting in Transformer.preprocess, so mini-batching can slice VLM
-    # inputs (e.g. Qwen2-VL's flattened pixel_values) along the batch dimension.
-    requires_media_counts = True
-
     def __init__(
         self,
         model: MultiVectorEncoder,
@@ -144,7 +140,7 @@ class MultiVectorDistillKLDivLoss(nn.Module):
         sentence_features: Iterable[dict[str, Tensor]],
         labels: Tensor,
     ) -> Tensor:
-        sentence_features = list(sentence_features)
+        sentence_features = [dict(features) for features in sentence_features]
         if len(sentence_features) < 3:
             raise ValueError(
                 f"{type(self).__name__} expects at least 3 sentence features "

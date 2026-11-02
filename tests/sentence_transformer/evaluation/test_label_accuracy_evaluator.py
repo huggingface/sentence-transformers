@@ -17,9 +17,9 @@ from sentence_transformers.sentence_transformer.readers import InputExample
 
 
 @pytest.mark.skip(reason="This test is rather slow, and the LabelAccuracyEvaluator is not commonly used.")
-def test_LabelAccuracyEvaluator(paraphrase_distilroberta_base_v1_model: SentenceTransformer, tmp_path: Path) -> None:
+def test_LabelAccuracyEvaluator(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
     """Tests that the LabelAccuracyEvaluator can be loaded correctly"""
-    model = paraphrase_distilroberta_base_v1_model
+    model = stsb_bert_tiny_model
 
     max_dev_samples = 100
     nli_dataset = load_dataset("sentence-transformers/all-nli", "pair-class", split="train").select(

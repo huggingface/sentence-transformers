@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 from sentence_transformers.multi_vector_encoder.evaluation.information_retrieval import (
     MultiVectorInformationRetrievalEvaluator,
 )
+from sentence_transformers.multi_vector_encoder.evaluation.utils import pooling_config, pooling_name_suffix
+from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.sentence_transformer.evaluation.nano_beir import NanoBEIREvaluator
 
 if TYPE_CHECKING:
@@ -46,8 +48,14 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         batch_size (int): Per-input batch size used while encoding. Defaults to 32.
         write_csv (bool): Append per-call metric values to a CSV file (one row per evaluation call).
             Defaults to True.
-        truncate_dim (int, optional): Not supported: multi-vector token embeddings have no
-            Matryoshka-style truncation, so any non-None value raises a ValueError. Defaults to None.
+        truncate_dim (int, optional): Truncate and L2-normalize each token embedding before scoring.
+            An explicit dimension is appended to evaluator names. Defaults to None (use the model's
+            default dimension).
+        token_pooling (BaseTokenPooling, optional): Pooling applied during encoding. The pooler's
+            ``tasks`` select which inputs are pooled. Explicit poolers add a short configuration label
+            to evaluator names. Defaults to None (use the model's default pooler).
+        name (str): Optional prefix for aggregate and per-dataset metric names and output files.
+            Use distinct names for poolers with the same short configuration label. Defaults to "".
         score_functions (Dict[str, Callable], optional): Override the default per-subset scoring.
             See :class:`MultiVectorInformationRetrievalEvaluator`. Defaults to None.
         main_score_function (str or SimilarityFunction, optional): Score-function key to treat as the
@@ -84,25 +92,50 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         *args,
         corpus_chunk_size: int = 5000,
         chunk_elements: int | None = None,
+        token_pooling: BaseTokenPooling | None = None,
+        name: str = "",
         **kwargs,
     ) -> None:
-        if kwargs.get("truncate_dim") is not None:
-            raise ValueError(
-                "truncate_dim is not supported by MultiVectorEncoder evaluators: multi-vector token "
-                "embeddings have no Matryoshka-style truncation. Remove truncate_dim to evaluate at "
-                "the full dimension."
-            )
         # Set before super().__init__ because the base initializer iterates ``_load_dataset`` to
         # construct per-subset IR evaluators, and that needs the extra kwargs.
         self._ir_extra_kwargs: dict[str, Any] = {
             "corpus_chunk_size": corpus_chunk_size,
             "chunk_elements": chunk_elements,
+            "token_pooling": token_pooling,
         }
+        self.token_pooling = token_pooling
+        self._name = name
         super().__init__(*args, **kwargs)
+        if token_pooling is not None:
+            # Like truncate_dim, distinguish the aggregate metrics per pooling setup. The same
+            # suffix lands on the per-subset names (_get_human_readable_name below), preserving the
+            # metric-key parsing invariant that the aggregate name has exactly one underscore-
+            # separated segment more than each subset name.
+            self.name += f"_{pooling_name_suffix(token_pooling)}"
+        self.csv_file = f"NanoBEIR_evaluation_{self.name.removeprefix('NanoBEIR_')}_results.csv"
+        if name:
+            self.name = f"{name}_{self.name}"
+            self.csv_file = f"{name}_{self.csv_file}"
+
+    def _get_human_readable_name(self, dataset_name: str) -> str:
+        human_readable_name = super()._get_human_readable_name(dataset_name)
+        if self.token_pooling is not None:
+            human_readable_name += f"_{pooling_name_suffix(self.token_pooling)}"
+        if self._name:
+            human_readable_name = f"{self._name}_{human_readable_name}"
+        return human_readable_name
 
     def _load_dataset(self, dataset_name: str, **ir_evaluator_kwargs):
         ir_evaluator_kwargs = {**ir_evaluator_kwargs, **self._ir_extra_kwargs}
         return super()._load_dataset(dataset_name, **ir_evaluator_kwargs)
+
+    def get_config_dict(self) -> dict[str, Any]:
+        config_dict = super().get_config_dict()
+        if self._name:
+            config_dict["name"] = self._name
+        if self.token_pooling is not None:
+            config_dict["token_pooling"] = pooling_config(self.token_pooling)
+        return config_dict
 
     def __call__(
         self,

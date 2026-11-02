@@ -163,7 +163,7 @@ class ContrastiveTensionLoss(nn.Module):
             else:
                 labels = (input_ids1 == input_ids2).all(dim=1).float()
 
-        loss = self.criterion(sim_scores, labels.type_as(sim_scores))
+        loss = self.criterion(sim_scores, labels.view(-1).type_as(sim_scores))
         return loss
 
     def get_config_dict(self) -> dict[str, Any]:
