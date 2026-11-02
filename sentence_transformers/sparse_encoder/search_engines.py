@@ -121,6 +121,7 @@ def semantic_search_qdrant(
                     collection_name=collection_name,
                     vectors=vectors_batch,
                     ids=range(insert_idx, insert_idx + len(vectors_batch)),
+                    wait=True,
                 )
                 insert_idx += len(vectors_batch)
                 vectors_batch = []
