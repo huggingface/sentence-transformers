@@ -1845,32 +1845,7 @@ This pull request has been automatically generated to add {self.__class__.__name
 
         logger.info(f"Starting multi-process pool on devices: {', '.join(map(str, target_devices))}")
 
-        neuron_worker_cores = {}
-        if any(str(device).split(":")[0] == "neuron" for device in target_devices):
-            if torch.neuron.is_initialized():
-                raise ValueError(
-                    "Neuron multiprocessing requires a fresh parent process with the model loaded on CPU "
-                    "(`device='cpu'`). A parent that has used Neuron retains its cores until it exits."
-                )
-            visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES")
-            if visible_cores:
-                neuron_cores = []
-                for part in visible_cores.split(","):
-                    bounds = [int(value) for value in part.strip().split("-")]
-                    neuron_cores.extend(range(bounds[0], bounds[-1] + 1))
-            else:
-                neuron_cores = list(range(torch.neuron.device_count()))
-            for device in target_devices:
-                if str(device).split(":")[0] != "neuron":
-                    continue
-                index = torch.device(device).index
-                index = torch.neuron.current_device() if index is None else index
-                if index >= len(neuron_cores):
-                    raise ValueError(f"Neuron device index {index} exceeds the {len(neuron_cores)} visible cores.")
-                core = neuron_cores[index]
-                if core in neuron_worker_cores.values():
-                    raise ValueError("Each Neuron worker must use a different core.")
-                neuron_worker_cores[str(device)] = core
+        neuron_worker_cores = self._get_neuron_worker_cores(target_devices)
 
         # Move model to CPU and share memory so child processes can access it.
         # Note: this modifies the model in-place, the model will remain on CPU after this call.
@@ -1883,11 +1858,11 @@ This pull request has been automatically generated to add {self.__class__.__name
 
         for device_id in target_devices:
             worker_device = device_id
-            is_neuron = str(device_id) in neuron_worker_cores
-            if is_neuron:
-                # Set visibility before spawn imports torch and caches the device count.
-                # Each child sees its assigned core as neuron:0.
-                os.environ["NEURON_RT_VISIBLE_CORES"] = str(neuron_worker_cores[str(device_id)])
+            core = neuron_worker_cores.get(str(device_id))
+            if core is not None:
+                visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES")
+                # Spawn must inherit visibility before torch caches the device count.
+                os.environ["NEURON_RT_VISIBLE_CORES"] = str(core)
                 worker_device = "neuron:0"
             try:
                 p = ctx.Process(
@@ -1897,7 +1872,7 @@ This pull request has been automatically generated to add {self.__class__.__name
                 )
                 p.start()
             finally:
-                if is_neuron:
+                if core is not None:
                     if visible_cores is None:
                         os.environ.pop("NEURON_RT_VISIBLE_CORES", None)
                     else:
@@ -1905,6 +1880,39 @@ This pull request has been automatically generated to add {self.__class__.__name
             processes.append(p)
 
         return {"input": input_queue, "output": output_queue, "processes": processes}
+
+    @staticmethod
+    def _get_neuron_worker_cores(target_devices: list[str]) -> dict[str, int]:
+        """Validate Neuron pool allocation and map requested devices to visible cores."""
+        neuron_devices = [str(device) for device in target_devices if str(device).split(":")[0] == "neuron"]
+        if not neuron_devices:
+            return {}
+        if torch.neuron.is_initialized():
+            raise ValueError(
+                "Neuron multiprocessing requires a fresh parent process with the model loaded on CPU "
+                "(`device='cpu'`). A parent that has used Neuron retains its cores until it exits."
+            )
+
+        visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES")
+        if visible_cores:
+            neuron_cores = []
+            for part in visible_cores.split(","):
+                bounds = [int(value) for value in part.strip().split("-")]
+                neuron_cores.extend(range(bounds[0], bounds[-1] + 1))
+        else:
+            neuron_cores = list(range(torch.neuron.device_count()))
+
+        worker_cores = {}
+        for device in neuron_devices:
+            index = torch.device(device).index
+            index = torch.neuron.current_device() if index is None else index
+            if index >= len(neuron_cores):
+                raise ValueError(f"Neuron device index {index} exceeds the {len(neuron_cores)} visible cores.")
+            core = neuron_cores[index]
+            if core in worker_cores.values():
+                raise ValueError("Each Neuron worker must use a different core.")
+            worker_cores[device] = core
+        return worker_cores
 
     @staticmethod
     def stop_multi_process_pool(pool: dict[Literal["input", "output", "processes"], Any]) -> None:
