@@ -56,7 +56,7 @@ Merging defaults to float32 on CPU and holds the inputs and the result in memory
 
 ## Results on NanoBEIR
 
-We evaluated three SPLADE checkpoints and several merge configurations on all 13 datasets in NanoBEIR. The table below shows the individual inputs and two 50/50 Linear merges. Scores are nDCG@10 multiplied by 100, with an unweighted mean across datasets.
+Building on the co-condenser example above, the evaluation below combines SPLADE-v3 with each of those models in a 50/50 linear merge. The table compares all three parents and both merges on all 13 [NanoBEIR](https://huggingface.co/datasets/sentence-transformers/NanoBEIR-en) datasets. Scores are nDCG@10 multiplied by 100, averaged equally across datasets.
 
 | Model | All 13 datasets | MS MARCO | Other 12 datasets |
 | --- | ---: | ---: | ---: |
@@ -64,23 +64,34 @@ We evaluated three SPLADE checkpoints and several merge configurations on all 13
 | [SelfDistil](https://huggingface.co/naver/splade-cocondenser-selfdistil) | 62.70 | 65.92 | 62.43 |
 | [SPLADE-v3](https://huggingface.co/naver/splade-v3) | 63.36 | **70.01** | 62.81 |
 | SPLADE-v3 + EnsembleDistil | 63.84 | 69.69 | 63.35 |
-| SPLADE-v3 + SelfDistil | **64.01** | 67.46 | **63.72** |
+| [SPLADE-v3 + SelfDistil](https://huggingface.co/sparse-encoder/merged-SPLADE-v3-selfdistil) | **64.01** | 67.46 | **63.72** |
 
-The SPLADE-v3 + SelfDistil merge improved over SPLADE-v3 on 9 of 13 datasets, gaining 0.65 points on average. Its MS MARCO score fell by 2.55 points. The SPLADE-v3 + EnsembleDistil merge gave a smaller average improvement with a smaller MS MARCO loss. Merging can be helpful, but improvements are not guaranteed, so evaluate on the tasks you care about.
+The SPLADE-v3 + SelfDistil merge gained 0.65 points over SPLADE-v3 on average and outperformed both parents on 8 of 13 datasets. Its MS MARCO score fell by 2.55 points. The SPLADE-v3 + EnsembleDistil merge gave a smaller average improvement with a smaller MS MARCO loss.
 
-To try the strongest average configuration above:
+### Use the Published Merge
+
+The SPLADE-v3 + SelfDistil checkpoint is available as [sparse-encoder/merged-SPLADE-v3-selfdistil](https://huggingface.co/sparse-encoder/merged-SPLADE-v3-selfdistil). Load it directly with `SparseEncoder`:
+
+```python
+from sentence_transformers import SparseEncoder
+
+merged = SparseEncoder("sparse-encoder/merged-SPLADE-v3-selfdistil")
+```
+
+The [model card](https://huggingface.co/sparse-encoder/merged-SPLADE-v3-selfdistil#evaluation) includes the results for each dataset and a model creation script. To reproduce the 50/50 merge yourself:
 
 ```python
 merged = SparseEncoder.merge(
     ["naver/splade-v3", "naver/splade-cocondenser-selfdistil"],
+    method="linear",
     parameters={"weight": [0.5, 0.5]},
 )
-merged.save_pretrained("merged-splade-v3-selfdistil")
+merged.save_pretrained("merged-SPLADE-v3-selfdistil")
 ```
 
 ## Evaluate Your Merge
 
-Use the same evaluator settings for each input and the merged model. For example, the default `SparseNanoBEIREvaluator` covers all 13 NanoBEIR datasets:
+Run the same evaluator on each parent and the merged model, using matching prompts and input limits. The default `SparseNanoBEIREvaluator` covers all 13 NanoBEIR datasets:
 
 ```python
 from sentence_transformers.sparse_encoder.evaluation import SparseNanoBEIREvaluator
@@ -91,3 +102,11 @@ print(results[evaluator.primary_metric])
 ```
 
 Also compare sparsity and retrieval cost. A merge can change the number of active vocabulary dimensions, affecting index size and search speed even when retrieval quality improves.
+
+## Other Model Types
+
+The same API is available for all four model types:
+
+- [Sentence Transformer merging](../../../sentence_transformer/training/merging/README.md), with dense embedding examples and NanoBEIR results.
+- [Cross Encoder merging](../../../cross_encoder/training/merging/README.md), including classification heads.
+- [Multi-Vector Encoder merging](../../../multi_vector_encoder/training/merging/README.md), including token projection layers.
