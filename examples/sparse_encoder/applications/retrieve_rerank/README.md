@@ -48,8 +48,8 @@ EVALUATION SUMMARY
 ================================================================================
 METHOD                            NDCG@10     MRR@10        MAP
 --------------------------------------------------------------------------------
-Sparse Retrieval                    32.20      46.91      28.31
-Dense Retrieval                     27.35      41.59      22.79
+Sparse Retrieval                    32.20      46.91      14.30
+Dense Retrieval                     27.35      41.59       8.95
 Sparse + Reranking                  37.36      57.21      32.12
 Dense + Reranking                   37.56      58.27      31.93
 Hybrid RRF                          32.95      50.19      22.64
