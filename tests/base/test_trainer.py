@@ -505,7 +505,7 @@ def test_resume_from_checkpoint_restores_loss_weights(loss_training_model, tmp_p
     train(loss_training_model, loss, label)
     trained_state = {name: tensor.clone() for name, tensor in loss.state_dict().items()}
     checkpoint = tmp_path / "checkpoint-2"
-    assert (checkpoint / "loss.pt").exists() == (loss_class is not CosineSimilarityLoss)
+    assert (checkpoint / "loss.safetensors").exists() == (loss_class is not CosineSimilarityLoss)
 
     resumed_loss, _ = make_loss(initial_model)
     train(initial_model, resumed_loss, label, resume_from_checkpoint=str(checkpoint))

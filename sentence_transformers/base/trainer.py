@@ -13,6 +13,7 @@ from functools import partial
 from typing import Any
 
 import torch
+from safetensors.torch import load_file, save_file
 from torch import nn
 from torch.utils.data import BatchSampler, ConcatDataset, DataLoader, RandomSampler
 from transformers import EvalPrediction, PreTrainedTokenizerBase, Trainer, TrainerCallback
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 # Weights that a loss owns outside the model (e.g. the SoftmaxLoss classifier), saved with the optimizer
 # state in each checkpoint so that resuming training does not start them from scratch again.
-LOSS_STATE_NAME = "loss.pt"
+LOSS_STATE_NAME = "loss.safetensors"
 
 # The TrackioCallback is only available in the v4.54+ of transformers, but I'd like to keep Sentence Transformers
 # compatible with older versions of transformers as well, so we import it conditionally
@@ -1117,12 +1118,14 @@ class BaseTrainer(Trainer, ABC):
     def _save_optimizer_and_scheduler(self, output_dir: str) -> None:
         super()._save_optimizer_and_scheduler(output_dir)
         if self.args.should_save and (loss_state_dict := self._loss_state_dict()):
-            torch.save(loss_state_dict, os.path.join(output_dir, LOSS_STATE_NAME))
+            # safetensors rejects tensors that share memory, e.g. tied weights in the loss, so save each as its own copy
+            loss_state_dict = {name: tensor.detach().to("cpu", copy=True) for name, tensor in loss_state_dict.items()}
+            save_file(loss_state_dict, os.path.join(output_dir, LOSS_STATE_NAME), metadata={"format": "pt"})
 
     def _load_optimizer_and_scheduler(self, checkpoint: str | None) -> None:
         if checkpoint is not None and os.path.isfile(loss_state_path := os.path.join(checkpoint, LOSS_STATE_NAME)):
             loss_model = nn.Sequential(OrderedDict(self.loss)) if isinstance(self.loss, dict) else self.loss
-            loss_state_dict = torch.load(loss_state_path, map_location="cpu", weights_only=True)
+            loss_state_dict = load_file(loss_state_path)
             unexpected_keys = loss_model.load_state_dict(loss_state_dict, strict=False).unexpected_keys
             if unexpected_keys:
                 logger.warning(
