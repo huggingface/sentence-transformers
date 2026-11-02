@@ -894,19 +894,34 @@ class SentenceTransformer(BaseModel, FitMixin):
         else:
             all_embeddings = self._inference(inputs, device=device, **inference_kwargs)
 
-        if len(all_embeddings) and precision and precision != "float32":
+        if not len(all_embeddings) and (convert_to_numpy or convert_to_tensor):
+            embedding_dim = self._get_untruncated_embedding_dimension()
+            if embedding_dim is not None:
+                if isinstance(all_embeddings, Tensor):
+                    all_embeddings = all_embeddings.reshape(0, embedding_dim)
+                else:
+                    all_embeddings = torch.empty(
+                        (0, embedding_dim), device="cpu" if use_multi_process else self.device
+                    )
+                all_embeddings = truncate_embeddings(all_embeddings, truncate_dim)
+
+        if (
+            precision
+            and precision != "float32"
+            and (len(all_embeddings) or isinstance(all_embeddings, Tensor) and all_embeddings.ndim == 2)
+        ):
             all_embeddings = quantize_embeddings(all_embeddings, precision=precision)
 
         if convert_to_tensor:
-            if isinstance(all_embeddings, Tensor) or len(all_embeddings):
+            if isinstance(all_embeddings, (Tensor, np.ndarray)) or len(all_embeddings):
                 all_embeddings = torch.as_tensor(all_embeddings)
             else:
                 all_embeddings = torch.tensor([], device="cpu" if use_multi_process else self.device)
         elif convert_to_numpy:
-            if not len(all_embeddings):
-                all_embeddings = np.array([])
-            elif isinstance(all_embeddings, Tensor):
+            if isinstance(all_embeddings, Tensor):
                 all_embeddings = _tensor_to_numpy(all_embeddings)
+            elif not len(all_embeddings) and not isinstance(all_embeddings, np.ndarray):
+                all_embeddings = np.array([])
         else:
             all_embeddings = list(
                 torch.from_numpy(all_embeddings) if isinstance(all_embeddings, np.ndarray) else all_embeddings

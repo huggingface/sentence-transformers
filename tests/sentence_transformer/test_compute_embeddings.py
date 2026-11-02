@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import torch
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import semantic_search
 
 
 @pytest.mark.parametrize("padding_side", ["right", "left"])
@@ -99,3 +101,87 @@ def test_encode_routes_through_module_call(stsb_bert_tiny_model: SentenceTransfo
     finally:
         handle.remove()
     assert calls, "encode() should invoke the model via __call__, not call forward() directly"
+
+
+def test_encode_empty_query_batch(word_embeddings_model: SentenceTransformer) -> None:
+    model = word_embeddings_model.to("cpu")
+    corpus = model.encode(["hello", "world"])
+    queries = model.encode([])
+
+    assert semantic_search(queries, corpus) == []
+    assert queries.shape == (0, 300)
+
+
+@pytest.mark.parametrize("encode_method", ["encode", "encode_query", "encode_document"])
+@pytest.mark.parametrize("convert_to_tensor", [False, True])
+@pytest.mark.parametrize("device", [None, ["cpu"]])
+@pytest.mark.parametrize(
+    ("precision", "expected_dim", "expected_dtype"),
+    [
+        ("float32", 300, np.float32),
+        ("int8", 300, np.int8),
+        ("uint8", 300, np.uint8),
+        ("binary", 38, np.int8),
+        ("ubinary", 38, np.uint8),
+    ],
+)
+def test_empty_encode_output_format(
+    word_embeddings_model: SentenceTransformer,
+    encode_method: str,
+    convert_to_tensor: bool,
+    device: list[str] | None,
+    precision: str,
+    expected_dim: int,
+    expected_dtype: type[np.generic],
+) -> None:
+    model = word_embeddings_model.to("cpu")
+    embeddings = getattr(model, encode_method)(
+        [], convert_to_tensor=convert_to_tensor, device=device, precision=precision
+    )
+
+    assert embeddings.shape == (0, expected_dim)
+    if convert_to_tensor:
+        assert isinstance(embeddings, torch.Tensor)
+        assert embeddings.device.type == "cpu"
+        embeddings = embeddings.numpy()
+    else:
+        assert isinstance(embeddings, np.ndarray)
+    assert embeddings.dtype == expected_dtype
+
+
+@pytest.mark.parametrize("convert_to_tensor", [False, True])
+@pytest.mark.parametrize("precision", ["float32", "binary"])
+@pytest.mark.parametrize(
+    ("model_truncate_dim", "truncate_dim", "expected_dim", "expected_binary_dim"),
+    [(None, 10, 10, 2), (10, None, 10, 2), (5, 12, 12, 2), (12, 5, 5, 1), (None, 400, 300, 38), (None, 0, 0, 0)],
+)
+def test_empty_encode_truncate_dim(
+    word_embeddings_model: SentenceTransformer,
+    convert_to_tensor: bool,
+    precision: str,
+    model_truncate_dim: int | None,
+    truncate_dim: int | None,
+    expected_dim: int,
+    expected_binary_dim: int,
+) -> None:
+    model = word_embeddings_model.to("cpu")
+    with model.truncate_embeddings(model_truncate_dim):
+        embeddings = model.encode(
+            [], convert_to_tensor=convert_to_tensor, truncate_dim=truncate_dim, precision=precision
+        )
+
+    assert embeddings.shape == (0, expected_binary_dim if precision == "binary" else expected_dim)
+
+
+@pytest.mark.parametrize("device", [None, ["cpu"]])
+@pytest.mark.parametrize(
+    ("output_value", "convert_to_numpy"), [("sentence_embedding", False), ("token_embeddings", True), (None, True)]
+)
+def test_empty_encode_list_output(
+    word_embeddings_model: SentenceTransformer,
+    device: list[str] | None,
+    output_value: str | None,
+    convert_to_numpy: bool,
+) -> None:
+    model = word_embeddings_model.to("cpu")
+    assert model.encode([], output_value=output_value, convert_to_numpy=convert_to_numpy, device=device) == []
