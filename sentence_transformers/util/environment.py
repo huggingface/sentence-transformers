@@ -83,8 +83,9 @@ def get_device_name() -> str:
         if hthpu.is_available():
             return "hpu"
     if hasattr(torch, "neuron") and torch.neuron.is_available():
-        local_rank = int(os.environ["LOCAL_RANK"]) if "LOCAL_RANK" in os.environ else torch.neuron.current_device()
-        return f"neuron:{local_rank}"
+        if "LOCAL_RANK" in os.environ:
+            return f"neuron:{int(os.environ['LOCAL_RANK'])}"
+        return "neuron"
     return "cpu"
 
 

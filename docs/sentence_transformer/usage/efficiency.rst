@@ -205,7 +205,7 @@ If you're using a GPU, then you can use the following options to speed up your i
 AWS Trainium
 ~~~~~~~~~~~~
 
-`AWS Trainium <https://aws.amazon.com/ai/machine-learning/trainium/>`_ is a family of machine learning accelerators designed by AWS, available on Amazon EC2 Trn instances. Sentence Transformers runs on Trainium through TorchNeuron, the native PyTorch backend for Neuron devices. In PyTorch, Trainium devices use the device name ``"neuron"`` (e.g. ``"neuron:0"``).
+`AWS Trainium <https://aws.amazon.com/ai/machine-learning/trainium/>`_ is a family of machine learning accelerators designed by AWS, available on Amazon EC2 Trn instances. Sentence Transformers runs on Trainium through TorchNeuron, the native PyTorch backend for Neuron devices. In PyTorch, Trainium devices use the device name ``"neuron"``.
 
 To get started, install TorchNeuron by following the `AWS Neuron setup guide <https://awsdocs-neuron.readthedocs-hosted.com/en/latest/setup/pytorch/index.html>`_. Once installed, the ``"neuron"`` device is registered automatically when PyTorch is imported:
 
@@ -213,10 +213,10 @@ To get started, install TorchNeuron by following the `AWS Neuron setup guide <ht
 
    from sentence_transformers import SentenceTransformer
 
-   model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device="neuron:0")
+   model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device="neuron")
    embeddings = model.encode(["This is an example sentence", "Each sentence is converted"])
 
-You can also move a loaded model with ``model.to("neuron:0")`` or pass ``device="neuron:0"`` to ``encode``.
+You can also move a loaded model with ``model.to("neuron")`` or pass ``device="neuron"`` to ``encode``.
 Without an explicit device, Sentence Transformers selects Neuron when it is available and no higher-priority
 accelerator is available. The first call for a new input shape can take longer while Neuron compiles operations;
 warm up representative batches before measuring throughput.
