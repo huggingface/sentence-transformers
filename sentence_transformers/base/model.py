@@ -1847,8 +1847,6 @@ This pull request has been automatically generated to add {self.__class__.__name
 
         neuron_worker_cores = {}
         if any(str(device).split(":")[0] == "neuron" for device in target_devices):
-            import torch_neuronx  # noqa: F401 -- register the native device
-
             if torch.neuron.is_initialized():
                 raise ValueError(
                     "Neuron multiprocessing requires a fresh parent process with the model loaded on CPU "
@@ -1996,9 +1994,6 @@ This pull request has been automatically generated to add {self.__class__.__name
         while True:
             chunk_id, inputs, kwargs = input_queue.get()
             try:
-                if str(target_device).split(":")[0] == "neuron" and not hasattr(torch, "neuron"):
-                    import torch_neuronx  # noqa: F401 -- register the device in spawned workers
-
                 outputs = model._inference(inputs, device=target_device, **kwargs)
                 outputs = _move_tensors_to_cpu(outputs)
             except Exception as exc:
