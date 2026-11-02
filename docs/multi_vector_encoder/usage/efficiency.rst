@@ -33,7 +33,7 @@ Sentence Transformers supports 3 backends for computing multi-vector embeddings 
 PyTorch
 -------
 
-The PyTorch backend is the default backend for Multi-Vector Encoders. If you don't specify a device, it will use the strongest available option across the available accelerators (including "neuron") and "cpu". Its default usage looks like this:
+The PyTorch backend is the default backend for Multi-Vector Encoders. If you don't specify a device, it will use the first available option among "cuda", "mps", "npu", "xpu", "hpu", "neuron", and "cpu". Its default usage looks like this:
 
 .. code-block:: python
 
@@ -188,10 +188,11 @@ To get started, install TorchNeuron by following the `AWS Neuron setup guide <ht
 
 You can also move a loaded model with ``model.to("neuron")`` or pass ``device="neuron"`` to ``encode_query`` or ``encode_document``.
 Without an explicit device, Sentence Transformers selects Neuron when it is available and no higher-priority
-accelerator is available. The first call for a new input shape can take longer while Neuron compiles operations;
-warm up representative batches before measuring throughput.
+accelerator is available. The first call for a new input shape can take longer while Neuron compiles operations.
+Be sure to warm up representative batches before measuring throughput.
 
-For multi-device inference, pass the visible logical device indices to ``encode_document``:
+For multi-device inference, run the following example in a fresh Python process. Load the model on CPU so that
+the worker processes can acquire the Neuron cores, and pass the visible logical device indices to ``encode_document``:
 
 .. code-block:: python
 

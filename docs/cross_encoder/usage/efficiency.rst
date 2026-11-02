@@ -34,7 +34,7 @@ Sentence Transformers supports 3 backends for performing inference with Cross En
 PyTorch
 -------
 
-The PyTorch backend is the default backend for Cross Encoders. If you don't specify a device, it will use the strongest available option across the available accelerators (including "neuron") and "cpu". Its default usage looks like this:
+The PyTorch backend is the default backend for Cross Encoders. If you don't specify a device, it will use the first available option among "cuda", "mps", "npu", "xpu", "hpu", "neuron", and "cpu". Its default usage looks like this:
 
 .. code-block:: python
 
@@ -177,24 +177,25 @@ To get started, install TorchNeuron by following the `AWS Neuron setup guide <ht
 
    from sentence_transformers import CrossEncoder
 
-   model = CrossEncoder("tomaarsen/Qwen3-Reranker-0.6B-seq-cls", device="neuron")
+   model = CrossEncoder("Qwen/Qwen3-Reranker-0.6B", device="neuron")
    query = "Which planet is known as the Red Planet?"
    documents = ["Mars is known as the Red Planet.", "Venus is often called Earth's twin."]
    ranks = model.rank(query, documents)
 
 You can also move a loaded model with ``model.to("neuron")`` or pass ``device="neuron"`` to ``predict``.
 Without an explicit device, Sentence Transformers selects Neuron when it is available and no higher-priority
-accelerator is available. The first call for a new input shape can take longer while Neuron compiles operations;
-warm up representative batches before measuring throughput.
+accelerator is available. The first call for a new input shape can take longer while Neuron compiles operations.
+Be sure to warm up representative batches before measuring throughput.
 
-For multi-device inference, pass the visible logical device indices to ``predict``:
+For multi-device inference, run the following example in a fresh Python process. Load the model on CPU so that
+the worker processes can acquire the Neuron cores, and pass the visible logical device indices to ``predict``:
 
 .. code-block:: python
 
    from sentence_transformers import CrossEncoder
 
    if __name__ == "__main__":
-       model = CrossEncoder("tomaarsen/Qwen3-Reranker-0.6B-seq-cls", device="cpu")
+       model = CrossEncoder("Qwen/Qwen3-Reranker-0.6B", device="cpu")
        query = "Which planet is known as the Red Planet?"
        documents = ["Mars is known as the Red Planet.", "Venus is often called Earth's twin."]
        scores = model.predict([(query, document) for document in documents], device=["neuron:0", "neuron:1"])
