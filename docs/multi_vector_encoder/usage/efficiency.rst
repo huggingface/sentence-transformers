@@ -33,7 +33,7 @@ Sentence Transformers supports 3 backends for computing multi-vector embeddings 
 PyTorch
 -------
 
-The PyTorch backend is the default backend for Multi-Vector Encoders. If you don't specify a device, it will use the strongest available option across "cuda", "mps", and "cpu". Its default usage looks like this:
+The PyTorch backend is the default backend for Multi-Vector Encoders. If you don't specify a device, it will use the strongest available option across the available accelerators (including "neuron") and "cpu". Its default usage looks like this:
 
 .. code-block:: python
 
@@ -167,6 +167,44 @@ If you're using a GPU, then you can use the following options to speed up your i
    recompilation when your inputs vary in length. This matters more for Multi-Vector Encoders than for single-vector
    models, as documents are only truncated (not padded) to a shared length. Compilation is lazy, so warm the model up
    on representative inputs before benchmarking or serving.
+
+AWS Trainium
+~~~~~~~~~~~~
+
+`AWS Trainium <https://aws.amazon.com/ai/machine-learning/trainium/>`_ is a family of machine learning accelerators designed by AWS, available on Amazon EC2 Trn instances. Sentence Transformers runs on Trainium through TorchNeuron, the native PyTorch backend for Neuron devices. In PyTorch, Trainium devices use the device name ``"neuron"``.
+
+To get started, install TorchNeuron by following the `AWS Neuron setup guide <https://awsdocs-neuron.readthedocs-hosted.com/en/latest/setup/pytorch/index.html>`_. Once installed, the ``"neuron"`` device is registered automatically when PyTorch is imported:
+
+.. code-block:: python
+
+   from sentence_transformers import MultiVectorEncoder
+
+   model = MultiVectorEncoder("answerdotai/answerai-colbert-small-v1", device="neuron")
+   query_embeddings = model.encode_query(["Which planet is known as the Red Planet?"])
+   document_embeddings = model.encode_document(
+       ["Mars is known as the Red Planet.", "Venus is often called Earth's twin."]
+   )
+   scores = model.similarity(query_embeddings, document_embeddings)
+
+You can also move a loaded model with ``model.to("neuron")`` or pass ``device="neuron"`` to ``encode_query`` or ``encode_document``.
+Without an explicit device, Sentence Transformers selects Neuron when it is available and no higher-priority
+accelerator is available. The first call for a new input shape can take longer while Neuron compiles operations;
+warm up representative batches before measuring throughput.
+
+For multi-device inference, pass the visible logical device indices to ``encode_document``:
+
+.. code-block:: python
+
+   from sentence_transformers import MultiVectorEncoder
+
+   if __name__ == "__main__":
+       model = MultiVectorEncoder("answerdotai/answerai-colbert-small-v1", device="cpu")
+       documents = ["Mars is known as the Red Planet.", "Venus is often called Earth's twin."]
+       document_embeddings = model.encode_document(documents, device=["neuron:0", "neuron:1"])
+
+``start_multi_process_pool()`` also detects Neuron devices automatically, using one worker per logical device
+(respecting ``NEURON_RT_VISIBLE_CORES`` if set). Multi-device inference uses independent model replicas. Since
+Neuron cores are reserved per process, start the pool before the parent process uses Neuron.
 
 ONNX
 ----
