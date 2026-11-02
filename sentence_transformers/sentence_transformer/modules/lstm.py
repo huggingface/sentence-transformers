@@ -56,9 +56,11 @@ class LSTM(Module):
             token_embeddings, sentence_lengths.cpu(), batch_first=True, enforce_sorted=False
         )
         packed = self.encoder(packed)
-        unpack, _ = nn.utils.rnn.pad_packed_sequence(
-            packed[0], batch_first=True, total_length=token_embeddings.size(1)
-        )
+        unpack = nn.utils.rnn.pad_packed_sequence(
+            packed[0],
+            batch_first=True,
+            total_length=token_embeddings.size(1),
+        )[0]
         features.update({"token_embeddings": unpack})
         return features
 
