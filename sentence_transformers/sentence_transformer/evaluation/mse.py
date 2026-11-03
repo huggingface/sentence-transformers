@@ -6,6 +6,7 @@ import os
 from typing import TYPE_CHECKING
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.util.tensor import _convert_to_float_tensor
 
 if TYPE_CHECKING:
     import numpy as np
@@ -21,6 +22,8 @@ class MSEEvaluator(BaseEvaluator):
     and some target sentence embedding.
 
     The MSE is computed between ||teacher.encode(source_sentences) - student.encode(target_sentences)||.
+
+    Float16 and bfloat16 embeddings are promoted to float32 before computing the error; float64 precision is preserved.
 
     For multilingual knowledge distillation (https://huggingface.co/papers/2004.09813), source_sentences are in English
     and target_sentences are in a different language like German, Chinese, Spanish...
@@ -117,7 +120,9 @@ class MSEEvaluator(BaseEvaluator):
 
         target_embeddings = self.embed_inputs(model, self.target_sentences)
 
-        mse = ((self.source_embeddings - target_embeddings) ** 2).mean()
+        source_embeddings = _convert_to_float_tensor(self.source_embeddings)
+        target_embeddings = _convert_to_float_tensor(target_embeddings)
+        mse = ((source_embeddings - target_embeddings) ** 2).mean()
         mse = (mse * 100).item()
 
         logger.info(f"MSE evaluation (lower = better) on the {self.name} dataset{out_txt}:")
