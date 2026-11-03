@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -12,6 +13,38 @@ from tests.utils import CrashingModel
 # These tests fail if optimum.intel.openvino is imported, because openvinotoolkit/nncf
 # patches torch._C._nn.gelu in a way that breaks pickling. As a result, we may have issues
 # when running both backend tests and multi-process tests in the same session.
+
+
+@pytest.mark.parametrize("failed_worker", [0, 1])
+@pytest.mark.parametrize("failure_stage", ["create", "start"])
+@pytest.mark.parametrize("error_type", [RuntimeError, KeyboardInterrupt])
+def test_multi_process_pool_cleans_up_after_startup_failure(
+    monkeypatch, failed_worker, failure_stage, error_type
+) -> None:
+    model = SentenceTransformer(modules=[torch.nn.Identity()], device="cpu")
+    input_queue, output_queue = Mock(), Mock()
+    context = Mock()
+    context.Queue.side_effect = [input_queue, output_queue]
+    workers = [Mock(), Mock()]
+    error = error_type("startup failed")
+    if failure_stage == "create":
+        context.Process.side_effect = workers[:failed_worker] + [error]
+    else:
+        context.Process.side_effect = workers
+        workers[failed_worker].start.side_effect = error
+    monkeypatch.setattr(torch.multiprocessing, "get_context", lambda method: context)
+
+    with pytest.raises(error_type, match="startup failed"):
+        model.start_multi_process_pool(["cpu", "cpu"])
+
+    for worker in workers[:failed_worker]:
+        worker.terminate.assert_called_once_with()
+        worker.join.assert_called_once_with()
+        worker.close.assert_called_once_with()
+    for worker in workers[failed_worker:]:
+        worker.terminate.assert_not_called()
+    input_queue.close.assert_called_once_with()
+    output_queue.close.assert_called_once_with()
 
 
 @pytest.mark.parametrize("unpicklable", (False, True))
@@ -90,19 +123,29 @@ def test_encode_multi_process(
 
 
 @pytest.mark.slow
-def test_multi_process_encode_same_as_standard_encode(stsb_bert_tiny_model: SentenceTransformer):
-    model = stsb_bert_tiny_model
+def test_multi_process_encode_same_as_standard_encode(inference_device: str):
+    model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors", device="cpu")
     # Test that multi-process encoding gives the same result as standard encoding
     texts = ["First sentence.", "Second sentence.", "Third sentence."] * 5
 
     # Standard encode
-    embeddings_standard = model.encode(texts)
+    embeddings_standard = model.encode(texts, device="cpu")
 
-    # Multi-process encode with device=["cpu"] * 2
-    embeddings_multi = model.encode(texts, device=["cpu"] * 2)
+    if inference_device == "cpu":
+        devices = ["cpu"] * 2
+    else:
+        count = getattr(torch, inference_device).device_count()
+        # Spread up to four workers across the visible devices.
+        devices = [f"{inference_device}:{i}" for i in range(0, count, max(1, count // 4))][:4]
+    pool = model.start_multi_process_pool(devices)
+    try:
+        embeddings_multi = model.encode(texts, pool=pool, chunk_size=2, batch_size=2)
+    finally:
+        model.stop_multi_process_pool(pool)
 
     # Should produce the same embeddings
-    assert np.allclose(embeddings_standard, embeddings_multi, atol=1e-6)
+    atol = 1e-3 if inference_device == "neuron" else 1e-6
+    np.testing.assert_allclose(embeddings_standard, embeddings_multi, atol=atol, rtol=1e-5)
 
 
 @pytest.mark.slow

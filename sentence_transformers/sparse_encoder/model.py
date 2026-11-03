@@ -201,6 +201,11 @@ class SparseEncoder(BaseModel):
                     self.max_active_dims = module.k
                     break
 
+    def get_device_name(self) -> str:
+        """Select the default device, using CPU when Neuron or HPU is detected."""
+        device = super().get_device_name()
+        return "cpu" if device.startswith(("neuron", "hpu")) else device
+
     # Ordered overloads: the first match wins, so the all-defaults signatures come first and the
     # convert_to_tensor=False deviation pins its flag as a required keyword.
     @overload

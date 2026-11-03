@@ -17,6 +17,21 @@ from sentence_transformers.sparse_encoder.modules import Router, SparseAutoEncod
 from sentence_transformers.util.similarity import SimilarityFunction
 
 
+@pytest.mark.parametrize("inference_device", ["cpu", "cuda"], indirect=True)
+def test_to(splade_bert_tiny_model: SparseEncoder, inference_device: str) -> None:
+    model = splade_bert_tiny_model.cpu()
+    model.to(inference_device)
+    assert model.device.type == inference_device
+
+    embeddings = model.encode(["Hello world"])
+    assert embeddings.is_sparse
+    assert embeddings.shape == (1, model.get_embedding_dimension())
+    assert embeddings.device.type == inference_device
+
+    model.cpu()
+    assert model.device.type == "cpu"
+
+
 @pytest.mark.parametrize(
     ("texts", "top_k", "expected_shape"),
     [

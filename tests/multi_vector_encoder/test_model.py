@@ -764,13 +764,19 @@ def test_singular_input_unwraps(mve_bert_tiny_model: MultiVectorEncoder) -> None
     assert array.ndim == 2
 
 
-def test_encode_defaults_to_tensors_on_model_device(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+def test_encode_defaults_to_tensors_on_model_device(
+    mve_bert_tiny_model: MultiVectorEncoder, inference_device: str
+) -> None:
     """The default output feeds similarity without a host round trip, so it stays on the model's
     device as tensors. ``convert_to_numpy=True`` remains the opt-out for corpora that outgrow it."""
-    model = mve_bert_tiny_model
+    model = mve_bert_tiny_model.cpu()
+    model.to(inference_device)
+    assert model.device.type == inference_device
     embeddings = model.encode_document(["one doc", "another doc"])
     assert all(isinstance(emb, torch.Tensor) and emb.device == model.device for emb in embeddings)
     assert all(isinstance(emb, np.ndarray) for emb in model.encode_document(["a", "b"], convert_to_numpy=True))
+    model.cpu()
+    assert model.device.type == "cpu"
 
 
 def test_convert_to_tensor_is_rejected_by_name(mve_bert_tiny_model: MultiVectorEncoder) -> None:
