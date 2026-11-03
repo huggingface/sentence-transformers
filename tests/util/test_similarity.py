@@ -543,6 +543,37 @@ def test_pairwise_scores_are_float32_for_low_precision_inputs(fn, dtype) -> None
 
 
 @pytest.mark.parametrize(
+    "fn",
+    [
+        cos_sim,
+        dot_score,
+        euclidean_sim,
+        manhattan_sim,
+        pairwise_cos_sim,
+        pairwise_dot_score,
+        pairwise_euclidean_sim,
+        pairwise_manhattan_sim,
+    ],
+)
+@pytest.mark.parametrize("dtype", [np.int8, np.uint8])
+def test_quantized_integer_embeddings_match_float32(fn, dtype) -> None:
+    """int8/uint8 embeddings (quantize_embeddings, encode(precision=...)) score like their float32 values.
+
+    Without upcasting, integer products and differences overflow or wrap around, and normalization and
+    torch.cdist reject integer dtypes.
+    """
+    generator = np.random.default_rng(0)
+    info = np.iinfo(dtype)
+    a = generator.integers(info.min, info.max, size=(4, 32), endpoint=True).astype(dtype)
+    b = generator.integers(info.min, info.max, size=(4, 32), endpoint=True).astype(dtype)
+
+    scores = fn(a, b)
+
+    assert scores.dtype == torch.float32
+    torch.testing.assert_close(scores, fn(a.astype(np.float32), b.astype(np.float32)))
+
+
+@pytest.mark.parametrize(
     "dtype",
     [torch.float16, pytest.param(torch.bfloat16, marks=skip_bfloat16_cpu_crash)],
 )

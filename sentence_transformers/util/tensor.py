@@ -62,17 +62,19 @@ def _convert_to_float_tensor(a: list | np.ndarray | Tensor) -> Tensor:
     """
     Converts like :func:`_convert_to_tensor`, then upcasts sub-float32 floats (fp8, float16,
     bfloat16) to float32: matmul rounds its output to the input dtype, bucketing nearby similarity
-    scores into spurious ties. The multi-vector scoring path instead accumulates in float32 and
-    keeps :func:`_convert_to_tensor`.
+    scores into spurious ties. Integer inputs, e.g. int8/uint8 quantized embeddings, are upcast to
+    float32 as well: integer products and differences overflow or wrap around, and normalization and
+    ``torch.cdist`` reject integer dtypes. The multi-vector scoring path instead accumulates in
+    float32 and keeps :func:`_convert_to_tensor`.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The input array or tensor.
 
     Returns:
-        Tensor: The converted tensor, in float32 for any sub-float32 floating input.
+        Tensor: The converted tensor, in float32 for any integer or sub-float32 floating input.
     """
     a = _convert_to_tensor(a)
-    if torch.is_floating_point(a) and torch.finfo(a.dtype).bits < 32:
+    if not torch.is_floating_point(a) or torch.finfo(a.dtype).bits < 32:
         a = a.to(torch.float32)
     return a
 
@@ -101,8 +103,8 @@ def _convert_to_batch_tensor(a: list | np.ndarray | Tensor) -> Tensor:
         a (Union[list, np.ndarray, Tensor]): The input data to be converted.
 
     Returns:
-        Tensor: The converted tensor with a batch dimension, in float32 for any sub-float32
-        floating input (see :func:`_convert_to_float_tensor`).
+        Tensor: The converted tensor with a batch dimension, in float32 for any integer or
+        sub-float32 floating input (see :func:`_convert_to_float_tensor`).
     """
     a = _convert_to_float_tensor(a)
     if a.dim() == 1:
