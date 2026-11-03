@@ -449,6 +449,13 @@ def test_pooling_excludes_prompt_tokens_directly(padding_side: str, prompt_lengt
     assert torch.allclose(outputs["sentence_embedding"], expected, atol=1e-6)
 
 
+def _circular_pool(tokens: list[tuple[float, float]]) -> list[float]:
+    """Circular pooling of one (x, y) pair: the mean unit vector scaled by the mean radius."""
+    radii = [(x * x + y * y) ** 0.5 for x, y in tokens]
+    mean_radius = sum(radii) / len(tokens)
+    return [sum(token[i] / r for token, r in zip(tokens, radii)) / len(tokens) * mean_radius for i in (0, 1)]
+
+
 # Shared test fixtures: two sequences with different lengths and a mix of padding.
 # seq 0: 3 real tokens + 1 pad, seq 1: 4 real tokens, no pad
 _DIM = 2
@@ -473,6 +480,13 @@ _EXPECTED_BY_MODE: dict[str, torch.Tensor] = {
     # seq 1: (1*[10,20] + 2*[30,40] + 3*[50,60] + 4*[70,80]) / 10 = [500,600]/10
     "weightedmean": torch.tensor([[22.0 / 6.0, 28.0 / 6.0], [500.0 / 10.0, 600.0 / 10.0]]),
     "lasttoken": torch.tensor([[5.0, 6.0], [70.0, 80.0]]),
+    # circular: with _DIM = 2 each token is a single (x, y) pair
+    "circular": torch.tensor(
+        [
+            _circular_pool([(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]),
+            _circular_pool([(10.0, 20.0), (30.0, 40.0), (50.0, 60.0), (70.0, 80.0)]),
+        ]
+    ),
 }
 
 _EXPECTED_BY_MODE_WITH_PROMPT_EXCLUDED: dict[str, torch.Tensor] = {
@@ -483,6 +497,9 @@ _EXPECTED_BY_MODE_WITH_PROMPT_EXCLUDED: dict[str, torch.Tensor] = {
     / torch.tensor([[2.0, 2.0], [3.0, 3.0]]).sqrt(),
     "weightedmean": torch.tensor([[21.0 / 5.0, 26.0 / 5.0], [490.0 / 9.0, 580.0 / 9.0]]),
     "lasttoken": torch.tensor([[5.0, 6.0], [70.0, 80.0]]),
+    "circular": torch.tensor(
+        [_circular_pool([(3.0, 4.0), (5.0, 6.0)]), _circular_pool([(30.0, 40.0), (50.0, 60.0), (70.0, 80.0)])]
+    ),
 }
 
 
@@ -526,7 +543,7 @@ def test_pooling_exact_values(pooling_mode: str, flattened: bool) -> None:
     [
         ("cls", "mean"),
         ("mean", "mean_sqrt_len_tokens"),
-        ("cls", "max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken"),
+        ("cls", "max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken", "circular"),
     ],
 )
 @pytest.mark.parametrize(
@@ -689,7 +706,7 @@ def test_pooling_legacy_config_conversion_multi_mode() -> None:
 
 def test_pooling_config_round_trip(tmp_path: Path) -> None:
     """Verify config survives a save/load round-trip through JSON."""
-    for mode in ["cls", ("cls", "mean")]:
+    for mode in ["cls", ("cls", "mean"), ("mean", "circular")]:
         pooling = Pooling(embedding_dimension=8, pooling_mode=mode)
         pooling.save(str(tmp_path))
         loaded = Pooling.load(str(tmp_path))
@@ -699,7 +716,7 @@ def test_pooling_config_round_trip(tmp_path: Path) -> None:
 
 
 @requires_transformers_v5
-@pytest.mark.parametrize("pooling_mode", ["mean", "mean_sqrt_len_tokens", "weightedmean"])
+@pytest.mark.parametrize("pooling_mode", ["mean", "mean_sqrt_len_tokens", "weightedmean", "circular"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64])
 @pytest.mark.parametrize("prompt_length", [0, 5])
 @pytest.mark.parametrize("flattened", [False, True])
@@ -707,10 +724,12 @@ def test_pooling_long_sequences_preserve_precision(
     pooling_mode: str, dtype: torch.dtype, prompt_length: int, flattened: bool, device: str
 ) -> None:
     positions = torch.arange(1024, device=device)
-    values = torch.stack((100 + positions % 13, -100 - positions % 7, positions % 11 / 32), dim=-1)
+    values = torch.stack(
+        (100 + positions % 13, -100 - positions % 7, positions % 11 / 32, 1 + positions % 5 / 8), dim=-1
+    )
     token_embeddings = values.to(dtype).unsqueeze(0).repeat(2, 1, 1).requires_grad_(True)
     attention_mask = positions.unsqueeze(0) < torch.tensor([257, 1024], device=device).unsqueeze(1)
-    pooling = Pooling(embedding_dimension=3, pooling_mode=pooling_mode, include_prompt=False)
+    pooling = Pooling(embedding_dimension=4, pooling_mode=pooling_mode, include_prompt=False)
     features = (
         _build_flattened_features(token_embeddings, attention_mask)
         if flattened
@@ -731,11 +750,14 @@ def test_pooling_long_sequences_preserve_precision(
         }
     )["sentence_embedding"]
 
+    # The other modes sum values that float32 holds exactly, but the circular directions round, so
+    # a float32 sum over 1024 tokens carries a few ulps of error.
+    tolerance = {"rtol": 1e-5, "atol": 1e-5} if (pooling_mode, dtype) == ("circular", torch.float32) else {}
     assert output.dtype == dtype
-    torch.testing.assert_close(output, expected.to(dtype))
+    torch.testing.assert_close(output, expected.to(dtype), **tolerance)
     output.sum().backward()
     expected.sum().backward()
-    torch.testing.assert_close(token_embeddings.grad, reference_input.grad.to(dtype))
+    torch.testing.assert_close(token_embeddings.grad, reference_input.grad.to(dtype), **tolerance)
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64])
@@ -809,6 +831,129 @@ def test_pooling_mean_external_normalizer_dtype(
 def test_pooling_invalid_mode_raises() -> None:
     with pytest.raises(ValueError, match="Invalid pooling mode"):
         Pooling(embedding_dimension=8, pooling_mode="nonexistent")
+
+
+def test_pooling_circular_odd_dimension_raises() -> None:
+    """``circular`` reads the embedding as (x, y) pairs, so an odd width has no meaning."""
+    with pytest.raises(ValueError, match="even `embedding_dimension`"):
+        Pooling(embedding_dimension=7, pooling_mode="circular")
+
+    with pytest.raises(ValueError, match="even `embedding_dimension`"):
+        Pooling(embedding_dimension=7, pooling_mode=("mean", "circular"))
+
+    # An even dimension, and any other mode on an odd one, stay fine.
+    Pooling(embedding_dimension=8, pooling_mode="circular")
+    Pooling(embedding_dimension=7, pooling_mode="mean")
+
+
+@pytest.mark.parametrize(
+    "flattened",
+    [False, pytest.param(True, marks=requires_transformers_v5)],
+    ids=["padded", "flattened"],
+)
+def test_pooling_circular_weights_directions_equally(flattened: bool) -> None:
+    """Unlike ``mean``, every token adds its direction with equal weight, however long its pair is.
+
+    Pair 0 holds (3, 4), (0, -2) and (-1, 0), with radii 5, 2 and 1. ``mean`` follows the long
+    (3, 4) to (2/3, 2/3). The mean direction ((0.6, 0.8) + (0, -1) + (-1, 0)) / 3 = (-2/15, -1/15)
+    times the mean radius 8/3 gives (-16/45, -8/45) instead. Pair 1 holds (0, 1), (2, 0) and
+    (0, -3): ``mean`` gives (2/3, -2/3), the mean direction (1/3, 0) times the mean radius 2 gives (2/3, 0).
+    """
+    token_embeddings = torch.tensor(
+        [[[3.0, 4.0, 0.0, 1.0], [0.0, -2.0, 2.0, 0.0], [-1.0, 0.0, 0.0, -3.0], [9.0, 9.0, 9.0, 9.0]]]
+    )
+    attention_mask = torch.tensor([[1, 1, 1, 0]], dtype=torch.int64)
+    pooling = Pooling(embedding_dimension=4, pooling_mode=("mean", "circular"))
+    if flattened:
+        features = _build_flattened_features(token_embeddings, attention_mask)
+    else:
+        features = {"token_embeddings": token_embeddings, "attention_mask": attention_mask}
+
+    output = pooling(features)["sentence_embedding"]
+
+    expected_mean = [2 / 3, 2 / 3, 2 / 3, -2 / 3]
+    expected_circular = [-16 / 45, -8 / 45, 2 / 3, 0.0]
+    torch.testing.assert_close(output, torch.tensor([expected_mean + expected_circular]))
+
+
+def test_pooling_circular_matches_mean_for_equal_radii() -> None:
+    """When every token has the same radius for a pair, the result is ``mean`` for that pair,
+    including the cancellation of the opposing (2, 0) and (-2, 0) in pair 0."""
+    token_embeddings = torch.tensor([[[2.0, 0.0, 0.3, 0.4], [-2.0, 0.0, 0.5, 0.0]]])
+    attention_mask = torch.ones(1, 2, dtype=torch.int64)
+    pooling = Pooling(embedding_dimension=4, pooling_mode=("mean", "circular"))
+
+    output = pooling({"token_embeddings": token_embeddings, "attention_mask": attention_mask})["sentence_embedding"]
+
+    torch.testing.assert_close(output, torch.tensor([[0.0, 0.0, 0.4, 0.2, 0.0, 0.0, 0.4, 0.2]]))
+
+
+@pytest.mark.parametrize("padding_side", ["right", "left"])
+def test_pooling_circular_ignores_padding(padding_side: str) -> None:
+    """Pooling each sequence on its own and inside a padded batch must agree. The pad positions
+    hold a large non-zero value, so padding that leaked into either sum or the token count would
+    change the result."""
+    dim = 6
+    pooling = Pooling(embedding_dimension=dim, pooling_mode="circular")
+    torch.manual_seed(0)
+
+    lengths = [1, 3, 5]
+    sequences = [torch.randn(length, dim) for length in lengths]
+
+    unpadded = torch.stack(
+        [
+            pooling(
+                {
+                    "token_embeddings": sequence.unsqueeze(0),
+                    "attention_mask": torch.ones(1, len(sequence), dtype=torch.int64),
+                }
+            )["sentence_embedding"].squeeze(0)
+            for sequence in sequences
+        ]
+    )
+
+    max_length = max(lengths)
+    token_embeddings = torch.full((len(sequences), max_length, dim), 123.0)
+    attention_mask = torch.zeros(len(sequences), max_length, dtype=torch.int64)
+    for i, sequence in enumerate(sequences):
+        if padding_side == "right":
+            token_embeddings[i, : len(sequence)] = sequence
+            attention_mask[i, : len(sequence)] = 1
+        else:
+            token_embeddings[i, max_length - len(sequence) :] = sequence
+            attention_mask[i, max_length - len(sequence) :] = 1
+
+    padded = pooling({"token_embeddings": token_embeddings, "attention_mask": attention_mask})["sentence_embedding"]
+
+    assert padded.shape == unpadded.shape
+    assert torch.allclose(padded, unpadded, atol=1e-6)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64])
+@pytest.mark.parametrize("flattened", [False, True])
+@pytest.mark.parametrize("exclude_all_tokens", [False, True])
+def test_pooling_circular_low_precision_edge_cases(
+    dtype: torch.dtype, flattened: bool, exclude_all_tokens: bool, device: str
+) -> None:
+    """An exact (0, 0) pair and a sequence with no tokens left to pool both divide by a clamped
+    zero. The 1e-9 clamps round to zero in float16, so both would give 0 / 0 without float32 math."""
+    token_embeddings = torch.tensor([[[0.0, 0.0, 3.0, 4.0], [0.0, 0.0, 6.0, 8.0]]], dtype=dtype, device=device)
+    features = {
+        "token_embeddings": token_embeddings,
+        "attention_mask": torch.ones(1, 2, dtype=torch.int64, device=device),
+    }
+    if flattened:
+        features["cu_seq_lens_q"] = torch.tensor([0, 2], dtype=torch.int32, device=device)
+    if exclude_all_tokens:
+        features["prompt_length"] = 2
+    pooling = Pooling(embedding_dimension=4, pooling_mode="circular", include_prompt=False)
+
+    output = pooling(features)["sentence_embedding"]
+
+    # Pair 1 points along (0.6, 0.8) at radii 5 and 10, so it pools to (0.6, 0.8) * 7.5.
+    expected = [0.0, 0.0, 0.0, 0.0] if exclude_all_tokens else [0.0, 0.0, 4.5, 6.0]
+    assert output.dtype == dtype
+    torch.testing.assert_close(output, torch.tensor([expected], dtype=dtype, device=device))
 
 
 @requires_transformers_v5

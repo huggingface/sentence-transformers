@@ -10,7 +10,7 @@ from torch import Tensor
 from sentence_transformers.base.modules.module import Module
 from sentence_transformers.util.decorators import deprecated_kwargs
 
-PoolingMode = Literal["cls", "max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken"]
+PoolingMode = Literal["cls", "max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken", "circular"]
 
 # Ordered to match the concatenation order in forward() for backward compatibility.
 _LEGACY_POOLING_MODE_KWARGS: dict[str, str] = {
@@ -78,15 +78,24 @@ class Pooling(Module):
         pooling_mode: The pooling strategy to use. Can be a single mode name (``str``) or
             a tuple/list of mode names to concatenate multiple pooled representations.
             Valid modes: ``"cls"``, ``"max"``, ``"mean"``, ``"mean_sqrt_len_tokens"``,
-            ``"weightedmean"``, ``"lasttoken"``. Defaults to ``"mean"``.
+            ``"weightedmean"``, ``"lasttoken"``, ``"circular"``. Defaults to ``"mean"``.
             For ``"weightedmean"``, position weights start at the first non-padding token.
             Excluding a prompt retains the remaining tokens' original position weights.
+
+            ``"circular"`` reads each token embedding as ``embedding_dimension / 2`` consecutive
+            ``(x, y)`` pairs and splits every pair into a unit direction and a radius. Each pooled
+            pair is the mean of its directions scaled by the mean of its radii, so every token
+            contributes its direction with equal weight regardless of its magnitude. The
+            directions are still averaged as vectors, so opposing directions cancel as they do in
+            ``"mean"``, and when all tokens have the same radius for a pair the result equals
+            ``"mean"`` for that pair. It requires an even ``embedding_dimension`` and is only
+            meaningful for models whose hidden states are organized as such pairs.
         include_prompt: If ``False``, prompt tokens are excluded from pooling. Useful for
             models like `INSTRUCTOR <https://huggingface.co/hkunlp/instructor-large>`_ that
             should not include the prompt in the pooled representation. Defaults to ``True``.
     """
 
-    POOLING_MODES = ("cls", "max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken")
+    POOLING_MODES = ("cls", "max", "mean", "mean_sqrt_len_tokens", "weightedmean", "lasttoken", "circular")
 
     config_keys = ["embedding_dimension", "pooling_mode", "include_prompt"]
     config_key_renames = {"word_embedding_dimension": "embedding_dimension"}
@@ -108,6 +117,12 @@ class Pooling(Module):
         for mode in modes:
             if mode not in self.POOLING_MODES:
                 raise ValueError(f"Invalid pooling mode: {mode!r}. Valid pooling modes are: {self.POOLING_MODES}.")
+
+        if "circular" in modes and embedding_dimension % 2 != 0:
+            raise ValueError(
+                f"The 'circular' pooling mode reads the embedding as (x, y) pairs, so it requires an even "
+                f"`embedding_dimension`; got {embedding_dimension}."
+            )
 
         self.embedding_dimension = embedding_dimension
         self.pooling_mode = pooling_mode
@@ -252,6 +267,19 @@ class Pooling(Module):
                 mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
                 output_vectors.append(torch.gather(token_embeddings * mask, 1, gather_indices).squeeze(dim=1))
 
+            elif mode == "circular":
+                # Computed in the accumulation dtype: in float16 the 1e-9 clamps underflow to zero,
+                # so an all-padding row or an exact (0, 0) pair would divide 0 by 0.
+                pairs = token_embeddings.to(accumulation_dtype).unflatten(-1, (-1, 2))  # (bs, seq_len, pairs, 2)
+                mask = attention_mask.to(accumulation_dtype).unsqueeze(-1).unsqueeze(-1)  # (bs, seq_len, 1, 1)
+                radii = pairs.norm(dim=-1, keepdim=True)  # (bs, seq_len, pairs, 1)
+                directions = pairs / torch.clamp(radii, min=1e-9)
+                denominator = torch.clamp(mask.sum(dim=1), min=1e-9)  # (bs, 1, 1)
+                direction_mean = (directions * mask).sum(dim=1) / denominator  # (bs, pairs, 2)
+                radius_mean = (radii * mask).sum(dim=1) / denominator  # (bs, pairs, 1)
+                pooled = (direction_mean * radius_mean).flatten(start_dim=1)
+                output_vectors.append(pooled.to(token_embeddings.dtype))
+
         return output_vectors
 
     def _forward_flattened(
@@ -334,6 +362,17 @@ class Pooling(Module):
                 weight_sum = torch.zeros(num_seqs, 1, device=device, dtype=accumulation_dtype)
                 weight_sum = weight_sum.index_add(0, segment_ids, weights)
                 output_vectors.append((weighted_sum / torch.clamp(weight_sum, min=1e-9)).to(embeddings.dtype))
+
+            elif mode == "circular":
+                pairs = embeddings.to(accumulation_dtype).unflatten(-1, (-1, 2))  # (total_tokens, pairs, 2)
+                radii = pairs.norm(dim=-1, keepdim=True)  # (total_tokens, pairs, 1)
+                directions = pairs / torch.clamp(radii, min=1e-9)
+                # Accumulate the two direction components and the radius in one scatter.
+                sums = torch.zeros(num_seqs, pairs.shape[1], 3, device=device, dtype=accumulation_dtype)
+                sums = sums.index_add(0, segment_ids, torch.cat([directions, radii], dim=-1))
+                means = sums / torch.clamp(effective_lengths.view(-1, 1, 1), min=1e-9).to(accumulation_dtype)
+                pooled = (means[..., :2] * means[..., 2:]).flatten(start_dim=1)
+                output_vectors.append(pooled.to(embeddings.dtype))
 
         return output_vectors
 
