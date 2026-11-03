@@ -62,7 +62,7 @@ Tiebreakers when the request is ambiguous: "embedding model" / "vector search" /
 
 ### Variant scripts (open when the task matches)
 - **[SentenceTransformer]** `scripts/train_sentence_transformer_<matryoshka|multi_dataset|with_lora|distillation|make_multilingual|static_embedding>_example.py`.
-- **[CrossEncoder]** `scripts/train_cross_encoder_<distillation|listwise>_example.py`.
+- **[CrossEncoder]** `scripts/train_cross_encoder_<distillation|listwise|with_lora>_example.py`.
 - **[SparseEncoder]** `scripts/train_sparse_encoder_distillation_example.py`.
 - Hard-negative mining CLI: `scripts/mine_hard_negatives.py`.
 

@@ -29,8 +29,10 @@ Architecture variants:
 - Bi-encoder (this script): `TaskType.FEATURE_EXTRACTION`.
 - Sparse-encoder: same pattern. `SparseEncoder` supports `add_adapter`. See
   `examples/sparse_encoder/training/peft/train_splade_gooaq_peft.py`.
-- Cross-encoder: use `TaskType.SEQ_CLS` for `num_labels >= 1`. Community
-  examples are sparse. Smoke-test with `max_steps=1` first.
+- Cross-encoder: use `TaskType.SEQ_CLS` over a pretrained reranker (the
+  classification head stays frozen; starting from a random head stalls it). See
+  `scripts/train_cross_encoder_with_lora_example.py` and
+  `examples/cross_encoder/training/peft/README.md`.
 
 Key hyperparameters:
 - `r` (rank): 8-128. Bigger = more capacity + memory. 64 is a strong default.
