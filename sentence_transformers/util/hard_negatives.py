@@ -416,6 +416,8 @@ def mine_hard_negatives(
     separate_corpus = corpus is not None
     if not separate_corpus:
         corpus = positives
+    # Normalize the corpus to a plain list: e.g. a `datasets` v5 Column does not support `+` with a list
+    corpus = list(corpus)
 
     # Deduplicate the corpus
     # make sure all the positives are also in the corpus and de-duplicate it.

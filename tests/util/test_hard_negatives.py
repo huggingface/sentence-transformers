@@ -209,6 +209,27 @@ def test_separate_corpus(
     assert any(neg in passages[5:] for neg in negatives), "No negatives found in the separate corpus."
 
 
+def test_separate_corpus_dataset_column(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, passages: list[str]
+) -> None:
+    """Test a separate corpus passed as a datasets Column, as `dataset["column"]` returns in datasets v5."""
+    model = static_retrieval_mrl_en_v1_model
+    corpus_dataset = Dataset.from_dict({"passages": passages})
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        corpus=corpus_dataset["passages"],
+        verbose=False,
+    )
+
+    assert "query" in result.column_names
+    assert "passage" in result.column_names
+    assert "negative" in result.column_names
+
+    negatives = result["negative"]
+    assert any(neg in passages for neg in negatives), "No negatives found in the separate corpus."
+
+
 def test_cross_encoder(
     dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, reranker_bert_tiny_model: CrossEncoder
 ) -> None:
