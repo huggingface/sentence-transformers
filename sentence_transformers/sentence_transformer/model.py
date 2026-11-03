@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import logging
 import math
+import os
 import warnings
 from collections import OrderedDict
 from collections.abc import Iterator, Sequence
@@ -174,6 +175,10 @@ class SentenceTransformer(BaseModel, FitMixin):
         similarity_fn_name: Literal["cosine", "dot", "euclidean", "manhattan"] | SimilarityFunction | None = None,
         truncate_dim: int | None = None,
     ) -> None:
+        # Accept pathlib.Path like the other model classes; the INSTRUCTOR check below needs a string.
+        if model_name_or_path is not None:
+            model_name_or_path = os.fspath(model_name_or_path)
+
         # Set before super().__init__() so _parse_model_config can check these
         self.similarity_fn_name = similarity_fn_name
         self.truncate_dim = truncate_dim
