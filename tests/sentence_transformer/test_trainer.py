@@ -1463,3 +1463,56 @@ def test_fit_with_float_evaluator_saves_best_model_and_calls_callback(
 
     assert callback_epochs == [1.0]
     assert (output_path / "modules.json").exists()
+
+
+@pytest.mark.parametrize("dict_scores", [False, True], ids=["float", "dict"])
+def test_old_fit_with_evaluator_saves_best_model_and_calls_callback(
+    stsb_bert_tiny_model, tmp_path, dict_scores: bool
+) -> None:
+    class ScoreEvaluator(BaseEvaluator):
+        # Scores each evaluation by its step: either a single float, or a dictionary with a `primary_metric`
+        def __init__(self) -> None:
+            super().__init__()
+            self.primary_metric = "score" if dict_scores else None
+
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1):
+            return {"score": float(steps), "other": 0.0} if dict_scores else float(steps)
+
+    model = stsb_bert_tiny_model
+    examples = [InputExample(texts=[f"This is sentence {idx}", f"This is another sentence {idx}"]) for idx in range(8)]
+    output_path = tmp_path / "output"
+    callback_scores = []
+    model.old_fit(
+        train_objectives=[(DataLoader(examples, batch_size=4), MultipleNegativesRankingLoss(model))],
+        evaluator=ScoreEvaluator(),
+        epochs=1,
+        evaluation_steps=1,
+        warmup_steps=0,
+        output_path=str(output_path),
+        callback=lambda score, epoch, steps: callback_scores.append(score),
+        show_progress_bar=False,
+    )
+
+    # Evaluated after each of the 2 steps and at the end of the epoch, and always called with the primary score
+    assert callback_scores == [1.0, 2.0, -1.0]
+    assert model.best_score == 2.0
+    assert (output_path / "modules.json").exists()
+
+
+def test_old_fit_with_embedding_similarity_evaluator_saves_best_model(stsb_bert_tiny_model, tmp_path) -> None:
+    model = stsb_bert_tiny_model
+    sentences1 = [f"This is sentence {idx}" for idx in range(8)]
+    sentences2 = [f"This is another sentence {idx}" for idx in range(8)]
+    evaluator = EmbeddingSimilarityEvaluator(sentences1, sentences2, [idx / 8 for idx in range(8)], name="dev")
+    examples = [InputExample(texts=[sentence1, sentence2]) for sentence1, sentence2 in zip(sentences1, sentences2)]
+    output_path = tmp_path / "output"
+    model.old_fit(
+        train_objectives=[(DataLoader(examples, batch_size=4), MultipleNegativesRankingLoss(model))],
+        evaluator=evaluator,
+        epochs=1,
+        warmup_steps=0,
+        output_path=str(output_path),
+        show_progress_bar=False,
+    )
+
+    assert (output_path / "modules.json").exists()
