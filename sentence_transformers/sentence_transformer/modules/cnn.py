@@ -51,6 +51,8 @@ class CNN(Module):
 
     def forward(self, features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         token_embeddings = features["token_embeddings"]
+        if "attention_mask" in features:
+            token_embeddings = token_embeddings.masked_fill(~features["attention_mask"].bool().unsqueeze(-1), 0)
 
         token_embeddings = token_embeddings.transpose(1, -1)
         vectors = [conv(token_embeddings) for conv in self.convs]
