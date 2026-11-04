@@ -21,6 +21,16 @@ if TYPE_CHECKING:
     from sentence_transformers.base.model import BaseModel
 
 
+def _config_diff(reference: dict[str, Any], config: dict[str, Any], index: int) -> str:
+    differences = []
+    for key in sorted(reference.keys() | config.keys()):
+        if key not in reference or key not in config or reference[key] != config[key]:
+            expected = repr(reference[key]) if key in reference else "<missing>"
+            actual = repr(config[key]) if key in config else "<missing>"
+            differences.append(f"  {key}: model 0={expected}, model {index}={actual}")
+    return "\n".join(differences)
+
+
 def _validate_models(models: Sequence[BaseModel]) -> None:
     """Check input compatibility before merging, using the first model as reference.
 
@@ -55,29 +65,40 @@ def _validate_models(models: Sequence[BaseModel]) -> None:
             if getattr(module, "is_quantized", False):
                 raise ValueError("Merging quantized models is not supported. Load unquantized models first.")
             if module.extra_repr() != other.extra_repr():
-                raise ValueError(f"Module {name!r} has a different configuration in model {index}.")
+                raise ValueError(
+                    f"Module {name!r} has a different configuration in model {index}:\n"
+                    f"  model 0: {other.extra_repr()}\n"
+                    f"  model {index}: {module.extra_repr()}"
+                )
 
             if isinstance(module, Module):
-                configs = [item.get_config_dict() for item in (module, other)]
+                reference_config = other.get_config_dict()
+                model_config = module.get_config_dict()
                 if isinstance(module, SpladePooling):
-                    for config in configs:
+                    for config in (reference_config, model_config):
                         config.pop("embedding_dimension", None)
-                if configs[0] != configs[1]:
-                    raise ValueError(f"Module {name!r} has a different configuration in model {index}.")
+                if model_config != reference_config:
+                    raise ValueError(
+                        f"Module {name!r} has a different configuration in model {index}:\n"
+                        + _config_diff(reference_config, model_config, index)
+                    )
 
             if isinstance(module, PreTrainedModel):
                 # Concrete module types were checked above. Saved provenance and dtype need not match.
                 ignored = {"architectures", "transformers_version", "torch_dtype", "dtype"}
-                configs = [
+                reference_config, model_config = [
                     {
                         key: value
                         for key, value in item.config.to_dict().items()
                         if key not in ignored and not key.startswith("_")
                     }
-                    for item in (module, other)
+                    for item in (other, module)
                 ]
-                if configs[0] != configs[1]:
-                    raise ValueError(f"Transformer {name!r} has a different configuration in model {index}.")
+                if model_config != reference_config:
+                    raise ValueError(
+                        f"Transformer {name!r} has a different configuration in model {index}:\n"
+                        + _config_diff(reference_config, model_config, index)
+                    )
 
             tokenizer = getattr(module, "tokenizer", None)
             other_tokenizer = getattr(other, "tokenizer", None)
