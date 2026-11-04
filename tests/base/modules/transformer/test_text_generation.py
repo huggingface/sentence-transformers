@@ -27,7 +27,6 @@ from sentence_transformers.base.modules import Transformer
 from sentence_transformers.util.tensor import batch_to_device
 
 from .conftest import (
-    EXPECT_AUDIO_FAILURE,
     EXPECT_FORWARD_FAIL,
     EXPECT_IMAGE_VIDEO_FAILURE,
     EXPECT_MULTIMODAL_FAILURE,
@@ -42,11 +41,6 @@ from .conftest import (
     load_transformer,
     modify_processor_for_pairs,
 )
-
-EXPECT_FORWARD_FAIL = EXPECT_FORWARD_FAIL.copy() | {
-    "marian": None,  # Checkpoint input embedding size is 99, but tokenizer vocab size is the full size
-    "whisper": None,  # Checkpoint uses embeddings of size 50257, but tokenizer goes above 50350+
-}
 
 EXPECT_FORWARD_FAIL_PAIRS = {}
 
@@ -136,8 +130,6 @@ class TestTextGenerationArchitectures:
                     context = pytest.raises(Exception)
                 elif arch in EXPECT_IMAGE_VIDEO_FAILURE and "image" in modality_desc and "video" in modality_desc:
                     context = pytest.raises((ValueError, TypeError, AttributeError))
-                elif arch in EXPECT_AUDIO_FAILURE and "audio" in modality_desc:
-                    context = pytest.raises((ValueError, TypeError, AttributeError))
                 elif (
                     model.module_output_name == "sentence_embedding"
                     and "+" in modality_desc
@@ -199,8 +191,6 @@ class TestTextGenerationArchitectures:
                 expected_fail = EXPECT_FORWARD_FAIL_PAIRS.get(arch, False)
                 if expected_fail is None or (expected_fail and pair_desc in expected_fail):
                     context = pytest.raises(Exception)
-                elif arch in EXPECT_AUDIO_FAILURE and "audio" in pair_desc:
-                    context = pytest.raises((ValueError, TypeError, AttributeError))
 
                 with context:
                     features = model.preprocess(pairs)

@@ -121,11 +121,8 @@ REQUIRES_CUDA = [
 # may only be faulty for certain modalities (e.g. image), so we can still test other modalities (e.g. text). The
 # value is then the modality description that is expected to fail.
 EXPECT_FORWARD_FAIL = {
-    "llava": None,  # Checkpoint input embedding size is 99, but tokenizer vocab size is the full size
     "markuplm": None,  # Checkpoint xpath embedding size is 20, but xpath_tags_seq is much higher
-    "mistral3": None,  # Checkpoint input embedding size is 32k, but tokenizer vocab size is 125k+
     "roc_bert": None,  # Checkpoint shape_embed size is 99, but input_shape_ids is up to 20k+
-    "qwen3_next": None,  # Checkpoint config has 2 num_hidden_layers, both linear_attention, but the Qwen3NextDynamicCache requires at least one full_attention layer
     "tapas": None,  # Doesn't accept standard truncation strategies, needs TapasTruncationStrategy, low prio
     "align": [  # Checkpoint image_processor size/crop_size set to 600, doesn't align with num layers, etc., low prio
         "image (url)",
@@ -134,21 +131,10 @@ EXPECT_FORWARD_FAIL = {
         "image (pil)",
         "image (path)",
     ],
-    "clap": [  # Checkpoint has num_mel_bins mismatch, and perhaps audio is too long
-        "audio (url)",
-        "audio (array)",
-        # "audio (tensor)",
-        "audio (dict)",
-        "audio (path)",
-        "audio (audio_decoder)",
-    ],
     "idefics": None,  # Checkpoint has "image_size": 224, which I can't override as image_size is normally a dict
     "idefics2": [  # Idefics2 doesn't accept image array/tensors
         "image (array)",
         "image (tensor)",
-    ],
-    "paligemma": [  # Paligemma doesn't accept URL images if there's also a text
-        "image+text (url, text)"
     ],
     "voxtral_realtime": None,  # RuntimeError: The size of tensor a (39) must match the size of tensor b (51) at non-singleton dimension 1
 }
@@ -176,9 +162,6 @@ EXPECT_IMAGE_VIDEO_FAILURE = [
 ]
 EXPECT_IMAGE_ONLY_FAILURE = [
     "llama4",  # Text is required at all times  # TODO: Or should I update Transformer? But this supports 'message' with only image I think?
-]
-EXPECT_AUDIO_FAILURE = [
-    "gemma4",  # tiny checkpoint ships no audio tower weights, despite architecture supporting audio
 ]
 
 
@@ -660,6 +643,9 @@ def get_arch_kwargs(arch: str, transformer_task: str) -> tuple[dict, dict, dict,
     processor_kwargs = {}
     processing_kwargs = {}
 
+    if transformer_task == "sequence-classification":
+        config_kwargs.update(num_labels=1, id2label={0: "LABEL_0"}, label2id={"LABEL_0": 0})
+
     # Resolve some minor issues in the checkpoints that prevent forward testing
     if arch == "blip-2":
         config_kwargs["image_token_id"] = 4
@@ -670,14 +656,8 @@ def get_arch_kwargs(arch: str, transformer_task: str) -> tuple[dict, dict, dict,
         config_kwargs["latent_query_num"] = 64
     if arch == "vilt":
         processor_kwargs["size_divisor"] = 4
-    if arch == "whisper":
-        config_kwargs["max_source_positions"] = 1500
     if arch == "idefics":
         processor_kwargs["additional_special_tokens"] = []
-    if arch == "marian":
-        config_kwargs["pad_token_id"] = 1
-    if arch == "qwen2_5_vl":
-        config_kwargs["hidden_size"] = 16
     if arch == "reformer" and transformer_task == "text-generation":
         config_kwargs["is_decoder"] = True
     if arch == "internvl":

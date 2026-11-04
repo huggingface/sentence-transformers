@@ -31,7 +31,6 @@ from sentence_transformers.base.modules import Transformer
 from sentence_transformers.util.tensor import batch_to_device
 
 from .conftest import (
-    EXPECT_AUDIO_FAILURE,
     EXPECT_FORWARD_FAIL,
     EXPECT_IMAGE_ONLY_FAILURE,
     EXPECT_IMAGE_VIDEO_FAILURE,
@@ -192,8 +191,6 @@ class TestTransformerArchitectures:
                 elif arch in EXPECT_IMAGE_VIDEO_FAILURE and "image" in modality_desc and "video" in modality_desc:
                     context = pytest.raises((ValueError, TypeError, AttributeError))
                 elif arch in EXPECT_IMAGE_ONLY_FAILURE and "image" in modality_desc and "+" not in modality_desc:
-                    context = pytest.raises((ValueError, TypeError, AttributeError))
-                elif arch in EXPECT_AUDIO_FAILURE and "audio" in modality_desc:
                     context = pytest.raises((ValueError, TypeError, AttributeError))
                 elif (
                     model.module_output_name == "sentence_embedding"
