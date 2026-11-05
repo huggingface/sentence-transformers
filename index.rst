@@ -409,6 +409,7 @@ If you use the code for `data augmentation <https://github.com/huggingface/sente
    docs/sentence_transformer/usage/usage
    docs/sentence_transformer/pretrained_models
    docs/sentence_transformer/usage/efficiency
+   docs/sentence_transformer/usage/deployment
    docs/sentence_transformer/training_overview
    docs/sentence_transformer/dataset_overview
    docs/sentence_transformer/loss_overview
