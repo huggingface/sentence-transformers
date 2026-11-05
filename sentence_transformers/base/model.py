@@ -281,10 +281,13 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         if self._placement_is_delegated:
             self._place_modules()
         else:
-            first_param = next(self[0].parameters(), None)
-            if first_param is not None:
-                for module in list(self.children())[1:]:
-                    module.to(first_param.dtype)
+            sequences = [nn.Sequential(*self.children())]
+            for module in self.modules():
+                if isinstance(module, Router):
+                    sequences.extend(module.sub_modules.values())
+            for sequence in sequences:
+                if len(sequence) > 1 and (first_param := next(sequence[0].parameters(), None)) is not None:
+                    sequence[1:].to(first_param.dtype)
             self.to(device)
         self.is_hpu_graph_enabled = False
 
