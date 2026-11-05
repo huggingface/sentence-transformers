@@ -1622,22 +1622,41 @@ This pull request has been automatically generated to add {self.__class__.__name
             os.makedirs(output_path, exist_ok=True)
         return evaluator(self, output_path)
 
+    def activation_checkpointing_enable(
+        self,
+        activation_checkpointing_kwargs: dict[str, Any] | None = None,
+        **kwargs,
+    ) -> None:
+        """Enable activation checkpointing for the model.
+
+        Args:
+            activation_checkpointing_kwargs (dict[str, Any], optional): Keyword arguments passed to
+                ``torch.utils.checkpoint.checkpoint``.
+            **kwargs: Additional options passed to the underlying model's checkpointing method.
+        """
+        for module in self.modules():
+            if module is self:
+                continue
+            enable = getattr(module, "activation_checkpointing_enable", None)
+            if enable is None:
+                enable = getattr(module, "gradient_checkpointing_enable", None)
+            if enable is not None:
+                if getattr(module, "supports_gradient_checkpointing", True) is False:
+                    # e.g. a `*ForRetrieval` wrapper that doesn't declare support while its inner
+                    # model does: skip it so the supporting submodules still enable checkpointing.
+                    logger.warning_once(
+                        f"{type(module).__name__} does not support activation checkpointing, skipping it."
+                    )
+                    continue
+                enable(activation_checkpointing_kwargs, **kwargs)
+
     def gradient_checkpointing_enable(
         self,
         gradient_checkpointing_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
-        """Enable gradient checkpointing for the model."""
-        for module in self.modules():
-            if module is not self and hasattr(module, "gradient_checkpointing_enable"):
-                if getattr(module, "supports_gradient_checkpointing", True) is False:
-                    # e.g. a `*ForRetrieval` wrapper that doesn't declare support while its inner
-                    # model does: skip it so the supporting submodules still enable checkpointing.
-                    logger.warning_once(
-                        f"{type(module).__name__} does not support gradient checkpointing, skipping it."
-                    )
-                    continue
-                module.gradient_checkpointing_enable(gradient_checkpointing_kwargs, **kwargs)
+        """Alias for :meth:`activation_checkpointing_enable` using the legacy argument name."""
+        self.activation_checkpointing_enable(gradient_checkpointing_kwargs, **kwargs)
 
     def _place_modules(self) -> None:
         """Align auxiliary modules without changing backbones or dispatched submodules."""
