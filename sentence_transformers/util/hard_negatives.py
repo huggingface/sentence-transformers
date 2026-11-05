@@ -178,9 +178,9 @@ def mine_hard_negatives(
         model (SentenceTransformer): A SentenceTransformer model to use for embedding the inputs.
         anchor_column_name (str, optional): The column name in `dataset` that contains the anchor/query. Defaults to None, in which case the first column in `dataset` will be used.
         positive_column_name (str, optional): The column name in `dataset` that contains the positive candidates. Defaults to None, in which case the second column in `dataset` will be used.
-        corpus (List[str], optional): A list containing documents as strings that will be used as candidate negatives
-            in addition to the second column in `dataset`. Defaults to None, in which case the second column in
-            `dataset` will exclusively be used as the negative candidate corpus.
+        corpus (List[str], optional): Documents to use as candidate negatives in addition to the second column
+            in `dataset`. Accepts a list of strings or a dataset column, such as `corpus_dataset["text"]`.
+            Defaults to None, in which case only the second column in `dataset` is used as the negative candidate corpus.
         cross_encoder (CrossEncoder, optional): A CrossEncoder model to use for rescoring the candidates and positives,
             even when no score filters are set. Its scores determine the candidate ordering and, when
             ``output_scores=True``, the returned scores. Defaults to None.
@@ -413,11 +413,7 @@ def mine_hard_negatives(
     log_counters = {}
     queries = list(dataset[anchor_column_name])
     positives = list(dataset[positive_column_name])
-    separate_corpus = corpus is not None
-    if not separate_corpus:
-        corpus = positives
-    # Normalize the corpus to a plain list: e.g. a `datasets` v5 Column does not support `+` with a list
-    corpus = list(corpus)
+    corpus = positives if corpus is None else list(corpus)
 
     # Deduplicate the corpus
     # make sure all the positives are also in the corpus and de-duplicate it.

@@ -187,38 +187,21 @@ def test_fully_custom_column_names(
     assert "negative_2" in result_ntuple.column_names
 
 
+@pytest.mark.parametrize("as_dataset_column", [False, True], ids=["list", "dataset_column"])
 def test_separate_corpus(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, passages: list[str]
+    dataset: Dataset,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    passages: list[str],
+    as_dataset_column: bool,
 ) -> None:
     """Test using a separate corpus for negative mining."""
     model = static_retrieval_mrl_en_v1_model
+    extra_passages = passages[len(dataset) :]
+    corpus = Dataset.from_dict({"passages": extra_passages})["passages"] if as_dataset_column else extra_passages
     result = mine_hard_negatives(
         dataset=dataset,
         model=model,
-        corpus=passages[5:],  # Use different passages as corpus
-        verbose=False,
-    )
-
-    # Check that the output has expected columns
-    assert "query" in result.column_names
-    assert "passage" in result.column_names
-    assert "negative" in result.column_names
-
-    # Check that negatives can come from the separate corpus
-    negatives = result["negative"]
-    assert any(neg in passages[5:] for neg in negatives), "No negatives found in the separate corpus."
-
-
-def test_separate_corpus_dataset_column(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, passages: list[str]
-) -> None:
-    """Test a separate corpus passed as a datasets Column, as `dataset["column"]` returns in datasets v5."""
-    model = static_retrieval_mrl_en_v1_model
-    corpus_dataset = Dataset.from_dict({"passages": passages})
-    result = mine_hard_negatives(
-        dataset=dataset,
-        model=model,
-        corpus=corpus_dataset["passages"],
+        corpus=corpus,
         verbose=False,
     )
 
@@ -227,7 +210,7 @@ def test_separate_corpus_dataset_column(
     assert "negative" in result.column_names
 
     negatives = result["negative"]
-    assert any(neg in passages for neg in negatives), "No negatives found in the separate corpus."
+    assert any(neg in extra_passages for neg in negatives), "No negatives found in the separate corpus."
 
 
 def test_cross_encoder(
