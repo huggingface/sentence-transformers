@@ -26,6 +26,7 @@ from .conftest import (
     REQUIRES_CUDA,
     TINY_MODEL_MAPPING,
     TRANSFORMERS_V4_XFAIL_ARCHITECTURES,
+    UNSUPPORTED_PAIR_TEMPLATES,
     XFAIL_ARCHITECTURES,
     create_modality_pair_samples,
     create_modality_samples,
@@ -49,6 +50,7 @@ except ImportError:
 
 
 EXPECT_FORWARD_FAIL_PAIRS = {
+    "florence2": ["text+text pair"],  # Processor only accepts individual texts
     "kosmos-2": None,  # Preprocessor can't handle pairs
 }
 
@@ -198,6 +200,10 @@ class TestAnyToAnyArchitectures:
 
         for pair_desc, pairs in test_pairs.items():
             with subtests.test(msg=f"Testing {pair_desc}"):
+                if arch in UNSUPPORTED_PAIR_TEMPLATES:
+                    with pytest.raises(ValueError, match="cannot carry a 'query'/'document' pair"):
+                        model.preprocess(pairs)
+                    continue
                 context = nullcontext()
                 if arch in EXPECT_FORWARD_FAIL and EXPECT_FORWARD_FAIL[arch] is None:
                     context = pytest.raises(Exception)

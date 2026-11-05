@@ -46,7 +46,12 @@ from .conftest import (
 )
 
 XFAIL_FEATURE_EXTRACTION = [
+    "csm",  # AutoModel loads CsmForConditionalGeneration, which has no embedding output
+    "embedding_gemma2",  # Output projects to embedding_dim rather than hidden_size
+    "embedding_gemma2_text",  # Same output projection as the multimodal model
+    "hyperclovax_vision_v2",  # Forward's return annotation omits last_hidden_state, and get_*_features returns tuples
     "reformer",  # Outputs last_hidden_state with 2 * hidden_size dimensionality as it concats the same tensor for reversible ResNet, low prio
+    "sam2",  # get_image_features returns a feature pyramid rather than an embedding tensor
 ]
 
 

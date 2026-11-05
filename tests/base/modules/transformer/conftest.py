@@ -68,6 +68,7 @@ XFAIL_ARCHITECTURES = [
     "fsmt",
     # Other issues
     "bark",  # Processor doesn't accept 'padding' in text_kwargs as it hardcodes its padding strategy
+    "cohere",  # Named chat templates are not supported by message-format inference
     "bros",  # Has a hard requirement for bbox, low prio
     "lilt",  # Lilt requires bounding boxes
     "seggpt",  # Has a requirement for prompt_pixel_values and prompt_masks via prompt_images
@@ -79,6 +80,7 @@ XFAIL_ARCHITECTURES = [
     "focalnet",  # TODO: FocalNetModel.input_modalities still defaults to 'text'
     "fuyu",  # get_image_features accepts pixel_values, but the image processor only returns image_patches (identical, just different name), low prio
     "gemma3n",  # TODO: The Gemma3nModel type hint is not correct, plus the Gemma3nProcessor requires text at all times, despite code where text is created if it doesn't exist, high prio
+    "phi4_multimodal",  # Processor loads the chat template only on its tokenizer, but requires text with media placeholders
     "tvp",  # TODO: TvpProcessor.get_attributes() returns ['image_processor', 'tokenizer'] instead of ['video_processor', 'tokenizer']
     "videomae",  # TODO: Models often load with VideoMAEImageProcessor accepting 'images' instead of 'videos'
     "musicgen",  # not compatible with AutoModel
@@ -103,7 +105,7 @@ TRANSFORMERS_V4_XFAIL_ARCHITECTURES = [
     "mistral",
     "blenderbot-small",
 ]
-# Model checkpoints that are faulty and cannot be loaded by transformers currently
+# Model checkpoints with missing assets or faulty metadata
 FAULTY_CHECKPOINTS = [
     "data2vec-audio",  # No vocab file
     "mgp-str",  # Missing preprocessor_config.json / vocab file
@@ -111,6 +113,8 @@ FAULTY_CHECKPOINTS = [
     "patchtsmixer",  # Missing processor files
     "patchtst",  # Missing processor files
     "step3p7",  # No image processor or tokenizer files in the checkpoint
+    "swin",  # Checkpoint hidden_size is 64, but embed_dim and depths imply an output width of 512
+    "swinv2",  # Checkpoint hidden_size is 64, but embed_dim and depths imply an output width of 512
     "vision-text-dual-encoder",  # preprocessor_config.json mentions now-removed ViTFeatureExtractor instead of ViTImageProcessor
     "wavlm",  # AutoProcessor selects a CTC tokenizer, but the checkpoint has no vocabulary
     "yoso",  # tokenizer_config.json tokenizer_class is set to AlbertTokenizer, while it should likely be e.g. TokenizersBackend
@@ -164,10 +168,20 @@ EXPECT_IMAGE_VIDEO_FAILURE = [
     "glm4v",  # glm4v and glm4v_moe use image tokens for videos as well, and thus lose the ability to assign image features to the "real" image tokens,
     "glm4v_moe",  # and the video features to the image tokens used for videos.
     "glm_ocr",
+    "smolvlm",  # Image and video inputs share placeholder tokens, causing a feature/token mismatch when combined
 ]
 EXPECT_IMAGE_ONLY_FAILURE = [
     "llama4",  # Text is required at all times  # TODO: Or should I update Transformer? But this supports 'message' with only image I think?
 ]
+
+# These templates reject query/document roles or discard their content.
+UNSUPPORTED_PAIR_TEMPLATES = {
+    "inkling_mm_model",
+    "mistral",
+    "mistral_large4",
+    "mixtral",
+    "qwen3_asr",
+}
 
 
 # Track temporary media files for cleanup
@@ -745,6 +759,8 @@ def load_transformer(arch: str, transformer_task: str = "feature-extraction", **
 
 
 def modify_processor_for_pairs(model: Transformer):
+    if model.config.model_type in UNSUPPORTED_PAIR_TEMPLATES:
+        return
     model.processor.chat_template = (
         model.processor.chat_template.replace('== "user"', 'in ["user", "query", "document"]')
         .replace("== 'user'", "in ['user', 'query', 'document']")
