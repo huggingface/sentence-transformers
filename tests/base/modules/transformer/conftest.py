@@ -125,6 +125,9 @@ REQUIRES_CUDA = [
     "qwen2_moe",  # Forward pass uses `torch._grouped_mm`, but data requires 16-bytes alignment on CPU, which isn't guaranteed. Perhaps fixed in https://github.com/pytorch/pytorch/pull/173395, but not yet released.
     "mra",
 ]
+EXPECT_SAVE_LOAD_FAIL = {
+    "mistral_large4": "Transformers cannot reverse the FP8 weight conversion after dequantization",
+}
 # Models whose checkpoints are faulty, but only with the 'forward', and I still want to test loading, saving,
 # configuration reading, etc. None denotes that failure is across all modalities, but for some models, the checkpoint
 # may only be faulty for certain modalities (e.g. image), so we can still test other modalities (e.g. text). The
