@@ -7,6 +7,7 @@ import warnings
 from collections import OrderedDict
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, ClassVar, Literal, overload
 
 import numpy as np
@@ -40,9 +41,9 @@ class SentenceTransformer(BaseModel, FitMixin):
     Loads or creates a SentenceTransformer model that can be used to map text and other inputs to dense embeddings.
 
     Args:
-        model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise, tries
-            to download a pre-trained SentenceTransformer model. If that fails, tries to construct a model from
-            the Hugging Face Hub with that name. Defaults to None.
+        model_name_or_path (str or Path, optional): If a filepath on disk, loads the model from that path. Otherwise,
+            tries to download a pre-trained SentenceTransformer model. If that fails, tries to construct a model
+            from the Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
             create custom SentenceTransformer models from scratch. Defaults to None.
         device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``, ``"neuron"``) that should be used for
@@ -153,7 +154,7 @@ class SentenceTransformer(BaseModel, FitMixin):
     @deprecated_kwargs(tokenizer_kwargs="processor_kwargs")
     def __init__(
         self,
-        model_name_or_path: str | None = None,
+        model_name_or_path: str | Path | None = None,
         *,
         modules: list[nn.Module] | None = None,
         device: str | None = None,
@@ -174,6 +175,9 @@ class SentenceTransformer(BaseModel, FitMixin):
         similarity_fn_name: Literal["cosine", "dot", "euclidean", "manhattan"] | SimilarityFunction | None = None,
         truncate_dim: int | None = None,
     ) -> None:
+        if isinstance(model_name_or_path, Path):
+            model_name_or_path = str(model_name_or_path)
+
         # Set before super().__init__() so _parse_model_config can check these
         self.similarity_fn_name = similarity_fn_name
         self.truncate_dim = truncate_dim
