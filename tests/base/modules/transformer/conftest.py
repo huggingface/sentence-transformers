@@ -72,6 +72,7 @@ XFAIL_ARCHITECTURES = [
     "lilt",  # Lilt requires bounding boxes
     "seggpt",  # Has a requirement for prompt_pixel_values and prompt_masks via prompt_images
     "speecht5",  # SpeechT5 is an encoder-decoder that either loads a SpeechT5EncoderWithTextPrenet or SpeechT5EncoderWithSpeechPrenet. There's also no subconfigs to determine which should be used, low prio
+    "timesfm",  # Requires time-series inputs, which Transformer does not support
     "timesformer",  # Timesformer doesn't nicely preserve the batch dimension when processing videos, low prio
     "speech_to_text",  # Tricky case as it's an encoder-decoder with unusual inputs, low prio
     # Transformers issues
@@ -106,10 +107,14 @@ TRANSFORMERS_V4_XFAIL_ARCHITECTURES = [
 FAULTY_CHECKPOINTS = [
     "data2vec-audio",  # No vocab file
     "mgp-str",  # Missing preprocessor_config.json / vocab file
+    "minimax_m3_vl",  # Processor metadata points to custom code instead of the native processor
     "patchtsmixer",  # Missing processor files
     "patchtst",  # Missing processor files
+    "step3p7",  # No image processor or tokenizer files in the checkpoint
     "vision-text-dual-encoder",  # preprocessor_config.json mentions now-removed ViTFeatureExtractor instead of ViTImageProcessor
+    "wavlm",  # AutoProcessor selects a CTC tokenizer, but the checkpoint has no vocabulary
     "yoso",  # tokenizer_config.json tokenizer_class is set to AlbertTokenizer, while it should likely be e.g. TokenizersBackend
+    "zaya",  # Text tokenizer declares Gemma3Processor, which requires a missing image processor
 ]
 
 REQUIRES_CUDA = [

@@ -250,7 +250,7 @@
   "jina_embeddings_v3": "huggingface-mic/jina-embeddings-v3-hf-mic",
   "kimi_k25": null,
   "kimi_k25_vision": null,
-  "kimi_linear": "tiny-random/kimi-linear",
+  "kimi_linear": "hf-internal-testing/tiny-kimi-linear",
   "kolibri1": null,
   "kosmos-2": "hf-internal-testing/tiny-random-Kosmos2Model",
   "kosmos-2.5": null,
@@ -313,7 +313,7 @@
   "ministral3": "huggingface-mic/Nemotron-3-Embed-1B-BF16-mic",
   "mistral": "huggingface-mic/Mistral-7B-Instruct-v0.2-mic",
   "mistral3": "huggingface-mic/mistral3-mic",
-  "mistral4": "hf-internal-testing/tiny-random-Mistral4-fp8-nvfp4",
+  "mistral4": "onnx-internal-testing/tiny-random-Mistral4ForCausalLM",
   "mistral_large4": "tiny-random/mistral-large-4",
   "mistral_large4_text": null,
   "mixtral": "huggingface-mic/Mixtral-8x7B-Instruct-v0.1-mic",
@@ -590,5 +590,5 @@
   "youtu": null,
   "zamba": null,
   "zamba2": null,
-  "zaya": "tiny-random/zaya1"
+  "zaya": "hf-tiny-v2/tiny-random-ZayaForCausalLM"
 }
