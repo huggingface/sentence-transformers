@@ -32,10 +32,12 @@ from .conftest import (
     EXPECT_IMAGE_VIDEO_FAILURE,
     EXPECT_MULTIMODAL_FAILURE,
     EXPECT_MULTIMODAL_SUCCESS,
+    EXPECT_SAVE_LOAD_FAIL,
     FAULTY_CHECKPOINTS,
     REQUIRES_CUDA,
     TINY_MODEL_MAPPING,
     TRANSFORMERS_V4_XFAIL_ARCHITECTURES,
+    UNSUPPORTED_PAIR_TEMPLATES,
     XFAIL_ARCHITECTURES,
     create_modality_pair_samples,
     create_modality_samples,
@@ -98,13 +100,17 @@ class TestSequenceClassificationArchitectures:
         assert isinstance(dim, int)
         assert dim > 0
 
-    def test_save_load(self, arch_model, tmp_path):
+    def test_save_load(self, arch_model, tmp_path, request):
         """Test saving and loading the model."""
         arch, model = arch_model
+        if arch in EXPECT_SAVE_LOAD_FAIL:
+            request.node.add_marker(pytest.mark.xfail(reason=EXPECT_SAVE_LOAD_FAIL[arch], raises=ValueError))
         save_path = tmp_path / "model"
         save_path.mkdir(exist_ok=True)
         model.save(str(save_path))
-        loaded_model = Transformer(str(save_path))
+        loaded_model = Transformer.load(str(save_path))
+        assert type(loaded_model.model) is type(model.model)
+        assert loaded_model.get_config_dict() == model.get_config_dict()
         assert loaded_model.get_embedding_dimension() == model.get_embedding_dimension()
 
     def test_module_output_name(self, arch_model):
@@ -194,6 +200,10 @@ class TestSequenceClassificationArchitectures:
 
         for pair_desc, pairs in test_pairs.items():
             with subtests.test(msg=f"Testing {pair_desc}"):
+                if arch in UNSUPPORTED_PAIR_TEMPLATES:
+                    with pytest.raises(ValueError, match="cannot carry a 'query'/'document' pair"):
+                        model.preprocess(pairs)
+                    continue
                 context = nullcontext()
                 if arch in EXPECT_FORWARD_FAIL and EXPECT_FORWARD_FAIL[arch] is None:
                     context = pytest.raises(Exception)

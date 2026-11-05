@@ -543,6 +543,19 @@ class TestTransformerModalityConfigValidation:
 
 
 class TestPreprocess:
+    def test_processor_generated_labels_are_discarded(self, bert_tiny_transformer, monkeypatch):
+        original_call = bert_tiny_transformer._call_processor
+
+        def processor_with_labels(*args, **kwargs):
+            output = original_call(*args, **kwargs)
+            output["labels"] = output["input_ids"].clone()
+            return output
+
+        monkeypatch.setattr(bert_tiny_transformer, "_call_processor", processor_with_labels)
+        features = bert_tiny_transformer.preprocess(["hello world"])
+        assert "labels" not in features
+        assert "input_ids" in features
+
     def test_unsupported_modality_error(self, bert_tiny_transformer, monkeypatch):
         """Passing an unsupported modality should raise ValueError."""
         model = bert_tiny_transformer
@@ -1102,6 +1115,25 @@ class TestForward:
 
 
 class TestGetEmbeddingDimension:
+    @pytest.mark.parametrize("word_embed_proj_dim", [None, 8])
+    def test_opt_output_dimension(self, word_embed_proj_dim):
+        config = AutoConfig.for_model(
+            "opt",
+            vocab_size=32,
+            hidden_size=16,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            ffn_dim=32,
+            word_embed_proj_dim=word_embed_proj_dim,
+        )
+        model = AutoModel.from_config(config).eval()
+        module = SimpleNamespace(
+            model=model, transformer_task="feature-extraction", module_output_name="token_embeddings"
+        )
+        with torch.no_grad():
+            output = model(input_ids=torch.tensor([[2, 3, 4]]))
+        assert Transformer.get_embedding_dimension(module) == output.last_hidden_state.shape[-1]
+
     def test_standard_hidden_size(self, bert_tiny_transformer):
         dim = bert_tiny_transformer.get_embedding_dimension()
         assert dim == bert_tiny_transformer.config.hidden_size

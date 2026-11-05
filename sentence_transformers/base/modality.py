@@ -45,6 +45,7 @@ KNOWN_MODEL_TYPES_MESSAGE_FORMATS = {
     "apertus": "flat",
     "deepseek_v3": "flat",
     "gpt_oss": "flat",
+    "minicpm3": "flat",
     "seed_oss": "flat",
 }
 
