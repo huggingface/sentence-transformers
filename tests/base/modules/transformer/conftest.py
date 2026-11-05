@@ -6,7 +6,7 @@ import json
 import random
 import tempfile
 import urllib.request
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any
 
@@ -276,7 +276,7 @@ def get_sample_images(n: int = 2) -> dict[str, list[Any]]:
 
 
 @lru_cache(maxsize=4)
-def get_sample_audio(n: int = 2) -> dict[str, list[Any]]:
+def get_sample_audio(n: int = 2, sampling_rate: int = 16000) -> dict[str, list[Any]]:
     """Generate sample audio data in multiple formats.
 
     Returns:
@@ -291,9 +291,9 @@ def get_sample_audio(n: int = 2) -> dict[str, list[Any]]:
         "https://huggingface.co/datasets/tomaarsen/tiny-test/resolve/main/tiny_test_audio_1.wav",
     ][:n]
 
-    # Generate arrays (16kHz, 1000-2000 samples)
-    sampling_rate = 16000
-    arrays = [np.random.randn(random.randint(1000, 2000)).astype(np.float32) for _ in range(n)]
+    arrays = [
+        np.random.randn(random.randint(sampling_rate // 16, sampling_rate // 8)).astype(np.float32) for _ in range(n)
+    ]
     # tensors = [torch.from_numpy(arr) for arr in arrays]
     # max_length = max(tensor.shape[0] for tensor in tensors)
     # tensors = [torch.nn.functional.pad(tensor, (0, max_length - tensor.shape[0])) for tensor in tensors]
@@ -443,6 +443,7 @@ def create_modality_pair_samples(model: Transformer, modalities: list[str], n: i
     """
     from itertools import product
 
+    generators = _get_modality_sample_generators(model)
     samples = {}
     non_message_modalities = [m for m in modalities if m != "message" and isinstance(m, str)]
 
@@ -457,7 +458,7 @@ def create_modality_pair_samples(model: Transformer, modalities: list[str], n: i
         # Get first format variant for each modality
         modality_samples: dict[str, tuple[str, list]] = {}
         for mod in non_message_modalities:
-            generator = MODALITY_SAMPLE_GENERATORS.get(mod)
+            generator = generators.get(mod)
             if not generator:
                 continue
             format_variants = generator(n)
@@ -480,14 +481,15 @@ def create_modality_pair_samples(model: Transformer, modalities: list[str], n: i
     return samples
 
 
-# Mapping of modality keys to sample data generators
-# Note: Each generator returns a dict of format_name -> list of samples
-MODALITY_SAMPLE_GENERATORS = {
-    "text": get_sample_text,
-    "image": get_sample_images,
-    "audio": get_sample_audio,
-    "video": get_sample_video,
-}
+def _get_modality_sample_generators(model: Transformer) -> dict:
+    feature_extractor = getattr(model.processor, "feature_extractor", model.processor)
+    sampling_rate = getattr(feature_extractor, "sampling_rate", 16000)
+    return {
+        "text": get_sample_text,
+        "image": get_sample_images,
+        "audio": partial(get_sample_audio, sampling_rate=sampling_rate),
+        "video": get_sample_video,
+    }
 
 
 def create_modality_samples(
@@ -516,6 +518,7 @@ def create_modality_samples(
     """
     from itertools import combinations
 
+    generators = _get_modality_sample_generators(model)
     samples = {}
 
     # Separate message modality from others
@@ -525,7 +528,7 @@ def create_modality_samples(
 
     # 1. Test each single non-message modality with each format variant
     for modality in non_message_modalities:
-        generator = MODALITY_SAMPLE_GENERATORS.get(modality)
+        generator = generators.get(modality)
         if not generator:
             continue
 
@@ -544,7 +547,7 @@ def create_modality_samples(
                 modality_data = {}
                 format_names = []
                 for mod in combo:
-                    generator = MODALITY_SAMPLE_GENERATORS[mod]
+                    generator = generators[mod]
                     format_variants = generator(n)
                     # Use the first format variant for multimodal combinations
                     first_format = next(iter(format_variants.items()))
@@ -561,7 +564,7 @@ def create_modality_samples(
         modality_data = {}
         format_names = []
         for mod in multimodal_modality:
-            generator = MODALITY_SAMPLE_GENERATORS[mod]
+            generator = generators[mod]
             format_variants = generator(n)
             first_format = next(iter(format_variants.items()))
             modality_data[mod] = first_format[1]
@@ -597,7 +600,7 @@ def create_modality_samples(
                 # Skip text since we already handled it above
                 continue
 
-            generator = MODALITY_SAMPLE_GENERATORS.get(modality)
+            generator = generators.get(modality)
             if not generator:
                 continue
 
@@ -620,7 +623,7 @@ def create_modality_samples(
                 modality_data = {}
                 format_names = []
                 for mod in combo:
-                    generator = MODALITY_SAMPLE_GENERATORS[mod]
+                    generator = generators[mod]
                     format_variants = generator(n)
                     first_format = next(iter(format_variants.items()))
                     modality_data[mod] = first_format[1]
@@ -667,12 +670,15 @@ def get_arch_kwargs(arch: str, transformer_task: str) -> tuple[dict, dict, dict,
         config_kwargs["is_decoder"] = True
     if arch == "internvl":
         processing_kwargs["text"] = {"truncation": False}
+    if arch == "muse_spark":
+        # Tiny expert dimensions do not meet grouped_mm alignment requirements.
+        model_kwargs["experts_implementation"] = "eager"
     if arch == "mra":
         processor_kwargs["model_max_length"] = 256
         processing_kwargs["text"] = {"padding": "max_length"}
     if arch == "qwen3_5" and transformer_task == "sequence-classification":
         config_kwargs["text_config"] = {"num_labels": 1, "id2label": {0: "LABEL_0"}}
-    if arch in ("gemma4", "diffusion_gemma"):
+    if arch in ("gemma4", "gemma4_unified", "diffusion_gemma"):
         processing_kwargs["video"] = {"num_frames": 8}
     if arch == "gemma4":
         processing_kwargs["audio"] = {"truncation": False}
