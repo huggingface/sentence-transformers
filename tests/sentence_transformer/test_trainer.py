@@ -47,14 +47,14 @@ if not is_training_available():
     )
 
 
-def test_trainer_gradient_checkpointing(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ["activation_checkpointing", "gradient_checkpointing"])
+def test_trainer_checkpointing(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, name: str) -> None:
     dataset = Dataset.from_dict({"anchor": ["a", "b"], "positive": ["c", "d"]})
     args = SentenceTransformerTrainingArguments(
         output_dir=str(tmp_path),
         max_steps=1,
         per_device_train_batch_size=2,
-        gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": False},
+        **{name: True, f"{name}_kwargs": {"use_reentrant": False}},
         report_to="none",
         save_strategy="no",
     )
@@ -64,9 +64,15 @@ def test_trainer_gradient_checkpointing(stsb_bert_tiny_model: SentenceTransforme
         train_dataset=dataset,
         loss=MultipleNegativesRankingLoss(stsb_bert_tiny_model),
     )
+    embeddings = stsb_bert_tiny_model.transformers_model.get_input_embeddings()
+    original_weights = embeddings.weight.detach().clone()
 
     assert trainer.train().global_step == 1
-    assert stsb_bert_tiny_model.transformers_model.is_gradient_checkpointing
+    assert not torch.equal(embeddings.weight.detach(), original_weights)
+    assert any(
+        getattr(module, "gradient_checkpointing", False)
+        for module in stsb_bert_tiny_model.transformers_model.modules()
+    )
 
 
 def test_mlm_example_trains_with_transformers_v5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
