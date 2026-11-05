@@ -543,6 +543,19 @@ class TestTransformerModalityConfigValidation:
 
 
 class TestPreprocess:
+    def test_processor_generated_labels_are_discarded(self, bert_tiny_transformer, monkeypatch):
+        original_call = bert_tiny_transformer._call_processor
+
+        def processor_with_labels(*args, **kwargs):
+            output = original_call(*args, **kwargs)
+            output["labels"] = output["input_ids"].clone()
+            return output
+
+        monkeypatch.setattr(bert_tiny_transformer, "_call_processor", processor_with_labels)
+        features = bert_tiny_transformer.preprocess(["hello world"])
+        assert "labels" not in features
+        assert "input_ids" in features
+
     def test_unsupported_modality_error(self, bert_tiny_transformer, monkeypatch):
         """Passing an unsupported modality should raise ValueError."""
         model = bert_tiny_transformer

@@ -1402,6 +1402,7 @@ class Transformer(InputModule):
                 common_kwargs,
                 chat_template_kwargs=chat_template_kwargs,
             )
+        processor_output.pop("labels", None)  # ST uses its own losses without these labels
 
         if modality == "message" and ("pixel_values" in processor_output or "video_grid_thw" in processor_output):
             num_images, num_videos = _count_media_per_sample(processor_inputs["message"])
