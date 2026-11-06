@@ -44,6 +44,21 @@ def test_triplet_distance_matches_full_precision(dtype, autocast, squared, case)
     assert torch.count_nonzero(actual.diag()) == 0
 
 
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("autocast", [False, True])
+def test_cosine_distance_precision_and_diagonal(dtype, autocast):
+    embeddings = torch.randn(10, 32, dtype=dtype, requires_grad=True)
+    context = torch.autocast("cpu", dtype=torch.bfloat16) if autocast else nullcontext()
+    with context:
+        actual = BatchHardTripletLossDistanceFunction.cosine_distance(embeddings)
+    actual.sum().backward()
+
+    assert torch.isfinite(actual).all()
+    assert (actual >= 0).all()
+    assert torch.count_nonzero(actual.diag()) == 0
+    assert torch.isfinite(embeddings.grad).all()
+
+
 @pytest.mark.parametrize(
     "loss_class", [BatchAllTripletLoss, BatchHardTripletLoss, BatchHardSoftMarginTripletLoss, BatchSemiHardTripletLoss]
 )
