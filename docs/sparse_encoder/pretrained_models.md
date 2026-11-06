@@ -46,13 +46,16 @@ print(similarities)
 
 [BEIR (Benchmarking IR)](https://github.com/beir-cellar/beir) provides a heterogeneous benchmark for evaluation of information retrieval models across in our case 13 diverse datasets. The avg nDCG@10 scores represent the average performance across all 13 datasets.
 
-The scores below are reported by the model authors. These models represent the backbone of sparse neural retrieval:
+The scores below come from published evaluations. These models represent the backbone of sparse neural retrieval:
 
 | Model Name                                                                                                                                                | MS MARCO MRR@10 | BEIR-13 avg nDCG@10 | Parameters |
 |-----------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------:|:-------------------:|-----------:|
 | [lightonai/SlideOn](https://huggingface.co/lightonai/SlideOn)                                                                                             | NA              | **58.7**            | 174M       |
+| [nlpai-lab/KURE-Sparse-base](https://huggingface.co/nlpai-lab/KURE-Sparse-base)                                                                           | NA              | 58.6                | 593M       |
 | [lightonai/mSlideOn](https://huggingface.co/lightonai/mSlideOn)                                                                                           | NA              | 58.1                | 339M       |
 | [Linkup-Platform/linkup-sparseup-embed-v1](https://huggingface.co/Linkup-Platform/linkup-sparseup-embed-v1)                                               | NA              | 56.4                | 150M       |
+| [omai-research/milco-650m](https://huggingface.co/omai-research/milco-650m)                                                                               | NA              | 55.5                | 593M       |
+| [nlpai-lab/KURE-Sparse-nano](https://huggingface.co/nlpai-lab/KURE-Sparse-nano)                                                                           | NA              | 53.2                | 149M       |
 | [opensearch-project/opensearch-neural-sparse-encoding-v2-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v2-distill) | NA              | 52.8                | 67M        |
 | [opensearch-project/opensearch-neural-sparse-encoding-v1](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v1)                 | NA              | 52.4                | 133M       |
 | [naver/splade-v3](https://huggingface.co/naver/splade-v3)                                                                                                 | **40.2**        | 51.7                | 109M       |
