@@ -16,7 +16,12 @@ class BatchHardTripletLossDistanceFunction:
     @staticmethod
     def cosine_distance(embeddings: Tensor) -> Tensor:
         """Compute the 2D matrix of cosine distances (1-cosine_similarity) between all embeddings."""
-        return 1 - pytorch_cos_sim(embeddings, embeddings)
+        distances = 1 - pytorch_cos_sim(embeddings, embeddings)
+        # Because of computation errors, some distances might be negative so we put everything >= 0.0
+        distances = distances.clamp(min=0.0)
+        # The distance between an embedding and itself is always 0.0
+        distances.fill_diagonal_(0.0)
+        return distances
 
     @staticmethod
     def euclidean_distance(embeddings: Tensor, squared=False) -> Tensor:
