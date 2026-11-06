@@ -116,6 +116,24 @@ def check_teacher_targets(
     )
 
 
+def min_max_normalize(scores: Tensor, eps: float = 1e-8) -> Tensor:
+    """Min-max normalize each row of a ``(batch_size, N)`` score tensor to ``[0, 1]``.
+
+    Infinite scores (candidates excluded on purpose) are ignored for the row min and max and stay infinite.
+
+    Args:
+        scores: Scores of shape ``(batch_size, N)``.
+        eps: Added to the row range to avoid dividing by zero.
+
+    Returns:
+        The normalized scores, with the same shape as ``scores``.
+    """
+    finite = scores.isfinite()
+    row_min = scores.masked_fill(~finite, float("inf")).amin(dim=-1, keepdim=True)
+    row_max = scores.masked_fill(~finite, float("-inf")).amax(dim=-1, keepdim=True)
+    return (scores - row_min) / (row_max - row_min + eps)
+
+
 def import_from_string(dotted_path: str) -> type:
     """
     Import a dotted module path and return the attribute/class designated by the

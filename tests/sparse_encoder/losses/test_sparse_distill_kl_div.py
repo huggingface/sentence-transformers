@@ -34,3 +34,15 @@ def test_sparse_distill_kl_div_must_be_wrapped(splade_bert_tiny_model: SparseEnc
     loss = SparseDistillKLDivLoss(splade_bert_tiny_model)
     with pytest.raises(AttributeError, match="should not be used alone"):
         loss([{"input_ids": torch.ones(2, 3, dtype=torch.long)}], torch.zeros(2, 2))
+
+
+def test_sparse_distill_kl_div_forwards_min_max_normalization(splade_bert_tiny_model: SparseEncoder) -> None:
+    """The sparse subclass hands normalize_student / normalize_teacher to the dense implementation."""
+    loss = SparseDistillKLDivLoss(splade_bert_tiny_model, normalize_student=True, normalize_teacher=True)
+    assert (loss.normalize_student, loss.normalize_teacher) == (True, True)
+    assert loss.get_config_dict()["normalize_teacher"] is True
+
+    labels = torch.tensor([[4.0, 1.0], [3.5, 0.5], [2.0, 1.5], [5.0, 0.0]])
+    assert loss.compute_loss_from_embeddings(_embeddings(), labels * 10.0).item() == pytest.approx(
+        loss.compute_loss_from_embeddings(_embeddings(), labels).item(), abs=1e-6
+    )
