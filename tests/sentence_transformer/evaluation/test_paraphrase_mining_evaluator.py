@@ -109,3 +109,23 @@ def test_mixed_score_groups_match_threshold_metrics() -> None:
     assert metrics["average_precision"] == pytest.approx(average_precision_score(labels, scores))
     assert metrics["f1"] == pytest.approx(max(f1_score(labels, scores >= threshold) for threshold in scores))
     assert metrics["f1"] == pytest.approx(f1_score(labels, scores >= metrics["threshold"]))
+
+
+@pytest.mark.parametrize("similarity_fn_name", ["cosine", "dot", "euclidean", "manhattan"])
+def test_ParaphraseMiningEvaluator_uses_model_similarity(similarity_fn_name: str) -> None:
+    """Candidate pairs are scored with the model's similarity function, not always cosine."""
+    model = SentenceTransformer(
+        modules=[BoW(["red", "blue", "green"])], similarity_fn_name=similarity_fn_name, device="cpu"
+    )
+    texts = {"a": "red", "b": "red red red blue", "c": "blue green", "d": "green", "e": "red blue green"}
+    duplicates = [("a", "b"), ("c", "d")]
+    evaluator = ParaphraseMiningEvaluator(texts, duplicates_list=duplicates, write_csv=False)
+    metrics = evaluator(model)
+
+    embeddings = model.encode(list(texts.values()), convert_to_tensor=True)
+    scores_matrix = model.similarity(embeddings, embeddings)
+    keys = list(texts)
+    pairs = [(i, j) for i in range(len(keys)) for j in range(i + 1, len(keys))]
+    labels = np.array([(keys[i], keys[j]) in duplicates for i, j in pairs])
+    scores = np.array([scores_matrix[i, j].item() for i, j in pairs])
+    assert metrics["average_precision"] == pytest.approx(average_precision_score(labels, scores))
