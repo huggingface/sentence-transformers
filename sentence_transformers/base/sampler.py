@@ -790,6 +790,114 @@ class ProportionalBatchSampler(MultiDatasetDefaultBatchSampler):
         return sum([len(sampler) for sampler in self.batch_samplers])
 
 
+class SynchronizedMultiDatasetBatchSampler(SetEpochMixin, BatchSampler):
+    """Plan same-task global microsteps and emit their rank slots consecutively.
+
+    ``batch_sizes`` are per-rank sizes. Only ordinary random sampling is supported;
+    partial global batches are dropped without replacement or padding. Accelerate
+    must perform the sole rank selection with ``split_batches=False``. The plan
+    has exact, epoch-independent length and independent deterministic RNG streams.
+    """
+
+    def __init__(
+        self,
+        dataset: ConcatDataset,
+        batch_sizes: list[int],
+        world_size: int,
+        strategy: str = "round_robin",
+        seed: int = 0,
+        gradient_accumulation_steps: int = 1,
+        preserve_batch_frequencies: bool = False,
+    ) -> None:
+        if not isinstance(dataset, ConcatDataset) or not dataset.datasets:
+            raise ValueError("A nonempty ConcatDataset is required for synchronized batches.")
+        if len(batch_sizes) != len(dataset.datasets):
+            raise ValueError("Provide exactly one batch size per dataset.")
+        for name, values in [
+            ("batch_sizes", batch_sizes),
+            ("world_size", [world_size]),
+            ("gradient_accumulation_steps", [gradient_accumulation_steps]),
+        ]:
+            if any(type(value) is not int or value <= 0 for value in values):
+                raise ValueError(f"{name} must contain positive integers.")
+        if type(seed) is not int:
+            raise ValueError("Synchronized batches require an integer seed.")
+        if strategy not in ("round_robin", "proportional"):
+            raise ValueError("Only round_robin and proportional are supported.")
+
+        self.dataset = self.sampler = dataset
+        self.batch_sizes = tuple(batch_sizes)
+        self.world_size = world_size
+        self.strategy = strategy
+        self.seed = seed
+        self.epoch = 0
+        self.batch_size = None  # No constant size across tasks; never advertise the first task's size.
+        self.drop_last = True
+        self.dataset_sizes = tuple(len(child) for child in dataset.datasets)
+        local_counts = [size // batch for size, batch in zip(self.dataset_sizes, self.batch_sizes)]
+        if preserve_batch_frequencies and any(count % world_size for count in local_counts):
+            raise ValueError(
+                "Strict batch-frequency preservation requires each local batch count divisible by world_size."
+            )
+        self.available_batch_counts = [count // world_size for count in local_counts]
+        if not all(self.available_batch_counts):
+            raise ValueError("Every task must provide at least one complete global batch.")
+        self.retained_batch_counts = (
+            [min(self.available_batch_counts)] * len(batch_sizes)
+            if strategy == "round_robin"
+            else self.available_batch_counts.copy()
+        )
+        self.num_microsteps = sum(self.retained_batch_counts)
+        if self.num_microsteps % gradient_accumulation_steps:
+            raise ValueError("The exact epoch length must contain complete gradient accumulation windows.")
+
+    def _generator(self, purpose: str, task: int = 0) -> torch.Generator:
+        payload = f"{self.seed}:{self.epoch}:{purpose}:{task}".encode()
+        seed = int.from_bytes(hashlib.sha256(payload).digest()[:8], "little") % (1 << 63)
+        return torch.Generator().manual_seed(seed)
+
+    def set_epoch(self, epoch: int) -> None:
+        if type(epoch) is not int or epoch < 0:
+            raise ValueError("epoch must be a nonnegative integer.")
+        self.epoch = epoch
+
+    def __len__(self) -> int:
+        return self.world_size * self.num_microsteps
+
+    def __iter__(self) -> Iterator[list[int]]:
+        if tuple(len(child) for child in self.dataset.datasets) != self.dataset_sizes:
+            raise ValueError("Dataset lengths changed after planning.")
+        # Each iterator reconstructs the same epoch, without consuming shared or model RNG state.
+        samples = [
+            torch.randperm(size, generator=self._generator("samples", task)).tolist()
+            for task, size in enumerate(self.dataset_sizes)
+        ]
+        if self.strategy == "round_robin":
+            tasks = list(range(len(samples))) * self.retained_batch_counts[0]
+        else:
+            tasks = [task for task, count in enumerate(self.retained_batch_counts) for _ in range(count)]
+            order = torch.randperm(len(tasks), generator=self._generator("tasks")).tolist()
+            tasks = [tasks[index] for index in order]
+        offsets = [0, *self.dataset.cumulative_sizes[:-1]]
+        cursors = [0] * len(samples)
+        for task in tasks:
+            size = self.batch_sizes[task]
+            start = cursors[task]
+            for rank_slot in range(self.world_size):
+                begin = start + rank_slot * size
+                yield [offsets[task] + index for index in samples[task][begin : begin + size]]
+            cursors[task] += self.world_size * size
+
+
+class _SynchronizedConcatDataset(ConcatDataset):
+    """Forward epoch through both Accelerate's original and resume-created loaders."""
+
+    batch_plan: SynchronizedMultiDatasetBatchSampler
+
+    def set_epoch(self, epoch: int) -> None:
+        self.batch_plan.set_epoch(epoch)
+
+
 __all__ = [
     "DefaultBatchSampler",
     "GroupByLabelBatchSampler",
@@ -797,6 +905,7 @@ __all__ = [
     "MultiDatasetDefaultBatchSampler",
     "RoundRobinBatchSampler",
     "ProportionalBatchSampler",
+    "SynchronizedMultiDatasetBatchSampler",
     "BatchSamplers",
     "MultiDatasetBatchSamplers",
 ]
