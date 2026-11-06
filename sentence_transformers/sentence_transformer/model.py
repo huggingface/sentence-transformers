@@ -978,15 +978,9 @@ class SentenceTransformer(BaseModel, FitMixin):
                 for token_emb, attention in zip(out_features[output_value], out_features["attention_mask"]):
                     embeddings.append(token_emb[attention.bool()])
             elif output_value is None:
-                embeddings = []
-                for idx in range(len(inputs_batch)):
-                    batch_item = {}
-                    for name, value in out_features.items():
-                        is_batch_first = (
-                            isinstance(value, Tensor) and value.ndim > 0 and value.shape[0] == len(inputs_batch)
-                        )
-                        batch_item[name] = value[idx] if is_batch_first else value
-                    embeddings.append(batch_item)
+                embeddings = [
+                    self._get_batch_item(out_features, idx, len(inputs_batch)) for idx in range(len(inputs_batch))
+                ]
             else:
                 embeddings = out_features[output_value]
                 if normalize_embeddings:
