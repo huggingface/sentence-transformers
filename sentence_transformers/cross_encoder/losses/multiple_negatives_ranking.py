@@ -35,7 +35,9 @@ class MultipleNegativesRankingLoss(nn.Module):
 
         Args:
             model (:class:`~sentence_transformers.cross_encoder.model.CrossEncoder`): A CrossEncoder model to be trained.
-            num_negatives (int, optional): Number of in-batch negatives to sample for each anchor. Defaults to 4.
+            num_negatives (int, optional): Maximum number of in-batch negatives to sample without replacement for each
+                anchor, excluding its own positive and hard negatives. Use None for all available candidates or 0
+                for no in-batch negatives. All explicit hard negatives are always included. Defaults to 4.
             scale (int, optional): Output of similarity function is multiplied by scale value. Defaults to 10.0.
             activation_fn (:class:`~torch.nn.Module`): Activation function applied to the logits before computing the loss. Defaults to :class:`~torch.nn.Sigmoid`.
 
@@ -60,8 +62,16 @@ class MultipleNegativesRankingLoss(nn.Module):
             | (anchor, positive, negative_1, ..., negative_n) | none   | 1                             |
             +-------------------------------------------------+--------+-------------------------------+
 
+        Variable-length hard negatives:
+            Use exactly three input columns: ``(anchor, positive, [negative_1, ..., negative_n])``.
+            Each negative list may have a different length, including zero. The loss averages over anchors,
+            not candidate pairs, so rows with more negatives do not receive extra weight. This format is
+            supported by the CrossEncoder variants of these losses, not the SentenceTransformer variants.
+            See `Variable-length hard negatives <../../../docs/cross_encoder/loss_overview.html#variable-length-hard-negatives>`_
+            for a training example and the list-aware no-duplicates sampler configuration.
+
         Recommendations:
-            - Use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`) to
+            - For scalar text columns, use ``BatchSamplers.NO_DUPLICATES`` (:class:`docs <sentence_transformers.base.sampler.BatchSamplers>`) to
               ensure that no in-batch negatives are duplicates of the anchor or positive samples.
             - Use :class:`~sentence_transformers.util.hard_negatives.mine_hard_negatives` with ``output_format="n-tuple"`` or
               ``output_format="triplet"`` to convert question-answer pairs to triplets with hard negatives.
@@ -128,6 +138,8 @@ class MultipleNegativesRankingLoss(nn.Module):
     def get_in_batch_negatives(
         self, anchors: list[str], candidates: list[list[str]]
     ) -> Generator[list[str], None, None]:
+        if self.num_negatives == 0:
+            return
         batch_size = len(anchors)
         num_columns = len(candidates)
 
@@ -154,15 +166,74 @@ class MultipleNegativesRankingLoss(nn.Module):
         for negative_indices_row in negative_indices.T:
             yield [candidates_flattened[negative_idx] for negative_idx in negative_indices_row]
 
-    def calculate_loss(self, logits: Tensor, batch_size: int) -> Tensor:
-        # (bsz, 1 + num_rand_negatives + num_hard_negatives)
-        logits = torch.cat(logits, dim=0).reshape(-1, batch_size).T
+    def _get_ragged_pairs(
+        self, inputs: list[list[str] | list[list[str]]]
+    ) -> tuple[list[tuple[str, str]], list[int]] | None:
+        """Build anchor-major pairs for a list-valued hard-negative column.
 
-        # Apply the post-processing on the logits
-        if self.activation_fn:
-            logits = self.activation_fn(logits)
-        if self.scale:
-            logits = logits * self.scale
+        Keep the fixed-column path unchanged, including its sampling and model-call order.
+        Candidate ownership, rather than text equality, excludes a row's own candidates
+        from its in-batch pool, just as in the fixed-column format.
+        """
+        if not any(isinstance(value, list) for column in inputs[2:] for value in column):
+            return None
+        if len(inputs) != 3:
+            raise ValueError("List-valued negatives require exactly three columns: anchor, positive, negatives.")
+        anchors, positives, negatives = inputs
+        batch_size = len(anchors)
+        if not batch_size or len(positives) != batch_size or len(negatives) != batch_size:
+            raise ValueError("Anchor, positive, and negatives columns must have the same non-zero length.")
+        if not all(isinstance(text, str) for text in anchors + positives):
+            raise ValueError("Each anchor and positive must be a string.")
+        if not all(isinstance(row, list) and all(isinstance(text, str) for text in row) for row in negatives):
+            raise ValueError("Each entry in the negatives column must be a list of strings, which may be empty.")
+        if self.num_negatives is not None and self.num_negatives < 0:
+            raise ValueError("num_negatives must be non-negative or None.")
+
+        candidates = [text for positive, row in zip(positives, negatives) for text in [positive, *row]]
+        pairs = []
+        candidate_counts = []
+        offset = 0
+        for anchor, row in zip(anchors, negatives):
+            owned_count = 1 + len(row)
+            available = len(candidates) - owned_count
+            if self.num_negatives == 0:
+                indices = range(0)
+            elif self.num_negatives is not None and self.num_negatives < available:
+                # Sample positions without replacement from the pool with this row removed.
+                indices = torch.randperm(available)[: self.num_negatives].tolist()
+            else:
+                indices = range(available)
+            selected = candidates[offset : offset + owned_count]
+            selected.extend(candidates[index if index < offset else index + owned_count] for index in indices)
+            pairs.extend((anchor, candidate) for candidate in selected)
+            candidate_counts.append(len(selected))
+            offset += owned_count
+        return pairs, candidate_counts
+
+    def calculate_loss(
+        self, logits: list[Tensor], batch_size: int, candidate_counts: list[int] | None = None
+    ) -> Tensor:
+        if candidate_counts is None:
+            # Fixed columns are scored column-major, as before.
+            logits = torch.cat(logits, dim=0).reshape(-1, batch_size).T
+            if self.activation_fn:
+                logits = self.activation_fn(logits)
+            if self.scale:
+                logits = logits * self.scale
+        else:
+            # Transform each real candidate row before padding. Besides changing
+            # the softmax denominator, padded infinities can produce NaN gradients
+            # in parameterized activations such as PReLU.
+            rows = []
+            for row in torch.cat(logits).split(candidate_counts):
+                row = row.unsqueeze(0)
+                if self.activation_fn:
+                    row = self.activation_fn(row)
+                if self.scale:
+                    row = row * self.scale
+                rows.append(row.squeeze(0))
+            logits = nn.utils.rnn.pad_sequence(rows, batch_first=True, padding_value=-torch.inf)
 
         # For each sample in the batch, the first label is the positive, the rest are negatives
         labels = torch.zeros(batch_size, device=logits.device, dtype=torch.long)
@@ -171,8 +242,21 @@ class MultipleNegativesRankingLoss(nn.Module):
         return loss
 
     def forward(
-        self, inputs: list[list[str]], labels: Tensor, prompt: str | None = None, task: str | None = None
+        self,
+        inputs: list[list[str] | list[list[str]]],
+        labels: Tensor,
+        prompt: str | None = None,
+        task: str | None = None,
     ) -> Tensor:
+        if ragged := self._get_ragged_pairs(inputs):
+            pairs, candidate_counts = ragged
+            batch_size = len(inputs[0])
+            scores = [
+                self.call_model_with_pairs(pairs[start : start + batch_size], prompt=prompt, task=task)
+                for start in range(0, len(pairs), batch_size)
+            ]
+            return self.calculate_loss(scores, batch_size, candidate_counts)
+
         anchors = inputs[0]
         positives = inputs[1]
         batch_size = len(anchors)
