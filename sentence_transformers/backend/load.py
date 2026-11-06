@@ -6,14 +6,17 @@ from pathlib import Path
 
 from transformers.configuration_utils import PretrainedConfig
 
-from sentence_transformers.backend.utils import _save_pretrained_wrapper, backend_should_export, backend_warn_to_save
+from sentence_transformers.backend.utils import _save_pretrained_wrapper, backend_should_export
 
 logger = logging.getLogger(__name__)
 
 
 def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name: str, **model_kwargs):
     """
-    Load and perhaps export an ONNX model using the Optimum library.
+    Load legacy ONNX model using the Optimum library.
+
+    Deprecated: only loads a Transformer model exported by a previous version of sentence-transformers.
+    Load the whole model with ``backend="onnx"`` to export it instead.
 
     Args:
         model_name_or_path (str): The model name on Hugging Face (e.g. 'naver/splade-cocondenser-ensembledistil')
@@ -22,6 +25,11 @@ def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name
         task_name (str): The task name for the model (e.g. 'feature-extraction', 'fill-mask', 'sequence-classification').
         model_kwargs (dict): Additional keyword arguments for the model loading.
     """
+    logger.warning(
+        "This model was exported with a previous version of sentence-transformers and only a part of the model was exported (Transformers)."
+        "Loading such models is deprecated and will be removed in a future release. "
+        "Please consider re-exporting your model to export the full model instead."
+    )
     try:
         import onnxruntime as ort
         from optimum.onnxruntime import (
@@ -49,8 +57,7 @@ def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name
     except ModuleNotFoundError:
         raise Exception(
             "Using the ONNX backend requires installing Optimum and ONNX Runtime. "
-            "You can install them with pip: `pip install sentence-transformers[onnx]` "
-            "or `pip install sentence-transformers[onnx-gpu]`"
+            "You can install them with pip: `pip install optimum-onnx` "
         )
 
     # Default to the highest priority available provider if not specified
@@ -67,31 +74,33 @@ def load_onnx_model(model_name_or_path: str, config: PretrainedConfig, task_name
         load_path, is_local, model_kwargs, ONNX_WEIGHTS_NAME, target_file_glob, backend_name
     )
 
-    # If we're exporting, then there's no need for a file_name to load the model from
     if export:
-        model_kwargs.pop("file_name", None)
+        raise ValueError(
+            f"No ONNX model was found in {model_name_or_path!r}. `load_onnx_model` is deprecated: and loads "
+            "legacy model exported by a previous version of sentence-transformers, exporting a Transformer model alone is deprecated. "
+            'To export the whole model instead, load it with `model_kwargs={"export": True}` and save it with `save_pretrained().'
+        )
 
-    # Either load an exported model, or export the model to ONNX
+    # Load legacy model using optimum
     model = model_cls.from_pretrained(
         model_name_or_path,
         config=config,
-        export=export,
+        export=False,
         **model_kwargs,
     )
 
     # Wrap the save_pretrained method to save the model in the correct subfolder
     model._save_pretrained = _save_pretrained_wrapper(model._save_pretrained, subfolder="onnx")
 
-    # Warn the user to save the model if they haven't already
-    if export:
-        backend_warn_to_save(model_name_or_path, is_local, backend_name)
-
     return model
 
 
 def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_name: str, **model_kwargs):
     """
-    Load and perhaps export an OpenVINO model using the Optimum library.
+    Load legacy OpenVINO model using the Optimum library.
+
+    Deprecated: only loads a Transformer model exported by a previous version of sentence-transformers.
+    Load the whole model with ``backend="openvino"`` to export it instead.
 
     Args:
         model_name_or_path (str): The model name on Hugging Face (e.g. 'naver/splade-cocondenser-ensembledistil')
@@ -100,6 +109,11 @@ def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_
         task_name (str): The task name for the model (e.g. 'feature-extraction', 'fill-mask', 'sequence-classification').
         model_kwargs (dict): Additional keyword arguments for the model loading.
     """
+    logger.warning(
+        "This model was exported with a previous version of sentence-transformers and only a part of the model was exported (Transformers)."
+        "Loading such models is deprecated and will be removed in a future release. "
+        "Please consider re-exporting your model to export the full model instead."
+    )
     try:
         from optimum.intel.openvino import (
             OV_XML_FILE_NAME,
@@ -126,7 +140,7 @@ def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_
     except ModuleNotFoundError:
         raise Exception(
             "Using the OpenVINO backend requires installing Optimum and OpenVINO. "
-            "You can install them with pip: `pip install sentence-transformers[openvino]`"
+            "You can install them with pip: `pip install optimum-intel`"
         )
 
     load_path = Path(model_name_or_path)
@@ -139,9 +153,12 @@ def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_
         load_path, is_local, model_kwargs, OV_XML_FILE_NAME, target_file_glob, backend_name
     )
 
-    # If we're exporting, then there's no need for a file_name to load the model from
     if export:
-        model_kwargs.pop("file_name", None)
+        raise ValueError(
+            f"No OpenVINO model was found in {model_name_or_path!r}. `load_openvino_model` is deprecated: and loads "
+            "legacy model exported by a previous version of sentence-transformers, exporting a Transformer model alone is deprecated. "
+            'To export the whole model instead, load it with `model_kwargs={"export": True}` and save it with `save_pretrained().'
+        )
 
     # ov_config can be either a dictionary, or point to a json file with an OpenVINO config,
     # at which point we load the config dict from the file
@@ -157,19 +174,15 @@ def load_openvino_model(model_name_or_path: str, config: PretrainedConfig, task_
     else:
         model_kwargs["ov_config"] = {}
 
-    # Either load an exported model, or export the model to OpenVINO
+    # Load legacy model using optimum
     model = model_cls.from_pretrained(
         model_name_or_path,
         config=config,
-        export=export,
+        export=False,
         **model_kwargs,
     )
 
     # Wrap the save_pretrained method to save the model in the correct subfolder
     model._save_pretrained = _save_pretrained_wrapper(model._save_pretrained, subfolder="openvino")
-
-    # Warn the user to save the model if they haven't already
-    if export:
-        backend_warn_to_save(model_name_or_path, is_local, backend_name)
 
     return model
