@@ -143,7 +143,8 @@ def normalize_embeddings(embeddings: Tensor) -> Tensor:
     # Compute row norms efficiently
     row_norms = values.new_zeros(embeddings.size(0))
     row_norms.index_add_(0, indices[0], values**2)
-    row_norms = torch.sqrt(row_norms).index_select(0, indices[0])
+    # Explicitly stored zero rows must also have finite gradients through the square root.
+    row_norms = torch.sqrt(row_norms.masked_fill(row_norms == 0, 1)).index_select(0, indices[0])
 
     # Normalize values where norm > 0
     mask = row_norms > 0
