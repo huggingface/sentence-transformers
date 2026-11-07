@@ -7,7 +7,7 @@ import os
 import re
 from copy import deepcopy
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -418,6 +418,31 @@ def test_router_load_with_dtype_casts_routed_modules(stsb_bert_tiny_model: Sente
     model = SentenceTransformer(str(tmp_path), model_kwargs={"dtype": torch.float16})
     assert {param.dtype for param in model.parameters()} == {torch.float16}
     assert model.encode_query(["What is the capital of France?"], convert_to_tensor=True).dtype == torch.float16
+
+
+def test_router_load_forwards_kwargs_to_nested_sentence_transformers(
+    stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, recwarn: pytest.WarningsRecorder
+):
+    """Routes holding whole SentenceTransformer models get the caller's model_kwargs and aren't placed on the default
+    device first (https://github.com/huggingface/sentence-transformers/issues/3822)."""
+    dim = stsb_bert_tiny_model.get_embedding_dimension()
+    router = Router.for_query_document(
+        [stsb_bert_tiny_model, Dense(dim, 8)], [deepcopy(stsb_bert_tiny_model), Dense(dim, 8)]
+    )
+    SentenceTransformer(modules=[router], device="cpu").save_pretrained(str(tmp_path))
+    recwarn.clear()
+
+    with patch.object(SentenceTransformer, "get_device_name", return_value="cpu") as get_device_name:
+        model = SentenceTransformer(str(tmp_path), device="cpu", model_kwargs={"dtype": torch.bfloat16})
+
+    get_device_name.assert_not_called()
+    assert {param.dtype for param in model.parameters()} == {torch.bfloat16}
+    assert not [warning for warning in recwarn if "load(...) is deprecated" in str(warning.message)]
+    assert model.encode_query(["What is the capital of France?"], convert_to_tensor=True).dtype == torch.bfloat16
+
+    # Calling the deprecated method directly, without a subfolder, still warns
+    with pytest.warns(DeprecationWarning, match=r"load\(\.\.\.\) is deprecated"):
+        SentenceTransformer.load(str(tmp_path))
 
 
 def test_router_save_load_with_custom_default_route(static_embedding: StaticEmbedding, tmp_path: Path):

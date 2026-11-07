@@ -21,7 +21,7 @@ from sentence_transformers.base.modality_types import SingleInput
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
-from sentence_transformers.util import batch_to_device, truncate_embeddings
+from sentence_transformers.util import batch_to_device, load_dir_path, truncate_embeddings
 from sentence_transformers.util.decorators import deprecated_kwargs
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -1226,10 +1226,58 @@ class SentenceTransformer(BaseModel, FitMixin):
             yield
 
     @staticmethod
-    @deprecated("SentenceTransformer.load(...) is deprecated, use SentenceTransformer(...) instead.")
-    def load(input_path: str) -> SentenceTransformer:
-        """Deprecated: Use SentenceTransformer(input_path) instead."""
-        return SentenceTransformer(input_path)
+    def load(
+        input_path: str,
+        subfolder: str | None = None,
+        token: bool | str | None = None,
+        cache_folder: str | None = None,
+        revision: str | None = None,
+        local_files_only: bool = False,
+        trust_remote_code: bool = False,
+        model_kwargs: dict[str, Any] | None = None,
+        processor_kwargs: dict[str, Any] | None = None,
+        config_kwargs: dict[str, Any] | None = None,
+        backend: Literal["torch", "onnx", "openvino"] = "torch",
+        **kwargs,
+    ) -> SentenceTransformer:
+        """Deprecated: Use SentenceTransformer(input_path) instead.
+
+        Model loaders (e.g. :class:`~sentence_transformers.base.modules.Router`) still call this with a ``subfolder``
+        to load a SentenceTransformer that is nested inside another model, forwarding the outer model's loading
+        kwargs. The nested model is loaded on CPU, as the outer model moves all of its modules to its own device.
+        """
+        if subfolder is None:
+            warnings.warn(
+                "SentenceTransformer.load(...) is deprecated, use SentenceTransformer(...) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return SentenceTransformer(input_path)
+
+        model_path = load_dir_path(
+            input_path,
+            subfolder,
+            token=token,
+            cache_folder=cache_folder,
+            revision=revision,
+            local_files_only=local_files_only,
+        )
+        if model_path is None:
+            raise ValueError(f"Could not find the {subfolder!r} subfolder in {input_path!r}.")
+        return SentenceTransformer(
+            model_path,
+            # A `device_map` places the weights itself, otherwise the outer model moves this one to its device
+            device=None if model_kwargs and "device_map" in model_kwargs else "cpu",
+            cache_folder=cache_folder,
+            trust_remote_code=trust_remote_code,
+            revision=revision,
+            local_files_only=local_files_only,
+            token=token,
+            model_kwargs=model_kwargs,
+            processor_kwargs=processor_kwargs,
+            config_kwargs=config_kwargs,
+            backend=backend,
+        )
 
     def _load_default_modules(
         self,
