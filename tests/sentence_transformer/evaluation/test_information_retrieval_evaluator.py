@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -234,3 +235,44 @@ def test_metrics(test_data, mock_model, tmp_path: Path):
 
     for key, expected_value in expected_results.items():
         assert results[key] == pytest.approx(expected_value, abs=1e-9)
+
+
+@pytest.mark.parametrize("corpus_chunk_size", [1, 2, 3, 4, 100])
+def test_ranking_follows_score_then_corpus_id(mock_model, tmp_path: Path, corpus_chunk_size: int):
+    """Mixed tied and untied queries, including chunks smaller than top_k, rank by (-score, corpus_id)."""
+    corpus = {
+        "d5": "car",
+        "d1": "car vehicle",
+        "d3": "car",
+        "d0": "pokemon",
+        "d4": "fruit vegetable",
+        "d2": "fruit",
+    }
+    queries = {"q0": "car", "q1": "pokemon", "q2": "fruit", "q3": "car vehicle"}
+    relevant_docs = {query_id: {"d0"} for query_id in queries}
+    ir_evaluator = InformationRetrievalEvaluator(
+        queries=queries,
+        corpus=corpus,
+        relevant_docs=relevant_docs,
+        name="order",
+        corpus_chunk_size=corpus_chunk_size,
+        accuracy_at_k=[3],
+        precision_recall_at_k=[3],
+        mrr_at_k=[3],
+        ndcg_at_k=[3],
+        map_at_k=[3],
+        write_csv=False,
+        write_predictions=True,
+    )
+    ir_evaluator(mock_model, output_path=str(tmp_path))
+
+    query_embeddings = mock_model.encode(list(queries.values()))
+    corpus_embeddings = mock_model.encode(list(corpus.values()))
+    scores = cos_sim(query_embeddings, corpus_embeddings).tolist()
+    predictions = [
+        json.loads(line)
+        for line in (tmp_path / "Information-Retrieval_evaluation_order_predictions_cosine.jsonl").open()
+    ]
+    for query_idx, prediction in enumerate(predictions):
+        expected = sorted(zip(scores[query_idx], corpus), key=lambda pair: (-pair[0], pair[1]))[:3]
+        assert [result["corpus_id"] for result in prediction["results"]] == [corpus_id for _, corpus_id in expected]
