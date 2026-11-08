@@ -428,10 +428,27 @@ def semantic_search_usearch(
     return outputs
 
 
+def _calibration_to_numpy(
+    calibration_embeddings: Tensor | np.ndarray | list[Tensor] | list[np.ndarray],
+) -> np.ndarray:
+    """Stack calibration embeddings given in any of the formats that `quantize_embeddings` accepts."""
+    if isinstance(calibration_embeddings, Tensor):
+        return _tensor_to_numpy(calibration_embeddings)
+    if isinstance(calibration_embeddings, list):
+        # A list of embeddings or of multi-vector (num_tokens, dim) matrices, e.g. the output of `encode`
+        return np.concatenate(
+            [
+                np.atleast_2d(_tensor_to_numpy(embedding) if isinstance(embedding, Tensor) else embedding)
+                for embedding in calibration_embeddings
+            ]
+        )
+    return calibration_embeddings
+
+
 def _get_quantization_ranges(
     embeddings: np.ndarray,
     precision: Literal["int8", "uint8"],
-    calibration_embeddings: np.ndarray | None,
+    calibration_embeddings: Tensor | np.ndarray | list[Tensor] | list[np.ndarray] | None,
 ) -> np.ndarray:
     if calibration_embeddings is None:
         if embeddings.ndim == 1 or embeddings.shape[0] == 1:
@@ -447,6 +464,8 @@ def _get_quantization_ranges(
                 "or a `calibration_embeddings` that can be used to calculate the buckets."
             )
         calibration_embeddings = embeddings
+    else:
+        calibration_embeddings = _calibration_to_numpy(calibration_embeddings)
     return np.vstack((np.min(calibration_embeddings, axis=0), np.max(calibration_embeddings, axis=0)))
 
 
@@ -469,8 +488,8 @@ def _dequantize_embeddings(
 def quantize_embeddings(
     embeddings: Tensor | np.ndarray | list[Tensor] | list[np.ndarray],
     precision: Literal["float32", "int8", "uint8", "binary", "ubinary"],
-    ranges: np.ndarray | None = None,
-    calibration_embeddings: np.ndarray | None = None,
+    ranges: np.ndarray | Tensor | None = None,
+    calibration_embeddings: Tensor | np.ndarray | list[Tensor] | list[np.ndarray] | None = None,
 ) -> np.ndarray | list[np.ndarray]:
     """
     Quantizes embeddings to a lower precision. This can be used to reduce the memory footprint and increase the
@@ -481,19 +500,20 @@ def quantize_embeddings(
             to a given precision.
         precision: The precision to convert to. Options are "float32",
             "int8", "uint8", "binary", "ubinary".
-        ranges (Optional[np.ndarray]): Ranges for quantization of
+        ranges (Optional[Union[np.ndarray, Tensor]]): Ranges for quantization of
             embeddings. This is only used for int8 and uint8 quantization,
             where the ranges refer to the minimum and maximum values for each
             dimension. So, it's a 2D array with shape (2,
             embedding_dim). Default is None, which means that the ranges
             will be calculated from the calibration embeddings.
-        calibration_embeddings (Optional[np.ndarray]): Embeddings used
+        calibration_embeddings: Embeddings used
             for calibration during quantization. This is only used for
             int8 and uint8 quantization, where the calibration embeddings
             can be used to compute ranges, i.e. the minimum and maximum
-            values for each dimension. Default is None, which means that
-            the ranges will be calculated from the embeddings. This is
-            not recommended.
+            values for each dimension. Accepts the same formats as
+            `embeddings`, including a list of multi-vector matrices.
+            Default is None, which means that the ranges will be
+            calculated from the embeddings. This is not recommended.
 
     Returns:
         Quantized embeddings with the specified precision. For a list of multi-vector matrices (variable-length
@@ -503,6 +523,8 @@ def quantize_embeddings(
         ValueError: If int8 or uint8 ranges would have to be inferred from a single embedding without
             explicit `ranges` or `calibration_embeddings`.
     """
+    if isinstance(ranges, Tensor):
+        ranges = _tensor_to_numpy(ranges)
     if isinstance(embeddings, Tensor):
         embeddings = _tensor_to_numpy(embeddings)
     elif isinstance(embeddings, list):
