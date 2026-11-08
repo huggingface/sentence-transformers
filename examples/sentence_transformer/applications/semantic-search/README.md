@@ -93,7 +93,7 @@ By default, up to 100 queries are processed in parallel. Further, the corpus is 
 ## Speed Optimization
 
 ```{eval-rst}
-To get the optimal speed for the :func:`~sentence_transformers.util.semantic_search` method, it is advisable to have the ``query_embeddings`` as well as the ``corpus_embeddings`` on the same GPU-device. This significantly boost the performance. Further, we can normalize the corpus embeddings so that each corpus embeddings is of length 1. In that case, we can use dot-product for computing scores.
+To get the optimal speed for the :func:`~sentence_transformers.util.semantic_search` method, it is advisable to have the ``query_embeddings`` as well as the ``corpus_embeddings`` on the same GPU-device. This significantly boosts the performance. Further, we can normalize the corpus embeddings so that each corpus embedding is of length 1. In that case, we can use dot-product for computing scores.
 
 .. code-block:: python
 
