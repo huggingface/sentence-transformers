@@ -10,13 +10,16 @@ from sentence_transformers.multi_vector_encoder.modules import (
     BaseTokenPooling,
     HierarchicalTokenPooling,
 )
-from sentence_transformers.util import batch_to_device
+from sentence_transformers.util import batch_to_device, maxsim, maxsim_pairwise
 from tests.utils import skip_fp16_cpu_layer_norm
 
 DIM = 8
 
 
 class _PassthroughModel(nn.Module):
+    similarity = staticmethod(maxsim)
+    similarity_pairwise = staticmethod(maxsim_pairwise)
+
     def __init__(self) -> None:
         super().__init__()
         self.forward_calls = 0
