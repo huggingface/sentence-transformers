@@ -5,15 +5,19 @@ Computes embeddings
 from __future__ import annotations
 
 import numpy as np
+import pytest
+import torch
 
 from sentence_transformers import SentenceTransformer
 
 
-def test_encode_token_embeddings(stsb_bert_tiny_model: SentenceTransformer) -> None:
+@pytest.mark.parametrize("padding_side", ["right", "left"])
+def test_encode_token_embeddings(stsb_bert_tiny_model: SentenceTransformer, padding_side: str) -> None:
     """
     Test that encode(output_value='token_embeddings') works
     """
     model = stsb_bert_tiny_model
+    model.tokenizer.padding_side = padding_side
     sent = [
         "Hello Word, a test sentence",
         "Here comes another sentence",
@@ -49,17 +53,29 @@ def test_encode_single_sentences(stsb_bert_tiny_model: SentenceTransformer) -> N
     np.testing.assert_allclose(emb, np.stack([model.encode(sentence) for sentence in sentences]), atol=1e-5)
 
 
-def test_encode_normalize(stsb_bert_tiny_model: SentenceTransformer) -> None:
+@pytest.mark.parametrize("convert_to_tensor", [False, True])
+def test_encode_normalize(
+    stsb_bert_tiny_model: SentenceTransformer, inference_device: str, convert_to_tensor: bool
+) -> None:
     model = stsb_bert_tiny_model
+    sentences = ["Hello Word, a test sentence", "Here comes another sentence", "My final sentence"]
+    reference = model.encode(sentences, device="cpu", normalize_embeddings=True, batch_size=2)
     emb = model.encode(
-        [
-            "Hello Word, a test sentence",
-            "Here comes another sentence",
-            "My final sentence",
-        ],
+        sentences,
+        device=inference_device,
         normalize_embeddings=True,
+        batch_size=2,
+        convert_to_tensor=convert_to_tensor,
     )
+    assert model.device.type == inference_device
+    if convert_to_tensor:
+        assert isinstance(emb, torch.Tensor)
+        assert emb.device.type == inference_device
+        emb = emb.cpu().numpy()
+    else:
+        assert isinstance(emb, np.ndarray)
     assert emb.shape == (3, model.get_embedding_dimension())
+    np.testing.assert_allclose(emb, reference, atol=1e-3, rtol=1e-3)
     for norm in np.linalg.norm(emb, axis=1):
         assert abs(norm - 1) < 0.001
 

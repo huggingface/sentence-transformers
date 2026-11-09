@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import Tensor
 from transformers.utils import logging as transformers_logging
 
+from sentence_transformers.multi_vector_encoder.evaluation.utils import pooling_config
+from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.sentence_transformer.evaluation.information_retrieval import (
     InformationRetrievalEvaluator,
 )
@@ -58,8 +60,10 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             Defaults to ``""``.
         write_csv (bool): Append per-call metric values to ``Information-Retrieval_evaluation_<name>_results.csv``.
             Defaults to True.
-        truncate_dim (int, optional): Not supported: multi-vector token embeddings have no
-            Matryoshka-style truncation, so any non-None value raises a ValueError. Defaults to None.
+        truncate_dim (int, optional): Truncate and L2-normalize each token embedding before scoring.
+            Defaults to None (use the model's default dimension).
+        token_pooling (BaseTokenPooling, optional): Pooling applied during encoding. The pooler's
+            ``tasks`` select which inputs are pooled. Defaults to None (use the model's default pooler).
         main_score_function (str or SimilarityFunction, optional): Which score-function key to treat
             as the primary metric for the model card / trainer. Defaults to None (use the first /
             only key in ``score_functions``).
@@ -112,15 +116,10 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         *,
         corpus_chunk_size: int = 5000,
         chunk_elements: int | None = None,
+        token_pooling: BaseTokenPooling | None = None,
         score_functions: dict[str, Callable[[Tensor, Tensor], Tensor]] | None = None,
         **kwargs,
     ) -> None:
-        if kwargs.get("truncate_dim") is not None:
-            raise ValueError(
-                "truncate_dim is not supported by MultiVectorEncoder evaluators: multi-vector token "
-                "embeddings have no Matryoshka-style truncation. Remove truncate_dim to evaluate at "
-                "the full dimension."
-            )
         if score_functions is not None:
             if chunk_elements is not None:
                 raise ValueError(
@@ -144,6 +143,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         # _model_score_functions), so models carrying a different multi-vector similarity are scored
         # and labeled with it.
         self.chunk_elements = chunk_elements
+        self.token_pooling = token_pooling
         super().__init__(
             queries=queries,
             corpus=corpus,
@@ -198,8 +198,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         prompt: str | None = None,
         **kwargs,
     ) -> list[Tensor] | Tensor:
-        # MultiVectorEncoder.encode doesn't accept truncate_dim, drop it before forwarding.
-        kwargs.pop("truncate_dim", None)
+        kwargs.setdefault("truncate_dim", self.truncate_dim)
         if encode_fn_name == "query":
             encode_fn = model.encode_query
         elif encode_fn_name == "document":
@@ -212,6 +211,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             prompt=prompt,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
+            token_pooling=self.token_pooling,
             **kwargs,
         )
         if encode_fn_name == "query":
@@ -220,3 +220,9 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             # encoded per chunk.
             embeddings = torch.nn.utils.rnn.pad_sequence(embeddings, batch_first=True)
         return embeddings
+
+    def get_config_dict(self) -> dict[str, Any]:
+        config_dict = super().get_config_dict()
+        if self.token_pooling is not None:
+            config_dict["token_pooling"] = pooling_config(self.token_pooling)
+        return config_dict

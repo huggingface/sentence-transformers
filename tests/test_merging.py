@@ -259,6 +259,60 @@ def test_incompatible_models(model, problem):
         SentenceTransformer.merge([model, other])
 
 
+def test_module_configuration_error_details(model):
+    other = deepcopy(model)
+    other[1].module_output_name = "different_embedding"
+
+    with pytest.raises(ValueError) as error:
+        SentenceTransformer.merge([model, other])
+
+    assert str(error.value) == (
+        "Module '1' has a different configuration in model 1:\n"
+        "  module_output_name: model 0='sentence_embedding', model 1='different_embedding'"
+    )
+
+
+def test_transformer_configuration_error_details(stsb_bert_tiny_model):
+    model = stsb_bert_tiny_model.cpu()
+    model[0].model.config.update({"pad_token_id": 50284, "bos_token_id": None, "eos_token_id": None})
+    other = deepcopy(model)
+    other[0].model.config.update(
+        {
+            "pad_token_id": 50283,
+            "bos_token_id": 50281,
+            "eos_token_id": 50282,
+            "architectures": ["DifferentArchitecture"],
+            "_name_or_path": "different-model",
+        }
+    )
+
+    with pytest.raises(ValueError) as error:
+        SentenceTransformer.merge([model, other])
+
+    assert str(error.value) == (
+        "Transformer '0.model' has a different configuration in model 1:\n"
+        "  bos_token_id: model 0=None, model 1=50281\n"
+        "  eos_token_id: model 0=None, model 1=50282\n"
+        "  pad_token_id: model 0=50284, model 1=50283"
+    )
+
+
+@pytest.mark.parametrize("position", [0, 1])
+def test_transformer_configuration_missing_field(stsb_bert_tiny_model, position):
+    models = [stsb_bert_tiny_model.cpu(), deepcopy(stsb_bert_tiny_model).cpu()]
+    models[position][0].model.config.extra_setting = None
+
+    with pytest.raises(ValueError) as error:
+        SentenceTransformer.merge(models)
+
+    values = ["<missing>", "<missing>"]
+    values[position] = "None"
+    assert str(error.value) == (
+        "Transformer '0.model' has a different configuration in model 1:\n"
+        f"  extra_setting: model 0={values[0]}, model 1={values[1]}"
+    )
+
+
 @pytest.mark.parametrize(
     "activation,other_activation",
     [
@@ -272,8 +326,10 @@ def test_incompatible_torch_module_settings(model, activation, other_activation)
     other = deepcopy(model)
     other[1].activation_function = other_activation
 
-    with pytest.raises(ValueError, match="different configuration"):
+    with pytest.raises(ValueError, match="different configuration") as error:
         SentenceTransformer.merge([model, other], parameters={"weight": [0, 1]})
+    assert f"model 0: {activation.extra_repr()}" in str(error.value)
+    assert f"model 1: {other_activation.extra_repr()}" in str(error.value)
 
 
 @pytest.mark.parametrize(

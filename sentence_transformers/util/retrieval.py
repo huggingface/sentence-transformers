@@ -311,8 +311,8 @@ def community_detection(
         # Compute cosine similarity scores
         cos_scores = embeddings[start_idx : start_idx + batch_size] @ embeddings.T
 
-        # Use a torch-heavy approach if the embeddings are on CUDA, otherwise a loop-heavy one
-        if embeddings.device.type in ["cuda", "npu"]:
+        # Use a torch-heavy approach if the embeddings are on CUDA, NPU or MPS, otherwise a loop-heavy one
+        if embeddings.device.type in ["cuda", "npu", "mps"]:
             # Threshold the cos scores and determine how many close embeddings exist per embedding
             threshold_mask = cos_scores >= threshold
             row_wise_count = threshold_mask.sum(1)

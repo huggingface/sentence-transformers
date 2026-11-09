@@ -250,7 +250,8 @@ def semantic_search_usearch(
             both.
         corpus_precision: Precision of the corpus embeddings. The
             options are "float32", "int8", "ubinary", or "binary".
-            Default is "float32".
+            Default is "float32". Use "float32" for floating-point embeddings,
+            even if a supplied index stores them as float16 or bfloat16.
         top_k: Number of top results to retrieve. Default is 10.
         ranges: Ranges for quantization of embeddings. This is only used
             for int8 quantization, where the ranges refer to the
@@ -292,7 +293,6 @@ def semantic_search_usearch(
     Each query yields at most `top_k` results, and fewer when the index holds fewer matches.
     The time taken for the search is a float value.
     """
-    from usearch.compiled import ScalarKind
     from usearch.index import Index
 
     if corpus_embeddings is not None and corpus_index is not None:
@@ -334,7 +334,7 @@ def semantic_search_usearch(
     k = top_k
     if query_embeddings.dtype not in (np.uint8, np.int8):
         if rescore:
-            if corpus_index.dtype != ScalarKind.F32:
+            if corpus_precision != "float32":
                 rescore_embeddings = query_embeddings
                 k *= rescore_multiplier
             else:

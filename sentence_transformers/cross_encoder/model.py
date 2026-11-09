@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import inspect
 import logging
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
@@ -55,7 +57,7 @@ class CrossEncoder(BaseModel, FitMixin):
             Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
             create custom CrossEncoder models from scratch. Defaults to None.
-        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used for
+        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``, ``"neuron"``) that should be used for
             computation. If None, checks if a GPU can be used. If a ``device_map`` is provided via
             ``model_kwargs``, that controls device placement and this argument is ignored. Defaults to None.
         prompts (dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt name,
@@ -126,7 +128,8 @@ class CrossEncoder(BaseModel, FitMixin):
             the max length of the model will be used. Defaults to None.
         activation_fn (Callable, optional): Activation function applied on top of the model's logits during
             :meth:`predict`. If None, ``nn.Sigmoid()`` is used when ``num_labels=1``, else ``nn.Identity()``.
-            Defaults to None.
+            Use a ``torch.nn.Module`` (e.g. ``nn.Identity()``) if the model will be saved: plain functions
+            emit a warning on save. Defaults to None.
         keep_in_fp32_modules (list[str], optional): Paths to plain linear layers that compute and return
             fp32, including under autocast. Parameter storage is unchanged. None inherits the saved
             selection, or selects nothing for a model without one. Pass [] to disable a saved selection.
@@ -196,13 +199,11 @@ class CrossEncoder(BaseModel, FitMixin):
         self.keep_in_fp32_modules = keep_in_fp32_modules
 
         if num_labels is not None:
-            if config_kwargs is None:
-                config_kwargs = {}
+            config_kwargs = dict(config_kwargs or {})
             config_kwargs["num_labels"] = num_labels
 
         if max_length is not None:
-            if processor_kwargs is None:
-                processor_kwargs = {}
+            processor_kwargs = dict(processor_kwargs or {})
             processor_kwargs["model_max_length"] = max_length
 
         super().__init__(
@@ -863,6 +864,12 @@ class CrossEncoder(BaseModel, FitMixin):
         return True
 
     def _get_model_config(self) -> dict[str, Any]:
+        if inspect.isroutine(self.activation_fn) or isinstance(self.activation_fn, functools.partial):
+            logger.warning(
+                f"Saving activation function {self.activation_fn!r}: plain functions can't be restored "
+                "from the configuration, so loading with default settings will use the default activation function. "
+                "Please use a `torch.nn.Module` instead, e.g. `torch.nn.Identity()` instead of `lambda x: x`."
+            )
         config = super()._get_model_config() | {
             "activation_fn": fullname(self.activation_fn),
         }
@@ -908,5 +915,5 @@ print(rankings)
 
 ---
 *This PR was auto-generated with \
-[`push_to_hub`](https://sbert.net/docs/package_reference/cross_encoder/cross_encoder.html#sentence_transformers.cross_encoder.CrossEncoder.push_to_hub).*
+[`push_to_hub`](https://sbert.net/docs/package_reference/cross_encoder/model.html#sentence_transformers.cross_encoder.model.CrossEncoder.push_to_hub).*
 """

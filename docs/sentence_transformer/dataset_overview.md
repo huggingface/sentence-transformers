@@ -17,7 +17,7 @@ In practice, most dataset configurations will take one of four forms:
 - **Pair with Similarity Score**: A pair of sentences with a score indicating their similarity. Common examples are "Semantic Textual Similarity" datasets.
    - **Examples:** [sentence-transformers/stsb](https://huggingface.co/datasets/sentence-transformers/stsb), [PhilipMay/stsb_multi_mt](https://huggingface.co/datasets/PhilipMay/stsb_multi_mt).
 - **Texts with Classes**: A text with its corresponding class. This data format is easily converted by loss functions into three sentences (triplets) where the first is an "anchor", the second a "positive" of the same class as the anchor, and the third a "negative" of a different class.
-   - **Examples:** [trec](https://huggingface.co/datasets/trec), [yahoo_answers_topics](https://huggingface.co/datasets/yahoo_answers_topics).
+   - **Examples:** [trec](https://huggingface.co/datasets/CogComp/trec), [yahoo_answers_topics](https://huggingface.co/datasets/community-datasets/yahoo_answers_topics).
 
 Note that it is often simple to transform a dataset from one format to another, such that it works with your loss function of choice.
 

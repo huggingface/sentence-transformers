@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 import torch
 
 from sentence_transformers.sentence_transformer.evaluation import RerankingEvaluator
-from sentence_transformers.util import append_to_last_row, cos_sim
+from sentence_transformers.util import append_to_last_row
 
 if TYPE_CHECKING:
     import numpy as np
@@ -37,7 +37,7 @@ class SparseRerankingEvaluator(RerankingEvaluator):
         at_k (int, optional): Only consider the top k most similar documents to each query for the evaluation. Defaults to 10.
         name (str, optional): Name of the evaluator. Defaults to "".
         write_csv (bool, optional): Write results to CSV file. Defaults to True.
-        similarity_fct (Callable[[torch.Tensor, torch.Tensor], torch.Tensor], optional): Similarity function between sentence embeddings. By default, cosine similarity. Defaults to cos_sim.
+        similarity_fct (Callable[[torch.Tensor, torch.Tensor], torch.Tensor], optional): Similarity function between sentence embeddings. Defaults to None, which uses the model's similarity function.
         batch_size (int, optional): Batch size to compute sentence embeddings. Defaults to 64.
         show_progress_bar (bool, optional): Show progress bar when computing embeddings. Defaults to False.
         use_batched_encoding (bool, optional): Whether or not to encode queries and documents in batches for greater speed, or 1-by-1 to save memory. Defaults to True.
@@ -93,9 +93,9 @@ class SparseRerankingEvaluator(RerankingEvaluator):
             '''
             RerankingEvaluator: Evaluating the model on the ms-marco-dev-small dataset:
             Queries: 967 	 Positives: Min 1.0, Mean 1.1, Max 3.0 	 Negatives: Min 1.0, Mean 7.1, Max 9.0
-            MAP: 53.41
-            MRR@10: 54.14
-            NDCG@10: 65.06
+            MAP: 62.28
+            MRR@10: 62.99
+            NDCG@10: 71.84
             Model Query Sparsity: Active Dimensions: 42.2, Sparsity Ratio: 0.9986
             Model Corpus Sparsity: Active Dimensions: 126.5, Sparsity Ratio: 0.9959
             '''
@@ -103,7 +103,7 @@ class SparseRerankingEvaluator(RerankingEvaluator):
             print(f"Primary metric: {reranking_evaluator.primary_metric}")
             # => Primary metric: ms-marco-dev-small_ndcg@10
             print(f"Primary metric value: {results[reranking_evaluator.primary_metric]:.4f}")
-            # => Primary metric value: 0.6506
+            # => Primary metric value: 0.7184
 
     """
 
@@ -113,7 +113,7 @@ class SparseRerankingEvaluator(RerankingEvaluator):
         at_k: int = 10,
         name: str = "",
         write_csv: bool = True,
-        similarity_fct: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = cos_sim,
+        similarity_fct: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
         batch_size: int = 64,
         show_progress_bar: bool = False,
         use_batched_encoding: bool = True,

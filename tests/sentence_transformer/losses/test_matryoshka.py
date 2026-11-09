@@ -7,7 +7,12 @@ import torch
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.base.modules import Dense
-from sentence_transformers.sentence_transformer.losses import MatryoshkaLoss, MSELoss, MultipleNegativesRankingLoss
+from sentence_transformers.sentence_transformer.losses import (
+    CachedMultipleNegativesRankingLoss,
+    MatryoshkaLoss,
+    MSELoss,
+    MultipleNegativesRankingLoss,
+)
 from sentence_transformers.sentence_transformer.modules import Pooling, WordEmbeddings
 from sentence_transformers.sentence_transformer.modules.tokenizer import WhitespaceTokenizer
 from sentence_transformers.util import cos_sim
@@ -22,6 +27,25 @@ def mock_loss():
             return torch.tensor(0.0)
 
     return _FakeLoss()
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64])
+def test_shrink_zero_padding_has_finite_values_and_gradients(dtype: torch.dtype) -> None:
+    from sentence_transformers.sentence_transformer.losses.matryoshka import shrink
+
+    valid = torch.tensor([[True, False, False], [True, True, True]])
+    embeddings = torch.randn(2, 3, 8, generator=torch.Generator().manual_seed(42), dtype=dtype)
+    embeddings[~valid] = 0
+    embeddings.requires_grad_()
+
+    truncated = shrink(embeddings, 4)
+    assert truncated.dtype == dtype
+    assert torch.isfinite(truncated).all()
+    assert truncated[~valid].count_nonzero() == 0
+    torch.testing.assert_close(truncated[valid].float().norm(dim=-1), torch.ones(valid.sum()), atol=0.005, rtol=0.005)
+    truncated[valid].float().sum().backward()
+    assert torch.isfinite(embeddings.grad).all()
+    assert embeddings.grad[~valid].count_nonzero() == 0
 
 
 def test_empty_matryoshka_dims_raises_error(static_retrieval_mrl_en_v1_model, mock_loss):
@@ -53,8 +77,12 @@ def test_weights_length_mismatch_raises_error(static_retrieval_mrl_en_v1_model, 
         )
 
 
-def test_dimension_exceeds_model_dimension_raises_error(static_retrieval_mrl_en_v1_model, mock_loss):
+@pytest.mark.parametrize("truncate_dim", [None, 256])
+def test_dimension_exceeds_model_dimension_raises_error(
+    static_retrieval_mrl_en_v1_model, mock_loss, truncate_dim: int | None
+):
     """Test that dimension exceeding model's embedding dimension raises ValueError."""
+    static_retrieval_mrl_en_v1_model.truncate_dim = truncate_dim
     expected_msg = "Dimensions in matryoshka_dims cannot exceed the model's embedding dimension of 1024."
     with pytest.raises(ValueError, match=expected_msg):
         MatryoshkaLoss(
@@ -64,8 +92,12 @@ def test_dimension_exceeds_model_dimension_raises_error(static_retrieval_mrl_en_
         )
 
 
-def test_model_dimension_not_in_dims_warns(static_retrieval_mrl_en_v1_model, mock_loss, caplog):
+@pytest.mark.parametrize("truncate_dim", [None, 256])
+def test_model_dimension_not_in_dims_warns(
+    static_retrieval_mrl_en_v1_model, mock_loss, caplog, truncate_dim: int | None
+):
     """Test that model dimension not in matryoshka_dims produces warning."""
+    static_retrieval_mrl_en_v1_model.truncate_dim = truncate_dim
     with caplog.at_level("WARNING"):
         MatryoshkaLoss(
             model=static_retrieval_mrl_en_v1_model,
@@ -89,7 +121,7 @@ def test_model_dimension_none_no_validation(mock_loss):
     """Test that when model dimension is None, no validation or warning occurs."""
 
     class _MockModel:
-        def get_embedding_dimension(self):
+        def _get_untruncated_embedding_dimension(self):
             return None
 
     model = _MockModel()
@@ -190,7 +222,11 @@ def test_mse_loss_matryoshka_per_column_teacher(stsb_bert_tiny_model):
 
 
 @pytest.mark.parametrize("architecture", ["concatenated_pooling", "dense_projection"])
-def test_matryoshka_dims_can_exceed_token_embedding_dimension(architecture: str) -> None:
+@pytest.mark.parametrize("truncate_dim", [None, 2])
+@pytest.mark.parametrize("loss_cls", [MultipleNegativesRankingLoss, CachedMultipleNegativesRankingLoss])
+def test_matryoshka_dims_can_exceed_token_embedding_dimension(
+    architecture: str, truncate_dim: int | None, loss_cls
+) -> None:
     word_embeddings = WordEmbeddings(
         WhitespaceTokenizer(vocab=["PAD", "red", "blue", "green"]),
         embedding_weights=torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]),
@@ -200,11 +236,15 @@ def test_matryoshka_dims_can_exceed_token_embedding_dimension(architecture: str)
         modules = [word_embeddings, Pooling(2, ("mean", "max"))]
     else:
         modules = [word_embeddings, Pooling(2, "mean"), Dense(2, 4)]
-    model = SentenceTransformer(modules=modules, device="cpu")
-    assert model.get_embedding_dimension() == 4
+    model = SentenceTransformer(modules=modules, device="cpu", truncate_dim=truncate_dim)
+    assert model.get_embedding_dimension() == (truncate_dim or 4)
 
     anchors, positives = ["red", "blue"], ["green", "red blue"]
-    loss_fn = MatryoshkaLoss(model, MultipleNegativesRankingLoss(model), matryoshka_dims=[4, 2])
+    kwargs = (
+        {"mini_batch_size": 1, "show_progress_bar": False} if loss_cls is CachedMultipleNegativesRankingLoss else {}
+    )
+    loss_fn = MatryoshkaLoss(model, loss_cls(model, **kwargs), matryoshka_dims=[4, 2])
+    assert model.truncate_dim == truncate_dim
     loss = loss_fn([model.preprocess(anchors), model.preprocess(positives)], None)
 
     anchor_embeddings = model(model.preprocess(anchors))["sentence_embedding"]
@@ -222,4 +262,37 @@ def test_matryoshka_dims_can_exceed_token_embedding_dimension(architecture: str)
     model.zero_grad()
     expected.backward()
     for grad, param in zip(grads, model.parameters()):
-        torch.testing.assert_close(grad, param.grad)
+        torch.testing.assert_close(grad, param.grad, atol=1e-4, rtol=1e-4)
+
+
+def test_cached_loss_behind_wrappers_matches_non_cached(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+
+    class ScaledLoss(torch.nn.Module):
+        def __init__(self, loss):
+            super().__init__()
+            self.loss = loss
+            self.uses_gradient_cache = getattr(loss, "uses_gradient_cache", False)
+
+        def forward(self, features, labels):
+            return 0.7 * self.loss(features, labels)
+
+    model = stsb_bert_tiny_model.cpu()
+    disable_dropout(model)
+    model.train()
+
+    def loss_and_grads(inner):
+        model.zero_grad()
+        features = [
+            model.preprocess(texts) for texts in (["anchor a", "anchor b", "anchor c"], ["doc a", "doc b", "doc c"])
+        ]
+        loss = MatryoshkaLoss(model, ScaledLoss(ScaledLoss(inner)), matryoshka_dims=[128, 64, 32])
+        value = loss(features, None)
+        value.backward()
+        return value.detach(), gradients(model)
+
+    cached_value, cached_grads = loss_and_grads(CachedMultipleNegativesRankingLoss(model, mini_batch_size=2))
+    plain_value, plain_grads = loss_and_grads(MultipleNegativesRankingLoss(model))
+    assert_trained(cached_grads)
+    torch.testing.assert_close(cached_value, plain_value, rtol=1e-4, atol=1e-5)
+    torch.testing.assert_close(cached_grads, plain_grads, rtol=1e-4, atol=1e-4)

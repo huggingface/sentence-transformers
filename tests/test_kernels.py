@@ -392,11 +392,8 @@ def test_ward_batched_shapes_and_gradients(loader, provider):
     ]
     for pooled, reference in zip(actual, expected):
         torch.testing.assert_close(pooled, reference)
-    for actual_grad, expected_grad in zip(
-        torch.autograd.grad(sum(value.sum() for value in actual), documents, retain_graph=True),
-        torch.autograd.grad(sum(value.sum() for value in expected), documents),
-    ):
-        torch.testing.assert_close(actual_grad, expected_grad)
+    for gradient in torch.autograd.grad(sum(value.sum() for value in actual), documents):
+        torch.testing.assert_close(gradient, torch.ones_like(gradient))
     assert loader
 
 
@@ -409,10 +406,38 @@ def test_custom_ward_supports_inputs_beyond_default_provider_limit(loader):
     expected = torch.cat((document[:1], document[1:].mean(0, keepdim=True)))
     torch.testing.assert_close(actual, expected)
     actual.sum().backward()
-    expected_gradient = torch.full_like(document, 1 / (len(document) - 1))
-    expected_gradient[0] = 1
-    torch.testing.assert_close(document.grad, expected_gradient)
+    torch.testing.assert_close(document.grad, torch.ones_like(document))
     assert loader
+
+
+@pytest.mark.parametrize("pooling_options", [{"max_tokens": 4}, {"distance_threshold": 100.0}])
+def test_ward_pooling_controls_keep_reference_behavior(loader, monkeypatch, pooling_options):
+    from sentence_transformers.multi_vector_encoder.modules.token_pooling import _WardClustering
+
+    documents = [torch.randn(length, 8).requires_grad_() for length in [0, 1, 2, 7, 11]]
+    reference_clustering = _WardClustering()
+    requested_counts = []
+
+    def forward(self, distances, lengths, cluster_counts):
+        requested_counts.append(cluster_counts.tolist())
+        return reference_clustering(distances, lengths, cluster_counts)
+
+    monkeypatch.setattr(SingletonWard, "forward", forward)
+    reference = HierarchicalTokenPooling(**pooling_options).pool(documents)
+    pooler = HierarchicalTokenPooling(**pooling_options, kernel_config=config(STWardClustering="SingletonWard"))
+    actual = pooler.pool(documents)
+    for pooled, expected in zip(actual, reference):
+        torch.testing.assert_close(pooled, expected)
+    for gradient, expected_gradient in zip(
+        torch.autograd.grad(sum(value.sum() for value in actual), documents, retain_graph=True),
+        torch.autograd.grad(sum(value.sum() for value in reference), documents),
+    ):
+        torch.testing.assert_close(gradient, expected_gradient)
+    assert bool(loader) == ("max_tokens" in pooling_options)
+    if "max_tokens" in pooling_options:
+        assert requested_counts == [[0, 0, 1, 3, 3]]
+    for pooled, restored in zip(actual, deepcopy(pooler).pool(documents)):
+        torch.testing.assert_close(pooled, restored)
 
 
 @pytest.mark.parametrize("round_trip", [deepcopy, lambda value: pickle.loads(pickle.dumps(value))])
@@ -457,7 +482,7 @@ def test_ward_default_provider_is_opt_in(loader, options):
     torch.testing.assert_close(reference.pool_one(document), expected)
 
 
-@pytest.mark.parametrize("path", ["pipeline", "router", "encode", "raw"])
+@pytest.mark.parametrize("path", ["pipeline", "router", "default", "encode", "raw"])
 @pytest.mark.parametrize("selection", ["inherit", "disabled", "defaults", "custom"])
 def test_ward_model_inheritance_and_pooler_overrides(loader, path, selection):
     preferences = KernelConfig({"STWardClustering": "test/model:SingletonWard"}, inherit_mapping=False)
@@ -482,8 +507,9 @@ def test_ward_model_inheritance_and_pooler_overrides(loader, path, selection):
         modules=modules,
         device="cpu",
         kernel_config=preferences,
+        token_pooling=pooler if path == "default" else None,
     )
-    kwargs = {} if path in {"pipeline", "router"} else {"token_pooling": pooler}
+    kwargs = {} if path in {"pipeline", "router", "default"} else {"token_pooling": pooler}
     text = ["A document containing many different words to cluster and pool together"]
     if path == "raw":
         result = model.encode_document(text, output_value=None, **kwargs)[0]["token_embeddings"]

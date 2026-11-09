@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from sentence_transformers import MultiVectorEncoder
+from sentence_transformers.multi_vector_encoder.modules import HierarchicalTokenPooling
 
 TEXTS = [
     "short",
@@ -13,14 +14,34 @@ TEXTS = [
 ]
 
 
-def test_multi_process_matches_single_process(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+@pytest.mark.parametrize("truncate_dim", [None, 64])
+@pytest.mark.parametrize("default_truncate_dim", [None, 32])
+def test_multi_process_matches_single_process(
+    mve_bert_tiny_model: MultiVectorEncoder, truncate_dim: int | None, default_truncate_dim: int | None
+) -> None:
     model = mve_bert_tiny_model
+    model.truncate_dim = default_truncate_dim
     model.to("cpu")
-    direct = model.encode_document(TEXTS)
-    pooled = model.encode_document(TEXTS, device=["cpu", "cpu"])
+    direct = model.encode_document(TEXTS, truncate_dim=truncate_dim)
+    pooled = model.encode_document(TEXTS, device=["cpu", "cpu"], truncate_dim=truncate_dim)
     assert len(pooled) == len(direct)
     for direct_emb, pooled_emb in zip(direct, pooled):
         assert torch.allclose(direct_emb, pooled_emb, atol=1e-5)
+
+
+def test_multi_process_default_token_pooling(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = MultiVectorEncoder(
+        modules=list(mve_bert_tiny_model), token_pooling=HierarchicalTokenPooling(max_tokens=4), device="cpu"
+    )
+    pool = model.start_multi_process_pool(["cpu", "cpu"])
+    try:
+        for kwargs in [{}, {"token_pooling": None}, {"token_pooling": HierarchicalTokenPooling(max_tokens=8)}]:
+            direct = model.encode_document(TEXTS, **kwargs)
+            multi_process = model.encode_document(TEXTS, pool=pool, **kwargs)
+            for expected, actual in zip(direct, multi_process):
+                torch.testing.assert_close(actual, expected)
+    finally:
+        model.stop_multi_process_pool(pool)
 
 
 def test_multi_process_output_value_none(mve_bert_tiny_model: MultiVectorEncoder) -> None:

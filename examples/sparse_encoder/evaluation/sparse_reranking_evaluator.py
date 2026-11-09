@@ -44,9 +44,9 @@ results = reranking_evaluator(model)
 """
 RerankingEvaluator: Evaluating the model on the ms_marco_dev_small dataset:
 Queries: 967     Positives: Min 1.0, Mean 1.1, Max 3.0   Negatives: Min 1.0, Mean 7.1, Max 9.0
-MAP: 53.41
-MRR@10: 54.14
-NDCG@10: 65.06
+MAP: 62.28
+MRR@10: 62.99
+NDCG@10: 71.84
 Model Query Sparsity: Active Dimensions: 42.2, Sparsity Ratio: 0.9986
 Model Corpus Sparsity: Active Dimensions: 126.5, Sparsity Ratio: 0.9959
 """
@@ -54,4 +54,4 @@ Model Corpus Sparsity: Active Dimensions: 126.5, Sparsity Ratio: 0.9959
 print(f"Primary metric: {reranking_evaluator.primary_metric}")
 # => Primary metric: ms_marco_dev_small_ndcg@10
 print(f"Primary metric value: {results[reranking_evaluator.primary_metric]:.4f}")
-# => Primary metric value: 0.6506
+# => Primary metric value: 0.7184

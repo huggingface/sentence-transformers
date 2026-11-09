@@ -282,11 +282,12 @@ def _batch_singular_input(
     if isinstance(embeddings, np.ndarray) and embeddings.ndim == 2:
         embeddings = np.expand_dims(embeddings, 0)
     elif isinstance(embeddings, Tensor) and embeddings.ndim == 2:
-        embeddings = embeddings.unsqueeze(0)
+        # Stacking avoids Neuron's unsupported views of inference tensors.
+        embeddings = torch.stack([embeddings]) if embeddings.device.type == "neuron" else embeddings.unsqueeze(0)
     else:
         return embeddings, mask
     if mask is not None and mask.ndim == 1:
-        mask = mask.unsqueeze(0)
+        mask = torch.stack([mask]) if mask.device.type == "neuron" else mask.unsqueeze(0)
     return embeddings, mask
 
 
@@ -363,7 +364,11 @@ def _embedding_dim(embeddings: list | np.ndarray | Tensor) -> int:
     """The trailing embedding dimension, read without materializing a padded batch."""
     if not isinstance(embeddings, list):
         return embeddings.shape[-1]
-    return next((len(item[0]) for item in embeddings if len(item)), 1)
+    for item in embeddings:
+        if len(item):
+            # Shape metadata avoids creating a device-side view of an inference tensor.
+            return item.shape[-1] if isinstance(item, (Tensor, np.ndarray)) else len(item[0])
+    return 1
 
 
 def _token_lengths(embeddings: list | np.ndarray | Tensor) -> list[int]:

@@ -57,3 +57,47 @@ The models must have compatible architectures, tokenizers, module configurations
 The output inherits configuration and preprocessing from the first input. Compare both parents and the merged model on representative reranking data, including the languages you want to support. A merge with a language-specific fine-tune may improve one language while reducing performance on another.
 
 Merging defaults to float32 on CPU and holds the input models and the result in memory. See [Memory and Precision](../../../sentence_transformer/training/merging/README.md#memory-and-precision) for details.
+
+## Results on NanoBEIR
+
+The evaluation below uses a different pair from the Korean fine-tune example: BGE-reranker-large and BGE-reranker-v2-m3, combined with a 50/50 linear merge. The table covers the 11 datasets used by `CrossEncoderNanoBEIREvaluator`. ArguAna and Touche2020 are excluded. Each model reranked the same BM25 top-100 candidates plus all relevant documents, with a 512-token limit per query-document pair. Scores are nDCG@10 multiplied by 100, averaged equally across datasets.
+
+| Model | All 11 datasets | MS MARCO | Other 10 datasets |
+| --- | ---: | ---: | ---: |
+| [BGE-reranker-large](https://huggingface.co/BAAI/bge-reranker-large) | 67.05 | **70.83** | 66.67 |
+| [BGE-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3) | 69.29 | 68.67 | 69.35 |
+| [50/50 merge](https://huggingface.co/cross-encoder/merged-bge-reranker-large) | **69.81** | 70.28 | **69.76** |
+
+The merge gained 0.52 points over BGE-reranker-v2-m3 on average, but scored 4.24 points lower on Quora. On the seven datasets evaluated after candidate selection, it beat the stronger parent's average by only 0.08 points.
+
+### Use the Published Merge
+
+Load [cross-encoder/merged-bge-reranker-large](https://huggingface.co/cross-encoder/merged-bge-reranker-large) directly with `CrossEncoder`:
+
+```python
+from sentence_transformers import CrossEncoder
+
+merged = CrossEncoder("cross-encoder/merged-bge-reranker-large")
+```
+
+The [model card](https://huggingface.co/cross-encoder/merged-bge-reranker-large#evaluation) includes the results for each dataset and a model creation script. This pair requires cropping M3's position embeddings to match BGE-reranker-large before merging. The published merge supports 512-token inputs, compared with M3's native 8192-token limit.
+
+## Evaluate Your Merge
+
+Run the same evaluator on each parent and the merged model, using matching input limits. The default `CrossEncoderNanoBEIREvaluator` uses the 11-dataset protocol described above:
+
+```python
+from sentence_transformers.cross_encoder.evaluation import CrossEncoderNanoBEIREvaluator
+
+evaluator = CrossEncoderNanoBEIREvaluator(rerank_k=100, batch_size=16)
+results = evaluator(merged)
+print(results[evaluator.primary_metric])
+```
+
+## Other Model Types
+
+The same API is available for all four model types:
+
+- [Sentence Transformer merging](../../../sentence_transformer/training/merging/README.md), with dense embedding examples and NanoBEIR results.
+- [Sparse Encoder merging](../../../sparse_encoder/training/merging/README.md), with SPLADE examples and NanoBEIR results.
+- [Multi-Vector Encoder merging](../../../multi_vector_encoder/training/merging/README.md), including token projection layers.

@@ -217,19 +217,16 @@ def _create_minibatch(sentence_feature: dict[str, Any], begin: int, end: int) ->
 
 
 def uses_gradient_cache(loss: Any) -> bool:
-    """Whether ``loss`` defers its backward pass to a hook on the loss tensor it returns.
-
-    Such a loss re-embeds each mini-batch during the *backward* pass, by which time a decorator that
-    patched ``SentenceTransformer.forward`` for the duration of the forward pass has been removed
-    again. ``MatryoshkaLoss`` and ``AdaptiveLayerLoss`` both work by patching that forward, so they
-    have to treat these losses specially: MatryoshkaLoss decorates ``calculate_loss`` instead, and
-    AdaptiveLayerLoss warns that the combination is unsupported.
-
-    Losses report this by setting ``uses_gradient_cache``. :class:`CachedLossMixin` sets it to True,
-    and a loss that can turn the caching off at construction time (``MegaBatchMarginLoss``) overrides
-    it per instance.
-    """
+    """Whether the loss reports that it uses gradient caching."""
     return getattr(loss, "uses_gradient_cache", False)
+
+
+def resolve_gradient_cache_loss(loss: Any) -> Any:
+    """Follow ``.loss`` wrappers to find the loss implementing ``calculate_loss``."""
+    target = loss
+    while not hasattr(target, "calculate_loss") and hasattr(target, "loss"):
+        target = target.loss
+    return target
 
 
 def _minibatch_ranges(

@@ -107,6 +107,9 @@ clustering and replacing each group with its mean. A Ward kernel accelerates the
 clustering step while the pooler continues to handle protected tokens, cluster
 means, and output normalization.
 
+The Ward kernel supports pooling by factor or ``max_tokens``. Distance-threshold
+pooling uses the reference implementation.
+
 A pooler inherits the model's kernel settings by default. Set ``use_kernels=False``
 on :class:`HierarchicalTokenPooling <sentence_transformers.multi_vector_encoder.modules.HierarchicalTokenPooling>`
 to opt out.

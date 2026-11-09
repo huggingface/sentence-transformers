@@ -178,10 +178,12 @@ def mine_hard_negatives(
         model (SentenceTransformer): A SentenceTransformer model to use for embedding the inputs.
         anchor_column_name (str, optional): The column name in `dataset` that contains the anchor/query. Defaults to None, in which case the first column in `dataset` will be used.
         positive_column_name (str, optional): The column name in `dataset` that contains the positive candidates. Defaults to None, in which case the second column in `dataset` will be used.
-        corpus (List[str], optional): A list containing documents as strings that will be used as candidate negatives
-            in addition to the second column in `dataset`. Defaults to None, in which case the second column in
-            `dataset` will exclusively be used as the negative candidate corpus.
-        cross_encoder (CrossEncoder, optional): A CrossEncoder model to use for rescoring the candidates. Defaults to None.
+        corpus (List[str], optional): Documents to use as candidate negatives in addition to the second column
+            in `dataset`. Accepts a list of strings or a dataset column, such as `corpus_dataset["text"]`.
+            Defaults to None, in which case only the second column in `dataset` is used as the negative candidate corpus.
+        cross_encoder (CrossEncoder, optional): A CrossEncoder model to use for rescoring the candidates and positives,
+            even when no score filters are set. Its scores determine the candidate ordering and, when
+            ``output_scores=True``, the returned scores. Defaults to None.
         range_min (int): Minimum rank of the closest matches to consider as negatives. Must be non-negative.
             Defaults to 0.
         range_max (int, optional): Maximum rank of the closest matches to consider as negatives. Must leave at least
@@ -361,6 +363,7 @@ def mine_hard_negatives(
     if num_negatives < 1:
         raise ValueError(f"num_negatives must be at least 1, got num_negatives={num_negatives}.")
 
+    num_extra_candidates = max_positives + 1
     faiss_cap_note = ""
     if range_max is None:
         if (
@@ -374,20 +377,19 @@ def mine_hard_negatives(
         else:
             # max_positives, num_negatives negatives, and range_min skipped
             range_max = range_min + num_negatives + max_positives
-        if use_faiss and range_max + max_positives > 2048:
-            # FAISS on GPU raises if asked to retrieve more than 2048 documents per query, and the search
-            # retrieves range_max + max_positives of them. FAISS on CPU has no such limit.
+        if use_faiss and range_max + num_extra_candidates > 2048:
+            # FAISS on GPU limits retrieval to 2048 candidates, including those we exclude.
             if getattr(faiss, "get_num_gpus", lambda: 0)() > 0:
-                range_max = 2048 - max_positives
+                range_max = 2048 - num_extra_candidates
                 faiss_cap_note = (
                     f" Note that range_max was capped to {range_max} because FAISS on GPU can only retrieve up to"
-                    " 2048 documents per query, some of which are reserved for the positives. Passing use_faiss=False"
+                    " 2048 documents per query, some of which are reserved for excluded candidates. Passing use_faiss=False"
                     " lifts that cap, although it can cost a lot more memory."
                 )
                 if verbose:
                     print(
                         "Using FAISS on GPU, we can only retrieve up to 2048 documents per query, some of which "
-                        f"are reserved for the positives. Setting range_max to {range_max}."
+                        f"are reserved for excluded candidates. Setting range_max to {range_max}."
                     )
         if verbose:
             print(f"Setting range_max to {range_max} based on the provided parameters.")
@@ -411,9 +413,7 @@ def mine_hard_negatives(
     log_counters = {}
     queries = list(dataset[anchor_column_name])
     positives = list(dataset[positive_column_name])
-    separate_corpus = corpus is not None
-    if not separate_corpus:
-        corpus = positives
+    corpus = positives if corpus is None else list(corpus)
 
     # Deduplicate the corpus
     # make sure all the positives are also in the corpus and de-duplicate it.
@@ -429,6 +429,7 @@ def mine_hard_negatives(
     queries_idx = {query: idx for idx, query in enumerate(queries)}
     n_queries = len(queries)
     batch_idx = torch.arange(n_queries).unsqueeze(-1)
+    query_corpus_indices = [corpus_idx.get(query, -1) for query in queries]
 
     device = model.device
 
@@ -514,6 +515,7 @@ def mine_hard_negatives(
             if verbose:
                 print(f"[Cache] Saved corpus embeddings to {corpus_cache_file}")
 
+    candidate_count = range_max + num_extra_candidates
     if use_faiss:
         index = faiss.IndexFlatIP(model.get_embedding_dimension())
         # Move the index to the GPU if available
@@ -532,8 +534,7 @@ def mine_hard_negatives(
         # Iterate over query embeddings in batches so we can track the progress
         for i in trange(0, len(query_embeddings), faiss_batch_size, desc="Querying FAISS index"):
             query_chunk = query_embeddings[i : i + faiss_batch_size]
-            # Keep the range_max + max_positives highest scores. We offset by max_positives to leave room for the positive pair(s).
-            scores, indices = index.search(query_chunk, k=range_max + max_positives)
+            scores, indices = index.search(query_chunk, k=candidate_count)
             scores_list.append(scores)
             indices_list.append(indices)
         scores = torch.from_numpy(np.concatenate(scores_list, axis=0)).to(device)
@@ -544,21 +545,19 @@ def mine_hard_negatives(
         indices_list = []
         corpus_embeddings = torch.as_tensor(corpus_embeddings)
         # torch.topk raises if k exceeds the corpus size, so cap it here and pad back up below.
-        k = min(range_max + max_positives, len(corpus))
+        k = min(candidate_count, len(corpus))
         # Compute the similarity scores between the queries and the corpus in batches, to avoid
         # materializing the full (n_queries, n_corpus) similarity matrix
         for i in trange(0, len(query_embeddings), faiss_batch_size, desc="Computing similarity scores"):
             chunk_scores = model.similarity(query_embeddings[i : i + faiss_batch_size], corpus_embeddings).to(device)
 
-            # Keep only the range_max + max_positives highest scores. We offset by max_positives to leave room for the positive pair(s).
             chunk_scores, chunk_indices = torch.topk(chunk_scores, k=k, dim=1)
             scores_list.append(chunk_scores)
             indices_list.append(chunk_indices)
         scores = torch.cat(scores_list, dim=0)
         indices = torch.cat(indices_list, dim=0)
 
-        # Pad back up to range_max + max_positives columns with index -1, mirroring the FAISS branch.
-        missing = (range_max + max_positives) - scores.size(1)
+        missing = candidate_count - scores.size(1)
         if missing > 0:
             scores = torch.cat([scores, scores.new_full((scores.size(0), missing), -float("inf"))], dim=1)
             indices = torch.cat([indices, indices.new_full((indices.size(0), missing), -1)], dim=1)
@@ -572,6 +571,8 @@ def mine_hard_negatives(
         query_idx = queries_idx[query]
         if corpus_idx[positive] not in positive_indices[query_idx]:
             positive_indices[query_idx].append(corpus_idx[positive])
+        if include_positives and query == positive:
+            query_corpus_indices[query_idx] = -1
 
     n_positives = [len(p) for p in positive_indices]
 
@@ -582,11 +583,12 @@ def mine_hard_negatives(
         positives.extend([corpus[doc_idx] for doc_idx in positive_indices[idx]])
         all_queries.extend([queries[idx]] * n_positives[idx])
 
-    positive_indices = [torch.tensor(p, device=device) for p in positive_indices]
+    positive_query_indices = [idx for idx in range(n_queries) for _ in range(n_positives[idx])]
+    flat_positive_indices = [idx for row in positive_indices for idx in row]
 
     # Compute the positive scores
-    query_embeddings = query_embeddings[[idx for idx in range(n_queries) for _ in range(n_positives[idx])]]
-    positive_embeddings = corpus_embeddings[torch.cat(positive_indices).tolist()]
+    query_embeddings = query_embeddings[positive_query_indices]
+    positive_embeddings = corpus_embeddings[flat_positive_indices]
     positive_scores = model.similarity_pairwise(query_embeddings, positive_embeddings).to(device)
 
     del query_embeddings
@@ -594,9 +596,7 @@ def mine_hard_negatives(
     del corpus_embeddings
 
     # Rescore with cross_encoder
-    if cross_encoder is not None and (
-        absolute_margin is not None or relative_margin is not None or max_score is not None or min_score is not None
-    ):
+    if cross_encoder is not None:
         if use_multi_process:
             pool = cross_encoder.start_multi_process_pool(
                 target_devices=None if isinstance(use_multi_process, bool) else use_multi_process
@@ -630,14 +630,17 @@ def mine_hard_negatives(
     # candidate.
     scores[indices == -1] = -float("inf")
 
-    if not include_positives:
-        # for each query, create a mask that is True for the positives and False for the negatives in the indices
-        positive_mask = torch.stack(
-            [torch.isin(indices[q_idx], positive_indices[q_idx]) for q_idx in range(n_queries)]
-        )
+    query_corpus_indices = torch.tensor(query_corpus_indices, device=device)
+    scores[indices == query_corpus_indices.unsqueeze(1)] = -float("inf")
 
-        # Scores is a [num_queries, range_max] tensor, where we set the values to -inf to disqualify the corresponding
-        # positive candidates
+    if not include_positives:
+        # Reserve one key per query for the -1 padding index.
+        key_stride = len(corpus) + 1
+        positive_keys = torch.tensor(positive_query_indices) * key_stride + torch.tensor(flat_positive_indices) + 1
+        positive_keys = positive_keys.sort().values.to(indices.device)
+        candidate_keys = torch.arange(n_queries, device=indices.device).unsqueeze(1) * key_stride + indices + 1
+        key_pos = torch.searchsorted(positive_keys, candidate_keys).clamp(max=len(positive_keys) - 1)
+        positive_mask = positive_keys[key_pos] == candidate_keys
         scores[positive_mask] = -float("inf")
 
     num_candidates = scores.numel()
@@ -690,7 +693,7 @@ def mine_hard_negatives(
 
     # Remove based on min_score
     if min_score is not None:
-        removed_indices = scores < min_score
+        removed_indices = (scores < min_score) & (scores != -float("inf"))
         scores[removed_indices] = -float("inf")
 
         num_skipped = removed_indices.sum().item()
@@ -728,55 +731,38 @@ def mine_hard_negatives(
     if verbose:
         print("Negative candidates mined, preparing dataset...")
 
+    positives_per_row = torch.tensor(n_positives, device=indices.device)
+
     if output_format == "triplet":
         # repeat indices and negative_scores by the number of positives of each query
-        indices = torch.cat([indices[idx].repeat(n_positives[idx], 1) for idx in range(n_queries)])
-        negative_scores = torch.cat([negative_scores[idx].repeat(n_positives[idx], 1) for idx in range(n_queries)])
+        indices = indices.repeat_interleave(positives_per_row, dim=0)
+        negative_scores = negative_scores.repeat_interleave(positives_per_row, dim=0)
 
         # If calling as triples and there are multiple positives per query, we will explode the dataset into triplets.
         indices_to_keep = negative_scores != -float("inf")
-        anchor_indices = torch.empty_like(indices)
-        pos_indices = torch.empty_like(indices)
-
+        row_indices = indices_to_keep.nonzero(as_tuple=True)[0].tolist()
         indices = indices[indices_to_keep]
         negative_scores = negative_scores[indices_to_keep]
-
-        # the anchor_indices matrix is shaped [n_total_queries, n_negatives]
-        start_idx = 0
-        for q_idx in range(n_queries):
-            anchor_indices[start_idx : start_idx + n_positives[q_idx]] = torch.tensor(q_idx).repeat(
-                n_positives[q_idx], num_negatives
-            )
-            pos_indices[start_idx : start_idx + n_positives[q_idx]] = (
-                positive_indices[q_idx].repeat(num_negatives, 1).T
-            )
-            start_idx += n_positives[q_idx]
-
-        anchor_indices = anchor_indices[indices_to_keep]
-        positive_indices = pos_indices[indices_to_keep]
 
         # Positive scores aligned per (anchor, positive, negative) triplet
         positive_triplet_scores = positive_scores.repeat(num_negatives, 1).T[indices_to_keep]
 
-        # Base textual fields
         dataset_data = {
             anchor_column_name: [],
             positive_column_name: [],
             "negative": [],
         }
-
         if output_scores:
-            # Single `scores` field containing [pos_score, neg_score]
             dataset_data["scores"] = []
 
-        for anchor_idx, positive_idx, negative_idx, pos_score, neg_score in zip(
-            anchor_indices, positive_indices, indices, positive_triplet_scores, negative_scores
+        for row_idx, negative_idx, pos_score, neg_score in zip(
+            row_indices, indices.tolist(), positive_triplet_scores.tolist(), negative_scores.tolist()
         ):
-            dataset_data[anchor_column_name].append(queries[anchor_idx])
-            dataset_data[positive_column_name].append(corpus[positive_idx])
+            dataset_data[anchor_column_name].append(all_queries[row_idx])
+            dataset_data[positive_column_name].append(positives[row_idx])
             dataset_data["negative"].append(corpus[negative_idx])
             if output_scores:
-                dataset_data["scores"].append([pos_score.item(), neg_score.item()])
+                dataset_data["scores"].append([pos_score, neg_score])
         difference_scores = positive_triplet_scores - negative_scores
         maximum_possible_samples = indices_to_keep.numel()
 
@@ -814,7 +800,7 @@ def mine_hard_negatives(
                 else:
                     dataset_data["label"].append(0)
 
-        negative_scores = torch.cat([negative_scores[idx].repeat(n_positives[idx], 1) for idx in range(n_queries)])
+        negative_scores = negative_scores.repeat_interleave(positives_per_row, dim=0)
         indices_to_keep = negative_scores != -float("inf")
         negative_scores = negative_scores[indices_to_keep]
         difference_scores = positive_scores.repeat(num_negatives, 1).T[indices_to_keep] - negative_scores
@@ -822,8 +808,8 @@ def mine_hard_negatives(
 
     elif output_format == "n-tuple":
         # repeat indices and negative_scores by the number of positives of each query
-        indices = torch.cat([indices[idx].repeat(n_positives[idx], 1) for idx in range(n_queries)])
-        negative_scores = torch.cat([negative_scores[idx].repeat(n_positives[idx], 1) for idx in range(n_queries)])
+        indices = indices.repeat_interleave(positives_per_row, dim=0)
+        negative_scores = negative_scores.repeat_interleave(positives_per_row, dim=0)
 
         # Keep only indices where num_negative negatives were found
         indices_to_keep = (negative_scores != -float("inf")).all(dim=1)
@@ -836,7 +822,7 @@ def mine_hard_negatives(
             positive_column_name: [positives[idx] for idx, keep in enumerate(indices_to_keep) if keep],
             **{
                 f"negative_{i}": [corpus[neg_idx] for neg_idx in neg_indices]
-                for i, neg_indices in enumerate(indices.T, start=1)
+                for i, neg_indices in enumerate(indices.T.tolist(), start=1)
             },
         }
         if output_scores:
@@ -850,8 +836,8 @@ def mine_hard_negatives(
 
     elif output_format == "labeled-list":
         # repeat indices and negative_scores by the number of positives of each query
-        indices = torch.cat([indices[idx].repeat(n_positives[idx], 1) for idx in range(n_queries)])
-        negative_scores = torch.cat([negative_scores[idx].repeat(n_positives[idx], 1) for idx in range(n_queries)])
+        indices = indices.repeat_interleave(positives_per_row, dim=0)
+        negative_scores = negative_scores.repeat_interleave(positives_per_row, dim=0)
 
         indices_to_keep = negative_scores != -float("inf")
 

@@ -9,17 +9,18 @@
 import datetime
 import importlib
 import inspect
-import os
-import posixpath
 import re
+import subprocess
 import sys
+from pathlib import Path, PurePosixPath
 
 import sphinx.ext.autodoc
 from sphinx.application import Sphinx
 from sphinx.writers.html5 import HTML5Translator
 
 # Document this checkout even when another checkout is installed.
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 # -- Project information -----------------------------------------------------
 
@@ -104,6 +105,26 @@ html_js_files = [
     "js/custom.js",
 ]
 
+
+def _get_source_ref():
+    # Pin line numbers to the checkout used by autodoc, including development builds.
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        from sentence_transformers import __version__
+
+        # Source distributions do not include Git metadata.
+        return "main" if ".dev" in __version__ else f"v{__version__}"
+
+
+source_ref = _get_source_ref()
+
+
 html_show_sourcelink = False
 html_context = {
     "display_github": True,
@@ -144,22 +165,17 @@ def linkcode_resolve(domain, info):
     obj = inspect.unwrap(obj)
 
     try:
-        file = inspect.getsourcefile(obj)
+        file = Path(inspect.getsourcefile(obj)).resolve().relative_to(ROOT / "sentence_transformers")
         lines = inspect.getsourcelines(obj)
-    except TypeError:
-        # e.g. object is a typing.Union
-        return None
-    file = os.path.relpath(file, os.path.abspath(".."))
-    if not file.startswith("sentence_transformers"):
-        # e.g. object is a typing.NewType
+    except (TypeError, ValueError):
         return None
     start, end = lines[1], lines[1] + len(lines[0]) - 1
 
-    return f"https://github.com/huggingface/sentence-transformers/blob/main/{file}#L{start}-L{end}"
+    return f"https://github.com/huggingface/sentence-transformers/blob/{source_ref}/sentence_transformers/{file.as_posix()}#L{start}-L{end}"
 
 
 def visit_download_reference(self, node):
-    root = "https://github.com/huggingface/sentence-transformers/tree/main"
+    root = f"https://github.com/huggingface/sentence-transformers/tree/{source_ref}"
     atts = {"class": "reference download", "download": ""}
 
     if not self.builder.download_support:
@@ -171,7 +187,8 @@ def visit_download_reference(self, node):
         self.context.append("</a>")
     elif "reftarget" in node and "refdoc" in node:
         atts["class"] += " external"
-        atts["href"] = posixpath.join(root, os.path.dirname(node["refdoc"]), node["reftarget"])
+        path = PurePosixPath(node["refdoc"]).parent / node["reftarget"]
+        atts["href"] = f"{root}/{path}"
         self.body.append(self.starttag(node, "a", "", **atts))
         self.context.append("</a>")
     else:

@@ -157,10 +157,8 @@ def cross_encoder_init_args_decorator(func):
             logger.warning(
                 f"The CrossEncoder `classifier_dropout` argument is deprecated. Please use `config_kwargs={{'classifier_dropout': {classifier_dropout}}}` instead."
             )
-            if "config_kwargs" not in kwargs:
-                kwargs["config_kwargs"] = {"classifier_dropout": classifier_dropout}
-            else:
-                kwargs["config_kwargs"]["classifier_dropout"] = classifier_dropout
+            kwargs["config_kwargs"] = dict(kwargs.get("config_kwargs") or {})
+            kwargs["config_kwargs"]["classifier_dropout"] = classifier_dropout
 
         return func(self, *args, **kwargs)
 

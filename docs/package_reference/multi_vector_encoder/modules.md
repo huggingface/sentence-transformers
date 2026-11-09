@@ -21,6 +21,7 @@ See also [Training Overview](../../multi_vector_encoder/training_overview.md).
 ## HierarchicalTokenPooling
 ```{eval-rst}
 .. autoclass:: sentence_transformers.multi_vector_encoder.modules.HierarchicalTokenPooling
+    :members: calibrate_distance_threshold
 ```
 
 ## LambdaTokenPooling

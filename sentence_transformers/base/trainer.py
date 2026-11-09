@@ -298,6 +298,8 @@ class BaseTrainer(Trainer, ABC):
         # If losses return dictionaries, then we want to be able to accumulate the loss components
         # before merging them into a single loss (required by the base Trainer)
         self.accum_loss_components = {"train": {}, "eval": {}}
+        # The metric_key_prefix of the last evaluation loop, under which its loss components are logged
+        self._eval_metric_key_prefix = "eval"
 
         # Every Sentence Transformer model can always return a loss, so we set this to True
         # to avoid having to specify it in the data collator or model's forward
@@ -546,7 +548,7 @@ class BaseTrainer(Trainer, ABC):
         training_type = None
         if "loss" in logs:
             training_type = "train"
-        elif "eval_loss" in logs:
+        elif f"{self._eval_metric_key_prefix}_loss" in logs:
             training_type = "eval"
 
         if training_type:
@@ -570,7 +572,7 @@ class BaseTrainer(Trainer, ABC):
                 for key, value in accum_losses.items():
                     if key == "steps":
                         continue
-                    log_key = f"{training_type}_{key}" if training_type == "eval" else key
+                    log_key = f"{self._eval_metric_key_prefix}_{key}" if training_type == "eval" else key
                     logs[log_key] = round((value.sum() / steps).item(), 4)
                     self.accum_loss_components[training_type][key] = torch.tensor(
                         0.0, dtype=value.dtype, device=value.device
@@ -645,6 +647,9 @@ class BaseTrainer(Trainer, ABC):
         ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
     ) -> EvalLoopOutput:
+        # Accumulate the loss components of this evaluation only, e.g. of one dataset in a DatasetDict
+        self.accum_loss_components["eval"] = {}
+        self._eval_metric_key_prefix = metric_key_prefix
         output = super().evaluation_loop(
             dataloader=dataloader,
             description=description,

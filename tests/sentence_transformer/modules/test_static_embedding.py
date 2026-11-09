@@ -14,6 +14,7 @@ from safetensors.torch import save_file
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel
 from tokenizers.pre_tokenizers import Whitespace
+from transformers import PreTrainedTokenizerFast
 from transformers import __version__ as transformers_version
 
 from sentence_transformers import SentenceTransformer
@@ -39,6 +40,20 @@ def test_tokenize(static_embedding: StaticEmbedding) -> None:
     tokens = static_embedding.preprocess(texts)
     assert "input_ids" in tokens
     assert "offsets" in tokens
+
+
+@pytest.mark.parametrize("tokenizer_kwargs", [{"padding": True}, {"truncation": True, "max_length": 4}])
+def test_tokenize_after_transformers_tokenizer_call(tokenizer: Tokenizer, tokenizer_kwargs: dict[str, Any]) -> None:
+    """Calls of the transformers tokenizer that a StaticEmbedding was created with don't change its tokenization"""
+    transformers_tokenizer = PreTrainedTokenizerFast(tokenizer_object=tokenizer, pad_token="[PAD]")
+    static_embedding = StaticEmbedding(transformers_tokenizer, embedding_dim=32)
+    texts = ["Hello world!", "This sentence is a bit longer than the first one."]
+    expected = static_embedding.preprocess(texts)
+
+    transformers_tokenizer(texts, **tokenizer_kwargs)
+    tokens = static_embedding.preprocess(texts)
+    assert torch.equal(tokens["input_ids"], expected["input_ids"])
+    assert torch.equal(tokens["offsets"], expected["offsets"])
 
 
 def test_forward(static_embedding: StaticEmbedding) -> None:

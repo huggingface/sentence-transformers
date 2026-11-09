@@ -31,12 +31,12 @@ from sentence_transformers.base.modules import Transformer
 from sentence_transformers.util.tensor import batch_to_device
 
 from .conftest import (
-    EXPECT_AUDIO_FAILURE,
     EXPECT_FORWARD_FAIL,
     EXPECT_IMAGE_ONLY_FAILURE,
     EXPECT_IMAGE_VIDEO_FAILURE,
     EXPECT_MULTIMODAL_FAILURE,
     EXPECT_MULTIMODAL_SUCCESS,
+    EXPECT_SAVE_LOAD_FAIL,
     FAULTY_CHECKPOINTS,
     REQUIRES_CUDA,
     TINY_MODEL_MAPPING,
@@ -47,7 +47,12 @@ from .conftest import (
 )
 
 XFAIL_FEATURE_EXTRACTION = [
+    "csm",  # AutoModel loads CsmForConditionalGeneration, which has no embedding output
+    "embedding_gemma2",  # Output projects to embedding_dim rather than hidden_size
+    "embedding_gemma2_text",  # Same output projection as the multimodal model
+    "hyperclovax_vision_v2",  # Forward's return annotation omits last_hidden_state, and get_*_features returns tuples
     "reformer",  # Outputs last_hidden_state with 2 * hidden_size dimensionality as it concats the same tensor for reversible ResNet, low prio
+    "sam2",  # get_image_features returns a feature pyramid rather than an embedding tensor
 ]
 
 
@@ -100,15 +105,19 @@ class TestTransformerArchitectures:
         assert isinstance(dim, int)
         assert dim > 0
 
-    def test_save_load(self, arch_model, tmp_path):
+    def test_save_load(self, arch_model, tmp_path, request):
         """Test saving and loading the model."""
         arch, model = arch_model
+        if arch in EXPECT_SAVE_LOAD_FAIL:
+            request.node.add_marker(pytest.mark.xfail(reason=EXPECT_SAVE_LOAD_FAIL[arch], raises=ValueError))
 
         save_path = tmp_path / "model"
         save_path.mkdir(exist_ok=True)
 
         model.save(str(save_path))
-        loaded_model = Transformer(str(save_path))
+        loaded_model = Transformer.load(str(save_path))
+        assert type(loaded_model.model) is type(model.model)
+        assert loaded_model.get_config_dict() == model.get_config_dict()
 
         assert loaded_model.get_embedding_dimension() == model.get_embedding_dimension()
 
@@ -192,8 +201,6 @@ class TestTransformerArchitectures:
                 elif arch in EXPECT_IMAGE_VIDEO_FAILURE and "image" in modality_desc and "video" in modality_desc:
                     context = pytest.raises((ValueError, TypeError, AttributeError))
                 elif arch in EXPECT_IMAGE_ONLY_FAILURE and "image" in modality_desc and "+" not in modality_desc:
-                    context = pytest.raises((ValueError, TypeError, AttributeError))
-                elif arch in EXPECT_AUDIO_FAILURE and "audio" in modality_desc:
                     context = pytest.raises((ValueError, TypeError, AttributeError))
                 elif (
                     model.module_output_name == "sentence_embedding"

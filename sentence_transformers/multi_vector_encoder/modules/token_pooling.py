@@ -1,28 +1,12 @@
-"""Token pooling for multi-vector encoders.
-
-Reduce each document's per-token embedding count to lower storage cost. Three ways to apply:
-
-1. As a module in a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` pipeline: model authors
-   put a :class:`HierarchicalTokenPooling` (or any :class:`BaseTokenPooling` subclass) at the end of
-   the modules list to bake pooling into the checkpoint. Every consumer of the saved model gets
-   the pooled output.
-2. Per-call at encode time: users pass ``token_pooling=`` to
-   :meth:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.encode` / ``encode_query`` / ``encode_document``
-   to opt in to pooling for a specific call.
-3. Standalone: users call :meth:`BaseTokenPooling.pool` on already-encoded embeddings to compress
-   before storage.
-
-Pooling is not idempotent. Combining more than one of the above will pool multiple times.
-"""
-
 from __future__ import annotations
 
-import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from copy import deepcopy
 from functools import cache
 from itertools import groupby
+from math import ceil, isfinite
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 
 import numpy as np
@@ -84,8 +68,7 @@ def _pad_to_3d(embeddings: list[Tensor], padding_side: str) -> Tensor:
 
 class BaseTokenPooling(Module, ABC):
     """Abstract base for token pooling strategies. Subclasses implement :meth:`pool_one` (per-sample
-    pooling) and set ``config_keys`` for save/load. See the module docstring for the three ways to
-    apply a pooling (pipeline module, per-call ``token_pooling=`` kwarg, standalone :meth:`pool`).
+    pooling) and set ``config_keys`` for save/load.
 
     Args:
         tasks: Task names this pooling applies to. A single string counts as a one-element list.
@@ -220,12 +203,17 @@ class BaseTokenPooling(Module, ABC):
         return [self.pool_one(embedding) for embedding in embeddings]
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
+        Path(output_path).mkdir(parents=True, exist_ok=True)
         self.save_config(output_path)
 
 
 @use_kernel_forward_from_hub("STWardClustering")
 class _WardClustering(nn.Module):
     """Reference Ward clustering, replaceable by a configured kernel."""
+
+    def __init__(self, distance_threshold: float | None = None) -> None:
+        super().__init__()
+        self.distance_threshold = distance_threshold
 
     @staticmethod
     @cache
@@ -249,14 +237,17 @@ class _WardClustering(nn.Module):
         actual_cluster_counts = []
 
         for row, (num_tokens, target_count) in enumerate(zip(lengths.tolist(), cluster_counts.tolist())):
-            if target_count >= num_tokens:
+            if num_tokens <= 1 or (self.distance_threshold is None and target_count >= num_tokens):
                 labels[row, :num_tokens] = torch.arange(num_tokens)
                 actual_cluster_counts.append(num_tokens)
                 continue
 
             condensed_distances = squareform(distances[row, :num_tokens, :num_tokens].numpy(), checks=False)
             linkage = self._linkage_fn()(condensed_distances, method="ward")
-            cluster_labels = fcluster(linkage, t=target_count, criterion="maxclust")
+            if self.distance_threshold is None:
+                cluster_labels = fcluster(linkage, t=target_count, criterion="maxclust")
+            else:
+                cluster_labels = fcluster(linkage, t=self.distance_threshold, criterion="distance")
             cluster_labels = torch.from_numpy(cluster_labels.astype(np.int64))
 
             # Pooling needs dense zero-based labels, including when ties yield fewer clusters.
@@ -275,11 +266,22 @@ def _normalize_token_embeddings(embedding: Tensor) -> Tensor:
     return torch.nn.functional.normalize(embedding, dim=-1).to(dtype)
 
 
+def _hierarchical_linkage(embedding: Tensor) -> np.ndarray:
+    from scipy.spatial.distance import squareform
+
+    embedding = embedding.detach().float().cpu()
+    distances = (1 - torch.mm(embedding, embedding.t())).clamp_(0, 2).numpy()
+    return _WardClustering._linkage_fn()(squareform(distances, checks=False), method="ward")
+
+
 class HierarchicalTokenPooling(BaseTokenPooling):
     """Ward-linkage hierarchical clustering on cosine similarity. Excludes the first
     ``num_protected_tokens`` from clustering (typically the ``[CLS]``), clusters the rest into
     ``num_tokens // pool_factor`` groups, and replaces each cluster with its mean. All output tokens
     are L2-normalized by default.
+
+    During training, a straight-through estimator gives each cluster member the full gradient
+    through its cluster mean before output normalization, without dividing by the cluster size.
 
     Assumes L2-normalized embeddings (place after a
     :class:`~sentence_transformers.sentence_transformer.modules.Normalize` in the pipeline).
@@ -302,7 +304,15 @@ class HierarchicalTokenPooling(BaseTokenPooling):
     Args:
         pool_factor: Keep roughly ``1 / pool_factor`` of each document's tokens. Fractional values
             (e.g. ``1.5`` keeps two thirds) allow compression steps between the integer factors.
-            ``1.0`` (default) disables pooling. Output normalization still applies when enabled.
+            ``1.0`` (default) disables factor-based clustering. Output normalization still applies
+            when enabled. Non-default factors are mutually exclusive with ``max_tokens`` and
+            ``distance_threshold``.
+        max_tokens: Maximum output token count, including protected tokens. Shorter documents
+            are not clustered. Defaults to None.
+        distance_threshold: Cut each document's Ward tree at this distance. Token counts vary
+            with the document's embedding geometry. Mutually exclusive with ``max_tokens`` and
+            a non-default ``pool_factor``. Use :meth:`calibrate_distance_threshold` to choose a threshold for an
+            average token budget on representative document embeddings. Defaults to None.
         num_protected_tokens: Leading tokens excluded from pooling (typically ``[CLS]``). Default 1.
             colpali-engine has no protected-token concept: use ``0`` when matching its setup.
         normalize_embeddings: L2-normalize all output tokens, including protected tokens and when no
@@ -314,17 +324,26 @@ class HierarchicalTokenPooling(BaseTokenPooling):
         use_kernels: Enable default Ward kernels. Defaults to None, which inherits the model's
             setting when used with MultiVectorEncoder and starts with reference clustering
             standalone. Inherited settings remain on the pooler. Set False to opt out of the
-            model's kernels.
+            model's kernels. Distance-threshold pooling uses reference clustering.
         kernel_config: Optional Ward kernel mappings. Providing a configuration enables kernels
             and overrides the model's Ward configuration. Kernel settings are runtime-only.
     """
 
-    config_keys: list[str] = ["pool_factor", "num_protected_tokens", "normalize_embeddings", "tasks"]
+    config_keys: list[str] = [
+        "pool_factor",
+        "max_tokens",
+        "distance_threshold",
+        "num_protected_tokens",
+        "normalize_embeddings",
+        "tasks",
+    ]
 
     def __init__(
         self,
         pool_factor: float = 1.0,
         *,
+        max_tokens: int | None = None,
+        distance_threshold: float | None = None,
         num_protected_tokens: int = 1,
         normalize_embeddings: bool = True,
         tasks: str | list[str] | None = None,
@@ -332,16 +351,36 @@ class HierarchicalTokenPooling(BaseTokenPooling):
         kernel_config: KernelConfig | None = None,
     ) -> None:
         super().__init__(tasks=tasks)
-        if not math.isfinite(pool_factor) or pool_factor < 1:
+        if not isfinite(pool_factor) or pool_factor < 1:
             raise ValueError(f"pool_factor must be >= 1 and finite, got {pool_factor}.")
         if not isinstance(num_protected_tokens, int) or num_protected_tokens < 0:
             raise ValueError(f"num_protected_tokens must be >= 0 and an integer, got {num_protected_tokens}.")
 
+        if distance_threshold is not None:
+            if not isfinite(distance_threshold) or distance_threshold < 0:
+                raise ValueError("distance_threshold must be finite and >= 0.")
+            if pool_factor != 1 or max_tokens is not None:
+                raise ValueError(
+                    "distance_threshold, max_tokens and a non-default pool_factor are mutually exclusive."
+                )
+        if max_tokens is not None:
+            if pool_factor != 1:
+                raise ValueError(
+                    f"pool_factor and max_tokens are mutually exclusive, got pool_factor={pool_factor} "
+                    f"and max_tokens={max_tokens}."
+                )
+            if max_tokens <= num_protected_tokens:
+                raise ValueError(
+                    f"max_tokens must exceed num_protected_tokens to leave room for at least one pooled "
+                    f"token, got max_tokens={max_tokens} and num_protected_tokens={num_protected_tokens}."
+                )
         self.pool_factor = pool_factor
+        self.max_tokens = max_tokens
+        self.distance_threshold = distance_threshold
         self.num_protected_tokens = num_protected_tokens
         self.normalize_embeddings = normalize_embeddings
 
-        self.clustering = _WardClustering()
+        self.clustering = _WardClustering(distance_threshold)
         self.use_kernels = True if kernel_config is not None else use_kernels
         self.kernel_config = deepcopy(kernel_config)
         self._kernel_device = None
@@ -354,7 +393,8 @@ class HierarchicalTokenPooling(BaseTokenPooling):
         self.kernel_config = deepcopy(kernel_config)
 
     def _configure_clustering(self, device: torch.device) -> None:
-        if not self.use_kernels or device == self._kernel_device:
+        # Current Ward providers accept cluster counts, not distance thresholds.
+        if self.distance_threshold is not None or not self.use_kernels or device == self._kernel_device:
             return
 
         _configure_kernel(
@@ -370,7 +410,7 @@ class HierarchicalTokenPooling(BaseTokenPooling):
         state = super().__getstate__()
 
         # Reload providers on use instead of serializing their patched forward methods.
-        state["_modules"] = {**state["_modules"], "clustering": _WardClustering()}
+        state["_modules"] = {**state["_modules"], "clustering": _WardClustering(self.distance_threshold)}
         state["_kernel_device"] = None
         return state
 
@@ -381,7 +421,7 @@ class HierarchicalTokenPooling(BaseTokenPooling):
         return config
 
     def forward(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
-        if self.pool_factor <= 1:
+        if self.pool_factor <= 1 and self.max_tokens is None and self.distance_threshold is None:
             if self.normalize_embeddings and self.applies_to(task):
                 features["token_embeddings"] = _normalize_token_embeddings(features["token_embeddings"])
             return features
@@ -433,11 +473,13 @@ class HierarchicalTokenPooling(BaseTokenPooling):
         num_protected_tokens = min(self.num_protected_tokens, num_tokens)
         num_poolable_tokens = num_tokens - num_protected_tokens
         max_num_clusters = max(int(num_poolable_tokens // self.pool_factor), 1)
+        if self.max_tokens is not None:
+            max_num_clusters = min(self.max_tokens - num_protected_tokens, num_poolable_tokens)
 
         valid_tokens = torch.arange(num_tokens, device=embeddings.device)[None, :] < lengths[:, None]
         embeddings = torch.where(valid_tokens[..., None], embeddings, 0)
 
-        if max_num_clusters >= num_poolable_tokens:
+        if num_poolable_tokens <= 1 or (self.distance_threshold is None and max_num_clusters >= num_poolable_tokens):
             return embeddings, lengths
 
         poolable_lengths = (lengths - num_protected_tokens).clamp_min(0)
@@ -452,7 +494,8 @@ class HierarchicalTokenPooling(BaseTokenPooling):
 
         if max_num_clusters == 1:
             # A single cluster is the mean of all remaining tokens, with no linkage needed.
-            means = values.sum(1, keepdim=True) / poolable_lengths.clamp_min(1)[:, None, None]
+            cluster_sums = values.sum(1, keepdim=True)
+            means = cluster_sums / poolable_lengths.clamp_min(1)[:, None, None]
             actual_cluster_counts = (poolable_lengths > 0).long()
         else:
             # Cluster assignments are non-differentiable. The means below retain the gradient path.
@@ -461,6 +504,8 @@ class HierarchicalTokenPooling(BaseTokenPooling):
                 distances = (1 - clustering_embeddings @ clustering_embeddings.transpose(1, 2)).clamp_(0, 2)
 
                 target_cluster_counts = (poolable_lengths.double() // self.pool_factor).long()
+                if self.max_tokens is not None:
+                    target_cluster_counts = torch.full_like(poolable_lengths, self.max_tokens - num_protected_tokens)
                 target_cluster_counts = target_cluster_counts.clamp_min_(1).minimum(poolable_lengths)
 
                 self._configure_clustering(embeddings.device)
@@ -475,10 +520,71 @@ class HierarchicalTokenPooling(BaseTokenPooling):
             cluster_sizes = weights.new_zeros((batch_size, max_num_clusters)).scatter_add_(1, labels, weights)
             means = cluster_sums / cluster_sizes.clamp_min(1)[..., None]
 
+        if cluster_sums.requires_grad:
+            means = means.detach() + (cluster_sums - cluster_sums.detach())
+
         protected_embeddings = embeddings[:, :num_protected_tokens]
         pooled_embeddings = torch.cat((protected_embeddings, means.to(embeddings.dtype)), dim=1)
         pooled_lengths = lengths.clamp_max(num_protected_tokens) + actual_cluster_counts
         return pooled_embeddings, pooled_lengths
+
+    @staticmethod
+    @torch.no_grad()
+    def calibrate_distance_threshold(
+        embeddings: Iterable[Tensor],
+        *,
+        target_tokens: float,
+        num_protected_tokens: int = 1,
+    ) -> float | None:
+        """Choose a Ward distance threshold for an average document token budget.
+
+        The calibration average is at most ``target_tokens``. Individual documents and the
+        average on a different corpus can exceed the target.
+
+        Args:
+            embeddings: Representative, unpadded ``(num_tokens, dim)`` document embeddings from
+                the same encoder and preprocessing used for the index. Inputs must be L2-normalized.
+            target_tokens: Desired average output token count, including protected tokens.
+                A budget at least as large as the input average returns None.
+            num_protected_tokens: Leading tokens excluded from clustering. Defaults to 1. Use
+                the same value when initializing the pooling module with the returned threshold.
+
+        Returns:
+            A threshold for initializing ``HierarchicalTokenPooling(distance_threshold=...)``,
+            or None when the requested budget does not require compression.
+
+        Example::
+
+            threshold = HierarchicalTokenPooling.calibrate_distance_threshold(document_embeddings, target_tokens=16)
+            pooling = HierarchicalTokenPooling(distance_threshold=threshold)
+        """
+        from scipy.cluster.hierarchy import maxdists
+
+        if not isfinite(target_tokens) or target_tokens <= 0:
+            raise ValueError("target_tokens must be finite and > 0.")
+        if num_protected_tokens < 0:
+            raise ValueError(f"num_protected_tokens must be >= 0, got {num_protected_tokens}.")
+        heights = []
+        count = total_tokens = minimum_tokens = 0
+        for embedding in embeddings:
+            if not isinstance(embedding, Tensor) or embedding.ndim != 2:
+                raise ValueError("Calibration embeddings must be 2D tensors.")
+            count += 1
+            total_tokens += len(embedding)
+            protected = min(num_protected_tokens, len(embedding))
+            to_pool = embedding[protected:]
+            minimum_tokens += protected + min(len(to_pool), 1)
+            if len(to_pool) > 1:
+                heights.append(maxdists(_hierarchical_linkage(to_pool)))
+        if count == 0:
+            raise ValueError("Provide at least one calibration document.")
+        if target_tokens * count < minimum_tokens:
+            raise ValueError(f"target_tokens must be at least {minimum_tokens / count:g} for these protected tokens.")
+        merges = ceil(total_tokens - target_tokens * count)
+        if merges > 0:
+            all_heights = np.concatenate(heights)
+            return float(np.partition(all_heights, merges - 1)[merges - 1])
+        return None
 
 
 class LambdaTokenPooling(BaseTokenPooling):
