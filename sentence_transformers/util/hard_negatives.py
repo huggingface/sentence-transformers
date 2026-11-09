@@ -4,7 +4,8 @@ import hashlib
 import logging
 import os
 import random
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import torch
@@ -20,6 +21,19 @@ if TYPE_CHECKING:
 
     from sentence_transformers.cross_encoder.model import CrossEncoder
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
+
+
+def _to_list(values: Iterable[Any]) -> list[Any]:
+    try:
+        from datasets import Column
+    except ImportError:
+        # datasets<4 returns plain lists from `dataset["text"]`
+        return list(values)
+    if isinstance(values, Column):
+        # Slicing a Column formats the whole column in one go, whereas `list(column)` formats it
+        # row by row, which is far slower on large columns.
+        return list(values[:])
+    return list(values)
 
 
 def mine_hard_negatives(
@@ -411,9 +425,9 @@ def mine_hard_negatives(
         )
 
     log_counters = {}
-    queries = list(dataset[anchor_column_name])
-    positives = list(dataset[positive_column_name])
-    corpus = positives if corpus is None else list(corpus)
+    queries = _to_list(dataset[anchor_column_name])
+    positives = _to_list(dataset[positive_column_name])
+    corpus = positives if corpus is None else _to_list(corpus)
 
     # Deduplicate the corpus
     # make sure all the positives are also in the corpus and de-duplicate it.
