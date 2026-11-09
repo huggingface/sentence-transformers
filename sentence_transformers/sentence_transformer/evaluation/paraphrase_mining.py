@@ -31,8 +31,8 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
             then [id2][id1] => True. Defaults to None.
         add_transitive_closure (bool, optional): If true, it adds a transitive closure,
             i.e. if dup[a][b] and dup[b][c], then dup[a][c]. Defaults to False.
-        query_chunk_size (int, optional): To identify the paraphrases, the cosine-similarity between
-            all sentence-pairs will be computed. As this might require a lot of memory, we perform
+        query_chunk_size (int, optional): To identify the paraphrases, the similarity between all
+            sentence-pairs will be computed with the model's similarity function. As this might require a lot of memory, we perform
             a batched computation. query_chunk_size sentences will be compared against up to
             corpus_chunk_size sentences. In the default setting, 5000 sentences will be grouped
             together and compared up-to against 100k other sentences. Defaults to 5000.
@@ -181,6 +181,7 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
             max_pairs=self.max_pairs,
             top_k=self.top_k,
             truncate_dim=self.truncate_dim,
+            score_function=model.similarity,
         )
 
         logger.info("Number of candidate pairs: " + str(len(pairs_list)))
