@@ -7,6 +7,7 @@ import pytest
 import torch
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import retrieval
 from sentence_transformers.util.retrieval import (
     community_detection,
     paraphrase_mining,
@@ -460,3 +461,99 @@ def test_community_detection_gpu_support():
     ]
     result = community_detection(embeddings, threshold=0.8, min_community_size=2)
     assert sorted([sorted(community) for community in result]) == sorted([sorted(community) for community in expected])
+
+
+DEVICES = [
+    "cpu",
+    pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available")),
+    pytest.param("mps", marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS not available")),
+]
+
+
+def _clustered_embeddings(num_clusters: int, cluster_size: int, dim: int, dtype: torch.dtype) -> torch.Tensor:
+    """Embeddings of ``num_clusters`` tight clusters of ``cluster_size`` points each, in a random order."""
+    generator = torch.Generator().manual_seed(12345)
+    centers = torch.randn(num_clusters, 1, dim, generator=generator, dtype=torch.float64)
+    noise = torch.randn(num_clusters, cluster_size, dim, generator=generator, dtype=torch.float64) * 0.35
+    embeddings = (centers + noise).reshape(-1, dim)
+    return embeddings[torch.randperm(len(embeddings), generator=generator)].to(dtype)
+
+
+def _reference_community_detection(
+    embeddings: torch.Tensor, threshold: float, min_community_size: int
+) -> list[list[int]]:
+    """Brute-force reference: score all pairs at once, then resolve overlaps greedily by community size."""
+    normalized = torch.nn.functional.normalize(embeddings, dim=1)
+    scores = (normalized @ normalized.T).cpu()
+    candidates = []
+    for center in range(len(scores)):
+        neighbors = torch.nonzero(scores[center] >= threshold).flatten().tolist()
+        if len(neighbors) >= min_community_size:
+            candidates.append((center, neighbors))
+    candidates.sort(key=lambda candidate: len(candidate[1]), reverse=True)
+
+    communities, used = [], set()
+    for center, neighbors in candidates:
+        if center in used:
+            continue
+        free = [index for index in neighbors if index not in used]
+        if len(free) >= min_community_size:
+            community = [center] + [index for index in free if index != center]
+            communities.append(community)
+            used.update(community)
+    return sorted(communities, key=len, reverse=True)
+
+
+def _assert_same_communities(result: list[list[int]], expected: list[list[int]]) -> None:
+    assert [community[0] for community in result] == [community[0] for community in expected]
+    assert [sorted(community) for community in result] == [sorted(community) for community in expected]
+
+
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("batch_size", [7, 64, 1024])
+def test_community_detection_matches_reference_across_tiles(dtype, batch_size, device, monkeypatch):
+    # Small tiles, so that every query batch is scored against several corpus tiles
+    monkeypatch.setattr(retrieval, "_COMMUNITY_TILE_ELEMENTS", 64 * 100)
+    embeddings = _clustered_embeddings(num_clusters=12, cluster_size=40, dim=64, dtype=dtype).to(device)
+
+    result = community_detection(embeddings, threshold=0.8, min_community_size=10, batch_size=batch_size)
+
+    expected = _reference_community_detection(embeddings, threshold=0.8, min_community_size=10)
+    assert len(expected) > 1
+    _assert_same_communities(result, expected)
+
+
+def test_community_detection_orders_members_by_decreasing_similarity():
+    embeddings = _clustered_embeddings(num_clusters=4, cluster_size=30, dim=32, dtype=torch.float64)
+    normalized = torch.nn.functional.normalize(embeddings, dim=1)
+
+    for community in community_detection(embeddings, threshold=0.8, min_community_size=10):
+        scores = normalized[community[1:]] @ normalized[community[0]]
+        assert (scores[:-1] >= scores[1:]).all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available")
+def test_community_detection_does_not_copy_the_embeddings(monkeypatch):
+    monkeypatch.setattr(retrieval, "_COMMUNITY_TILE_ELEMENTS", 2**20)
+    embeddings = _clustered_embeddings(num_clusters=100, cluster_size=400, dim=256, dtype=torch.float32).cuda()
+    embeddings_bytes = embeddings.numel() * embeddings.element_size()
+
+    def peak_extra_memory(run) -> int:
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+        baseline = torch.cuda.memory_allocated()
+        run()
+        torch.cuda.synchronize()
+        return torch.cuda.max_memory_allocated() - baseline
+
+    # A single tile-sized matmul, to account for the fixed workspace that cuBLAS may allocate on every matmul
+    query_tile, corpus_tile = embeddings[:256], embeddings[: 2**20 // 256]
+    matmul_memory = peak_extra_memory(lambda: query_tile @ corpus_tile.T)
+
+    memory = peak_extra_memory(
+        lambda: community_detection(embeddings, threshold=0.8, min_community_size=10, batch_size=256)
+    )
+
+    # The embeddings are normalized one batch or tile at a time, so the peak stays well below a full copy
+    assert memory - matmul_memory < embeddings_bytes / 2

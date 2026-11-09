@@ -287,78 +287,124 @@ def community_detection(
     Returns:
         List[List[int]]: A list of communities, where each community is represented as a list of indices.
     """
-    if len(embeddings) == 0:
-        return []
-
-    embeddings = _convert_to_tensor(embeddings)
-    if embeddings.ndim == 1:
-        embeddings = embeddings.unsqueeze(0)
-
-    if len(embeddings) < min_community_size:
+    embeddings = _prepare_community_embeddings(embeddings, min_community_size)
+    if embeddings is None:
         return []
 
     threshold = torch.tensor(threshold, device=embeddings.device)
-    embeddings = normalize_embeddings(embeddings)
+    # Normalize one batch or tile at a time instead of keeping a normalized copy of all embeddings
+    norms = _row_norms(embeddings)
+    normalized_queries = _QueryBatchCache(embeddings, norms)
 
+    def score_tile(query_start: int, query_end: int, corpus_start: int, corpus_end: int):
+        queries = normalized_queries(query_start, query_end)
+        scores = queries @ (embeddings[corpus_start:corpus_end] / norms[corpus_start:corpus_end]).T
+        rows, cols = (scores >= threshold).nonzero(as_tuple=True)
+        return rows, cols, scores[rows, cols]
+
+    extracted_communities = _find_communities_tiled(
+        len(embeddings), score_tile, min_community_size, batch_size, show_progress_bar
+    )
+    return _remove_overlapping_communities(extracted_communities, len(embeddings), min_community_size)
+
+
+# Maximum number of (query, corpus) pairs scored at once. Bounds the working memory of the community detection
+# independently of the corpus size.
+_COMMUNITY_TILE_ELEMENTS = 2**25
+
+
+def _prepare_community_embeddings(embeddings: Tensor | np.ndarray, min_community_size: int) -> Tensor | None:
+    """Convert the embeddings to a 2D tensor, or return None if they cannot form any community."""
+    if len(embeddings) == 0:
+        return None
+    embeddings = _convert_to_tensor(embeddings)
+    if embeddings.ndim == 1:
+        embeddings = embeddings.unsqueeze(0)
+    if len(embeddings) < min_community_size:
+        return None
+    return embeddings
+
+
+def _row_norms(embeddings: Tensor) -> Tensor:
+    """The ``(n, 1)`` row norms by which :func:`normalize_embeddings` divides the embeddings.
+
+    ``embeddings[i:j] / norms[i:j]`` is bit-identical to ``normalize_embeddings(embeddings)[i:j]``, as
+    ``torch.nn.functional.normalize`` divides elementwise by these same norms.
+    """
+    return embeddings.norm(p=2, dim=1, keepdim=True).clamp_min(1e-12)
+
+
+class _QueryBatchCache:
+    """Normalizes a batch of query embeddings once, and reuses it for every corpus tile of that batch."""
+
+    def __init__(self, embeddings: Tensor, norms: Tensor) -> None:
+        self.embeddings, self.norms = embeddings, norms
+        self.bounds, self.batch = None, None
+
+    def __call__(self, start: int, end: int) -> Tensor:
+        if self.bounds != (start, end):
+            self.bounds, self.batch = (start, end), self.embeddings[start:end] / self.norms[start:end]
+        return self.batch
+
+
+def _find_communities_tiled(
+    num_embeddings: int,
+    score_tile: Callable[[int, int, int, int], tuple[Tensor, Tensor, Tensor]],
+    min_community_size: int,
+    batch_size: int,
+    show_progress_bar: bool,
+) -> list[tuple[int, np.ndarray]]:
+    """Find every candidate community, scoring the pairs one fixed-size (query batch, corpus batch) tile at a time.
+
+    ``score_tile(query_start, query_end, corpus_start, corpus_end)`` returns the ``(row, col, score)`` triplets of
+    the pairs of the tile with a score of at least the threshold, with tile-relative indices. Only those pairs are
+    kept, so the working memory is bounded by the tile size rather than by the corpus size.
+
+    Returns ``(center, neighbors)`` tuples in increasing center order, for every center with at least
+    ``min_community_size`` neighbors, where ``neighbors`` is sorted by decreasing score.
+    """
+    corpus_batch_size = max(1, _COMMUNITY_TILE_ELEMENTS // batch_size)
     extracted_communities = []
-
-    # Maximum size for community
-    sort_max_size = min(max(2 * min_community_size, 50), len(embeddings))
-
     for start_idx in tqdm(
-        range(0, len(embeddings), batch_size), desc="Finding clusters", disable=not show_progress_bar
+        range(0, num_embeddings, batch_size), desc="Finding clusters", disable=not show_progress_bar
     ):
-        # Compute cosine similarity scores
-        cos_scores = embeddings[start_idx : start_idx + batch_size] @ embeddings.T
+        end_idx = min(start_idx + batch_size, num_embeddings)
+        all_rows, all_cols, all_scores = [], [], []
+        for corpus_start_idx in range(0, num_embeddings, corpus_batch_size):
+            corpus_end_idx = min(corpus_start_idx + corpus_batch_size, num_embeddings)
+            rows, cols, scores = score_tile(start_idx, end_idx, corpus_start_idx, corpus_end_idx)
+            all_rows.append(rows)
+            all_cols.append(cols + corpus_start_idx)
+            all_scores.append(scores)
 
-        # Use a torch-heavy approach if the embeddings are on CUDA, NPU or MPS, otherwise a loop-heavy one
-        if embeddings.device.type in ["cuda", "npu", "mps"]:
-            # Threshold the cos scores and determine how many close embeddings exist per embedding
-            threshold_mask = cos_scores >= threshold
-            row_wise_count = threshold_mask.sum(1)
+        rows, cols, scores = torch.cat(all_rows), torch.cat(all_cols), torch.cat(all_scores)
+        # Group the neighbors by center, each sorted by decreasing score
+        order = torch.argsort(scores, descending=True, stable=True)
+        rows, cols = rows[order], cols[order]
+        order = torch.argsort(rows, stable=True)
+        rows, cols = rows[order], cols[order]
 
-            # Only consider embeddings with enough close other embeddings
-            large_enough_mask = row_wise_count >= min_community_size
-            if not large_enough_mask.any():
-                continue
+        # Count the neighbors from the kept pairs: counting a dense mask (`mask.sum(1)`) would first cast all of it
+        # to int64
+        counts = torch.bincount(rows, minlength=end_idx - start_idx).cpu().numpy()
+        cols = cols.cpu().numpy().astype(np.uint32)
+        ends = np.cumsum(counts)
+        for i in np.flatnonzero(counts >= min_community_size):
+            extracted_communities.append((start_idx + int(i), cols[ends[i] - counts[i] : ends[i]]))
 
-            row_wise_count = row_wise_count[large_enough_mask]
-            cos_scores = cos_scores[large_enough_mask]
+    return extracted_communities
 
-            # The max is the largest potential community, so we use that in topk
-            k = row_wise_count.max()
-            _, top_k_indices = cos_scores.topk(k=k, largest=True)
 
-            # Move the batch indices to CPU once, then slice per community
-            top_k_indices = top_k_indices.cpu()
-            centers = (large_enough_mask.nonzero(as_tuple=True)[0] + start_idx).tolist()
-            for center, count, indices in zip(centers, row_wise_count.tolist(), top_k_indices):
-                extracted_communities.append((center, indices[:count].numpy().astype(np.uint32)))
-        else:
-            # Minimum size for a community
-            top_k_values, _ = cos_scores.topk(k=min_community_size, largest=True)
-
-            # Filter for rows >= min_threshold
-            for i in range(len(top_k_values)):
-                if top_k_values[i][-1] >= threshold:
-                    # Only check top k most similar entries
-                    top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
-
-                    # Check if we need to increase sort_max_size
-                    while top_val_large[-1] >= threshold and sort_max_size < len(embeddings):
-                        sort_max_size = min(2 * sort_max_size, len(embeddings))
-                        top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
-
-                    extracted_communities.append(
-                        (start_idx + i, top_idx_large[top_val_large >= threshold].cpu().numpy().astype(np.uint32))
-                    )
-
+def _remove_overlapping_communities(
+    extracted_communities: list[tuple[int, np.ndarray]], num_embeddings: int, min_community_size: int
+) -> list[list[int]]:
+    """Greedily keep the largest communities, each without the points already claimed by a larger one."""
     # Largest cluster first
     extracted_communities = sorted(extracted_communities, key=lambda x: len(x[1]), reverse=True)
 
     # Step 2) Remove overlapping communities using a dense boolean mask of already claimed indices
     unique_communities = []
-    used = np.zeros(len(embeddings), dtype=bool)
+    used = np.zeros(num_embeddings, dtype=bool)
 
     for center, community in extracted_communities:
         if used[center]:
