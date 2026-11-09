@@ -902,13 +902,25 @@ def test_empty_encode(
         truncate_dim=truncate_dim,
     )
 
+    # Same [num_inputs, output_dimension] shape and dtype as a non-empty encode, with 0 rows
+    expected = model.encode(
+        ["Hello, World!", "Another sentence."],
+        convert_to_numpy=True,
+        normalize_embeddings=normalize_embeddings,
+        precision=precision,
+        truncate_dim=truncate_dim,
+    )
     if convert_to_tensor:
         assert isinstance(embeddings, torch.Tensor)
         assert embeddings.numel() == 0
         assert embeddings.device == model.device
+        assert embeddings.shape == (0, expected.shape[1])
+        assert embeddings.dtype == torch.from_numpy(expected).dtype
     elif convert_to_numpy:
         assert isinstance(embeddings, np.ndarray)
         assert embeddings.size == 0
+        assert embeddings.shape == (0, expected.shape[1])
+        assert embeddings.dtype == expected.dtype
     else:
         assert embeddings == []
 
