@@ -7,7 +7,7 @@ import warnings
 from collections import OrderedDict
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from typing import Any, ClassVar, Literal, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
 
 import numpy as np
 import torch
@@ -28,6 +28,9 @@ from sentence_transformers.util.tensor import _tensor_to_numpy
 
 from .fit_mixin import FitMixin
 from .model_card import SentenceTransformerModelCardData
+
+if TYPE_CHECKING:
+    from transformers import KernelConfig
 
 # NOTE: transformers wraps the regular logging module for e.g. warning_once
 logger = transformers_logging.get_logger(__name__)
@@ -68,6 +71,10 @@ class SentenceTransformer(BaseModel, FitMixin):
             private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
             credentials saved with ``hf auth login``, if available.
         use_auth_token (bool or str, optional): Deprecated. Use ``token`` instead.
+        use_kernels (bool, optional): Enable the default backbone kernels supported by the model and device.
+            Requires the torch backend and compatible kernel dependencies. Defaults to False.
+        kernel_config (KernelConfig, optional): Override backbone kernel mappings. Providing a configuration
+            also enables kernels. These settings are runtime-only. Defaults to None.
         model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
             Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
@@ -168,6 +175,8 @@ class SentenceTransformer(BaseModel, FitMixin):
         model_kwargs: dict[str, Any] | None = None,
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
+        use_kernels: bool = False,
+        kernel_config: KernelConfig | None = None,
         model_card_data: SentenceTransformerModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
         # SentenceTransformer-specific args
@@ -200,6 +209,8 @@ class SentenceTransformer(BaseModel, FitMixin):
             local_files_only=local_files_only,
             token=token,
             model_kwargs=model_kwargs,
+            use_kernels=use_kernels,
+            kernel_config=kernel_config,
             processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             model_card_data=model_card_data,

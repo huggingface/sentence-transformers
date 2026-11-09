@@ -21,6 +21,27 @@ def _normed(shape: tuple[int, int]) -> Tensor:
     return torch.nn.functional.normalize(torch.randn(*shape), p=2, dim=-1)
 
 
+def _scipy_pool_reference(embedding, pool_factor, num_protected_tokens, normalize_embeddings):
+    from scipy.cluster.hierarchy import fcluster, linkage
+    from scipy.spatial.distance import squareform
+
+    source = embedding[num_protected_tokens:]
+    target = max(int(len(source) // pool_factor), 1)
+    if target < len(source):
+        values = source.detach().cpu().float()
+        distances = (1 - values @ values.T).clamp(0, 2)
+        labels = fcluster(linkage(squareform(distances.numpy(), checks=False), method="ward"), target, "maxclust")
+        means = torch.stack(
+            [source[torch.as_tensor(labels == label, device=source.device)].mean(0) for label in sorted(set(labels))]
+        )
+        embedding = torch.cat((embedding[:num_protected_tokens], means))
+    if normalize_embeddings:
+        dtype = embedding.dtype
+        values = embedding.float() if dtype in (torch.float16, torch.bfloat16) else embedding
+        embedding = torch.nn.functional.normalize(values, dim=-1).to(dtype)
+    return embedding
+
+
 @pytest.fixture(autouse=True)
 def _seed() -> None:
     torch.manual_seed(0)
@@ -94,19 +115,70 @@ class TestPoolShapeInvariants:
 
 class TestHierarchicalTokenPooling:
     @pytest.mark.parametrize("normalize_embeddings", [False, True])
-    def test_class_pool_matches_module_helper_directly(self, normalize_embeddings: bool) -> None:
-        # The pool() class method and the internal _hierarchical_pool_one produce identical output
-        # when given the same input (this pins the wiring between the public API and the math).
-        from sentence_transformers.multi_vector_encoder.modules.token_pooling import _hierarchical_pool_one
-
+    def test_pool_matches_scipy_clustering(self, normalize_embeddings: bool) -> None:
         emb = _normed((15, 8))
-        direct = _hierarchical_pool_one(
-            emb, pool_factor=2, num_protected_tokens=1, normalize_embeddings=normalize_embeddings
-        )
-        via_pool = HierarchicalTokenPooling(
+        expected = _scipy_pool_reference(emb, 2, 1, normalize_embeddings)
+        actual = HierarchicalTokenPooling(
             pool_factor=2, num_protected_tokens=1, normalize_embeddings=normalize_embeddings
         ).pool([emb])[0]
-        assert torch.allclose(direct, via_pool)
+        torch.testing.assert_close(actual, expected)
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+    @pytest.mark.parametrize("normalize", [False, True])
+    @pytest.mark.parametrize("protected", [0, 1, 10])
+    def test_reference_batches_match_scipy_values_and_gradients(self, dtype, normalize, protected):
+        documents = [_normed((length, 8)).to(dtype).requires_grad_() for length in [0, 1, 2, 7, 11] * 7]
+        pooler = HierarchicalTokenPooling(2.5, num_protected_tokens=protected, normalize_embeddings=normalize)
+        actual = pooler.pool(documents)
+        expected = [_scipy_pool_reference(document, 2.5, protected, normalize) for document in documents]
+        tolerance = 2e-2 if dtype in (torch.float16, torch.bfloat16) else 1e-5
+        for pooled, reference in zip(actual, expected):
+            torch.testing.assert_close(pooled, reference, atol=tolerance, rtol=tolerance)
+        weights = torch.arange(1, 9, dtype=dtype)
+        actual_gradients = torch.autograd.grad(
+            sum((row * weights).sum() for row in actual), documents, retain_graph=True
+        )
+        expected_gradients = torch.autograd.grad(sum((row * weights).sum() for row in expected), documents)
+        for pooled_gradient, reference_gradient in zip(actual_gradients, expected_gradients):
+            torch.testing.assert_close(pooled_gradient, reference_gradient, atol=tolerance, rtol=tolerance)
+
+    def test_reference_clustering_receives_batches(self, monkeypatch):
+        documents = [_normed((length, 8)) for length in [0, 1, 2, 7, 11] * 7]
+        pooler = HierarchicalTokenPooling(2)
+        reference = pooler.clustering.forward
+        batch_sizes = []
+
+        def record(distances, lengths, cluster_counts):
+            batch_sizes.append(len(distances))
+            return reference(distances, lengths, cluster_counts)
+
+        monkeypatch.setattr(pooler.clustering, "forward", record)
+        pooler.pool(documents)
+        assert batch_sizes == [35]
+
+    def test_long_documents_reduce_distance_batch_size(self, monkeypatch):
+        pooler = HierarchicalTokenPooling(2, normalize_embeddings=False)
+        documents = [torch.randn(600, 2) for _ in range(33)]
+        batch_sizes = []
+
+        def singleton(distances, lengths, cluster_counts):
+            assert distances.numel() <= 8_388_608
+            batch_sizes.append(len(distances))
+            return torch.zeros_like(distances[..., 0], dtype=torch.long), torch.ones_like(lengths)
+
+        monkeypatch.setattr(pooler.clustering, "forward", singleton)
+        actual = pooler.pool(documents)
+        assert batch_sizes == [23, 10]
+        for pooled, document in zip(actual, documents):
+            torch.testing.assert_close(pooled, torch.cat((document[:1], document[1:].mean(0, keepdim=True))))
+
+    def test_list_keeps_document_order_and_individual_dtypes_and_dimensions(self):
+        documents = [_normed((11, 8)), _normed((7, 4)).half(), _normed((5, 8)), _normed((9, 8)).double()]
+        if torch.cuda.is_available():
+            documents.insert(2, _normed((13, 8)).cuda())
+        pooler = HierarchicalTokenPooling(2)
+        for actual, document in zip(pooler.pool(documents), documents):
+            torch.testing.assert_close(actual, pooler.pool_one(document))
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
     @pytest.mark.parametrize("normalize_embeddings", [False, True])
@@ -126,17 +198,17 @@ class TestHierarchicalTokenPooling:
         # fastcluster is optional. Without it the pooling must silently fall back to scipy and
         # produce the same clustering (None in sys.modules makes the import raise ImportError).
         pytest.importorskip("fastcluster")
-        from sentence_transformers.multi_vector_encoder.modules.token_pooling import _ward_linkage_fn
+        from sentence_transformers.multi_vector_encoder.modules.token_pooling import _WardClustering
 
         emb = _normed((40, 8))
         pooling = HierarchicalTokenPooling(pool_factor=2, num_protected_tokens=1)
         default = pooling.pool([emb])[0]
         monkeypatch.setitem(sys.modules, "fastcluster", None)
-        _ward_linkage_fn.cache_clear()
+        _WardClustering._linkage_fn.cache_clear()
         try:
             fallback = pooling.pool([emb])[0]
         finally:
-            _ward_linkage_fn.cache_clear()
+            _WardClustering._linkage_fn.cache_clear()
         assert torch.equal(fallback, default)
 
     def test_no_op_when_pool_factor_1(self) -> None:

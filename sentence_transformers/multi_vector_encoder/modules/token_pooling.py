@@ -17,16 +17,27 @@ Pooling is not idempotent. Combining more than one of the above will pool multip
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from copy import deepcopy
 from functools import cache
-from typing import Any, overload
+from itertools import groupby
+from typing import TYPE_CHECKING, Any, overload
 
 import numpy as np
 import torch
-from torch import Tensor
+from torch import Tensor, nn
 
 from sentence_transformers.base.modules.module import Module
+from sentence_transformers.util.kernels import _configure_kernel, use_kernel_forward_from_hub
+
+if TYPE_CHECKING:
+    from transformers import KernelConfig
+
+
+# Targeting 128 MiB of temporary pooling memory.
+_POOLING_MEMORY_BUDGET = 128 * 1024 * 1024
 
 
 def _unbind_padded(embeddings: Tensor, attention_mask: Tensor | None, padding_side: str) -> list[Tensor]:
@@ -40,8 +51,10 @@ def _unbind_padded(embeddings: Tensor, attention_mask: Tensor | None, padding_si
     if attention_mask is not None:
         mask = attention_mask.bool()
         return [emb[m] for emb, m in zip(embeddings, mask)]
+
     if padding_side not in ("left", "right"):
         raise ValueError(f"padding_side must be 'left' or 'right', got {padding_side!r}.")
+
     result: list[Tensor] = []
     for emb in embeddings:
         real = (emb.abs().sum(dim=-1) > 0).nonzero(as_tuple=True)[0]
@@ -51,6 +64,7 @@ def _unbind_padded(embeddings: Tensor, attention_mask: Tensor | None, padding_si
             result.append(emb[: int(real[-1]) + 1])
         else:  # "left"
             result.append(emb[int(real[0]) :])
+
     return result
 
 
@@ -61,6 +75,7 @@ def _pad_to_3d(embeddings: list[Tensor], padding_side: str) -> Tensor:
     """
     if padding_side == "right":
         return torch.nn.utils.rnn.pad_sequence(embeddings, batch_first=True, padding_value=0.0)
+
     # Left padding: reverse each row, right-pad, reverse the sequence axis back.
     reversed_embs = [emb.flip(dims=(0,)) for emb in embeddings]
     padded = torch.nn.utils.rnn.pad_sequence(reversed_embs, batch_first=True, padding_value=0.0)
@@ -96,20 +111,29 @@ class BaseTokenPooling(Module, ABC):
     def forward(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
         if not self.applies_to(task):
             return features
+
         token_embeddings = features["token_embeddings"]
         attention_mask = features["attention_mask"].bool()
         device = token_embeddings.device
+
         if token_embeddings.shape[0] == 0:
             # Empty batch: keep the (0, T, D) shape and the (0, T) mask consistent with the input.
             return features
-        pooled_list = [self.pool_one(emb[m]) for emb, m in zip(token_embeddings, attention_mask)]
+
+        # Gather valid tokens because attention masks can contain holes as well as trailing padding.
+        documents = [embedding[mask] for embedding, mask in zip(token_embeddings, attention_mask)]
+        pooled_documents = self._pool_documents(documents)
+
         # Always right-pad back to (B, max_t, D). The output padding side is an internal detail:
         # downstream consumers read the returned mask, not the side.
-        padded = _pad_to_3d(pooled_list, padding_side="right").to(device)
-        lengths = torch.as_tensor([row.shape[0] for row in pooled_list], device=device, dtype=torch.long)
-        new_mask = torch.arange(int(lengths.max()), device=device).unsqueeze(0) < lengths.unsqueeze(1)
-        features["token_embeddings"] = padded
-        features["attention_mask"] = new_mask
+        pooled_embeddings = _pad_to_3d(pooled_documents, padding_side="right").to(device)
+        pooled_lengths = torch.as_tensor(
+            [len(document) for document in pooled_documents], device=device, dtype=torch.long
+        )
+        pooled_mask = torch.arange(int(pooled_lengths.max()), device=device).unsqueeze(0) < pooled_lengths.unsqueeze(1)
+
+        features["token_embeddings"] = pooled_embeddings
+        features["attention_mask"] = pooled_mask
         return features
 
     @overload
@@ -162,92 +186,93 @@ class BaseTokenPooling(Module, ABC):
         """
         if not self.applies_to(task):
             return embeddings
+
         if isinstance(embeddings, Tensor):
             if embeddings.ndim != 3:
-                raise ValueError(f"Tensor input must be 3D (B, T, D); got shape {tuple(embeddings.shape)}.")
+                raise ValueError(f"Tensor input must be 3D (B, T, D), got shape {tuple(embeddings.shape)}.")
             if padding_side not in ("left", "right"):
                 raise ValueError(f"padding_side must be 'left' or 'right', got {padding_side!r}.")
+
             if embeddings.shape[0] == 0:
                 # Batch=0 short-circuit: preserve the input's (0, 0, D) shape.
                 return embeddings.new_zeros((0, 0, embeddings.shape[-1]))
-            embeddings_list = _unbind_padded(embeddings, attention_mask, padding_side)
-            return _pad_to_3d([self.pool_one(e) for e in embeddings_list], padding_side)
+
+            documents = _unbind_padded(embeddings, attention_mask, padding_side)
+            pooled_documents = self._pool_documents(documents)
+            return _pad_to_3d(pooled_documents, padding_side)
+
         if isinstance(embeddings, list):
             if not embeddings:
                 return []
             if embeddings[0].ndim != 2:
-                raise ValueError(f"list entries must be 2D tensors; got shape {tuple(embeddings[0].shape)}.")
-            return [self.pool_one(e) for e in embeddings]
+                raise ValueError(f"list entries must be 2D tensors, got shape {tuple(embeddings[0].shape)}.")
+
+            return self._pool_documents(embeddings)
+
         raise ValueError("embeddings must be a list of 2D tensors or a 3D padded tensor.")
 
     @abstractmethod
     def pool_one(self, embedding: Tensor, **kwargs) -> Tensor:
         """Pool a single ``(num_tokens, D)`` tensor into a ``(num_out, D)`` tensor."""
 
+    def _pool_documents(self, embeddings: list[Tensor]) -> list[Tensor]:
+        """Pool unpadded documents. Subclasses can override this to process several at once."""
+        return [self.pool_one(embedding) for embedding in embeddings]
+
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
         self.save_config(output_path)
 
 
-@cache
-def _ward_linkage_fn() -> Callable[..., np.ndarray]:
-    """Resolve the Ward linkage backend once (fastcluster when installed, scipy otherwise).
+@use_kernel_forward_from_hub("STWardClustering")
+class _WardClustering(nn.Module):
+    """Reference Ward clustering, replaceable by a configured kernel."""
 
-    Python does not cache failed imports, so an uncached lookup would walk sys.path for every
-    pooled document.
-    """
-    try:
-        from fastcluster import linkage
-    except (ImportError, OSError, RuntimeError):
-        from scipy.cluster.hierarchy import linkage
-    return linkage
+    @staticmethod
+    @cache
+    def _linkage_fn() -> Callable[..., np.ndarray]:
+        """Resolve fastcluster or scipy once, including when fastcluster is unavailable."""
+        try:
+            from fastcluster import linkage
+        except (ImportError, OSError, RuntimeError):
+            from scipy.cluster.hierarchy import linkage
+
+        return linkage
+
+    def forward(self, distances: Tensor, lengths: Tensor, cluster_counts: Tensor) -> tuple[Tensor, Tensor]:
+        """Return dense labels ``(B, T)`` and actual cluster counts ``(B,)`` for padded distances."""
+        from scipy.cluster.hierarchy import fcluster
+        from scipy.spatial.distance import squareform
+
+        device = distances.device
+        distances = distances.detach().cpu()
+        labels = torch.zeros(distances.shape[:2], dtype=torch.int64)
+        actual_cluster_counts = []
+
+        for row, (num_tokens, target_count) in enumerate(zip(lengths.tolist(), cluster_counts.tolist())):
+            if target_count >= num_tokens:
+                labels[row, :num_tokens] = torch.arange(num_tokens)
+                actual_cluster_counts.append(num_tokens)
+                continue
+
+            condensed_distances = squareform(distances[row, :num_tokens, :num_tokens].numpy(), checks=False)
+            linkage = self._linkage_fn()(condensed_distances, method="ward")
+            cluster_labels = fcluster(linkage, t=target_count, criterion="maxclust")
+            cluster_labels = torch.from_numpy(cluster_labels.astype(np.int64))
+
+            # Pooling needs dense zero-based labels, including when ties yield fewer clusters.
+            unique_labels, dense_labels = cluster_labels.unique(return_inverse=True)
+            labels[row, :num_tokens] = dense_labels
+            actual_cluster_counts.append(len(unique_labels))
+
+        return labels.to(device), torch.tensor(actual_cluster_counts, device=device)
 
 
 def _normalize_token_embeddings(embedding: Tensor) -> Tensor:
     dtype = embedding.dtype
     if dtype in (torch.float16, torch.bfloat16):
         embedding = embedding.float()
+
     return torch.nn.functional.normalize(embedding, dim=-1).to(dtype)
-
-
-def _hierarchical_pool_one(
-    embedding: Tensor, pool_factor: float, num_protected_tokens: int, normalize_embeddings: bool = True
-) -> Tensor:
-    """Ward hierarchical clustering on cosine distance for a single 2D embedding.
-
-    Uses fastcluster for the Ward linkage when installed (moderately faster, same clustering as
-    scipy except on exact distance ties). Falls back to scipy silently.
-    """
-    from scipy.cluster import hierarchy
-    from scipy.spatial.distance import squareform
-
-    device = embedding.device
-    protected = embedding[:num_protected_tokens]
-    to_pool = embedding[num_protected_tokens:]
-    num_to_pool = len(to_pool)
-    num_clusters = max(int(num_to_pool // pool_factor), 1)
-
-    if num_clusters < num_to_pool:
-        to_pool = to_pool.cpu()
-        # Detach: clustering only picks assignments, gradients flow through the cluster means below.
-        to_pool_fp32 = to_pool.detach().float()
-        cos_dist = (1 - torch.mm(to_pool_fp32, to_pool_fp32.t())).clamp_(0, 2).numpy()
-        # squareform with checks=False extracts the condensed upper triangle faster than a triu_indices gather.
-        condensed = squareform(cos_dist, checks=False)
-        linkage = _ward_linkage_fn()(condensed, method="ward")
-        labels = hierarchy.fcluster(linkage, t=num_clusters, criterion="maxclust") - 1  # 0-indexed
-        # Dense-index the labels so pooled rows line up with valid cluster ids even if fcluster returns
-        # fewer than num_clusters distinct labels (possible with ties).
-        labels_tensor = torch.from_numpy(labels.astype(np.int64))
-        unique_labels, inverse = torch.unique(labels_tensor, return_inverse=True)
-        num_actual = unique_labels.numel()
-        cluster_sums = torch.zeros(num_actual, to_pool.shape[1], dtype=to_pool.dtype)
-        cluster_counts = torch.zeros(num_actual, dtype=torch.long)
-        cluster_sums.scatter_add_(0, inverse.unsqueeze(1).expand_as(to_pool), to_pool)
-        cluster_counts.scatter_add_(0, inverse, torch.ones(num_to_pool, dtype=torch.long))
-        pooled = cluster_sums / cluster_counts.unsqueeze(1)
-        embedding = torch.cat([protected, pooled.to(device)], dim=0)
-
-    return _normalize_token_embeddings(embedding) if normalize_embeddings else embedding
 
 
 class HierarchicalTokenPooling(BaseTokenPooling):
@@ -262,6 +287,10 @@ class HierarchicalTokenPooling(BaseTokenPooling):
     Installing the optional ``fastcluster`` package speeds up the clustering step. Its output is
     identical to scipy's except on exact distance ties, which the two libraries may break
     differently.
+
+    Documents share a batched pooling path with either reference or kernel clustering.
+    Batches target an estimated 128 MiB of temporary working memory. A single document can
+    exceed this budget. Retained outputs and training graphs add to memory use.
 
     Reference compatibility: with ``normalize_embeddings=False``, this implementation matches PyLate
     after its condensed-Ward fix (PyLate > 1.3.4). It intentionally does NOT reproduce released
@@ -282,6 +311,12 @@ class HierarchicalTokenPooling(BaseTokenPooling):
             to preserve compatibility with existing indexes.
         tasks: Task names this pooling applies to. Defaults to ``["document"]`` (only compress
             documents).
+        use_kernels: Enable default Ward kernels. Defaults to None, which inherits the model's
+            setting when used with MultiVectorEncoder and starts with reference clustering
+            standalone. Inherited settings remain on the pooler. Set False to opt out of the
+            model's kernels.
+        kernel_config: Optional Ward kernel mappings. Providing a configuration enables kernels
+            and overrides the model's Ward configuration. Kernel settings are runtime-only.
     """
 
     config_keys: list[str] = ["pool_factor", "num_protected_tokens", "normalize_embeddings", "tasks"]
@@ -293,15 +328,51 @@ class HierarchicalTokenPooling(BaseTokenPooling):
         num_protected_tokens: int = 1,
         normalize_embeddings: bool = True,
         tasks: str | list[str] | None = None,
+        use_kernels: bool | None = None,
+        kernel_config: KernelConfig | None = None,
     ) -> None:
         super().__init__(tasks=tasks)
-        if pool_factor < 1:
-            raise ValueError(f"pool_factor must be >= 1, got {pool_factor}.")
-        if num_protected_tokens < 0:
-            raise ValueError(f"num_protected_tokens must be >= 0, got {num_protected_tokens}.")
+        if not math.isfinite(pool_factor) or pool_factor < 1:
+            raise ValueError(f"pool_factor must be >= 1 and finite, got {pool_factor}.")
+        if not isinstance(num_protected_tokens, int) or num_protected_tokens < 0:
+            raise ValueError(f"num_protected_tokens must be >= 0 and an integer, got {num_protected_tokens}.")
+
         self.pool_factor = pool_factor
         self.num_protected_tokens = num_protected_tokens
         self.normalize_embeddings = normalize_embeddings
+
+        self.clustering = _WardClustering()
+        self.use_kernels = True if kernel_config is not None else use_kernels
+        self.kernel_config = deepcopy(kernel_config)
+        self._kernel_device = None
+
+    def _set_kernel_settings(self, use_kernels: bool, kernel_config: KernelConfig | None) -> None:
+        if self.use_kernels is not None or not use_kernels:
+            return
+
+        self.use_kernels = True
+        self.kernel_config = deepcopy(kernel_config)
+
+    def _configure_clustering(self, device: torch.device) -> None:
+        if not self.use_kernels or device == self._kernel_device:
+            return
+
+        _configure_kernel(
+            [self.clustering],
+            self.kernel_config,
+            device,
+            defaults={"STWardClustering": ("sentence-transformers/ward-clustering", "WardClustering", 1)},
+            trust_remote_code=["sentence-transformers/ward-clustering"],
+        )
+        self._kernel_device = device
+
+    def __getstate__(self):
+        state = super().__getstate__()
+
+        # Reload providers on use instead of serializing their patched forward methods.
+        state["_modules"] = {**state["_modules"], "clustering": _WardClustering()}
+        state["_kernel_device"] = None
+        return state
 
     @classmethod
     def load_config(cls, *args, **kwargs) -> dict[str, Any]:
@@ -314,12 +385,100 @@ class HierarchicalTokenPooling(BaseTokenPooling):
             if self.normalize_embeddings and self.applies_to(task):
                 features["token_embeddings"] = _normalize_token_embeddings(features["token_embeddings"])
             return features
+
         return super().forward(features, task=task)
 
+    def _pool_documents(self, embeddings: list[Tensor]) -> list[Tensor]:
+        """Batch unpadded documents, pool them, and trim output padding."""
+        if any(document.ndim != 2 for document in embeddings):
+            raise ValueError("list entries must be 2D tensors")
+
+        # Group consecutive compatible documents so heterogeneous lists keep their original order.
+        groups = groupby(embeddings, key=lambda document: (document.device, document.dtype, document.shape[1]))
+        pooled_documents = []
+
+        for _, group in groups:
+            documents = list(group)
+            embedding_dim = documents[0].shape[1]
+            max_tokens = max(len(document) for document in documents)
+            max_poolable_tokens = max(max_tokens - self.num_protected_tokens, 0)
+
+            # Estimate four float32 distance buffers and six embedding buffers for working memory.
+            distance_bytes = 4 * max_poolable_tokens**2 * 4
+            embedding_bytes = 6 * max_tokens * embedding_dim * 4
+            bytes_per_document = max(1, distance_bytes + embedding_bytes)
+            batch_size = max(1, _POOLING_MEMORY_BUDGET // bytes_per_document)
+
+            for start in range(0, len(documents), batch_size):
+                batch = documents[start : start + batch_size]
+                padded_embeddings = _pad_to_3d(batch, "right")
+                lengths = torch.tensor([len(document) for document in batch], device=padded_embeddings.device)
+
+                pooled_embeddings, pooled_lengths = self._pool_batch(padded_embeddings, lengths)
+                if self.normalize_embeddings:
+                    pooled_embeddings = _normalize_token_embeddings(pooled_embeddings)
+
+                pooled_documents.extend(
+                    embedding[:length] for embedding, length in zip(pooled_embeddings, pooled_lengths.tolist())
+                )
+
+        return pooled_documents
+
     def pool_one(self, embedding: Tensor, **kwargs) -> Tensor:
-        return _hierarchical_pool_one(
-            embedding, self.pool_factor, self.num_protected_tokens, self.normalize_embeddings
+        return self._pool_documents([embedding])[0]
+
+    def _pool_batch(self, embeddings: Tensor, lengths: Tensor) -> tuple[Tensor, Tensor]:
+        """Pool a right-padded ``(B, T, D)`` batch and return embeddings with their new lengths."""
+        batch_size, num_tokens, embedding_dim = embeddings.shape
+        num_protected_tokens = min(self.num_protected_tokens, num_tokens)
+        num_poolable_tokens = num_tokens - num_protected_tokens
+        max_num_clusters = max(int(num_poolable_tokens // self.pool_factor), 1)
+
+        valid_tokens = torch.arange(num_tokens, device=embeddings.device)[None, :] < lengths[:, None]
+        embeddings = torch.where(valid_tokens[..., None], embeddings, 0)
+
+        if max_num_clusters >= num_poolable_tokens:
+            return embeddings, lengths
+
+        poolable_lengths = (lengths - num_protected_tokens).clamp_min(0)
+        poolable_embeddings = embeddings[:, num_protected_tokens:]
+
+        # Accumulate means in float32 to avoid fp16 overflow and coarse bf16 sums.
+        values = (
+            poolable_embeddings.float()
+            if poolable_embeddings.dtype in (torch.float16, torch.bfloat16)
+            else poolable_embeddings
         )
+
+        if max_num_clusters == 1:
+            # A single cluster is the mean of all remaining tokens, with no linkage needed.
+            means = values.sum(1, keepdim=True) / poolable_lengths.clamp_min(1)[:, None, None]
+            actual_cluster_counts = (poolable_lengths > 0).long()
+        else:
+            # Cluster assignments are non-differentiable. The means below retain the gradient path.
+            with torch.autocast(device_type=embeddings.device.type, enabled=False):
+                clustering_embeddings = values.detach().float()
+                distances = (1 - clustering_embeddings @ clustering_embeddings.transpose(1, 2)).clamp_(0, 2)
+
+                target_cluster_counts = (poolable_lengths.double() // self.pool_factor).long()
+                target_cluster_counts = target_cluster_counts.clamp_min_(1).minimum(poolable_lengths)
+
+                self._configure_clustering(embeddings.device)
+                labels, actual_cluster_counts = self.clustering(distances, poolable_lengths, target_cluster_counts)
+
+            cluster_sums = values.new_zeros((batch_size, max_num_clusters, embedding_dim))
+            cluster_indices = labels[..., None].expand_as(values)
+            cluster_sums.scatter_add_(1, cluster_indices, values)
+
+            # Padding also has label zero, so exclude it when counting tokens in each cluster.
+            weights = valid_tokens[:, num_protected_tokens:].to(values.dtype)
+            cluster_sizes = weights.new_zeros((batch_size, max_num_clusters)).scatter_add_(1, labels, weights)
+            means = cluster_sums / cluster_sizes.clamp_min(1)[..., None]
+
+        protected_embeddings = embeddings[:, :num_protected_tokens]
+        pooled_embeddings = torch.cat((protected_embeddings, means.to(embeddings.dtype)), dim=1)
+        pooled_lengths = lengths.clamp_max(num_protected_tokens) + actual_cluster_counts
+        return pooled_embeddings, pooled_lengths
 
 
 class LambdaTokenPooling(BaseTokenPooling):
