@@ -415,10 +415,11 @@ def test_ward_pooling_controls_keep_reference_behavior(loader, monkeypatch, pool
     from sentence_transformers.multi_vector_encoder.modules.token_pooling import _WardClustering
 
     documents = [torch.randn(length, 8).requires_grad_() for length in [0, 1, 2, 7, 11]]
-    reference_clustering = _WardClustering()
+    reference_clustering = _WardClustering(pooling_options.get("distance_threshold"))
     requested_counts = []
 
     def forward(self, distances, lengths, cluster_counts):
+        assert self.distance_threshold == pooling_options.get("distance_threshold")
         requested_counts.append(cluster_counts.tolist())
         return reference_clustering(distances, lengths, cluster_counts)
 
@@ -433,7 +434,7 @@ def test_ward_pooling_controls_keep_reference_behavior(loader, monkeypatch, pool
         torch.autograd.grad(sum(value.sum() for value in reference), documents),
     ):
         torch.testing.assert_close(gradient, expected_gradient)
-    assert bool(loader) == ("max_tokens" in pooling_options)
+    assert loader
     if "max_tokens" in pooling_options:
         assert requested_counts == [[0, 0, 1, 3, 3]]
     for pooled, restored in zip(actual, deepcopy(pooler).pool(documents)):

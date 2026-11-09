@@ -324,7 +324,7 @@ class HierarchicalTokenPooling(BaseTokenPooling):
         use_kernels: Enable default Ward kernels. Defaults to None, which inherits the model's
             setting when used with MultiVectorEncoder and starts with reference clustering
             standalone. Inherited settings remain on the pooler. Set False to opt out of the
-            model's kernels. Distance-threshold pooling uses reference clustering.
+            model's kernels.
         kernel_config: Optional Ward kernel mappings. Providing a configuration enables kernels
             and overrides the model's Ward configuration. Kernel settings are runtime-only.
     """
@@ -393,8 +393,7 @@ class HierarchicalTokenPooling(BaseTokenPooling):
         self.kernel_config = deepcopy(kernel_config)
 
     def _configure_clustering(self, device: torch.device) -> None:
-        # Current Ward providers accept cluster counts, not distance thresholds.
-        if self.distance_threshold is not None or not self.use_kernels or device == self._kernel_device:
+        if not self.use_kernels or device == self._kernel_device:
             return
 
         _configure_kernel(
