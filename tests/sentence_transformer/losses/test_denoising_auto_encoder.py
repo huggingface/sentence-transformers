@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 import torch
+from transformers import BertTokenizer
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.losses import DenoisingAutoEncoderLoss
@@ -96,3 +101,41 @@ def test_tie_without_decoder_name_does_not_require_it(stsb_bert_tiny_model: Sent
     """When tying, ``decoder_name_or_path`` may be omitted: it defaults to the encoder's checkpoint."""
     loss = DenoisingAutoEncoderLoss(stsb_bert_tiny_model, tie_encoder_decoder=True)
     assert loss.decoder is not None
+
+
+@pytest.mark.parametrize("different_vocab", [False, True])
+def test_untied_tokenizer_vocabularies(
+    stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, different_vocab: bool
+) -> None:
+    model = stsb_bert_tiny_model.to("cpu")
+    decoder_path = tmp_path / "decoder"
+    model.transformers_model.save_pretrained(decoder_path)
+    vocab = model.tokenizer.get_vocab()
+    if different_vocab:
+        # Equal vocabulary sizes and token sets, but different token-to-ID mappings.
+        vocab["red"], vocab["blue"] = vocab["blue"], vocab["red"]
+    BertTokenizer(vocab=vocab).save_pretrained(decoder_path)
+    loss = DenoisingAutoEncoderLoss(model, decoder_name_or_path=str(decoder_path), tie_encoder_decoder=False)
+
+    texts = ["red blue", "green"]
+    expected_ids = loss.tokenizer_decoder(texts, padding=True, return_tensors="pt")["input_ids"]
+    with (
+        patch.object(loss.decoder, "forward", wraps=loss.decoder.forward) as decoder_forward,
+        patch("torch.nn.functional.cross_entropy", wraps=torch.nn.functional.cross_entropy) as cross_entropy,
+    ):
+        loss([model.preprocess(texts), model.preprocess(texts)], labels=None)
+
+    torch.testing.assert_close(decoder_forward.call_args.kwargs["input_ids"], expected_ids[:, :-1])
+    torch.testing.assert_close(cross_entropy.call_args.args[1], expected_ids[:, 1:].reshape(-1))
+    assert loss.need_retokenization is different_vocab
+
+
+def test_tied_tokenizer_vocabulary_resize(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    model = stsb_bert_tiny_model.to("cpu")
+    model.tokenizer.add_tokens(["<domain>"])
+    model.transformers_model.resize_token_embeddings(len(model.tokenizer))
+    loss = DenoisingAutoEncoderLoss(model)
+
+    assert not loss.need_retokenization
+    assert loss.tokenizer_decoder is model.tokenizer
+    assert loss.decoder.get_input_embeddings().num_embeddings == len(model.tokenizer)
