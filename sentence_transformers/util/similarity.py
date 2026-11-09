@@ -596,8 +596,10 @@ def maxsim_pairwise(
     document_widths = [len(document) for document in b] if isinstance(b, list) else [b.shape[1]] * len(b)
     if a_mask is not None:
         a_mask = _fit_mask_width(a_mask, max(query_widths), "a_mask")
+        a_mask = a_mask.expand(len(a), -1)
     if b_mask is not None:
         b_mask = _fit_mask_width(b_mask, max(document_widths), "b_mask")
+        b_mask = b_mask.expand(len(b), -1)
     # Scoring runs on the documents' device, or the queries' when the documents carry none (numpy).
     # An explicit ``device`` overrides the scoring device only: each chunk's scores come home below.
     result_device = _embeddings_device(b) or _embeddings_device(a) or torch.device("cpu")
