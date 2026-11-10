@@ -296,3 +296,28 @@ def test_cached_loss_behind_wrappers_matches_non_cached(stsb_bert_tiny_model: Se
     assert_trained(cached_grads)
     torch.testing.assert_close(cached_value, plain_value, rtol=1e-4, atol=1e-5)
     torch.testing.assert_close(cached_grads, plain_grads, rtol=1e-4, atol=1e-4)
+
+
+def test_matryoshka_loss_with_dictionary_of_losses(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    from tests.sentence_transformer.losses.utils import disable_dropout
+
+    class TwoPartLoss(torch.nn.Module):
+        def __init__(self, loss):
+            super().__init__()
+            self.loss = loss
+
+        def forward(self, features, labels):
+            loss = self.loss(features, labels)
+            return {"first": loss, "second": 2 * loss}
+
+    model = stsb_bert_tiny_model.cpu()
+    disable_dropout(model)
+    features = [model.preprocess(texts) for texts in (["anchor a", "anchor b"], ["doc a", "doc b"])]
+    kwargs = {"matryoshka_dims": [128, 64, 32], "matryoshka_weights": [1.0, 0.5, 0.25]}
+
+    expected = MatryoshkaLoss(model, MultipleNegativesRankingLoss(model), **kwargs)(features, None)
+    losses = MatryoshkaLoss(model, TwoPartLoss(MultipleNegativesRankingLoss(model)), **kwargs)(features, None)
+
+    assert losses.keys() == {"first", "second"}
+    torch.testing.assert_close(losses["first"], expected)
+    torch.testing.assert_close(losses["second"], 2 * expected)

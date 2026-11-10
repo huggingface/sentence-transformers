@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import random
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 import torch
@@ -13,6 +13,23 @@ from sentence_transformers.base.losses.gradcache import resolve_gradient_cache_l
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 logger = logging.getLogger(__name__)
+
+
+def _map_loss(loss: Tensor | dict[str, Tensor], fn: Callable[[Tensor], Tensor]) -> Tensor | dict[str, Tensor]:
+    """Apply ``fn`` to a loss, or to each component of a dictionary of losses."""
+    if isinstance(loss, dict):
+        return {key: fn(value) for key, value in loss.items()}
+    return fn(loss)
+
+
+def _add_losses(
+    total: float | Tensor | dict[str, Tensor], loss: Tensor | dict[str, Tensor]
+) -> Tensor | dict[str, Tensor]:
+    """Add a loss to a running total, summing the components separately if the loss is a dictionary of losses."""
+    if isinstance(loss, dict):
+        total = total if isinstance(total, dict) else {}
+        return {**total, **{key: total.get(key, 0.0) + value for key, value in loss.items()}}
+    return total + loss
 
 
 def shrink(tensor: Tensor, dim: int) -> Tensor:
@@ -224,7 +241,7 @@ class MatryoshkaLoss(nn.Module):
                 gradient_cache_loss.calculate_loss, self.matryoshka_dims, self.matryoshka_weights, self.n_dims_per_step
             )
 
-    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
+    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor | dict[str, Tensor]:
         # For the gradient-caching losses, the CachedLossDecorator has been applied to the `calculate_loss`
         # method, so we can directly call the loss function.
         if self.uses_gradient_cache:
@@ -257,7 +274,9 @@ class MatryoshkaLoss(nn.Module):
                 ):
                     dim_labels = labels[..., :dim]
 
-                loss += weight * self.loss(sentence_features, dim_labels)
+                loss = _add_losses(
+                    loss, _map_loss(self.loss(sentence_features, dim_labels), lambda value: weight * value)
+                )
         finally:
             self.model.forward = original_forward
         return loss

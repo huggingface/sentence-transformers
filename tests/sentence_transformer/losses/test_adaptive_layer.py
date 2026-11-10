@@ -270,3 +270,29 @@ def test_adaptive_layer_loss_invalid_layer_weighting(stsb_bert_tiny_model: Sente
     inner_loss = MultipleNegativesRankingLoss(stsb_bert_tiny_model)
     with pytest.raises(ValueError, match="layer_weighting"):
         AdaptiveLayerLoss(stsb_bert_tiny_model, inner_loss, layer_weighting="quadratic")
+
+
+def test_adaptive_layer_loss_with_dictionary_of_losses(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    from tests.sentence_transformer.losses.utils import disable_dropout
+
+    class TwoPartLoss(nn.Module):
+        def __init__(self, loss: nn.Module) -> None:
+            super().__init__()
+            self.loss = loss
+
+        def forward(self, features, labels):  # type: ignore[no-untyped-def]
+            loss = self.loss(features, labels)
+            return {"first": loss, "second": 2 * loss}
+
+    model = stsb_bert_tiny_model.cpu()
+    disable_dropout(model)
+    features, labels = _features_and_labels(model)
+
+    expected = AdaptiveLayerLoss(model, MultipleNegativesRankingLoss(model), n_layers_per_step=-1)(features, labels)
+    losses = AdaptiveLayerLoss(model, TwoPartLoss(MultipleNegativesRankingLoss(model)), n_layers_per_step=-1)(
+        features, labels
+    )
+
+    assert losses.keys() == {"first", "second", "kl_div_loss"}
+    torch.testing.assert_close(losses["first"] + losses["kl_div_loss"], expected)
+    torch.testing.assert_close(losses["second"], 2 * losses["first"])
