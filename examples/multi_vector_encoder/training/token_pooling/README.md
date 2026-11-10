@@ -83,6 +83,8 @@ loss = MultiVectorTokenPoolingLoss(
 
 Custom `BaseTokenPooling` implementations can be used if they preserve gradients through the input embeddings. `HierarchicalTokenPooling` uses a straight-through estimator to pass gradients back to cluster members without differentiating Ward's discrete assignments.
 
+The training and evaluation scripts enable kernels automatically when a compatible `kernels` package is installed. Install the optional dependencies with `pip install "sentence-transformers[kernels]"` to accelerate MaxSim scoring and Ward clustering on supported hardware. Especially the [Ward clustering kernel](https://huggingface.co/kernels/sentence-transformers/ward-clustering) can provide significant speedups.
+
 The script starts from `answerdotai/ModernBERT-base` with a fresh 128-dimensional projection. Short queries are expanded to at least 32 token positions to provide additional contextual query vectors. You can also fine-tune an existing retrieval model or replace the factor-4 pooler with your deployment configuration.
 
 Run both variants for a matched comparison:
