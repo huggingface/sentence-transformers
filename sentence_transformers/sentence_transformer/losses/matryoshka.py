@@ -253,7 +253,7 @@ class MatryoshkaLoss(nn.Module):
                 if (
                     isinstance(labels, torch.Tensor)
                     and labels.ndim in (2, 3)
-                    and labels.size(-1) == self.model.get_embedding_dimension()
+                    and labels.size(-1) == self.model._get_untruncated_embedding_dimension()
                 ):
                     dim_labels = labels[..., :dim]
 

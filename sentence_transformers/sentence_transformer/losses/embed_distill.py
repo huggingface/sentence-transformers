@@ -13,6 +13,13 @@ from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
+def _forward_embedding_dimension(model: SentenceTransformer) -> int | None:
+    """Dimension of the embeddings from the forward pass, which ``truncate_dim`` doesn't apply to."""
+    # SparseEncoder (via SparseMSELoss) has no truncate_dim, so its get_embedding_dimension is already untruncated
+    get_dimension = getattr(model, "_get_untruncated_embedding_dimension", model.get_embedding_dimension)
+    return get_dimension()
+
+
 class EmbedDistillLoss(nn.Module):
     def __init__(
         self,
@@ -160,7 +167,7 @@ class EmbedDistillLoss(nn.Module):
         self.projection_dim = projection_dim
         self.projection: nn.Linear | None = None
         if projection_dim is not None:
-            student_dim = model.get_embedding_dimension()
+            student_dim = _forward_embedding_dimension(model)
             self.projection = nn.Linear(student_dim, projection_dim, device=model.device)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None) -> Tensor:
@@ -266,7 +273,7 @@ class EmbedDistillLoss(nn.Module):
         out_features, in_features = state_dict["weight"].shape
 
         if self.projection is None:
-            student_dim = self.model.get_embedding_dimension()
+            student_dim = _forward_embedding_dimension(self.model)
             if in_features != student_dim:
                 raise ValueError(
                     f"Saved projection expects student embeddings of dim {in_features}, "

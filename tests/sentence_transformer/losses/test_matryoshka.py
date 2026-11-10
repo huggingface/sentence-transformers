@@ -7,6 +7,7 @@ import torch
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.base.modules import Dense
+from sentence_transformers.base.trainer import BaseTrainer
 from sentence_transformers.sentence_transformer.losses import (
     CachedMultipleNegativesRankingLoss,
     MatryoshkaLoss,
@@ -219,6 +220,35 @@ def test_mse_loss_matryoshka_per_column_teacher(stsb_bert_tiny_model):
         sentence_features = [model.preprocess(texts) for texts in text_columns]
         output = loss(sentence_features, torch.stack(teacher_embeddings, dim=1))
     assert output.item() == pytest.approx(expected.item())
+
+
+@pytest.mark.parametrize("wrapped", [False, True], ids=["bare", "ddp_wrapped"])
+def test_mse_loss_matryoshka_with_model_truncate_dim(stsb_bert_tiny_model, wrapped):
+    """A model-level truncate_dim only affects encode(), so teacher labels at the full forward
+    dimension must still be truncated to each Matryoshka dimension."""
+    model = stsb_bert_tiny_model.cpu()
+    model.truncate_dim = 32
+    loss = MatryoshkaLoss(model=model, loss=MSELoss(model=model), matryoshka_dims=[128, 64, 32])
+    if wrapped:
+
+        class _FakeDDP(torch.nn.Module):
+            def __init__(self, module):
+                super().__init__()
+                self.module = module
+
+            def forward(self, *args, **kwargs):
+                return self.module(*args, **kwargs)
+
+        class _StubTrainer:
+            override_model_in_loss = BaseTrainer.override_model_in_loss
+
+        _StubTrainer().override_model_in_loss(loss, _FakeDDP(model))
+    sentence_features = [model.preprocess(["A man is eating food.", "A plane is taking off."])]
+    labels = torch.randn(2, 128)
+
+    output = loss(sentence_features, labels)
+    assert output.shape == torch.Size([])
+    assert torch.isfinite(output)
 
 
 @pytest.mark.parametrize("architecture", ["concatenated_pooling", "dense_projection"])
