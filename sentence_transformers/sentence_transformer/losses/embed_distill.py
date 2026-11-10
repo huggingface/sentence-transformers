@@ -209,10 +209,11 @@ class EmbedDistillLoss(nn.Module):
         """
         losses = []
         for student_emb, teacher_emb in zip(embeddings, teacher_embeddings):
-            teacher_emb = teacher_emb.to(device=student_emb.device, dtype=student_emb.dtype)
+            dtype = self.projection.weight.dtype if self.projection is not None else student_emb.dtype
+            teacher_emb = teacher_emb.to(device=student_emb.device, dtype=dtype)
 
             if self.projection is not None:
-                student_emb = self.projection(student_emb)
+                student_emb = self.projection(student_emb.to(dtype))
 
             if self.distance_metric == "mse":
                 loss = nn.functional.mse_loss(student_emb, teacher_emb)

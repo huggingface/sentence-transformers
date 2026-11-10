@@ -21,6 +21,7 @@ from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCa
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SpladePooling
 from sentence_transformers.util import batch_to_device, select_max_active_dims
 from sentence_transformers.util.decorators import deprecated_kwargs
+from sentence_transformers.util.misc import _to_list
 from sentence_transformers.util.similarity import SimilarityFunction
 
 if TYPE_CHECKING:
@@ -710,8 +711,8 @@ class SparseEncoder(BaseModel):
         if is_singular_input:
             inputs = [inputs]
         elif not isinstance(inputs, list):
-            # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
-            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            materialized: list[TextInput] = _to_list(inputs)
+            inputs = materialized
 
         # Throw an error if unused kwargs are passed, except 'task' which is always allowed, even
         # when it does not do anything (as e.g. there's no Router module in the model)

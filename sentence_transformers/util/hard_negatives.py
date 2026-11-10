@@ -12,6 +12,7 @@ from tqdm import trange
 from tqdm.autonotebook import tqdm
 
 from .environment import is_datasets_available
+from .misc import _to_list
 
 logger = logging.getLogger(__name__)
 
@@ -411,9 +412,9 @@ def mine_hard_negatives(
         )
 
     log_counters = {}
-    queries = list(dataset[anchor_column_name])
-    positives = list(dataset[positive_column_name])
-    corpus = positives if corpus is None else list(corpus)
+    queries = _to_list(dataset[anchor_column_name])
+    positives = _to_list(dataset[positive_column_name])
+    corpus = positives if corpus is None else _to_list(corpus)
 
     # Deduplicate the corpus
     # make sure all the positives are also in the corpus and de-duplicate it.
