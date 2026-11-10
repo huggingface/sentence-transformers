@@ -9,7 +9,7 @@ from torch import Tensor, nn
 
 from sentence_transformers.base.losses.gradcache import resolve_gradient_cache_loss, uses_gradient_cache
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
-from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
+from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling, HierarchicalTokenPooling
 
 
 def _pooling_name(pooling: nn.Module | None) -> str | None:
@@ -131,6 +131,7 @@ class MultiVectorTokenPoolingLoss(nn.Module):
             token_poolings: Pooling modules, one per variant. Include None to also train unpooled
                 retrieval. Custom modules must preserve gradients through the input embeddings.
                 Cached losses require poolers without trainable parameters.
+                Hierarchical poolers inherit the model's kernel settings unless configured explicitly.
             weights: A list of weights for the per-variant losses, summed like the Matryoshka
                 losses do. If None, then the weights will be set to 1 for all variants.
             n_poolings_per_step: Number of randomly sampled variants per step. Defaults to -1
@@ -202,6 +203,8 @@ class MultiVectorTokenPoolingLoss(nn.Module):
 
         self.token_poolings = nn.ModuleList()
         for idx, pooling in enumerate(token_poolings):
+            if isinstance(pooling, HierarchicalTokenPooling):
+                pooling._set_kernel_settings(model.use_kernels, model._token_pooling_kernel_config)
             self.token_poolings.add_module(str(idx), pooling)
         self.weights: tuple[float, ...] | tuple[int, ...] = tuple(weights)
         self.n_poolings_per_step = n_poolings_per_step

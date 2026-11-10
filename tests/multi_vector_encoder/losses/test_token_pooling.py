@@ -23,6 +23,8 @@ class _PassthroughModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.forward_calls = 0
+        self.use_kernels = False
+        self._token_pooling_kernel_config = None
 
     def forward(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
         self.forward_calls += 1

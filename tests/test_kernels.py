@@ -17,6 +17,7 @@ from sentence_transformers.multi_vector_encoder.losses import (
     MultiVectorDistillKLDivLoss,
     MultiVectorMarginMSELoss,
     MultiVectorMultipleNegativesRankingLoss,
+    MultiVectorTokenPoolingLoss,
 )
 from sentence_transformers.multi_vector_encoder.modules import HierarchicalTokenPooling
 from sentence_transformers.multi_vector_encoder.scoring import (
@@ -533,6 +534,43 @@ def test_ward_model_inheritance_and_pooler_overrides(loader, path, selection):
         assert "forward" in pooler.clustering.__dict__
     if path == "pipeline":
         assert model[-1] is pooler
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("selection", ["inherit", "disabled", "defaults", "custom"])
+def test_loss_ward_inheritance_and_pooler_overrides(loader, cached, selection):
+    preferences = KernelConfig({"STWardClustering": "test/model:SingletonWard"}, inherit_mapping=False)
+    options = {
+        "inherit": {},
+        "disabled": {"use_kernels": False},
+        "defaults": {"use_kernels": True},
+        "custom": {"kernel_config": config(STWardClustering="SingletonWard")},
+    }[selection]
+    pooler = HierarchicalTokenPooling(2, **options)
+    model = MultiVectorEncoder(
+        modules=[Dense(8, 8, module_input_name="token_embeddings")], device="cpu", kernel_config=preferences
+    )
+    inner = (
+        CachedMultiVectorMultipleNegativesRankingLoss(model, mini_batch_size=1, show_progress_bar=False)
+        if cached
+        else MultiVectorMultipleNegativesRankingLoss(model)
+    )
+    loss = MultiVectorTokenPoolingLoss(model, inner, token_poolings=[None, pooler])
+    features = [
+        {"token_embeddings": torch.randn(2, tokens, 8), "attention_mask": torch.ones(2, tokens)} for tokens in (4, 8)
+    ]
+    value = loss(features, None)
+    assert torch.isfinite(value)
+    value.backward()
+    assert any(parameter.grad is not None for parameter in model.parameters())
+    if selection in {"inherit", "custom"}:
+        repository = "test/model" if selection == "inherit" else "test/kernel"
+        assert [args for args, _ in loader] == [(repository,)]
+        assert pooler.use_kernels is True
+        assert pooler.kernel_config is not model._token_pooling_kernel_config
+    else:
+        assert not loader
+        assert pooler.use_kernels is (selection == "defaults")
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
