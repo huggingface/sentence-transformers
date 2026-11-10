@@ -159,7 +159,7 @@ Both models below were trained on the same 120,000 MS MARCO triplets with seed 4
 | `distance_threshold` (calibrated) | 29.58 | 48.38 | 50.96 | +2.58 |
 | `distance_threshold` (calibrated) | 15.60 | 47.23 | 49.63 | +2.41 |
 
-![Ordinary versus pooling-aware training with proportional token pooling](results.png)
+<img src="../../../../docs/img/mve_token_pooling_results.png" alt="Ordinary versus pooling-aware training with proportional token pooling" width="800">
 
 At the trained `pool_factor=4`, pooling-aware training improves nDCG@10 from 49.03 to 51.23 with a 4-fold reduction in document vectors relative to unpooled retrieval. Score retention rises from 94.6% to 97.8%, measured against each model's own unpooled mean nDCG@10.
 
