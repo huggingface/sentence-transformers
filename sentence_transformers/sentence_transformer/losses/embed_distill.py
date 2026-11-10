@@ -209,10 +209,13 @@ class EmbedDistillLoss(nn.Module):
         """
         losses = []
         for student_emb, teacher_emb in zip(embeddings, teacher_embeddings):
-            teacher_emb = teacher_emb.to(device=student_emb.device, dtype=student_emb.dtype)
-
             if self.projection is not None:
-                student_emb = self.projection(student_emb)
+                # The projection is created in float32, so a model running in a lower precision
+                # would otherwise fail its forward pass. Cast the embeddings to the projection's
+                # dtype and keep the projection and the loss in float32, like SoftmaxLoss does.
+                student_emb = self.projection(student_emb.to(self.projection.weight.dtype))
+
+            teacher_emb = teacher_emb.to(device=student_emb.device, dtype=student_emb.dtype)
 
             if self.distance_metric == "mse":
                 loss = nn.functional.mse_loss(student_emb, teacher_emb)
