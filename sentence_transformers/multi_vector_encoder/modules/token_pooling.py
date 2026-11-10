@@ -257,6 +257,8 @@ class _WardClustering(nn.Module):
 
         return labels.to(device), torch.tensor(actual_cluster_counts, device=device)
 
+    _reference_forward = forward
+
 
 def _normalize_token_embeddings(embedding: Tensor) -> Tensor:
     dtype = embedding.dtype
@@ -498,17 +500,23 @@ class HierarchicalTokenPooling(BaseTokenPooling):
             actual_cluster_counts = (poolable_lengths > 0).long()
         else:
             # Cluster assignments are non-differentiable. The means below retain the gradient path.
-            with torch.autocast(device_type=embeddings.device.type, enabled=False):
-                clustering_embeddings = values.detach().float()
+            self._configure_clustering(embeddings.device)
+            use_kernel = self.clustering.forward != self.clustering._reference_forward
+            clustering_device = embeddings.device if use_kernel else torch.device("cpu")
+            with torch.autocast(device_type=clustering_device.type, enabled=False):
+                clustering_embeddings = values.detach().to(device=clustering_device, dtype=torch.float32)
                 distances = (1 - clustering_embeddings @ clustering_embeddings.transpose(1, 2)).clamp_(0, 2)
 
-                target_cluster_counts = (poolable_lengths.double() // self.pool_factor).long()
+                clustering_lengths = poolable_lengths.to(clustering_device)
                 if self.max_tokens is not None:
-                    target_cluster_counts = torch.full_like(poolable_lengths, self.max_tokens - num_protected_tokens)
-                target_cluster_counts = target_cluster_counts.clamp_min_(1).minimum(poolable_lengths)
+                    target_cluster_counts = torch.full_like(clustering_lengths, self.max_tokens - num_protected_tokens)
+                else:
+                    target_cluster_counts = (clustering_lengths.double() // self.pool_factor).long()
+                target_cluster_counts = target_cluster_counts.clamp_min_(1).minimum(clustering_lengths)
 
-                self._configure_clustering(embeddings.device)
-                labels, actual_cluster_counts = self.clustering(distances, poolable_lengths, target_cluster_counts)
+                labels, actual_cluster_counts = self.clustering(distances, clustering_lengths, target_cluster_counts)
+                labels = labels.to(embeddings.device)
+                actual_cluster_counts = actual_cluster_counts.to(embeddings.device)
 
             cluster_sums = values.new_zeros((batch_size, max_num_clusters, embedding_dim))
             cluster_indices = labels[..., None].expand_as(values)

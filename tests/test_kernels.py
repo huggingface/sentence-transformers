@@ -209,7 +209,30 @@ def test_model_binding_and_reference_checkpoint(loader, embeddings, tmp_path):
     configured = MultiVectorEncoder(str(tmp_path), device="cpu", kernel_config=scorer_config())
     torch.testing.assert_close(configured.similarity(a, b), 2 * maxsim(a, b) / a.shape[1])
     model.similarity_fn_name = "maxsim"
-    torch.testing.assert_close(model.similarity(a, b), maxsim(a, b))
+    torch.testing.assert_close(model.similarity(a, b), 2 * maxsim(a, b))
+
+
+def test_changing_similarity_keeps_kernel_provider_and_cache(loader, embeddings):
+    model = MultiVectorEncoder(modules=[Normalize()], device="cpu", kernel_config=scorer_config())
+    a, b = embeddings
+    a_mask, b_mask = torch.ones(a.shape[:2], dtype=torch.bool), torch.ones(b.shape[:2], dtype=torch.bool)
+    a_mask[0, -1] = False
+    b_mask[1, :2] = False
+    scorer = model._similarity
+    model.similarity(a, b, a_mask=a_mask, b_mask=b_mask)
+    operations = dict(scorer._operations)
+
+    for name in ("maxsim", "meanmaxsim", "meanmaxsim", "maxsim", None):
+        model.similarity_fn_name = name
+        normalize = name == "meanmaxsim"
+        expected = maxsim(a, b, a_mask, b_mask, length_normalize=normalize)
+        expected_pairs = maxsim_pairwise(a, b, a_mask, b_mask, length_normalize=normalize)
+        torch.testing.assert_close(model.similarity(a, b, a_mask=a_mask, b_mask=b_mask), 2 * expected)
+        torch.testing.assert_close(model.similarity_pairwise(a, b, a_mask=a_mask, b_mask=b_mask), 2 * expected_pairs)
+        assert model._similarity is scorer
+        assert model._similarity_pairwise.__self__ is scorer
+        assert all(scorer._operations[key] is value for key, value in operations.items())
+    assert len(loader) == 2
 
 
 @pytest.mark.parametrize("round_trip", [deepcopy, lambda value: pickle.loads(pickle.dumps(value))])
@@ -265,7 +288,9 @@ def test_losses_follow_model_scoring_and_allow_overrides(loader, embeddings, los
     assert not torch.isclose(before, expected)
 
     model.similarity_fn_name = "maxsim"
-    summed = loss_class(model, similarity_fct=reference_scorer)(deepcopy(features), labels)
+    summed = loss_class(model, similarity_fct=lambda *args, **kwargs: 2 * reference_scorer(*args, **kwargs))(
+        deepcopy(features), labels
+    )
     torch.testing.assert_close(loss(deepcopy(features), labels), summed)
 
 
@@ -875,6 +900,32 @@ def test_missing_build_falls_back_and_other_errors_propagate(loader, monkeypatch
     monkeypatch.setattr(layer, "get_kernel", broken)
     with pytest.raises(RuntimeError, match="broken provider"):
         scorer()(*embeddings)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_missing_ward_build_computes_reference_distances_on_cpu(loader, monkeypatch):
+    from torch.utils._python_dispatch import TorchDispatchMode
+
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("No compatible build")
+
+    monkeypatch.setattr("kernels.layer.layer.get_kernel", missing)
+    devices = []
+
+    class CheckDistances(TorchDispatchMode):
+        def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+            if func is torch.ops.aten.bmm.default:
+                devices.append(args[0].device.type)
+            return func(*args, **(kwargs or {}))
+
+    document = torch.nn.functional.normalize(torch.randn(32, 8, device="cuda"), dim=-1)
+    expected = HierarchicalTokenPooling(2, use_kernels=False).pool_one(document)
+    pooler = HierarchicalTokenPooling(2, kernel_config=config(STWardClustering="SingletonWard"))
+    with CheckDistances():
+        actual = pooler.pool_one(document)
+    assert devices and set(devices) == {"cpu"}
+    assert actual.device == document.device
+    torch.testing.assert_close(actual, expected)
 
 
 def test_unknown_target_and_global_disabling(loader, monkeypatch, embeddings):

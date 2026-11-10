@@ -798,3 +798,43 @@ def test_pooling_encode_and_saved_pipeline(tmp_path, normalize_embeddings: bool 
     restored = MultiVectorEncoder(str(tmp_path))
     assert restored[-1].normalize_embeddings is bool(normalize_embeddings)
     torch.testing.assert_close(restored.encode_document(texts)[0], expected[0])
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")),
+        pytest.param(
+            "mps", marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS is unavailable")
+        ),
+    ],
+)
+@pytest.mark.parametrize("pool_factor", [1.1, 2.5])
+def test_reference_pooling_computes_distances_on_cpu(device, pool_factor):
+    from torch.utils._python_dispatch import TorchDispatchMode
+
+    devices = []
+
+    class CheckDistances(TorchDispatchMode):
+        def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+            kwargs = kwargs or {}
+            if func is torch.ops.aten.bmm.default:
+                devices.append(args[0].device.type)
+            if func is torch.ops.aten._to_copy.default and kwargs.get("dtype") == torch.float64:
+                assert args[0].device.type == "cpu"
+            return func(*args, **kwargs)
+
+    documents = [_normed((length, 8)).to(device).requires_grad_() for length in (12, 17)]
+    pooler = HierarchicalTokenPooling(pool_factor, use_kernels=False)
+    with CheckDistances():
+        actual = pooler.pool(documents)
+    assert devices and set(devices) == {"cpu"}
+    expected = [_scipy_pool_reference(document, pool_factor, 1, True) for document in documents]
+    for pooled, reference in zip(actual, expected):
+        assert pooled.device == reference.device
+        torch.testing.assert_close(pooled, reference)
+    gradients = torch.autograd.grad(sum(row.sum() for row in actual), documents, retain_graph=True)
+    expected_gradients = torch.autograd.grad(sum(row.sum() for row in expected), documents)
+    for gradient, reference in zip(gradients, expected_gradients):
+        torch.testing.assert_close(gradient, reference)

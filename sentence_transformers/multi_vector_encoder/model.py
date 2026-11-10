@@ -28,6 +28,7 @@ from sentence_transformers.multi_vector_encoder.modules import (
     MultiVectorMask,
 )
 from sentence_transformers.multi_vector_encoder.modules.token_pooling import _normalize_token_embeddings
+from sentence_transformers.multi_vector_encoder.scoring.colbert import _MaxSimScorer
 from sentence_transformers.util import batch_to_device, load_file_path
 from sentence_transformers.util.kernels import _split_kernel_config
 from sentence_transformers.util.misc import import_from_string
@@ -248,8 +249,6 @@ class MultiVectorEncoder(BaseModel):
 
         if self.use_kernels:
             from transformers import KernelConfig
-
-            from sentence_transformers.multi_vector_encoder.scoring.colbert import _MaxSimScorer
 
             scorer = _MaxSimScorer(
                 similarity_kernel_config if similarity_kernel_config is not None else KernelConfig(),
@@ -1073,8 +1072,11 @@ class MultiVectorEncoder(BaseModel):
             )
         self._similarity_fn_name = value
         if value is not None:
-            self._similarity = SimilarityFunction.to_similarity_fn(value)
-            self._similarity_pairwise = SimilarityFunction.to_similarity_pairwise_fn(value)
+            if isinstance(getattr(self, "_similarity", None), _MaxSimScorer):
+                self._similarity.length_normalize = value == SimilarityFunction.MEAN_MAXSIM.value
+            else:
+                self._similarity = SimilarityFunction.to_similarity_fn(value)
+                self._similarity_pairwise = SimilarityFunction.to_similarity_pairwise_fn(value)
 
     def similarity(
         self,
