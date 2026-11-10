@@ -347,6 +347,38 @@ class TestCrossEncoderInitArgsDecorator:
         assert kwargs == {"num_labels": 2}
         assert "positional" not in caplog.text
 
+    def test_positional_args_beyond_device(self, caplog):
+        """Regression test: positional args after device must not be silently dropped.
+
+        v5.3 accepted these positionally: num_labels, max_length, activation_fn, device,
+        cache_folder, trust_remote_code, revision, local_files_only, token, model_kwargs,
+        tokenizer_kwargs, config_kwargs, model_card_data, backend.
+        """
+
+        @cross_encoder_init_args_decorator
+        def func(self, model_name_or_path, **kwargs):
+            return model_name_or_path, kwargs
+
+        with caplog.at_level(logging.WARNING):
+            model_name, kwargs = func(
+                None,
+                "my-model",
+                None,  # num_labels
+                None,  # max_length
+                None,  # activation_fn
+                "cpu",  # device
+                None,  # cache_folder
+                False,  # trust_remote_code
+                "test-revision",  # revision
+            )
+
+        assert model_name == "my-model"
+        assert kwargs["device"] == "cpu"
+        assert kwargs["trust_remote_code"] is False
+        assert kwargs["revision"] == "test-revision"
+        assert "revision" in caplog.text
+        assert "positional" in caplog.text
+
 
 class TestCrossEncoderPredictRankArgsDecorator:
     """The decorator adapts to the wrapped method: it only drops convert_to_numpy / convert_to_tensor

@@ -113,8 +113,22 @@ def cross_encoder_init_args_decorator(func):
     """
 
     # Old positional order after model_name_or_path (which is still positional):
-    # num_labels, max_length, activation_fn, device
-    _POSITIONAL_ARGS = ("num_labels", "max_length", "activation_fn", "device")
+    _POSITIONAL_ARGS = (
+        "num_labels",
+        "max_length",
+        "activation_fn",
+        "device",
+        "cache_folder",
+        "trust_remote_code",
+        "revision",
+        "local_files_only",
+        "token",
+        "model_kwargs",
+        "tokenizer_kwargs",
+        "config_kwargs",
+        "model_card_data",
+        "backend",
+    )
 
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
