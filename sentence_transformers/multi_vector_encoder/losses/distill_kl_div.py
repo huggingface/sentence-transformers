@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterable
+from functools import partial
 from typing import Any
 
 import torch.nn.functional as F
@@ -9,7 +10,7 @@ from torch import Tensor, nn
 
 from sentence_transformers.base.losses.merged_forward import embed_columns_padded
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
-from sentence_transformers.multi_vector_encoder.scoring import colbert_kd_scores
+from sentence_transformers.multi_vector_encoder.scoring.colbert import _colbert_kd_scores
 from sentence_transformers.util import (
     check_teacher_targets,
     similarity_fct_name,
@@ -21,14 +22,14 @@ class MultiVectorDistillKLDivLoss(nn.Module):
     """KL-divergence distillation loss for :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` models.
 
     For each query, the dataset provides ``N`` candidate documents (a positive plus at least one negative)
-    and teacher scores ``(N,)``. This loss computes the model's MaxSim scores against the same documents
+    and teacher scores ``(N,)``. This loss computes the model's similarity scores against the same documents
     and minimises the KL divergence between the softmaxed teacher and student distributions.
 
     Args:
         model: A :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`.
         similarity_fct: Callable that, given queries ``(Q, q_tokens, dim)`` and stacked docs
             ``(Q, N, d_tokens, dim)``, returns ``(Q, N)`` scores. Defaults to
-            :func:`~sentence_transformers.multi_vector_encoder.scoring.colbert_kd_scores`. Pass
+            ``None``, which uses ``model.similarity_pairwise`` for each candidate column. Pass
             :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRKDScores` for XTR-style scoring.
         temperature: Temperature applied to both the student and teacher logits before softmax,
             unless overridden per side. Defaults to ``1.0``. The loss is multiplied by the student
@@ -111,7 +112,7 @@ class MultiVectorDistillKLDivLoss(nn.Module):
     ) -> None:
         super().__init__()
         self.model = model
-        self.similarity_fct = similarity_fct if similarity_fct is not None else colbert_kd_scores
+        self.similarity_fct = similarity_fct
         self.temperature = temperature
         self.student_temperature = student_temperature if student_temperature is not None else temperature
         self.teacher_temperature = teacher_temperature if teacher_temperature is not None else temperature
@@ -125,7 +126,7 @@ class MultiVectorDistillKLDivLoss(nn.Module):
 
     def get_config_dict(self) -> dict[str, Any]:
         config: dict[str, Any] = {
-            "similarity_fct": similarity_fct_name(self.similarity_fct),
+            "similarity_fct": similarity_fct_name(self.similarity_fct) if self.similarity_fct is not None else None,
             "temperature": self.temperature,
         }
         if self.student_temperature != self.temperature:
@@ -170,7 +171,11 @@ class MultiVectorDistillKLDivLoss(nn.Module):
             *embed_columns_padded(self.model, sentence_features[1:], self.mini_batch_size, task_default="document")
         )
 
-        scores = self.similarity_fct(
+        similarity_fct = self.similarity_fct
+        if similarity_fct is None:
+            similarity_fct = partial(_colbert_kd_scores, self.model.similarity_pairwise)
+
+        scores = similarity_fct(
             queries_embeddings,
             documents_embeddings,
             queries_mask=queries_mask,

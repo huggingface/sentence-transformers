@@ -83,6 +83,8 @@ loss = MultiVectorTokenPoolingLoss(
 
 Custom `BaseTokenPooling` implementations can be used if they preserve gradients through the input embeddings. `HierarchicalTokenPooling` uses a straight-through estimator to pass gradients back to cluster members without differentiating Ward's discrete assignments.
 
+The training and evaluation scripts enable kernels automatically when a compatible `kernels` package is installed. Install the optional dependencies with `pip install "sentence-transformers[kernels]"` to accelerate MaxSim scoring and Ward clustering on supported hardware. Especially the [Ward clustering kernel](https://huggingface.co/kernels/sentence-transformers/ward-clustering) can provide significant speedups.
+
 The script starts from `answerdotai/ModernBERT-base` with a fresh 128-dimensional projection. Short queries are expanded to at least 32 token positions to provide additional contextual query vectors. You can also fine-tune an existing retrieval model or replace the factor-4 pooler with your deployment configuration.
 
 Run both variants for a matched comparison:
@@ -157,7 +159,7 @@ Both models below were trained on the same 120,000 MS MARCO triplets with seed 4
 | `distance_threshold` (calibrated) | 29.58 | 48.38 | 50.96 | +2.58 |
 | `distance_threshold` (calibrated) | 15.60 | 47.23 | 49.63 | +2.41 |
 
-![Ordinary versus pooling-aware training with proportional token pooling](results.png)
+<img src="../../../../docs/img/mve_token_pooling_results.png" alt="Ordinary versus pooling-aware training with proportional token pooling" width="800">
 
 At the trained `pool_factor=4`, pooling-aware training improves nDCG@10 from 49.03 to 51.23 with a 4-fold reduction in document vectors relative to unpooled retrieval. Score retention rises from 94.6% to 97.8%, measured against each model's own unpooled mean nDCG@10.
 

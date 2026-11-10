@@ -14,6 +14,7 @@ import traceback
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from functools import cached_property
 from itertools import chain
 from multiprocessing import Queue
@@ -59,7 +60,7 @@ from sentence_transformers.util.misc import ORIGINAL_TRANSFORMER_MODELS
 if TYPE_CHECKING:
     from accelerate.hooks import ModelHook
     from mergekit.merge_methods import BatchOptions
-    from transformers import PretrainedConfig
+    from transformers import KernelConfig, PretrainedConfig
 
 logger = transformers_logging.get_logger(__name__)
 
@@ -116,6 +117,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         model_kwargs: dict[str, Any] | None = None,
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
+        use_kernels: bool = False,
+        kernel_config: KernelConfig | None = None,
         model_card_data: CardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
     ) -> None:
@@ -150,6 +153,10 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
                 private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
                 credentials saved with ``hf auth login``, if available.
+            use_kernels (bool, optional): Enable the default kernels supported by the model and device.
+                Requires the torch backend and compatible kernel dependencies. Defaults to False.
+            kernel_config (KernelConfig, optional): Override kernel mappings. Providing a configuration
+                also enables kernels. These settings are runtime-only. Defaults to None.
             model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
                 Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
@@ -200,6 +207,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self._model_card_vars = {}
         self._model_card_text = None
         self.backend = backend
+        self.use_kernels = use_kernels or kernel_config is not None
+        self.kernel_config = deepcopy(kernel_config)
 
         if cache_folder is None:
             cache_folder = os.getenv("SENTENCE_TRANSFORMERS_HOME")
@@ -214,6 +223,31 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             logger.info(f"No device provided, using {device}")
         elif device is not None and device_map is not None:
             logger.warning(f"Ignoring `device={device}` because `model_kwargs['device_map']` takes priority.")
+
+        if self.use_kernels:
+            if backend != "torch":
+                raise ValueError("use_kernels and kernel_config require the torch backend")
+            if kernel_config is not None:
+                from transformers import KernelConfig
+
+                if not isinstance(kernel_config, KernelConfig):
+                    raise TypeError("kernel_config must be a transformers.KernelConfig")
+
+            model_kwargs = dict(model_kwargs or {})
+            model_kwargs.setdefault("use_kernels", True)
+            if self.kernel_config is not None and model_kwargs["use_kernels"]:
+                model_kwargs.setdefault("kernel_config", self.kernel_config)
+
+        pending_kernel_config = (model_kwargs or {}).get("kernel_config")
+        backbone_use_kernels = (model_kwargs or {}).get("use_kernels", False) or pending_kernel_config is not None
+        if model_name_or_path and pending_kernel_config is not None:
+            model_kwargs = dict(model_kwargs)
+            if device_map is None:
+                # Defer custom kernel selection so Transformers uses the backbone's final device.
+                model_kwargs.update(use_kernels=False, kernel_config=None)
+            else:
+                model_kwargs["kernel_config"] = deepcopy(pending_kernel_config)
+                pending_kernel_config = None
 
         if device == "hpu" and importlib.util.find_spec("optimum") is not None:
             from optimum.habana.transformers.modeling_utils import adapt_transformers_to_gaudi
@@ -316,6 +350,11 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self.model_card_data.register_model(self)
 
         self._post_init()
+
+        if backbone_use_kernels:
+            for module in self.modules():
+                if isinstance(module, PreTrainedModel):
+                    module.set_use_kernels(True, deepcopy(pending_kernel_config))
 
     @classmethod
     def _load_with_module_classes(

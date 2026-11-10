@@ -1384,11 +1384,19 @@ def test_maxsim_query_chunking_bounds_padding_and_scores(
     torch.testing.assert_close(scores, expected)
 
 
-def test_maxsim_query_chunking_preserves_gradients() -> None:
+@pytest.mark.parametrize(
+    "device",
+    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required"))],
+)
+def test_maxsim_query_chunking_preserves_gradients(device: str) -> None:
     queries = [
-        ((torch.arange(width * 4).reshape(width, 4).float() + 1) / 100).requires_grad_() for width in [2, 18, 3]
+        ((torch.arange(width * 4, device=device).reshape(width, 4).float() + 1) / 100).requires_grad_()
+        for width in [2, 18, 3]
     ]
-    documents = [(-(torch.arange(width * 4).reshape(width, 4).float() + 1) / 100).requires_grad_() for width in [5, 3]]
+    documents = [
+        (-(torch.arange(width * 4, device=device).reshape(width, 4).float() + 1) / 100).requires_grad_()
+        for width in [5, 3]
+    ]
     expected = torch.stack(
         [
             torch.stack([(query @ document.T).max(dim=-1).values.sum() / len(query) for document in documents])

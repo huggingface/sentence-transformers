@@ -90,7 +90,7 @@ The comparison below uses matched training on 30,000 MS MARCO triplets with seed
 | 32 | 25.0% | 37.38 | 43.44 | +6.06 |
 | 16 | 12.5% | 18.76 | 28.48 | +9.71 |
 
-![Quality versus embedding storage](results.png)
+<img src="../../../../docs/img/mve_matryoshka_results.png" alt="Quality versus embedding storage" width="800">
 
 At 32 dimensions, Matryoshka improves retrieval from 37.38 to 43.44 while using one quarter of the vector storage. This retains 88.7% of the model's full-width nDCG@10, compared with 77.2% for the baseline, with each retention measured against that model's own full-width score. Training covered 128, 64, and 32 dimensions, while the evaluations at 16 and 96 dimensions show how well the model generalizes to widths it was not explicitly trained for.
 
