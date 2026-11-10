@@ -28,6 +28,7 @@ from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
+from sentence_transformers.util.misc import _to_list
 
 # NOTE: transformers wraps the regular logging module for e.g. warning_once
 logger = transformers_logging.get_logger(__name__)
@@ -617,9 +618,7 @@ class CrossEncoder(BaseModel, FitMixin):
                 inputs = pair
             inputs = [inputs]
         elif not isinstance(inputs, list):
-            # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index.
-            # The annotation pins ndarray.tolist()'s Any so checkers keep the narrowed input type.
-            materialized: list[PairInput] = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            materialized: list[PairInput] = _to_list(inputs)
             inputs = materialized
 
         prompt = self._resolve_prompt(prompt, prompt_name)

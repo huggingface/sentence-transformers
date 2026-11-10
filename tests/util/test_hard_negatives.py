@@ -1072,7 +1072,7 @@ def test_custom_dataset_transform(dataset: Dataset, static_retrieval_mrl_en_v1_m
         return {name: [text + rng.choice([" short", " long"]) for text in texts] for name, texts in batch.items()}
 
     transformed = dataset.with_transform(augment)
-    materialized = Dataset.from_dict({name: list(transformed[name]) for name in dataset.column_names})
+    materialized = Dataset.from_dict({name: list(transformed[name][:]) for name in dataset.column_names})
     model = static_retrieval_mrl_en_v1_model
     expected = mine_hard_negatives(materialized, model, output_scores=True, verbose=False)
     rng.seed(42)
@@ -2147,3 +2147,28 @@ def test_cross_encoder_rescores_without_score_filters(output_scores: bool, outpu
             assert result["score"] == pytest.approx([0.9, 0.8])
         else:
             assert result[0]["scores"] == pytest.approx([0.9, 0.8])
+
+
+@pytest.mark.parametrize("corpus_type", ["list", "tuple", "generator", "dataset_column"])
+def test_corpus_input_types(corpus_type: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    corpus_texts = ["p", "n_more_similar", "n_far"]
+    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"]})
+    if corpus_type == "tuple":
+        corpus = tuple(corpus_texts)
+    elif corpus_type == "generator":
+        corpus = (text for text in corpus_texts)
+    elif corpus_type == "dataset_column":
+        corpus = Dataset.from_dict({"text": corpus_texts})["text"]
+        if not isinstance(corpus, list):
+            monkeypatch.setattr(type(corpus), "__iter__", Mock(side_effect=AssertionError("iterated row by row")))
+    else:
+        corpus = corpus_texts
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=ControlledNegativeScoreModel(),
+        corpus=corpus,
+        range_max=2,
+        num_negatives=1,
+        verbose=False,
+    )
+    assert result.to_dict() == {"query": ["q"], "positive": ["p"], "negative": ["n_more_similar"]}
