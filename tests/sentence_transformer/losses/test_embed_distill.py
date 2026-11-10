@@ -285,3 +285,25 @@ def test_projection_model_dtypes(
         assert parameter.grad is not None
         assert torch.isfinite(parameter.grad).all()
         assert parameter.grad.abs().sum() > 0
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_projection_autocast_preserves_teacher_precision(
+    word_embeddings_model: SentenceTransformer, dtype: torch.dtype
+) -> None:
+    word_embeddings_model.to(dtype=dtype)
+    loss = MSELoss(word_embeddings_model, projection_dim=2)
+    with torch.no_grad():
+        loss.projection.weight.copy_(torch.eye(2))
+        loss.projection.bias.zero_()
+    features = [word_embeddings_model.preprocess(["red", "blue"])]
+    labels = torch.eye(2) * 1.0001
+    expected = nn.functional.mse_loss(torch.eye(2), labels)
+
+    autocast_dtype = torch.bfloat16 if dtype == torch.float32 else dtype
+    with torch.autocast("cpu", dtype=autocast_dtype):
+        value = loss(features, labels)
+
+    torch.testing.assert_close(value, expected, atol=0, rtol=1e-5)
+    value.backward()
+    assert (loss.projection.weight.grad.diag() < 0).all()
