@@ -293,35 +293,43 @@ class TestCrossEncoderInitArgsDecorator:
 
         assert result == {"config_kwargs": {"classifier_dropout": 0.5, "other": True}}
 
-    def test_positional_num_labels(self, caplog):
-        @cross_encoder_init_args_decorator
-        def func(self, model_name_or_path, **kwargs):
-            return model_name_or_path, kwargs
-
-        with caplog.at_level(logging.WARNING):
-            model_name, kwargs = func(None, "my-model", 3)
-
-        assert model_name == "my-model"
-        assert kwargs == {"num_labels": 3}
-        assert "num_labels" in caplog.text
-        assert "positional" in caplog.text
-
-    def test_positional_all_four_legacy_args(self, caplog):
-        """Old signature: CrossEncoder(model_name, num_labels, max_length, activation_fn, device)."""
+    @pytest.mark.parametrize("num_args", range(1, 15))
+    def test_positional_args(self, caplog, num_args):
         import torch
 
         @cross_encoder_init_args_decorator
         def func(self, model_name_or_path, **kwargs):
             return model_name_or_path, kwargs
 
-        with caplog.at_level(logging.WARNING):
-            model_name, kwargs = func(None, "my-model", 2, 512, torch.nn.Sigmoid(), "cuda")
+        legacy_kwargs = {
+            "num_labels": 2,
+            "max_length": 512,
+            "activation_fn": torch.nn.Sigmoid(),
+            "device": "cpu",
+            "cache_folder": "test-cache",
+            "trust_remote_code": True,
+            "revision": "test-revision",
+            "local_files_only": True,
+            "token": "hf_test_token",
+            "model_kwargs": {"token": "hf_test_model_token"},
+            "tokenizer_kwargs": {"token": "hf_test_tokenizer_token"},
+            "config_kwargs": {"token": "hf_test_config_token"},
+            "model_card_data": object(),
+            "backend": "onnx",
+        }
+        legacy_kwargs = dict(list(legacy_kwargs.items())[:num_args])
 
+        with caplog.at_level(logging.WARNING):
+            model_name, kwargs = func(None, "my-model", *legacy_kwargs.values())
+
+        expected = legacy_kwargs.copy()
+        if "tokenizer_kwargs" in expected:
+            expected["processor_kwargs"] = expected.pop("tokenizer_kwargs")
         assert model_name == "my-model"
-        assert kwargs["num_labels"] == 2
-        assert kwargs["max_length"] == 512
-        assert isinstance(kwargs["activation_fn"], torch.nn.Sigmoid)
-        assert kwargs["device"] == "cuda"
+        assert kwargs == expected
+        for name in legacy_kwargs:
+            assert f"Passing `{name}` as a positional argument" in caplog.text
+        assert "hf_test_" not in caplog.text
 
     def test_positional_does_not_override_kwarg(self, caplog):
         @cross_encoder_init_args_decorator
@@ -346,38 +354,6 @@ class TestCrossEncoderInitArgsDecorator:
         assert model_name == "my-model"
         assert kwargs == {"num_labels": 2}
         assert "positional" not in caplog.text
-
-    def test_positional_args_beyond_device(self, caplog):
-        """Regression test: positional args after device must not be silently dropped.
-
-        v5.3 accepted these positionally: num_labels, max_length, activation_fn, device,
-        cache_folder, trust_remote_code, revision, local_files_only, token, model_kwargs,
-        tokenizer_kwargs, config_kwargs, model_card_data, backend.
-        """
-
-        @cross_encoder_init_args_decorator
-        def func(self, model_name_or_path, **kwargs):
-            return model_name_or_path, kwargs
-
-        with caplog.at_level(logging.WARNING):
-            model_name, kwargs = func(
-                None,
-                "my-model",
-                None,  # num_labels
-                None,  # max_length
-                None,  # activation_fn
-                "cpu",  # device
-                None,  # cache_folder
-                False,  # trust_remote_code
-                "test-revision",  # revision
-            )
-
-        assert model_name == "my-model"
-        assert kwargs["device"] == "cpu"
-        assert kwargs["trust_remote_code"] is False
-        assert kwargs["revision"] == "test-revision"
-        assert "revision" in caplog.text
-        assert "positional" in caplog.text
 
 
 class TestCrossEncoderPredictRankArgsDecorator:
