@@ -23,6 +23,7 @@ from sentence_transformers.base.modules import Transformer
 from sentence_transformers.sentence_transformer.modules import Pooling
 from sentence_transformers.util import batch_to_device, truncate_embeddings
 from sentence_transformers.util.decorators import deprecated_kwargs
+from sentence_transformers.util.misc import _to_list
 from sentence_transformers.util.quantization import quantize_embeddings
 from sentence_transformers.util.similarity import SimilarityFunction
 from sentence_transformers.util.tensor import _tensor_to_numpy
@@ -854,9 +855,7 @@ class SentenceTransformer(BaseModel, FitMixin):
         if is_singular_input:
             inputs = [inputs]
         elif not isinstance(inputs, list):
-            # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index.
-            # The annotation pins ndarray.tolist()'s Any so checkers keep the narrowed input type.
-            materialized: list[SingleInput] = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            materialized: list[SingleInput] = _to_list(inputs)
             inputs = materialized
 
         # Validate kwargs

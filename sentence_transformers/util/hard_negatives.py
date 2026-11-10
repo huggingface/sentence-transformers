@@ -4,8 +4,7 @@ import hashlib
 import logging
 import os
 import random
-from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import torch
@@ -13,6 +12,7 @@ from tqdm import trange
 from tqdm.autonotebook import tqdm
 
 from .environment import is_datasets_available
+from .misc import _to_list
 
 logger = logging.getLogger(__name__)
 
@@ -21,19 +21,6 @@ if TYPE_CHECKING:
 
     from sentence_transformers.cross_encoder.model import CrossEncoder
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
-
-
-def _to_list(values: Iterable[Any]) -> list[Any]:
-    try:
-        from datasets import Column
-    except ImportError:
-        # datasets<4 returns plain lists from `dataset["text"]`
-        return list(values)
-    if isinstance(values, Column):
-        # Slicing a Column formats the whole column in one go, whereas `list(column)` formats it
-        # row by row, which is far slower on large columns.
-        return list(values[:])
-    return list(values)
 
 
 def mine_hard_negatives(

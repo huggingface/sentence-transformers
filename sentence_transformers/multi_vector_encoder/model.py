@@ -24,7 +24,7 @@ from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEnc
 from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling, MultiVectorMask
 from sentence_transformers.multi_vector_encoder.modules.token_pooling import _normalize_token_embeddings
 from sentence_transformers.util import batch_to_device, load_file_path
-from sentence_transformers.util.misc import import_from_string
+from sentence_transformers.util.misc import _to_list, import_from_string
 from sentence_transformers.util.similarity import SimilarityFunction
 from sentence_transformers.util.tensor import _tensor_to_numpy
 
@@ -846,8 +846,7 @@ class MultiVectorEncoder(BaseModel):
         if is_singular_input:
             inputs = [inputs]
         elif not isinstance(inputs, list):
-            # The annotation pins ndarray.tolist()'s Any so checkers keep the narrowed input type.
-            materialized: list[SingleInput] = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            materialized: list[SingleInput] = _to_list(inputs)
             inputs = materialized
 
         # Validate kwargs (matching SparseEncoder.encode behaviour).

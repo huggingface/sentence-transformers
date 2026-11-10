@@ -15,6 +15,7 @@ from sentence_transformers.base.modality import is_message_dict
 from sentence_transformers.multi_vector_encoder.evaluation.utils import pooling_config
 from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.util import similarity_fct_name
+from sentence_transformers.util.misc import _to_list
 
 if TYPE_CHECKING:
     from sentence_transformers.base.modality_types import SingleInput
@@ -135,7 +136,8 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
                 f"queries ({len(queries)}), documents ({len(documents)}), and scores ({len(scores)}) "
                 f"must all have the same length."
             )
-        self.queries = list(queries)
+        self.queries = _to_list(queries)
+        documents = _to_list(documents)
         # A conversation is a list of message dicts, so it is one document, not a candidate list.
         first = documents[0] if documents else None
         self.nested_documents = isinstance(first, (list, tuple)) and not (first and is_message_dict(first[0]))
@@ -153,7 +155,7 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
                     f"got shape {tuple(self.scores.shape)}."
                 )
         else:
-            self.documents = list(documents)
+            self.documents = documents
             self.scores = torch.as_tensor(scores, dtype=torch.float32).detach().cpu()
             if self.scores.ndim != 1:
                 raise ValueError(
