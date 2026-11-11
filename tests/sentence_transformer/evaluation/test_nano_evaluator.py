@@ -3,28 +3,15 @@ from __future__ import annotations
 import pytest
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator, NanoEvaluator
-
-SUBSETS = {
-    "corpus": [
-        {"_id": "d0", "text": "Paris is the capital of France."},
-        {"_id": "d1", "text": "Berlin is the capital of Germany."},
-        {"_id": "d2", "text": "Leonardo da Vinci painted the Mona Lisa."},
-    ],
-    "queries": [
-        {"_id": "q0", "text": "What is the capital of France?"},
-        {"_id": "q1", "text": "Who painted the Mona Lisa?"},
-    ],
-    "qrels": [{"query-id": "q0", "corpus-id": "d0"}, {"query-id": "q1", "corpus-id": "d2"}],
-}
+from sentence_transformers.sentence_transformer.evaluation import NanoEvaluator
+from tests.sentence_transformer.evaluation.test_nanobeir_evaluator import LocalNanoBEIREvaluator
 
 
 class LocalNanoEvaluator(NanoEvaluator):
+    _load_dataset_subset_split = LocalNanoBEIREvaluator._load_dataset_subset_split
+
     def _get_dataset_splits(self) -> list[str]:
         return ["en", "ja"]
-
-    def _load_dataset_subset_split(self, subset: str, split: str, required_columns: list[str]):
-        return SUBSETS[subset]
 
 
 def test_nano_evaluator_uses_all_qrels_splits_by_default(stsb_bert_tiny_model: SentenceTransformer) -> None:
@@ -72,12 +59,15 @@ def test_nano_evaluator_validation() -> None:
     with pytest.raises(ValueError, match=r"The following datasets are missing query prompts: \['ja'\]"):
         LocalNanoEvaluator("hakari-bench/NanoMLDR", query_prompts={"en": "query: "})
 
-
-def test_nanobeir_evaluator_is_nano_evaluator(monkeypatch) -> None:
-    monkeypatch.setattr(
-        NanoBEIREvaluator, "_load_dataset_subset_split", lambda self, subset, **kwargs: SUBSETS[subset]
+    with pytest.raises(ValueError, match=r"The metrics of split\(s\) \['mean'\] would be overwritten"):
+        LocalNanoEvaluator("hakari-bench/NanoMLDR", splits=["mean", "en"])
+    assert (
+        LocalNanoEvaluator("hakari-bench/NanoMLDR", splits=["mean", "en"], aggregate_key="avg").name == "NanoMLDR_avg"
     )
-    evaluator = NanoBEIREvaluator(dataset_names=["msmarco", "NQ"], query_prompts="query: ")
+
+
+def test_nanobeir_evaluator_is_nano_evaluator() -> None:
+    evaluator = LocalNanoBEIREvaluator(dataset_names=["msmarco", "NQ"], query_prompts="query: ")
     assert isinstance(evaluator, NanoEvaluator)
     assert evaluator.name == "NanoBEIR_mean"
     assert evaluator.csv_file == "NanoBEIR_evaluation_mean_results.csv"

@@ -151,6 +151,11 @@ class NanoEvaluator(BaseEvaluator):
 
         if len(self.splits) == 0:
             raise ValueError("splits cannot be empty. Use None to evaluate on all splits.")
+        if colliding_splits := [split for split in self.splits if self._get_human_readable_name(split) == self.name]:
+            raise ValueError(
+                f"The metrics of split(s) {colliding_splits} would be overwritten by the aggregated metrics, "
+                f"which are also named '{self.name}'. Use a different aggregate_key."
+            )
         self._validate_prompts()
 
         ir_evaluator_kwargs = {
