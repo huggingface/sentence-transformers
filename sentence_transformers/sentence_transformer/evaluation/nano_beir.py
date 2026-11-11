@@ -1,25 +1,13 @@
 from __future__ import annotations
 
-import logging
-import os
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import numpy as np
 from torch import Tensor
-from tqdm import tqdm
 
-from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.sentence_transformer.evaluation.information_retrieval import (
-    InformationRetrievalEvaluator,
-)
-from sentence_transformers.util import is_datasets_available
+from sentence_transformers.sentence_transformer.evaluation.nano_evaluator import NanoEvaluator
 from sentence_transformers.util.similarity import SimilarityFunction
-
-if TYPE_CHECKING:
-    from sentence_transformers.sentence_transformer.model import SentenceTransformer
-
-logger = logging.getLogger(__name__)
 
 DatasetNameType = Literal[
     "climatefever",
@@ -54,7 +42,7 @@ DATASET_NAME_TO_HUMAN_READABLE = {
 }
 
 
-class NanoBEIREvaluator(BaseEvaluator):
+class NanoBEIREvaluator(NanoEvaluator):
     """
     This class evaluates the performance of a SentenceTransformer Model on the NanoBEIR collection of Information Retrieval datasets.
 
@@ -66,6 +54,8 @@ class NanoBEIREvaluator(BaseEvaluator):
     alongside many translated versions.
     This evaluator reports the same metrics as the :class:`~sentence_transformers.sentence_transformer.evaluation.InformationRetrievalEvaluator`
     (e.g., MRR, nDCG, Recall@k) for each dataset individually, as well as aggregated across all datasets.
+    It is a :class:`~sentence_transformers.sentence_transformer.evaluation.NanoEvaluator` that selects the datasets
+    by their short NanoBEIR names.
 
     Args:
         dataset_names (List[str]): The short names of the datasets to evaluate on (e.g., "climatefever", "msmarco").
@@ -97,7 +87,8 @@ class NanoBEIREvaluator(BaseEvaluator):
     .. tip::
 
         See this `NanoBEIR datasets collection on Hugging Face <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_
-        with valid NanoBEIR ``dataset_id`` options for different languages.
+        with valid NanoBEIR ``dataset_id`` options for different languages. To evaluate several languages at once, see
+        :class:`~sentence_transformers.sentence_transformer.evaluation.NanoEvaluator`.
 
     Example:
         ::
@@ -209,8 +200,6 @@ class NanoBEIREvaluator(BaseEvaluator):
             pprint({key: value for key, value in results.items() if "ndcg@10" in key})
     """
 
-    information_retrieval_class = InformationRetrievalEvaluator
-
     def __init__(
         self,
         dataset_names: list[DatasetNameType | str] | None = None,
@@ -232,271 +221,44 @@ class NanoBEIREvaluator(BaseEvaluator):
         corpus_prompts: str | dict[str, str] | None = None,
         write_predictions: bool = False,
     ):
-        super().__init__()
         if dataset_names is None:
             dataset_names = list(DATASET_NAME_TO_HUMAN_READABLE.keys())
         self.dataset_names = dataset_names
-        self.dataset_id = dataset_id
-        self.aggregate_fn = aggregate_fn
-        self.aggregate_key = aggregate_key
-        self.write_csv = write_csv
-        self.query_prompts = query_prompts
-        self.corpus_prompts = corpus_prompts
-        self.show_progress_bar = show_progress_bar
-        self.write_csv = write_csv
-        self.score_functions = score_functions
-        self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
-        self._score_functions_from_model = score_functions is None
-        self.main_score_function = SimilarityFunction(main_score_function) if main_score_function else None
-        self.truncate_dim = truncate_dim
-        self.name = f"NanoBEIR_{aggregate_key}"
-        if self.truncate_dim:
-            self.name += f"_{self.truncate_dim}"
-
-        self.mrr_at_k = mrr_at_k
-        self.ndcg_at_k = ndcg_at_k
-        self.accuracy_at_k = accuracy_at_k
-        self.precision_recall_at_k = precision_recall_at_k
-        self.map_at_k = map_at_k
-
         self._validate_dataset_names()
-        self._validate_prompts()
+        # The short dataset names are used as the splits; _get_split_name maps them to the "Nano{Name}" splits
+        super().__init__(
+            dataset_id=dataset_id,
+            splits=dataset_names,
+            name="NanoBEIR",
+            mrr_at_k=mrr_at_k,
+            ndcg_at_k=ndcg_at_k,
+            accuracy_at_k=accuracy_at_k,
+            precision_recall_at_k=precision_recall_at_k,
+            map_at_k=map_at_k,
+            show_progress_bar=show_progress_bar,
+            batch_size=batch_size,
+            write_csv=write_csv,
+            truncate_dim=truncate_dim,
+            score_functions=score_functions,
+            main_score_function=main_score_function,
+            aggregate_fn=aggregate_fn,
+            aggregate_key=aggregate_key,
+            query_prompts=query_prompts,
+            corpus_prompts=corpus_prompts,
+            write_predictions=write_predictions,
+        )
 
-        ir_evaluator_kwargs = {
-            "mrr_at_k": mrr_at_k,
-            "ndcg_at_k": ndcg_at_k,
-            "accuracy_at_k": accuracy_at_k,
-            "precision_recall_at_k": precision_recall_at_k,
-            "map_at_k": map_at_k,
-            "show_progress_bar": show_progress_bar,
-            "batch_size": batch_size,
-            "write_csv": write_csv,
-            "truncate_dim": truncate_dim,
-            "score_functions": score_functions,
-            "main_score_function": main_score_function,
-            "write_predictions": write_predictions,
-        }
-        self.evaluators = [
-            self._load_dataset(name, **ir_evaluator_kwargs)
-            for name in tqdm(self.dataset_names, desc="Loading NanoBEIR datasets", leave=False)
-        ]
-
-        self.csv_file: str = f"NanoBEIR_evaluation_{aggregate_key}_results.csv"
-        self.csv_headers = ["epoch", "steps"]
-
-        self._append_csv_headers(self.score_function_names)
-
-    def _append_csv_headers(self, score_function_names):
-        for score_name in score_function_names:
-            for k in self.accuracy_at_k:
-                self.csv_headers.append(f"{score_name}-Accuracy@{k}")
-
-            for k in self.precision_recall_at_k:
-                self.csv_headers.append(f"{score_name}-Precision@{k}")
-                self.csv_headers.append(f"{score_name}-Recall@{k}")
-
-            for k in self.mrr_at_k:
-                self.csv_headers.append(f"{score_name}-MRR@{k}")
-
-            for k in self.ndcg_at_k:
-                self.csv_headers.append(f"{score_name}-NDCG@{k}")
-
-            for k in self.map_at_k:
-                self.csv_headers.append(f"{score_name}-MAP@{k}")
-
-    def __call__(
-        self,
-        model: SentenceTransformer,
-        output_path: str | None = None,
-        epoch: int = -1,
-        steps: int = -1,
-        *args,
-        **kwargs,
-    ) -> dict[str, float]:
-        per_metric_results = {}
-        per_dataset_results = {}
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
-        logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
-
-        headers_changed = False
-        if self._score_functions_from_model:
-            # Taken from a sub-evaluator so the aggregate labels cannot drift from the per-dataset
-            # ones, which resolve their own scoring per call.
-            self.score_functions = self.evaluators[0]._model_score_functions(model)
-            if self.score_function_names != sorted(self.score_functions):
-                headers_changed = bool(self.score_function_names)
-                self.score_function_names = sorted(self.score_functions)
-                self.csv_headers = ["epoch", "steps"]
-                self._append_csv_headers(self.score_function_names)
-                self.primary_metric = None
-
-        for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
-            logger.info(f"Evaluating {evaluator.name}")
-            evaluation = evaluator(model, output_path, epoch, steps)
-            for full_key, metric_value in evaluation.items():
-                # The dataset evaluator prefixes its metrics with its own name
-                metric = full_key.removeprefix(f"{evaluator.name}_")
-                if metric not in per_metric_results:
-                    per_metric_results[metric] = []
-                per_dataset_results[full_key] = metric_value
-                per_metric_results[metric].append(metric_value)
-
-        agg_results = {}
-        for metric in per_metric_results:
-            agg_results[metric] = self.aggregate_fn(per_metric_results[metric])
-
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                fOut = open(csv_path, mode="w", encoding="utf-8")
-                fOut.write(",".join(self.csv_headers))
-                fOut.write("\n")
-
-            else:
-                if headers_changed:
-                    logger.warning(
-                        f"{self.csv_file} was written with different score function columns, so the "
-                        f"rows appended for {self.score_function_names} are labeled with the previous "
-                        "score function."
-                    )
-                fOut = open(csv_path, mode="a", encoding="utf-8")
-
-            output_data = [epoch, steps]
-            for name in self.score_function_names:
-                for k in self.accuracy_at_k:
-                    output_data.append(agg_results[f"{name}_accuracy@{k}"])
-
-                for k in self.precision_recall_at_k:
-                    output_data.append(agg_results[f"{name}_precision@{k}"])
-                    output_data.append(agg_results[f"{name}_recall@{k}"])
-
-                for k in self.mrr_at_k:
-                    output_data.append(agg_results[f"{name}_mrr@{k}"])
-
-                for k in self.ndcg_at_k:
-                    output_data.append(agg_results[f"{name}_ndcg@{k}"])
-
-                for k in self.map_at_k:
-                    output_data.append(agg_results[f"{name}_map@{k}"])
-
-            fOut.write(",".join(map(str, output_data)))
-            fOut.write("\n")
-            fOut.close()
-
-        if not self.primary_metric:
-            if self.main_score_function is None:
-                score_function = max(
-                    [(name, agg_results[f"{name}_ndcg@{max(self.ndcg_at_k)}"]) for name in self.score_function_names],
-                    key=lambda x: x[1],
-                )[0]
-                self.primary_metric = f"{score_function}_ndcg@{max(self.ndcg_at_k)}"
-            else:
-                self.primary_metric = f"{self.main_score_function.value}_ndcg@{max(self.ndcg_at_k)}"
-
-        avg_queries = np.mean([len(evaluator.queries) for evaluator in self.evaluators])
-        avg_corpus = np.mean([len(evaluator.corpus) for evaluator in self.evaluators])
-        logger.info(f"Average Queries: {avg_queries}")
-        logger.info(f"Average Corpus: {avg_corpus}\n")
-
-        for name in self.score_function_names:
-            logger.info(f"Aggregated for Score Function: {name}")
-            for k in self.accuracy_at_k:
-                logger.info("Accuracy@{}: {:.2f}%".format(k, agg_results[f"{name}_accuracy@{k}"] * 100))
-
-            for k in self.precision_recall_at_k:
-                logger.info("Precision@{}: {:.2f}%".format(k, agg_results[f"{name}_precision@{k}"] * 100))
-                logger.info("Recall@{}: {:.2f}%".format(k, agg_results[f"{name}_recall@{k}"] * 100))
-
-            for k in self.mrr_at_k:
-                logger.info("MRR@{}: {:.4f}".format(k, agg_results[f"{name}_mrr@{k}"]))
-
-            for k in self.ndcg_at_k:
-                logger.info("NDCG@{}: {:.4f}".format(k, agg_results[f"{name}_ndcg@{k}"]))
-
-            for k in self.map_at_k:
-                logger.info("MAP@{}: {:.4f}".format(k, agg_results[f"{name}_map@{k}"]))
-
-        agg_results = self.prefix_name_to_metrics(agg_results, self.name)
-        self.store_metrics_in_model_card_data(model, agg_results, epoch, steps)
-
-        per_dataset_results.update(agg_results)
-
-        return per_dataset_results
+    def _get_split_name(self, dataset_name: DatasetNameType | str) -> str:
+        if dataset_name.lower() not in DATASET_NAME_TO_HUMAN_READABLE:
+            raise ValueError(f"Dataset '{dataset_name}' is not a valid NanoBEIR dataset.")
+        return f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
 
     def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
-        human_readable_name = f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
+        human_readable_name = self._get_split_name(dataset_name)
 
         if self.truncate_dim is not None:
             human_readable_name += f"_{self.truncate_dim}"
         return human_readable_name
-
-    def _load_dataset(
-        self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs
-    ) -> InformationRetrievalEvaluator:
-        if dataset_name.lower() not in DATASET_NAME_TO_HUMAN_READABLE:
-            raise ValueError(f"Dataset '{dataset_name}' is not a valid NanoBEIR dataset.")
-        human_readable = DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]
-        split_name = f"Nano{human_readable}"
-
-        corpus = self._load_dataset_subset_split("corpus", split=split_name, required_columns=["_id", "text"])
-        queries = self._load_dataset_subset_split("queries", split=split_name, required_columns=["_id", "text"])
-        qrels = self._load_dataset_subset_split("qrels", split=split_name, required_columns=["query-id", "corpus-id"])
-
-        corpus_dict = {sample["_id"]: sample["text"] for sample in corpus if len(sample["text"]) > 0}
-        queries_dict = {sample["_id"]: sample["text"] for sample in queries if len(sample["text"]) > 0}
-
-        qrels_dict = {}
-        for sample in qrels:
-            corpus_ids = sample.get("corpus-id")
-            if sample["query-id"] not in qrels_dict:
-                qrels_dict[sample["query-id"]] = set()
-
-            if isinstance(corpus_ids, list):
-                qrels_dict[sample["query-id"]].update(corpus_ids)
-            else:
-                qrels_dict[sample["query-id"]].add(corpus_ids)
-
-        if self.query_prompts is not None:
-            ir_evaluator_kwargs["query_prompt"] = self.query_prompts.get(dataset_name, None)
-        if self.corpus_prompts is not None:
-            ir_evaluator_kwargs["corpus_prompt"] = self.corpus_prompts.get(dataset_name, None)
-        human_readable_name = self._get_human_readable_name(dataset_name)
-        return self.information_retrieval_class(
-            queries=queries_dict,
-            corpus=corpus_dict,
-            relevant_docs=qrels_dict,
-            name=human_readable_name,
-            **ir_evaluator_kwargs,
-        )
-
-    def _load_dataset_subset_split(self, subset: str, split: str, required_columns: list[str]):
-        if not is_datasets_available():
-            raise ValueError(
-                "datasets is not available. Please install it to use the NanoBEIREvaluator via `pip install datasets`."
-            )
-        from datasets import load_dataset
-
-        try:
-            dataset = load_dataset(self.dataset_id, subset, split=split)
-        except Exception as e:
-            raise ValueError(
-                f"Could not load subset '{subset}' split '{split}' from dataset '{self.dataset_id}'."
-            ) from e
-
-        if missing_columns := set(required_columns) - set(dataset.column_names):
-            raise ValueError(
-                f"Subset '{subset}' split '{split}' from dataset '{self.dataset_id}' is missing required columns: {list(missing_columns)}."
-            )
-        return dataset
 
     def _validate_dataset_names(self):
         if len(self.dataset_names) == 0:
@@ -512,38 +274,7 @@ class NanoBEIREvaluator(BaseEvaluator):
                 f"Valid dataset names are: {list(DATASET_NAME_TO_HUMAN_READABLE.keys())}"
             )
 
-    def _validate_prompts(self):
-        error_msg = ""
-        if self.query_prompts is not None:
-            if isinstance(self.query_prompts, str):
-                self.query_prompts = {dataset_name: self.query_prompts for dataset_name in self.dataset_names}
-            elif missing_query_prompts := [
-                dataset_name for dataset_name in self.dataset_names if dataset_name not in self.query_prompts
-            ]:
-                error_msg += f"The following datasets are missing query prompts: {missing_query_prompts}\n"
-
-        if self.corpus_prompts is not None:
-            if isinstance(self.corpus_prompts, str):
-                self.corpus_prompts = {dataset_name: self.corpus_prompts for dataset_name in self.dataset_names}
-            elif missing_corpus_prompts := [
-                dataset_name for dataset_name in self.dataset_names if dataset_name not in self.corpus_prompts
-            ]:
-                error_msg += f"The following datasets are missing corpus prompts: {missing_corpus_prompts}\n"
-
-        if error_msg:
-            raise ValueError(error_msg.strip())
-
-    def store_metrics_in_model_card_data(self, *args, **kwargs):
-        # Only store metrics in the model card data if there is more than one dataset.
-        # Otherwise the e.g. mean scores for NanoBEIR are the same as the scores for
-        # the single dataset, and we'd end up with duplicate entries.
-        if len(self.dataset_names) > 1:
-            super().store_metrics_in_model_card_data(*args, **kwargs)
-
     def get_config_dict(self) -> dict[str, Any]:
-        config_dict = {"dataset_names": self.dataset_names, "dataset_id": self.dataset_id}
-        config_dict_candidate_keys = ["truncate_dim", "query_prompts", "corpus_prompts"]
-        for key in config_dict_candidate_keys:
-            if getattr(self, key) is not None:
-                config_dict[key] = getattr(self, key)
-        return config_dict
+        config_dict = super().get_config_dict()
+        del config_dict["splits"]
+        return {"dataset_names": self.dataset_names, **config_dict}

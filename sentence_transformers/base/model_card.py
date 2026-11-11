@@ -1344,10 +1344,10 @@ class BaseModelCardData(CardData):
         from sentence_transformers.base.evaluation import SequentialEvaluator
         from sentence_transformers.sentence_transformer.evaluation import (
             InformationRetrievalEvaluator,
-            NanoBEIREvaluator,
+            NanoEvaluator,
         )
 
-        ir_classes = (InformationRetrievalEvaluator, NanoBEIREvaluator)
+        ir_classes = (InformationRetrievalEvaluator, NanoEvaluator)
         for evaluator in self.eval_results_dict or {}:
             sub_evaluators = evaluator.evaluators if isinstance(evaluator, SequentialEvaluator) else [evaluator]
             if any(isinstance(sub_evaluator, ir_classes) for sub_evaluator in sub_evaluators):
