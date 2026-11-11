@@ -1,7 +1,7 @@
 
-.. tip::
+.. hint::
 
-   Sentence Transformers v6.2 is now out, featuring model merging across all four model types, faster model loading, and automatic distributed evaluation during DDP training. This release also includes lower-memory training losses, multi-vector compression improvements, and fixes throughout training and inference. Read the `v6.2 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v6.2.0>`_ for examples and all changes.
+   Sentence Transformers v6.3 introduces token-pooling-aware (`docs <examples/multi_vector_encoder/training/token_pooling/README.html>`__) and Matryoshka training (`docs <examples/multi_vector_encoder/training/matryoshka/README.html>`__) for multi-vector models, helping you retain retrieval quality with less memory/disk space. This release also adds optional kernels (`docs <docs/multi_vector_encoder/usage/kernels.html>`__) for faster scoring, token pooling, and transformer backbones, plus native AWS Neuron inference (`docs <docs/multi_vector_encoder/usage/efficiency.html#aws-trainium>`__). Read the `token pooling blog post <https://huggingface.co/blog/token-pooling>`_ for the method and experiments, and the `v6.3 Release Notes <https://github.com/huggingface/sentence-transformers/releases/tag/v6.3.0>`_ for examples and all changes.
 
 SentenceTransformers Documentation
 ==================================
