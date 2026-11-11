@@ -311,47 +311,22 @@ def community_detection(
         # Compute cosine similarity scores
         cos_scores = embeddings[start_idx : start_idx + batch_size] @ embeddings.T
 
-        # Use a torch-heavy approach if the embeddings are on CUDA, NPU or MPS, otherwise a loop-heavy one
-        if embeddings.device.type in ["cuda", "npu", "mps"]:
-            # Threshold the cos scores and determine how many close embeddings exist per embedding
-            threshold_mask = cos_scores >= threshold
-            row_wise_count = threshold_mask.sum(1)
+        top_k_values, _ = cos_scores.topk(k=min_community_size, largest=True)
+        large_enough_mask = top_k_values[:, -1] >= threshold
+        if not large_enough_mask.any():
+            continue
+        cos_scores = cos_scores[large_enough_mask]
+        top_k_values, top_k_indices = cos_scores.topk(k=sort_max_size, largest=True)
 
-            # Only consider embeddings with enough close other embeddings
-            large_enough_mask = row_wise_count >= min_community_size
-            if not large_enough_mask.any():
-                continue
+        while sort_max_size < len(embeddings) and (top_k_values[:, -1] >= threshold).any():
+            sort_max_size = min(2 * sort_max_size, len(embeddings))
+            top_k_values, top_k_indices = cos_scores.topk(k=sort_max_size, largest=True)
 
-            row_wise_count = row_wise_count[large_enough_mask]
-            cos_scores = cos_scores[large_enough_mask]
-
-            # The max is the largest potential community, so we use that in topk
-            k = row_wise_count.max()
-            _, top_k_indices = cos_scores.topk(k=k, largest=True)
-
-            # Move the batch indices to CPU once, then slice per community
-            top_k_indices = top_k_indices.cpu()
-            centers = (large_enough_mask.nonzero(as_tuple=True)[0] + start_idx).tolist()
-            for center, count, indices in zip(centers, row_wise_count.tolist(), top_k_indices):
-                extracted_communities.append((center, indices[:count].numpy().astype(np.uint32)))
-        else:
-            # Minimum size for a community
-            top_k_values, _ = cos_scores.topk(k=min_community_size, largest=True)
-
-            # Filter for rows >= min_threshold
-            for i in range(len(top_k_values)):
-                if top_k_values[i][-1] >= threshold:
-                    # Only check top k most similar entries
-                    top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
-
-                    # Check if we need to increase sort_max_size
-                    while top_val_large[-1] >= threshold and sort_max_size < len(embeddings):
-                        sort_max_size = min(2 * sort_max_size, len(embeddings))
-                        top_val_large, top_idx_large = cos_scores[i].topk(k=sort_max_size, largest=True)
-
-                    extracted_communities.append(
-                        (start_idx + i, top_idx_large[top_val_large >= threshold].cpu().numpy().astype(np.uint32))
-                    )
+        row_wise_count = (top_k_values >= threshold).sum(1)
+        top_k_indices = top_k_indices.cpu()
+        centers = (large_enough_mask.nonzero(as_tuple=True)[0] + start_idx).tolist()
+        for center, count, indices in zip(centers, row_wise_count.tolist(), top_k_indices):
+            extracted_communities.append((center, indices[:count].numpy().astype(np.uint32)))
 
     # Largest cluster first
     extracted_communities = sorted(extracted_communities, key=lambda x: len(x[1]), reverse=True)
