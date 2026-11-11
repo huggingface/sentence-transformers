@@ -418,6 +418,42 @@ Most loss functions can be initialized with just the :class:`~sentence_transform
     train_dataset = load_dataset("sentence-transformers/gooaq", split="train")
 ```
 
+### Activation and scale for in-batch negatives
+
+```{eval-rst}
+:class:`~sentence_transformers.cross_encoder.losses.MultipleNegativesRankingLoss` and
+:class:`~sentence_transformers.cross_encoder.losses.CachedMultipleNegativesRankingLoss`
+apply their own ``activation_fn`` to the model's raw scores, then multiply the result by
+``scale`` before passing it to ``torch.nn.CrossEntropyLoss``. With the defaults, the
+cross-entropy input is ``10.0 * sigmoid(scores)``. These are candidate scores, not
+probabilities normalized across the candidates. Cross-entropy applies its own
+log-softmax across the positive and negative candidates.
+
+To use unbounded scores for InfoNCE-style training, pass ``torch.nn.Identity()`` to
+the loss. For example, using the model initialized above::
+
+    from torch import nn
+    from sentence_transformers.cross_encoder.losses import MultipleNegativesRankingLoss
+
+    loss = MultipleNegativesRankingLoss(model, activation_fn=nn.Identity(), scale=1.0)
+
+The same arguments work with ``CachedMultipleNegativesRankingLoss``. With this
+configuration, cross-entropy receives the raw scores. For temperature ``T > 0``,
+set ``scale=1.0 / T``. Tune the activation and scale together on your task, since
+removing the sigmoid changes the range of scores seen by cross-entropy.
+
+The loss's activation is separate from the model's ``activation_fn``, which is used
+during inference by ``predict()`` and ``rank()``. Setting the model's activation
+does not override the loss's activation, and setting the loss's activation does
+not change inference scores. Use ``model.predict(pairs, activation_fn=nn.Identity())``
+when you want raw scores at inference.
+
+The current sigmoid and scale defaults were chosen from training experiments.
+See the `maintainer's explanation <https://github.com/huggingface/sentence-transformers/issues/3518#issuecomment-3312409774>`_.
+They are starting points for experimentation, and do not establish that sigmoid
+performs better than identity on your dataset.
+```
+
 ## Training Arguments
 
 ```{eval-rst}
