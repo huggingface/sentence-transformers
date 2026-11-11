@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train,kernels]>=6.3.0",
+# ]
+# ///
 """Train for a document token budget and compare against ordinary contrastive training."""
 
 import argparse

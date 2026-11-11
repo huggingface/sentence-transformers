@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train,kernels]>=6.3.0",
+# ]
+# ///
 """Evaluate a multi-vector model across token embedding dimensions on NanoBEIR."""
 
 from __future__ import annotations
@@ -5,6 +11,10 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
+
+from packaging.version import Version
+from transformers import __version__ as transformers_version
+from transformers.utils import is_kernels_available
 
 from sentence_transformers import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorNanoBEIREvaluator
@@ -18,7 +28,12 @@ def main():
     parser.add_argument("model_name", help="A Hugging Face model ID or local model directory.")
     cli = parser.parse_args()
 
-    model = MultiVectorEncoder(cli.model_name, model_kwargs={"torch_dtype": "float32"})
+    use_kernels = Version(transformers_version) >= Version("5.20.0") and is_kernels_available()
+    model = MultiVectorEncoder(
+        cli.model_name,
+        model_kwargs={"torch_dtype": "float32"},
+        use_kernels=use_kernels,
+    )
     model.truncate_dim = None
     model_path = Path(cli.model_name)
     model_name = model_path.parent.name if model_path.name == "final" else model_path.name
