@@ -43,7 +43,8 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         name (str): A name for the evaluation. Defaults to "".
         write_csv (bool): Whether to write the evaluation results to a CSV file. Defaults to True.
         truncate_dim (int, optional): The dimension to truncate the embeddings to. Defaults to None.
-        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to the ``similarity`` function of the model passed to each call, so a reused evaluator follows every model's own similarity.
+        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions.
+            If omitted, uses ``main_score_function`` when set, otherwise the model's ``similarity`` function on each call.
         main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation. Defaults to None.
         query_prompt (str, optional): The prompt to be used when encoding the corpus. Defaults to None.
         query_prompt_name (str, optional): The name of the prompt to be used when encoding the corpus. Defaults to None.
@@ -217,6 +218,8 @@ class InformationRetrievalEvaluator(BaseEvaluator):
                 self.csv_headers.append(f"{score_name}-MAP@{k}")
 
     def _model_score_functions(self, model: SentenceTransformer) -> dict[str, Callable[[Tensor, Tensor], Tensor]]:
+        if self.main_score_function is not None:
+            return {self.main_score_function.value: SimilarityFunction.to_similarity_fn(self.main_score_function)}
         return {model.similarity_fn_name: model.similarity}
 
     def __call__(
