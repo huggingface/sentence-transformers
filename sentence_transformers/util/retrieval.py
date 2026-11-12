@@ -198,6 +198,9 @@ def semantic_search(
     query_embeddings = _convert_to_tensor(query_embeddings)
     corpus_embeddings = _convert_to_tensor(corpus_embeddings)
 
+    if len(query_embeddings) == 0:
+        return []
+
     if len(query_embeddings.shape) == 1:
         query_embeddings = query_embeddings.unsqueeze(0)
 
