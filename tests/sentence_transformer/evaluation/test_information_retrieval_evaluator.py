@@ -169,8 +169,6 @@ def test_explicit_score_functions_survive_reuse(test_data, stsb_bert_tiny_model:
 
 
 def test_main_score_function_is_evaluated(test_data, stsb_bert_tiny_model: SentenceTransformer):
-    """Without explicit score_functions, a main_score_function that differs from the model's similarity
-    is the one that gets scored, so the primary metric is present in the results."""
     queries, corpus, relevant_docs = test_data
     model = stsb_bert_tiny_model
     assert model.similarity_fn_name == "cosine"

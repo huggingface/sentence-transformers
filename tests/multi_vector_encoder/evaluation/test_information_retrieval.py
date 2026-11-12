@@ -93,8 +93,6 @@ def test_ir_evaluator_defers_scoring_resolution_to_call_time(mve_bert_tiny_model
 
 
 def test_ir_evaluator_scores_the_main_score_function(mve_bert_tiny_model: MultiVectorEncoder) -> None:
-    """Without explicit ``score_functions``, a ``main_score_function`` that differs from the model's
-    similarity is the one scored, so the primary metric is present in the results."""
     model = mve_bert_tiny_model
     evaluator = MultiVectorInformationRetrievalEvaluator(
         queries={"q0": "What is the capital of France?"},

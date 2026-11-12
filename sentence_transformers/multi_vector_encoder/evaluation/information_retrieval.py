@@ -44,9 +44,10 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             adapting to the query count and document lengths. Defaults to None (maxsim's 100M-element
             budget, at most ~400 MB, half that in bf16 / fp16). Lower it to cut evaluation memory.
         score_functions (Dict[str, Callable], optional): Override the default scoring, which resolves
-            from the model's ``similarity_fn_name`` at call time (with ``chunk_elements``
-            applied if one was given). The chosen callable receives ``(queries, documents)`` token tensors and must
-            return a ``(num_queries, num_documents)`` score matrix. XTR scoring is not supported here
+            from ``main_score_function`` when set, otherwise the model's ``similarity_fn_name`` at call time
+            (with ``chunk_elements`` applied if one was given). The chosen callable receives
+            ``(queries, documents)`` token tensors and must return a ``(num_queries, num_documents)`` score matrix.
+            XTR scoring is not supported here
             because it does a global top-k across the whole candidate set, which is incompatible with
             this evaluator's per-chunk corpus scoring.
         mrr_at_k (List[int]): k-values for MRR. Defaults to ``[10]``.
@@ -65,8 +66,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         token_pooling (BaseTokenPooling, optional): Pooling applied during encoding. The pooler's
             ``tasks`` select which inputs are pooled. Defaults to None (use the model's default pooler).
         main_score_function (str or SimilarityFunction, optional): Which score-function key to treat
-            as the primary metric for the model card / trainer. Defaults to None (use the first /
-            only key in ``score_functions``).
+            as the primary metric for the model card / trainer. Defaults to None (select the highest NDCG).
         query_prompt (str, optional): Prompt prepended to every query during encoding. Defaults to None.
         query_prompt_name (str, optional): Name of a prompt registered on the model to prepend to
             queries. Mutually exclusive with ``query_prompt``. Defaults to None.

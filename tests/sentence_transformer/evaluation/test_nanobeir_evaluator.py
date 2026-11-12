@@ -80,29 +80,23 @@ def test_nanobeir_evaluator_empty_inputs():
         NanoBEIREvaluator(dataset_names=[])
 
 
-def test_nanobeir_evaluator_main_score_function_as_string(stsb_bert_tiny_model: SentenceTransformer):
-    """Tests that main_score_function accepts a string, as the signature and docstring promise."""
-    model = stsb_bert_tiny_model
-    evaluator = LocalNanoBEIREvaluator(dataset_names=["MSMARCO"], main_score_function="cosine")
-
-    assert evaluator.main_score_function == SimilarityFunction.COSINE
-
-    results = evaluator(model)
-    assert evaluator.primary_metric == "NanoBEIR_mean_cosine_ndcg@10"
-    assert isinstance(results[evaluator.primary_metric], float)
-
-
-def test_nanobeir_evaluator_main_score_function_is_evaluated(stsb_bert_tiny_model: SentenceTransformer):
-    """Tests that a main_score_function differing from the model's similarity is scored, so the primary
-    metric exists in the aggregated results."""
+@pytest.mark.parametrize("main_score_function", ["cosine", "dot"])
+def test_nanobeir_evaluator_main_score_function_as_string(
+    stsb_bert_tiny_model: SentenceTransformer, main_score_function: str
+):
     model = stsb_bert_tiny_model
     assert model.similarity_fn_name == "cosine"
-    evaluator = LocalNanoBEIREvaluator(dataset_names=["MSMARCO"], main_score_function="dot")
+    evaluator = LocalNanoBEIREvaluator(
+        dataset_names=["MSMARCO"], main_score_function=main_score_function, write_csv=False
+    )
+
+    assert evaluator.main_score_function == SimilarityFunction(main_score_function)
 
     results = evaluator(model)
-    assert evaluator.primary_metric == "NanoBEIR_mean_dot_ndcg@10"
+    assert evaluator.score_function_names == [main_score_function]
+    assert evaluator.primary_metric == f"NanoBEIR_mean_{main_score_function}_ndcg@10"
     assert isinstance(results[evaluator.primary_metric], float)
-    assert not any("cosine" in key for key in results)
+    assert all(f"_{main_score_function}_" in key for key in results)
 
 
 @pytest.mark.parametrize("truncate_dim", [None, 64])
