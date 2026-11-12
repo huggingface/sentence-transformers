@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -82,7 +83,7 @@ def export_model(architecture, tmp_path, export_format="torch", export_config=No
 @pytest.mark.parametrize("architecture", MODELS)
 def test_exported_model_matches(architecture, export_format, tmp_path):
     model_class, model_id = MODELS[architecture]
-    expected = compute(model_class(model_id))
+    expected = compute(model_class(model_id, device="cpu"))
     model, _ = export_model(architecture, tmp_path, export_format=export_format)
     assert model.get_backend() == export_format
     for expected_output, output in zip(expected, compute(model)):
@@ -102,16 +103,19 @@ def test_saved_export_is_loaded_not_exported_again(export_format, tmp_path, monk
 
 
 @requires_exporters
-def test_export_without_pytorch_weights_is_loaded():
+@pytest.mark.parametrize("export_format", EXPORT_FORMATS)
+def test_export_without_pytorch_weights_is_loaded(export_format, tmp_path):
+    expected = compute(SentenceTransformer(MODELS["sentence_transformer"][1]))
+    _, directory = export_model("sentence_transformer", tmp_path, export_format=export_format)
+    for weights in Path(directory).glob("*.safetensors"):
+        weights.unlink()
 
-    model = SentenceTransformer("optimum-intel-internal-testing/stsb-bert-tiny-openvino", backend="openvino")
+    model = SentenceTransformer(str(directory), backend=export_format)
     assert model._exported_model is not None
     assert model[0].model is None
-    assert model.get_backend() == "openvino"
-    for expected_output, output in zip(
-        compute(SentenceTransformer(MODELS["sentence_transformer"][1])), compute(model)
-    ):
-        assert np.allclose(expected_output, output, atol=5e-2)
+    assert model.get_backend() == export_format
+    for expected_output, output in zip(expected, compute(model)):
+        assert np.allclose(expected_output, output, atol=ATOL[export_format])
 
 
 def test_legacy_export_is_loaded():
@@ -204,9 +208,9 @@ def test_nncf_quantized_openvino_export(architecture, mode, tmp_path):
 @requires_exporters
 @pytest.mark.parametrize("export_format", EXPORT_FORMATS)
 def test_backend_is_the_export_format_of_the_export_config(export_format):
-    from transformers.exporters import get_export_config_class
+    from transformers.exporters.auto import get_exporter_class
 
-    export_config = get_export_config_class(export_format)(dynamic=True)
+    export_config = get_exporter_class(export_format).config_class(dynamic=True)
     model = SentenceTransformer(MODELS["sentence_transformer"][1], model_kwargs={"export_config": export_config})
     assert model.get_backend() == export_format
     assert model._exported_model is not None
@@ -230,7 +234,7 @@ def test_export_config_exports_again_a_saved_export(tmp_path):
     SentenceTransformer(directory, backend="onnx").save(directory)
 
     loaded = SentenceTransformer(directory, backend="onnx")
-    assert loaded._exported_model.artifacts is not None
+    assert loaded._exported_model.components
 
     exported = SentenceTransformer(directory, model_kwargs={"export_config": OnnxConfig(dynamic=True)})
-    assert exported._exported_model.artifacts is not None
+    assert exported._exported_model.components

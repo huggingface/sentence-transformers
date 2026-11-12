@@ -1,26 +1,25 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import huggingface_hub
 import torch
 import transformers
 from packaging import version
 from torch import nn
 from transformers.utils import logging as transformers_logging
+from transformers.utils.hub import cached_file
 
 if TYPE_CHECKING:
-    from transformers.exporters import ExportArtifacts, ExportConfigMixin
+    from transformers.exporters import ExportConfigMixin, ExportedModel
 
     from sentence_transformers.base.model import BaseModel
 
 logger = transformers_logging.get_logger(__name__)
 
-# `ExportArtifacts` introduced in v5.21
-MIN_TRANSFORMERS_VERSION = "5.21"
+# `ExportedModel` introduced in v5.23
+MIN_TRANSFORMERS_VERSION = "5.23"
 LEGACY_EXPORT_FORMATS = ["onnx", "openvino"]
 EXPORT_MANIFEST_FILE = "export.json"
 LEGACY_BACKEND_FILES = {
@@ -57,7 +56,9 @@ def get_export_formats() -> list[str]:
     """
     if not is_transformers_export_available():
         return LEGACY_EXPORT_FORMATS
-    return sorted(require_transformers_exporters().EXPORT_BACKENDS)
+    from transformers.exporters.auto import EXPORT_BACKENDS
+
+    return sorted(name for name, backend in EXPORT_BACKENDS.items() if backend.runner is not None)
 
 
 class _ExportableModel(nn.Module):
@@ -100,9 +101,9 @@ def resolve_backend(backend: str, export_config: ExportConfigMixin | dict[str, A
 
 
 def _resolve_export_config(export_format: str, export_config: ExportConfigMixin | dict[str, Any] | None):
-    from transformers.exporters import get_export_config_class
+    from transformers.exporters.auto import get_exporter_class
 
-    config_class = get_export_config_class(export_format)
+    config_class = get_exporter_class(export_format).config_class
     if export_config is None:
         # Dynamic shapes, as texts of any batch size and length must be supported
         return config_class(dynamic=True)
@@ -117,7 +118,7 @@ def export(
     export_format: str,
     export_config: ExportConfigMixin | dict[str, Any] | None = None,
     sample_features: dict[str, torch.Tensor] | None = None,
-) -> ExportArtifacts:
+) -> ExportedModel:
     """
     Export all modules of a model as a single graph with ``transformers.exporters``.
 
@@ -132,7 +133,7 @@ def export(
             the preprocessed output of two short texts (or text pairs for a cross-encoder).
 
     Returns:
-        ExportArtifacts: The exported graph. Save it with ``save_pretrained``.
+        ExportedModel: The exported graph, that runs on its backend's runtime. Save it with ``save_pretrained``.
     """
     exporters = require_transformers_exporters()
     config = _resolve_export_config(export_format, export_config)
@@ -143,47 +144,9 @@ def export(
     return exporter.export(_ExportableModel(model), sample_features, config)
 
 
-class ExportedModule:
-    """Runs an exported graph on the features of a model, in place of its modules, and saves the export."""
-
-    def __init__(self, artifacts: ExportArtifacts, device: str | None = None):
-        self.artifacts = artifacts
-        self.model = artifacts.runtime(device=device)
-        # TODO: get device from self.model and remove
-        self._device = torch.device(device) if device is not None else None
-
-    @property
-    def device(self) -> torch.device:
-        return self._device
-
-    @property
-    def input_names(self) -> tuple[str, ...]:
-        """The names of the forward kwargs the graph was traced with."""
-        return tuple(self.model.runner.metadata.kwargs)
-
-    def __call__(self, features: dict[str, Any], **kwargs) -> dict[str, Any]:
-        if kwargs:
-            logger.warning_once(
-                f"The forward keyword arguments {kwargs} are ignored, as exported graph was traced without them. "
-            )
-        missing = [name for name in self.input_names if name not in features]
-        if missing:
-            raise ValueError(
-                f"The exported model takes the features {list(self.input_names)}, but {missing} are missing from "
-                f"the preprocessed inputs {sorted(features)}."
-            )
-
-        features.update(self.model(**features))
-        return features
-
-    def save(self, output_path: str | os.PathLike) -> None:
-        """Save the exported graph and its manifest to ``output_path``."""
-        self.artifacts.save_pretrained(output_path)
-
-
 def has_export_config(model_name_or_path: str | Path, export_format: str, **kwargs) -> bool:
     """
-    Whether ``model_name_or_path``, a local directory or a Hub model, holds a model exported with
+    Whether ``model_name_or_path``, a local directory or a Hub model, holds a model exported to ``export_format`` with
     ``transformers.exporters``. It is told by its manifest (``export.json``), which the exports of previous versions of
     sentence-transformers, that only hold the Transformer model, don't have.
 
@@ -192,38 +155,15 @@ def has_export_config(model_name_or_path: str | Path, export_format: str, **kwar
         export_format: whether the model was exported to this format, e.g. ``"onnx"``.
         **kwargs: ``revision``, ``token``, ``cache_dir`` and ``local_files_only`` to locate a Hub model.
     """
-    if os.path.isdir(model_name_or_path):
-        manifest = Path(model_name_or_path, EXPORT_MANIFEST_FILE)
-    else:
-        try:
-            manifest = Path(huggingface_hub.hf_hub_download(str(model_name_or_path), EXPORT_MANIFEST_FILE, **kwargs))
-        except (huggingface_hub.errors.HfHubHTTPError, huggingface_hub.errors.LocalEntryNotFoundError):
-            return False  # There is no manifest, or no such model, or it is not in the cache
-    if not manifest.is_file():
+    # Resolved as ``ExportedModel.from_pretrained`` does. A missing manifest, model, or connection is not an error: it
+    # means the model was not exported
+    manifest = cached_file(
+        str(model_name_or_path),
+        EXPORT_MANIFEST_FILE,
+        _raise_exceptions_for_missing_entries=False,
+        _raise_exceptions_for_connection_errors=False,
+        **kwargs,
+    )
+    if manifest is None:
         return False
-    return json.loads(manifest.read_text(encoding="utf-8")).get("export_format") == export_format
-
-
-def load_exported_model(
-    model_name_or_path: str, export_format: str, device: str | torch.device | None = None, **kwargs
-) -> ExportedModule | None:
-    """
-    Load the model exported with ``transformers.exporters`` in a local directory or Hugging Face repository.
-
-    Args:
-        model_name_or_path: Local directory or Hub model ID.
-        export_format: The export format the model must have been exported to, e.g. ``"onnx"``.
-        device: The device the exported graph should run on.
-        **kwargs: ``revision``, ``token``, ``cache_dir`` and ``local_files_only`` to locate the model.
-
-    Returns:
-        ExportedModule | None: The loaded model, or None if the model was not exported to ``export_format``.
-    """
-    if not has_export_config(model_name_or_path, export_format, **kwargs):
-        return None
-    exporters = require_transformers_exporters()
-
-    # ``ExportArtifacts.from_pretrained`` do not take ``local_files_only``, remove once the case
-    kwargs = {key: value for key, value in kwargs.items() if key != "local_files_only"}
-    artifacts = exporters.ExportArtifacts.from_pretrained(model_name_or_path, **kwargs)
-    return ExportedModule(artifacts, device=device)
+    return json.loads(Path(manifest).read_text(encoding="utf-8")).get("export_format") == export_format

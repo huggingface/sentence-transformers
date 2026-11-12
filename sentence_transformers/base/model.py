@@ -40,10 +40,10 @@ from transformers.utils import logging as transformers_logging
 
 from sentence_transformers import __version__
 from sentence_transformers.backend.export import (
-    ExportedModule,
     export,
     get_export_formats,
-    load_exported_model,
+    has_export_config,
+    require_transformers_exporters,
     resolve_backend,
 )
 from sentence_transformers.backend.utils import backend_warn_to_save
@@ -677,19 +677,23 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             "local_files_only": local_files_only,
         }
         if not (model_kwargs.get("export") or model_kwargs.get("export_config")):
-            self._exported_model = load_exported_model(model_name_or_path, self.backend, device=device, **load_kwargs)
+            if has_export_config(model_name_or_path, self.backend, **load_kwargs):
+                exported_model_class = require_transformers_exporters().ExportedModel
+                self._exported_model = exported_model_class.from_pretrained(
+                    model_name_or_path, device=device, **load_kwargs
+                )
         if self._exported_model is not None:
             return
 
         logger.info(f"Exporting {model_name_or_path} with the {self.backend!r} backend.")
-        artifacts = export(self, self.backend, export_config=model_kwargs.get("export_config"))
-        self._exported_model = ExportedModule(artifacts, device=device)
+        self._exported_model = export(self, self.backend, export_config=model_kwargs.get("export_config")).to(device)
         backend_warn_to_save(model_name_or_path, os.path.isdir(model_name_or_path), self.backend)
 
     def forward(self, input: dict[str, Tensor], **kwargs) -> dict[str, Tensor]:
         """Forward pass through all modules in the model."""
         if self._exported_model is not None:
-            return self._exported_model(input, **kwargs)
+            input.update(self._exported_model(**input))
+            return input
         for module_name, module in self.named_children():
             module_kwargs = {}
             if isinstance(module, Router):
@@ -896,7 +900,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             json.dump(modules_config, fOut, indent=2)
 
         if self._exported_model is not None:
-            self._exported_model.save(path)
+            self._exported_model.save_pretrained(path)
 
         if create_model_card:
             self._create_model_card(path, model_name, train_datasets)

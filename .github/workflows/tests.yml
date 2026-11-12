@@ -81,7 +81,7 @@ jobs:
       - name: Install transformers with the exporters, and the packages to export to ONNX and OpenVINO
         run: >
           uv pip install
-          "transformers @ git+https://github.com/huggingface/transformers.git@exporters-artifacts"
+          "transformers @ git+https://github.com/huggingface/transformers.git@main"
           onnx onnxscript onnxruntime openvino
           --system
 
