@@ -1,31 +1,21 @@
 from __future__ import annotations
 
-import logging
-import os
-from collections import defaultdict
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
 
 from sentence_transformers.sentence_transformer.evaluation.nano_beir import NanoBEIREvaluator
-from sentence_transformers.sparse_encoder.evaluation.sparse_information_retrieval import (
-    SparseInformationRetrievalEvaluator,
-)
-from sentence_transformers.util import append_to_last_row
+from sentence_transformers.sparse_encoder.evaluation.nano_evaluator import SparseNanoEvaluator
 
 if TYPE_CHECKING:
     from torch import Tensor
 
     from sentence_transformers.sentence_transformer.evaluation import SimilarityFunction
     from sentence_transformers.sentence_transformer.evaluation.nano_beir import DatasetNameType
-    from sentence_transformers.sparse_encoder import SparseEncoder
-
-logger = logging.getLogger(__name__)
 
 
-class SparseNanoBEIREvaluator(NanoBEIREvaluator):
+class SparseNanoBEIREvaluator(NanoBEIREvaluator, SparseNanoEvaluator):
     """
     This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator` but is specifically designed for sparse encoder models.
 
@@ -195,8 +185,6 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
             pprint({key: value for key, value in results.items() if "ndcg@10" in key})
     """
 
-    information_retrieval_class = SparseInformationRetrievalEvaluator
-
     def __init__(
         self,
         dataset_names: list[DatasetNameType | str] | None = None,
@@ -218,11 +206,10 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
         corpus_prompts: str | dict[str, str] | None = None,
         write_predictions: bool = False,
     ):
-        self.max_active_dims = max_active_dims
-        self.sparsity_stats = defaultdict(list)
         super().__init__(
             dataset_names=dataset_names,
             dataset_id=dataset_id,
+            max_active_dims=max_active_dims,
             mrr_at_k=mrr_at_k,
             ndcg_at_k=ndcg_at_k,
             accuracy_at_k=accuracy_at_k,
@@ -239,94 +226,3 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
             corpus_prompts=corpus_prompts,
             write_predictions=write_predictions,
         )
-        if self.max_active_dims is not None:
-            self.name += f"_{self.max_active_dims}"
-
-    def _get_human_readable_name(self, dataset_name: DatasetNameType) -> str:
-        human_readable_name = super()._get_human_readable_name(dataset_name)
-        if self.max_active_dims is not None:
-            human_readable_name += f"_{self.max_active_dims}"
-        return human_readable_name
-
-    def _append_csv_headers(self, score_function_names):
-        super()._append_csv_headers(score_function_names)
-        # To avoid adding the sparse-specific headers multiple times, we only add them if the superclass will
-        # add metric columns for the specified score functions
-        if score_function_names:
-            self.csv_headers.extend(
-                [
-                    "query_active_dims",
-                    "query_sparsity_ratio",
-                    "corpus_active_dims",
-                    "corpus_sparsity_ratio",
-                    "avg_flops",
-                ]
-            )
-
-    def __call__(
-        self, model: SparseEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1, *args, **kwargs
-    ) -> dict[str, float]:
-        self.sparsity_stats = defaultdict(list)
-        self.lengths = defaultdict(list)
-        per_dataset_results = super().__call__(
-            model, output_path=output_path, epoch=epoch, steps=steps, *args, **kwargs
-        )
-        total_query_count, total_corpus_count = None, None
-        for evaluator in self.evaluators:
-            self.lengths["query"].append(len(evaluator.queries))
-            self.lengths["corpus"].append(len(evaluator.corpus))
-            for key, value in evaluator.sparsity_stats.items():
-                self.sparsity_stats[key].append(value)
-
-            if total_query_count is None:
-                total_query_count = evaluator.count_vectors["query"]
-                total_corpus_count = evaluator.count_vectors["corpus"]
-            else:
-                total_query_count += evaluator.count_vectors["query"]
-                total_corpus_count += evaluator.count_vectors["corpus"]
-
-        # Compute the weighted mean for each of the sparsity stats, except avg_flops as a weighted mean would
-        # not be accurate
-        for key, values in self.sparsity_stats.items():
-            if key == "avg_flops":
-                continue
-
-            lengths = self.lengths[key.split("_")[0]]
-            self.sparsity_stats[key] = sum(val * length for val, length in zip(values, lengths)) / sum(lengths)
-
-        avg_query_count = total_query_count / sum(self.lengths["query"])
-        avg_corpus_count = total_corpus_count / sum(self.lengths["corpus"])
-        self.sparsity_stats["avg_flops"] = float(torch.dot(avg_query_count, avg_corpus_count).cpu())
-
-        per_dataset_results.update(self.prefix_name_to_metrics(self.sparsity_stats, self.name))
-        aggregated_results = {
-            key: value for key, value in per_dataset_results.items() if key.startswith(self.name) and key != self.name
-        }
-        self.store_metrics_in_model_card_data(model, aggregated_results, epoch, steps)
-        logger.info(
-            f"Model Query Sparsity: Active Dimensions: {self.sparsity_stats['query_active_dims']:.1f}, Sparsity Ratio: {self.sparsity_stats['query_sparsity_ratio']:.4f}"
-        )
-        logger.info(
-            f"Model Corpus Sparsity: Active Dimensions: {self.sparsity_stats['corpus_active_dims']:.1f}, Sparsity Ratio: {self.sparsity_stats['corpus_sparsity_ratio']:.4f}"
-        )
-        logger.info(f"Average FLOPS: {self.sparsity_stats['avg_flops']:.2f}")
-        if output_path is not None and self.write_csv:
-            append_to_last_row(
-                os.path.join(output_path, self.csv_file),
-                self.sparsity_stats.values(),
-            )
-
-        return per_dataset_results
-
-    def _load_dataset(
-        self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs
-    ) -> SparseInformationRetrievalEvaluator:
-        ir_evaluator_kwargs["max_active_dims"] = self.max_active_dims
-        ir_evaluator_kwargs.pop("truncate_dim", None)
-        return super()._load_dataset(dataset_name, **ir_evaluator_kwargs)
-
-    def get_config_dict(self) -> dict[str, Any]:
-        config_dict = super().get_config_dict()
-        if self.max_active_dims is not None:
-            config_dict["max_active_dims"] = self.max_active_dims
-        return config_dict

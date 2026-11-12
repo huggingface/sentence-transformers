@@ -16,6 +16,12 @@ ragged per-token embeddings.
 .. autoclass:: sentence_transformers.multi_vector_encoder.evaluation.MultiVectorNanoBEIREvaluator
 ```
 
+## MultiVectorNanoEvaluator
+
+```{eval-rst}
+.. autoclass:: sentence_transformers.multi_vector_encoder.evaluation.MultiVectorNanoEvaluator
+```
+
 ## MultiVectorTripletEvaluator
 
 ```{eval-rst}

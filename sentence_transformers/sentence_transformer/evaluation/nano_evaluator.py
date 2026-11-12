@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from torch import Tensor
@@ -21,6 +21,60 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+NanoDatasetId = Literal[
+    "CATIE-AQ/NanoBEIR-fr",
+    "LiquidAI/NanoBEIR-ja",
+    "LiquidAI/NanoBEIR-ko",
+    "Serbian-AI-Society/NanoBEIR-sr",
+    "hakari-bench/NanoBIRCO",
+    "hakari-bench/NanoBRIGHT",
+    "hakari-bench/NanoBuiltBench",
+    "hakari-bench/NanoCMTEB",
+    "hakari-bench/NanoChemTEB",
+    "hakari-bench/NanoCoIR",
+    "hakari-bench/NanoCodeRAG",
+    "hakari-bench/NanoDAPFAM",
+    "hakari-bench/NanoFaMTEB-v2",
+    "hakari-bench/NanoIFIR",
+    "hakari-bench/NanoIndicQA",
+    "hakari-bench/NanoJMTEB-v2",
+    "hakari-bench/NanoLaw",
+    "hakari-bench/NanoLongEmbed",
+    "hakari-bench/NanoMIRACL",
+    "hakari-bench/NanoMLDR",
+    "hakari-bench/NanoMMTEB-v2",
+    "hakari-bench/NanoMTEB-BR",
+    "hakari-bench/NanoMTEB-Dutch",
+    "hakari-bench/NanoMTEB-French",
+    "hakari-bench/NanoMTEB-German",
+    "hakari-bench/NanoMTEB-Korean",
+    "hakari-bench/NanoMTEB-Misc",
+    "hakari-bench/NanoMTEB-Polish",
+    "hakari-bench/NanoMTEB-Scandinavian",
+    "hakari-bench/NanoMTEB-Spanish",
+    "hakari-bench/NanoMTEB-Thai",
+    "hakari-bench/NanoMTEB-v2",
+    "hakari-bench/NanoMedical",
+    "hakari-bench/NanoMuPLeR",
+    "hakari-bench/NanoR2MED",
+    "hakari-bench/NanoRARb",
+    "hakari-bench/NanoRTEB",
+    "hakari-bench/NanoRuMTEB",
+    "hakari-bench/NanoSSRB",
+    "hakari-bench/NanoVNMTEB",
+    "lightonai/NanoBEIR-ar",
+    "lightonai/NanoBEIR-de",
+    "lightonai/NanoBEIR-es",
+    "lightonai/NanoBEIR-fr",
+    "lightonai/NanoBEIR-it",
+    "lightonai/NanoBEIR-no",
+    "lightonai/NanoBEIR-pt",
+    "lightonai/NanoBEIR-sv",
+    "sentence-transformers/NanoBEIR-en",
+    "sionic-ai/NanoBEIR-th",
+    "sionic-ai/NanoBEIR-vi",
+]
+
 
 class NanoEvaluator(BaseEvaluator):
     """
@@ -35,7 +89,9 @@ class NanoEvaluator(BaseEvaluator):
     aggregated across all splits.
 
     Args:
-        dataset_id (str): The Hugging Face dataset ID to load the datasets from, e.g. "sentence-transformers/NanoBEIR-en".
+        dataset_id (NanoDatasetId | str): The Hugging Face dataset ID to load the datasets from, e.g. "sentence-transformers/NanoBEIR-en".
+            ``NanoDatasetId`` provides autocomplete suggestions for known compatible collections. Other dataset IDs
+            are also accepted if they follow the format above.
         splits (List[str], optional): The splits to evaluate on. If not specified, all splits of the "qrels" subset are used.
         name (str, optional): The name of the collection, used as the prefix of the metric names and of the CSV file.
             Defaults to the last part of ``dataset_id``, e.g. "NanoBEIR-en".
@@ -104,7 +160,7 @@ class NanoEvaluator(BaseEvaluator):
 
     def __init__(
         self,
-        dataset_id: str,
+        dataset_id: NanoDatasetId | str,
         splits: list[str] | None = None,
         name: str | None = None,
         mrr_at_k: list[int] = [10],
@@ -139,9 +195,7 @@ class NanoEvaluator(BaseEvaluator):
         self._score_functions_from_model = score_functions is None
         self.main_score_function = SimilarityFunction(main_score_function) if main_score_function else None
         self.truncate_dim = truncate_dim
-        self.name = f"{self.dataset_name}_{aggregate_key}"
-        if self.truncate_dim:
-            self.name += f"_{self.truncate_dim}"
+        self.name = self._get_aggregate_name()
 
         self.mrr_at_k = mrr_at_k
         self.ndcg_at_k = ndcg_at_k
@@ -331,6 +385,12 @@ class NanoEvaluator(BaseEvaluator):
     def _get_split_name(self, split: str) -> str:
         """Returns the dataset split to load for an entry of ``self.splits``."""
         return split
+
+    def _get_aggregate_name(self) -> str:
+        name = f"{self.dataset_name}_{self.aggregate_key}"
+        if self.truncate_dim:
+            name += f"_{self.truncate_dim}"
+        return name
 
     def _get_human_readable_name(self, split: str) -> str:
         human_readable_name = f"{self.dataset_name}_{split}"

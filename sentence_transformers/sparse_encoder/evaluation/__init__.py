@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sentence_transformers.sparse_encoder.evaluation.nano_evaluator import SparseNanoEvaluator
 from sentence_transformers.sparse_encoder.evaluation.reciprocal_rank_fusion import ReciprocalRankFusionEvaluator
 from sentence_transformers.sparse_encoder.evaluation.sparse_binary_classification import (
     SparseBinaryClassificationEvaluator,
@@ -22,6 +23,7 @@ __all__ = [
     "SparseBinaryClassificationEvaluator",
     "SparseMSEEvaluator",
     "SparseNanoBEIREvaluator",
+    "SparseNanoEvaluator",
     "SparseTripletEvaluator",
     "SparseTranslationEvaluator",
     "SparseRerankingEvaluator",

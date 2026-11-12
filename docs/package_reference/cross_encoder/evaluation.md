@@ -14,6 +14,12 @@ CrossEncoder have their own evaluation classes in `sentence_transformers.cross_e
 .. autoclass:: sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoBEIREvaluator
 ```
 
+## CrossEncoderNanoEvaluator
+
+```{eval-rst}
+.. autoclass:: sentence_transformers.cross_encoder.evaluation.CrossEncoderNanoEvaluator
+```
+
 ## CrossEncoderClassificationEvaluator
 
 ```{eval-rst}

@@ -1,19 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from sentence_transformers.multi_vector_encoder.evaluation.information_retrieval import (
-    MultiVectorInformationRetrievalEvaluator,
-)
-from sentence_transformers.multi_vector_encoder.evaluation.utils import pooling_config, pooling_name_suffix
+from sentence_transformers.multi_vector_encoder.evaluation.nano_evaluator import MultiVectorNanoEvaluator
 from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.sentence_transformer.evaluation.nano_beir import NanoBEIREvaluator
 
-if TYPE_CHECKING:
-    from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 
-
-class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
+class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator, MultiVectorNanoEvaluator):
     """Evaluates a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` model on the
     `NanoBEIR collection <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_.
 
@@ -85,8 +79,6 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
             print(results[evaluator.primary_metric])
     """
 
-    information_retrieval_class = MultiVectorInformationRetrievalEvaluator
-
     def __init__(
         self,
         *args,
@@ -96,55 +88,24 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         name: str = "",
         **kwargs,
     ) -> None:
-        # Set before super().__init__ because the base initializer iterates ``_load_dataset`` to
-        # construct per-subset IR evaluators, and that needs the extra kwargs.
-        self._ir_extra_kwargs: dict[str, Any] = {
-            "corpus_chunk_size": corpus_chunk_size,
-            "chunk_elements": chunk_elements,
-            "token_pooling": token_pooling,
-        }
-        self.token_pooling = token_pooling
         self._name = name
-        super().__init__(*args, **kwargs)
-        if token_pooling is not None:
-            # Like truncate_dim, distinguish the aggregate metrics per pooling setup. The same
-            # suffix lands on the per-subset names (_get_human_readable_name below), preserving the
-            # metric-key parsing invariant that the aggregate name has exactly one underscore-
-            # separated segment more than each subset name.
-            self.name += f"_{pooling_name_suffix(token_pooling)}"
-        self.csv_file = f"NanoBEIR_evaluation_{self.name.removeprefix('NanoBEIR_')}_results.csv"
+        super().__init__(
+            *args,
+            corpus_chunk_size=corpus_chunk_size,
+            chunk_elements=chunk_elements,
+            token_pooling=token_pooling,
+            **kwargs,
+        )
         if name:
             self.name = f"{name}_{self.name}"
             self.csv_file = f"{name}_{self.csv_file}"
 
     def _get_human_readable_name(self, dataset_name: str) -> str:
-        human_readable_name = super()._get_human_readable_name(dataset_name)
-        if self.token_pooling is not None:
-            human_readable_name += f"_{pooling_name_suffix(self.token_pooling)}"
-        if self._name:
-            human_readable_name = f"{self._name}_{human_readable_name}"
-        return human_readable_name
-
-    def _load_dataset(self, dataset_name: str, **ir_evaluator_kwargs):
-        ir_evaluator_kwargs = {**ir_evaluator_kwargs, **self._ir_extra_kwargs}
-        return super()._load_dataset(dataset_name, **ir_evaluator_kwargs)
+        name = super()._get_human_readable_name(dataset_name)
+        return f"{self._name}_{name}" if self._name else name
 
     def get_config_dict(self) -> dict[str, Any]:
-        config_dict = super().get_config_dict()
+        config = super().get_config_dict()
         if self._name:
-            config_dict["name"] = self._name
-        if self.token_pooling is not None:
-            config_dict["token_pooling"] = pooling_config(self.token_pooling)
-        return config_dict
-
-    def __call__(
-        self,
-        model: MultiVectorEncoder,
-        output_path: str | None = None,
-        epoch: int = -1,
-        steps: int = -1,
-        *args,
-        **kwargs,
-    ) -> dict[str, float]:
-        # Overridden only to narrow the model type to MultiVectorEncoder. Behavior is identical to the parent.
-        return super().__call__(model, output_path, epoch, steps, *args, **kwargs)
+            config["name"] = self._name
+        return config

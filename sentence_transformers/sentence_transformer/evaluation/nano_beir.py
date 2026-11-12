@@ -220,12 +220,12 @@ class NanoBEIREvaluator(NanoEvaluator):
         query_prompts: str | dict[str, str] | None = None,
         corpus_prompts: str | dict[str, str] | None = None,
         write_predictions: bool = False,
+        **kwargs,
     ):
         if dataset_names is None:
             dataset_names = list(DATASET_NAME_TO_HUMAN_READABLE.keys())
         self.dataset_names = dataset_names
         self._validate_dataset_names()
-        # The short dataset names are used as the splits; _get_split_name maps them to the "Nano{Name}" splits
         super().__init__(
             dataset_id=dataset_id,
             splits=dataset_names,
@@ -246,6 +246,7 @@ class NanoBEIREvaluator(NanoEvaluator):
             query_prompts=query_prompts,
             corpus_prompts=corpus_prompts,
             write_predictions=write_predictions,
+            **kwargs,
         )
 
     def _get_split_name(self, dataset_name: DatasetNameType | str) -> str:
@@ -254,11 +255,9 @@ class NanoBEIREvaluator(NanoEvaluator):
         return f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
 
     def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
-        human_readable_name = self._get_split_name(dataset_name)
-
-        if self.truncate_dim is not None:
-            human_readable_name += f"_{self.truncate_dim}"
-        return human_readable_name
+        name = super()._get_human_readable_name(dataset_name)
+        suffix = name.removeprefix(f"{self.dataset_name}_{dataset_name}")
+        return f"{self._get_split_name(dataset_name)}{suffix}"
 
     def _validate_dataset_names(self):
         if len(self.dataset_names) == 0:

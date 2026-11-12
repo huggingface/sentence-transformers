@@ -5,6 +5,7 @@ import os
 import tempfile
 from copy import deepcopy
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -317,3 +318,35 @@ def cache_dir():
             yield tmp_dir
     else:
         yield None
+
+
+@pytest.fixture
+def nano_datasets(monkeypatch):
+    from datasets import Dataset
+
+    splits = ["first_task", "second_task"]
+    subsets = {
+        "corpus": Dataset.from_list(
+            [
+                {"_id": "d0", "text": "Paris is the capital of France."},
+                {"_id": "d1", "text": "Berlin is the capital of Germany."},
+            ]
+        ),
+        "queries": Dataset.from_list([{"_id": "q0", "text": "What is the capital of France?"}]),
+        "bm25": Dataset.from_list([{"query-id": "q0", "corpus-ids": ["d1", "d0"]}]),
+        "hybrid": Dataset.from_list([{"query-id": "q0", "corpus-ids": ["d0", "d1"]}]),
+    }
+
+    def load(dataset_id, subset, split):
+        if subset == "qrels":
+            relevant = "d1" if split == "second_task" else "d0"
+            return Dataset.from_list([{"query-id": "q0", "corpus-id": relevant}])
+        return subsets[subset]
+
+    load_mock = Mock(side_effect=load)
+    discover_mock = Mock(return_value=splits)
+    monkeypatch.setattr("datasets.load_dataset", load_mock)
+    monkeypatch.setattr("datasets.get_dataset_split_names", discover_mock)
+    return SimpleNamespace(
+        dataset_id="test-org/custom-nano", splits=splits, subsets=subsets, load=load_mock, discover=discover_mock
+    )
