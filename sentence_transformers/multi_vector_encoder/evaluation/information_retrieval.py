@@ -184,10 +184,11 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         # Resolve from similarity_fn_name instead of taking bare model.similarity, so that an explicit
         # chunk_elements bounds the scoring intermediate. Without one, maxsim's default element budget
         # bounds it on its own.
-        scoring_fn: Callable[..., Tensor] = SimilarityFunction.to_similarity_fn(model.similarity_fn_name)
+        name = self.main_score_function.value if self.main_score_function is not None else model.similarity_fn_name
+        scoring_fn: Callable[..., Tensor] = SimilarityFunction.to_similarity_fn(name)
         if self.chunk_elements is not None:
             scoring_fn = partial(scoring_fn, chunk_elements=self.chunk_elements)
-        return {model.similarity_fn_name: scoring_fn}
+        return {name: scoring_fn}
 
     def embed_inputs(
         self,

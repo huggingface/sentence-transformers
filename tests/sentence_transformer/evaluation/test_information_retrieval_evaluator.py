@@ -168,6 +168,28 @@ def test_explicit_score_functions_survive_reuse(test_data, stsb_bert_tiny_model:
     assert {key.split("_")[1] for key in results} == {"custom"}
 
 
+def test_main_score_function_is_evaluated(test_data, stsb_bert_tiny_model: SentenceTransformer):
+    """Without explicit score_functions, a main_score_function that differs from the model's similarity
+    is the one that gets scored, so the primary metric is present in the results."""
+    queries, corpus, relevant_docs = test_data
+    model = stsb_bert_tiny_model
+    assert model.similarity_fn_name == "cosine"
+
+    ir_evaluator = InformationRetrievalEvaluator(
+        queries=queries,
+        corpus=corpus,
+        relevant_docs=relevant_docs,
+        name="test",
+        main_score_function="dot",
+        write_csv=False,
+    )
+    results = ir_evaluator(model)
+
+    assert ir_evaluator.score_function_names == ["dot"]
+    assert ir_evaluator.primary_metric == "test_dot_ndcg@10"
+    assert isinstance(results[ir_evaluator.primary_metric], float)
+
+
 def test_metrics_are_independent_of_corpus_chunk_size(stsb_bert_tiny_model: SentenceTransformer):
     """Duplicate documents produce exact score ties: breaking them by corpus_id keeps every metric
     identical across corpus_chunk_size values."""

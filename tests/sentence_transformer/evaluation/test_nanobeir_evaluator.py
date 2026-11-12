@@ -92,6 +92,19 @@ def test_nanobeir_evaluator_main_score_function_as_string(stsb_bert_tiny_model: 
     assert isinstance(results[evaluator.primary_metric], float)
 
 
+def test_nanobeir_evaluator_main_score_function_is_evaluated(stsb_bert_tiny_model: SentenceTransformer):
+    """Tests that a main_score_function differing from the model's similarity is scored, so the primary
+    metric exists in the aggregated results."""
+    model = stsb_bert_tiny_model
+    assert model.similarity_fn_name == "cosine"
+    evaluator = LocalNanoBEIREvaluator(dataset_names=["MSMARCO"], main_score_function="dot")
+
+    results = evaluator(model)
+    assert evaluator.primary_metric == "NanoBEIR_mean_dot_ndcg@10"
+    assert isinstance(results[evaluator.primary_metric], float)
+    assert not any("cosine" in key for key in results)
+
+
 @pytest.mark.parametrize("truncate_dim", [None, 64])
 def test_nanobeir_evaluator_aggregate_key_with_underscore(
     stsb_bert_tiny_model: SentenceTransformer, truncate_dim: int | None

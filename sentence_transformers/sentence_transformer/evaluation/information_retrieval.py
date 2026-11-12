@@ -217,6 +217,9 @@ class InformationRetrievalEvaluator(BaseEvaluator):
                 self.csv_headers.append(f"{score_name}-MAP@{k}")
 
     def _model_score_functions(self, model: SentenceTransformer) -> dict[str, Callable[[Tensor, Tensor], Tensor]]:
+        # The primary metric is named after main_score_function, so that is the one to score
+        if self.main_score_function is not None:
+            return {self.main_score_function.value: SimilarityFunction.to_similarity_fn(self.main_score_function)}
         return {model.similarity_fn_name: model.similarity}
 
     def __call__(
