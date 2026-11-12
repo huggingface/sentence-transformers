@@ -61,7 +61,7 @@ def get_device_name() -> str:
     In distributed mode for cuda device, it uses the rank to assign a specific CUDA device.
 
     Returns:
-        str: Device name, like 'cuda:2', 'mps', 'npu', 'xpu', 'hpu', or 'cpu'
+        str: Device name, like 'cuda:2', 'mps', 'npu', 'xpu', 'hpu', 'neuron:0', or 'cpu'
     """
     if torch.cuda.is_available():
         if "LOCAL_RANK" in os.environ:
@@ -82,6 +82,10 @@ def get_device_name() -> str:
 
         if hthpu.is_available():
             return "hpu"
+    if hasattr(torch, "neuron") and torch.neuron.is_available():
+        if "LOCAL_RANK" in os.environ:
+            return f"neuron:{int(os.environ['LOCAL_RANK'])}"
+        return "neuron"
     return "cpu"
 
 

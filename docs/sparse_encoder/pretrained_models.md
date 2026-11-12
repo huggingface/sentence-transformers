@@ -46,28 +46,32 @@ print(similarities)
 
 [BEIR (Benchmarking IR)](https://github.com/beir-cellar/beir) provides a heterogeneous benchmark for evaluation of information retrieval models across in our case 13 diverse datasets. The avg nDCG@10 scores represent the average performance across all 13 datasets.
 
-The scores below are reported by the model authors. These models represent the backbone of sparse neural retrieval:
+The scores below come from published evaluations. These models represent the backbone of sparse neural retrieval:
 
-| Model Name                                                                                                                                                | MS MARCO MRR@10 | BEIR-13 avg nDCG@10 | Parameters |
-|-----------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------:|:-------------------:|-----------:|
-| [lightonai/SlideOn](https://huggingface.co/lightonai/SlideOn)                                                                                             | NA              | **58.7**            | 174M       |
-| [lightonai/mSlideOn](https://huggingface.co/lightonai/mSlideOn)                                                                                           | NA              | 58.1                | 339M       |
-| [Linkup-Platform/linkup-sparseup-embed-v1](https://huggingface.co/Linkup-Platform/linkup-sparseup-embed-v1)                                               | NA              | 56.4                | 150M       |
-| [opensearch-project/opensearch-neural-sparse-encoding-v2-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v2-distill) | NA              | 52.8                | 67M        |
-| [opensearch-project/opensearch-neural-sparse-encoding-v1](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v1)                 | NA              | 52.4                | 133M       |
-| [naver/splade-v3](https://huggingface.co/naver/splade-v3)                                                                                                 | **40.2**        | 51.7                | 109M       |
-| [ibm-granite/granite-embedding-30m-sparse](https://huggingface.co/ibm-granite/granite-embedding-30m-sparse)                                               | NA              | 50.8                | 30M        |
-| [naver/splade-cocondenser-selfdistil](https://huggingface.co/naver/splade-cocondenser-selfdistil)                                                         | 37.6            | 50.7                | 109M       |
-| [naver/splade_v2_distil](https://huggingface.co/naver/splade_v2_distil)                                                                                   | 36.8            | 50.6                | 67M        |
-| [naver/splade-cocondenser-ensembledistil](https://huggingface.co/naver/splade-cocondenser-ensembledistil)                                                 | 38.0            | 50.5                | 109M       |
-| [naver/splade-v3-distilbert](https://huggingface.co/naver/splade-v3-distilbert)                                                                           | 38.7            | 50.0                | 67M        |
-| [prithivida/Splade_PP_en_v2](https://huggingface.co/prithivida/Splade_PP_en_v2)                                                                           | 37.8            | 49.4                | 109M       |
-| [naver/splade-v3-lexical](https://huggingface.co/naver/splade-v3-lexical)                                                                                 | 40.0            | 49.1                | 109M       |
-| [prithivida/Splade_PP_en_v1](https://huggingface.co/prithivida/Splade_PP_en_v1)                                                                           | 37.2            | 48.7                | 109M       |
-| [naver/splade_v2_max](https://huggingface.co/naver/splade_v2_max)                                                                                         | 34.0            | 46.4                | 67M        |
-| [rasyosef/splade-mini](https://huggingface.co/rasyosef/splade-mini)                                                                                       | 34.1            | 44.5                | 11M        |
-| [rasyosef/splade-tiny](https://huggingface.co/rasyosef/splade-tiny)                                                                                       | 30.9            | 40.6                | 4M         |
-| BM25 (Baseline)                                                                                                                                           | 18.4            | 45.6                | NA         |
+| Model Name                                                                                                                                                | MS MARCO MRR@10 | BEIR-13 avg nDCG@10 | Parameters           |
+|-----------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------:|:-------------------:|---------------------:|
+| [lightonai/SlideOn](https://huggingface.co/lightonai/SlideOn)                                                                                             | NA              | **58.7**            | 174M                 |
+| [nlpai-lab/KURE-Sparse-base](https://huggingface.co/nlpai-lab/KURE-Sparse-base)                                                                           | NA              | 58.6                | 593M                 |
+| [lightonai/mSlideOn](https://huggingface.co/lightonai/mSlideOn)                                                                                           | NA              | 58.1                | 339M                 |
+| [Linkup-Platform/linkup-sparseup-embed-v1](https://huggingface.co/Linkup-Platform/linkup-sparseup-embed-v1)                                               | NA              | 56.4                | 150M                 |
+| [omai-research/milco-650m](https://huggingface.co/omai-research/milco-650m)                                                                               | NA              | 55.5                | 593M                 |
+| [opensearch-project/opensearch-neural-sparse-encoding-asym-v1](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-asym-v1)       | NA              | 55.5                | 41M query / 137M doc |
+| [nlpai-lab/KURE-Sparse-nano](https://huggingface.co/nlpai-lab/KURE-Sparse-nano)                                                                           | NA              | 53.2                | 149M                 |
+| [opensearch-project/opensearch-neural-sparse-encoding-v2-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v2-distill) | NA              | 52.8                | 67M                  |
+| [opensearch-project/opensearch-neural-sparse-encoding-v1](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-v1)                 | NA              | 52.4                | 133M                 |
+| [naver/splade-v3](https://huggingface.co/naver/splade-v3)                                                                                                 | **40.2**        | 51.7                | 109M                 |
+| [ibm-granite/granite-embedding-30m-sparse](https://huggingface.co/ibm-granite/granite-embedding-30m-sparse)                                               | NA              | 50.8                | 30M                  |
+| [naver/splade-cocondenser-selfdistil](https://huggingface.co/naver/splade-cocondenser-selfdistil)                                                         | 37.6            | 50.7                | 109M                 |
+| [naver/splade_v2_distil](https://huggingface.co/naver/splade_v2_distil)                                                                                   | 36.8            | 50.6                | 67M                  |
+| [naver/splade-cocondenser-ensembledistil](https://huggingface.co/naver/splade-cocondenser-ensembledistil)                                                 | 38.0            | 50.5                | 109M                 |
+| [naver/splade-v3-distilbert](https://huggingface.co/naver/splade-v3-distilbert)                                                                           | 38.7            | 50.0                | 67M                  |
+| [prithivida/Splade_PP_en_v2](https://huggingface.co/prithivida/Splade_PP_en_v2)                                                                           | 37.8            | 49.4                | 109M                 |
+| [naver/splade-v3-lexical](https://huggingface.co/naver/splade-v3-lexical)                                                                                 | 40.0            | 49.1                | 109M                 |
+| [prithivida/Splade_PP_en_v1](https://huggingface.co/prithivida/Splade_PP_en_v1)                                                                           | 37.2            | 48.7                | 109M                 |
+| [naver/splade_v2_max](https://huggingface.co/naver/splade_v2_max)                                                                                         | 34.0            | 46.4                | 67M                  |
+| [rasyosef/splade-mini](https://huggingface.co/rasyosef/splade-mini)                                                                                       | 34.1            | 44.5                | 11M                  |
+| [rasyosef/splade-tiny](https://huggingface.co/rasyosef/splade-tiny)                                                                                       | 30.9            | 40.6                | 4M                   |
+| BM25 (Baseline)                                                                                                                                           | 18.4            | 45.6                | NA                   |
 
 The table omits sparsity and retrieval FLOPS, which affect index storage costs and retrieval latency.
 
@@ -77,14 +81,14 @@ The table omits sparsity and retrieval FLOPS, which affect index storage costs a
 Inference-free Splade uses for the documents part a traditional Splade architecture and for the query part is an :class:`~sentence_transformers.sparse_encoder.modules.SparseStaticEmbedding` module, which just returns a pre-computed score for every token in the query. So for these models we lose the query expansion, but query inference becomes near instant, which is very valuable for speed optimization.
 ```
 
-| Model Name                                                                                                                                                        | BEIR-13 avg nDCG@10 | Parameters |
-|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------------------:|-----------:|
-| [opensearch-project/opensearch-neural-sparse-encoding-doc-v3-gte](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v3-gte)         | **54.6**            | 137M       |
-| [opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill) | 51.7                | 67M        |
-| [opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill) | 50.4                | 67M        |
-| [opensearch-project/opensearch-neural-sparse-encoding-doc-v2-mini](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v2-mini)       | 49.7                | 23M        |
-| [opensearch-project/opensearch-neural-sparse-encoding-doc-v1](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v1)                 | 49.0                | 133M       |
-| [naver/splade-v3-doc](https://huggingface.co/naver/splade-v3-doc)                                                                                                 | 47.0                | 109M       |
+| Model Name                                                                                                                                                        | BEIR-13 avg nDCG@10 | Parameters          |
+|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------------------:|--------------------:|
+| [opensearch-project/opensearch-neural-sparse-encoding-doc-v3-gte](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v3-gte)         | **54.6**            | 0M query / 137M doc |
+| [opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill) | 51.7                | 0M query / 67M doc  |
+| [opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill) | 50.4                | 0M query / 67M doc  |
+| [opensearch-project/opensearch-neural-sparse-encoding-doc-v2-mini](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v2-mini)       | 49.7                | 0M query / 23M doc  |
+| [opensearch-project/opensearch-neural-sparse-encoding-doc-v1](https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v1)                 | 49.0                | 0M query / 133M doc |
+| [naver/splade-v3-doc](https://huggingface.co/naver/splade-v3-doc)                                                                                                 | 47.0                | 0M query / 109M doc |
 
 ## Model Collections
 

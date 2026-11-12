@@ -24,4 +24,4 @@ dataset = load_dataset("text", data_files="path/train.txt", split="train")
 
 The collator dynamically pads each batch and selects tokens as prediction targets according to `mlm_prob`. Of those selected tokens, 80% are replaced with `[MASK]`, 10% with a random token, and 10% are left unchanged.
 
-For more information how to run MLM with huggingface transformers, see the [Language model training examples](https://github.com/huggingface/transformers/tree/main/examples/pytorch/language-modeling).
+For more information on running MLM with Hugging Face Transformers, see the [masked language modeling guide](https://huggingface.co/docs/transformers/tasks/masked_language_modeling).

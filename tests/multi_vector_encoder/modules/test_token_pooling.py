@@ -21,6 +21,33 @@ def _normed(shape: tuple[int, int]) -> Tensor:
     return torch.nn.functional.normalize(torch.randn(*shape), p=2, dim=-1)
 
 
+def _scipy_pool_reference(embedding, pool_factor, num_protected_tokens, normalize_embeddings):
+    from scipy.cluster.hierarchy import fcluster, linkage
+    from scipy.spatial.distance import squareform
+
+    source = embedding[num_protected_tokens:]
+    target = max(int(len(source) // pool_factor), 1)
+    if target < len(source):
+        values = source.detach().cpu().float()
+        distances = (1 - values @ values.T).clamp(0, 2)
+        labels = fcluster(linkage(squareform(distances.numpy(), checks=False), method="ward"), target, "maxclust")
+        means = []
+        for label in sorted(set(labels)):
+            members = source[torch.as_tensor(labels == label, device=source.device)]
+            total = members.sum(0)
+            mean = members.mean(0)
+            if mean.requires_grad:
+                mean = mean.detach() + (total - total.detach())
+            means.append(mean)
+        means = torch.stack(means)
+        embedding = torch.cat((embedding[:num_protected_tokens], means))
+    if normalize_embeddings:
+        dtype = embedding.dtype
+        values = embedding.float() if dtype in (torch.float16, torch.bfloat16) else embedding
+        embedding = torch.nn.functional.normalize(values, dim=-1).to(dtype)
+    return embedding
+
+
 @pytest.fixture(autouse=True)
 def _seed() -> None:
     torch.manual_seed(0)
@@ -94,19 +121,70 @@ class TestPoolShapeInvariants:
 
 class TestHierarchicalTokenPooling:
     @pytest.mark.parametrize("normalize_embeddings", [False, True])
-    def test_class_pool_matches_module_helper_directly(self, normalize_embeddings: bool) -> None:
-        # The pool() class method and the internal _hierarchical_pool_one produce identical output
-        # when given the same input (this pins the wiring between the public API and the math).
-        from sentence_transformers.multi_vector_encoder.modules.token_pooling import _hierarchical_pool_one
-
+    def test_pool_matches_scipy_clustering(self, normalize_embeddings: bool) -> None:
         emb = _normed((15, 8))
-        direct = _hierarchical_pool_one(
-            emb, pool_factor=2, num_protected_tokens=1, normalize_embeddings=normalize_embeddings
-        )
-        via_pool = HierarchicalTokenPooling(
+        expected = _scipy_pool_reference(emb, 2, 1, normalize_embeddings)
+        actual = HierarchicalTokenPooling(
             pool_factor=2, num_protected_tokens=1, normalize_embeddings=normalize_embeddings
         ).pool([emb])[0]
-        assert torch.allclose(direct, via_pool)
+        torch.testing.assert_close(actual, expected)
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+    @pytest.mark.parametrize("normalize", [False, True])
+    @pytest.mark.parametrize("protected", [0, 1, 10])
+    def test_reference_batches_match_scipy_values_and_gradients(self, dtype, normalize, protected):
+        documents = [_normed((length, 8)).to(dtype).requires_grad_() for length in [0, 1, 2, 7, 11] * 7]
+        pooler = HierarchicalTokenPooling(2.5, num_protected_tokens=protected, normalize_embeddings=normalize)
+        actual = pooler.pool(documents)
+        expected = [_scipy_pool_reference(document, 2.5, protected, normalize) for document in documents]
+        tolerance = 2e-2 if dtype in (torch.float16, torch.bfloat16) else 1e-5
+        for pooled, reference in zip(actual, expected):
+            torch.testing.assert_close(pooled, reference, atol=tolerance, rtol=tolerance)
+        weights = torch.arange(1, 9, dtype=dtype)
+        actual_gradients = torch.autograd.grad(
+            sum((row * weights).sum() for row in actual), documents, retain_graph=True
+        )
+        expected_gradients = torch.autograd.grad(sum((row * weights).sum() for row in expected), documents)
+        for pooled_gradient, reference_gradient in zip(actual_gradients, expected_gradients):
+            torch.testing.assert_close(pooled_gradient, reference_gradient, atol=tolerance, rtol=tolerance)
+
+    def test_reference_clustering_receives_batches(self, monkeypatch):
+        documents = [_normed((length, 8)) for length in [0, 1, 2, 7, 11] * 7]
+        pooler = HierarchicalTokenPooling(2)
+        reference = pooler.clustering.forward
+        batch_sizes = []
+
+        def record(distances, lengths, cluster_counts):
+            batch_sizes.append(len(distances))
+            return reference(distances, lengths, cluster_counts)
+
+        monkeypatch.setattr(pooler.clustering, "forward", record)
+        pooler.pool(documents)
+        assert batch_sizes == [35]
+
+    def test_long_documents_reduce_distance_batch_size(self, monkeypatch):
+        pooler = HierarchicalTokenPooling(2, normalize_embeddings=False)
+        documents = [torch.randn(600, 2) for _ in range(33)]
+        batch_sizes = []
+
+        def singleton(distances, lengths, cluster_counts):
+            assert distances.numel() <= 8_388_608
+            batch_sizes.append(len(distances))
+            return torch.zeros_like(distances[..., 0], dtype=torch.long), torch.ones_like(lengths)
+
+        monkeypatch.setattr(pooler.clustering, "forward", singleton)
+        actual = pooler.pool(documents)
+        assert batch_sizes == [23, 10]
+        for pooled, document in zip(actual, documents):
+            torch.testing.assert_close(pooled, torch.cat((document[:1], document[1:].mean(0, keepdim=True))))
+
+    def test_list_keeps_document_order_and_individual_dtypes_and_dimensions(self):
+        documents = [_normed((11, 8)), _normed((7, 4)).half(), _normed((5, 8)), _normed((9, 8)).double()]
+        if torch.cuda.is_available():
+            documents.insert(2, _normed((13, 8)).cuda())
+        pooler = HierarchicalTokenPooling(2)
+        for actual, document in zip(pooler.pool(documents), documents):
+            torch.testing.assert_close(actual, pooler.pool_one(document))
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
     @pytest.mark.parametrize("normalize_embeddings", [False, True])
@@ -126,17 +204,17 @@ class TestHierarchicalTokenPooling:
         # fastcluster is optional. Without it the pooling must silently fall back to scipy and
         # produce the same clustering (None in sys.modules makes the import raise ImportError).
         pytest.importorskip("fastcluster")
-        from sentence_transformers.multi_vector_encoder.modules.token_pooling import _ward_linkage_fn
+        from sentence_transformers.multi_vector_encoder.modules.token_pooling import _WardClustering
 
         emb = _normed((40, 8))
         pooling = HierarchicalTokenPooling(pool_factor=2, num_protected_tokens=1)
         default = pooling.pool([emb])[0]
         monkeypatch.setitem(sys.modules, "fastcluster", None)
-        _ward_linkage_fn.cache_clear()
+        _WardClustering._linkage_fn.cache_clear()
         try:
             fallback = pooling.pool([emb])[0]
         finally:
-            _ward_linkage_fn.cache_clear()
+            _WardClustering._linkage_fn.cache_clear()
         assert torch.equal(fallback, default)
 
     def test_no_op_when_pool_factor_1(self) -> None:
@@ -279,66 +357,6 @@ class TestPipelineModuleForward:
         assert out["token_embeddings"].shape[1] == 6
 
 
-class TestEncodeWithPooling:
-    def test_encode_document_with_pooling_kwarg(self) -> None:
-        model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
-        text = "a fairly long document with plenty of distinct tokens for clustering here"
-        without = model.encode_document([text])[0]
-        with_pooling = model.encode_document(
-            [text],
-            token_pooling=HierarchicalTokenPooling(pool_factor=2),
-        )[0]
-        assert with_pooling.shape[0] < without.shape[0]
-
-    def test_encode_document_with_lambda_pooling(self) -> None:
-        def keep_first_two(emb: Tensor) -> Tensor:
-            return emb[:2]
-
-        model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
-        text = "some longer text with multiple tokens"
-        out = model.encode_document(
-            [text],
-            token_pooling=LambdaTokenPooling(pool_fn=keep_first_two),
-        )[0]
-        assert out.shape[0] == 2
-
-    def test_pooling_skips_queries(self) -> None:
-        model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
-        text = "a fairly long query text with many tokens"
-        without = model.encode_query([text])[0]
-        with_pooling = model.encode_query(
-            [text],
-            token_pooling=HierarchicalTokenPooling(pool_factor=2),
-        )[0]
-        # Queries pass through unchanged: shape AND values must match (guards against silent mutation).
-        assert with_pooling.shape == without.shape
-        assert torch.equal(with_pooling, without)
-
-    def test_pooling_pools_queries_when_opted_in(self) -> None:
-        model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
-        text = "a fairly long query text with many tokens"
-        without = model.encode_query([text])[0]
-        pooled = model.encode_query(
-            [text],
-            token_pooling=HierarchicalTokenPooling(pool_factor=2, tasks=["query", "document"]),
-        )[0]
-        assert pooled.shape[0] < without.shape[0]
-
-    def test_encode_document_with_pooling_shrinks_token_counts(self) -> None:
-        model = MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors")
-        texts = [
-            "a fairly long document with plenty of distinct tokens for clustering here",
-            "a much shorter text",
-        ]
-        without = model.encode_document(texts)
-        with_pooling = model.encode_document(
-            texts,
-            token_pooling=HierarchicalTokenPooling(pool_factor=2),
-        )
-        # Pooled output has strictly fewer tokens per doc than the un-pooled version.
-        assert all(pooled.shape[0] < plain.shape[0] for pooled, plain in zip(with_pooling, without))
-
-
 class TestTrainingGradientFlow:
     @pytest.mark.parametrize("normalize_embeddings", [False, True])
     def test_forward_backward_with_pooling_in_pipeline(self, normalize_embeddings: bool) -> None:
@@ -364,6 +382,169 @@ class TestTrainingGradientFlow:
         assert any(g.abs().sum() > 0 for g in grads), "no gradient reached the transformer through the cluster means"
 
 
+class TestMaxTokensBudget:
+    def test_long_documents_are_clustered_to_the_budget(self) -> None:
+        pooling = HierarchicalTokenPooling(max_tokens=4)
+        out = pooling.pool([_normed((12, 8)), _normed((20, 8))])
+        # Exactly max_tokens output tokens, the protected token included.
+        assert [e.shape for e in out] == [(4, 8), (4, 8)]
+
+    def test_short_documents_pass_through_unchanged(self) -> None:
+        pooling = HierarchicalTokenPooling(max_tokens=16)
+        doc = _normed((10, 8))
+        out = pooling.pool([doc])
+        assert torch.allclose(out[0], doc, atol=1e-6)
+
+    def test_budget_boundary_is_inclusive(self) -> None:
+        pooling = HierarchicalTokenPooling(max_tokens=10)
+        doc = _normed((10, 8))
+        assert torch.allclose(pooling.pool([doc])[0], doc, atol=1e-6)
+        pooled = pooling.pool([_normed((11, 8))])[0]
+        assert 2 <= pooled.shape[0] <= 10
+        assert pooled.shape[1] == 8
+
+    def test_forward_applies_the_budget(self) -> None:
+        pooling = HierarchicalTokenPooling(max_tokens=4)
+        features = {
+            "token_embeddings": torch.stack([_normed((12, 8)), _normed((12, 8))]),
+            "attention_mask": torch.ones(2, 12, dtype=torch.bool),
+        }
+        out = pooling(features, task="document")
+        assert out["token_embeddings"].shape == (2, 4, 8)
+        assert out["attention_mask"].shape == (2, 4)
+
+    def test_config_round_trip(self, tmp_path) -> None:
+        HierarchicalTokenPooling(max_tokens=32, num_protected_tokens=0).save(str(tmp_path))
+        restored = HierarchicalTokenPooling.load(str(tmp_path))
+        assert restored.max_tokens == 32
+        assert restored.pool_factor == 1
+        assert restored.num_protected_tokens == 0
+
+
+class TestAdaptivePooling:
+    def test_redundant_documents_receive_fewer_tokens(self) -> None:
+        repeated = torch.eye(8)[:1].repeat(8, 1)
+        diverse = torch.eye(8)
+        threshold = HierarchicalTokenPooling.calibrate_distance_threshold(
+            [repeated, diverse], target_tokens=4.5, num_protected_tokens=0
+        )
+        assert isinstance(threshold, float)
+        assert threshold == 0
+        pooling = HierarchicalTokenPooling(distance_threshold=threshold, num_protected_tokens=0)
+        assert [len(emb) for emb in pooling.pool([repeated, diverse])] == [1, 8]
+
+    def test_calibration_matches_budget_with_protected_tokens(self, tmp_path) -> None:
+        documents = [_normed((length, 8)) for length in (12, 20, 30)]
+        threshold = HierarchicalTokenPooling.calibrate_distance_threshold(iter(documents), target_tokens=8)
+        pooling = HierarchicalTokenPooling(distance_threshold=threshold, normalize_embeddings=False)
+        pooled = pooling.pool(documents)
+        assert sum(map(len, pooled)) == 24
+        for original, compressed in zip(documents, pooled):
+            assert torch.equal(original[0], compressed[0])
+        output_path = tmp_path / "adaptive" / "pooling"
+        pooling.save(str(output_path))
+        restored = HierarchicalTokenPooling.load(str(output_path))
+        assert restored.distance_threshold == pooling.distance_threshold
+        assert all(torch.equal(a, b) for a, b in zip(pooled, restored.pool(documents)))
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+    def test_forward_mask_and_gradient(self, dtype: torch.dtype) -> None:
+        embeddings = _normed((2, 8, 8)).to(dtype).requires_grad_()
+        mask = torch.ones(2, 8, dtype=torch.bool)
+        mask[1, 5:] = False
+        pooling = HierarchicalTokenPooling(distance_threshold=100)
+        features = {"token_embeddings": embeddings, "attention_mask": mask}
+        assert pooling(dict(features), task="query")["token_embeddings"] is embeddings
+        pooled = pooling(dict(features), task="document")
+        assert pooled["attention_mask"].sum(dim=1).tolist() == [2, 2]
+        assert pooled["token_embeddings"].dtype == dtype
+        pooled["token_embeddings"].sum().backward()
+        assert torch.isfinite(embeddings.grad).all()
+        assert embeddings.grad[1, 5:].count_nonzero() == 0
+        assert embeddings.grad[1, 1:5].abs().sum() > 0
+
+    def test_calibration_handles_empty_and_short_documents(self) -> None:
+        tokens = torch.eye(6)
+        documents = [torch.empty(0, 6), tokens[:1], tokens]
+        threshold = HierarchicalTokenPooling.calibrate_distance_threshold(documents, target_tokens=1)
+        assert threshold == pytest.approx(1)
+        pooling = HierarchicalTokenPooling(distance_threshold=threshold)
+        assert [len(emb) for emb in pooling.pool(documents)] == [0, 1, 2]
+        for target in [sum(map(len, documents)) / len(documents), 100]:
+            threshold = HierarchicalTokenPooling.calibrate_distance_threshold(documents, target_tokens=target)
+            assert threshold is None
+            no_compression = HierarchicalTokenPooling(distance_threshold=threshold)
+            assert [len(emb) for emb in no_compression.pool(documents)] == [0, 1, 6]
+
+    def test_calibration_ties_can_compress_below_target(self) -> None:
+        documents = [torch.eye(4)[:1].repeat(10, 1)]
+        threshold = HierarchicalTokenPooling.calibrate_distance_threshold(
+            documents, target_tokens=5, num_protected_tokens=0
+        )
+        pooling = HierarchicalTokenPooling(distance_threshold=threshold, num_protected_tokens=0)
+        assert len(pooling.pool(documents)[0]) == 1
+
+    @pytest.mark.parametrize("threshold", [-1, float("nan"), float("inf")])
+    def test_invalid_threshold(self, threshold: float) -> None:
+        with pytest.raises(ValueError, match="distance_threshold"):
+            HierarchicalTokenPooling(distance_threshold=threshold)
+
+    @pytest.mark.parametrize("kwargs", [{"pool_factor": 2}, {"max_tokens": 8}])
+    def test_threshold_is_exclusive(self, kwargs) -> None:
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            HierarchicalTokenPooling(distance_threshold=0.5, **kwargs)
+
+    @pytest.mark.parametrize("target", [0, -1, float("nan"), float("inf")])
+    def test_invalid_budget(self, target: float) -> None:
+        with pytest.raises(ValueError, match="target_tokens"):
+            HierarchicalTokenPooling.calibrate_distance_threshold([_normed((8, 4))], target_tokens=target)
+
+    def test_impossible_budget_and_invalid_samples(self) -> None:
+        with pytest.raises(ValueError, match="num_protected_tokens must be >= 0"):
+            HierarchicalTokenPooling.calibrate_distance_threshold(
+                [_normed((8, 4))], target_tokens=4, num_protected_tokens=-1
+            )
+        with pytest.raises(ValueError, match="at least 2"):
+            HierarchicalTokenPooling.calibrate_distance_threshold([_normed((8, 4))], target_tokens=1)
+        with pytest.raises(ValueError, match="at least one"):
+            HierarchicalTokenPooling.calibrate_distance_threshold([], target_tokens=8)
+        with pytest.raises(ValueError, match="2D"):
+            HierarchicalTokenPooling.calibrate_distance_threshold([torch.ones(4)], target_tokens=8)
+
+
+class TestStraightThroughGradients:
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+    def test_forward_values_match_with_and_without_gradients(self, dtype: torch.dtype) -> None:
+        embeddings = _normed((128, 128)).to(dtype).requires_grad_()
+        pooling = HierarchicalTokenPooling(max_tokens=16)
+        pooled = pooling.pool_one(embeddings)
+        with torch.no_grad():
+            reference = pooling.pool_one(embeddings)
+        assert torch.equal(pooled, reference)
+
+    @pytest.mark.parametrize("normalize_embeddings", [False, True])
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+    def test_each_member_receives_the_full_cluster_gradient(
+        self, normalize_embeddings: bool, dtype: torch.dtype
+    ) -> None:
+        emb = _normed((5, 8)).to(dtype)
+        mean_input = emb.clone().requires_grad_(True)
+        ste_input = emb.clone().requires_grad_(True)
+
+        mean_out = torch.cat([mean_input[:1], mean_input[1:].mean(dim=0, keepdim=True)])
+        if normalize_embeddings:
+            mean_out = torch.nn.functional.normalize(mean_out.float(), dim=-1).to(dtype)
+        pooling = HierarchicalTokenPooling(pool_factor=4, normalize_embeddings=normalize_embeddings)
+        ste_out = pooling.pool([ste_input])[0]
+        assert mean_out.shape == (2, 8)
+        assert torch.equal(mean_out, ste_out)
+
+        mean_out[1].sum().backward()
+        ste_out[1].sum().backward()
+        assert mean_input.grad[1:].abs().sum() > 0
+        assert torch.allclose(ste_input.grad[1:], 4 * mean_input.grad[1:], atol=1e-6)
+
+
 class TestConstructorValidation:
     @pytest.mark.parametrize("bad", [0, -1, 0.5])
     def test_pool_factor_must_be_positive(self, bad: float) -> None:
@@ -373,6 +554,14 @@ class TestConstructorValidation:
     def test_num_protected_tokens_must_be_non_negative(self) -> None:
         with pytest.raises(ValueError, match="num_protected_tokens must be >= 0"):
             HierarchicalTokenPooling(num_protected_tokens=-1)
+
+    def test_pool_factor_and_max_tokens_are_mutually_exclusive(self) -> None:
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            HierarchicalTokenPooling(pool_factor=2, max_tokens=32)
+
+    def test_max_tokens_must_exceed_protected_tokens(self) -> None:
+        with pytest.raises(ValueError, match="max_tokens must exceed num_protected_tokens"):
+            HierarchicalTokenPooling(max_tokens=1, num_protected_tokens=1)
 
     def test_tasks_accepts_a_bare_string(self) -> None:
         # Without the coercion, list("query") would silently split into characters.
@@ -611,3 +800,43 @@ def test_pooling_encode_and_saved_pipeline(tmp_path, normalize_embeddings: bool 
     restored = MultiVectorEncoder(str(tmp_path))
     assert restored[-1].normalize_embeddings is bool(normalize_embeddings)
     torch.testing.assert_close(restored.encode_document(texts)[0], expected[0])
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")),
+        pytest.param(
+            "mps", marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS is unavailable")
+        ),
+    ],
+)
+@pytest.mark.parametrize("pool_factor", [1.1, 2.5])
+def test_reference_pooling_computes_distances_on_cpu(device, pool_factor):
+    from torch.utils._python_dispatch import TorchDispatchMode
+
+    devices = []
+
+    class CheckDistances(TorchDispatchMode):
+        def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+            kwargs = kwargs or {}
+            if func is torch.ops.aten.bmm.default:
+                devices.append(args[0].device.type)
+            if func is torch.ops.aten._to_copy.default and kwargs.get("dtype") == torch.float64:
+                assert args[0].device.type == "cpu"
+            return func(*args, **kwargs)
+
+    documents = [_normed((length, 8)).to(device).requires_grad_() for length in (12, 17)]
+    pooler = HierarchicalTokenPooling(pool_factor, use_kernels=False)
+    with CheckDistances():
+        actual = pooler.pool(documents)
+    assert devices and set(devices) == {"cpu"}
+    expected = [_scipy_pool_reference(document, pool_factor, 1, True) for document in documents]
+    for pooled, reference in zip(actual, expected):
+        assert pooled.device == reference.device
+        torch.testing.assert_close(pooled, reference)
+    gradients = torch.autograd.grad(sum(row.sum() for row in actual), documents, retain_graph=True)
+    expected_gradients = torch.autograd.grad(sum(row.sum() for row in expected), documents)
+    for gradient, reference in zip(gradients, expected_gradients):
+        torch.testing.assert_close(gradient, reference)

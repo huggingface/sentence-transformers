@@ -6,7 +6,7 @@ import logging
 import os
 
 import numpy as np
-from sklearn.metrics import average_precision_score, ndcg_score
+from sklearn.metrics import average_precision_score, dcg_score
 from tqdm import tqdm
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
@@ -20,15 +20,17 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
 
     Given a query and two separate ranked lists of documents from different retrievers (e.g., sparse and dense),
     it combines them using the RRF formula and computes metrics like MRR@k, NDCG@k, and MAP.
+    MAP and NDCG are normalized using all known positives, including those absent from the retrieved lists.
 
     Args:
         dense_samples (list): A list of dictionaries for dense retriever results. Each dictionary should have:
             - 'query_id': The ID of the query
             - 'query': The search query text
             - 'positive': A list of relevant documents
-            - 'documents': A list of all documents (including positives)
+            - 'documents': A ranked list of retrieved documents
         sparse_samples (list): A list of dictionaries for sparse retriever results with the same format
-        at_k (int): Only consider the top k documents for evaluation. Defaults to 10.
+        at_k (int): Only consider the top k documents for MRR and NDCG. MAP uses the full retrieved ranking.
+            Defaults to 10.
         rrf_k (int): Constant in the RRF formula. Defaults to 60.
         name (str): Name of the evaluator. Defaults to "".
         batch_size (int): Batch size used for the evaluation. Defaults to 32.
@@ -159,13 +161,8 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             # Calculate base metrics for dense retriever
             dense_is_relevant = [int(sample in positive) for sample in dense_docs]
 
-            # Skip if no relevant documents
-            if sum(dense_is_relevant) == 0:
-                dense_mrr, dense_ndcg, dense_ap = 0, 0, 0
-            else:
-                dense_is_relevant += [1] * (len(positive) - sum(dense_is_relevant))
-                dense_pred_scores = np.array(range(len(dense_is_relevant), 0, -1))
-                dense_mrr, dense_ndcg, dense_ap = self.compute_metrics(dense_is_relevant, dense_pred_scores)
+            dense_pred_scores = np.arange(len(dense_docs), 0, -1)
+            dense_mrr, dense_ndcg, dense_ap = self.compute_metrics(dense_is_relevant, dense_pred_scores, len(positive))
 
             dense_mrr_scores.append(dense_mrr)
             dense_ndcg_scores.append(dense_ndcg)
@@ -174,13 +171,10 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             # Calculate base metrics for sparse retriever
             sparse_is_relevant = [int(sample in positive) for sample in sparse_docs]
 
-            # Skip if no relevant documents
-            if sum(sparse_is_relevant) == 0:
-                sparse_mrr, sparse_ndcg, sparse_ap = 0, 0, 0
-            else:
-                sparse_is_relevant += [1] * (len(positive) - sum(sparse_is_relevant))
-                sparse_pred_scores = np.array(range(len(sparse_is_relevant), 0, -1))
-                sparse_mrr, sparse_ndcg, sparse_ap = self.compute_metrics(sparse_is_relevant, sparse_pred_scores)
+            sparse_pred_scores = np.arange(len(sparse_docs), 0, -1)
+            sparse_mrr, sparse_ndcg, sparse_ap = self.compute_metrics(
+                sparse_is_relevant, sparse_pred_scores, len(positive)
+            )
 
             sparse_mrr_scores.append(sparse_mrr)
             sparse_ndcg_scores.append(sparse_ndcg)
@@ -212,13 +206,10 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             num_queries += 1
             num_positives.append(len(positive))
 
-            # Skip if no relevant documents in fusion results
-            if sum(fusion_is_relevant) == 0:
-                fusion_mrr, fusion_ndcg, fusion_ap = 0, 0, 0
-            else:
-                fusion_is_relevant += [1] * (len(positive) - sum(fusion_is_relevant))
-                fusion_pred_scores = np.array(range(len(fusion_is_relevant), 0, -1))
-                fusion_mrr, fusion_ndcg, fusion_ap = self.compute_metrics(fusion_is_relevant, fusion_pred_scores)
+            fusion_pred_scores = np.arange(len(fused_docs), 0, -1)
+            fusion_mrr, fusion_ndcg, fusion_ap = self.compute_metrics(
+                fusion_is_relevant, fusion_pred_scores, len(positive)
+            )
 
             fusion_mrr_scores.append(fusion_mrr)
             fusion_ndcg_scores.append(fusion_ndcg)
@@ -321,23 +312,26 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
 
         return metrics
 
-    def compute_metrics(self, y_true, y_pred):
-        """Compute MRR, NDCG, and AP metrics using sklearn"""
+    def compute_metrics(self, y_true, y_pred, num_positives: int | None = None):
+        """Compute MRR, NDCG, and AP using all known positives for normalization."""
+        num_retrieved_positives = sum(y_true)
+        if num_retrieved_positives == 0:
+            return 0, 0, 0
+        num_positives = max(num_positives or 0, num_retrieved_positives)
+        ap = average_precision_score(y_true, y_pred) * (num_retrieved_positives / num_positives)
+        if self.at_k == 0:
+            return 0, 0, ap
         ranking = np.argsort(y_pred)[::-1]
 
-        # Calculate MRR@k
         mrr = 0
         for rank, index in enumerate(ranking[0 : self.at_k]):
             if y_true[index]:
                 mrr = 1 / (rank + 1)
                 break
 
-        # Calculate NDCG@k
-        ndcg = ndcg_score([y_true], [y_pred], k=self.at_k)
-
-        # Calculate MAP
-        ap = average_precision_score(y_true, y_pred)
-
+        dcg = dcg_score([y_true], [y_pred], k=self.at_k) if len(y_true) > 1 else y_true[0]
+        ideal_dcg = np.sum(1 / np.log2(np.arange(2, min(num_positives, self.at_k) + 2)))
+        ndcg = dcg / ideal_dcg
         return mrr, ndcg, ap
 
     def get_config_dict(self):

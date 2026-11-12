@@ -342,7 +342,13 @@ def test_community_detection_overlapping_communities():
 
 @pytest.mark.parametrize(
     "device",
-    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available"))],
+    [
+        "cpu",
+        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available")),
+        pytest.param(
+            "mps", marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS not available")
+        ),
+    ],
 )
 @pytest.mark.parametrize("batch_size", [4, 1024])
 @pytest.mark.parametrize(
@@ -356,7 +362,7 @@ def test_community_detection_overlapping_communities():
         ),
         pytest.param(
             [(0, 25.5), (0, 50), (0, 33), (0, 40), (0, -20), (-20, -1), (0, 0), (0, -1), (20, -1), (0, 45)],
-            torch.bfloat16,
+            torch.float16,
             [[0, 1, 2, 3, 6, 9], [7, 4, 5, 8]],
             id="tied_center",
         ),
@@ -420,8 +426,18 @@ def test_community_detection_large_batch_size():
     assert all(len(community) >= 10 for community in result)
 
 
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available")),
+        pytest.param(
+            "mps", marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS not available")
+        ),
+    ],
+)
 @pytest.mark.parametrize("min_community_size", [5, 10, 30])
-def test_community_detection_similarities_equal_to_threshold(min_community_size: int):
+def test_community_detection_similarities_equal_to_threshold(min_community_size: int, device: str):
     """Members whose similarity equals the threshold exactly must not be truncated.
 
     The candidate window grew only while the smallest candidate was strictly greater than
@@ -431,7 +447,7 @@ def test_community_detection_similarities_equal_to_threshold(min_community_size:
     """
     num_embeddings = 200
     # Identical rows give a cosine similarity of exactly 1.0.
-    embeddings = torch.ones(num_embeddings, 16)
+    embeddings = torch.ones(num_embeddings, 16, device=device)
 
     result = community_detection(embeddings, threshold=1.0, min_community_size=min_community_size)
 
@@ -454,3 +470,23 @@ def test_community_detection_gpu_support():
     ]
     result = community_detection(embeddings, threshold=0.8, min_community_size=2)
     assert sorted([sorted(community) for community in result]) == sorted([sorted(community) for community in expected])
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available")),
+        pytest.param(
+            "mps", marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS not available")
+        ),
+    ],
+)
+@pytest.mark.parametrize("batch_size", [7, 64, 1024])
+def test_community_detection_mixed_community_sizes(device: str, batch_size: int):
+    embeddings = torch.eye(3).repeat_interleave(torch.tensor([5, 51, 123]), dim=0).to(device)
+
+    communities = community_detection(embeddings, threshold=1.0, min_community_size=10, batch_size=batch_size)
+
+    assert [community[0] for community in communities] == [56, 5]
+    assert [sorted(community) for community in communities] == [list(range(56, 179)), list(range(5, 56))]

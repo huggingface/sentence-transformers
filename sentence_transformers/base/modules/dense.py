@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 from collections.abc import Callable
@@ -29,7 +30,8 @@ class Dense(Module):
         out_features: Size of the output dimension.
         bias: Whether to include a bias vector in the linear layer.
         activation_function: Activation function applied after the linear layer.
-            If ``None``, uses ``nn.Identity()``. Defaults to ``nn.Tanh()``.
+            If ``None``, uses ``nn.Identity()``. Defaults to ``nn.Tanh()``. Use a ``torch.nn.Module``
+            (e.g. ``nn.GELU()``) if the model will be saved: plain functions emit a warning on save.
         init_weight: Initial value for the weight matrix of the linear layer.
         init_bias: Initial value for the bias vector of the linear layer.
         module_input_name: The key in the features dictionary to read the input from.
@@ -106,6 +108,13 @@ class Dense(Module):
         return config
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
+        if inspect.isroutine(self.activation_function) or isinstance(self.activation_function, functools.partial):
+            logger.warning(
+                f"Saving activation function {self.activation_function!r}: plain functions can't be restored "
+                "from the configuration, so loading with default settings will fall back to Tanh. "
+                "Please use a `torch.nn.Module` instead, e.g. `torch.nn.GELU()` instead of "
+                "`torch.nn.functional.gelu`, or `torch.nn.Identity()` for no activation."
+            )
         self.save_config(output_path)
         self.save_torch_weights(output_path, safe_serialization=safe_serialization)
 

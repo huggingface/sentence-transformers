@@ -223,12 +223,14 @@ class GISTEmbedLoss(nn.Module):
             aa_sim = self.sim_matrix(anchor, anchor)
             guided_aa_sim = self.sim_matrix(anchor_guide, anchor_guide)
             aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
+            aa_sim[rows, rows] = -torch.inf  # No self-negative
             scores.append(aa_sim)
 
         if self.contrast_positives:
             pp_sim = self.sim_matrix(positive[offset : offset + batch_size], positive)
             guided_pp_sim = self.sim_matrix(positive_guide[offset : offset + batch_size], positive_guide)
             pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
+            pp_sim[rows, offset + rows] = -torch.inf  # No self-negative
             scores.append(pp_sim)
 
         # Handle the case where we have a negative sample

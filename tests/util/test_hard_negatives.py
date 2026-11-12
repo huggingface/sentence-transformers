@@ -187,26 +187,30 @@ def test_fully_custom_column_names(
     assert "negative_2" in result_ntuple.column_names
 
 
+@pytest.mark.parametrize("as_dataset_column", [False, True], ids=["list", "dataset_column"])
 def test_separate_corpus(
-    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, passages: list[str]
+    dataset: Dataset,
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    passages: list[str],
+    as_dataset_column: bool,
 ) -> None:
     """Test using a separate corpus for negative mining."""
     model = static_retrieval_mrl_en_v1_model
+    extra_passages = passages[len(dataset) :]
+    corpus = Dataset.from_dict({"passages": extra_passages})["passages"] if as_dataset_column else extra_passages
     result = mine_hard_negatives(
         dataset=dataset,
         model=model,
-        corpus=passages[5:],  # Use different passages as corpus
+        corpus=corpus,
         verbose=False,
     )
 
-    # Check that the output has expected columns
     assert "query" in result.column_names
     assert "passage" in result.column_names
     assert "negative" in result.column_names
 
-    # Check that negatives can come from the separate corpus
     negatives = result["negative"]
-    assert any(neg in passages[5:] for neg in negatives), "No negatives found in the separate corpus."
+    assert any(neg in extra_passages for neg in negatives), "No negatives found in the separate corpus."
 
 
 def test_cross_encoder(
@@ -219,7 +223,7 @@ def test_cross_encoder(
         dataset=dataset,
         model=model,
         cross_encoder=cross_encoder,
-        max_score=0.8,  # Need a filtering criterion for cross-encoder to be used
+        max_score=0.8,
         verbose=False,
     )
 
@@ -267,7 +271,7 @@ def test_cross_encoder_with_multiple_positives_non_faiss(
         dataset=multiple_positive_dataset,
         model=model,
         cross_encoder=cross_encoder,
-        max_score=0.9,  # ensure CrossEncoder path is exercised
+        max_score=0.9,
         num_negatives=2,
         verbose=False,
     )
@@ -1051,6 +1055,96 @@ def test_multiple_positives_per_query(
     assert len(result) >= len(dataset_dup)
 
 
+@pytest.mark.parametrize("dataset_format", ["numpy", "pandas", "torch"])
+def test_formatted_dataset(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, dataset_format: str
+) -> None:
+    model = static_retrieval_mrl_en_v1_model
+    expected = mine_hard_negatives(dataset, model, output_scores=True, verbose=False)
+    result = mine_hard_negatives(dataset.with_format(dataset_format), model, output_scores=True, verbose=False)
+    assert result.to_dict() == expected.to_dict()
+
+
+def test_custom_dataset_transform(dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer) -> None:
+    rng = random.Random(42)
+
+    def augment(batch):
+        return {name: [text + rng.choice([" short", " long"]) for text in texts] for name, texts in batch.items()}
+
+    transformed = dataset.with_transform(augment)
+    materialized = Dataset.from_dict({name: list(transformed[name][:]) for name in dataset.column_names})
+    model = static_retrieval_mrl_en_v1_model
+    expected = mine_hard_negatives(materialized, model, output_scores=True, verbose=False)
+    rng.seed(42)
+    result = mine_hard_negatives(transformed, model, output_scores=True, verbose=False)
+    assert result.to_dict() == expected.to_dict()
+
+
+@pytest.mark.parametrize("output_format", ["triplet", "n-tuple"])
+@pytest.mark.parametrize("output_scores", [False, True])
+@pytest.mark.parametrize("num_negatives", [3, 4])
+def test_uneven_positives_match_expected_rows(
+    queries: list[str],
+    passages: list[str],
+    static_retrieval_mrl_en_v1_model: SentenceTransformer,
+    output_format: str,
+    output_scores: bool,
+    num_negatives: int,
+) -> None:
+    model = static_retrieval_mrl_en_v1_model
+    queries_dup = queries[:3] + queries[:2] + queries[:1] + queries[:1]
+    passages_dup = passages[:6] + passages[:1]
+    dataset_dup = Dataset.from_dict({"query": queries_dup, "passage": passages_dup})
+
+    result = mine_hard_negatives(
+        dataset=dataset_dup,
+        model=model,
+        num_negatives=num_negatives,
+        range_max=num_negatives,
+        output_format=output_format,
+        output_scores=output_scores,
+        verbose=False,
+    )
+
+    query_embeddings = model.encode_query(queries[:3], normalize_embeddings=True)
+    passage_embeddings = model.encode_document(passages[:6], normalize_embeddings=True)
+    similarities = model.similarity(query_embeddings, passage_embeddings).tolist()
+    positives_per_query = defaultdict(list)
+    for query, positive in dict.fromkeys(zip(queries_dup, passages_dup)):
+        positives_per_query[query].append(positive)
+
+    expected = []
+    for query, scores in zip(queries[:3], similarities):
+        scores = dict(zip(passages[:6], scores))
+        negatives = sorted(
+            (passage for passage in scores if passage not in positives_per_query[query]),
+            key=scores.get,
+            reverse=True,
+        )[:num_negatives]
+        for positive in positives_per_query[query]:
+            row = {"query": query, "passage": positive}
+            if output_format == "triplet":
+                expected.extend(
+                    {**row, "negative": negative, "scores": [scores[positive], scores[negative]]}
+                    for negative in negatives
+                )
+            elif len(negatives) == num_negatives:
+                expected.append(
+                    {
+                        **row,
+                        **{f"negative_{i}": negative for i, negative in enumerate(negatives, start=1)},
+                        "scores": [scores[positive]] + [scores[negative] for negative in negatives],
+                    }
+                )
+
+    assert len(result) == len(expected)
+    for row, expected_row in zip(result, expected):
+        expected_scores = expected_row.pop("scores")
+        if output_scores:
+            assert row.pop("scores") == pytest.approx(expected_scores, abs=1e-5)
+        assert row == expected_row
+
+
 @pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
 def test_faiss_multiple_positives_matches_non_faiss(
     queries: list[str], passages: list[str], static_retrieval_mrl_en_v1_model: SentenceTransformer
@@ -1239,14 +1333,14 @@ def test_multi_process_pool_cleanup(failure: str | None) -> None:
     model.similarity.side_effect = cos_sim
     model.similarity_pairwise.side_effect = pairwise_cos_sim
     cross_encoder = Mock(spec=CrossEncoder)
-    cross_encoder.predict.side_effect = [torch.tensor([0.9, 0.1]), torch.tensor([0.9])]
+    cross_encoder.predict.side_effect = [torch.tensor([0.9, 0.1, 0.1]), torch.tensor([0.9])]
     error = RuntimeError("simulated inference failure")
     if failure in ("encode_document", "encode_query"):
         getattr(model, failure).side_effect = error
     elif failure == "candidates":
         cross_encoder.predict.side_effect = error
     elif failure == "positives":
-        cross_encoder.predict.side_effect = [torch.tensor([0.9, 0.1]), error]
+        cross_encoder.predict.side_effect = [torch.tensor([0.9, 0.1, 0.1]), error]
 
     kwargs = dict(
         dataset=dataset,
@@ -1335,7 +1429,7 @@ def test_num_negatives_exceeds_range_window_capped_by_faiss(
     faiss = pytest.importorskip("faiss")
     monkeypatch.setattr(faiss, "get_num_gpus", lambda: 1)
 
-    with pytest.raises(ValueError, match="range_max was capped to 2047 because FAISS on GPU"):
+    with pytest.raises(ValueError, match="range_max was capped to 2046 because FAISS on GPU"):
         mine_hard_negatives(
             dataset=dataset,
             model=static_retrieval_mrl_en_v1_model,
@@ -1422,7 +1516,7 @@ def test_range_min_above_faiss_capped_range_max(
     faiss = pytest.importorskip("faiss")
     monkeypatch.setattr(faiss, "get_num_gpus", lambda: 1)
 
-    with pytest.raises(ValueError, match="range_min must be smaller than range_max.*range_max was capped to 2047"):
+    with pytest.raises(ValueError, match="range_min must be smaller than range_max.*range_max was capped to 2046"):
         mine_hard_negatives(
             dataset=dataset,
             model=static_retrieval_mrl_en_v1_model,
@@ -1815,6 +1909,9 @@ class ControlledNegativeScoreModel:
     def encode_document(self, texts, **kwargs):
         return torch.stack([self.embeddings[text] for text in texts]).numpy()
 
+    def get_embedding_dimension(self):
+        return 2
+
     def similarity(self, queries, corpus):
         return torch.as_tensor(queries, dtype=torch.float32) @ torch.as_tensor(corpus, dtype=torch.float32).T
 
@@ -1822,6 +1919,47 @@ class ControlledNegativeScoreModel:
         return (torch.as_tensor(queries, dtype=torch.float32) * torch.as_tensor(positives, dtype=torch.float32)).sum(
             dim=1
         )
+
+
+@pytest.mark.parametrize("margin", ["absolute_margin", "relative_margin"])
+def test_min_score_after_margin_removes_all_candidates(margin: str) -> None:
+    corpus = [f"n{i}" for i in range(20)]
+    model = ControlledNegativeScoreModel()
+    model.embeddings = {
+        "q": torch.tensor([1.0, 0.0]),
+        "p": torch.tensor([0.8, 0.6]),
+        **{text: torch.tensor([0.9, math.sqrt(1 - 0.9**2)]) for text in corpus},
+    }
+    result = mine_hard_negatives(
+        dataset=Dataset.from_dict({"query": ["q"], "positive": ["p"]}),
+        model=model,
+        corpus=corpus,
+        num_negatives=1,
+        min_score=0.3,
+        verbose=False,
+        **{margin: 0.1},
+    )
+    assert result.to_dict() == {"query": [], "positive": [], "negative": []}
+
+
+def test_min_score_counts_only_remaining_candidates(capsys: pytest.CaptureFixture) -> None:
+    model = ControlledNegativeScoreModel()
+    model.embeddings = {
+        text: torch.tensor([score, math.sqrt(1 - score**2)])
+        for text, score in [("q", 1.0), ("p", 0.9), ("close", 0.85), ("keep", 0.6), ("low", 0.2)]
+    }
+    result = mine_hard_negatives(
+        dataset=Dataset.from_dict({"query": ["q"], "positive": ["p"]}),
+        model=model,
+        corpus=["close", "keep", "low"],
+        range_max=3,
+        num_negatives=1,
+        absolute_margin=0.1,
+        min_score=0.3,
+    )
+    assert result["negative"] == ["keep"]
+    output = capsys.readouterr().out
+    assert any("Skipped 1 potential negatives" in line and "min_score" in line for line in output.splitlines())
 
 
 def test_relative_margin_with_negative_positive_score() -> None:
@@ -1908,4 +2046,129 @@ def test_default_column_selection_allows_extra_columns() -> None:
         verbose=False,
     )
 
+    assert result.to_dict() == {"query": ["q"], "positive": ["p"], "negative": ["n_more_similar"]}
+
+
+@pytest.mark.parametrize(
+    ("positives", "include_positives", "expected_negatives"),
+    [
+        (["p", "q"], False, ["n_more_similar", "n_more_similar"]),
+        (["p", "q"], True, ["n_more_similar", "n_more_similar"]),
+        (["q", "p"], True, ["q", "p"]),
+    ],
+)
+def test_anchor_is_not_mined_as_its_own_negative(
+    positives: list[str], include_positives: bool, expected_negatives: list[str]
+) -> None:
+    dataset = Dataset.from_dict({"query": ["q", "p"], "positive": positives})
+
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=ControlledNegativeScoreModel(),
+        corpus=["n_more_similar", "n_far"],
+        num_negatives=1,
+        include_positives=include_positives,
+        output_format="n-tuple",
+        verbose=False,
+    )
+
+    assert result["negative_1"] == expected_negatives
+
+
+@pytest.mark.parametrize("use_faiss", [False, True])
+@pytest.mark.parametrize("output_format", ["triplet", "n-tuple"])
+@pytest.mark.parametrize("sampling_strategy", ["top", "random"])
+def test_anchor_exclusion_preserves_candidate_window(
+    use_faiss: bool, output_format: str, sampling_strategy: str
+) -> None:
+    if use_faiss:
+        pytest.importorskip("faiss")
+    model = ControlledNegativeScoreModel()
+    model.embeddings = {
+        text: torch.tensor([score, math.sqrt(1 - score**2)])
+        for text, score in [("q", 1.0), ("p", 0.99), ("n1", 0.9), ("n2", 0.8), ("n3", 0.7)]
+    }
+    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"]})
+
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=model,
+        corpus=["q", "n1", "n2", "n3"],
+        range_max=3,
+        num_negatives=3,
+        use_faiss=use_faiss,
+        output_format=output_format,
+        sampling_strategy=sampling_strategy,
+        verbose=False,
+    )
+
+    if output_format == "triplet":
+        assert result.to_dict() == {"query": ["q"] * 3, "positive": ["p"] * 3, "negative": ["n1", "n2", "n3"]}
+    else:
+        assert result.to_dict() == {
+            "query": ["q"],
+            "positive": ["p"],
+            "negative_1": ["n1"],
+            "negative_2": ["n2"],
+            "negative_3": ["n3"],
+        }
+
+
+@pytest.mark.parametrize("output_scores", [False, True])
+@pytest.mark.parametrize("output_format", ["triplet", "n-tuple", "labeled-pair", "labeled-list"])
+def test_cross_encoder_rescores_without_score_filters(output_scores: bool, output_format: str) -> None:
+    """A supplied reranker controls candidate ordering and scores even without score filters."""
+    teacher_scores = {"p": 0.9, "n_more_similar": 0.1, "n_far": 0.8}
+    cross_encoder = Mock()
+    cross_encoder.predict.side_effect = lambda pairs, **kwargs: torch.tensor(
+        [teacher_scores[document] for _, document in pairs]
+    )
+    result = mine_hard_negatives(
+        dataset=Dataset.from_dict({"query": ["q"], "positive": ["p"]}),
+        model=ControlledNegativeScoreModel(),
+        cross_encoder=cross_encoder,
+        corpus=["p", "n_more_similar", "n_far"],
+        range_max=2,
+        num_negatives=1,
+        output_format=output_format,
+        output_scores=output_scores,
+        verbose=False,
+    )
+    if output_format == "triplet":
+        assert result[0]["negative"] == "n_far"
+    elif output_format == "n-tuple":
+        assert result[0]["negative_1"] == "n_far"
+    elif output_format == "labeled-pair":
+        assert result["positive"] == ["p", "n_far"]
+    else:
+        assert result[0]["positive"] == ["p", "n_far"]
+    if output_scores:
+        if output_format == "labeled-pair":
+            assert result["score"] == pytest.approx([0.9, 0.8])
+        else:
+            assert result[0]["scores"] == pytest.approx([0.9, 0.8])
+
+
+@pytest.mark.parametrize("corpus_type", ["list", "tuple", "generator", "dataset_column"])
+def test_corpus_input_types(corpus_type: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    corpus_texts = ["p", "n_more_similar", "n_far"]
+    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"]})
+    if corpus_type == "tuple":
+        corpus = tuple(corpus_texts)
+    elif corpus_type == "generator":
+        corpus = (text for text in corpus_texts)
+    elif corpus_type == "dataset_column":
+        corpus = Dataset.from_dict({"text": corpus_texts})["text"]
+        if not isinstance(corpus, list):
+            monkeypatch.setattr(type(corpus), "__iter__", Mock(side_effect=AssertionError("iterated row by row")))
+    else:
+        corpus = corpus_texts
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=ControlledNegativeScoreModel(),
+        corpus=corpus,
+        range_max=2,
+        num_negatives=1,
+        verbose=False,
+    )
     assert result.to_dict() == {"query": ["q"], "positive": ["p"], "negative": ["n_more_similar"]}

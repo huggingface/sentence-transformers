@@ -87,19 +87,19 @@ def test_load_with_pytorch_bin(stsb_bert_tiny_model: SentenceTransformer) -> Non
     ), "Ensure that Safetensors and PyTorch loaded models result in identical embeddings"
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test moving devices effectively.")
-def test_to() -> None:
-    model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors", device="cpu")
+def test_to(inference_device: str) -> None:
+    model = SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-safetensors", device=inference_device)
+    assert model.device.type == inference_device
+    model.cpu()
 
-    test_device = torch.device("cuda")
+    test_device = torch.device(inference_device)
     assert model.device.type == "cpu"
-    assert test_device.type == "cuda"
 
     model.to(test_device)
-    assert model.device.type == "cuda", "The model device should have updated"
+    assert model.device.type == inference_device, "The model device should have updated"
 
     model.encode("Test sentence")
-    assert model.device.type == "cuda", "Encoding shouldn't change the device"
+    assert model.device.type == inference_device, "Encoding shouldn't change the device"
 
     assert model._target_device == model.device, "Prevent backwards compatibility failure for _target_device"
     model._target_device = "cpu"
@@ -325,6 +325,17 @@ def test_load_local_without_normalize_directory(stsb_bert_tiny_model: SentenceTr
         # This fails in v2.3.0
         fresh_tiny_model = SentenceTransformer(str(model_path))
         assert isinstance(fresh_tiny_model, SentenceTransformer)
+
+
+def test_load_local_from_pathlib_path(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+    sentences = ["This is a test sentence", "This is another test sentence"]
+    stsb_bert_tiny_model.save(str(tmp_path))
+
+    loaded_model = SentenceTransformer(tmp_path, local_files_only=True)
+    assert torch.equal(
+        stsb_bert_tiny_model.encode(sentences, convert_to_tensor=True),
+        loaded_model.encode(sentences, convert_to_tensor=True),
+    )
 
 
 def test_load_local_with_normalize_at_model_root(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ import traceback
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from functools import cached_property
 from itertools import chain
 from multiprocessing import Queue
@@ -33,7 +34,7 @@ from huggingface_hub import CardData, HfApi
 from packaging import version
 from torch import Tensor, nn
 from tqdm.autonotebook import trange
-from transformers import PreTrainedModel, is_datasets_available, is_torch_npu_available
+from transformers import PreTrainedModel, is_datasets_available
 from transformers.dynamic_module_utils import get_relative_import_files
 from transformers.utils import logging as transformers_logging
 
@@ -67,7 +68,7 @@ from sentence_transformers.util.misc import ORIGINAL_TRANSFORMER_MODELS
 if TYPE_CHECKING:
     from accelerate.hooks import ModelHook
     from mergekit.merge_methods import BatchOptions
-    from transformers import PretrainedConfig
+    from transformers import KernelConfig, PretrainedConfig
 
 logger = transformers_logging.get_logger(__name__)
 
@@ -124,6 +125,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         model_kwargs: dict[str, Any] | None = None,
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
+        use_kernels: bool = False,
+        kernel_config: KernelConfig | None = None,
         model_card_data: CardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
     ) -> None:
@@ -136,7 +139,7 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
                 Face Hub with that name. Defaults to None.
             modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used
                 to create custom models from scratch. Defaults to None.
-            device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used
+            device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``, ``"neuron"``) that should be used
                 for computation. If None, checks if a GPU can be used. If a ``device_map`` is provided via
                 ``model_kwargs``, that controls device placement and this argument is ignored. Defaults to None.
             prompts (dict[str, str], optional): A dictionary with prompts for the model. The key is the prompt
@@ -158,6 +161,10 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
                 private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
                 credentials saved with ``hf auth login``, if available.
+            use_kernels (bool, optional): Enable the default kernels supported by the model and device.
+                Requires the torch backend and compatible kernel dependencies. Defaults to False.
+            kernel_config (KernelConfig, optional): Override kernel mappings. Providing a configuration
+                also enables kernels. These settings are runtime-only. Defaults to None.
             model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
                 Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
@@ -207,6 +214,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self.module_kwargs = None
         self._model_card_vars = {}
         self._model_card_text = None
+        self.use_kernels = use_kernels or kernel_config is not None
+        self.kernel_config = deepcopy(kernel_config)
         backend = resolve_backend(backend, (model_kwargs or {}).get("export_config"))
         self.backend = backend
         self._exported_model = None
@@ -226,10 +235,35 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         if backend == "torch" and model_name_or_path and model_kwargs:
             device_map = model_kwargs.get("device_map")
         if device is None and device_map is None:
-            device = get_device_name()
+            device = self.get_device_name()
             logger.info(f"No device provided, using {device}")
         elif device is not None and device_map is not None:
             logger.warning(f"Ignoring `device={device}` because `model_kwargs['device_map']` takes priority.")
+
+        if self.use_kernels:
+            if backend != "torch":
+                raise ValueError("use_kernels and kernel_config require the torch backend")
+            if kernel_config is not None:
+                from transformers import KernelConfig
+
+                if not isinstance(kernel_config, KernelConfig):
+                    raise TypeError("kernel_config must be a transformers.KernelConfig")
+
+            model_kwargs = dict(model_kwargs or {})
+            model_kwargs.setdefault("use_kernels", True)
+            if self.kernel_config is not None and model_kwargs["use_kernels"]:
+                model_kwargs.setdefault("kernel_config", self.kernel_config)
+
+        pending_kernel_config = (model_kwargs or {}).get("kernel_config")
+        backbone_use_kernels = (model_kwargs or {}).get("use_kernels", False) or pending_kernel_config is not None
+        if model_name_or_path and pending_kernel_config is not None:
+            model_kwargs = dict(model_kwargs)
+            if device_map is None:
+                # Defer custom kernel selection so Transformers uses the backbone's final device.
+                model_kwargs.update(use_kernels=False, kernel_config=None)
+            else:
+                model_kwargs["kernel_config"] = deepcopy(pending_kernel_config)
+                pending_kernel_config = None
 
         if device == "hpu" and importlib.util.find_spec("optimum") is not None:
             from optimum.habana.transformers.modeling_utils import adapt_transformers_to_gaudi
@@ -297,10 +331,13 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         if self._placement_is_delegated:
             self._place_modules()
         else:
-            first_param = next(self[0].parameters(), None)
-            if first_param is not None:
-                for module in list(self.children())[1:]:
-                    module.to(first_param.dtype)
+            sequences = [nn.Sequential(*self.children())]
+            for module in self.modules():
+                if isinstance(module, Router):
+                    sequences.extend(module.sub_modules.values())
+            for sequence in sequences:
+                if len(sequence) > 1 and (first_param := next(sequence[0].parameters(), None)) is not None:
+                    sequence[1:].to(first_param.dtype)
             self.to(device)
         self.is_hpu_graph_enabled = False
 
@@ -340,6 +377,11 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self.model_card_data.register_model(self)
 
         self._post_init()
+
+        if backbone_use_kernels:
+            for module in self.modules():
+                if isinstance(module, PreTrainedModel):
+                    module.set_use_kernels(True, deepcopy(pending_kernel_config))
 
     @classmethod
     def _load_with_module_classes(
@@ -1689,22 +1731,41 @@ This pull request has been automatically generated to add {self.__class__.__name
             os.makedirs(output_path, exist_ok=True)
         return evaluator(self, output_path)
 
+    def activation_checkpointing_enable(
+        self,
+        activation_checkpointing_kwargs: dict[str, Any] | None = None,
+        **kwargs,
+    ) -> None:
+        """Enable activation checkpointing for the model.
+
+        Args:
+            activation_checkpointing_kwargs (dict[str, Any], optional): Keyword arguments passed to
+                ``torch.utils.checkpoint.checkpoint``.
+            **kwargs: Additional options passed to the underlying model's checkpointing method.
+        """
+        for module in self.modules():
+            if module is self:
+                continue
+            enable = getattr(module, "activation_checkpointing_enable", None)
+            if enable is None:
+                enable = getattr(module, "gradient_checkpointing_enable", None)
+            if enable is not None:
+                if getattr(module, "supports_gradient_checkpointing", True) is False:
+                    # e.g. a `*ForRetrieval` wrapper that doesn't declare support while its inner
+                    # model does: skip it so the supporting submodules still enable checkpointing.
+                    logger.warning_once(
+                        f"{type(module).__name__} does not support activation checkpointing, skipping it."
+                    )
+                    continue
+                enable(activation_checkpointing_kwargs, **kwargs)
+
     def gradient_checkpointing_enable(
         self,
         gradient_checkpointing_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
-        """Enable gradient checkpointing for the model."""
-        for module in self.modules():
-            if module is not self and hasattr(module, "gradient_checkpointing_enable"):
-                if getattr(module, "supports_gradient_checkpointing", True) is False:
-                    # e.g. a `*ForRetrieval` wrapper that doesn't declare support while its inner
-                    # model does: skip it so the supporting submodules still enable checkpointing.
-                    logger.warning_once(
-                        f"{type(module).__name__} does not support gradient checkpointing, skipping it."
-                    )
-                    continue
-                module.gradient_checkpointing_enable(gradient_checkpointing_kwargs, **kwargs)
+        """Alias for :meth:`activation_checkpointing_enable` using the legacy argument name."""
+        self.activation_checkpointing_enable(gradient_checkpointing_kwargs, **kwargs)
 
     def _place_modules(self) -> None:
         """Align auxiliary modules without changing backbones or dispatched submodules."""
@@ -1846,6 +1907,10 @@ This pull request has been automatically generated to add {self.__class__.__name
         """Whether a requested device map or live placement hooks control inference placement."""
         return self._device_map is not None or self._accelerate_placement_hook is not None
 
+    def get_device_name(self) -> str:
+        """Choose a default device for model loading and multi-process pools."""
+        return get_device_name()
+
     @property
     def device(self) -> torch.device:
         """Return the execution device, falling back to model tensors and then CPU."""
@@ -1886,9 +1951,10 @@ This pull request has been automatically generated to add {self.__class__.__name
 
         Args:
             target_devices (List[str], optional): PyTorch target devices, e.g. ["cuda:0", "cuda:1", ...],
-                ["npu:0", "npu:1", ...], or ["cpu", "cpu", "cpu", "cpu"]. If target_devices is None and CUDA/NPU
-                is available, then all available CUDA/NPU devices will be used. If target_devices is None and
-                CUDA/NPU is not available, then 4 CPU devices will be used.
+                ["npu:0", "npu:1", ...], ["neuron:0", "neuron:1", ...], or ["cpu", "cpu", "cpu", "cpu"].
+                If target_devices is None, :meth:`get_device_name` selects the device type. All available
+                devices of that type are used for CUDA, NPU, and Neuron. Other types use 4 CPU workers.
+                Neuron pools require a fresh process with the model loaded on CPU.
 
         Returns:
             Dict[str, Any]: A dictionary with the target processes, an input queue, and an output queue.
@@ -1901,15 +1967,16 @@ This pull request has been automatically generated to add {self.__class__.__name
             )
 
         if target_devices is None:
-            if torch.cuda.is_available():
-                target_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
-            elif is_torch_npu_available():
-                target_devices = [f"npu:{i}" for i in range(torch.npu.device_count())]
+            device_type = self.get_device_name().split(":")[0]
+            if device_type in ("cuda", "npu", "neuron"):
+                target_devices = [f"{device_type}:{i}" for i in range(getattr(torch, device_type).device_count())]
             else:
-                logger.info("CUDA/NPU is not available. Starting 4 CPU workers")
+                logger.info("No supported multi-process accelerator is available. Starting 4 CPU workers")
                 target_devices = ["cpu"] * 4
 
         logger.info(f"Starting multi-process pool on devices: {', '.join(map(str, target_devices))}")
+
+        neuron_worker_cores = self._get_neuron_worker_cores(target_devices)
 
         # Move model to CPU and share memory so child processes can access it.
         # Note: this modifies the model in-place, the model will remain on CPU after this call.
@@ -1919,17 +1986,69 @@ This pull request has been automatically generated to add {self.__class__.__name
         input_queue = ctx.Queue()
         output_queue = ctx.Queue()
         processes = []
+        pool = {"input": input_queue, "output": output_queue, "processes": processes}
 
-        for device_id in target_devices:
-            p = ctx.Process(
-                target=self.__class__._multi_process_worker,
-                args=(device_id, self, input_queue, output_queue),
-                daemon=True,
+        try:
+            for device_id in target_devices:
+                worker_device = device_id
+                core = neuron_worker_cores.get(str(device_id))
+                if core is not None:
+                    visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES")
+                    # Spawn must inherit visibility before torch caches the device count.
+                    os.environ["NEURON_RT_VISIBLE_CORES"] = str(core)
+                    worker_device = "neuron:0"
+                try:
+                    p = ctx.Process(
+                        target=self.__class__._multi_process_worker,
+                        args=(worker_device, self, input_queue, output_queue),
+                        daemon=True,
+                    )
+                    p.start()
+                finally:
+                    if core is not None:
+                        if visible_cores is None:
+                            os.environ.pop("NEURON_RT_VISIBLE_CORES", None)
+                        else:
+                            os.environ["NEURON_RT_VISIBLE_CORES"] = visible_cores
+                processes.append(p)
+        except BaseException:
+            self.stop_multi_process_pool(pool)
+            raise
+
+        return pool
+
+    @staticmethod
+    def _get_neuron_worker_cores(target_devices: list[str]) -> dict[str, int]:
+        """Validate Neuron pool allocation and map requested devices to visible cores."""
+        neuron_devices = [str(device) for device in target_devices if str(device).split(":")[0] == "neuron"]
+        if not neuron_devices:
+            return {}
+        if torch.neuron.is_initialized():
+            raise ValueError(
+                "Neuron multiprocessing requires a fresh parent process with the model loaded on CPU "
+                "(`device='cpu'`). A parent that has used Neuron retains its cores until it exits."
             )
-            p.start()
-            processes.append(p)
 
-        return {"input": input_queue, "output": output_queue, "processes": processes}
+        visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES")
+        if visible_cores:
+            neuron_cores = []
+            for part in visible_cores.split(","):
+                bounds = [int(value) for value in part.strip().split("-")]
+                neuron_cores.extend(range(bounds[0], bounds[-1] + 1))
+        else:
+            neuron_cores = list(range(torch.neuron.device_count()))
+
+        worker_cores = {}
+        for device in neuron_devices:
+            index = torch.device(device).index
+            index = torch.neuron.current_device() if index is None else index
+            if index >= len(neuron_cores):
+                raise ValueError(f"Neuron device index {index} exceeds the {len(neuron_cores)} visible cores.")
+            core = neuron_cores[index]
+            if core in worker_cores.values():
+                raise ValueError("Each Neuron worker must use a different core.")
+            worker_cores[device] = core
+        return worker_cores
 
     @staticmethod
     def stop_multi_process_pool(pool: dict[Literal["input", "output", "processes"], Any]) -> None:

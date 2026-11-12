@@ -102,6 +102,54 @@ merged = SentenceTransformer.merge(
 
 `dtype` controls the floating-point inputs passed to the merge method. `out_dtype` casts the merged tensors afterward. Method-specific internal calculations may use a different precision.
 
+## Results on NanoBEIR
+
+The MiniLM example above demonstrates the API. For the evaluation below, we used a different pair: two MPNet models combined with a 50/50 linear merge. The table covers all 13 [NanoBEIR](https://huggingface.co/datasets/sentence-transformers/NanoBEIR-en) datasets. Scores are nDCG@10 multiplied by 100, averaged equally across datasets. All three models were evaluated with a 512-token input limit.
+
+| Model | All 13 datasets | MS MARCO | Other 12 datasets |
+| --- | ---: | ---: | ---: |
+| [all-mpnet-base-v2](https://huggingface.co/sentence-transformers/all-mpnet-base-v2) | 57.49 | 63.45 | 56.99 |
+| [multi-qa-mpnet-base-cos-v1](https://huggingface.co/sentence-transformers/multi-qa-mpnet-base-cos-v1) | 57.12 | **65.41** | 56.42 |
+| [50/50 merge](https://huggingface.co/sentence-transformers/merged-mpnet-base) | **58.23** | 60.99 | **58.01** |
+
+The merge gained 0.75 points over all-mpnet-base-v2 on average and outperformed both parents on 5 of 13 datasets. Its MS MARCO score was lower than either parent's.
+
+### Use the Published Merge
+
+Load [sentence-transformers/merged-mpnet-base](https://huggingface.co/sentence-transformers/merged-mpnet-base) directly with `SentenceTransformer`:
+
+```python
+from sentence_transformers import SentenceTransformer
+
+merged = SentenceTransformer("sentence-transformers/merged-mpnet-base")
+```
+
+The [model card](https://huggingface.co/sentence-transformers/merged-mpnet-base#evaluation) includes the results for each dataset and a model creation script. To reproduce the 50/50 merge yourself:
+
+```python
+models = [
+    SentenceTransformer("sentence-transformers/all-mpnet-base-v2"),
+    SentenceTransformer("sentence-transformers/multi-qa-mpnet-base-cos-v1"),
+]
+for model in models:
+    model.max_seq_length = 512
+merged = SentenceTransformer.merge(models, method="linear", parameters={"weight": [0.5, 0.5]})
+merged.similarity_fn_name = "cosine"
+merged.save_pretrained("merged-mpnet-base")
+```
+
+## Evaluate Your Merge
+
+Run the same evaluator on each parent and the merged model, using matching prompts and input limits. The default `NanoBEIREvaluator` covers all 13 NanoBEIR datasets:
+
+```python
+from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
+
+evaluator = NanoBEIREvaluator(batch_size=32)
+results = evaluator(merged)
+print(results[evaluator.primary_metric])
+```
+
 ## Other Model Types
 
 The same API is available for all four model types:

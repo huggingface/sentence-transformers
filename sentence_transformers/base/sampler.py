@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - optional dependency
     xxhash = None
 
 from sentence_transformers.util import is_datasets_available
+from sentence_transformers.util.misc import _to_list
 
 if is_datasets_available():
     from datasets import Dataset
@@ -304,7 +305,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
     def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[Any]:
         for column_name in valid_label_columns or []:
             if column_name in dataset.column_names:
-                return dataset[column_name]
+                return _to_list(dataset[column_name])
         raise ValueError(
             f"None of the valid_label_columns {valid_label_columns} are in the dataset, "
             f"which only has these columns: {dataset.column_names}."

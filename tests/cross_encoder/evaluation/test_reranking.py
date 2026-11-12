@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from math import log2
+from unittest.mock import Mock
+
+import numpy as np
 import pytest
 
 from sentence_transformers import CrossEncoder
@@ -105,3 +109,83 @@ def test_validation_errors() -> None:
         CrossEncoderRerankingEvaluator([{"query": "q", "positive": ["a"], "negative": ["b"], "documents": ["c"]}])(
             None
         )
+
+
+def test_empty_documents() -> None:
+    samples = [
+        {"query": "empty", "positive": ["missing"], "documents": []},
+        {"query": "found", "positive": ["positive"], "documents": ["positive", "negative"]},
+    ]
+    model = Mock()
+    model.predict.return_value = [1.0, 0.0]
+
+    results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False)(model)
+
+    assert results == {
+        "map": 0.5,
+        "mrr@10": 0.5,
+        "ndcg@10": 0.5,
+        "base_map": 0.5,
+        "base_mrr@10": 0.5,
+        "base_ndcg@10": 0.5,
+    }
+    model.predict.assert_called_once()
+    assert model.predict.call_args.args[0] == [["found", "positive"], ["found", "negative"]]
+
+
+@pytest.mark.parametrize("always_rerank_positives", [False, True])
+@pytest.mark.parametrize("at_k", [1, 10])
+def test_missing_positives(always_rerank_positives: bool, at_k: int) -> None:
+    samples = [{"query": "q", "positive": ["p1", "p2"], "documents": ["n1", "p1", "n2", "n3"]}]
+    model = Mock()
+    model.predict.return_value = np.array(
+        [2.0, 1.0, 0.0, -1.0, -2.0] if always_rerank_positives else [0.0, 1.0, -1.0, -2.0]
+    )
+
+    results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=always_rerank_positives, at_k=at_k)(
+        model
+    )
+
+    ideal_dcg = 1 + 1 / log2(3) if at_k > 1 else 1
+    assert results == pytest.approx(
+        {
+            "map": 1.0 if always_rerank_positives else 0.5,
+            f"mrr@{at_k}": 1.0,
+            f"ndcg@{at_k}": 1.0 if always_rerank_positives else 1 / ideal_dcg,
+            "base_map": 0.25,
+            f"base_mrr@{at_k}": 0.5 if at_k > 1 else 0.0,
+            f"base_ndcg@{at_k}": 1 / log2(3) / ideal_dcg if at_k > 1 else 0.0,
+        }
+    )
+    expected_docs = ["p1", "p2", "n1", "n2", "n3"] if always_rerank_positives else samples[0]["documents"]
+    model.predict.assert_called_once()
+    assert model.predict.call_args.args[0] == [["q", doc] for doc in expected_docs]
+
+
+@pytest.mark.parametrize("num_positives", [1, 3])
+@pytest.mark.parametrize("documents", [["p1"], ["p1", "n1", "n2"]])
+def test_unchanged_ranking(num_positives: int, documents: list[str]) -> None:
+    positives = [f"p{i}" for i in range(1, num_positives + 1)]
+    samples = [{"query": "q", "positive": positives, "documents": documents}]
+    model = Mock()
+    model.predict.return_value = np.array([3.0, 2.0, 1.0][: len(documents)])
+
+    results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False)(model)
+
+    expected = {
+        "map": 1.0 / num_positives,
+        "mrr@10": 1.0,
+        "ndcg@10": 1.0 if num_positives == 1 else 1 / (1 + 1 / log2(3) + 0.5),
+    }
+    assert results == pytest.approx({**expected, **{f"base_{key}": value for key, value in expected.items()}})
+
+
+def test_missing_positives_with_tied_scores() -> None:
+    samples = [{"query": "q", "positive": ["p1", "p2"], "documents": ["p1", "n1"]}]
+    model = Mock()
+    model.predict.return_value = np.array([0.0, 0.0])
+
+    results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, at_k=1)(model)
+
+    assert results["map"] == pytest.approx(0.25)
+    assert results["ndcg@1"] == pytest.approx(0.5)

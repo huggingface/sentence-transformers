@@ -19,6 +19,7 @@ from sentence_transformers.base.modules import Dense, Module, Normalize, Router
 from sentence_transformers.base.modules.input_module import InputModule
 from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
+from tests.utils import skip_fp16_cpu_layer_norm
 
 from sentence_transformers.models import Asym  # isort:skip  Softly deprecated import
 
@@ -404,6 +405,19 @@ def test_router_save_load_preserves_shared_modules(tmp_path: Path, share_module:
 
     loaded = Router.load(str(tmp_path), local_files_only=True)
     assert (loaded.sub_modules["query"][0] is loaded.sub_modules["document"][0]) == share_module
+
+
+@skip_fp16_cpu_layer_norm
+def test_router_load_with_dtype_casts_routed_modules(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path):
+    dim = stsb_bert_tiny_model.get_embedding_dimension()
+    router = Router.for_query_document(
+        [*stsb_bert_tiny_model, Dense(dim, 8)], [*deepcopy(stsb_bert_tiny_model), Dense(dim, 8)]
+    )
+    SentenceTransformer(modules=[router]).save_pretrained(str(tmp_path))
+
+    model = SentenceTransformer(str(tmp_path), model_kwargs={"dtype": torch.float16})
+    assert {param.dtype for param in model.parameters()} == {torch.float16}
+    assert model.encode_query(["What is the capital of France?"], convert_to_tensor=True).dtype == torch.float16
 
 
 def test_router_save_load_with_custom_default_route(static_embedding: StaticEmbedding, tmp_path: Path):

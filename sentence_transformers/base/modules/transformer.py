@@ -349,6 +349,11 @@ _FEATURE_EXTRACTION_EDGE_CASES: dict[str, tuple[ModalityConfig, str, bool]] = {
         "token_embeddings",
         False,
     ),
+    "mm-grounding-dino": (
+        {("image", "text"): {"method": "forward", "method_output_name": "last_hidden_state"}},
+        "token_embeddings",
+        False,
+    ),
     "paligemma": (
         {("image", "text"): {"method": "forward", "method_output_name": "last_hidden_state"}},
         "token_embeddings",
@@ -368,8 +373,24 @@ _FEATURE_EXTRACTION_EDGE_CASES: dict[str, tuple[ModalityConfig, str, bool]] = {
         "token_embeddings",
         False,
     ),
+    "got_ocr2": (
+        {
+            "image": {"method": "forward", "method_output_name": "last_hidden_state"},
+        },
+        "token_embeddings",
+        False,
+    ),
     # All modalities via forward
     "idefics": (
+        {
+            "text": {"method": "forward", "method_output_name": "last_hidden_state"},
+            "image": {"method": "forward", "method_output_name": "last_hidden_state"},
+            ("image", "text"): {"method": "forward", "method_output_name": "last_hidden_state"},
+        },
+        "token_embeddings",
+        False,
+    ),
+    "florence2": (
         {
             "text": {"method": "forward", "method_output_name": "last_hidden_state"},
             "image": {"method": "forward", "method_output_name": "last_hidden_state"},
@@ -405,6 +426,13 @@ _FILL_MASK_EDGE_CASES: dict[str, tuple[ModalityConfig, str, bool]] = {
 }
 
 _TEXT_GENERATION_EDGE_CASES = {
+    "got_ocr2": (
+        {
+            "image": {"method": "forward", "method_output_name": "logits"},
+        },
+        "causal_logits",
+        False,
+    ),
     # Models supporting text+image without message format, but no image-only
     "git": (
         {
@@ -425,6 +453,22 @@ _TEXT_GENERATION_EDGE_CASES = {
 }
 
 _ANY_TO_ANY_EDGE_CASES = {
+    "got_ocr2": (
+        {
+            "image": {"method": "forward", "method_output_name": "logits"},
+        },
+        "causal_logits",
+        False,
+    ),
+    "florence2": (
+        {
+            "text": {"method": "forward", "method_output_name": "logits"},
+            "image": {"method": "forward", "method_output_name": "logits"},
+            ("image", "text"): {"method": "forward", "method_output_name": "logits"},
+        },
+        "causal_logits",
+        False,
+    ),
     # Models supporting text+image without message format, but no image-only
     "git": (
         {
@@ -1299,7 +1343,7 @@ class Transformer(InputModule):
             "image": {},
             "video": {},
         }
-        if self.config.model_type == "whisper":
+        if self.config.model_type in {"whisper", "audioflamingo3"}:
             # Whisper requires inputs to be exactly 30 seconds long. WhisperFeatureExtractor pads
             # to that length by default, but ST's general "audio" modality kwargs above set
             # padding=True ("longest") which would override that default. Restore "max_length".
@@ -1438,6 +1482,7 @@ class Transformer(InputModule):
                 common_kwargs,
                 chat_template_kwargs=chat_template_kwargs,
             )
+        processor_output.pop("labels", None)  # ST uses its own losses without these labels
 
         if modality == "message" and ("pixel_values" in processor_output or "video_grid_thw" in processor_output):
             num_images, num_videos = _count_media_per_sample(processor_inputs["message"])
@@ -1738,7 +1783,8 @@ class Transformer(InputModule):
             # after a projection layer
             if hasattr(config, "projection_dim") and self.module_output_name == "sentence_embedding":
                 return config.projection_dim
-
+            if (dim := getattr(config, "word_embed_proj_dim", None)) is not None:
+                return dim
             if hasattr(config, "hidden_size"):
                 return config.hidden_size
             for attr_name in ("neck_hidden_sizes", "hidden_sizes", "embed_dims"):

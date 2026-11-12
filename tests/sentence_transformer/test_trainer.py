@@ -16,6 +16,7 @@ from transformers import __version__ as transformers_version
 from transformers.trainer_utils import EvalLoopOutput
 
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.base.sampler import (
     BatchSamplers,
     DefaultBatchSampler,
@@ -46,14 +47,14 @@ if not is_training_available():
     )
 
 
-def test_trainer_gradient_checkpointing(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ["activation_checkpointing", "gradient_checkpointing"])
+def test_trainer_checkpointing(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, name: str) -> None:
     dataset = Dataset.from_dict({"anchor": ["a", "b"], "positive": ["c", "d"]})
     args = SentenceTransformerTrainingArguments(
         output_dir=str(tmp_path),
         max_steps=1,
         per_device_train_batch_size=2,
-        gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": False},
+        **{name: True, f"{name}_kwargs": {"use_reentrant": False}},
         report_to="none",
         save_strategy="no",
     )
@@ -63,9 +64,15 @@ def test_trainer_gradient_checkpointing(stsb_bert_tiny_model: SentenceTransforme
         train_dataset=dataset,
         loss=MultipleNegativesRankingLoss(stsb_bert_tiny_model),
     )
+    embeddings = stsb_bert_tiny_model.transformers_model.get_input_embeddings()
+    original_weights = embeddings.weight.detach().clone()
 
     assert trainer.train().global_step == 1
-    assert stsb_bert_tiny_model.transformers_model.is_gradient_checkpointing
+    assert not torch.equal(embeddings.weight.detach(), original_weights)
+    assert any(
+        getattr(module, "gradient_checkpointing", False)
+        for module in stsb_bert_tiny_model.transformers_model.modules()
+    )
 
 
 def test_mlm_example_trains_with_transformers_v5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -1407,6 +1414,17 @@ def test_fit_scheduler_covers_every_objective_step(
     assert all(learning_rate > 0 for learning_rate in learning_rates[1:])
 
 
+def test_fit_with_uneven_number_of_texts(stsb_bert_tiny_model, tmp_path, monkeypatch) -> None:
+    model = stsb_bert_tiny_model
+    monkeypatch.chdir(tmp_path)
+    examples = [
+        InputExample(texts=["anchor", "positive", "negative"]),
+        InputExample(texts=["anchor", "positive"]),
+    ]
+    with pytest.raises(ValueError, match="training objective 1 must have the same number of texts"):
+        model.fit(train_objectives=[(DataLoader(examples), MultipleNegativesRankingLoss(model))])
+
+
 def test_fit_with_custom_batch_sampler(stsb_bert_tiny_model, tmp_path, monkeypatch, caplog) -> None:
     model = stsb_bert_tiny_model
     monkeypatch.chdir(tmp_path)
@@ -1424,3 +1442,83 @@ def test_fit_with_custom_batch_sampler(stsb_bert_tiny_model, tmp_path, monkeypat
         show_progress_bar=False,
     )
     assert "uses a custom `batch_sampler`, whose batch grouping `fit()` does not preserve" in caplog.text
+
+
+def test_fit_with_float_evaluator_saves_best_model_and_calls_callback(
+    stsb_bert_tiny_model, tmp_path, monkeypatch
+) -> None:
+    class FloatEvaluator(BaseEvaluator):
+        # Returns a single score and keeps the default `primary_metric=None`
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1) -> float:
+            return float(epoch)
+
+    model = stsb_bert_tiny_model
+    monkeypatch.chdir(tmp_path)
+    examples = [InputExample(texts=[f"This is sentence {idx}", f"This is another sentence {idx}"]) for idx in range(8)]
+    output_path = tmp_path / "output"
+    callback_epochs = []
+    model.fit(
+        train_objectives=[(DataLoader(examples, batch_size=4), MultipleNegativesRankingLoss(model))],
+        evaluator=FloatEvaluator(),
+        epochs=1,
+        warmup_steps=0,
+        output_path=str(output_path),
+        callback=lambda score, epoch, steps: callback_epochs.append(epoch),
+        show_progress_bar=False,
+    )
+
+    assert callback_epochs == [1.0]
+    assert (output_path / "modules.json").exists()
+
+
+@pytest.mark.parametrize("dict_scores", [False, True], ids=["float", "dict"])
+def test_old_fit_with_evaluator_saves_best_model_and_calls_callback(
+    stsb_bert_tiny_model, tmp_path, dict_scores: bool
+) -> None:
+    class ScoreEvaluator(BaseEvaluator):
+        # Scores each evaluation by its step: either a single float, or a dictionary with a `primary_metric`
+        def __init__(self) -> None:
+            super().__init__()
+            self.primary_metric = "score" if dict_scores else None
+
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1):
+            return {"score": float(steps), "other": 0.0} if dict_scores else float(steps)
+
+    model = stsb_bert_tiny_model
+    examples = [InputExample(texts=[f"This is sentence {idx}", f"This is another sentence {idx}"]) for idx in range(8)]
+    output_path = tmp_path / "output"
+    callback_scores = []
+    model.old_fit(
+        train_objectives=[(DataLoader(examples, batch_size=4), MultipleNegativesRankingLoss(model))],
+        evaluator=ScoreEvaluator(),
+        epochs=1,
+        evaluation_steps=1,
+        warmup_steps=0,
+        output_path=str(output_path),
+        callback=lambda score, epoch, steps: callback_scores.append(score),
+        show_progress_bar=False,
+    )
+
+    # Evaluated after each of the 2 steps and at the end of the epoch, and always called with the primary score
+    assert callback_scores == [1.0, 2.0, -1.0]
+    assert model.best_score == 2.0
+    assert (output_path / "modules.json").exists()
+
+
+def test_old_fit_with_embedding_similarity_evaluator_saves_best_model(stsb_bert_tiny_model, tmp_path) -> None:
+    model = stsb_bert_tiny_model
+    sentences1 = [f"This is sentence {idx}" for idx in range(8)]
+    sentences2 = [f"This is another sentence {idx}" for idx in range(8)]
+    evaluator = EmbeddingSimilarityEvaluator(sentences1, sentences2, [idx / 8 for idx in range(8)], name="dev")
+    examples = [InputExample(texts=[sentence1, sentence2]) for sentence1, sentence2 in zip(sentences1, sentences2)]
+    output_path = tmp_path / "output"
+    model.old_fit(
+        train_objectives=[(DataLoader(examples, batch_size=4), MultipleNegativesRankingLoss(model))],
+        evaluator=evaluator,
+        epochs=1,
+        warmup_steps=0,
+        output_path=str(output_path),
+        show_progress_bar=False,
+    )
+
+    assert (output_path / "modules.json").exists()

@@ -60,7 +60,7 @@ Training MultiVectorEncoder models involves between 4 to 6 components:
 ## Model
 
 ```{eval-rst}
-Multi-vector models consist of a sequence of `Modules <../package_reference/sentence_transformer/modules.html>`_, `Multi-Vector Encoder specific Modules <../package_reference/multi_vector_encoder/modules.html>`_ or `Custom Modules <usage/custom_models.html>`_, allowing for a lot of flexibility. If you want to further finetune an existing multi-vector model (e.g. it has a `modules.json file <https://huggingface.co/lightonai/LateOn/tree/main/modules.json>`_), then you don't have to worry about which modules are used::
+Multi-vector models consist of a sequence of `Modules <../package_reference/sentence_transformer/modules.html>`_, `Multi-Vector Encoder specific Modules <../package_reference/multi_vector_encoder/modules.html>`_ or `Custom Modules <usage/custom_models.html>`_, allowing for a lot of flexibility. If you want to further finetune an existing multi-vector model (e.g. it has a `modules.json file <https://huggingface.co/lightonai/LateOn/blob/main/modules.json>`_), then you don't have to worry about which modules are used::
 
     from sentence_transformers import MultiVectorEncoder
 
@@ -391,7 +391,7 @@ The :class:`~sentence_transformers.multi_vector_encoder.training_args.MultiVecto
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.load_best_model_at_end"><code>load_best_model_at_end</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.metric_for_best_model"><code>metric_for_best_model</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.gradient_accumulation_steps"><code>gradient_accumulation_steps</code></a>
-        <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.gradient_checkpointing"><code>gradient_checkpointing</code></a>
+        <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.activation_checkpointing"><code>activation_checkpointing</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.eval_accumulation_steps"><code>eval_accumulation_steps</code></a>
         <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments.optim"><code>optim</code></a>
         <a href="../package_reference/multi_vector_encoder/training_args.html"><code>batch_sampler</code></a>
@@ -453,6 +453,7 @@ args = MultiVectorEncoderTrainingArguments(
 
 ```{eval-rst}
 You can provide the :class:`~sentence_transformers.multi_vector_encoder.trainer.MultiVectorEncoderTrainer` with an ``eval_dataset`` to get the evaluation loss during training, but it may be useful to get more concrete metrics during training, too. For this, you can use evaluators to assess the model's performance with useful metrics before, during, or after training. You can use both an ``eval_dataset`` and an evaluator, one or the other, or neither. They evaluate based on the ``eval_strategy`` and ``eval_steps`` `Training Arguments <#training-arguments>`_.
+During `Distributed Data Parallel (DDP) training <../sentence_transformer/training/distributed.html>`_, the trainer automatically distributes evaluator inference across the training processes.
 
 Here are the implemented Evaluators that come with Sentence Transformers for Multi-Vector Encoder models:
 
@@ -528,9 +529,6 @@ Sometimes you don't have the required evaluation data to prepare one of these ev
 
     If you evaluate after training, but before saving the model, your automatically generated model card will still include the test results.
 
-.. warning::
-
-    When using `Distributed Training <../sentence_transformer/training/distributed.html>`_, the evaluator only runs on the first device, unlike the training and evaluation datasets, which are shared across all devices.
 ```
 
 ## Trainer

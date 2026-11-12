@@ -14,6 +14,15 @@ All evaluators live in `sentence_transformers.multi_vector_encoder.evaluation`. 
 
 **Default recommendation for training**: `MultiVectorNanoBEIREvaluator` on a subset of NanoBEIR datasets (e.g. `["msmarco", "nq", "fiqa2018"]`) during training, and the full suite at end-of-run. Cheap, well-calibrated, and the metric key format is stable.
 
+## Compression-aware evaluation (`token_pooling` / `truncate_dim`)
+
+Every MVE evaluator accepts:
+
+- `token_pooling=HierarchicalTokenPooling(pool_factor=4)` to pool document tokens by default.
+- `truncate_dim=64` to truncate and normalize token embeddings.
+
+`MultiVectorNanoBEIREvaluator` includes compression settings in metric names. Pass multiple evaluators to track uncompressed and compressed retrieval, and select checkpoints with the metric for the deployment setting.
+
 ## `MultiVectorNanoBEIREvaluator`
 
 Runs the 13 NanoBEIR sub-datasets and returns nDCG@10 averaged across them.

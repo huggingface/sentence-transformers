@@ -326,6 +326,7 @@ class CachedGISTEmbedLoss(nn.Module):
                 aa_sim = self.sim_matrix(anchors[begin:end], anchors)
                 guided_aa_sim = self.sim_matrix(anchors_guide[begin:end], anchors_guide)
                 aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
+                aa_sim[rows, begin + rows] = -torch.inf  # No self-negative
                 scores.append(aa_sim)
 
             if self.contrast_positives:
@@ -336,6 +337,7 @@ class CachedGISTEmbedLoss(nn.Module):
                     candidates_guide[0][offset + begin : min(offset + end, offset + batch_size)], candidates_guide[0]
                 )
                 pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
+                pp_sim[rows, offset + begin + rows] = -torch.inf  # No self-negative
                 scores.append(pp_sim)
 
             # If there are negatives (len(candidates) > 1), process them

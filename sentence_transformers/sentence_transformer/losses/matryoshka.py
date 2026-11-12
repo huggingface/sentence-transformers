@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from sentence_transformers.base.losses.gradcache import uses_gradient_cache
+from sentence_transformers.base.losses.gradcache import resolve_gradient_cache_loss, uses_gradient_cache
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 logger = logging.getLogger(__name__)
@@ -22,8 +22,10 @@ def shrink(tensor: Tensor, dim: int) -> Tensor:
             f"Dimension {dim} in matryoshka_dims cannot be greater than the model's embedding dimension: {tensor_dim}"
         )
     tensor = tensor[..., :dim]
-    tensor = F.normalize(tensor, p=2, dim=-1)
-    return tensor
+    dtype = tensor.dtype
+    if dtype in (torch.float16, torch.bfloat16):
+        tensor = tensor.float()
+    return F.normalize(tensor, p=2, dim=-1).to(dtype)
 
 
 class ForwardDecorator:
@@ -192,7 +194,7 @@ class MatryoshkaLoss(nn.Module):
         elif len(matryoshka_weights) != len(matryoshka_dims):
             raise ValueError("matryoshka_weights must be the same length as matryoshka_dims.")
 
-        model_embedding_dim = model.get_embedding_dimension()
+        model_embedding_dim = model._get_untruncated_embedding_dimension()
         if model_embedding_dim is not None:
             if any(d > model_embedding_dim for d in matryoshka_dims):
                 raise ValueError(
@@ -217,8 +219,9 @@ class MatryoshkaLoss(nn.Module):
         # is removed, so decorate their `calculate_loss` to shrink the cached embeddings instead.
         self.uses_gradient_cache = uses_gradient_cache(loss)
         if self.uses_gradient_cache:
-            loss.calculate_loss = CachedLossDecorator(
-                loss.calculate_loss, self.matryoshka_dims, self.matryoshka_weights, self.n_dims_per_step
+            gradient_cache_loss = resolve_gradient_cache_loss(loss)
+            gradient_cache_loss.calculate_loss = CachedLossDecorator(
+                gradient_cache_loss.calculate_loss, self.matryoshka_dims, self.matryoshka_weights, self.n_dims_per_step
             )
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:

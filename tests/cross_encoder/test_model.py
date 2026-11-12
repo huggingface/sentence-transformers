@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import pickle
 import re
 import sys
 import tempfile
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -41,16 +43,51 @@ from sentence_transformers.util.decorators import (
 from tests.utils import GENERIC_INSTRUCT_TEMPLATE, RERANKER_TEMPLATE, skip_bfloat16_cpu_crash
 
 
-def test_classifier_dropout_is_set() -> None:
-    model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce", classifier_dropout=0.1234)
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {},
+        {"config_kwargs": None},
+        {"config_kwargs": {"classifier_dropout": 0.1}},
+        {"config_args": {"classifier_dropout": 0.1}},
+    ],
+)
+def test_classifier_dropout_is_set(reranker_bert_tiny_model: CrossEncoder, tmp_path: Path, kwargs: dict) -> None:
+    reranker_bert_tiny_model.save_pretrained(tmp_path)
+    original_kwargs = deepcopy(kwargs)
+    model = CrossEncoder(str(tmp_path), classifier_dropout=0.1234, local_files_only=True, device="cpu", **kwargs)
     assert model.config.classifier_dropout == 0.1234
-    assert model.model.config.classifier_dropout == 0.1234
+    assert model.model.dropout.p == 0.1234
+    assert kwargs == original_kwargs
 
 
 def test_classifier_dropout_default_value(reranker_bert_tiny_model: CrossEncoder) -> None:
     model = reranker_bert_tiny_model
     assert model.config.classifier_dropout is None
     assert model.model.config.classifier_dropout is None
+
+
+def test_init_does_not_mutate_kwargs(reranker_bert_tiny_model: CrossEncoder, tmp_path: Path) -> None:
+    reranker_bert_tiny_model.save_pretrained(tmp_path)
+    config_kwargs = {"output_attentions": False, "num_labels": 2}
+    processor_kwargs = {"model_max_length": 64}
+    model = CrossEncoder(
+        str(tmp_path),
+        num_labels=1,
+        max_length=32,
+        config_kwargs=config_kwargs,
+        processor_kwargs=processor_kwargs,
+        local_files_only=True,
+        device="cpu",
+    )
+    assert model.num_labels == 1
+    assert model.max_seq_length == 32
+    assert config_kwargs == {"output_attentions": False, "num_labels": 2}
+    assert processor_kwargs == {"model_max_length": 64}
+    original_model = CrossEncoder(
+        str(tmp_path), processor_kwargs=processor_kwargs, local_files_only=True, device="cpu"
+    )
+    assert original_model.max_seq_length == 64
 
 
 def test_load_with_revision() -> None:
@@ -389,26 +426,26 @@ def test_bfloat16() -> None:
     assert isinstance(ranking, list)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test moving devices effectively.")
-@pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_device_assignment(device):
-    model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce", device=device)
-    assert model.device.type == device
+def test_device_assignment(inference_device: str) -> None:
+    model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce", device=inference_device)
+    assert model.device.type == inference_device
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test moving devices effectively.")
-def test_device_switching():
-    # test assignment using .to
+def test_device_switching(inference_device: str) -> None:
     model = CrossEncoder("cross-encoder-testing/reranker-bert-tiny-gooaq-bce", device="cpu")
     assert model.device.type == "cpu"
     assert model.model.device.type == "cpu"
 
-    model.to("cuda")
-    assert model.device.type == "cuda"
-    assert model.model.device.type == "cuda"
+    model.to(inference_device)
+    assert model.device.type == inference_device
+    assert model.model.device.type == inference_device
 
-    del model
-    torch.cuda.empty_cache()
+    scores = model.predict([["Hello there!", "Hello, World!"]], convert_to_tensor=True)
+    assert scores.shape == (1,)
+    assert scores.device.type == inference_device
+
+    model.cpu()
+    assert model.device.type == "cpu"
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA must be available to test moving devices effectively.")
@@ -827,6 +864,29 @@ def test_load_activation_fn_from_config_custom(reranker_bert_tiny_model: CrossEn
         str(tmp_path), activation_fn=torch.nn.Identity(), trust_remote_code=True, local_files_only=True
     )
     torch.testing.assert_close(loaded_model.predict(inputs, convert_to_tensor=True), raw_scores)
+
+
+@pytest.mark.parametrize(
+    "activation_fn",
+    [torch.relu, lambda scores: scores, functools.partial(torch.clamp, min=0.0), torch.sigmoid],
+    ids=["builtin", "lambda", "partial", "default"],
+)
+def test_save_warns_for_plain_function_activation_fn(
+    reranker_bert_tiny_model: CrossEncoder,
+    tmp_path: Path,
+    activation_fn: Callable,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model = reranker_bert_tiny_model
+    model.activation_fn = activation_fn
+    inputs = [["Hello there!", "Hello, World!"]]
+    expected = model.predict(inputs, convert_to_tensor=True)
+    with caplog.at_level(logging.WARNING, logger="sentence_transformers.cross_encoder.model"):
+        model.save_pretrained(tmp_path)
+    assert "plain functions can't be restored" in caplog.text
+
+    loaded = CrossEncoder(str(tmp_path), activation_fn=activation_fn, local_files_only=True)
+    torch.testing.assert_close(loaded.predict(inputs, convert_to_tensor=True), expected)
 
 
 def test_default_activation_fn(reranker_bert_tiny_model: CrossEncoder):

@@ -8,7 +8,6 @@ from torch import Tensor, nn
 
 from sentence_transformers.base.losses.merged_forward import embed_columns_padded
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
-from sentence_transformers.multi_vector_encoder.scoring import colbert_scores_pairwise
 from sentence_transformers.util import similarity_fct_name
 
 
@@ -17,14 +16,14 @@ class MultiVectorMarginMSELoss(nn.Module):
 
     Adapted from the dense :class:`sentence_transformers.sentence_transformer.losses.MarginMSELoss`. Given a query, a positive
     document, and one or more negative documents, plus teacher margins ``score(q, pos) - score(q, neg)``,
-    the student's MaxSim margins are MSE-matched to the teacher's.
+    the student's similarity margins are MSE-matched to the teacher's.
 
     Args:
         model: A :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder`.
         similarity_fct: A pairwise scoring function, called as ``similarity_fct(queries_embeddings,
             documents_embeddings, queries_mask=..., documents_mask=...)`` like in the other
             multi-vector losses. Defaults to
-            :func:`~sentence_transformers.multi_vector_encoder.scoring.colbert_scores_pairwise`.
+            ``None``, which uses ``model.similarity_pairwise``.
             Pass :func:`~sentence_transformers.multi_vector_encoder.scoring.xtr_scores_pairwise`
             for XTR-style scoring.
         mini_batch_size: Maximum number of rows per model forward. The merged document batch is
@@ -95,19 +94,23 @@ class MultiVectorMarginMSELoss(nn.Module):
     ) -> None:
         super().__init__()
         self.model = model
-        self.similarity_fct = similarity_fct if similarity_fct is not None else colbert_scores_pairwise
+        self.similarity_fct = similarity_fct
         self.mini_batch_size = mini_batch_size
         self.loss_function = nn.MSELoss()
 
     def get_config_dict(self) -> dict[str, Any]:
         return {
-            "similarity_fct": similarity_fct_name(self.similarity_fct),
+            "similarity_fct": similarity_fct_name(self.similarity_fct) if self.similarity_fct is not None else None,
             "mini_batch_size": self.mini_batch_size,
         }
 
     def _score(
         self, query_embeddings: Tensor, document_embeddings: Tensor, query_mask: Tensor, document_mask: Tensor
     ) -> Tensor:
+        if self.similarity_fct is None:
+            return self.model.similarity_pairwise(
+                query_embeddings, document_embeddings, a_mask=query_mask, b_mask=document_mask
+            )
         return self.similarity_fct(
             query_embeddings, document_embeddings, queries_mask=query_mask, documents_mask=document_mask
         )

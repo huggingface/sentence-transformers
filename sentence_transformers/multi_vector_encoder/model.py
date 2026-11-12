@@ -5,8 +5,9 @@ import logging
 import string
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
 
 import numpy as np
 import torch
@@ -21,11 +22,21 @@ from sentence_transformers.base.modality_types import SingleInput
 from sentence_transformers.base.modules import Normalize, Transformer
 from sentence_transformers.base.modules.dense import Dense
 from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEncoderModelCardData
-from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling, MultiVectorMask
+from sentence_transformers.multi_vector_encoder.modules import (
+    BaseTokenPooling,
+    HierarchicalTokenPooling,
+    MultiVectorMask,
+)
+from sentence_transformers.multi_vector_encoder.modules.token_pooling import _normalize_token_embeddings
+from sentence_transformers.multi_vector_encoder.scoring.colbert import _MaxSimScorer
 from sentence_transformers.util import batch_to_device, load_file_path
-from sentence_transformers.util.misc import import_from_string
+from sentence_transformers.util.kernels import _split_kernel_config
+from sentence_transformers.util.misc import _to_list, import_from_string
 from sentence_transformers.util.similarity import SimilarityFunction
 from sentence_transformers.util.tensor import _tensor_to_numpy
+
+if TYPE_CHECKING:
+    from transformers import KernelConfig
 
 logger = transformers_logging.get_logger(__name__)
 
@@ -75,7 +86,7 @@ class MultiVectorEncoder(BaseModel):
             from the Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used
             to create custom MultiVectorEncoder models from scratch. Defaults to None.
-        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used
+        device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``, ``"neuron"``) that should be used
             for computation. If None, checks if a GPU can be used. Defaults to None.
         prompts (dict[str, str], optional): Standard ST prompts dict, prepended to inputs by the encode methods.
             For ColBERT-style models supply ``{"query": "[Q] ", "document": "[D] "}`` (or whatever the model's
@@ -104,6 +115,18 @@ class MultiVectorEncoder(BaseModel):
         similarity_fn_name (str or SimilarityFunction, optional): The name of the similarity function, either
             ``"maxsim"`` or ``"meanmaxsim"`` (MaxSim divided by the query's token count). Defaults to
             ``"maxsim"``.
+        use_kernels (bool, optional): Enable default backbone, MaxSim, and Ward pooling kernels supported by the device.
+            Requires the torch backend and compatible kernel dependencies. Defaults to False.
+        kernel_config (KernelConfig, optional): Override backbone, MaxSim, or Ward kernel mappings. Providing a
+            configuration also enables kernels. ``STMaxSim`` and ``STMaxSimPairwise`` configure model
+            similarity and default loss scoring. ``STWardClustering`` configures hierarchical token
+            pooling unless the pooler has explicit kernel settings. Other targets are passed to
+            Transformers. Kernel configuration is runtime-only. Defaults to None.
+        token_pooling (BaseTokenPooling, optional): Default pooling for encoding, applied before truncation.
+            A per-call pooler overrides this default, which is not saved with the model. Defaults to None.
+        truncate_dim (int, optional): Default token embedding dimension for the encode methods. Truncated
+            vectors are L2-normalized, and a per-call value overrides this default. If None, uses the
+            saved setting or the model's full embedding dimension.
 
     Note:
         Length / expansion / masking knobs (``query_length``, ``document_length``, ``query_expansion``,
@@ -170,15 +193,33 @@ class MultiVectorEncoder(BaseModel):
         model_kwargs: dict[str, Any] | None = None,
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
+        use_kernels: bool = False,
+        kernel_config: KernelConfig | None = None,
         model_card_data: MultiVectorEncoderModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
+        # MultiVectorEncoder-specific args
         similarity_fn_name: str | SimilarityFunction | None = None,
+        token_pooling: BaseTokenPooling | None = None,
+        truncate_dim: int | None = None,
     ) -> None:
         # Stash before super().__init__ so _parse_model_config only falls back to saved config when unset.
         self.similarity_fn_name = similarity_fn_name
+        self.token_pooling = token_pooling
+        self.truncate_dim = truncate_dim
         # Legacy-checkpoint state populated by ``_parse_model_config`` (PyLate v3) and
         # ``_maybe_load_stanford_metadata`` (Stanford-NLP). Empty for native MVE saves.
         self._legacy = _LegacyStash()
+
+        similarity_kernel_config = None
+        self._token_pooling_kernel_config = None
+        backbone_kernel_config = kernel_config
+        if kernel_config is not None:
+            self._token_pooling_kernel_config, backbone_kernel_config = _split_kernel_config(
+                kernel_config, {"STWardClustering"}
+            )
+            similarity_kernel_config, backbone_kernel_config = _split_kernel_config(
+                backbone_kernel_config, {"STMaxSim", "STMaxSimPairwise"}
+            )
 
         super().__init__(
             model_name_or_path=model_name_or_path,
@@ -190,6 +231,8 @@ class MultiVectorEncoder(BaseModel):
             local_files_only=local_files_only,
             token=token,
             model_kwargs=model_kwargs,
+            use_kernels=use_kernels,
+            kernel_config=backbone_kernel_config,
             processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             model_card_data=model_card_data,
@@ -198,6 +241,21 @@ class MultiVectorEncoder(BaseModel):
             default_prompt_name=default_prompt_name,
         )
         self.model_card_data: MultiVectorEncoderModelCardData
+        self.kernel_config = deepcopy(kernel_config)
+
+        for module in [*self.modules(), self.token_pooling]:
+            if isinstance(module, HierarchicalTokenPooling):
+                module._set_kernel_settings(self.use_kernels, self._token_pooling_kernel_config)
+
+        if self.use_kernels:
+            from transformers import KernelConfig
+
+            scorer = _MaxSimScorer(
+                similarity_kernel_config if similarity_kernel_config is not None else KernelConfig(),
+                length_normalize=self.similarity_fn_name == SimilarityFunction.MEAN_MAXSIM.value,
+            )
+            self._similarity = scorer
+            self._similarity_pairwise = scorer.pairwise
 
         module_list = list(self._modules.values())
         for index, module in enumerate(module_list):
@@ -212,6 +270,13 @@ class MultiVectorEncoder(BaseModel):
                     "mask, so without one they will not be scored. Add a MultiVectorMask module after "
                     "the Transformer."
                 )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "token_pooling":
+            if value is not None and not isinstance(value, BaseTokenPooling):
+                raise ValueError("token_pooling must be a BaseTokenPooling module or None.")
+            return super(nn.Module, self).__setattr__(name, value)
+        return super().__setattr__(name, value)
 
     def is_singular_input(self, inputs: Any) -> TypeIs[SingleInput]:
         """Check if the input is a single example rather than a batch. Redeclared with
@@ -233,9 +298,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[False] = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> Tensor: ...
 
@@ -252,9 +318,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> np.ndarray: ...
 
@@ -271,9 +338,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> dict[str, Tensor]: ...
 
@@ -289,9 +357,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[False] = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> list[Tensor]: ...
 
@@ -308,9 +377,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> list[np.ndarray]: ...
 
@@ -327,9 +397,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> list[dict[str, Tensor]]: ...
 
@@ -346,9 +417,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]: ...
 
@@ -363,9 +435,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = False,
         device: str | torch.device | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
+        token_pooling: BaseTokenPooling | None = None,
+        truncate_dim: int | None = None,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
-        token_pooling: BaseTokenPooling | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
         """Compute query embeddings. Uses the "query" prompt and routes through the query side.
@@ -390,9 +463,10 @@ class MultiVectorEncoder(BaseModel):
             convert_to_numpy=convert_to_numpy,
             device=device,
             normalize_embeddings=normalize_embeddings,
+            token_pooling=token_pooling,
+            truncate_dim=truncate_dim,
             pool=pool,
             chunk_size=chunk_size,
-            token_pooling=token_pooling,
             task="query",
             **kwargs,
         )
@@ -409,9 +483,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[False] = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> Tensor: ...
 
@@ -428,9 +503,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> np.ndarray: ...
 
@@ -447,9 +523,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> dict[str, Tensor]: ...
 
@@ -465,9 +542,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[False] = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> list[Tensor]: ...
 
@@ -484,9 +562,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> list[np.ndarray]: ...
 
@@ -503,9 +582,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> list[dict[str, Tensor]]: ...
 
@@ -522,9 +602,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]: ...
 
@@ -539,9 +620,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = False,
         device: str | torch.device | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
+        token_pooling: BaseTokenPooling | None = None,
+        truncate_dim: int | None = None,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
-        token_pooling: BaseTokenPooling | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
         """Compute document embeddings. Uses the first available of ``"document"`` / ``"passage"`` / ``"corpus"``
@@ -570,9 +652,10 @@ class MultiVectorEncoder(BaseModel):
             convert_to_numpy=convert_to_numpy,
             device=device,
             normalize_embeddings=normalize_embeddings,
+            token_pooling=token_pooling,
+            truncate_dim=truncate_dim,
             pool=pool,
             chunk_size=chunk_size,
-            token_pooling=token_pooling,
             task="document",
             **kwargs,
         )
@@ -589,9 +672,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[False] = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
         **kwargs: Any,
     ) -> Tensor: ...
@@ -609,9 +693,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
         **kwargs: Any,
     ) -> np.ndarray: ...
@@ -629,9 +714,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
         **kwargs: Any,
     ) -> dict[str, Tensor]: ...
@@ -648,9 +734,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[False] = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
         **kwargs: Any,
     ) -> list[Tensor]: ...
@@ -668,9 +755,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: Literal[True],
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
         **kwargs: Any,
     ) -> list[np.ndarray]: ...
@@ -688,9 +776,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
         **kwargs: Any,
     ) -> list[dict[str, Tensor]]: ...
@@ -708,9 +797,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = ...,
         device: str | torch.device | list[str | torch.device] | None = ...,
         normalize_embeddings: bool = ...,
+        token_pooling: BaseTokenPooling | None = ...,
+        truncate_dim: int | None = ...,
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
-        token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]: ...
@@ -726,9 +816,10 @@ class MultiVectorEncoder(BaseModel):
         convert_to_numpy: bool = False,
         device: str | torch.device | list[str | torch.device] | None = None,
         normalize_embeddings: bool = False,
+        token_pooling: BaseTokenPooling | None = None,
+        truncate_dim: int | None = None,
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
-        token_pooling: BaseTokenPooling | None = None,
         task: str | None = None,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
@@ -751,9 +842,8 @@ class MultiVectorEncoder(BaseModel):
                 embeddings, sliced by the scoring mask. ``None`` returns the raw per-input module
                 output dicts instead: every feature key (``token_embeddings``, ``attention_mask``,
                 and any extra keys custom modules wrote), unsliced and padded to each batch's
-                longest input. With ``None``, normalization and the ``convert_to_*`` options do not
-                apply. Per-call ``token_pooling`` does apply: it
-                rewrites ``token_embeddings`` and ``attention_mask`` in the dicts.
+                longest input. With ``None``, pooling and truncation still apply, but
+                ``normalize_embeddings`` and conversion options do not.
             convert_to_numpy (bool, optional): If True, returns a list of :class:`numpy.ndarray` and moves
                 each batch to the CPU as it is encoded. Defaults to False, so embeddings stay on
                 ``device``: scoring them with :meth:`similarity` then needs no transfer, which is worth
@@ -763,17 +853,15 @@ class MultiVectorEncoder(BaseModel):
             device (str, torch.device, list, or None): Device(s) for computation. A single device moves the
                 model there unless a `device_map` or Accelerate hooks control placement, a list uses multi-process encoding, and
                 None uses the model's current device. Defaults to None.
-            normalize_embeddings (bool, optional): If True, L2-normalize each per-token embedding after
-                the pipeline and before per-call token pooling. Use this when the loaded pipeline does
-                not include a :class:`Normalize` module but you still want unit-norm vectors. Defaults to False.
+            normalize_embeddings (bool, optional): Whether to L2-normalize token embeddings before pooling.
+                Defaults to False.
+            token_pooling (BaseTokenPooling, optional): Pooling applied after the forward pipeline, to
+                inputs selected by the pooler's ``tasks`` (documents by default). If None, uses the
+                model's default pooler.
+            truncate_dim (int, optional): Truncate and L2-normalize token embeddings after pooling.
+                If None, uses the model's default dimension.
             pool (dict, optional): A multi-process pool created via :meth:`start_multi_process_pool`.
             chunk_size (int, optional): Chunk size for multi-process encoding.
-            token_pooling (BaseTokenPooling, optional): Per-call token pooling applied after the pipeline
-                to embeddings whose ``task`` is in the pooling's ``tasks`` (by default only
-                documents). If the model already bakes a pooling into its pipeline, this
-                compounds on top of it (pooling further). A one-time note is logged so the case is
-                discoverable. With ``output_value=None``, applied to the raw dicts
-                (``token_embeddings`` and ``attention_mask`` are rewritten). Defaults to None.
             task (str, optional): One of ``"query"``, ``"document"``. Sets the prefix / length /
                 masking strategy.
 
@@ -790,6 +878,10 @@ class MultiVectorEncoder(BaseModel):
         if batch_size <= 0:
             raise ValueError(f"batch_size must be a positive integer, got {batch_size}.")
 
+        truncate_dim = truncate_dim if truncate_dim is not None else self.truncate_dim
+        if token_pooling is None:
+            token_pooling = self.token_pooling
+
         if output_value not in ("token_embeddings", None):
             raise ValueError(
                 f'output_value must be "token_embeddings" or None (raw per-input feature dicts), got {output_value!r}.'
@@ -801,8 +893,7 @@ class MultiVectorEncoder(BaseModel):
         if is_singular_input:
             inputs = [inputs]
         elif not isinstance(inputs, list):
-            # The annotation pins ndarray.tolist()'s Any so checkers keep the narrowed input type.
-            materialized: list[SingleInput] = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            materialized: list[SingleInput] = _to_list(inputs)
             inputs = materialized
 
         # Validate kwargs (matching SparseEncoder.encode behaviour).
@@ -832,6 +923,7 @@ class MultiVectorEncoder(BaseModel):
             save_to_cpu=convert_to_numpy,
             normalize_embeddings=normalize_embeddings,
             token_pooling=token_pooling,
+            truncate_dim=truncate_dim,
             task=task,
             **kwargs,
         )
@@ -862,12 +954,16 @@ class MultiVectorEncoder(BaseModel):
         save_to_cpu: bool,
         normalize_embeddings: bool,
         token_pooling: BaseTokenPooling | None,
+        truncate_dim: int | None,
         task: str | None,
         device: str | torch.device | None = None,
         **kwargs,
     ) -> list[Tensor] | list[dict[str, Any]]:
         """Run local inference on normalized inputs with resolved arguments."""
         is_query = task == "query"
+
+        if isinstance(token_pooling, HierarchicalTokenPooling):
+            token_pooling._set_kernel_settings(self.use_kernels, self._token_pooling_kernel_config)
 
         device = self._resolve_inference_device(device)
         self.eval()
@@ -893,11 +989,14 @@ class MultiVectorEncoder(BaseModel):
                             isinstance(module, BaseTokenPooling) for module in self
                         ):
                             logger.warning_once(
-                                "This model already includes a token pooling in its pipeline: the per-call "
-                                "`token_pooling=` pools further on top of it (compounding). Omit it if you only "
-                                "want the model's built-in pooling."
+                                "This model already includes token pooling in its pipeline. The additional "
+                                "`token_pooling` pools further on top of it (compounding)."
                             )
                         features = token_pooling(features, task=task)
+                    if truncate_dim is not None:
+                        features["token_embeddings"] = _normalize_token_embeddings(
+                            features["token_embeddings"][..., :truncate_dim]
+                        )
                     # Raw per-input module outputs, unsliced. Batch-first tensors are split per
                     # input, other values (ints, strings, flattened tensors) are carried as-is.
                     for idx in range(len(inputs_batch)):
@@ -917,17 +1016,19 @@ class MultiVectorEncoder(BaseModel):
                 if normalize_embeddings:
                     batch_embeddings = [nn.functional.normalize(emb, p=2, dim=-1) for emb in batch_embeddings]
 
-            # Per-call pooling. The pooling's own ``tasks`` gate decides whether this task is
+            # The pooling's own ``tasks`` gate decides whether this task is
             # pooled. Compounds on top of any pooling baked into the pipeline (supported, but
             # noted once in case it's unexpected).
             if token_pooling is not None:
                 if token_pooling.applies_to(task) and any(isinstance(module, BaseTokenPooling) for module in self):
                     logger.warning_once(
-                        "This model already includes a token pooling in its pipeline: the per-call "
-                        "`token_pooling=` pools further on top of it (compounding). Omit it if you only "
-                        "want the model's built-in pooling."
+                        "This model already includes token pooling in its pipeline. The additional "
+                        "`token_pooling` pools further on top of it (compounding)."
                     )
                 batch_embeddings = token_pooling.pool(batch_embeddings, task=task)
+
+            if truncate_dim is not None:
+                batch_embeddings = [_normalize_token_embeddings(emb[..., :truncate_dim]) for emb in batch_embeddings]
 
             if save_to_cpu:
                 batch_embeddings = [emb.cpu() for emb in batch_embeddings]
@@ -970,8 +1071,11 @@ class MultiVectorEncoder(BaseModel):
             )
         self._similarity_fn_name = value
         if value is not None:
-            self._similarity = SimilarityFunction.to_similarity_fn(value)
-            self._similarity_pairwise = SimilarityFunction.to_similarity_pairwise_fn(value)
+            if isinstance(getattr(self, "_similarity", None), _MaxSimScorer):
+                self._similarity.length_normalize = value == SimilarityFunction.MEAN_MAXSIM.value
+            else:
+                self._similarity = SimilarityFunction.to_similarity_fn(value)
+                self._similarity_pairwise = SimilarityFunction.to_similarity_pairwise_fn(value)
 
     def similarity(
         self,
@@ -1051,6 +1155,8 @@ class MultiVectorEncoder(BaseModel):
     def _get_model_config(self) -> dict[str, Any]:
         config = super()._get_model_config()
         config["similarity_fn_name"] = self._similarity_fn_name
+        if self.truncate_dim is not None:
+            config["truncate_dim"] = self.truncate_dim
         return config
 
     def _post_init(self) -> None:
@@ -1131,6 +1237,8 @@ class MultiVectorEncoder(BaseModel):
                 self._legacy.prefixes[prompt_key] = prefix
                 saved_prompts[prompt_key] = prefix + (saved_prompts.get(prompt_key) or "").removeprefix(prefix)
         super()._parse_model_config({**model_config, "prompts": saved_prompts})
+        if self.truncate_dim is None:
+            self.truncate_dim = model_config.get("truncate_dim")
         # Inherit a supported saved similarity_fn_name unless the user overrode it (legacy cosine/dot fall through).
         saved_similarity = model_config.get("similarity_fn_name")
         if self._similarity_fn_name is None and saved_similarity in self.SUPPORTED_SIMILARITY_FN_NAMES:
@@ -1580,6 +1688,12 @@ class MultiVectorEncoder(BaseModel):
 
     def get_embedding_dimension(self) -> int | None:
         """The dimensionality of each token vector returned by :meth:`encode`."""
+        embedding_dim = self._get_untruncated_embedding_dimension()
+        if self.truncate_dim is not None:
+            return self.truncate_dim if embedding_dim is None else min(embedding_dim, self.truncate_dim)
+        return embedding_dim
+
+    def _get_untruncated_embedding_dimension(self) -> int | None:
         for module in reversed(self._modules.values()):
             method = getattr(module, "get_embedding_dimension", None)
             if callable(method):
@@ -1618,5 +1732,5 @@ print(scores)
 
 ---
 *This PR was auto-generated with \
-[`push_to_hub`](https://sbert.net/docs/package_reference/multi_vector_encoder/MultiVectorEncoder.html#sentence_transformers.multi_vector_encoder.MultiVectorEncoder.push_to_hub).*
+[`push_to_hub`](https://sbert.net/docs/package_reference/multi_vector_encoder/model.html#sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.push_to_hub).*
 """

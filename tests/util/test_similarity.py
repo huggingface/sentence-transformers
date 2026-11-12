@@ -1384,11 +1384,19 @@ def test_maxsim_query_chunking_bounds_padding_and_scores(
     torch.testing.assert_close(scores, expected)
 
 
-def test_maxsim_query_chunking_preserves_gradients() -> None:
+@pytest.mark.parametrize(
+    "device",
+    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required"))],
+)
+def test_maxsim_query_chunking_preserves_gradients(device: str) -> None:
     queries = [
-        ((torch.arange(width * 4).reshape(width, 4).float() + 1) / 100).requires_grad_() for width in [2, 18, 3]
+        ((torch.arange(width * 4, device=device).reshape(width, 4).float() + 1) / 100).requires_grad_()
+        for width in [2, 18, 3]
     ]
-    documents = [(-(torch.arange(width * 4).reshape(width, 4).float() + 1) / 100).requires_grad_() for width in [5, 3]]
+    documents = [
+        (-(torch.arange(width * 4, device=device).reshape(width, 4).float() + 1) / 100).requires_grad_()
+        for width in [5, 3]
+    ]
     expected = torch.stack(
         [
             torch.stack([(query @ document.T).max(dim=-1).values.sum() / len(query) for document in documents])
@@ -1405,23 +1413,29 @@ def test_maxsim_query_chunking_preserves_gradients() -> None:
         torch.testing.assert_close(gradient, expected_gradient)
 
 
+@pytest.mark.parametrize("chunk_elements", [40, 10**9])
+@pytest.mark.parametrize("pairwise", [False, True])
 @pytest.mark.parametrize("length_normalize", [False, True])
 @pytest.mark.parametrize("mask_dtype", [torch.bool, torch.float32])
 @pytest.mark.parametrize("mask_name", ["a_mask", "b_mask"])
 def test_maxsim_chunking_preserves_shared_masks(
-    length_normalize: bool, mask_dtype: torch.dtype, mask_name: str
+    chunk_elements: int, pairwise: bool, length_normalize: bool, mask_dtype: torch.dtype, mask_name: str
 ) -> None:
     queries = torch.arange(1, 25).reshape(4, 3, 2).float() / 10
-    documents = -torch.arange(1, 13).reshape(2, 3, 2).float() / 10
+    document_count = len(queries) if pairwise else 2
+    documents = -torch.arange(1, document_count * 6 + 1).reshape(document_count, 3, 2).float() / 10
+    score = maxsim_pairwise if pairwise else maxsim
     mask = torch.tensor([[0.5, 0, 1]], dtype=mask_dtype)
     batch_size = len(queries) if mask_name == "a_mask" else len(documents)
-    expected = maxsim(
+    expected = score(
         queries,
         documents,
         **{mask_name: mask.expand(batch_size, -1)},
         chunk_elements=40,
         length_normalize=length_normalize,
     )
-    scores = maxsim(queries, documents, **{mask_name: mask}, chunk_elements=40, length_normalize=length_normalize)
+    scores = score(
+        queries, documents, **{mask_name: mask}, chunk_elements=chunk_elements, length_normalize=length_normalize
+    )
 
     torch.testing.assert_close(scores, expected)

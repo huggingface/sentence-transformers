@@ -69,7 +69,7 @@ class SaveModelCallback(TrainerCallback):
         **kwargs,
     ) -> None:
         if self.evaluator is not None and self.save_best_model:
-            metric_key = getattr(self.evaluator, "primary_metric", "evaluator")
+            metric_key = getattr(self.evaluator, "primary_metric", None) or "evaluator"
             for key, value in metrics.items():
                 if key.endswith(metric_key):
                     if self.best_metric is None or self.is_better(value):
@@ -148,7 +148,7 @@ class OriginalCallback(TrainerCallback):
         metrics: dict[str, Any],
         **kwargs,
     ) -> None:
-        metric_key = getattr(self.evaluator, "primary_metric", "evaluator")
+        metric_key = getattr(self.evaluator, "primary_metric", None) or "evaluator"
         for key, value in metrics.items():
             if key.endswith(metric_key):
                 return self.callback(value, state.epoch, state.global_step)
@@ -279,6 +279,10 @@ class FitMixin:
                 batch_texts, batch_labels = zip(*[(example.texts, example.label) for example in batch])
                 texts += batch_texts
                 labels += batch_labels
+            if len({len(example_texts) for example_texts in texts}) > 1:
+                raise ValueError(
+                    f"All InputExamples for training objective {loader_idx} must have the same number of texts."
+                )
             dataset = Dataset.from_dict({f"sentence_{idx}": text for idx, text in enumerate(zip(*texts))})
             # Add label column, unless all labels are 0 (the default value for `labels` in InputExample)
             add_label_column = True
@@ -705,6 +709,8 @@ class FitMixin:
 
         if evaluator is not None:
             score = evaluator(self, output_path=eval_path, epoch=epoch, steps=steps)
+            if isinstance(score, dict):
+                score = score[evaluator.primary_metric]
             if callback is not None:
                 callback(score, epoch, steps)
             if score > self.best_score:

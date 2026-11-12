@@ -19,7 +19,7 @@ from sentence_transformers.multi_vector_encoder.scoring import XTRScores, colber
 from sentence_transformers.sentence_transformer.modules import WordEmbeddings
 from sentence_transformers.sentence_transformer.modules.tokenizer import WhitespaceTokenizer
 from sentence_transformers.util import SimilarityFunction, maxsim, maxsim_pairwise
-from tests.utils import skip_bfloat16_cpu_crash
+from tests.utils import skip_bfloat16_cpu_crash, skip_fp16_cpu_layer_norm
 
 
 def test_loads_with_default_modules() -> None:
@@ -764,13 +764,19 @@ def test_singular_input_unwraps(mve_bert_tiny_model: MultiVectorEncoder) -> None
     assert array.ndim == 2
 
 
-def test_encode_defaults_to_tensors_on_model_device(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+def test_encode_defaults_to_tensors_on_model_device(
+    mve_bert_tiny_model: MultiVectorEncoder, inference_device: str
+) -> None:
     """The default output feeds similarity without a host round trip, so it stays on the model's
     device as tensors. ``convert_to_numpy=True`` remains the opt-out for corpora that outgrow it."""
-    model = mve_bert_tiny_model
+    model = mve_bert_tiny_model.cpu()
+    model.to(inference_device)
+    assert model.device.type == inference_device
     embeddings = model.encode_document(["one doc", "another doc"])
     assert all(isinstance(emb, torch.Tensor) and emb.device == model.device for emb in embeddings)
     assert all(isinstance(emb, np.ndarray) for emb in model.encode_document(["a", "b"], convert_to_numpy=True))
+    model.cpu()
+    assert model.device.type == "cpu"
 
 
 def test_convert_to_tensor_is_rejected_by_name(mve_bert_tiny_model: MultiVectorEncoder) -> None:
@@ -1370,32 +1376,6 @@ def test_hierarchical_pooling_helper_reduces_token_count() -> None:
     assert torch.allclose(pooled[0], emb[0])
 
 
-def test_hierarchical_pooling_module_pools_documents_not_queries() -> None:
-    module = HierarchicalTokenPooling(pool_factor=2)
-    emb = torch.nn.functional.normalize(torch.randn(2, 12, 8), p=2, dim=-1)
-    mask = torch.ones(2, 12, dtype=torch.long)
-
-    doc = module({"token_embeddings": emb.clone(), "attention_mask": mask.clone()}, task="document")
-    assert doc["token_embeddings"].shape[1] < 12
-    assert doc["attention_mask"].shape[1] == doc["token_embeddings"].shape[1]
-
-    # Queries pass through untouched.
-    query = module({"token_embeddings": emb.clone(), "attention_mask": mask.clone()}, task="query")
-    assert query["token_embeddings"].shape[1] == 12
-
-
-def test_hierarchical_pooling_module_in_pipeline() -> None:
-    text = "a fairly long document with plenty of distinct tokens to cluster together here"
-    base = "sentence-transformers-testing/stsb-bert-tiny-safetensors"
-    without_pool = MultiVectorEncoder(base).encode_document([text])
-
-    pooled_model = MultiVectorEncoder(base)
-    pooled_model.append(HierarchicalTokenPooling(pool_factor=2))
-    with_pool = pooled_model.encode_document([text])
-
-    assert with_pool[0].shape[0] < without_pool[0].shape[0]
-
-
 def test_encode_pooling_compounds_and_notes_when_module_present(caplog) -> None:
     """When a pooling is already in the pipeline AND encode() is called with a per-call ``token_pooling=``,
     the per-call pooling compounds on top (a supported way to pool further than the built-in default),
@@ -1430,19 +1410,28 @@ def test_encode_pooling_note_skipped_for_unpooled_tasks(caplog) -> None:
     assert any("compounding" in record.message for record in caplog.records)
 
 
-def test_encode_pooling_applies_to_raw_output(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+@pytest.mark.parametrize("pooler", ["hierarchical", "lambda"])
+def test_encode_pooling_applies_to_raw_output(mve_bert_tiny_model: MultiVectorEncoder, pooler: str) -> None:
     # Per-call transforms also apply to raw output, like ST's truncate_dim. The pooling module's
     # forward slices each row by its mask before clustering, so batch padding never reaches the
     # pooling, and the rewritten mask marks the pooled rows: mask-sliced raw output is bit-exact
     # vs the normal (list of 2D) path.
+    from sentence_transformers.multi_vector_encoder.modules import LambdaTokenPooling
+
     model = mve_bert_tiny_model
     texts = [
         "short doc",
         "a fairly long document with plenty of distinct tokens to cluster together here",
         "medium length document with several tokens",
     ]
-    pooling = HierarchicalTokenPooling(pool_factor=2)
+    pooling = (
+        HierarchicalTokenPooling(pool_factor=2)
+        if pooler == "hierarchical"
+        else LambdaTokenPooling(pool_fn=lambda emb: emb[::2])
+    )
+    unpooled = model.encode_document(texts)
     normal = model.encode_document(texts, token_pooling=pooling)
+    assert all(len(pooled) < len(full) for pooled, full in zip(normal, unpooled))
     raw = model.encode_document(texts, output_value=None, token_pooling=pooling)
     assert isinstance(raw, list)
     # The ragged batch must actually contain padded rows for this test to mean anything.
@@ -1452,18 +1441,228 @@ def test_encode_pooling_applies_to_raw_output(mve_bert_tiny_model: MultiVectorEn
         assert torch.equal(item["token_embeddings"][mask], pooled_reference)
 
 
-def test_encode_pooling_skips_queries_on_raw_output(mve_bert_tiny_model: MultiVectorEncoder) -> None:
-    # encode delegates the task gate to the pooling itself: default tasks skip queries, listing
-    # "query" pools them.
+@pytest.mark.parametrize("output_value", ["token_embeddings", None])
+def test_encode_pooling_skips_queries(mve_bert_tiny_model: MultiVectorEncoder, output_value: str | None) -> None:
     model = mve_bert_tiny_model
     query = "a fairly long query with plenty of distinct tokens to cluster together here"
-    unpooled = model.encode_query(query, output_value=None)["token_embeddings"]
-    skipped = model.encode_query(query, output_value=None, token_pooling=HierarchicalTokenPooling(pool_factor=2))
-    opted_in = model.encode_query(
-        query, output_value=None, token_pooling=HierarchicalTokenPooling(pool_factor=2, tasks=["query", "document"])
+    unpooled = model.encode_query(query, output_value=output_value)
+    skipped = model.encode_query(
+        query, output_value=output_value, token_pooling=HierarchicalTokenPooling(pool_factor=2)
     )
-    assert skipped["token_embeddings"].shape == unpooled.shape
-    assert opted_in["token_embeddings"].shape[0] < unpooled.shape[0]
+    opted_in = model.encode_query(
+        query,
+        output_value=output_value,
+        token_pooling=HierarchicalTokenPooling(pool_factor=2, tasks=["query", "document"]),
+    )
+    if output_value is None:
+        unpooled, skipped, opted_in = [output["token_embeddings"] for output in (unpooled, skipped, opted_in)]
+    torch.testing.assert_close(skipped, unpooled)
+    assert opted_in.shape[0] < unpooled.shape[0]
+
+
+@pytest.mark.parametrize("method", ["encode", "encode_query", "encode_document"])
+@pytest.mark.parametrize("output", ["tensor", "numpy", "raw"])
+def test_encode_truncate_dim(mve_bert_tiny_model: MultiVectorEncoder, method: str, output: str) -> None:
+    model = mve_bert_tiny_model
+    encode = getattr(model, method)
+    texts = ["short text", "a longer document with several distinct tokens to pool together"]
+    dim = model.get_embedding_dimension() // 2
+    pooling = HierarchicalTokenPooling(pool_factor=2)
+    full = encode(texts, token_pooling=pooling)
+    kwargs = {"output_value": None} if output == "raw" else {"convert_to_numpy": output == "numpy"}
+    truncated = encode(texts, truncate_dim=dim, token_pooling=pooling, **kwargs)
+    for expected, actual in zip(full, truncated):
+        expected = torch.nn.functional.normalize(expected[..., :dim], p=2, dim=-1)
+        if output == "raw":
+            actual = actual["token_embeddings"][actual["attention_mask"].bool()]
+        elif output == "numpy":
+            assert isinstance(actual, np.ndarray)
+            actual = torch.from_numpy(actual).to(expected.device)
+        assert actual.shape == expected.shape
+        torch.testing.assert_close(actual, expected)
+    single = encode(texts[0], truncate_dim=dim, token_pooling=pooling, **kwargs)
+    assert isinstance(single, dict if output == "raw" else np.ndarray if output == "numpy" else torch.Tensor)
+    assert (single["token_embeddings"] if output == "raw" else single).shape[-1] == dim
+
+
+@pytest.mark.parametrize("truncate_dim", [0, -1, 10_000])
+@pytest.mark.parametrize("use_default", [False, True])
+def test_truncate_dim_slicing(mve_bert_tiny_model: MultiVectorEncoder, truncate_dim: int, use_default: bool) -> None:
+    model = mve_bert_tiny_model
+    full = model.encode("text")
+    if use_default:
+        model = MultiVectorEncoder(modules=list(model), truncate_dim=truncate_dim, device=str(model.device))
+        actual = model.encode("text")
+    else:
+        actual = model.encode("text", truncate_dim=truncate_dim)
+    expected = torch.nn.functional.normalize(full[..., :truncate_dim], p=2, dim=-1)
+    torch.testing.assert_close(actual, expected)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        pytest.param(torch.float16, marks=skip_fp16_cpu_layer_norm),
+        pytest.param(torch.bfloat16, marks=skip_bfloat16_cpu_crash),
+    ],
+)
+@pytest.mark.parametrize("output", ["tensor", "numpy", "raw"])
+def test_encode_truncation_with_low_precision_padding(mve_bert_tiny_model, dtype: torch.dtype, output: str) -> None:
+    model = mve_bert_tiny_model.to(device="cpu", dtype=dtype).eval()
+    kwargs = {"output_value": None} if output == "raw" else {"convert_to_numpy": output == "numpy"}
+    dim = model.get_embedding_dimension() // 2
+    embeddings = model.encode_document(
+        [
+            "short text",
+            "a much longer document with many distinct words that create different numbers of pooled vectors",
+        ],
+        batch_size=2,
+        token_pooling=HierarchicalTokenPooling(pool_factor=2),
+        truncate_dim=dim,
+        **kwargs,
+    )
+    if output == "raw":
+        assert any((~item["attention_mask"].bool()).any() for item in embeddings)
+    for embedding in embeddings:
+        if output == "raw":
+            values = embedding["token_embeddings"]
+            assert torch.isfinite(values).all()
+            padding = ~embedding["attention_mask"].bool()
+            assert values[padding].count_nonzero() == 0
+            values = values[~padding]
+        elif output == "numpy":
+            values = torch.from_numpy(embedding)
+        else:
+            values = embedding
+        assert values.shape[-1] == dim
+        if output != "numpy":
+            assert values.dtype == dtype
+        assert torch.isfinite(values).all()
+        torch.testing.assert_close(values.float().norm(dim=-1), torch.ones(len(values)), atol=0.005, rtol=0.005)
+
+
+@pytest.mark.parametrize(
+    "method,output", [("encode", "tensor"), ("encode_query", "numpy"), ("encode_document", "raw")]
+)
+def test_init_truncate_dim(mve_bert_tiny_model: MultiVectorEncoder, method: str, output: str) -> None:
+    original = mve_bert_tiny_model
+    full_dim = original.get_embedding_dimension()
+    dim = full_dim // 2
+    texts = ["short text", "a longer document with several distinct tokens to pool together"]
+    pooling = HierarchicalTokenPooling(pool_factor=2)
+    full = getattr(original, method)(texts, token_pooling=pooling)
+    model = MultiVectorEncoder(
+        modules=list(original), prompts=original.prompts, truncate_dim=dim, device=str(original.device)
+    )
+    kwargs = {"output_value": None} if output == "raw" else {"convert_to_numpy": output == "numpy"}
+    encode = getattr(model, method)
+    for requested_dim in [None, dim // 2, full_dim]:
+        actual_embeddings = encode(texts, truncate_dim=requested_dim, token_pooling=pooling, **kwargs)
+        expected_dim = dim if requested_dim is None else requested_dim
+        for expected, actual in zip(full, actual_embeddings):
+            expected = torch.nn.functional.normalize(expected[..., :expected_dim], p=2, dim=-1)
+            if output == "raw":
+                actual = actual["token_embeddings"][actual["attention_mask"].bool()]
+            elif output == "numpy":
+                actual = torch.from_numpy(actual).to(expected.device)
+            torch.testing.assert_close(actual, expected)
+        assert model.get_embedding_dimension() == dim
+        assert model.truncate_dim == dim
+
+
+def test_init_truncate_dim_save_load(mve_bert_tiny_model: MultiVectorEncoder, tmp_path) -> None:
+    original = mve_bert_tiny_model
+    full_dim = original.get_embedding_dimension()
+    model = MultiVectorEncoder(modules=list(original), truncate_dim=full_dim // 4, device="cpu")
+    model.save_pretrained(str(tmp_path), create_model_card=False)
+
+    loaded = MultiVectorEncoder(str(tmp_path), device="cpu", local_files_only=True)
+    assert loaded.truncate_dim == full_dim // 4
+    assert loaded.get_embedding_dimension() == full_dim // 4
+    assert loaded.encode_document("a document").shape[-1] == full_dim // 4
+    torch.testing.assert_close(
+        loaded.encode_document("a document", truncate_dim=full_dim), original.encode_document("a document").cpu()
+    )
+
+    overridden = MultiVectorEncoder(str(tmp_path), device="cpu", truncate_dim=full_dim // 2, local_files_only=True)
+    assert overridden.truncate_dim == full_dim // 2
+    assert overridden.encode_query("a query").shape[-1] == full_dim // 2
+
+    loaded.truncate_dim = None
+    assert loaded.get_embedding_dimension() == full_dim
+    assert loaded.encode("text").shape[-1] == full_dim
+    assert "truncate_dim" not in loaded._get_model_config()
+
+
+@pytest.mark.parametrize(
+    "method,output", [("encode", "tensor"), ("encode_query", "numpy"), ("encode_document", "raw")]
+)
+def test_init_token_pooling_defaults_and_overrides(mve_bert_tiny_model, method: str, output: str) -> None:
+    original = mve_bert_tiny_model
+    default = HierarchicalTokenPooling(max_tokens=4, tasks=["query", "document"])
+    override = HierarchicalTokenPooling(max_tokens=8, tasks=["query", "document"])
+    dim = original.get_embedding_dimension() // 2
+    model = MultiVectorEncoder(
+        modules=list(original), prompts=original.prompts, device="cpu", token_pooling=default, truncate_dim=dim
+    )
+    texts = ["short text", "a longer document with several distinct tokens to pool together"]
+    kwargs = {"output_value": None} if output == "raw" else {"convert_to_numpy": output == "numpy"}
+    for options, pooling in [
+        ({}, default),
+        ({"token_pooling": None}, default),
+        ({"token_pooling": override}, override),
+    ]:
+        actual = getattr(model, method)(texts, **kwargs, **options)
+        expected = getattr(original, method)(texts, truncate_dim=dim, token_pooling=pooling, **kwargs)
+        for value, reference in zip(actual, expected):
+            if output == "raw":
+                torch.testing.assert_close(value["attention_mask"], reference["attention_mask"])
+                torch.testing.assert_close(value["token_embeddings"], reference["token_embeddings"])
+            elif output == "numpy":
+                np.testing.assert_allclose(value, reference, atol=1e-6)
+            else:
+                torch.testing.assert_close(value, reference)
+    assert model.token_pooling is default
+    assert len(model) == len(original)
+
+
+def test_init_token_pooling_does_not_change_forward(mve_bert_tiny_model) -> None:
+    model = MultiVectorEncoder(
+        modules=list(mve_bert_tiny_model), token_pooling=HierarchicalTokenPooling(max_tokens=4), device="cpu"
+    ).eval()
+    text = "a longer document with several distinct tokens to pool together"
+    with torch.no_grad():
+        output = model(model.preprocess([text], task="document"), task="document")
+    full_count = int(output["attention_mask"].sum())
+    assert full_count > 8
+    assert len(model.encode_document(text)) <= 4
+    assert len(model.encode_query(text)) == len(model.encode_query(text, token_pooling=None))
+    assert "token_pooling" not in dict(model.named_children())
+    model.token_pooling = HierarchicalTokenPooling(max_tokens=8)
+    assert "token_pooling" not in dict(model.named_children())
+    assert len(model.encode_document(text)) <= 8
+    model.token_pooling = None
+    assert len(model.encode_document(text)) == full_count
+
+
+@pytest.mark.parametrize("pooler", ["hierarchical", "lambda"])
+def test_init_token_pooling_is_not_saved(mve_bert_tiny_model, tmp_path, pooler: str) -> None:
+    from sentence_transformers.multi_vector_encoder.modules import LambdaTokenPooling
+
+    pooling = (
+        HierarchicalTokenPooling(max_tokens=4)
+        if pooler == "hierarchical"
+        else LambdaTokenPooling(pool_fn=lambda emb: emb[::2])
+    )
+    model = MultiVectorEncoder(modules=list(mve_bert_tiny_model), token_pooling=pooling, device="cpu")
+    model.save_pretrained(str(tmp_path), create_model_card=False)
+    assert "token_pooling" not in model._get_model_config()
+    assert not (tmp_path / "token_pooling").exists()
+    loaded = MultiVectorEncoder(str(tmp_path), device="cpu", local_files_only=True)
+    assert loaded.token_pooling is None
+    text = "a longer document with several distinct tokens to pool together"
+    torch.testing.assert_close(loaded.encode_document(text), mve_bert_tiny_model.encode_document(text))
+    assert model.token_pooling is pooling
 
 
 def test_encode_empty_list(mve_bert_tiny_model: MultiVectorEncoder) -> None:

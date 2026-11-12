@@ -58,6 +58,14 @@ def main() -> None:
         f"{sum(e.shape[0] for e in compressed)} tokens, scores {[round(s, 3) for s in compressed_scores]}."
     )
 
+    threshold = HierarchicalTokenPooling.calibrate_distance_threshold(baseline, target_tokens=8)
+    adaptive = HierarchicalTokenPooling(distance_threshold=threshold)
+    adaptive_embeddings = adaptive.pool(baseline)
+    print(
+        f"\nAdaptive threshold={adaptive.distance_threshold}: "
+        f"{[len(emb) for emb in adaptive_embeddings]} tokens per document."
+    )
+
     # (3) Pipeline module: bake the pooling into the model so every consumer of the saved
     # checkpoint gets the pooled output. Uncomment to try (skip a following save to keep this
     # example non-destructive).
