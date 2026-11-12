@@ -17,7 +17,8 @@ class CrossEncoderNanoBEIREvaluator(CrossEncoderNanoEvaluator):
 
     The collection is a set of datasets based on the BEIR collection, but with a significantly smaller size, so it can
     be used for quickly evaluating the retrieval performance of a model before committing to a full evaluation.
-    The datasets are available on Hugging Face in the `NanoBEIR collection <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_.
+    The datasets are available in the
+    `Nano datasets with BM25 rankings collection <https://huggingface.co/collections/sentence-transformers/nano-datasets-with-bm25-rankings>`_.
     This evaluator will return the same metrics as the :class:`~sentence_transformers.cross_encoder.evaluation.CrossEncoderRerankingEvaluator`
     (i.e., MRR@k, nDCG@k, MAP), for each dataset and on average.
 
@@ -61,23 +62,22 @@ class CrossEncoderNanoBEIREvaluator(CrossEncoderNanoEvaluator):
             ``NanoMSMARCO`` or ``NanoNFCorpus``).
         rerank_k (int): The number of documents to rerank from the BM25 ranking. Defaults to 100.
         at_k (int, optional): Only consider the top k most similar documents to each query for the evaluation. Defaults to 10.
-        always_rerank_positives (bool): If True, always evaluate with all positives included. If False, only include
-            the positives that are already in the documents list. Always set to True if your ``samples`` contain ``negative``
-            instead of ``documents``. When using ``documents``, setting this to True will result in a more useful evaluation
-            signal, but setting it to False will result in a more realistic evaluation. Defaults to True.
+        always_rerank_positives (bool): Add all relevant documents missing from the top ``rerank_k`` BM25 candidates.
+            This can increase the number of documents scored per query. Set to False to evaluate only the retrieved
+            candidates, so scores also reflect BM25's ability to retrieve relevant documents. Defaults to True.
         prompt_name (str, optional): The name of the prompt to use when calling ``model.predict()``.
             Must be a key in the model's ``prompts`` dictionary. Defaults to None.
-        batch_size (int): Batch size to compute sentence embeddings. Defaults to 64.
-        show_progress_bar (bool): Show progress bar when computing embeddings. Defaults to False.
+        batch_size (int): Prediction batch size. Defaults to 32.
+        show_progress_bar (bool): Show evaluation progress. Defaults to False.
         write_csv (bool): Write results to CSV file. Defaults to True.
         aggregate_fn (Callable[[list[float]], float]): The function to aggregate the scores. Defaults to np.mean.
         aggregate_key (str): The key to use for the aggregated score. Defaults to "mean".
 
     .. tip::
 
-        See this `NanoBEIR datasets collection on Hugging Face <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_
-        with valid NanoBEIR ``dataset_id`` options for different languages. The datasets must contain a "bm25" subset
-        with BM25 rankings for the reranking evaluation to work.
+        Select a NanoBEIR variant with a ``bm25`` subset from the
+        `Nano datasets with BM25 rankings collection <https://huggingface.co/collections/sentence-transformers/nano-datasets-with-bm25-rankings>`_.
+        To evaluate other Nano collections, use :class:`CrossEncoderNanoEvaluator`.
 
     Example:
         ::

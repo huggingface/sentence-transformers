@@ -17,6 +17,9 @@ class MultiVectorNanoEvaluator(NanoEvaluator):
     """Evaluate a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` on a Nano
     text retrieval collection using late interaction.
 
+    Compatible collections are listed in the
+    `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
+
     The dataset must contain corpus, queries, and qrels subsets as described by
     :class:`~sentence_transformers.sentence_transformer.evaluation.NanoEvaluator`. This evaluator runs a
     :class:`MultiVectorInformationRetrievalEvaluator` on each requested split, reports the same retrieval

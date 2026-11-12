@@ -64,9 +64,13 @@ NanoDatasetId = Literal[
 class CrossEncoderNanoEvaluator(BaseEvaluator):
     """Evaluate a CrossEncoder on a Nano retrieval collection using precomputed candidate rankings.
 
+    Compatible collections with BM25 rankings are listed in the
+    `Nano datasets with BM25 rankings collection <https://huggingface.co/collections/sentence-transformers/nano-datasets-with-bm25-rankings>`_.
+
     The dataset must contain corpus, queries, and qrels subsets as described by
     :class:`~sentence_transformers.sentence_transformer.evaluation.NanoEvaluator`, plus a candidate subset
     with query-id and corpus-ids columns for the same task splits. Candidate documents must be ranked.
+    Reports MAP, MRR@k, and nDCG@k for the candidate ranking and reranked results, per split and aggregated across splits.
 
     Args:
         dataset_id (NanoDatasetId | str): Hub dataset ID. The suggested IDs include a bm25 candidate subset.
@@ -76,7 +80,10 @@ class CrossEncoderNanoEvaluator(BaseEvaluator):
         candidate_subset (str): Subset containing ranked candidate document IDs. Defaults to "bm25".
         rerank_k (int): Number of candidates to rerank per query. Defaults to 100.
         at_k (int): Rank cutoff for MRR and nDCG. Defaults to 10.
-        always_rerank_positives (bool): Include all relevant documents in reranking. Defaults to True.
+        always_rerank_positives (bool): Add all relevant documents missing from the top ``rerank_k`` candidates.
+            This can increase the number of documents scored per query. Set to False to evaluate only the retrieved
+            candidates, so scores also reflect the candidate ranking's ability to retrieve relevant documents.
+            Defaults to True.
         prompt_name (str, optional): Model prompt to use for prediction. Defaults to None.
         batch_size (int): Prediction batch size. Defaults to 32.
         show_progress_bar (bool): Show evaluation progress. Defaults to False.

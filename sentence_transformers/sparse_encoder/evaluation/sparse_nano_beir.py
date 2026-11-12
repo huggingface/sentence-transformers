@@ -23,10 +23,10 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator, SparseNanoEvaluator):
 
     The NanoBEIR collection consists of downsized versions of several BEIR information-retrieval datasets, making it
     suitable for quickly benchmarking a model's retrieval performance before running a full-scale BEIR evaluation.
-    The datasets are available on Hugging Face in the Sentence Transformers `NanoBEIR collection <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_,
-    which reformats the `original collection <https://huggingface.co/collections/zeta-alpha-ai/nanobeir>`_ from Zeta Alpha
+    The datasets are available in the `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
+    The `original collection <https://huggingface.co/collections/zeta-alpha-ai/nanobeir>`_ from Zeta Alpha is reformatted
     into the default `NanoBEIR-en <https://huggingface.co/datasets/sentence-transformers/NanoBEIR-en>`_ dataset,
-    alongside many translated versions.
+    alongside many translated NanoBEIR variants.
     This evaluator will return the same metrics as the :class:`~sentence_transformers.sparse_encoder.evaluation.SparseInformationRetrievalEvaluator`
     (i.e., MRR, nDCG, Recall@k, Sparsity, FLOPS), for each dataset and on average.
 
@@ -60,8 +60,9 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator, SparseNanoEvaluator):
 
     .. tip::
 
-        See this `NanoBEIR datasets collection on Hugging Face <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_
-        with valid NanoBEIR ``dataset_id`` options for different languages.
+        Select a NanoBEIR variant from the
+        `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
+        To evaluate other Nano collections, use :class:`SparseNanoEvaluator`.
 
     Example:
         ::

@@ -8,8 +8,11 @@ from sentence_transformers.sentence_transformer.evaluation.nano_beir import Nano
 
 
 class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator, MultiVectorNanoEvaluator):
-    """Evaluates a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` model on the
-    `NanoBEIR collection <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_.
+    """Evaluates a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` model on NanoBEIR.
+
+    NanoBEIR variants are listed in the
+    `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
+    To evaluate other Nano collections, use :class:`MultiVectorNanoEvaluator`.
 
     NanoBEIR is a downsized version of `BEIR <https://github.com/beir-cellar/beir>`_ (around 50 queries
     and 5,000 documents per subset) used for quick retrieval-quality benchmarking before running a
@@ -23,8 +26,8 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator, MultiVectorNanoEvaluator):
             ``"msmarco"``, ``"nfcorpus"``, ``"nq"``, ``"quoraretrieval"``, ``"scidocs"``,
             ``"arguana"``, ``"scifact"``, ``"touche2020"``). Defaults to every subset.
         dataset_id (str): The HuggingFace dataset ID hosting the corpus / queries / qrels subsets.
-            Defaults to ``"sentence-transformers/NanoBEIR-en"``. Swap in a translated variant from the
-            NanoBEIR collection for non-English evaluation.
+            Defaults to ``"sentence-transformers/NanoBEIR-en"``. Use a translated NanoBEIR variant for
+            non-English evaluation.
         corpus_chunk_size (int): How many documents to encode + score per round-trip. Larger values
             mean more encoded doc embeddings live in memory at once but fewer encode-pass round-trips.
             Defaults to 5000.

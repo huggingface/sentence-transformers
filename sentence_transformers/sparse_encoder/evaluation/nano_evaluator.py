@@ -23,6 +23,9 @@ class SparseNanoEvaluator(NanoEvaluator):
     """Evaluate a :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` on a Nano retrieval collection,
     including sparsity statistics and FLOPS.
 
+    Compatible collections are listed in the
+    `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
+
     The dataset must contain corpus, queries, and qrels subsets as described by
     :class:`~sentence_transformers.sentence_transformer.evaluation.NanoEvaluator`. This evaluator runs a
     :class:`SparseInformationRetrievalEvaluator` on each requested split, reports retrieval metrics

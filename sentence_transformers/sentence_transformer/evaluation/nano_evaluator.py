@@ -79,7 +79,8 @@ NanoDatasetId = Literal[
 class NanoEvaluator(BaseEvaluator):
     """
     This class evaluates the performance of a SentenceTransformer Model on a "Nano" collection of Information Retrieval
-    datasets hosted on Hugging Face, such as `NanoBEIR <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_.
+    datasets hosted on Hugging Face. Compatible collections are listed in the
+    `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
 
     A Nano collection is a single Hugging Face dataset with "corpus", "queries", and "qrels" subsets. Every split
     is one retrieval task, and all three subsets share the same split names. The "corpus" and "queries" subsets
