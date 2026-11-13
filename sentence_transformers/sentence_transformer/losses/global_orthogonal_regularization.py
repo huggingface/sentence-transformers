@@ -183,6 +183,9 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
 
         # Compute pairwise similarity matrix between all embeddings, and exclude self-similarities
         sim_matrix = self.similarity_fct(embeddings, embeddings)
+        # Autocast can return half-precision similarities; their sum can overflow before averaging.
+        if sim_matrix.dtype in (torch.float16, torch.bfloat16):
+            sim_matrix = sim_matrix.float()
         sim_matrix.fill_diagonal_(0.0)
         # Clamped so that a batch of one yields a differentiable 0 for both terms rather than nan
         num_off_diagonal = max(batch_size * (batch_size - 1), 1)

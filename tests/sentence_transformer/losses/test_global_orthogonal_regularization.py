@@ -82,3 +82,28 @@ def test_single_input_does_not_poison_a_combined_loss(loss: GlobalOrthogonalRegu
 
     assert torch.isfinite(total)
     assert total.item() == pytest.approx(task_loss.item())
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("perturbed", [False, True])
+def test_compute_gor_autocast_large_batch(
+    loss: GlobalOrthogonalRegularizationLoss, dtype: torch.dtype, perturbed: bool
+) -> None:
+    torch.manual_seed(42)
+    embeddings = torch.ones(512, 64)
+    if perturbed:
+        embeddings += 0.1 * torch.randn_like(embeddings)
+    embeddings.requires_grad_()
+    reference_embeddings = embeddings.detach().clone().requires_grad_()
+    reference = loss.compute_loss_from_embeddings([reference_embeddings])
+    sum(reference.values()).backward()
+
+    with torch.autocast("cpu", dtype=dtype):
+        actual = loss.compute_loss_from_embeddings([embeddings])
+    sum(actual.values()).backward()
+
+    for key in reference:
+        assert torch.isfinite(actual[key])
+        torch.testing.assert_close(actual[key], reference[key], rtol=0.005, atol=0.001, check_dtype=False)
+    assert torch.isfinite(embeddings.grad).all()
+    torch.testing.assert_close(embeddings.grad, reference_embeddings.grad, rtol=0.05, atol=1e-6)
