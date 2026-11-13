@@ -5,6 +5,7 @@ import inspect
 import logging
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
 import numpy as np
@@ -53,9 +54,9 @@ class CrossEncoder(BaseModel, FitMixin):
     for individual sentences.
 
     Args:
-        model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise, tries
-            to download a pre-trained CrossEncoder model. If that fails, tries to construct a model from the
-            Hugging Face Hub with that name. Defaults to None.
+        model_name_or_path (str or Path, optional): If a filepath on disk, loads the model from that path. Otherwise,
+            tries to download a pre-trained CrossEncoder model. If that fails, tries to construct a model
+            from the Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
             create custom CrossEncoder models from scratch. Defaults to None.
         device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``, ``"neuron"``) that should be used for
@@ -171,7 +172,7 @@ class CrossEncoder(BaseModel, FitMixin):
     @cross_encoder_init_args_decorator
     def __init__(
         self,
-        model_name_or_path: str | None = None,
+        model_name_or_path: str | Path | None = None,
         *,
         modules: list[nn.Module] | OrderedDict[str, nn.Module] | None = None,
         device: str | None = None,
@@ -195,6 +196,9 @@ class CrossEncoder(BaseModel, FitMixin):
         activation_fn: Callable | None = None,
         keep_in_fp32_modules: list[str] | None = None,
     ) -> None:
+        if isinstance(model_name_or_path, Path):
+            model_name_or_path = str(model_name_or_path)
+
         # Preserve an explicit activation before parsing the saved configuration.
         self.activation_fn = activation_fn
         self.keep_in_fp32_modules = keep_in_fp32_modules
