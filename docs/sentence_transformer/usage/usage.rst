@@ -146,5 +146,6 @@ These methods accept all the same input types as :meth:`~sentence_transformers.s
    ../../../examples/sentence_transformer/applications/parallel-sentence-mining/README
    ../../../examples/sentence_transformer/applications/image-search/README
    ../../../examples/sentence_transformer/applications/embedding-quantization/README
+   deployment
    custom_models
    mteb_evaluation
