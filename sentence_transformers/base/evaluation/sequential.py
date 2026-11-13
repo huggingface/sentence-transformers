@@ -14,7 +14,8 @@ class SequentialEvaluator(BaseEvaluator):
     This evaluator allows that multiple sub-evaluators are passed. When the model is evaluated,
     the data is passed sequentially to all sub-evaluators.
 
-    All scores are passed to 'main_score_function', which derives one final score value
+    All scores are passed to 'main_score_function', which derives one final score value.
+    Evaluators returning an empty dictionary run without contributing a score.
 
     Args:
         evaluators (Iterable[BaseEvaluator]): A collection of BaseEvaluator objects.
@@ -46,7 +47,7 @@ class SequentialEvaluator(BaseEvaluator):
             if not isinstance(evaluation, dict):
                 scores.append(evaluation)
                 evaluation = {f"evaluator_{evaluator_idx}": evaluation}
-            else:
+            elif evaluation:
                 if hasattr(evaluator, "primary_metric") and evaluator.primary_metric is not None:
                     scores.append(evaluation[evaluator.primary_metric])
                 else:
