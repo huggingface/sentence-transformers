@@ -10,6 +10,7 @@ import torch
 from sentence_transformers.util.quantization import (
     quantize_embeddings,
     semantic_search_faiss,
+    semantic_search_mlxvs,
     semantic_search_usearch,
 )
 
@@ -237,6 +238,8 @@ def test_quantize_multi_vector_calibrates_once(precision: str, calibration_sourc
 
 skip_without_faiss = pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
 skip_without_usearch = pytest.mark.skipif(importlib.util.find_spec("usearch") is None, reason="usearch not installed")
+# mlxvs runs on the GPU of Apple silicon Macs only
+skip_without_mlxvs = pytest.mark.skipif(importlib.util.find_spec("mlxvs") is None, reason="mlxvs not installed")
 
 QUERIES = np.random.default_rng(seed=1).standard_normal((2, 16), dtype=np.float32)
 CALIBRATION = np.random.default_rng(seed=2).standard_normal((100, 16), dtype=np.float32)
@@ -294,6 +297,8 @@ def test_semantic_search_faiss_preserves_inner_product_metric(corpus_precision: 
     [
         pytest.param(semantic_search_faiss, "uint8", marks=skip_without_faiss),
         pytest.param(semantic_search_usearch, "int8", marks=skip_without_usearch),
+        pytest.param(semantic_search_mlxvs, "int8", marks=skip_without_mlxvs),
+        pytest.param(semantic_search_mlxvs, "uint8", marks=skip_without_mlxvs),
     ],
 )
 @pytest.mark.parametrize("calibration_source", ["ranges", "calibration_embeddings", "queries"])
@@ -355,6 +360,8 @@ def test_semantic_search_scalar_rescoring_restores_calibration(search_fn, precis
     [
         pytest.param(semantic_search_faiss, "uint8", marks=skip_without_faiss),
         pytest.param(semantic_search_usearch, "int8", marks=skip_without_usearch),
+        pytest.param(semantic_search_mlxvs, "int8", marks=skip_without_mlxvs),
+        pytest.param(semantic_search_mlxvs, "uint8", marks=skip_without_mlxvs),
     ],
 )
 @pytest.mark.parametrize("bound", [1e-6, 60000.0])
@@ -611,6 +618,7 @@ def test_semantic_search_usearch_preserves_large_keys(rescore: bool) -> None:
     [
         pytest.param(semantic_search_faiss, marks=skip_without_faiss, id="faiss"),
         pytest.param(semantic_search_usearch, marks=skip_without_usearch, id="usearch"),
+        pytest.param(semantic_search_mlxvs, marks=skip_without_mlxvs, id="mlxvs"),
     ],
 )
 def test_semantic_search_rescores_integer_query_embeddings(search_fn) -> None:
@@ -705,3 +713,153 @@ def test_semantic_search_usearch_float_index_preserves_native_scores(dtype: str,
         for row, keys, distances in zip(results, native.keys, native.distances):
             assert [entry["corpus_id"] for entry in row] == keys.tolist()
             np.testing.assert_allclose([entry["score"] for entry in row], distances, rtol=1e-5, atol=1e-7)
+
+
+@skip_without_mlxvs
+@pytest.mark.parametrize("corpus_precision", ["float16", "uint4"])
+def test_semantic_search_mlxvs_rejects_unsupported_precision(corpus_precision: str) -> None:
+    with pytest.raises(ValueError, match="corpus_precision"):
+        semantic_search_mlxvs(QUERIES, corpus_embeddings=_corpus(4, "uint8"), corpus_precision=corpus_precision)
+
+
+@skip_without_mlxvs
+@pytest.mark.parametrize("exact", [True, False])
+@pytest.mark.parametrize("corpus_precision", ["float32", "uint8", "int8"])
+def test_semantic_search_mlxvs_preserves_inner_product_metric(corpus_precision: str, exact: bool) -> None:
+    """Exact and approximate search rank by inner product, as the faiss and usearch helpers do."""
+    dtype = {"float32": np.float32, "uint8": np.uint8, "int8": np.int8}[corpus_precision]
+    queries = np.array([[1, 0], [1, 1]], dtype=dtype)
+    corpus = np.array([[1, 0], [2, 0], [0, 3]], dtype=dtype)
+
+    results, _ = semantic_search_mlxvs(
+        queries,
+        corpus_embeddings=corpus,
+        corpus_precision=corpus_precision,
+        top_k=2,
+        rescore=False,
+        exact=exact,
+    )
+
+    assert results == [
+        [{"corpus_id": 1, "score": 2.0}, {"corpus_id": 0, "score": 1.0}],
+        [{"corpus_id": 2, "score": 3.0}, {"corpus_id": 1, "score": 2.0}],
+    ]
+
+
+@skip_without_mlxvs
+@pytest.mark.parametrize("exact", [True, False])
+def test_semantic_search_mlxvs_matches_exact_search(exact: bool) -> None:
+    """On a corpus large enough for the graph index, the results match exact search."""
+    rng = np.random.default_rng(seed=3)
+    corpus = rng.standard_normal((3000, 32), dtype=np.float32)
+    queries = corpus[:20] + 0.01 * rng.standard_normal((20, 32), dtype=np.float32)
+
+    results, _, index = semantic_search_mlxvs(
+        queries, corpus_embeddings=corpus, top_k=10, exact=exact, output_index=True
+    )
+
+    expected = np.argsort(-(queries @ corpus.T), axis=1)[:, :10]
+    found = sum(len({r["corpus_id"] for r in row} & set(e)) for row, e in zip(results, expected))
+    assert found / expected.size >= (1.0 if exact else 0.95)
+    # the returned index answers later searches
+    again, _ = semantic_search_mlxvs(queries, corpus_index=index, top_k=10, exact=exact)
+    assert again == results
+
+
+@skip_without_mlxvs
+@pytest.mark.parametrize("rescore", [True, False])
+def test_semantic_search_mlxvs_binary_matches_ubinary(rescore: bool) -> None:
+    rng = np.random.default_rng(seed=4)
+    embeddings = rng.standard_normal((200, 20), dtype=np.float32)
+    queries = embeddings[:5]
+    ubinary, _ = semantic_search_mlxvs(
+        queries,
+        corpus_embeddings=quantize_embeddings(embeddings, precision="ubinary"),
+        corpus_precision="ubinary",
+        top_k=5,
+        rescore=rescore,
+    )
+    binary, _ = semantic_search_mlxvs(
+        queries,
+        corpus_embeddings=quantize_embeddings(embeddings, precision="binary"),
+        corpus_precision="binary",
+        top_k=5,
+        rescore=rescore,
+    )
+    assert ubinary == binary
+    if not rescore:
+        # Hamming distances, the query's own row first
+        assert ubinary[0][0] == {"corpus_id": 0, "score": 0.0}
+
+
+@skip_without_mlxvs
+def test_semantic_search_mlxvs_binary_hamming_distances() -> None:
+    corpus = np.packbits(np.array([[1, 1, 1, 1, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8), axis=-1)
+    query = np.packbits(np.array([[1, 1, 1, 0, 0, 0, 0, 0]], dtype=np.uint8), axis=-1)
+    results, _ = semantic_search_mlxvs(query, corpus_embeddings=corpus, corpus_precision="ubinary", top_k=2)
+    assert results == [[{"corpus_id": 0, "score": 1.0}, {"corpus_id": 1, "score": 2.0}]]
+
+
+@skip_without_mlxvs
+@pytest.mark.parametrize("rescore", [True, False])
+def test_semantic_search_mlxvs_short_and_empty_corpus(rescore: bool) -> None:
+    results, _ = semantic_search_mlxvs(
+        QUERIES, corpus_embeddings=_corpus(3, "int8"), corpus_precision="int8", top_k=5, rescore=rescore
+    )
+    assert [len(row) for row in results] == [3, 3]
+    empty, _ = semantic_search_mlxvs(
+        QUERIES, corpus_embeddings=np.zeros((0, 16), dtype=np.float32), top_k=5, rescore=rescore
+    )
+    assert empty == [[], []]
+
+
+@skip_without_mlxvs
+def test_semantic_search_mlxvs_rescores_non_byte_aligned_embeddings() -> None:
+    rng = np.random.default_rng(seed=5)
+    embeddings = rng.standard_normal((50, 12), dtype=np.float32)
+    results, _ = semantic_search_mlxvs(
+        embeddings[:3],
+        corpus_embeddings=quantize_embeddings(embeddings, precision="ubinary"),
+        corpus_precision="ubinary",
+        top_k=3,
+        rescore_multiplier=4,
+    )
+    bits = np.unpackbits(quantize_embeddings(embeddings, precision="ubinary"), axis=-1)[:, :12]
+    for query, row in zip(embeddings[:3], results):
+        for hit in row:
+            assert hit["score"] == pytest.approx(float(query @ bits[hit["corpus_id"]]), rel=1e-5)
+
+
+@skip_without_mlxvs
+def test_semantic_search_mlxvs_large_top_k() -> None:
+    """More results than the GPU top-k selects at once still come back sorted."""
+    corpus = np.random.default_rng(seed=6).standard_normal((600, 8), dtype=np.float32)
+    results, _ = semantic_search_mlxvs(QUERIES[:, :8], corpus_embeddings=corpus, top_k=400)
+    scores = [hit["score"] for hit in results[0]]
+    assert len(scores) == 400 and scores == sorted(scores, reverse=True)
+
+
+@skip_without_mlxvs
+@pytest.mark.parametrize("corpus_precision", ["ubinary", "binary"])
+def test_semantic_search_mlxvs_approximate_binary_rescoring(corpus_precision: str) -> None:
+    """Approximate binary search (an IVF index of the bits) rescored with the float queries."""
+    rng = np.random.default_rng(seed=7)
+    centers = rng.standard_normal((20, 64), dtype=np.float32)
+    embeddings = centers[rng.integers(0, 20, 5000)] + 0.3 * rng.standard_normal((5000, 64), dtype=np.float32)
+    queries = embeddings[:20]
+    corpus = quantize_embeddings(embeddings, precision=corpus_precision)
+
+    approx, _, index = semantic_search_mlxvs(
+        queries, corpus_embeddings=corpus, corpus_precision=corpus_precision, top_k=10, exact=False, output_index=True
+    )
+    exact, _ = semantic_search_mlxvs(queries, corpus_embeddings=corpus, corpus_precision=corpus_precision, top_k=10)
+
+    # rescored scores are the float queries' inner products with the stored bits
+    bits = np.unpackbits(quantize_embeddings(embeddings, precision="ubinary"), axis=-1)[:, :64]
+    for query, row in zip(queries, approx):
+        for hit in row:
+            assert hit["score"] == pytest.approx(float(query @ bits[hit["corpus_id"]]), rel=1e-5)
+    overlap = sum(len({h["corpus_id"] for h in a} & {h["corpus_id"] for h in e}) for a, e in zip(approx, exact))
+    assert overlap / 200 >= 0.8
+    again, _ = semantic_search_mlxvs(queries, corpus_index=index, corpus_precision=corpus_precision, top_k=10)
+    assert again == approx

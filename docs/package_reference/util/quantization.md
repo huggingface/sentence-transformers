@@ -9,5 +9,5 @@
 
 ```{eval-rst}
 .. automodule:: sentence_transformers.util.quantization
-   :members: quantize_embeddings, semantic_search_faiss, semantic_search_usearch
+   :members: quantize_embeddings, semantic_search_faiss, semantic_search_usearch, semantic_search_mlxvs
 ```
