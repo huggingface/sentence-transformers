@@ -2006,6 +2006,24 @@ This pull request has been automatically generated to add {self.__class__.__name
         """Run local inference on normalized inputs with resolved arguments."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
+    @staticmethod
+    def _get_batch_item(features: dict[str, Any], index: int, batch_size: int) -> dict[str, Any]:
+        """Extract one input's features, including the batch dimension inside each hidden layer."""
+        item = {}
+        for name, value in features.items():
+            if name == "all_layer_embeddings":
+                if "cu_seq_lens_q" in features:
+                    # Unpadded models concatenate the inputs into one token sequence per layer.
+                    start, end = features["cu_seq_lens_q"][index : index + 2].tolist()
+                    item[name] = tuple(layer[0, start:end] for layer in value)
+                else:
+                    item[name] = tuple(layer[index] for layer in value)
+            elif isinstance(value, Tensor) and value.ndim > 0 and value.shape[0] == batch_size:
+                item[name] = value[index]
+            else:
+                item[name] = value
+        return item
+
     def _multi_process(
         self,
         inputs: Sequence,

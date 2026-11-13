@@ -997,16 +997,10 @@ class MultiVectorEncoder(BaseModel):
                         features["token_embeddings"] = _normalize_token_embeddings(
                             features["token_embeddings"][..., :truncate_dim]
                         )
-                    # Raw per-input module outputs, unsliced. Batch-first tensors are split per
-                    # input, other values (ints, strings, flattened tensors) are carried as-is.
+                    # Raw per-input module outputs retain token padding. Batch-first tensors,
+                    # including each hidden layer, are split per input; metadata is carried as-is.
                     for idx in range(len(inputs_batch)):
-                        item = {}
-                        for name, value in features.items():
-                            is_batch_first = (
-                                isinstance(value, Tensor) and value.ndim > 0 and value.shape[0] == len(inputs_batch)
-                            )
-                            item[name] = value[idx] if is_batch_first else value
-                        all_embeddings.append(item)
+                        all_embeddings.append(self._get_batch_item(features, idx, len(inputs_batch)))
                     continue
                 token_embeddings = features["token_embeddings"]
                 masks = features["attention_mask"].bool()
