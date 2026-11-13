@@ -748,6 +748,15 @@ def test_model_path_pointing_to_a_file_is_rejected(
         model_class(str(collision))
 
 
+@pytest.mark.parametrize("model_class", [SentenceTransformer, CrossEncoder, SparseEncoder, MultiVectorEncoder])
+def test_missing_pathlib_path_raises_file_not_found(tmp_path: Path, model_class: type) -> None:
+    """A `pathlib.Path` that doesn't exist must give the same FileNotFoundError as the equivalent string,
+    rather than a TypeError (Windows) or AttributeError (POSIX) from string checks on the Path object."""
+    missing = tmp_path / "checkpoints" / "does-not-exist"
+    with pytest.raises(FileNotFoundError, match="not found"):
+        model_class(missing)
+
+
 def _setup_hub_mocks(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict | list]:
     """Set up common mocks for push_to_hub tests.
 
