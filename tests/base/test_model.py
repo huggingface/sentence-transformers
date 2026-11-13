@@ -533,14 +533,17 @@ def test_save_with_safe_serialization_fallback(
     assert "fallback" in call_log
 
 
-def test_save_load_roundtrip(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, caplog) -> None:
+@pytest.mark.parametrize("path_type", [str, Path])
+def test_save_load_roundtrip(
+    stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, caplog, path_type: type
+) -> None:
     """A model saved and re-loaded should produce the same embeddings."""
     sentences = ["Hello world", "Testing roundtrip"]
     original_embeddings = stsb_bert_tiny_model.encode(sentences)
 
     stsb_bert_tiny_model.save(str(tmp_path))
     with caplog.at_level(logging.INFO, logger="sentence_transformers.base.model"):
-        loaded_model = SentenceTransformer(str(tmp_path))
+        loaded_model = SentenceTransformer(path_type(tmp_path), local_files_only=True)
     loaded_embeddings = loaded_model.encode(sentences)
 
     np.testing.assert_allclose(original_embeddings, loaded_embeddings, atol=1e-5)
@@ -749,12 +752,11 @@ def test_model_path_pointing_to_a_file_is_rejected(
 
 
 @pytest.mark.parametrize("model_class", [SentenceTransformer, CrossEncoder, SparseEncoder, MultiVectorEncoder])
-def test_missing_pathlib_path_raises_file_not_found(tmp_path: Path, model_class: type) -> None:
-    """A `pathlib.Path` that doesn't exist must give the same FileNotFoundError as the equivalent string,
-    rather than a TypeError (Windows) or AttributeError (POSIX) from string checks on the Path object."""
+@pytest.mark.parametrize("path_type", [str, Path])
+def test_missing_model_path_raises_file_not_found(tmp_path: Path, model_class: type, path_type: type) -> None:
     missing = tmp_path / "checkpoints" / "does-not-exist"
     with pytest.raises(FileNotFoundError, match="not found"):
-        model_class(missing)
+        model_class(path_type(missing))
 
 
 def _setup_hub_mocks(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict | list]:

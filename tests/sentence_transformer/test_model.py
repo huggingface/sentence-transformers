@@ -327,17 +327,6 @@ def test_load_local_without_normalize_directory(stsb_bert_tiny_model: SentenceTr
         assert isinstance(fresh_tiny_model, SentenceTransformer)
 
 
-def test_load_local_from_pathlib_path(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
-    sentences = ["This is a test sentence", "This is another test sentence"]
-    stsb_bert_tiny_model.save(str(tmp_path))
-
-    loaded_model = SentenceTransformer(tmp_path, local_files_only=True)
-    assert torch.equal(
-        stsb_bert_tiny_model.encode(sentences, convert_to_tensor=True),
-        loaded_model.encode(sentences, convert_to_tensor=True),
-    )
-
-
 def test_load_local_with_normalize_at_model_root(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
     model = stsb_bert_tiny_model
     model.add_module("Normalize", Normalize())
