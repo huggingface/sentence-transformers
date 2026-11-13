@@ -14,7 +14,6 @@ from sentence_transformers.base.losses.gradcache import uses_gradient_cache
 from sentence_transformers.base.losses.merged_forward import column_merging_disabled
 from sentence_transformers.base.model import BaseModel
 from sentence_transformers.base.modules import Transformer
-from sentence_transformers.sentence_transformer.losses.matryoshka import _add_losses, _map_loss
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 
@@ -243,7 +242,11 @@ class AdaptiveLayerLoss(nn.Module):
                 # Run the loss normally: i.e. the final layer, but 1) use the transformers decorator to cache
                 # the embeddings of all layers and 2) use the forward decorator to get the embeddings after all modules
                 # for the KL-divergence loss
-                loss = _map_loss(self.loss(sentence_features, labels), lambda value: value * self.last_layer_weight)
+                loss = self.loss(sentence_features, labels)
+                if isinstance(loss, dict):
+                    loss = {key: value * self.last_layer_weight for key, value in loss.items()}
+                else:
+                    loss = loss * self.last_layer_weight
                 if self.kl_temperature > 0:
                     final_embeddings = forward_decorator.get_embeddings()
                     # The final layer is the self-distillation teacher, so keep it out of the KL gradient (#3757)
@@ -263,13 +266,14 @@ class AdaptiveLayerLoss(nn.Module):
                     transformer_decorator.set_layer_idx(layer_idx)
                     layer_loss = self.loss(sentence_features, labels)
                     layer_weight = self.get_layer_weight(layer_idx)
-                    loss = _add_losses(
-                        loss,
-                        _map_loss(
-                            layer_loss,
-                            lambda value: value * layer_weight / len(layer_indices) * self.prior_layers_weight,
-                        ),
-                    )
+                    if isinstance(layer_loss, dict):
+                        for key, value in layer_loss.items():
+                            loss[key] = (
+                                loss.get(key, 0.0)
+                                + value * layer_weight / len(layer_indices) * self.prior_layers_weight
+                            )
+                    else:
+                        loss = loss + layer_loss * layer_weight / len(layer_indices) * self.prior_layers_weight
 
                     # and KL-divergence loss between the current layer and the final layer
                     # Note: we use "batchmean" reduction as that aligns with the mathematical definition
@@ -281,9 +285,10 @@ class AdaptiveLayerLoss(nn.Module):
                             reduction="batchmean",
                         )
                         kl_div_loss = kl_div_loss * self.kl_temperature * self.kl_div_weight
-                        loss = _add_losses(
-                            loss, {"kl_div_loss": kl_div_loss} if isinstance(loss, dict) else kl_div_loss
-                        )
+                        if isinstance(loss, dict):
+                            loss["kl_div_loss"] = loss.get("kl_div_loss", 0.0) + kl_div_loss
+                        else:
+                            loss = loss + kl_div_loss
         finally:
             unwrapped_model[0].forward = original_transformer_forward
             unwrapped_model.forward = original_forward

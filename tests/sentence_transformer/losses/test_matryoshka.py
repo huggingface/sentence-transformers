@@ -9,6 +9,7 @@ from sentence_transformers import SentenceTransformer
 from sentence_transformers.base.modules import Dense
 from sentence_transformers.sentence_transformer.losses import (
     CachedMultipleNegativesRankingLoss,
+    Matryoshka2dLoss,
     MatryoshkaLoss,
     MSELoss,
     MultipleNegativesRankingLoss,
@@ -298,26 +299,48 @@ def test_cached_loss_behind_wrappers_matches_non_cached(stsb_bert_tiny_model: Se
     torch.testing.assert_close(cached_grads, plain_grads, rtol=1e-4, atol=1e-4)
 
 
-def test_matryoshka_loss_with_dictionary_of_losses(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    from tests.sentence_transformer.losses.utils import disable_dropout
+@pytest.mark.parametrize("loss_cls", [MatryoshkaLoss, Matryoshka2dLoss])
+def test_matryoshka_loss_with_dictionary_of_losses(
+    stsb_bert_tiny_model: SentenceTransformer, loss_cls: type[torch.nn.Module]
+) -> None:
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
 
     class TwoPartLoss(torch.nn.Module):
-        def __init__(self, loss):
+        def __init__(self, loss: torch.nn.Module, as_dict: bool = True) -> None:
             super().__init__()
             self.loss = loss
+            self.as_dict = as_dict
 
         def forward(self, features, labels):
             loss = self.loss(features, labels)
-            return {"first": loss, "second": 2 * loss}
+            return {"first": loss, "second": 2 * loss} if self.as_dict else 3 * loss
 
-    model = stsb_bert_tiny_model.cpu()
+    model = stsb_bert_tiny_model.cpu().train()
     disable_dropout(model)
-    features = [model.preprocess(texts) for texts in (["anchor a", "anchor b"], ["doc a", "doc b"])]
+    texts = (["anchor a", "anchor b"], ["doc a", "doc b"])
     kwargs = {"matryoshka_dims": [128, 64, 32], "matryoshka_weights": [1.0, 0.5, 0.25]}
+    expected_keys = {"first", "second"}
+    if loss_cls is Matryoshka2dLoss:
+        kwargs.update(n_layers_per_step=-1, n_dims_per_step=-1)
+        expected_keys.add("kl_div_loss")
 
-    expected = MatryoshkaLoss(model, MultipleNegativesRankingLoss(model), **kwargs)(features, None)
-    losses = MatryoshkaLoss(model, TwoPartLoss(MultipleNegativesRankingLoss(model)), **kwargs)(features, None)
+    model.zero_grad(set_to_none=True)
+    features = [model.preprocess(column) for column in texts]
+    expected = loss_cls(model, TwoPartLoss(MultipleNegativesRankingLoss(model), as_dict=False), **kwargs)(
+        features, None
+    )
+    expected.backward()
+    expected_grads = gradients(model)
 
-    assert losses.keys() == {"first", "second"}
-    torch.testing.assert_close(losses["first"], expected)
-    torch.testing.assert_close(losses["second"], 2 * expected)
+    model.zero_grad(set_to_none=True)
+    features = [model.preprocess(column) for column in texts]
+    losses = loss_cls(model, TwoPartLoss(MultipleNegativesRankingLoss(model)), **kwargs)(features, None)
+    total = torch.stack(list(losses.values())).sum()
+    total.backward()
+    grads = gradients(model)
+
+    assert losses.keys() == expected_keys
+    torch.testing.assert_close(losses["second"], 2 * losses["first"])
+    torch.testing.assert_close(total, expected)
+    assert_trained(grads)
+    torch.testing.assert_close(grads, expected_grads, rtol=1e-4, atol=1e-5)

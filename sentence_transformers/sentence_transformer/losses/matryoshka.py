@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import random
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import torch
@@ -13,23 +13,6 @@ from sentence_transformers.base.losses.gradcache import resolve_gradient_cache_l
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 logger = logging.getLogger(__name__)
-
-
-def _map_loss(loss: Tensor | dict[str, Tensor], fn: Callable[[Tensor], Tensor]) -> Tensor | dict[str, Tensor]:
-    """Apply ``fn`` to a loss, or to each component of a dictionary of losses."""
-    if isinstance(loss, dict):
-        return {key: fn(value) for key, value in loss.items()}
-    return fn(loss)
-
-
-def _add_losses(
-    total: float | Tensor | dict[str, Tensor], loss: Tensor | dict[str, Tensor]
-) -> Tensor | dict[str, Tensor]:
-    """Add a loss to a running total, summing the components separately if the loss is a dictionary of losses."""
-    if isinstance(loss, dict):
-        total = total if isinstance(total, dict) else {}
-        return {**total, **{key: total.get(key, 0.0) + value for key, value in loss.items()}}
-    return total + loss
 
 
 def shrink(tensor: Tensor, dim: int) -> Tensor:
@@ -274,9 +257,14 @@ class MatryoshkaLoss(nn.Module):
                 ):
                     dim_labels = labels[..., :dim]
 
-                loss = _add_losses(
-                    loss, _map_loss(self.loss(sentence_features, dim_labels), lambda value: weight * value)
-                )
+                dim_loss = self.loss(sentence_features, dim_labels)
+                if isinstance(dim_loss, dict):
+                    if not isinstance(loss, dict):
+                        loss = {}
+                    for key, value in dim_loss.items():
+                        loss[key] = loss.get(key, 0.0) + weight * value
+                else:
+                    loss = loss + weight * dim_loss
         finally:
             self.model.forward = original_forward
         return loss

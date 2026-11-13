@@ -272,27 +272,50 @@ def test_adaptive_layer_loss_invalid_layer_weighting(stsb_bert_tiny_model: Sente
         AdaptiveLayerLoss(stsb_bert_tiny_model, inner_loss, layer_weighting="quadratic")
 
 
-def test_adaptive_layer_loss_with_dictionary_of_losses(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    from tests.sentence_transformer.losses.utils import disable_dropout
+@pytest.mark.parametrize("kl_temperature", [0.0, 0.3])
+def test_adaptive_layer_loss_with_dictionary_of_losses(
+    stsb_bert_tiny_model: SentenceTransformer, kl_temperature: float
+) -> None:
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
 
     class TwoPartLoss(nn.Module):
-        def __init__(self, loss: nn.Module) -> None:
+        def __init__(self, loss: nn.Module, as_dict: bool = True) -> None:
             super().__init__()
             self.loss = loss
+            self.as_dict = as_dict
 
         def forward(self, features, labels):  # type: ignore[no-untyped-def]
             loss = self.loss(features, labels)
-            return {"first": loss, "second": 2 * loss}
+            return {"first": loss, "second": 2 * loss} if self.as_dict else 3 * loss
 
-    model = stsb_bert_tiny_model.cpu()
+    model = stsb_bert_tiny_model.cpu().train()
     disable_dropout(model)
-    features, labels = _features_and_labels(model)
+    kwargs = {
+        "n_layers_per_step": -1,
+        "last_layer_weight": 0.7,
+        "prior_layers_weight": 0.4,
+        "kl_div_weight": 0.2,
+        "kl_temperature": kl_temperature,
+    }
 
-    expected = AdaptiveLayerLoss(model, MultipleNegativesRankingLoss(model), n_layers_per_step=-1)(features, labels)
-    losses = AdaptiveLayerLoss(model, TwoPartLoss(MultipleNegativesRankingLoss(model)), n_layers_per_step=-1)(
+    model.zero_grad(set_to_none=True)
+    features, labels = _features_and_labels(model)
+    expected = AdaptiveLayerLoss(model, TwoPartLoss(MultipleNegativesRankingLoss(model), as_dict=False), **kwargs)(
         features, labels
     )
+    expected.backward()
+    expected_grads = gradients(model)
 
-    assert losses.keys() == {"first", "second", "kl_div_loss"}
-    torch.testing.assert_close(losses["first"] + losses["kl_div_loss"], expected)
+    model.zero_grad(set_to_none=True)
+    features, labels = _features_and_labels(model)
+    losses = AdaptiveLayerLoss(model, TwoPartLoss(MultipleNegativesRankingLoss(model)), **kwargs)(features, labels)
+    total = torch.stack(list(losses.values())).sum()
+    total.backward()
+    grads = gradients(model)
+
+    expected_keys = {"first", "second", "kl_div_loss"} if kl_temperature > 0 else {"first", "second"}
+    assert losses.keys() == expected_keys
     torch.testing.assert_close(losses["second"], 2 * losses["first"])
+    torch.testing.assert_close(total, expected)
+    assert_trained(grads)
+    torch.testing.assert_close(grads, expected_grads, rtol=1e-4, atol=1e-5)
