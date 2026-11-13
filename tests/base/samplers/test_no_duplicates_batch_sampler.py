@@ -595,3 +595,118 @@ def test_no_duplicates_batch_sampler_uses_int64_indices_when_int32_range_is_exce
     _ = list(iter(sampler))
 
     assert captured_dtypes["index_dtype"] == torch.int64
+
+
+@pytest.mark.parametrize("precompute_hashes", [False, True])
+def test_no_duplicates_batch_sampler_empty_text_lists_do_not_collide(precompute_hashes: bool) -> None:
+    if precompute_hashes and not is_xxhash_available():
+        pytest.skip("xxhash not installed")
+    dataset = Dataset.from_dict(
+        {
+            "anchor": [f"q{i}" for i in range(6)],
+            "positive": [f"p{i}" for i in range(6)],
+            "negatives": [[] for _ in range(6)],
+            "label": [["shared label"] for _ in range(6)],
+            "dataset_name": ["shared dataset"] * 6,
+        }
+    )
+    kwargs = dict(
+        dataset=dataset,
+        batch_size=3,
+        drop_last=True,
+        valid_label_columns=["label"],
+        generator=torch.Generator(),
+        seed=12,
+        precompute_hashes=precompute_hashes,
+        precompute_num_proc=PRECOMPUTE_NUM_PROC,
+    )
+    # Historical behavior is deliberately unchanged unless the user opts in.
+    assert list(NoDuplicatesBatchSampler(**kwargs)) == []
+    batches = list(NoDuplicatesBatchSampler(**kwargs, flatten_list_values=True))
+    assert len(batches) == 2
+    assert all(len(batch) == 3 for batch in batches)
+    assert sorted(sum(batches, [])) == list(range(6))
+
+
+@pytest.mark.parametrize("precompute_hashes", [False, True])
+def test_no_duplicates_batch_sampler_checks_individual_text_candidates(precompute_hashes: bool) -> None:
+    if precompute_hashes and not is_xxhash_available():
+        pytest.skip("xxhash not installed")
+    dataset = Dataset.from_list(
+        [
+            {"anchor": "q0", "positive": "p0", "negatives": ["p1", "shared"]},
+            {"anchor": "q1", "positive": "p1", "negatives": []},
+            {"anchor": "q2", "positive": "p2", "negatives": ["shared"]},
+            {"anchor": "q3", "positive": "p3", "negatives": ["n3", "n4", "n5"]},
+        ]
+    )
+    sampler = NoDuplicatesBatchSampler(
+        dataset,
+        batch_size=4,
+        drop_last=False,
+        generator=torch.Generator(),
+        seed=12,
+        flatten_list_values=True,
+        precompute_hashes=precompute_hashes,
+        precompute_num_proc=PRECOMPUTE_NUM_PROC,
+        precompute_batch_size=2,
+    )
+    batches = list(sampler)
+    assert sorted(sum(batches, [])) == list(range(4))
+    for batch in batches:
+        values = []
+        for index in batch:
+            row = dataset[index]
+            values.extend([row["anchor"], row["positive"], *row["negatives"]])
+        assert len(values) == len(set(values))
+        assert not {0, 1}.issubset(batch)  # list/scalar collision
+        assert not {0, 2}.issubset(batch)  # list/list collision
+    if precompute_hashes:
+        assert sampler._row_hashes.dtype == np.int64
+        assert sampler._row_hashes.ndim == 1
+        assert sampler._row_hash_offsets.tolist() == [0, 4, 6, 9, 14]
+        # Iterating again reuses the packed representation without changing the seed.
+    assert list(sampler) == batches
+
+
+@pytest.mark.skipif(not is_xxhash_available(), reason="xxhash not installed")
+@pytest.mark.parametrize("drop_last", [False, True])
+def test_no_duplicates_batch_sampler_ragged_hash_and_non_hash_match(drop_last: bool) -> None:
+    dataset = Dataset.from_dict(
+        {
+            "anchor": [f"q{i}" for i in range(12)],
+            "positive": [f"p{i}" for i in range(12)],
+            "negatives": [[f"n{j}" for j in range(i % 4)] for i in range(12)],
+        }
+    )
+    kwargs = dict(
+        dataset=dataset,
+        batch_size=3,
+        drop_last=drop_last,
+        generator=torch.Generator(),
+        seed=4,
+        flatten_list_values=True,
+    )
+    plain = NoDuplicatesBatchSampler(**kwargs)
+    hashed = NoDuplicatesBatchSampler(
+        **kwargs,
+        precompute_hashes=True,
+        precompute_num_proc=PRECOMPUTE_NUM_PROC,
+        precompute_batch_size=3,
+    )
+    for epoch in [0, 1]:
+        plain.set_epoch(epoch)
+        hashed.set_epoch(epoch)
+        assert list(plain) == list(hashed)
+
+
+@pytest.mark.parametrize("value", ["text", 5, [1, 2], ["a", 1], [["a"]], ("a", "b"), {"a": "b"}])
+def test_flatten_list_values_preserves_non_text_list_keys(value) -> None:
+    assert list(sampler_module._sample_value_strings(value, True)) == [_sample_value_str(value)]
+
+
+def test_flatten_list_values_only_expands_text_lists_when_enabled() -> None:
+    assert list(sampler_module._sample_value_strings(["a", "b"], True)) == ["a", "b"]
+    assert list(sampler_module._sample_value_strings([], True)) == []
+    assert list(sampler_module._sample_value_strings(["a", "b"])) == [str(["a", "b"])]
+    assert list(sampler_module._sample_value_strings([])) == ["[]"]
