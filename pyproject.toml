@@ -72,6 +72,7 @@ dev = [
     "transformers[vision,audio,video]",
     "faiss-cpu",
     "usearch",
+    "mlxvs>=0.15.2; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [dependency-groups]
@@ -88,6 +89,7 @@ test = [
     "transformers[vision,audio,video]",
     "faiss-cpu",
     "usearch",
+    "mlxvs>=0.15.2; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 lint = [
     "pre-commit",
