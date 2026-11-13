@@ -224,7 +224,7 @@ class MatryoshkaLoss(nn.Module):
                 gradient_cache_loss.calculate_loss, self.matryoshka_dims, self.matryoshka_weights, self.n_dims_per_step
             )
 
-    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
+    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor | dict[str, Tensor]:
         # For the gradient-caching losses, the CachedLossDecorator has been applied to the `calculate_loss`
         # method, so we can directly call the loss function.
         if self.uses_gradient_cache:
@@ -257,7 +257,14 @@ class MatryoshkaLoss(nn.Module):
                 ):
                     dim_labels = labels[..., :dim]
 
-                loss += weight * self.loss(sentence_features, dim_labels)
+                dim_loss = self.loss(sentence_features, dim_labels)
+                if isinstance(dim_loss, dict):
+                    if not isinstance(loss, dict):
+                        loss = {}
+                    for key, value in dim_loss.items():
+                        loss[key] = loss.get(key, 0.0) + weight * value
+                else:
+                    loss = loss + weight * dim_loss
         finally:
             self.model.forward = original_forward
         return loss

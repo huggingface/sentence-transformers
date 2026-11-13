@@ -210,7 +210,7 @@ class AdaptiveLayerLoss(nn.Module):
             return 1.0 / (1 + layer_idx)
         return 1.0
 
-    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
+    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor | dict[str, Tensor]:
         # Unwrap DDP (`.module`) / torch.compile (`_orig_mod`) wrappers so `self.model[0]`
         # decoration still works under multi-GPU or compiled training.
         unwrapped_model = self.model
@@ -242,7 +242,11 @@ class AdaptiveLayerLoss(nn.Module):
                 # Run the loss normally: i.e. the final layer, but 1) use the transformers decorator to cache
                 # the embeddings of all layers and 2) use the forward decorator to get the embeddings after all modules
                 # for the KL-divergence loss
-                loss = self.loss(sentence_features, labels) * self.last_layer_weight
+                loss = self.loss(sentence_features, labels)
+                if isinstance(loss, dict):
+                    loss = {key: value * self.last_layer_weight for key, value in loss.items()}
+                else:
+                    loss = loss * self.last_layer_weight
                 if self.kl_temperature > 0:
                     final_embeddings = forward_decorator.get_embeddings()
                     # The final layer is the self-distillation teacher, so keep it out of the KL gradient (#3757)
@@ -262,7 +266,14 @@ class AdaptiveLayerLoss(nn.Module):
                     transformer_decorator.set_layer_idx(layer_idx)
                     layer_loss = self.loss(sentence_features, labels)
                     layer_weight = self.get_layer_weight(layer_idx)
-                    loss = loss + layer_loss * layer_weight / len(layer_indices) * self.prior_layers_weight
+                    if isinstance(layer_loss, dict):
+                        for key, value in layer_loss.items():
+                            loss[key] = (
+                                loss.get(key, 0.0)
+                                + value * layer_weight / len(layer_indices) * self.prior_layers_weight
+                            )
+                    else:
+                        loss = loss + layer_loss * layer_weight / len(layer_indices) * self.prior_layers_weight
 
                     # and KL-divergence loss between the current layer and the final layer
                     # Note: we use "batchmean" reduction as that aligns with the mathematical definition
@@ -273,7 +284,11 @@ class AdaptiveLayerLoss(nn.Module):
                             final_embeddings,
                             reduction="batchmean",
                         )
-                        loss = loss + kl_div_loss * self.kl_temperature * self.kl_div_weight
+                        kl_div_loss = kl_div_loss * self.kl_temperature * self.kl_div_weight
+                        if isinstance(loss, dict):
+                            loss["kl_div_loss"] = loss.get("kl_div_loss", 0.0) + kl_div_loss
+                        else:
+                            loss = loss + kl_div_loss
         finally:
             unwrapped_model[0].forward = original_transformer_forward
             unwrapped_model.forward = original_forward

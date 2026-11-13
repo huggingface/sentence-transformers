@@ -223,7 +223,9 @@ class MultiVectorTokenPoolingLoss(nn.Module):
             )
             gradient_cache_loss.calculate_loss = self._cached_loss_decorator
 
-    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None) -> Tensor:
+    def forward(
+        self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None
+    ) -> Tensor | dict[str, Tensor]:
         sentence_features = list(sentence_features)
         if self.uses_gradient_cache:
             self._cached_loss_decorator.column_tasks = [
@@ -245,7 +247,15 @@ class MultiVectorTokenPoolingLoss(nn.Module):
             loss = 0.0
             for idx in pooling_indices:
                 decorated_forward.set_pooling(self.token_poolings[idx])
-                loss += self.weights[idx] * self.loss(sentence_features, labels)
+                weight = self.weights[idx]
+                pooling_loss = self.loss(sentence_features, labels)
+                if isinstance(pooling_loss, dict):
+                    if not isinstance(loss, dict):
+                        loss = {}
+                    for key, value in pooling_loss.items():
+                        loss[key] = loss.get(key, 0.0) + weight * value
+                else:
+                    loss = loss + weight * pooling_loss
         finally:
             self.model.forward = original_forward
         return loss
