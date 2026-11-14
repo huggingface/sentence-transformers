@@ -908,16 +908,26 @@ class SentenceTransformer(BaseModel, FitMixin):
         else:
             all_embeddings = self._inference(inputs, device=device, **inference_kwargs)
 
-        if len(all_embeddings) and precision and precision != "float32":
+        if not len(all_embeddings) and output_value == "sentence_embedding":
+            # Keep the documented [num_inputs, output_dimension] shape when there are no inputs
+            embedding_dim = self._get_untruncated_embedding_dimension()
+            if truncate_dim is not None:
+                embedding_dim = truncate_dim if embedding_dim is None else min(embedding_dim, truncate_dim)
+            if embedding_dim is not None:
+                all_embeddings = np.zeros((0, embedding_dim), dtype=np.float32)
+
+        if (len(all_embeddings) or isinstance(all_embeddings, np.ndarray)) and precision and precision != "float32":
             all_embeddings = quantize_embeddings(all_embeddings, precision=precision)
 
         if convert_to_tensor:
             if isinstance(all_embeddings, Tensor) or len(all_embeddings):
                 all_embeddings = torch.as_tensor(all_embeddings)
+            elif isinstance(all_embeddings, np.ndarray):
+                all_embeddings = torch.from_numpy(all_embeddings).to("cpu" if use_multi_process else self.device)
             else:
                 all_embeddings = torch.tensor([], device="cpu" if use_multi_process else self.device)
         elif convert_to_numpy:
-            if not len(all_embeddings):
+            if not len(all_embeddings) and not isinstance(all_embeddings, np.ndarray):
                 all_embeddings = np.array([])
             elif isinstance(all_embeddings, Tensor):
                 all_embeddings = _tensor_to_numpy(all_embeddings)
