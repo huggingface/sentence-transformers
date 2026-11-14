@@ -296,3 +296,18 @@ def test_cached_loss_behind_wrappers_matches_non_cached(stsb_bert_tiny_model: Se
     assert_trained(cached_grads)
     torch.testing.assert_close(cached_value, plain_value, rtol=1e-4, atol=1e-5)
     torch.testing.assert_close(cached_grads, plain_grads, rtol=1e-4, atol=1e-4)
+
+
+def test_matryoshka_loss_with_truncate_dim_and_distillation_labels() -> None:
+    word_embeddings = WordEmbeddings(
+        WhitespaceTokenizer(vocab=["PAD", "red", "blue", "green"]),
+        embedding_weights=torch.randn(4, 8),
+        update_embeddings=True,
+    )
+    model = SentenceTransformer(modules=[word_embeddings, Pooling(8, "mean")], device="cpu", truncate_dim=4)
+    loss = MatryoshkaLoss(model, MSELoss(model), matryoshka_dims=[8, 4])
+    features = [model.preprocess(["red blue", "green"])]
+    labels = torch.randn(2, 8)
+    value = loss(features, labels)
+    assert value.dim() == 0
+    assert torch.isfinite(value)

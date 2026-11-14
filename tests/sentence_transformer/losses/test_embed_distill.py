@@ -307,3 +307,18 @@ def test_projection_autocast_preserves_teacher_precision(
     torch.testing.assert_close(value, expected, atol=0, rtol=1e-5)
     value.backward()
     assert (loss.projection.weight.grad.diag() < 0).all()
+
+
+def test_embed_distill_with_student_truncate_dim() -> None:
+    word_embeddings = WordEmbeddings(
+        WhitespaceTokenizer(vocab=["PAD", "red", "blue", "green"]),
+        embedding_weights=torch.randn(4, 8),
+        update_embeddings=True,
+    )
+    model = SentenceTransformer(modules=[word_embeddings, Pooling(8, "mean")], device="cpu", truncate_dim=4)
+    loss = EmbedDistillLoss(model, projection_dim=16)
+    features = [_features(model, ["red blue", "green"])]
+    labels = torch.randn(2, 16)
+    value = loss(features, labels)
+    assert value.dim() == 0
+    assert torch.isfinite(value)

@@ -160,7 +160,13 @@ class EmbedDistillLoss(nn.Module):
         self.projection_dim = projection_dim
         self.projection: nn.Linear | None = None
         if projection_dim is not None:
-            student_dim = model.get_embedding_dimension()
+            student_dim = (
+                model._get_untruncated_embedding_dimension()
+                if hasattr(model, "_get_untruncated_embedding_dimension")
+                else None
+            )
+            if student_dim is None:
+                student_dim = model.get_embedding_dimension()
             self.projection = nn.Linear(student_dim, projection_dim, device=model.device)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None) -> Tensor:
@@ -266,7 +272,13 @@ class EmbedDistillLoss(nn.Module):
         out_features, in_features = state_dict["weight"].shape
 
         if self.projection is None:
-            student_dim = self.model.get_embedding_dimension()
+            student_dim = (
+                self.model._get_untruncated_embedding_dimension()
+                if hasattr(self.model, "_get_untruncated_embedding_dimension")
+                else None
+            )
+            if student_dim is None:
+                student_dim = self.model.get_embedding_dimension()
             if in_features != student_dim:
                 raise ValueError(
                     f"Saved projection expects student embeddings of dim {in_features}, "

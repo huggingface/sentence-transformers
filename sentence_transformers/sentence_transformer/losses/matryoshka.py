@@ -194,7 +194,13 @@ class MatryoshkaLoss(nn.Module):
         elif len(matryoshka_weights) != len(matryoshka_dims):
             raise ValueError("matryoshka_weights must be the same length as matryoshka_dims.")
 
-        model_embedding_dim = model._get_untruncated_embedding_dimension()
+        model_embedding_dim = (
+            model._get_untruncated_embedding_dimension()
+            if hasattr(model, "_get_untruncated_embedding_dimension")
+            else None
+        )
+        if model_embedding_dim is None and hasattr(model, "get_embedding_dimension"):
+            model_embedding_dim = model.get_embedding_dimension()
         if model_embedding_dim is not None:
             if any(d > model_embedding_dim for d in matryoshka_dims):
                 raise ValueError(
@@ -250,10 +256,24 @@ class MatryoshkaLoss(nn.Module):
                 # If the labels seem to be (per-column) embeddings, truncate them to match the soon-to-be-truncated
                 # predicted embeddings. This allows for MatryoshkaLoss with a direct distillation loss
                 dim_labels = labels
+                model_dim = (
+                    self.model._get_untruncated_embedding_dimension()
+                    if hasattr(self.model, "_get_untruncated_embedding_dimension")
+                    else None
+                )
+                if model_dim is None and hasattr(self.model, "get_embedding_dimension"):
+                    model_dim = self.model.get_embedding_dimension()
+
                 if (
                     isinstance(labels, torch.Tensor)
                     and labels.ndim in (2, 3)
-                    and labels.size(-1) == self.model.get_embedding_dimension()
+                    and labels.size(-1)
+                    in (
+                        model_dim,
+                        self.model.get_embedding_dimension()
+                        if hasattr(self.model, "get_embedding_dimension")
+                        else None,
+                    )
                 ):
                     dim_labels = labels[..., :dim]
 
