@@ -235,6 +235,41 @@ def test_quantize_multi_vector_calibrates_once(precision: str, calibration_sourc
     assert maximum.call_count == expected_scans
 
 
+@pytest.mark.parametrize("precision", ["int8", "uint8"])
+@pytest.mark.parametrize(
+    "calibration_format",
+    ["tensor", "bfloat16_tensor", "list_of_vectors", "list_of_tensor_vectors", "list_of_matrices", "ranges_tensor"],
+)
+def test_quantize_accepts_calibration_in_embedding_formats(precision: str, calibration_format: str) -> None:
+    """Calibration embeddings (and ranges) may come straight from `encode`, like the embeddings themselves."""
+    rng = np.random.default_rng(0)
+    embeddings = rng.standard_normal((10, 8)).astype(np.float32)
+    # Values that are exactly representable in bfloat16, so every format yields the same ranges
+    calibration = rng.integers(-4, 5, (20, 8)).astype(np.float32)
+    ranges = np.vstack((calibration.min(axis=0), calibration.max(axis=0)))
+    expected = quantize_embeddings(embeddings, precision, ranges=ranges)
+
+    kwargs = {}
+    if calibration_format == "tensor":
+        kwargs["calibration_embeddings"] = torch.from_numpy(calibration)
+    elif calibration_format == "bfloat16_tensor":
+        kwargs["calibration_embeddings"] = torch.from_numpy(calibration).bfloat16()
+    elif calibration_format == "list_of_vectors":
+        kwargs["calibration_embeddings"] = list(calibration)
+    elif calibration_format == "list_of_tensor_vectors":
+        kwargs["calibration_embeddings"] = list(torch.from_numpy(calibration))
+    elif calibration_format == "list_of_matrices":
+        kwargs["calibration_embeddings"] = [torch.from_numpy(matrix) for matrix in np.split(calibration, [3, 10])]
+    elif calibration_format == "ranges_tensor":
+        kwargs["ranges"] = torch.from_numpy(ranges)
+
+    np.testing.assert_array_equal(quantize_embeddings(embeddings, precision, **kwargs), expected)
+    np.testing.assert_array_equal(quantize_embeddings(torch.from_numpy(embeddings), precision, **kwargs), expected)
+
+    multi_vector = quantize_embeddings(np.split(embeddings, [4]), precision, **kwargs)
+    np.testing.assert_array_equal(np.concatenate(multi_vector), expected)
+
+
 skip_without_faiss = pytest.mark.skipif(importlib.util.find_spec("faiss") is None, reason="faiss not installed")
 skip_without_usearch = pytest.mark.skipif(importlib.util.find_spec("usearch") is None, reason="usearch not installed")
 
