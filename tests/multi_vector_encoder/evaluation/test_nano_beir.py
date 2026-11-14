@@ -4,16 +4,16 @@ from sentence_transformers import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.evaluation import (
     MultiVectorInformationRetrievalEvaluator,
     MultiVectorNanoBEIREvaluator,
-    MultiVectorNanoEvaluator,
+    MultiVectorNanoRetrievalEvaluator,
 )
 from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
 
 
-def test_nano_evaluator_pooling_and_chunk_options(nano_datasets, mve_bert_tiny_model):
+def test_nano_retrieval_evaluator_pooling_and_chunk_options(nano_datasets, mve_bert_tiny_model):
     from sentence_transformers.multi_vector_encoder.modules import HierarchicalTokenPooling
 
     pooling = HierarchicalTokenPooling(max_tokens=4)
-    evaluator = MultiVectorNanoEvaluator(
+    evaluator = MultiVectorNanoRetrievalEvaluator(
         nano_datasets.dataset_id,
         name="my_suite",
         truncate_dim=64,
@@ -47,7 +47,7 @@ def test_nanobeir_compatibility(nano_datasets, mve_bert_tiny_model):
         corpus_prompts="document: ",
     )
     assert isinstance(evaluator, NanoBEIREvaluator)
-    assert isinstance(evaluator, MultiVectorNanoEvaluator)
+    assert isinstance(evaluator, MultiVectorNanoRetrievalEvaluator)
     nano_datasets.discover.assert_not_called()
     assert {args.kwargs["split"] for args in nano_datasets.load.call_args_list} == {"NanoMSMARCO", "NanoNQ"}
     assert [part.name for part in evaluator.evaluators] == [

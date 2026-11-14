@@ -6,22 +6,22 @@ from unittest.mock import call
 import numpy as np
 import pytest
 
-from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorNanoEvaluator
+from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorNanoRetrievalEvaluator
 from sentence_transformers.multi_vector_encoder.modules import HierarchicalTokenPooling
-from sentence_transformers.sentence_transformer.evaluation import NanoEvaluator
-from sentence_transformers.sparse_encoder.evaluation import SparseNanoEvaluator
+from sentence_transformers.sentence_transformer.evaluation import NanoRetrievalEvaluator
+from sentence_transformers.sparse_encoder.evaluation import SparseNanoRetrievalEvaluator
 from tests.sentence_transformer.evaluation.test_nanobeir_evaluator import LocalNanoBEIREvaluator
 
 
 @pytest.mark.parametrize(
     "evaluator_class, model_fixture",
     [
-        (NanoEvaluator, "stsb_bert_tiny_model"),
-        (SparseNanoEvaluator, "splade_bert_tiny_model"),
-        (MultiVectorNanoEvaluator, "mve_bert_tiny_model"),
+        (NanoRetrievalEvaluator, "stsb_bert_tiny_model"),
+        (SparseNanoRetrievalEvaluator, "splade_bert_tiny_model"),
+        (MultiVectorNanoRetrievalEvaluator, "mve_bert_tiny_model"),
     ],
 )
-def test_nano_evaluator_discovers_and_aggregates_tasks(
+def test_nano_retrieval_evaluator_discovers_and_aggregates_tasks(
     evaluator_class, model_fixture, nano_datasets, request, tmp_path
 ):
     model = request.getfixturevalue(model_fixture)
@@ -50,8 +50,8 @@ def test_nano_evaluator_discovers_and_aggregates_tasks(
     assert all(len(row) == len(rows[0]) for row in rows)
 
 
-def test_nano_evaluator_explicit_splits_name_and_prompts(nano_datasets):
-    evaluator = NanoEvaluator(
+def test_nano_retrieval_evaluator_explicit_splits_name_and_prompts(nano_datasets):
+    evaluator = NanoRetrievalEvaluator(
         nano_datasets.dataset_id,
         splits=["second_task"],
         name="MLDR",
@@ -77,12 +77,12 @@ def test_nano_evaluator_explicit_splits_name_and_prompts(nano_datasets):
 @pytest.mark.parametrize(
     "evaluator_class, kwargs",
     [
-        (NanoEvaluator, {}),
-        (SparseNanoEvaluator, {"max_active_dims": 32}),
-        (MultiVectorNanoEvaluator, {"token_pooling": HierarchicalTokenPooling(max_tokens=4)}),
+        (NanoRetrievalEvaluator, {}),
+        (SparseNanoRetrievalEvaluator, {"max_active_dims": 32}),
+        (MultiVectorNanoRetrievalEvaluator, {"token_pooling": HierarchicalTokenPooling(max_tokens=4)}),
     ],
 )
-def test_nano_evaluator_validation(evaluator_class, kwargs, nano_datasets):
+def test_nano_retrieval_evaluator_validation(evaluator_class, kwargs, nano_datasets):
     with pytest.raises(ValueError, match="splits cannot be empty"):
         evaluator_class(nano_datasets.dataset_id, splits=[], **kwargs)
     with pytest.raises(ValueError, match="missing query prompts"):
@@ -92,14 +92,18 @@ def test_nano_evaluator_validation(evaluator_class, kwargs, nano_datasets):
     evaluator_class(nano_datasets.dataset_id, splits=["mean"], aggregate_key="avg", **kwargs)
 
 
-def test_nano_evaluator_custom_aggregation(nano_datasets, stsb_bert_tiny_model):
-    evaluator = NanoEvaluator(nano_datasets.dataset_id, aggregate_fn=np.max, aggregate_key="max", ndcg_at_k=[1])
+def test_nano_retrieval_evaluator_custom_aggregation(nano_datasets, stsb_bert_tiny_model):
+    evaluator = NanoRetrievalEvaluator(
+        nano_datasets.dataset_id, aggregate_fn=np.max, aggregate_key="max", ndcg_at_k=[1]
+    )
     results = evaluator(stsb_bert_tiny_model)
     assert results[evaluator.primary_metric] == 1.0
 
 
-@pytest.mark.parametrize("evaluator_class", [NanoEvaluator, SparseNanoEvaluator, MultiVectorNanoEvaluator])
-def test_nano_evaluator_loading_errors(evaluator_class, nano_datasets):
+@pytest.mark.parametrize(
+    "evaluator_class", [NanoRetrievalEvaluator, SparseNanoRetrievalEvaluator, MultiVectorNanoRetrievalEvaluator]
+)
+def test_nano_retrieval_evaluator_loading_errors(evaluator_class, nano_datasets):
     nano_datasets.discover.side_effect = RuntimeError("unavailable")
     with pytest.raises(ValueError, match="Could not get the splits") as error:
         evaluator_class(nano_datasets.dataset_id)
@@ -114,9 +118,9 @@ def test_nano_evaluator_loading_errors(evaluator_class, nano_datasets):
         evaluator_class(nano_datasets.dataset_id, splits=["first_task"])
 
 
-def test_nanobeir_evaluator_is_nano_evaluator() -> None:
+def test_nanobeir_evaluator_is_nano_retrieval_evaluator() -> None:
     evaluator = LocalNanoBEIREvaluator(dataset_names=["msmarco", "NQ"], query_prompts="query: ")
-    assert isinstance(evaluator, NanoEvaluator)
+    assert isinstance(evaluator, NanoRetrievalEvaluator)
     assert evaluator.name == "NanoBEIR_mean"
     assert evaluator.csv_file == "NanoBEIR_evaluation_mean_results.csv"
     assert [sub_evaluator.name for sub_evaluator in evaluator.evaluators] == ["NanoMSMARCO", "NanoNQ"]

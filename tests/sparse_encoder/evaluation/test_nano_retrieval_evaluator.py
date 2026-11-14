@@ -3,14 +3,14 @@ from __future__ import annotations
 import pytest
 
 from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
-from sentence_transformers.sparse_encoder.evaluation import SparseNanoBEIREvaluator, SparseNanoEvaluator
+from sentence_transformers.sparse_encoder.evaluation import SparseNanoBEIREvaluator, SparseNanoRetrievalEvaluator
 
 
 @pytest.mark.parametrize("max_active_dims", [None, 32])
 def test_nanobeir_compatibility(nano_datasets, splade_bert_tiny_model, max_active_dims, tmp_path):
     evaluator = SparseNanoBEIREvaluator(["msmarco", "NQ"], max_active_dims=max_active_dims)
     assert isinstance(evaluator, NanoBEIREvaluator)
-    assert isinstance(evaluator, SparseNanoEvaluator)
+    assert isinstance(evaluator, SparseNanoRetrievalEvaluator)
     nano_datasets.discover.assert_not_called()
     assert {args.kwargs["split"] for args in nano_datasets.load.call_args_list} == {"NanoMSMARCO", "NanoNQ"}
     suffix = f"_{max_active_dims}" if max_active_dims is not None else ""

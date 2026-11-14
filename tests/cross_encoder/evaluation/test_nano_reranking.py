@@ -4,11 +4,14 @@ import csv
 
 import pytest
 
-from sentence_transformers.cross_encoder.evaluation import CrossEncoderNanoBEIREvaluator, CrossEncoderNanoEvaluator
+from sentence_transformers.cross_encoder.evaluation import (
+    CrossEncoderNanoBEIREvaluator,
+    CrossEncoderNanoRerankingEvaluator,
+)
 
 
-def test_nano_evaluator_aggregates_tasks_with_underscores(nano_datasets, reranker_bert_tiny_model, tmp_path):
-    evaluator = CrossEncoderNanoEvaluator(
+def test_nano_reranking_aggregates_tasks_with_underscores(nano_datasets, reranker_bert_tiny_model, tmp_path):
+    evaluator = CrossEncoderNanoRerankingEvaluator(
         nano_datasets.dataset_id, name="my_suite", at_k=1, aggregate_key="macro_mean"
     )
     nano_datasets.discover.assert_called_once_with(nano_datasets.dataset_id, "qrels")
@@ -28,8 +31,8 @@ def test_nano_evaluator_aggregates_tasks_with_underscores(nano_datasets, reranke
     assert all(len(row) == len(rows[0]) for row in rows)
 
 
-def test_nano_evaluator_candidate_subset_and_cutoff(nano_datasets):
-    evaluator = CrossEncoderNanoEvaluator(
+def test_nano_reranking_candidate_subset_and_cutoff(nano_datasets):
+    evaluator = CrossEncoderNanoRerankingEvaluator(
         nano_datasets.dataset_id,
         splits=["first_task"],
         candidate_subset="hybrid",
@@ -50,22 +53,22 @@ def test_nano_evaluator_candidate_subset_and_cutoff(nano_datasets):
     }
 
 
-def test_nano_evaluator_validation(nano_datasets):
+def test_nano_reranking_validation(nano_datasets):
     with pytest.raises(ValueError, match="splits cannot be empty"):
-        CrossEncoderNanoEvaluator(nano_datasets.dataset_id, splits=[])
+        CrossEncoderNanoRerankingEvaluator(nano_datasets.dataset_id, splits=[])
     with pytest.raises(ValueError, match="overwrite the aggregated metrics"):
-        CrossEncoderNanoEvaluator(nano_datasets.dataset_id, splits=["R100_mean"], aggregate_key="mean_R100")
+        CrossEncoderNanoRerankingEvaluator(nano_datasets.dataset_id, splits=["R100_mean"], aggregate_key="mean_R100")
     nano_datasets.discover.side_effect = RuntimeError("unavailable")
     with pytest.raises(ValueError, match="Could not get the splits"):
-        CrossEncoderNanoEvaluator(nano_datasets.dataset_id)
+        CrossEncoderNanoRerankingEvaluator(nano_datasets.dataset_id)
     del nano_datasets.subsets["bm25"]
     with pytest.raises(ValueError, match="Could not load subset 'bm25'"):
-        CrossEncoderNanoEvaluator(nano_datasets.dataset_id, splits=["first_task"])
+        CrossEncoderNanoRerankingEvaluator(nano_datasets.dataset_id, splits=["first_task"])
 
 
 def test_nanobeir_compatibility(nano_datasets, reranker_bert_tiny_model, tmp_path):
     evaluator = CrossEncoderNanoBEIREvaluator(["msmarco", "NQ"], rerank_k=2, at_k=1)
-    assert isinstance(evaluator, CrossEncoderNanoEvaluator)
+    assert isinstance(evaluator, CrossEncoderNanoRerankingEvaluator)
     nano_datasets.discover.assert_not_called()
     assert {args.kwargs["split"] for args in nano_datasets.load.call_args_list} == {"NanoMSMARCO", "NanoNQ"}
     assert evaluator.name == "NanoBEIR_R2_mean"

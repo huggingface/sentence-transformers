@@ -28,10 +28,10 @@ See also the modules from `sentence_transformers.base.evaluation` in [Base > Eva
 .. autoclass:: sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator
 ```
 
-## NanoEvaluator
+## NanoRetrievalEvaluator
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.sentence_transformer.evaluation.NanoEvaluator
+.. autoclass:: sentence_transformers.sentence_transformer.evaluation.NanoRetrievalEvaluator
 ```
 
 ## MSEEvaluator

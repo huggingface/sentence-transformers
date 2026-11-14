@@ -76,7 +76,7 @@ NanoDatasetId = Literal[
 ]
 
 
-class NanoEvaluator(BaseEvaluator):
+class NanoRetrievalEvaluator(BaseEvaluator):
     """
     This class evaluates the performance of a SentenceTransformer Model on a "Nano" collection of Information Retrieval
     datasets hosted on Hugging Face. Compatible collections are listed in the
@@ -118,11 +118,11 @@ class NanoEvaluator(BaseEvaluator):
         ::
 
             from sentence_transformers import SentenceTransformer
-            from sentence_transformers.sentence_transformer.evaluation import NanoEvaluator
+            from sentence_transformers.sentence_transformer.evaluation import NanoRetrievalEvaluator
 
             model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
-            evaluator = NanoEvaluator("hakari-bench/NanoCoIR", splits=["NanoApps", "NanoCosQA"])
+            evaluator = NanoRetrievalEvaluator("hakari-bench/NanoCoIR", splits=["NanoApps", "NanoCosQA"])
             results = evaluator(model)
             print(evaluator.primary_metric)
             # => "NanoCoIR_mean_cosine_ndcg@10"
@@ -134,13 +134,13 @@ class NanoEvaluator(BaseEvaluator):
 
             import numpy as np
             from sentence_transformers.base.evaluation import SequentialEvaluator
-            from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator, NanoEvaluator
+            from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator, NanoRetrievalEvaluator
 
             evaluator = SequentialEvaluator(
                 [
                     NanoBEIREvaluator(),
-                    NanoEvaluator("hakari-bench/NanoCoIR"),
-                    NanoEvaluator("hakari-bench/NanoMLDR"),
+                    NanoRetrievalEvaluator("hakari-bench/NanoCoIR"),
+                    NanoRetrievalEvaluator("hakari-bench/NanoMLDR"),
                 ],
                 main_score_function=np.mean,
             )
@@ -153,7 +153,7 @@ class NanoEvaluator(BaseEvaluator):
         The metrics of :class:`~sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator` are always named
         after "NanoBEIR" and the NanoBEIR datasets (e.g. "NanoMSMARCO"), whichever ``dataset_id`` it loads. To combine
         several languages of NanoBEIR, load the translated collections with this evaluator instead, e.g.
-        ``NanoEvaluator("lightonai/NanoBEIR-de")``, so that their metrics are prefixed with "NanoBEIR-de" and do not
+        ``NanoRetrievalEvaluator("lightonai/NanoBEIR-de")``, so that their metrics are prefixed with "NanoBEIR-de" and do not
         overwrite each other.
     """
 

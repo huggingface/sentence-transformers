@@ -14,10 +14,10 @@
 .. autoclass:: sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator
 ```
 
-## SparseNanoEvaluator
+## SparseNanoRetrievalEvaluator
 
 ```{eval-rst}
-.. autoclass:: sentence_transformers.sparse_encoder.evaluation.SparseNanoEvaluator
+.. autoclass:: sentence_transformers.sparse_encoder.evaluation.SparseNanoRetrievalEvaluator
 ``` 
 
 ## SparseEmbeddingSimilarityEvaluator

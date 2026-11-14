@@ -4,14 +4,14 @@ from collections.abc import Callable
 
 import numpy as np
 
-from sentence_transformers.cross_encoder.evaluation.nano_evaluator import CrossEncoderNanoEvaluator
+from sentence_transformers.cross_encoder.evaluation.nano_reranking import CrossEncoderNanoRerankingEvaluator
 from sentence_transformers.sentence_transformer.evaluation.nano_beir import (
     DATASET_NAME_TO_HUMAN_READABLE,
     DatasetNameType,
 )
 
 
-class CrossEncoderNanoBEIREvaluator(CrossEncoderNanoEvaluator):
+class CrossEncoderNanoBEIREvaluator(CrossEncoderNanoRerankingEvaluator):
     """
     This class evaluates a CrossEncoder model on the NanoBEIR collection of Information Retrieval datasets.
 
@@ -77,7 +77,7 @@ class CrossEncoderNanoBEIREvaluator(CrossEncoderNanoEvaluator):
 
         Select a NanoBEIR variant with a ``bm25`` subset from the
         `Nano datasets with BM25 rankings collection <https://huggingface.co/collections/sentence-transformers/nano-datasets-with-bm25-rankings>`_.
-        To evaluate other Nano collections, use :class:`CrossEncoderNanoEvaluator`.
+        To evaluate other Nano collections, use :class:`CrossEncoderNanoRerankingEvaluator`.
 
     Example:
         ::

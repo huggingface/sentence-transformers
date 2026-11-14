@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 
-from sentence_transformers.sentence_transformer.evaluation.nano_evaluator import NanoDatasetId, NanoEvaluator
+from sentence_transformers.sentence_transformer.evaluation.nano_retrieval import NanoDatasetId, NanoRetrievalEvaluator
 from sentence_transformers.sparse_encoder.evaluation.sparse_information_retrieval import (
     SparseInformationRetrievalEvaluator,
 )
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class SparseNanoEvaluator(NanoEvaluator):
+class SparseNanoRetrievalEvaluator(NanoRetrievalEvaluator):
     """Evaluate a :class:`~sentence_transformers.sparse_encoder.model.SparseEncoder` on a Nano retrieval collection,
     including sparsity statistics and FLOPS.
 
@@ -27,7 +27,7 @@ class SparseNanoEvaluator(NanoEvaluator):
     `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
 
     The dataset must contain corpus, queries, and qrels subsets as described by
-    :class:`~sentence_transformers.sentence_transformer.evaluation.NanoEvaluator`. This evaluator runs a
+    :class:`~sentence_transformers.sentence_transformer.evaluation.NanoRetrievalEvaluator`. This evaluator runs a
     :class:`SparseInformationRetrievalEvaluator` on each requested split, reports retrieval metrics
     (MRR@k, NDCG@k, Recall@k, Precision@k, Accuracy@k, MAP@k) and sparsity statistics per split, and aggregates them.
     Retrieval metrics use ``aggregate_fn``. Sparsity statistics are weighted by the number of queries or documents,
@@ -69,10 +69,10 @@ class SparseNanoEvaluator(NanoEvaluator):
         ::
 
             from sentence_transformers import SparseEncoder
-            from sentence_transformers.sparse_encoder.evaluation import SparseNanoEvaluator
+            from sentence_transformers.sparse_encoder.evaluation import SparseNanoRetrievalEvaluator
 
             model = SparseEncoder("sparse-encoder/splade-robbert-dutch-base-v1")
-            evaluator = SparseNanoEvaluator("hakari-bench/NanoMTEB-Dutch", batch_size=16)
+            evaluator = SparseNanoRetrievalEvaluator("hakari-bench/NanoMTEB-Dutch", batch_size=16)
             results = evaluator(model)
             print(results[evaluator.primary_metric])
     """

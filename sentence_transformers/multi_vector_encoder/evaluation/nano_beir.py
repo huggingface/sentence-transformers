@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from sentence_transformers.multi_vector_encoder.evaluation.nano_evaluator import MultiVectorNanoEvaluator
+from sentence_transformers.multi_vector_encoder.evaluation.nano_retrieval import MultiVectorNanoRetrievalEvaluator
 from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.sentence_transformer.evaluation.nano_beir import NanoBEIREvaluator
 
 
-class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator, MultiVectorNanoEvaluator):
+class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator, MultiVectorNanoRetrievalEvaluator):
     """Evaluates a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` model on NanoBEIR.
 
     NanoBEIR variants are listed in the
     `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
-    To evaluate other Nano collections, use :class:`MultiVectorNanoEvaluator`.
+    To evaluate other Nano collections, use :class:`MultiVectorNanoRetrievalEvaluator`.
 
     NanoBEIR is a downsized version of `BEIR <https://github.com/beir-cellar/beir>`_ (around 50 queries
     and 5,000 documents per subset) used for quick retrieval-quality benchmarking before running a

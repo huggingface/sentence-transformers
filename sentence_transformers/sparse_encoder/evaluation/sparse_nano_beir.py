@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from sentence_transformers.sentence_transformer.evaluation.nano_beir import NanoBEIREvaluator
-from sentence_transformers.sparse_encoder.evaluation.nano_evaluator import SparseNanoEvaluator
+from sentence_transformers.sparse_encoder.evaluation.sparse_nano_retrieval import SparseNanoRetrievalEvaluator
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.evaluation.nano_beir import DatasetNameType
 
 
-class SparseNanoBEIREvaluator(NanoBEIREvaluator, SparseNanoEvaluator):
+class SparseNanoBEIREvaluator(NanoBEIREvaluator, SparseNanoRetrievalEvaluator):
     """
     This evaluator extends :class:`~sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator` but is specifically designed for sparse encoder models.
 
@@ -62,7 +62,7 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator, SparseNanoEvaluator):
 
         Select a NanoBEIR variant from the
         `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
-        To evaluate other Nano collections, use :class:`SparseNanoEvaluator`.
+        To evaluate other Nano collections, use :class:`SparseNanoRetrievalEvaluator`.
 
     Example:
         ::

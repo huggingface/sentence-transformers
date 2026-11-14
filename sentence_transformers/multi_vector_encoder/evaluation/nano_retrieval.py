@@ -7,13 +7,13 @@ from sentence_transformers.multi_vector_encoder.evaluation.information_retrieval
 )
 from sentence_transformers.multi_vector_encoder.evaluation.utils import pooling_config, pooling_name_suffix
 from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
-from sentence_transformers.sentence_transformer.evaluation.nano_evaluator import NanoDatasetId, NanoEvaluator
+from sentence_transformers.sentence_transformer.evaluation.nano_retrieval import NanoDatasetId, NanoRetrievalEvaluator
 
 if TYPE_CHECKING:
     from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 
 
-class MultiVectorNanoEvaluator(NanoEvaluator):
+class MultiVectorNanoRetrievalEvaluator(NanoRetrievalEvaluator):
     """Evaluate a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` on a Nano
     text retrieval collection using late interaction.
 
@@ -21,7 +21,7 @@ class MultiVectorNanoEvaluator(NanoEvaluator):
     `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
 
     The dataset must contain corpus, queries, and qrels subsets as described by
-    :class:`~sentence_transformers.sentence_transformer.evaluation.NanoEvaluator`. This evaluator runs a
+    :class:`~sentence_transformers.sentence_transformer.evaluation.NanoRetrievalEvaluator`. This evaluator runs a
     :class:`MultiVectorInformationRetrievalEvaluator` on each requested split, reports the same retrieval
     metrics per split (MRR@k, NDCG@k, Recall@k, Precision@k, Accuracy@k, MAP@k), and aggregates them across splits.
 
@@ -70,10 +70,10 @@ class MultiVectorNanoEvaluator(NanoEvaluator):
         ::
 
             from sentence_transformers import MultiVectorEncoder
-            from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorNanoEvaluator
+            from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorNanoRetrievalEvaluator
 
             model = MultiVectorEncoder("lightonai/mLateOn")
-            evaluator = MultiVectorNanoEvaluator("hakari-bench/NanoMTEB-Dutch", batch_size=8)
+            evaluator = MultiVectorNanoRetrievalEvaluator("hakari-bench/NanoMTEB-Dutch", batch_size=8)
             results = evaluator(model)
             print(results[evaluator.primary_metric])
     """

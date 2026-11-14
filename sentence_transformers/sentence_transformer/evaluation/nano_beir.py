@@ -6,7 +6,7 @@ from typing import Any, Literal
 import numpy as np
 from torch import Tensor
 
-from sentence_transformers.sentence_transformer.evaluation.nano_evaluator import NanoEvaluator
+from sentence_transformers.sentence_transformer.evaluation.nano_retrieval import NanoRetrievalEvaluator
 from sentence_transformers.util.similarity import SimilarityFunction
 
 DatasetNameType = Literal[
@@ -42,7 +42,7 @@ DATASET_NAME_TO_HUMAN_READABLE = {
 }
 
 
-class NanoBEIREvaluator(NanoEvaluator):
+class NanoBEIREvaluator(NanoRetrievalEvaluator):
     """
     This class evaluates the performance of a SentenceTransformer Model on the NanoBEIR collection of Information Retrieval datasets.
 
@@ -54,7 +54,7 @@ class NanoBEIREvaluator(NanoEvaluator):
     alongside many translated NanoBEIR variants.
     This evaluator reports the same metrics as the :class:`~sentence_transformers.sentence_transformer.evaluation.InformationRetrievalEvaluator`
     (e.g., MRR, nDCG, Recall@k) for each dataset individually, as well as aggregated across all datasets.
-    It is a :class:`~sentence_transformers.sentence_transformer.evaluation.NanoEvaluator` that selects the datasets
+    It is a :class:`~sentence_transformers.sentence_transformer.evaluation.NanoRetrievalEvaluator` that selects the datasets
     by their short NanoBEIR names.
 
     Args:
@@ -89,7 +89,7 @@ class NanoBEIREvaluator(NanoEvaluator):
         Select a NanoBEIR variant from the
         `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
         To evaluate other Nano collections or several languages at once, use
-        :class:`~sentence_transformers.sentence_transformer.evaluation.NanoEvaluator`.
+        :class:`~sentence_transformers.sentence_transformer.evaluation.NanoRetrievalEvaluator`.
 
     Example:
         ::

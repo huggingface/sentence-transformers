@@ -61,14 +61,14 @@ NanoDatasetId = Literal[
 ]
 
 
-class CrossEncoderNanoEvaluator(BaseEvaluator):
+class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
     """Evaluate a CrossEncoder on a Nano retrieval collection using precomputed candidate rankings.
 
     Compatible collections with BM25 rankings are listed in the
     `Nano datasets with BM25 rankings collection <https://huggingface.co/collections/sentence-transformers/nano-datasets-with-bm25-rankings>`_.
 
     The dataset must contain corpus, queries, and qrels subsets as described by
-    :class:`~sentence_transformers.sentence_transformer.evaluation.NanoEvaluator`, plus a candidate subset
+    :class:`~sentence_transformers.sentence_transformer.evaluation.NanoRetrievalEvaluator`, plus a candidate subset
     with query-id and corpus-ids columns for the same task splits. Candidate documents must be ranked.
     Reports MAP, MRR@k, and nDCG@k for the candidate ranking and reranked results, per split and aggregated across splits.
 
@@ -95,10 +95,10 @@ class CrossEncoderNanoEvaluator(BaseEvaluator):
         ::
 
             from sentence_transformers import CrossEncoder
-            from sentence_transformers.cross_encoder.evaluation import CrossEncoderNanoEvaluator
+            from sentence_transformers.cross_encoder.evaluation import CrossEncoderNanoRerankingEvaluator
 
             model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
-            evaluator = CrossEncoderNanoEvaluator("hakari-bench/NanoCoIR", splits=["NanoApps"])
+            evaluator = CrossEncoderNanoRerankingEvaluator("hakari-bench/NanoCoIR", splits=["NanoApps"])
             results = evaluator(model)
             print(results[evaluator.primary_metric])
     """

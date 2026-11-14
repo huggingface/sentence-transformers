@@ -12,7 +12,7 @@ from .label_accuracy import LabelAccuracyEvaluator
 from .mse import MSEEvaluator
 from .mse_from_dataframe import MSEEvaluatorFromDataFrame
 from .nano_beir import NanoBEIREvaluator
-from .nano_evaluator import NanoEvaluator
+from .nano_retrieval import NanoRetrievalEvaluator
 from .paraphrase_mining import ParaphraseMiningEvaluator
 from .reranking import RerankingEvaluator
 from .translation import TranslationEvaluator
@@ -34,5 +34,5 @@ __all__ = [
     "TripletEvaluator",
     "RerankingEvaluator",
     "NanoBEIREvaluator",
-    "NanoEvaluator",
+    "NanoRetrievalEvaluator",
 ]
