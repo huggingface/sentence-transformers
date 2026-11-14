@@ -610,6 +610,71 @@ def test_encode_quantization(
             assert isinstance(embeddings, list)
 
 
+@pytest.mark.parametrize(
+    ("precision", "expected_dtype", "expected_width"),
+    [
+        ("int8", torch.int8, 128),
+        ("uint8", torch.uint8, 128),
+        ("binary", torch.int8, 16),
+        ("ubinary", torch.uint8, 16),
+    ],
+)
+def test_encode_quantization_token_embeddings(
+    stsb_bert_tiny_model: SentenceTransformer,
+    precision: str,
+    expected_dtype: torch.dtype,
+    expected_width: int,
+) -> None:
+    # Regression test for https://github.com/huggingface/sentence-transformers/issues/2882:
+    # precision quantization must apply to token embeddings as well, keeping the
+    # list-of-tensors return type (previously the quantized matrices came back as ndarrays).
+    outputs = stsb_bert_tiny_model.encode(
+        ["One sentence", "Another sentence"], output_value="token_embeddings", precision=precision
+    )
+    assert isinstance(outputs, list)
+    assert len(outputs) == 2
+    for token_embeddings in outputs:
+        assert isinstance(token_embeddings, torch.Tensor)
+        assert token_embeddings.dtype == expected_dtype
+        assert token_embeddings.ndim == 2
+        assert token_embeddings.shape[1] == expected_width
+
+
+@pytest.mark.parametrize(
+    ("precision", "expected_dtype", "expected_width"),
+    [
+        ("int8", torch.int8, 128),
+        ("uint8", torch.uint8, 128),
+        ("binary", torch.int8, 16),
+        ("ubinary", torch.uint8, 16),
+    ],
+)
+def test_encode_quantization_output_value_none(
+    stsb_bert_tiny_model: SentenceTransformer,
+    precision: str,
+    expected_dtype: torch.dtype,
+    expected_width: int,
+) -> None:
+    # Regression test for https://github.com/huggingface/sentence-transformers/issues/2882:
+    # output_value=None + precision used to crash with a raw TypeError from quantize_embeddings
+    # on the list of dicts. The dict structure (and non-embedding entries) must be preserved.
+    outputs = stsb_bert_tiny_model.encode(["One sentence", "Another sentence"], output_value=None, precision=precision)
+    assert isinstance(outputs, list)
+    assert len(outputs) == 2
+    for output in outputs:
+        assert isinstance(output, dict)
+        assert isinstance(output["sentence_embedding"], torch.Tensor)
+        assert output["sentence_embedding"].dtype == expected_dtype
+        assert output["sentence_embedding"].shape == (expected_width,)
+        assert isinstance(output["token_embeddings"], torch.Tensor)
+        assert output["token_embeddings"].dtype == expected_dtype
+        assert output["token_embeddings"].ndim == 2
+        assert output["token_embeddings"].shape[1] == expected_width
+        # Non-embedding entries are untouched
+        assert isinstance(output["attention_mask"], torch.Tensor)
+        assert output["attention_mask"].dtype == torch.int64
+
+
 @pytest.mark.parametrize("sentences", ("Single sentence", ["One sentence", "Another sentence"]))
 @pytest.mark.parametrize("convert_to_tensor", [True, False])
 @pytest.mark.parametrize("convert_to_numpy", [True, False])

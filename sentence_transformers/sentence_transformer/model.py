@@ -802,6 +802,8 @@ class SentenceTransformer(BaseModel, FitMixin):
                 in which case the progress bar will be shown if the logger's effective level is INFO or DEBUG.
             output_value (Optional[Literal["sentence_embedding", "token_embeddings"]], optional): The type of embeddings to return.
             precision (Literal["float32", "int8", "uint8", "binary", "ubinary"], optional): The precision to use for the embeddings.
+                When ``output_value`` is ``"token_embeddings"`` or ``None``, the precision is applied to the token
+                embeddings (and the sentence embeddings, for ``None``) as well, calibrated across the batch.
             convert_to_numpy (bool, optional): Whether the output should be a list of numpy vectors.
             convert_to_tensor (bool, optional): Whether the output should be one large tensor.
             device (str, torch.device, list, or None, optional): Device(s) to use for computation. Can be:
@@ -893,7 +895,7 @@ class SentenceTransformer(BaseModel, FitMixin):
             all_embeddings = self._inference(inputs, device=device, **inference_kwargs)
 
         if len(all_embeddings) and precision and precision != "float32":
-            all_embeddings = quantize_embeddings(all_embeddings, precision=precision)
+            all_embeddings = self._quantize_encode_output(all_embeddings, output_value, precision)
 
         if convert_to_tensor:
             if isinstance(all_embeddings, Tensor) or len(all_embeddings):
@@ -916,6 +918,44 @@ class SentenceTransformer(BaseModel, FitMixin):
             all_embeddings = all_embeddings[0]
 
         return all_embeddings
+
+    @staticmethod
+    def _quantize_encode_output(
+        all_embeddings: list[Tensor] | Tensor | list[dict[str, Tensor]],
+        output_value: str | None,
+        precision: str,
+    ) -> list[Tensor] | Tensor | np.ndarray | list[np.ndarray] | list[dict[str, Tensor]]:
+        """Quantize the outputs of :meth:`encode` while preserving the return structure of each ``output_value`` mode.
+
+        ``quantize_embeddings`` only accepts a single stacked array or a list of 2D matrices, so the
+        ``output_value="token_embeddings"`` (a list of ragged per-input matrices) and ``output_value=None``
+        (a list of dicts) shapes cannot be passed to it directly: the former used to come back as ndarrays
+        instead of tensors, and the latter crashed (see #2882). Instead, quantize the embedding values per
+        mode with shared batch calibration and convert the results back to tensors, matching the
+        unquantized return types. Other dict entries (e.g. ``attention_mask``) are left untouched.
+        """
+        if output_value == "token_embeddings":
+            quantized = quantize_embeddings(all_embeddings, precision=precision)
+            return [torch.from_numpy(matrix) for matrix in quantized]
+
+        if output_value is None:
+            quantized_by_key: dict[str, np.ndarray | list[np.ndarray]] = {}
+            if "sentence_embedding" in all_embeddings[0]:
+                stacked = torch.stack([item["sentence_embedding"] for item in all_embeddings])
+                quantized_by_key["sentence_embedding"] = quantize_embeddings(stacked, precision=precision)
+            if "token_embeddings" in all_embeddings[0]:
+                quantized_by_key["token_embeddings"] = quantize_embeddings(
+                    [item["token_embeddings"] for item in all_embeddings], precision=precision
+                )
+            return [
+                {
+                    **item,
+                    **{key: torch.from_numpy(values[idx]) for key, values in quantized_by_key.items()},
+                }
+                for idx, item in enumerate(all_embeddings)
+            ]
+
+        return quantize_embeddings(all_embeddings, precision=precision)
 
     @torch.inference_mode()
     def _inference(
