@@ -55,7 +55,7 @@ if __name__ == "__main__":
 The evaluator reports MRR@k, NDCG@k, Recall@k, Precision@k, Accuracy@k, and MAP@k for every subset, and aggregates those metrics across subsets at the end. A few options worth knowing about:
 
 - `dataset_names` restricts the run to a handful of the 13 subsets, for example `["msmarco", "nq", "fiqa2018"]`. That is the common choice for evaluating during training, with the full suite reserved for the end of the run.
-- `dataset_id` points the evaluator at another dataset with the same layout, such as a translated variant from the [NanoBEIR collection](https://huggingface.co/collections/sentence-transformers/nanobeir-datasets), for non-English evaluation.
+- `dataset_id` points the evaluator at another NanoBEIR variant from the [Nano datasets collection](https://huggingface.co/collections/sentence-transformers/nano-datasets), for example for non-English evaluation. For other Nano collections, use `MultiVectorNanoRetrievalEvaluator`.
 - `batch_size` sets how many texts are encoded at a time, and `corpus_chunk_size` how many documents are encoded and scored per round-trip.
 - `chunk_elements` caps the number of elements in the MaxSim scoring intermediate. Lower it to reduce the memory used while scoring.
 

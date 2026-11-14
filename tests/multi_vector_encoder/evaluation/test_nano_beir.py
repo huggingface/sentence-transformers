@@ -4,7 +4,69 @@ from sentence_transformers import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.evaluation import (
     MultiVectorInformationRetrievalEvaluator,
     MultiVectorNanoBEIREvaluator,
+    MultiVectorNanoRetrievalEvaluator,
 )
+from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
+
+
+def test_nano_retrieval_evaluator_pooling_and_chunk_options(nano_datasets, mve_bert_tiny_model):
+    from sentence_transformers.multi_vector_encoder.modules import HierarchicalTokenPooling
+
+    pooling = HierarchicalTokenPooling(max_tokens=4)
+    evaluator = MultiVectorNanoRetrievalEvaluator(
+        nano_datasets.dataset_id,
+        name="my_suite",
+        truncate_dim=64,
+        token_pooling=pooling,
+        corpus_chunk_size=2,
+        chunk_elements=10000,
+    )
+    assert evaluator.name == "my_suite_mean_64_max_tokens_4"
+    assert evaluator.csv_file == "my_suite_evaluation_mean_64_max_tokens_4_results.csv"
+    assert evaluator.evaluators[0].name == "my_suite_first_task_64_max_tokens_4"
+    assert evaluator.evaluators[0].corpus_chunk_size == 2
+    assert evaluator.evaluators[0].token_pooling is pooling
+    results = evaluator(mve_bert_tiny_model)
+    assert evaluator.primary_metric == "my_suite_mean_64_max_tokens_4_maxsim_ndcg@10"
+    assert evaluator.primary_metric in results
+    assert evaluator.get_config_dict()["token_pooling"]["config"] == pooling.get_config_dict()
+
+
+def test_nanobeir_compatibility(nano_datasets, mve_bert_tiny_model):
+    from sentence_transformers.multi_vector_encoder.modules import HierarchicalTokenPooling
+
+    pooling = HierarchicalTokenPooling(max_tokens=4)
+    evaluator = MultiVectorNanoBEIREvaluator(
+        ["msmarco", "NQ"],
+        name="my_suite",
+        truncate_dim=64,
+        token_pooling=pooling,
+        corpus_chunk_size=2,
+        chunk_elements=10000,
+        query_prompts={"msmarco": "query: ", "NQ": "question: "},
+        corpus_prompts="document: ",
+    )
+    assert isinstance(evaluator, NanoBEIREvaluator)
+    assert isinstance(evaluator, MultiVectorNanoRetrievalEvaluator)
+    nano_datasets.discover.assert_not_called()
+    assert {args.kwargs["split"] for args in nano_datasets.load.call_args_list} == {"NanoMSMARCO", "NanoNQ"}
+    assert [part.name for part in evaluator.evaluators] == [
+        "my_suite_NanoMSMARCO_64_max_tokens_4",
+        "my_suite_NanoNQ_64_max_tokens_4",
+    ]
+    assert [part.query_prompt for part in evaluator.evaluators] == ["query: ", "question: "]
+    for part in evaluator.evaluators:
+        assert isinstance(part, MultiVectorInformationRetrievalEvaluator)
+        assert part.corpus_chunk_size == 2
+        assert part.chunk_elements == 10000
+        assert part.token_pooling is pooling
+        assert part.truncate_dim == 64
+        assert part.corpus_prompt == "document: "
+    results = evaluator(mve_bert_tiny_model)
+    assert evaluator.primary_metric == "my_suite_NanoBEIR_mean_64_max_tokens_4_maxsim_ndcg@10"
+    assert evaluator.primary_metric in results
+    assert evaluator.get_config_dict()["dataset_names"] == ["msmarco", "NQ"]
+    assert evaluator.get_config_dict()["token_pooling"]["config"] == pooling.get_config_dict()
 
 
 def test_nano_beir_evaluator_emits_lowercase_maxsim_key(mve_bert_tiny_model: MultiVectorEncoder) -> None:
