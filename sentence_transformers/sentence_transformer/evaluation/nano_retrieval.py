@@ -153,8 +153,8 @@ class NanoRetrievalEvaluator(BaseEvaluator):
         The metrics of :class:`~sentence_transformers.sentence_transformer.evaluation.NanoBEIREvaluator` are always named
         after "NanoBEIR" and the NanoBEIR datasets (e.g. "NanoMSMARCO"), whichever ``dataset_id`` it loads. To combine
         several languages of NanoBEIR, load the translated collections with this evaluator instead, e.g.
-        ``NanoRetrievalEvaluator("lightonai/NanoBEIR-de")``, so that their metrics are prefixed with "NanoBEIR-de" and do not
-        overwrite each other.
+        ``NanoRetrievalEvaluator("lightonai/NanoBEIR-de")``, so that their metrics are prefixed with "NanoBEIR-de" and
+        do not overwrite each other.
     """
 
     information_retrieval_class = InformationRetrievalEvaluator

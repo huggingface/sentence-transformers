@@ -54,8 +54,8 @@ class NanoBEIREvaluator(NanoRetrievalEvaluator):
     alongside many translated NanoBEIR variants.
     This evaluator reports the same metrics as the :class:`~sentence_transformers.sentence_transformer.evaluation.InformationRetrievalEvaluator`
     (e.g., MRR, nDCG, Recall@k) for each dataset individually, as well as aggregated across all datasets.
-    It is a :class:`~sentence_transformers.sentence_transformer.evaluation.NanoRetrievalEvaluator` that selects the datasets
-    by their short NanoBEIR names.
+    It is a :class:`~sentence_transformers.sentence_transformer.evaluation.NanoRetrievalEvaluator` that selects the
+    datasets by their short NanoBEIR names.
 
     Args:
         dataset_names (List[str]): The short names of the datasets to evaluate on (e.g., "climatefever", "msmarco").
