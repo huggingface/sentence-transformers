@@ -19,6 +19,7 @@ from functools import cached_property
 from itertools import chain
 from multiprocessing import Queue
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Any, Literal
 
 try:
@@ -63,6 +64,9 @@ if TYPE_CHECKING:
     from transformers import KernelConfig, PretrainedConfig
 
 logger = transformers_logging.get_logger(__name__)
+
+_active_pool_inputs: set[Queue] = set()
+_active_pool_inputs_lock = Lock()
 
 
 class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
@@ -1888,6 +1892,10 @@ This pull request has been automatically generated to add {self.__class__.__name
 
         Returns:
             Dict[str, Any]: A dictionary with the target processes, an input queue, and an output queue.
+
+        Note:
+            A pool can serve only one inference call at a time. Concurrent calls using the same pool
+            raise a ``RuntimeError`` before submitting any chunks. Use separate pools for concurrent calls.
         """
         if self._accelerate_placement_hook is not None:
             raise ValueError(
@@ -2027,11 +2035,20 @@ This pull request has been automatically generated to add {self.__class__.__name
             pool = self.start_multi_process_pool(device)
             created_pool = True
 
+        input_queue: Queue = pool["input"]
+        # Chunk IDs are local to each call, so sharing the result queue would mix callers' outputs.
+        with _active_pool_inputs_lock:
+            if input_queue in _active_pool_inputs:
+                raise RuntimeError(
+                    "The multi-process pool is already in use by another inference call. "
+                    "Wait for it to finish or use a separate pool."
+                )
+            _active_pool_inputs.add(input_queue)
+
         try:
             if chunk_size is None:
                 chunk_size = max(1, min(math.ceil(len(inputs) / len(pool["processes"]) / 10), 5000))
 
-            input_queue: Queue = pool["input"]
             chunk_starts = range(0, len(inputs), chunk_size)
             num_chunks = len(chunk_starts)
             for chunk_id, start in enumerate(chunk_starts):
@@ -2050,6 +2067,8 @@ This pull request has been automatically generated to add {self.__class__.__name
                 return torch.cat(outputs)
             return [item for chunk in outputs for item in chunk]
         finally:
+            with _active_pool_inputs_lock:
+                _active_pool_inputs.remove(input_queue)
             if created_pool:
                 self.stop_multi_process_pool(pool)
 
