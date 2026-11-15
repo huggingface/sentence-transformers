@@ -156,7 +156,12 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
         self._component_values: dict[str, float] = {}
 
     def calculate_loss(
-        self, reps: list[list[Tensor]], labels: Tensor | None = None, *, with_backward: bool = False
+        self,
+        reps: list[list[Tensor]],
+        labels: Tensor | None = None,
+        *,
+        with_backward: bool = False,
+        backward_scale: Tensor | float | None = None,
     ) -> Tensor:
         """Compute the total loss (base loss + regularizers) from the per-mini-batch embeddings."""
         embeddings = [torch.cat(r) for r in reps]
@@ -189,7 +194,7 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
         self._component_values = component_values
 
         if with_backward:
-            total_loss.backward()
+            (total_loss if backward_scale is None else total_loss * backward_scale).backward()
             total_loss = total_loss.detach()
 
         return total_loss
