@@ -4,12 +4,11 @@ import collections
 import json
 import logging
 import os
-import string
 from collections.abc import Iterable
 
 from transformers.utils.import_utils import NLTK_IMPORT_ERROR, is_nltk_available
 
-from .word import ENGLISH_STOP_WORDS, WordTokenizer
+from .word import ENGLISH_STOP_WORDS, WordTokenizer, _strip_punctuation
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +91,7 @@ class PhraseTokenizer(WordTokenizer):
                 tokens_filtered.append(self.word2idx[token])
                 continue
 
-            token = token.strip(string.punctuation)
+            token = _strip_punctuation(token)
             if token in self.stop_words:
                 continue
             elif len(token) > 0 and token in self.word2idx:

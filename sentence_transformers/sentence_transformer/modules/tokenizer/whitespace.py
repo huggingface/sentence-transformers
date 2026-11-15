@@ -3,10 +3,9 @@ from __future__ import annotations
 import collections
 import json
 import os
-import string
 from collections.abc import Iterable
 
-from .word import ENGLISH_STOP_WORDS, WordTokenizer
+from .word import ENGLISH_STOP_WORDS, WordTokenizer, _strip_punctuation
 
 
 class WhitespaceTokenizer(WordTokenizer):
@@ -43,7 +42,7 @@ class WhitespaceTokenizer(WordTokenizer):
                 tokens_filtered.append(self.word2idx[token])
                 continue
 
-            token = token.strip(string.punctuation)
+            token = _strip_punctuation(token)
             if token in self.stop_words:
                 continue
             elif len(token) > 0 and token in self.word2idx:

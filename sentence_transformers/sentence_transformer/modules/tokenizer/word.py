@@ -1,9 +1,27 @@
 from __future__ import annotations
 
+import string
+import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
+
+
+def _strip_punctuation(token: str) -> str:
+    """Strip leading and trailing punctuation: ``string.punctuation`` plus any Unicode punctuation,
+    e.g. the Arabic comma or CJK full stop."""
+
+    def is_punctuation(char: str) -> bool:
+        return char in string.punctuation or unicodedata.category(char).startswith("P")
+
+    start, end = 0, len(token)
+    while start < end and is_punctuation(token[start]):
+        start += 1
+    while end > start and is_punctuation(token[end - 1]):
+        end -= 1
+    return token[start:end]
+
 
 ENGLISH_STOP_WORDS = [
     "!",
