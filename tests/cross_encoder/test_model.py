@@ -164,6 +164,20 @@ def test_rank_scores_are_floats(reranker_bert_tiny_model: CrossEncoder) -> None:
     json.dumps(ranks)
 
 
+def test_rank_rejects_a_single_string_as_documents(reranker_bert_tiny_model: CrossEncoder) -> None:
+    # A bare string is a Sequence too, so without a check each character is ranked as a document.
+    with pytest.raises(TypeError, match="list of documents"):
+        reranker_bert_tiny_model.rank("A man is eating pasta.", "A man is eating food.")
+
+
+def test_rank_rejects_negative_top_k(reranker_bert_tiny_model: CrossEncoder) -> None:
+    # results[:-1] would silently drop the lowest-scoring document instead of failing.
+    with pytest.raises(ValueError, match="top_k"):
+        reranker_bert_tiny_model.rank(
+            "A man is eating pasta.", ["A man is eating food.", "A monkey is playing."], top_k=-1
+        )
+
+
 @pytest.mark.parametrize("kwarg", ["convert_to_numpy", "convert_to_tensor"])
 def test_rank_convert_kwargs_deprecated(reranker_bert_tiny_model: CrossEncoder, kwarg: str, caplog) -> None:
     # Annotated as Any so type checkers don't match the removed kwarg against every remaining parameter
