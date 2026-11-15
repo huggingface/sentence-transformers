@@ -836,18 +836,18 @@ def pairwise_angle_sim(x: list | np.ndarray | Tensor, y: list | np.ndarray | Ten
             y = y.to_dense()
 
     # Pad tensors if the embedding dimension is odd, as torch.chunk requires even dimensions
-    if x.shape[1] % 2 != 0:
+    if x.shape[-1] % 2 != 0:
         x = torch.nn.functional.pad(x, (0, 1), mode="constant", value=0)
         y = torch.nn.functional.pad(y, (0, 1), mode="constant", value=0)
 
     # Equivalent to the complex-chunk form from https://github.com/SeanLee97/AnglE,
     # rewritten as cosine + sine similarity after L2 normalization (see #3223).
-    normalized_x = torch.nn.functional.normalize(x, p=2, dim=1)
-    normalized_y = torch.nn.functional.normalize(y, p=2, dim=1)
-    cosines = torch.sum(normalized_x * normalized_y, dim=1)
-    first_x, last_x = torch.chunk(normalized_x, 2, dim=1)
-    first_y, last_y = torch.chunk(normalized_y, 2, dim=1)
-    sines = torch.sum(last_x * first_y - first_x * last_y, dim=1)
+    normalized_x = torch.nn.functional.normalize(x, p=2, dim=-1)
+    normalized_y = torch.nn.functional.normalize(y, p=2, dim=-1)
+    cosines = torch.sum(normalized_x * normalized_y, dim=-1)
+    first_x, last_x = torch.chunk(normalized_x, 2, dim=-1)
+    first_y, last_y = torch.chunk(normalized_y, 2, dim=-1)
+    sines = torch.sum(last_x * first_y - first_x * last_y, dim=-1)
     return torch.abs(cosines + sines)
 
 

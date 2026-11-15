@@ -409,6 +409,19 @@ def test_pairwise_angle_sim_input_types(convert_x, convert_y) -> None:
     torch.testing.assert_close(scores, expected, check_dtype=False)
 
 
+@pytest.mark.parametrize("dim", [4, 3])
+def test_pairwise_angle_sim_single_vectors(dim) -> None:
+    """Like the other pairwise similarities, a pair of 1D vectors gives the score for that one pair."""
+    x = torch.tensor([[1.0, 2.0, 3.0, 4.0], [2.0, -1.0, 0.0, 3.0]])[:, :dim]
+    y = torch.tensor([[4.0, 3.0, 2.0, 1.0], [1.0, 0.0, -2.0, 1.0]])[:, :dim]
+    expected = pairwise_angle_sim(x, y)
+
+    for i in range(len(x)):
+        score = pairwise_angle_sim(x[i], y[i])
+        assert score.shape == pairwise_cos_sim(x[i], y[i]).shape == ()
+        torch.testing.assert_close(score, expected[i])
+
+
 @pytest.mark.parametrize("sparse_first", [True, False])
 def test_pairwise_angle_sim_mixed_sparse_dense(sparse_tensors, sparse_first) -> None:
     """Test that mixing a sparse and a dense operand matches the all-dense result."""
