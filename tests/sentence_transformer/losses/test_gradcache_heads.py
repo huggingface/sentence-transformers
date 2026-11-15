@@ -600,6 +600,8 @@ def test_parameter_free_path_skips_deferred_work(monkeypatch, kind, matryoshka):
 @pytest.mark.parametrize("outer", [0.0, -2.0, 0.125])
 def test_unused_and_frozen_parameters_keep_none_gradients(outer):
     head = LearnedSimilarity()
+    head.register_buffer("empty_a", torch.empty(0))
+    head.register_buffer("empty_b", torch.empty(0))
     head.unused = nn.Parameter(torch.tensor(0.7, dtype=torch.float64))
     head.frozen = nn.Parameter(torch.tensor(0.9, dtype=torch.float64), requires_grad=False)
     cached = CachedMultipleNegativesRankingLoss(TinyEncoder(), similarity_fct=head, scale=1, mini_batch_size=2)
@@ -686,4 +688,104 @@ def test_grad_bearing_buffer_view_is_rejected_before_backward():
     features = [{"values": torch.randn(5, 5, dtype=torch.float64)} for _ in range(2)]
     with pytest.raises(ValueError, match="registered parameters, not buffers"):
         cached(features, None)
+    assert all(p.grad is None for p in cached.parameters())
+
+
+@pytest.mark.parametrize("layout", ["scalar_view", "partial", "disjoint", "different_dtype", "empty_view"])
+@pytest.mark.parametrize("location", ["head", "encoder", "cross_module"])
+def test_distinct_buffer_storage_aliases_rejected_before_encoding(layout, location):
+    model, head = TinyEncoder(), LearnedSimilarity()
+    cached = CachedMultipleNegativesRankingLoss(model, similarity_fct=head, scale=1, mini_batch_size=2)
+    owner = model if location == "encoder" else head
+    base = torch.zeros(4, dtype=torch.float64)
+    if layout == "scalar_view":
+        first, second = base[:1], base[:1].view(())
+    elif layout == "partial":
+        first, second = base[:3], base[1:]
+    elif layout == "disjoint":
+        first, second = base[:2], base[2:]
+    elif layout == "empty_view":
+        first, second = base, base[:0]
+    else:
+        first, second = base, base.view(torch.uint8)
+    owner.register_buffer("calls", first)
+    (model if location == "cross_module" else owner).register_buffer("alias", second)
+    calls = []
+    model.register_forward_pre_hook(lambda *args: calls.append("encoder"))
+    head.register_forward_pre_hook(lambda *args: calls.append("head"))
+    features = [{"values": torch.randn(5, 5, dtype=torch.float64)} for _ in range(2)]
+    with pytest.raises(ValueError, match="registered tensors sharing storage"):
+        cached(features, None)
+    assert calls == []
+    assert torch.count_nonzero(base) == 0
+    assert all(p.grad is None for p in cached.parameters())
+
+
+@pytest.mark.parametrize("view", ["detach", "partial", "different_dtype", "grad_view"])
+def test_parameter_buffer_storage_aliases_rejected_before_encoding(view):
+    model, head = TinyEncoder(), LearnedSimilarity()
+    cached = CachedMultipleNegativesRankingLoss(model, similarity_fct=head, scale=1, mini_batch_size=2)
+    weight = model.linear.weight
+    buffer = {
+        "detach": weight.detach(),
+        "partial": weight.detach()[:1],
+        "different_dtype": weight.detach().view(torch.uint8),
+        "grad_view": weight.view(-1),
+    }[view]
+    head.register_buffer("alias", buffer)
+    calls = []
+    model.register_forward_pre_hook(lambda *args: calls.append("encoder"))
+    features = [{"values": torch.randn(5, 5, dtype=torch.float64)} for _ in range(2)]
+    with pytest.raises(ValueError, match="registered tensors sharing storage|registered parameters, not buffers"):
+        cached(features, None)
+    assert calls == []
+    assert all(p.grad is None for p in cached.parameters())
+
+
+def test_identical_buffer_references_preserve_state_and_gradients():
+    class Head(LearnedSimilarity):
+        def __init__(self):
+            super().__init__()
+            self.register_buffer("calls", torch.zeros(1, dtype=torch.float64))
+            self.register_buffer("alias", self.calls)
+
+        def forward(self, a, b):
+            self.calls.add_(1)
+            return super().forward(a, b) * self.alias.clone()
+
+    torch.manual_seed(123)
+    cached = CachedMultipleNegativesRankingLoss(TinyEncoder(), similarity_fct=Head(), scale=1, mini_batch_size=2)
+    reference = deepcopy(cached)
+    features = [{"values": torch.randn(5, 5, dtype=torch.float64)} for _ in range(2)]
+    actual = cached(features, None)
+    expected = reference.calculate_loss([[reference.model(f)["sentence_embedding"]] for f in features])
+    assert all(p.grad is None for p in cached.parameters())
+    (actual * -0.25).backward()
+    (expected * -0.25).backward()
+    torch.testing.assert_close(actual, expected)
+    for p, q in zip(cached.parameters(), reference.parameters()):
+        torch.testing.assert_close(p.grad, q.grad)
+    assert cached.similarity_fct.calls is cached.similarity_fct.alias
+    torch.testing.assert_close(cached.similarity_fct.calls, reference.similarity_fct.calls)
+
+
+def test_mutating_buffer_view_head_is_rejected_before_state_changes():
+    class Head(LearnedSimilarity):
+        def __init__(self):
+            super().__init__()
+            self.register_buffer("calls", torch.zeros(1, dtype=torch.float64))
+            self.register_buffer("alias", self.calls.view(()))
+
+        def forward(self, a, b):
+            self.calls.add_(1)
+            return super().forward(a, b) * self.alias.clone()
+
+    cached = CachedMultipleNegativesRankingLoss(TinyEncoder(), similarity_fct=Head(), scale=1, mini_batch_size=2)
+    features = [{"values": torch.randn(5, 5, dtype=torch.float64)} for _ in range(2)]
+    calls = []
+    cached.model.register_forward_pre_hook(lambda *args: calls.append("encoder"))
+    with pytest.raises(ValueError, match="registered tensors sharing storage"):
+        cached(features, None)
+    assert calls == []
+    assert cached.similarity_fct.calls.item() == 0
     assert all(p.grad is None for p in cached.parameters())

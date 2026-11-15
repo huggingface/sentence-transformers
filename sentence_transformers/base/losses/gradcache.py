@@ -552,10 +552,47 @@ def _get_autocast_states(embedding_device):
     return states
 
 
+def _validate_loss_buffer_aliases(loss_obj):
+    # Snapshots preserve repeated references to the same Tensor, not distinct
+    # views of its storage. Reject those views before encoding can mutate state.
+    storages = {}
+
+    def storage_key(value):
+        if value.layout != torch.strided:
+            raise ValueError("Deferred cached losses require strided registered tensors for buffer alias validation.")
+        storage = value.untyped_storage()
+        return (value.device, storage.data_ptr()) if storage.nbytes() else None
+
+    for parameter in loss_obj.parameters():
+        key = storage_key(parameter)
+        if key is not None:
+            storages.setdefault(key, set()).add(id(parameter))
+    for module in loss_obj.modules():
+        for value in module._buffers.values():
+            if value is None:
+                continue
+            if value.requires_grad and not isinstance(value, torch.nn.Parameter):
+                raise ValueError(
+                    "Deferred cached losses require trainable tensors to be registered parameters, not buffers."
+                )
+            key = storage_key(value)
+            if key is None:
+                continue
+            identities = storages.setdefault(key, set())
+            if identities and identities != {id(value)}:
+                raise ValueError(
+                    "Deferred cached losses cannot replay distinct registered tensors sharing storage when a buffer "
+                    "is involved. Repeated references to the same Tensor object are supported, but buffer views "
+                    "require independent storage."
+                )
+            identities.add(id(value))
+
+
 @contextmanager
 def _replay_loss_buffers(snapshots):
     # Recompute against the state observed by this forward without advancing live
-    # running statistics a second time. Preserve aliases between registered buffers.
+    # running statistics a second time. Preserve identical Tensor references;
+    # distinct storage aliases were rejected before the forward pass.
     originals = []
     clones = {}
     try:
@@ -658,6 +695,8 @@ class CachedLossMixin:
         its limitation for trainable loss parameters. Deferred replay snapshots registered
         buffers and Tensor inputs; custom non-Tensor mutable state is not replayed.
         Feature views must have a provably non-overlapping layout for input isolation.
+        Distinct registered tensors sharing storage with a buffer are rejected before
+        encoding; repeated references to the same Tensor object remain supported.
         """
         raise NotImplementedError
 
@@ -718,6 +757,8 @@ class CachedLossMixin:
         # Tensor storage remains shared and is version-checked before recomputation.
         grad_enabled = torch.is_grad_enabled()
         deferred = grad_enabled and _uses_deferred_backward(self)
+        if deferred:
+            _validate_loss_buffer_aliases(self)
         sentence_features = [dict(feature) for feature in sentence_features] if deferred else list(sentence_features)
 
         # Compute the mini-batch boundaries before any forward pass. Modules may modify the
@@ -756,16 +797,14 @@ class CachedLossMixin:
             loss_rng = RandContext(*(rep for column in reps for rep in column))
             python_rng = random.getstate()
             autocast_states = _get_autocast_states(reps[0][0].device.type)
+            # Encoding may have rebound buffers; validate again before snapshotting.
+            _validate_loss_buffer_aliases(self)
             # Capture loss-stage buffers after encoding, before evaluating the head.
             snapshots = {}
             buffers = []
             for module in self.modules():
                 for name, value in module._buffers.items():
                     if value is not None and not isinstance(value, torch.nn.Parameter):
-                        if value.requires_grad:
-                            raise ValueError(
-                                "Deferred cached losses require trainable tensors to be registered parameters, not buffers."
-                            )
                         if id(value) not in snapshots:
                             snapshots[id(value)] = value.detach().clone()
                         value = snapshots[id(value)]
