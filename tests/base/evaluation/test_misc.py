@@ -6,6 +6,7 @@ from sentence_transformers.base.evaluation import SequentialEvaluator
 from sentence_transformers.multi_vector_encoder.evaluation import (
     MultiVectorInformationRetrievalEvaluator,
     MultiVectorNanoBEIREvaluator,
+    MultiVectorNanoRetrievalEvaluator,
     MultiVectorTripletEvaluator,
 )
 from sentence_transformers.sentence_transformer.evaluation import (
@@ -13,6 +14,7 @@ from sentence_transformers.sentence_transformer.evaluation import (
     EmbeddingSimilarityEvaluator,
     InformationRetrievalEvaluator,
     NanoBEIREvaluator,
+    NanoRetrievalEvaluator,
     TripletEvaluator,
 )
 from sentence_transformers.sparse_encoder.evaluation import (
@@ -20,6 +22,7 @@ from sentence_transformers.sparse_encoder.evaluation import (
     SparseEmbeddingSimilarityEvaluator,
     SparseInformationRetrievalEvaluator,
     SparseNanoBEIREvaluator,
+    SparseNanoRetrievalEvaluator,
     SparseTripletEvaluator,
 )
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -94,10 +97,13 @@ def test_unsupported_main_similarity_is_rejected(evaluator_class, model_fixture,
 IR_CASES = [
     (InformationRetrievalEvaluator, "stsb_bert_tiny_model", ["cosine", "dot"]),
     (NanoBEIREvaluator, "stsb_bert_tiny_model", ["cosine", "dot"]),
+    (NanoRetrievalEvaluator, "stsb_bert_tiny_model", ["cosine", "dot"]),
     (SparseInformationRetrievalEvaluator, "splade_bert_tiny_model", ["dot", "cosine"]),
     (SparseNanoBEIREvaluator, "splade_bert_tiny_model", ["dot", "cosine"]),
+    (SparseNanoRetrievalEvaluator, "splade_bert_tiny_model", ["dot", "cosine"]),
     (MultiVectorInformationRetrievalEvaluator, "mve_bert_tiny_model", ["maxsim", "meanmaxsim"]),
     (MultiVectorNanoBEIREvaluator, "mve_bert_tiny_model", ["maxsim", "meanmaxsim"]),
+    (MultiVectorNanoRetrievalEvaluator, "mve_bert_tiny_model", ["maxsim", "meanmaxsim"]),
 ]
 IR_CASE_PARAMETERS = "evaluator_class, model_fixture, names"
 
@@ -113,12 +119,14 @@ def make_ir_evaluator(monkeypatch):
         "qrels": [{"query-id": "q", "corpus-id": "d"}],
     }
     monkeypatch.setattr(
-        NanoBEIREvaluator, "_load_dataset_subset_split", lambda self, subset, **kwargs: subsets[subset]
+        NanoRetrievalEvaluator, "_load_dataset_subset_split", lambda self, subset, **kwargs: subsets[subset]
     )
 
     def make(evaluator_class, **kwargs):
         if issubclass(evaluator_class, NanoBEIREvaluator):
             return evaluator_class(dataset_names=["MSMARCO"], **kwargs)
+        if issubclass(evaluator_class, NanoRetrievalEvaluator):
+            return evaluator_class(dataset_id="test-org/custom-nano", splits=["task"], **kwargs)
         return evaluator_class(
             queries={"q": subsets["queries"][0]["text"]},
             corpus={row["_id"]: row["text"] for row in subsets["corpus"]},

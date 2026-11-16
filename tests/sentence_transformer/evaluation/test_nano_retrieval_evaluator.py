@@ -6,6 +6,7 @@ from unittest.mock import call
 import numpy as np
 import pytest
 
+from sentence_transformers.base.evaluation import SequentialEvaluator
 from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorNanoRetrievalEvaluator
 from sentence_transformers.multi_vector_encoder.modules import HierarchicalTokenPooling
 from sentence_transformers.sentence_transformer.evaluation import NanoRetrievalEvaluator
@@ -98,6 +99,27 @@ def test_nano_retrieval_evaluator_custom_aggregation(nano_datasets, stsb_bert_ti
     )
     results = evaluator(stsb_bert_tiny_model)
     assert results[evaluator.primary_metric] == 1.0
+
+
+@pytest.mark.parametrize(
+    "evaluator_class, model_fixture, main_score_function",
+    [
+        (NanoRetrievalEvaluator, "stsb_bert_tiny_model", "dot"),
+        (SparseNanoRetrievalEvaluator, "splade_bert_tiny_model", "cosine"),
+        (MultiVectorNanoRetrievalEvaluator, "mve_bert_tiny_model", "meanmaxsim"),
+    ],
+)
+def test_nano_retrieval_main_score_function(
+    evaluator_class, model_fixture, main_score_function, nano_datasets, request
+):
+    model = request.getfixturevalue(model_fixture)
+    assert model.similarity_fn_name != main_score_function
+    evaluator = evaluator_class(nano_datasets.dataset_id, main_score_function=main_score_function, write_csv=False)
+    metrics = SequentialEvaluator([evaluator])(model)
+    assert evaluator.primary_metric == f"custom-nano_mean_{main_score_function}_ndcg@10"
+    assert evaluator.score_function_names == [main_score_function]
+    assert all(part.score_function_names == [main_score_function] for part in evaluator.evaluators)
+    assert metrics["sequential_score"] == metrics[evaluator.primary_metric]
 
 
 @pytest.mark.parametrize(

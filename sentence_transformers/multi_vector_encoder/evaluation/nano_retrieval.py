@@ -51,12 +51,13 @@ class MultiVectorNanoRetrievalEvaluator(NanoRetrievalEvaluator):
         write_csv (bool): Append per-call metric values to CSV files. Defaults to True.
         truncate_dim (int, optional): Truncate and L2-normalize each token embedding before scoring.
             An explicit dimension is appended to evaluator names. Defaults to None (use the model's default dimension).
-        score_functions (dict[str, Callable], optional): Override scoring, which defaults to the model's
-            ``similarity_fn_name`` at call time. Callables receive query and document token tensors and return
-            a ``(num_queries, num_documents)`` score matrix. Cannot be combined with ``chunk_elements``.
+        score_functions (dict[str, Callable], optional): Override scoring, which defaults to ``main_score_function``
+            when set, otherwise the model's ``similarity_fn_name`` at call time. Callables receive query and document
+            token tensors and return a ``(num_queries, num_documents)`` score matrix. Cannot be combined with ``chunk_elements``.
             XTR scoring is not supported because it requires global scoring across the corpus. Defaults to None.
-        main_score_function (str or SimilarityFunction, optional): Score-function key to use for the primary metric.
-            Defaults to None (select the score function with the highest aggregate NDCG at the largest cutoff).
+        main_score_function (str or SimilarityFunction, optional): The score function to use for the primary metric.
+            If set and ``score_functions`` is provided, must be one of its keys. Defaults to None (select the score
+            function with the highest aggregate NDCG at the largest cutoff).
         aggregate_fn (Callable[[list[float]], float]): Function to aggregate per-split scores. Defaults to ``np.mean``.
         aggregate_key (str): Aggregate metric suffix. Defaults to ``"mean"``.
         query_prompts (str or dict[str, str], optional): Prompt prepended to queries. A string applies to every split.

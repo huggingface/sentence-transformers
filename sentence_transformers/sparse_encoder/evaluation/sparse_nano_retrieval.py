@@ -52,9 +52,10 @@ class SparseNanoRetrievalEvaluator(NanoRetrievalEvaluator):
         write_csv (bool): Append per-call retrieval metrics and sparsity statistics to CSV files. Defaults to True.
         score_functions (dict[str, Callable], optional): Mapping of score-function names to callables receiving
             query and document embedding tensors and returning a ``(num_queries, num_documents)`` score matrix.
-            Defaults to the ``similarity`` function of the model passed to each call.
-        main_score_function (str or SimilarityFunction, optional): Score-function key to use for the primary metric.
-            Defaults to None (select the score function with the highest aggregate NDCG at the largest cutoff).
+            If omitted, uses ``main_score_function`` when set, otherwise the model's ``similarity`` function on each call.
+        main_score_function (str or SimilarityFunction, optional): The score function to use for the primary metric.
+            If set and ``score_functions`` is provided, must be one of its keys. Defaults to None (select the score
+            function with the highest aggregate NDCG at the largest cutoff).
         aggregate_fn (Callable[[list[float]], float]): Function to aggregate per-split retrieval scores.
             Defaults to ``np.mean``.
         aggregate_key (str): Aggregate metric suffix. Defaults to ``"mean"``.
