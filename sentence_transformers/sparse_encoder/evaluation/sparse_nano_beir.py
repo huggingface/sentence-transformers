@@ -61,7 +61,9 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
             `None` uses the model's current `max_active_dims`. Defaults to None.
         score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions.
             If omitted, uses ``main_score_function`` when set, otherwise the model's ``similarity`` function on each call.
-        main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation. Defaults to None.
+        main_score_function (Union[str, SimilarityFunction], optional): The score function to use for the primary
+            metric. If set and ``score_functions`` is provided, must be one of its keys. Defaults to None (select the
+            highest NDCG among the evaluated score functions).
         aggregate_fn (Callable[[list[float]], float]): The function to aggregate the scores. Defaults to np.mean.
         aggregate_key (str): The key to use for the aggregated score. Defaults to "mean".
         query_prompts (str | dict[str, str], optional): The prompts to add to the queries. If a string, will add the same prompt to all queries. If a dict, expects that all datasets in dataset_names are keys.
