@@ -1,3 +1,10 @@
+"""
+Deprecated evaluator wrappers retained for compatibility with existing code.
+Use the CrossEncoder evaluators named in each class's deprecation notice instead.
+
+Maintenance is limited to compatibility and security fixes. New features are out of scope.
+"""
+
 from __future__ import annotations
 
 from typing_extensions import deprecated

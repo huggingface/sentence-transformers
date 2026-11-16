@@ -1,6 +1,8 @@
 """
 This file contains the templating for model cards prior to the v3.0 release. It still exists to be used alongside
 SentenceTransformer.old_fit for backwards compatibility, but will be removed in a future release.
+
+Maintenance is limited to compatibility and security fixes. New features are out of scope.
 """
 
 from __future__ import annotations
