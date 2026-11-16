@@ -7,8 +7,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from sklearn.metrics.pairwise import cosine_similarity
 
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, util
 
 
 @pytest.mark.parametrize("padding_side", ["right", "left"])
@@ -112,3 +113,16 @@ def test_encode_routes_through_module_call(stsb_bert_tiny_model: SentenceTransfo
     finally:
         handle.remove()
     assert calls, "encode() should invoke the model via __call__, not call forward() directly"
+
+
+def test_encode_numpy_cosine_scores(word_embeddings_model: SentenceTransformer) -> None:
+    query = word_embeddings_model.encode("hello", convert_to_numpy=True)
+    corpus = word_embeddings_model.encode(["hello", "world", "hello world"], convert_to_numpy=True)
+
+    scores = util.cos_sim(query, corpus, convert_to_numpy=True)
+
+    assert isinstance(scores, np.ndarray)
+    assert scores.shape == (1, 3)
+    assert scores.dtype == np.float32
+    np.testing.assert_allclose(scores, cosine_similarity(query[None], corpus), atol=1e-6)
+    assert scores.argmax(axis=1).tolist() == [0]

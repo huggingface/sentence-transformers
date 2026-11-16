@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from enum import Enum
+from typing import Literal, overload
 
 import numpy as np
 import torch
@@ -13,6 +14,7 @@ from .tensor import (
     _convert_to_batch_tensor,
     _convert_to_float_tensor,
     _convert_to_tensor,
+    _tensor_to_numpy,
     normalize_embeddings,
     to_scipy_coo,
 )
@@ -56,23 +58,46 @@ def pytorch_cos_sim(a: Tensor, b: Tensor) -> Tensor:
     return cos_sim(a, b)
 
 
-def cos_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:
+@overload
+def cos_sim(
+    a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor, convert_to_numpy: Literal[False] = False
+) -> Tensor: ...
+
+
+@overload
+def cos_sim(
+    a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor, convert_to_numpy: Literal[True]
+) -> np.ndarray: ...
+
+
+@overload
+def cos_sim(
+    a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor, convert_to_numpy: bool
+) -> Tensor | np.ndarray: ...
+
+
+def cos_sim(
+    a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor, convert_to_numpy: bool = False
+) -> Tensor | np.ndarray:
     """
     Computes the cosine similarity between two tensors.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
         b (Union[list, np.ndarray, Tensor]): The second tensor.
+        convert_to_numpy (bool, optional): Whether to return a NumPy array instead of a tensor. Defaults to False.
 
     Returns:
-        Tensor: Matrix with res[i][j] = cos_sim(a[i], b[j])
+        Union[Tensor, np.ndarray]: Matrix with res[i][j] = cos_sim(a[i], b[j]). By default, returns a tensor.
+        If ``convert_to_numpy=True``, returns a NumPy array detached from autograd and moved to CPU.
     """
     a = _convert_to_batch_tensor(a)
     b = _convert_to_batch_tensor(b)
 
     a_norm = normalize_embeddings(a)
     b_norm = normalize_embeddings(b)
-    return torch.mm(a_norm, b_norm.transpose(0, 1)).to_dense()
+    scores = torch.mm(a_norm, b_norm.transpose(0, 1)).to_dense()
+    return _tensor_to_numpy(scores.detach()) if convert_to_numpy else scores
 
 
 def pairwise_cos_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:

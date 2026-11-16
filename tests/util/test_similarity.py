@@ -135,6 +135,78 @@ def test_dot_score_cos_sim() -> None:
     assert np.allclose(dot_calculated, dot_and_cosine_expected)
 
 
+@pytest.mark.parametrize("input_type", [list, np.array, torch.tensor])
+@pytest.mark.parametrize("single_a", [False, True])
+@pytest.mark.parametrize("single_b", [False, True])
+def test_cos_sim_numpy_values_and_shape(input_type, single_a: bool, single_b: bool) -> None:
+    a = input_type([3.0, 4.0] if single_a else [[3.0, 4.0], [0.0, 0.0]])
+    b = input_type([5.0, 0.0] if single_b else [[5.0, 0.0], [0.0, 5.0], [-5.0, 0.0]])
+    expected = np.array([[0.6, 0.8, -0.6], [0.0, 0.0, 0.0]])
+    expected = expected[:1] if single_a else expected
+    expected = expected[:, :1] if single_b else expected
+
+    scores = cos_sim(a, b, convert_to_numpy=True)
+
+    assert isinstance(scores, np.ndarray)
+    assert scores.shape == expected.shape
+    np.testing.assert_allclose(scores, expected, atol=1e-6)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64])
+def test_cos_sim_numpy_dtype(dtype: torch.dtype) -> None:
+    a = torch.tensor([3.0, 4.0], dtype=dtype)
+    b = torch.tensor([[5.0, 0.0], [0.0, 5.0]], dtype=dtype)
+
+    scores = cos_sim(a, b, convert_to_numpy=True)
+
+    assert isinstance(scores, np.ndarray)
+    assert scores.dtype == (np.float64 if dtype == torch.float64 else np.float32)
+    np.testing.assert_allclose(scores, [[0.6, 0.8]], atol=1e-6)
+
+
+def test_cos_sim_numpy_detaches_without_changing_inputs(inference_device: str) -> None:
+    a = torch.tensor([3.0, 4.0], device=inference_device, requires_grad=True)
+    b = torch.tensor([1.0, 0.0], device=inference_device, requires_grad=True)
+    original_a, original_b = a.detach().clone(), b.detach().clone()
+
+    scores = cos_sim(a, b, convert_to_numpy=True)
+
+    assert isinstance(scores, np.ndarray)
+    np.testing.assert_allclose(scores, [[0.6]], atol=1e-6)
+    torch.testing.assert_close(a, original_a)
+    torch.testing.assert_close(b, original_b)
+    assert a.device.type == b.device.type == inference_device
+    assert a.requires_grad and b.requires_grad
+    assert a.grad is None and b.grad is None
+
+
+@pytest.mark.parametrize("single_a", [False, True])
+def test_cos_sim_numpy_sparse(single_a: bool) -> None:
+    a = torch.tensor([3.0, 4.0] if single_a else [[3.0, 4.0], [0.0, 0.0]]).to_sparse()
+    b = torch.tensor([[5.0, 0.0], [0.0, 5.0], [-5.0, 0.0]]).to_sparse()
+    expected = np.array([[0.6, 0.8, -0.6], [0.0, 0.0, 0.0]])
+
+    scores = cos_sim(a, b, convert_to_numpy=True)
+
+    assert isinstance(scores, np.ndarray)
+    np.testing.assert_allclose(scores, expected[:1] if single_a else expected, atol=1e-6)
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"convert_to_numpy": False}], ids=["default", "explicit_false"])
+def test_cos_sim_tensor_output_keeps_gradients(kwargs, inference_device: str) -> None:
+    a = torch.tensor([3.0, 4.0], device=inference_device, requires_grad=True)
+    b = torch.tensor([1.0, 0.0], device=inference_device, requires_grad=True)
+
+    scores = cos_sim(a, b, **kwargs)
+
+    assert isinstance(scores, torch.Tensor)
+    assert scores.device == a.device
+    torch.testing.assert_close(scores, a.new_tensor([[0.6]]))
+    scores.sum().backward()
+    torch.testing.assert_close(a.grad, a.new_tensor([0.128, -0.096]))
+    torch.testing.assert_close(b.grad, b.new_tensor([0.0, 0.8]))
+
+
 def create_sparse_tensor(rows, cols, num_nonzero, seed=None):
     """Create a sparse tensor of shape (rows, cols) with num_nonzero values per row."""
     if seed is not None:
