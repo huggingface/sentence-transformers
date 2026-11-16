@@ -259,8 +259,9 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         sentence_features = sentence_features[0]
-        embeddings_a = self.model1(sentence_features)["sentence_embedding"]  # (bsz, hdim)
-        embeddings_b = self.model2(sentence_features)["sentence_embedding"]
+        # Modules can replace feature values, so each encoder needs the original inputs.
+        embeddings_a = self.model1(dict(sentence_features))["sentence_embedding"]  # (bsz, hdim)
+        embeddings_b = self.model2(dict(sentence_features))["sentence_embedding"]
 
         scores = self.similarity_fct(embeddings_a, embeddings_b) * self.logit_scale.exp()  # self.scale
         labels = torch.arange(len(scores), dtype=torch.long, device=scores.device)
