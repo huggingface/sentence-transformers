@@ -28,6 +28,20 @@ ROWS = [
 ]
 
 
+@pytest.mark.parametrize(
+    "samples",
+    [
+        [],
+        [{"query": "q", "positive": ["a"], "negative": []}],
+        [{"query": "q", "positive": [], "negative": ["a"]}],
+    ],
+)
+def test_reranking_evaluator_without_valid_samples_raises(samples) -> None:
+    """Samples without both a positive and a negative are dropped, so none left is a clear error, not a numpy one."""
+    with pytest.raises(ValueError, match="at least one positive and one negative"):
+        RerankingEvaluator(samples)
+
+
 @pytest.mark.parametrize("use_batched_encoding", [True, False])
 @pytest.mark.parametrize(("string_positive", "string_negative"), [(True, False), (False, True), (True, True)])
 def test_reranking_evaluator_string_documents(
