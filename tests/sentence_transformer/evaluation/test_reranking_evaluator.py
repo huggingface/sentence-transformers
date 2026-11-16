@@ -37,9 +37,20 @@ ROWS = [
     ],
 )
 def test_reranking_evaluator_without_valid_samples_raises(samples) -> None:
-    """Samples without both a positive and a negative are dropped, so none left is a clear error, not a numpy one."""
     with pytest.raises(ValueError, match="at least one positive and one negative"):
         RerankingEvaluator(samples)
+
+
+def test_reranking_evaluator_filters_invalid_samples() -> None:
+    valid_sample = {"query": "q", "positive": ["a"], "negative": ["b"]}
+    evaluator = RerankingEvaluator(
+        [
+            {"query": "q", "positive": ["a"], "negative": []},
+            valid_sample,
+            {"query": "q", "positive": [], "negative": ["b"]},
+        ]
+    )
+    assert evaluator.samples == [valid_sample]
 
 
 @pytest.mark.parametrize("use_batched_encoding", [True, False])
