@@ -161,7 +161,9 @@ class MultiVectorMatryoshkaLoss(nn.Module):
                 gradient_cache_loss.calculate_loss, self.matryoshka_dims, self.matryoshka_weights, self.n_dims_per_step
             )
 
-    def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None) -> Tensor:
+    def forward(
+        self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None
+    ) -> Tensor | dict[str, Tensor]:
         sentence_features = list(sentence_features)
         if self.uses_gradient_cache:
             return self.loss(sentence_features, labels)
@@ -179,7 +181,15 @@ class MultiVectorMatryoshkaLoss(nn.Module):
             loss = 0.0
             for idx in dim_indices:
                 decorated_forward.set_dim(self.matryoshka_dims[idx])
-                loss += self.matryoshka_weights[idx] * self.loss(sentence_features, labels)
+                weight = self.matryoshka_weights[idx]
+                dim_loss = self.loss(sentence_features, labels)
+                if isinstance(dim_loss, dict):
+                    if not isinstance(loss, dict):
+                        loss = {}
+                    for key, value in dim_loss.items():
+                        loss[key] = loss.get(key, 0.0) + weight * value
+                else:
+                    loss = loss + weight * dim_loss
         finally:
             self.model.forward = original_forward
         return loss

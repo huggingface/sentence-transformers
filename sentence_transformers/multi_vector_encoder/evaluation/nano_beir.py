@@ -58,8 +58,9 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
             Use distinct names for poolers with the same short configuration label. Defaults to "".
         score_functions (Dict[str, Callable], optional): Override the default per-subset scoring.
             See :class:`MultiVectorInformationRetrievalEvaluator`. Defaults to None.
-        main_score_function (str or SimilarityFunction, optional): Score-function key to treat as the
-            primary metric for the model card / trainer. Defaults to None.
+        main_score_function (str or SimilarityFunction, optional): The score function to use for the primary metric. If
+            set and ``score_functions`` is provided, must be one of its keys. Defaults to None (select the highest NDCG
+            among the evaluated score functions).
         aggregate_fn (Callable[[List[float]], float]): How to aggregate the per-subset scores into the
             top-level summary. Defaults to ``np.mean``.
         aggregate_key (str): Suffix used in the aggregated metric's key. Defaults to ``"mean"``.

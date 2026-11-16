@@ -132,6 +132,10 @@ class RerankingEvaluator(BaseEvaluator):
         self.samples = [
             sample for sample in self.samples if len(sample["positive"]) > 0 and len(sample["negative"]) > 0
         ]
+        if not self.samples:
+            raise ValueError(
+                "RerankingEvaluator needs at least one sample with at least one positive and one negative document."
+            )
 
         self.csv_file = "RerankingEvaluator" + ("_" + name if name else "") + f"_results_@{self.at_k}.csv"
         self.csv_headers = [

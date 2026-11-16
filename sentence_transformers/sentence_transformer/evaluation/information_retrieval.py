@@ -43,8 +43,11 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         name (str): A name for the evaluation. Defaults to "".
         write_csv (bool): Whether to write the evaluation results to a CSV file. Defaults to True.
         truncate_dim (int, optional): The dimension to truncate the embeddings to. Defaults to None.
-        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to the ``similarity`` function of the model passed to each call, so a reused evaluator follows every model's own similarity.
-        main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation. Defaults to None.
+        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions.
+            If omitted, uses ``main_score_function`` when set, otherwise the model's ``similarity`` function on each call.
+        main_score_function (Union[str, SimilarityFunction], optional): The score function to use for the primary
+            metric. If set and ``score_functions`` is provided, must be one of its keys. Defaults to None (select the
+            highest NDCG among the evaluated score functions).
         query_prompt (str, optional): The prompt to be used when encoding the corpus. Defaults to None.
         query_prompt_name (str, optional): The name of the prompt to be used when encoding the corpus. Defaults to None.
         corpus_prompt (str, optional): The prompt to be used when encoding the corpus. Defaults to None.
@@ -185,6 +188,15 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
         self._score_functions_from_model = score_functions is None
         self.main_score_function = SimilarityFunction(main_score_function) if main_score_function else None
+        if (
+            score_functions is not None
+            and self.main_score_function is not None
+            and self.main_score_function.value not in score_functions
+        ):
+            raise ValueError(
+                f"`main_score_function` {self.main_score_function.value!r} is not in `score_functions`, "
+                f"expected a name in {sorted(score_functions)}."
+            )
         self.truncate_dim = truncate_dim
 
         if name:
@@ -217,6 +229,8 @@ class InformationRetrievalEvaluator(BaseEvaluator):
                 self.csv_headers.append(f"{score_name}-MAP@{k}")
 
     def _model_score_functions(self, model: SentenceTransformer) -> dict[str, Callable[[Tensor, Tensor], Tensor]]:
+        if self.main_score_function is not None:
+            return {self.main_score_function.value: SimilarityFunction.to_similarity_fn(self.main_score_function)}
         return {model.similarity_fn_name: model.similarity}
 
     def __call__(

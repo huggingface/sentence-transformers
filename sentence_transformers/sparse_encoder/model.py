@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
 
 import numpy as np
@@ -36,9 +37,9 @@ class SparseEncoder(BaseModel):
     Loads or creates a SparseEncoder model that can be used to map text to sparse embeddings.
 
     Args:
-        model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise, tries
-            to download a pre-trained SparseEncoder model. If that fails, tries to construct a model from the
-            Hugging Face Hub with that name. Defaults to None.
+        model_name_or_path (str or Path, optional): If a filepath on disk, loads the model from that path. Otherwise,
+            tries to download a pre-trained SparseEncoder model. If that fails, tries to construct a model
+            from the Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
             create custom SparseEncoder models from scratch. Defaults to None.
         device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used for
@@ -153,7 +154,7 @@ class SparseEncoder(BaseModel):
     @deprecated_kwargs(tokenizer_kwargs="processor_kwargs")
     def __init__(
         self,
-        model_name_or_path: str | None = None,
+        model_name_or_path: str | Path | None = None,
         *,
         modules: list[nn.Module] | None = None,
         device: str | None = None,
@@ -175,6 +176,9 @@ class SparseEncoder(BaseModel):
         similarity_fn_name: str | SimilarityFunction | None = None,
         max_active_dims: int | None = None,
     ) -> None:
+        if isinstance(model_name_or_path, Path):
+            model_name_or_path = str(model_name_or_path)
+
         # Set before super().__init__() so _parse_model_config can check these
         self.similarity_fn_name = similarity_fn_name
         self.max_active_dims = max_active_dims

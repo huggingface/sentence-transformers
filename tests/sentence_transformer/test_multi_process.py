@@ -439,3 +439,15 @@ def test_multi_process_output_tensors_two_devices(stsb_bert_tiny_model: Sentence
     assert len(features) == len(texts)
     for feature in features:
         assert all(value.device.type == "cpu" for value in feature.values() if isinstance(value, torch.Tensor))
+
+
+def test_multi_process_pool_selects_all_xpus(monkeypatch) -> None:
+    model = SentenceTransformer(modules=[torch.nn.Identity()], device="cpu")
+    context = Mock()
+    monkeypatch.setattr(model, "get_device_name", lambda: "xpu")
+    monkeypatch.setattr(torch, "xpu", Mock(device_count=lambda: 2), raising=False)
+    monkeypatch.setattr(torch.multiprocessing, "get_context", lambda method: context)
+
+    model.start_multi_process_pool()
+
+    assert [call.kwargs["args"][0] for call in context.Process.call_args_list] == ["xpu:0", "xpu:1"]

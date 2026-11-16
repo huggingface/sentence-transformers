@@ -7,6 +7,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
 
 import numpy as np
@@ -81,7 +82,7 @@ class MultiVectorEncoder(BaseModel):
     max similarity to any document token, then sum across query tokens.
 
     Args:
-        model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise,
+        model_name_or_path (str or Path, optional): If a filepath on disk, loads the model from that path. Otherwise,
             tries to download a pre-trained MultiVectorEncoder model. If that fails, tries to construct a model
             from the Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used
@@ -179,7 +180,7 @@ class MultiVectorEncoder(BaseModel):
 
     def __init__(
         self,
-        model_name_or_path: str | None = None,
+        model_name_or_path: str | Path | None = None,
         *,
         modules: list[nn.Module] | None = None,
         device: str | None = None,
@@ -202,6 +203,9 @@ class MultiVectorEncoder(BaseModel):
         token_pooling: BaseTokenPooling | None = None,
         truncate_dim: int | None = None,
     ) -> None:
+        if isinstance(model_name_or_path, Path):
+            model_name_or_path = str(model_name_or_path)
+
         # Stash before super().__init__ so _parse_model_config only falls back to saved config when unset.
         self.similarity_fn_name = similarity_fn_name
         self.token_pooling = token_pooling

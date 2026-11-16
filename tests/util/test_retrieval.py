@@ -75,6 +75,11 @@ def test_semantic_search_empty_corpus(corpus) -> None:
     assert semantic_search(torch.ones(2, 16), corpus) == [[], []]
 
 
+@pytest.mark.parametrize("queries", [torch.empty((0, 16)), np.empty((0, 16)), []])
+def test_semantic_search_empty_queries(queries) -> None:
+    assert semantic_search(queries, torch.ones(2, 16)) == []
+
+
 @pytest.mark.parametrize("corpus_chunk_size", [1, 7, 1000])
 @pytest.mark.parametrize("query_chunk_size", [1, 4, 100])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16])

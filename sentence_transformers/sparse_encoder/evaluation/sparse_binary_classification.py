@@ -40,7 +40,8 @@ class SparseBinaryClassificationEvaluator(BinaryClassificationEvaluator):
         show_progress_bar (bool, optional): If true, prints a progress bar. Defaults to False.
         write_csv (bool, optional): Write results to a CSV file. Defaults to True.
         max_active_dims (Optional[int], optional): The maximum number of active dimensions to use. `None` uses the model's current `max_active_dims`. Defaults to None.
-        similarity_fn_names (Optional[List[Literal["cosine", "dot", "euclidean", "manhattan"]]], optional): The similarity functions to use. If not specified, defaults to the ``similarity_fn_name`` attribute of the model. Defaults to None.
+        similarity_fn_names (Optional[List[Literal["cosine", "dot", "euclidean", "manhattan"]]], optional): The
+            similarity functions to evaluate. If omitted or empty, use ``model.similarity_fn_name``. Defaults to None.
 
     Example:
         ::
