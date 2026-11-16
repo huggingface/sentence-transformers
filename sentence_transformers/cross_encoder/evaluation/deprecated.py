@@ -108,8 +108,8 @@ class CECorrelationEvaluator(CrossEncoderCorrelationEvaluator):
 
 
 @deprecated(
-    "The CERerankingEvaluator has been renamed to CrossEncoderCorrelationEvaluator. "
-    "Please use CrossEncoderCorrelationEvaluator instead."
+    "The CERerankingEvaluator has been renamed to CrossEncoderRerankingEvaluator. "
+    "Please use CrossEncoderRerankingEvaluator instead."
 )
 class CERerankingEvaluator(CrossEncoderRerankingEvaluator):
     pass
