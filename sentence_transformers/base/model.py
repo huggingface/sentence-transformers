@@ -1883,7 +1883,7 @@ This pull request has been automatically generated to add {self.__class__.__name
             target_devices (List[str], optional): PyTorch target devices, e.g. ["cuda:0", "cuda:1", ...],
                 ["npu:0", "npu:1", ...], ["neuron:0", "neuron:1", ...], or ["cpu", "cpu", "cpu", "cpu"].
                 If target_devices is None, :meth:`get_device_name` selects the device type. All available
-                devices of that type are used for CUDA, NPU, and Neuron. Other types use 4 CPU workers.
+                devices of that type are used for CUDA, NPU, XPU, and Neuron. Other types use 4 CPU workers.
                 Neuron pools require a fresh process with the model loaded on CPU.
 
         Returns:
@@ -1898,7 +1898,7 @@ This pull request has been automatically generated to add {self.__class__.__name
 
         if target_devices is None:
             device_type = self.get_device_name().split(":")[0]
-            if device_type in ("cuda", "npu", "neuron"):
+            if device_type in ("cuda", "npu", "xpu", "neuron"):
                 target_devices = [f"{device_type}:{i}" for i in range(getattr(torch, device_type).device_count())]
             else:
                 logger.info("No supported multi-process accelerator is available. Starting 4 CPU workers")

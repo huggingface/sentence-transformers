@@ -41,9 +41,9 @@ class TripletEvaluator(BaseEvaluator):
         anchors (List[str]): Sentences to check similarity to. (e.g. a query)
         positives (List[str]): List of positive sentences
         negatives (List[str]): List of negative sentences
-        main_similarity_function (Union[str, SimilarityFunction], optional):
-            The similarity function to use. If not specified, use cosine similarity,
-            dot product, Euclidean, and Manhattan similarity. Defaults to None.
+        main_similarity_function (Union[str, SimilarityFunction], optional): The similarity function to use for the
+            primary metric. Always evaluated when set, even if omitted from ``similarity_fn_names``. Defaults to None
+            (select the highest accuracy among the evaluated similarities).
         margin (Union[float, Dict[str, float]], optional): Margins for various similarity metrics.
             If a float is provided, it will be used as the margin for all similarity metrics.
             If a dictionary is provided, the keys must be 'cosine', 'dot', 'manhattan', and 'euclidean'.
@@ -55,9 +55,8 @@ class TripletEvaluator(BaseEvaluator):
         write_csv (bool): Write results to a CSV file. Defaults to True.
         truncate_dim (int, optional): The dimension to truncate sentence embeddings to.
             `None` uses the model's current truncation dimension. Defaults to None.
-        similarity_fn_names (List[str], optional): List of similarity function names to evaluate.
-            If not specified, evaluate using the ``model.similarity_fn_name``.
-            Defaults to None.
+        similarity_fn_names (List[str], optional): List of similarity function names to evaluate. If omitted or empty,
+            use ``main_similarity_function`` when set, otherwise ``model.similarity_fn_name``. Defaults to None.
 
     Example:
         ::
@@ -126,8 +125,11 @@ class TripletEvaluator(BaseEvaluator):
             SimilarityFunction(main_similarity_function) if main_similarity_function else None
         )
         self.similarity_fn_names = similarity_fn_names or []
-        if not self.similarity_fn_names and self.main_similarity_function is not None:
-            self.similarity_fn_names = [self.main_similarity_function.value]
+        if (
+            self.main_similarity_function is not None
+            and self.main_similarity_function.value not in self.similarity_fn_names
+        ):
+            self.similarity_fn_names = [*self.similarity_fn_names, self.main_similarity_function.value]
 
         fn_keys = list(self._get_similarity_functions().keys())
         if unknown_names := sorted(set(self.similarity_fn_names) - set(fn_keys)):
@@ -201,13 +203,12 @@ class TripletEvaluator(BaseEvaluator):
 
         metrics = {}
         for fn_name in self.similarity_fn_names:
-            if fn_name in similarity_functions:
-                positive_scores, negative_scores = similarity_functions[fn_name](
-                    embeddings_anchors, embeddings_positives, embeddings_negatives
-                )
-                accuracy = (positive_scores > negative_scores + self.margin[fn_name]).float().mean().item()
-                metrics[f"{fn_name}_accuracy"] = accuracy
-                logger.info(f"Accuracy {fn_name.capitalize()} Similarity:\t{accuracy:.2%}")
+            positive_scores, negative_scores = similarity_functions[fn_name](
+                embeddings_anchors, embeddings_positives, embeddings_negatives
+            )
+            accuracy = (positive_scores > negative_scores + self.margin[fn_name]).float().mean().item()
+            metrics[f"{fn_name}_accuracy"] = accuracy
+            logger.info(f"Accuracy {fn_name.capitalize()} Similarity:\t{accuracy:.2%}")
 
         if output_path is not None and self.write_csv:
             os.makedirs(output_path, exist_ok=True)

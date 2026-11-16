@@ -31,9 +31,9 @@ class SparseTripletEvaluator(TripletEvaluator):
         anchors (List[str]): Sentences to check similarity to. (e.g. a query)
         positives (List[str]): List of positive sentences
         negatives (List[str]): List of negative sentences
-        main_similarity_function (Union[str, SimilarityFunction], optional):
-            The similarity function to use. If not specified, use cosine similarity,
-            dot product, Euclidean, and Manhattan similarity. Defaults to None.
+        main_similarity_function (Union[str, SimilarityFunction], optional): The similarity function to use for the
+            primary metric. Always evaluated when set, even if omitted from ``similarity_fn_names``. Defaults to None
+            (select the highest accuracy among the evaluated similarities).
         margin (Union[float, Dict[str, float]], optional): Margins for various similarity metrics.
             If a float is provided, it will be used as the margin for all similarity metrics.
             If a dictionary is provided, the keys must be 'cosine', 'dot', 'manhattan', and 'euclidean'.
@@ -45,9 +45,8 @@ class SparseTripletEvaluator(TripletEvaluator):
         write_csv (bool): Write results to a CSV file. Defaults to True.
         max_active_dims (Optional[int], optional): The maximum number of active dimensions to use.
             `None` uses the model's current `max_active_dims`. Defaults to None.
-        similarity_fn_names (List[str], optional): List of similarity function names to evaluate.
-            If not specified, evaluate using the ``model.similarity_fn_name``.
-            Defaults to None.
+        similarity_fn_names (List[str], optional): List of similarity function names to evaluate. If omitted or empty,
+            use ``main_similarity_function`` when set, otherwise ``model.similarity_fn_name``. Defaults to None.
 
     Example:
         ::

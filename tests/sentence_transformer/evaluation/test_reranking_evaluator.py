@@ -28,6 +28,31 @@ ROWS = [
 ]
 
 
+@pytest.mark.parametrize(
+    "samples",
+    [
+        [],
+        [{"query": "q", "positive": ["a"], "negative": []}],
+        [{"query": "q", "positive": [], "negative": ["a"]}],
+    ],
+)
+def test_reranking_evaluator_without_valid_samples_raises(samples) -> None:
+    with pytest.raises(ValueError, match="at least one positive and one negative"):
+        RerankingEvaluator(samples)
+
+
+def test_reranking_evaluator_filters_invalid_samples() -> None:
+    valid_sample = {"query": "q", "positive": ["a"], "negative": ["b"]}
+    evaluator = RerankingEvaluator(
+        [
+            {"query": "q", "positive": ["a"], "negative": []},
+            valid_sample,
+            {"query": "q", "positive": [], "negative": ["b"]},
+        ]
+    )
+    assert evaluator.samples == [valid_sample]
+
+
 @pytest.mark.parametrize("use_batched_encoding", [True, False])
 @pytest.mark.parametrize(("string_positive", "string_negative"), [(True, False), (False, True), (True, True)])
 def test_reranking_evaluator_string_documents(

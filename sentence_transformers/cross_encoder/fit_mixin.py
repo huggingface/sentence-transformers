@@ -1,3 +1,10 @@
+"""
+Legacy training interfaces retained for compatibility with existing scripts using fit() and old_fit().
+Use CrossEncoderTrainer for new training code.
+
+Maintenance is limited to compatibility and security fixes. New features are out of scope.
+"""
+
 from __future__ import annotations
 
 import logging

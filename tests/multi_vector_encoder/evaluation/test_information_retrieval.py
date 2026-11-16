@@ -92,6 +92,29 @@ def test_ir_evaluator_defers_scoring_resolution_to_call_time(mve_bert_tiny_model
     assert "late_binding_meanmaxsim_ndcg@10" in reused
 
 
+def test_ir_evaluator_scores_the_main_score_function(mve_bert_tiny_model: MultiVectorEncoder) -> None:
+    model = mve_bert_tiny_model
+    evaluator = MultiVectorInformationRetrievalEvaluator(
+        queries={"q0": "What is the capital of France?"},
+        corpus={"d0": "Paris is the capital of France.", "d1": "Berlin is the capital of Germany."},
+        relevant_docs={"q0": {"d0"}},
+        name="main",
+        main_score_function="meanmaxsim",
+        chunk_elements=1,
+        write_csv=False,
+    )
+    original = model.similarity_fn_name
+    model.similarity_fn_name = "maxsim"
+    try:
+        results = evaluator(model)
+    finally:
+        model.similarity_fn_name = original
+    assert evaluator.score_function_names == ["meanmaxsim"]
+    assert evaluator.score_functions["meanmaxsim"].keywords == {"chunk_elements": 1}
+    assert evaluator.primary_metric == "main_meanmaxsim_ndcg@10"
+    assert 0.0 <= results[evaluator.primary_metric] <= 1.0
+
+
 def test_ir_evaluator_chunk_elements_reaches_scoring(mve_bert_tiny_model: MultiVectorEncoder) -> None:
     """The budget is bound onto the model-resolved scorer and actually invoked: a one-document-per-
     chunk budget must score identically to the default."""

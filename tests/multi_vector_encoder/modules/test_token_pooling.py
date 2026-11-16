@@ -464,8 +464,10 @@ class TestAdaptivePooling:
         assert embeddings.grad[1, 1:5].abs().sum() > 0
 
     def test_calibration_handles_empty_and_short_documents(self) -> None:
-        documents = [torch.empty(0, 4), _normed((1, 4)), _normed((6, 4))]
+        tokens = torch.eye(6)
+        documents = [torch.empty(0, 6), tokens[:1], tokens]
         threshold = HierarchicalTokenPooling.calibrate_distance_threshold(documents, target_tokens=1)
+        assert threshold == pytest.approx(1)
         pooling = HierarchicalTokenPooling(distance_threshold=threshold)
         assert [len(emb) for emb in pooling.pool(documents)] == [0, 1, 2]
         for target in [sum(map(len, documents)) / len(documents), 100]:

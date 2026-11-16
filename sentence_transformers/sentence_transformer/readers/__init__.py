@@ -4,6 +4,8 @@ It exists for backwards compatibility with the `model.old_fit` method, but will 
 
 Nowadays, with Sentence Transformers v3+, it is recommended to use the `SentenceTransformerTrainer` class to train models.
 See https://www.sbert.net/docs/sentence_transformer/training_overview.html for more information.
+
+Maintenance is limited to compatibility and security fixes. New features are out of scope.
 """
 
 from __future__ import annotations

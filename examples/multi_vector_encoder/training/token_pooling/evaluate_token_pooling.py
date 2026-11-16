@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train,kernels]>=6.3.0",
+# ]
+# ///
 """Evaluate a multi-vector model across document token budgets on NanoBEIR."""
 
 from __future__ import annotations
