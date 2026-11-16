@@ -815,9 +815,9 @@ class CrossEncoder(BaseModel, FitMixin):
                 "CrossEncoder.rank() only works for models with num_labels=1. "
                 "Consider using CrossEncoder.predict() with input pairs instead."
             )
-        if isinstance(documents, str):
+        if isinstance(documents, (str, dict)):
             raise TypeError(
-                "CrossEncoder.rank() expects a list of documents, but received a single string. "
+                "CrossEncoder.rank() expects a collection of documents, but received a single input. "
                 "Wrap it in a list: rank(query, [document])."
             )
         if top_k is not None and top_k < 0:
