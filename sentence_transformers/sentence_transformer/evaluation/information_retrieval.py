@@ -21,18 +21,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def validate_main_score_function(
-    score_functions: dict[str, Callable[[Tensor, Tensor], Tensor]] | None,
-    main_score_function: SimilarityFunction | None,
-) -> None:
-    """Raise if explicit ``score_functions`` do not include the requested ``main_score_function``."""
-    if score_functions and main_score_function is not None and main_score_function.value not in score_functions:
-        raise ValueError(
-            f"`main_score_function` {main_score_function.value!r} is not in `score_functions`, "
-            f"expected a name in {sorted(score_functions)}."
-        )
-
-
 class InformationRetrievalEvaluator(BaseEvaluator):
     """
     This class evaluates an Information Retrieval (IR) setting.
@@ -57,8 +45,9 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         truncate_dim (int, optional): The dimension to truncate the embeddings to. Defaults to None.
         score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions.
             If omitted, uses ``main_score_function`` when set, otherwise the model's ``similarity`` function on each call.
-        main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation.
-            If ``score_functions`` is given, this must be one of its keys. Defaults to None.
+        main_score_function (Union[str, SimilarityFunction], optional): The score function to use for the primary
+            metric. If set and ``score_functions`` is provided, must be one of its keys. Defaults to None (select the
+            highest NDCG among the evaluated score functions).
         query_prompt (str, optional): The prompt to be used when encoding the corpus. Defaults to None.
         query_prompt_name (str, optional): The name of the prompt to be used when encoding the corpus. Defaults to None.
         corpus_prompt (str, optional): The prompt to be used when encoding the corpus. Defaults to None.
@@ -199,7 +188,15 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
         self._score_functions_from_model = score_functions is None
         self.main_score_function = SimilarityFunction(main_score_function) if main_score_function else None
-        validate_main_score_function(score_functions, self.main_score_function)
+        if (
+            score_functions is not None
+            and self.main_score_function is not None
+            and self.main_score_function.value not in score_functions
+        ):
+            raise ValueError(
+                f"`main_score_function` {self.main_score_function.value!r} is not in `score_functions`, "
+                f"expected a name in {sorted(score_functions)}."
+            )
         self.truncate_dim = truncate_dim
 
         if name:

@@ -33,10 +33,11 @@ class SparseEmbeddingSimilarityEvaluator(EmbeddingSimilarityEvaluator):
         sentences2 (List[str]): List with the second sentence in a pair.
         scores (List[float]): Similarity score between sentences1[i] and sentences2[i].
         batch_size (int, optional): The batch size for processing the sentences. Defaults to 16.
-        main_similarity (Optional[Union[str, SimilarityFunction]], optional): The main similarity function to use.
-            Can be a string (e.g. "cosine", "dot") or a SimilarityFunction object. Defaults to None.
-        similarity_fn_names (List[str], optional): List of similarity function names to use. If None, the
-            ``similarity_fn_name`` attribute of the model is used. Defaults to None.
+        main_similarity (Optional[Union[str, SimilarityFunction]], optional): The similarity function to use for the
+            primary metric. Always evaluated when set, even if omitted from ``similarity_fn_names``. Defaults to None
+            (select the highest Spearman correlation among the evaluated similarities).
+        similarity_fn_names (List[str], optional): List of similarity function names to evaluate. If omitted or empty,
+            use ``main_similarity`` when set, otherwise ``model.similarity_fn_name``. Defaults to None.
         name (str, optional): The name of the evaluator. Defaults to "".
         show_progress_bar (bool, optional): Whether to show a progress bar during evaluation. Defaults to False.
         write_csv (bool, optional): Whether to write the evaluation results to a CSV file. Defaults to True.

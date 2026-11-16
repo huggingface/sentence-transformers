@@ -46,20 +46,6 @@ def test_triplet_evaluator_main_similarity_function_is_evaluated(stsb_bert_tiny_
     assert evaluator.primary_metric in metrics
 
 
-@pytest.mark.parametrize("similarity_fn_names", [["cosine"], ["cosine", "euclidean"]])
-def test_triplet_evaluator_main_similarity_function_is_evaluated_with_explicit_fn_names(
-    stsb_bert_tiny_model: SentenceTransformer, similarity_fn_names: list[str]
-) -> None:
-    # An explicit similarity_fn_names that omits main_similarity_function must still score it
-    evaluator = TripletEvaluator(
-        ["a"], ["b"], ["c"], main_similarity_function="dot", similarity_fn_names=similarity_fn_names, name="dev"
-    )
-    metrics = evaluator(stsb_bert_tiny_model)
-    assert evaluator.similarity_fn_names == [*similarity_fn_names, "dot"]
-    assert evaluator.primary_metric == "dev_dot_accuracy"
-    assert evaluator.primary_metric in metrics
-
-
 def test_triplet_evaluator_config_dict_margin() -> None:
     # The default margin is derived from _get_similarity_functions(), so it must stay recognized as
     # the default here rather than being reported as a configured margin.

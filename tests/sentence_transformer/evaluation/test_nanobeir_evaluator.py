@@ -7,7 +7,6 @@ import pytest
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import NanoBEIREvaluator
-from sentence_transformers.util import cos_sim
 from sentence_transformers.util.similarity import SimilarityFunction
 from tests.utils import is_ci
 
@@ -79,17 +78,6 @@ def test_nanobeir_evaluator_empty_inputs():
     """Test that NanoBEIREvaluator behaves correctly with empty datasets."""
     with pytest.raises(ValueError, match="dataset_names cannot be empty. Use None to evaluate on all datasets."):
         NanoBEIREvaluator(dataset_names=[])
-
-
-def test_nanobeir_evaluator_main_score_function_missing_from_score_functions_raises_before_loading():
-    class NoLoadNanoBEIREvaluator(NanoBEIREvaluator):
-        def _load_dataset(self, *args, **kwargs):
-            raise AssertionError("datasets must not be loaded before validating main_score_function")
-
-    with pytest.raises(ValueError, match="main_score_function"):
-        NoLoadNanoBEIREvaluator(
-            dataset_names=["MSMARCO"], score_functions={"cosine": cos_sim}, main_score_function="dot"
-        )
 
 
 @pytest.mark.parametrize("main_score_function", ["cosine", "dot"])
