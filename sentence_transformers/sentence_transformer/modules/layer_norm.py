@@ -48,6 +48,7 @@ class LayerNorm(Module):
             "local_files_only": local_files_only,
         }
         config = cls.load_config(model_name_or_path=model_name_or_path, **hub_kwargs)
+        config = {key: value for key, value in config.items() if key in cls.config_keys}
         model = cls(**config)
         model = cls.load_torch_weights(model_name_or_path=model_name_or_path, model=model, **hub_kwargs)
         return model
