@@ -37,9 +37,11 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
         scores (List[float]): Similarity score between sentences1[i] and sentences2[i].
         batch_size (int, optional): The batch size for processing the sentences. Defaults to 16.
         main_similarity (Optional[Union[str, SimilarityFunction]], optional): The main similarity function to use.
-            Can be a string (e.g. "cosine", "dot") or a SimilarityFunction object. Defaults to None.
+            Can be a string (e.g. "cosine", "dot") or a SimilarityFunction object. It is always evaluated,
+            even if it is not in ``similarity_fn_names``. Defaults to None.
         similarity_fn_names (List[str], optional): List of similarity function names to use. If None, the
-            ``similarity_fn_name`` attribute of the model is used. Defaults to None.
+            ``main_similarity`` is used when set, otherwise the ``similarity_fn_name`` attribute of the model.
+            Defaults to None.
         name (str, optional): The name of the evaluator. Defaults to "".
         show_progress_bar (bool, optional): Whether to show a progress bar during evaluation. Defaults to False.
         write_csv (bool, optional): Whether to write the evaluation results to a CSV file. Defaults to True.
@@ -106,8 +108,8 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
 
         self.main_similarity = SimilarityFunction(main_similarity) if main_similarity else None
         self.similarity_fn_names = similarity_fn_names or []
-        if self.similarity_fn_names == [] and self.main_similarity is not None:
-            self.similarity_fn_names = [self.main_similarity.value]
+        if self.main_similarity is not None and self.main_similarity.value not in self.similarity_fn_names:
+            self.similarity_fn_names = [*self.similarity_fn_names, self.main_similarity.value]
 
         self.name = name
 

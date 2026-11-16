@@ -7,7 +7,7 @@ import torch
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
-from sentence_transformers.util import cos_sim
+from sentence_transformers.util import cos_sim, dot_score
 
 
 @pytest.fixture
@@ -186,6 +186,38 @@ def test_main_score_function_is_evaluated(test_data, stsb_bert_tiny_model: Sente
     assert ir_evaluator.score_function_names == ["dot"]
     assert ir_evaluator.primary_metric == "test_dot_ndcg@10"
     assert isinstance(results[ir_evaluator.primary_metric], float)
+
+
+def test_main_score_function_missing_from_score_functions_raises(test_data):
+    queries, corpus, relevant_docs = test_data
+
+    with pytest.raises(ValueError, match="main_score_function"):
+        InformationRetrievalEvaluator(
+            queries=queries,
+            corpus=corpus,
+            relevant_docs=relevant_docs,
+            score_functions={"cosine": cos_sim},
+            main_score_function="dot",
+            write_csv=False,
+        )
+
+
+def test_main_score_function_in_score_functions_is_accepted(test_data, stsb_bert_tiny_model: SentenceTransformer):
+    queries, corpus, relevant_docs = test_data
+
+    ir_evaluator = InformationRetrievalEvaluator(
+        queries=queries,
+        corpus=corpus,
+        relevant_docs=relevant_docs,
+        name="test",
+        score_functions={"cosine": cos_sim, "dot": dot_score},
+        main_score_function="dot",
+        write_csv=False,
+    )
+    results = ir_evaluator(stsb_bert_tiny_model)
+
+    assert ir_evaluator.primary_metric == "test_dot_ndcg@10"
+    assert ir_evaluator.primary_metric in results
 
 
 def test_metrics_are_independent_of_corpus_chunk_size(stsb_bert_tiny_model: SentenceTransformer):

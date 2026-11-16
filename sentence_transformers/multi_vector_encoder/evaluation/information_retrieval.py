@@ -66,7 +66,8 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         token_pooling (BaseTokenPooling, optional): Pooling applied during encoding. The pooler's
             ``tasks`` select which inputs are pooled. Defaults to None (use the model's default pooler).
         main_score_function (str or SimilarityFunction, optional): Which score-function key to treat
-            as the primary metric for the model card / trainer. Defaults to None (select the highest NDCG).
+            as the primary metric for the model card / trainer. If ``score_functions`` is given, this must be one of
+            its keys. Defaults to None (select the highest NDCG).
         query_prompt (str, optional): Prompt prepended to every query during encoding. Defaults to None.
         query_prompt_name (str, optional): Name of a prompt registered on the model to prepend to
             queries. Mutually exclusive with ``query_prompt``. Defaults to None.

@@ -59,7 +59,8 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         score_functions (Dict[str, Callable], optional): Override the default per-subset scoring.
             See :class:`MultiVectorInformationRetrievalEvaluator`. Defaults to None.
         main_score_function (str or SimilarityFunction, optional): Score-function key to treat as the
-            primary metric for the model card / trainer. Defaults to None.
+            primary metric for the model card / trainer. If ``score_functions`` is given, this must be one of its keys.
+            Defaults to None.
         aggregate_fn (Callable[[List[float]], float]): How to aggregate the per-subset scores into the
             top-level summary. Defaults to ``np.mean``.
         aggregate_key (str): Suffix used in the aggregated metric's key. Defaults to ``"mean"``.

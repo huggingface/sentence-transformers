@@ -56,7 +56,8 @@ class TripletEvaluator(BaseEvaluator):
         truncate_dim (int, optional): The dimension to truncate sentence embeddings to.
             `None` uses the model's current truncation dimension. Defaults to None.
         similarity_fn_names (List[str], optional): List of similarity function names to evaluate.
-            If not specified, evaluate using the ``model.similarity_fn_name``.
+            If not specified, evaluate using ``main_similarity_function`` when set, otherwise the
+            ``model.similarity_fn_name``. ``main_similarity_function`` is always evaluated.
             Defaults to None.
 
     Example:
@@ -126,8 +127,11 @@ class TripletEvaluator(BaseEvaluator):
             SimilarityFunction(main_similarity_function) if main_similarity_function else None
         )
         self.similarity_fn_names = similarity_fn_names or []
-        if not self.similarity_fn_names and self.main_similarity_function is not None:
-            self.similarity_fn_names = [self.main_similarity_function.value]
+        if (
+            self.main_similarity_function is not None
+            and self.main_similarity_function.value not in self.similarity_fn_names
+        ):
+            self.similarity_fn_names = [*self.similarity_fn_names, self.main_similarity_function.value]
 
         fn_keys = list(self._get_similarity_functions().keys())
         if unknown_names := sorted(set(self.similarity_fn_names) - set(fn_keys)):

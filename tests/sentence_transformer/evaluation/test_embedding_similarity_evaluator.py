@@ -62,3 +62,23 @@ def test_embedding_similarity_evaluator_shared_quantization_ranges(precision: st
     )
 
     assert reversed_evaluator(model) == pytest.approx(metrics)
+
+
+@pytest.mark.parametrize("similarity_fn_names", [["cosine"], ["cosine", "euclidean"]])
+def test_embedding_similarity_evaluator_main_similarity_is_evaluated_with_explicit_fn_names(
+    stsb_bert_tiny_model: SentenceTransformer, similarity_fn_names: list[str]
+) -> None:
+    # An explicit similarity_fn_names that omits main_similarity must still score it
+    evaluator = EmbeddingSimilarityEvaluator(
+        SENTENCES1,
+        SENTENCES2,
+        SCORES,
+        main_similarity="dot",
+        similarity_fn_names=similarity_fn_names,
+        name="sts",
+        write_csv=False,
+    )
+    metrics = evaluator(stsb_bert_tiny_model)
+    assert evaluator.similarity_fn_names == [*similarity_fn_names, "dot"]
+    assert evaluator.primary_metric == "sts_spearman_dot"
+    assert evaluator.primary_metric in metrics

@@ -12,6 +12,7 @@ from tqdm import tqdm
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.sentence_transformer.evaluation.information_retrieval import (
     InformationRetrievalEvaluator,
+    validate_main_score_function,
 )
 from sentence_transformers.util import is_datasets_available
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -87,7 +88,8 @@ class NanoBEIREvaluator(BaseEvaluator):
         truncate_dim (int, optional): The dimension to truncate the embeddings to. Defaults to None.
         score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions.
             If omitted, uses ``main_score_function`` when set, otherwise the model's ``similarity`` function on each call.
-        main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation. Defaults to None.
+        main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation.
+            If ``score_functions`` is given, this must be one of its keys. Defaults to None.
         aggregate_fn (Callable[[list[float]], float]): The function to aggregate the scores. Defaults to np.mean.
         aggregate_key (str): The key to use for the aggregated score. Defaults to "mean".
         query_prompts (str | dict[str, str], optional): The prompts to add to the queries. If a string, will add the same prompt to all queries. If a dict, expects that all datasets in dataset_names are keys.
@@ -260,6 +262,7 @@ class NanoBEIREvaluator(BaseEvaluator):
         self.precision_recall_at_k = precision_recall_at_k
         self.map_at_k = map_at_k
 
+        validate_main_score_function(score_functions, self.main_score_function)
         self._validate_dataset_names()
         self._validate_prompts()
 
