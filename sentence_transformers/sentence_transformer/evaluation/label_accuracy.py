@@ -24,6 +24,9 @@ class LabelAccuracyEvaluator(BaseEvaluator):
     This requires a model with LossFunction.SOFTMAX
 
     The results are written in a CSV. If a CSV already exists, then values are appended.
+
+    Legacy evaluator retained for compatibility with the DataLoader and softmax-head training workflow.
+    Not recommended for new code. Maintenance is limited to compatibility and security fixes.
     """
 
     def __init__(self, dataloader: DataLoader, name: str = "", softmax_model=None, write_csv: bool = True):
