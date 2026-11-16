@@ -50,16 +50,11 @@ def make_evaluator(evaluator_class, **kwargs):
 
 @pytest.mark.parametrize(CASE_PARAMETERS, MAIN_CASES)
 @pytest.mark.parametrize("selection", ["model", "empty", "missing", "included"])
-@pytest.mark.parametrize("as_enum", [False, True])
-def test_main_similarity_selection(evaluator_class, model_fixture, main_parameter, names, selection, as_enum):
+def test_main_similarity_selection(evaluator_class, model_fixture, main_parameter, names, selection):
     main = names[1]
     requested_names = {"model": None, "empty": [], "missing": names[:1], "included": names.copy()}[selection]
     original_names = requested_names.copy() if requested_names is not None else None
-    evaluator = make_evaluator(
-        evaluator_class,
-        similarity_fn_names=requested_names,
-        **{main_parameter: SimilarityFunction(main) if as_enum else main},
-    )
+    evaluator = make_evaluator(evaluator_class, similarity_fn_names=requested_names, **{main_parameter: main})
     expected_names = names if selection in ("missing", "included") else [main]
     assert evaluator.similarity_fn_names == expected_names
     assert getattr(evaluator, main_parameter) is SimilarityFunction(main)
@@ -68,7 +63,9 @@ def test_main_similarity_selection(evaluator_class, model_fixture, main_paramete
 
 @pytest.mark.parametrize(CASE_PARAMETERS, MAIN_CASES)
 def test_main_similarity_is_evaluated(evaluator_class, model_fixture, main_parameter, names, request):
-    evaluator = make_evaluator(evaluator_class, similarity_fn_names=names[:1], **{main_parameter: names[1]})
+    evaluator = make_evaluator(
+        evaluator_class, similarity_fn_names=names[:1], **{main_parameter: SimilarityFunction(names[1])}
+    )
     metrics = SequentialEvaluator([evaluator])(request.getfixturevalue(model_fixture))
     expected_keys = (
         [f"test_spearman_{name}" for name in names]
@@ -144,31 +141,17 @@ def test_ir_rejects_missing_main_scorer(evaluator_class, model_fixture, names, c
 
 
 @pytest.mark.parametrize(IR_CASE_PARAMETERS, IR_CASES)
-@pytest.mark.parametrize("as_enum", [False, True])
-def test_ir_main_scorer_normalization(evaluator_class, model_fixture, names, as_enum, make_ir_evaluator):
+def test_ir_accepts_main_scorer_in_explicit_mapping(evaluator_class, model_fixture, names, make_ir_evaluator, request):
     main = names[1]
     evaluator = make_ir_evaluator(
         evaluator_class,
-        score_functions={main: SimilarityFunction.to_similarity_fn(main)},
-        main_score_function=SimilarityFunction(main) if as_enum else main,
-    )
-    assert evaluator.main_score_function is SimilarityFunction(main)
-
-
-@pytest.mark.parametrize(IR_CASE_PARAMETERS, IR_CASES)
-@pytest.mark.parametrize("explicit", [False, True])
-def test_ir_main_scorer_is_evaluated(evaluator_class, model_fixture, names, explicit, make_ir_evaluator, request):
-    main = names[1]
-    score_functions = {name: SimilarityFunction.to_similarity_fn(name) for name in names} if explicit else None
-    evaluator = make_ir_evaluator(
-        evaluator_class,
-        score_functions=score_functions,
-        main_score_function=main,
+        score_functions={name: SimilarityFunction.to_similarity_fn(name) for name in names},
+        main_score_function=SimilarityFunction(main),
         write_csv=False,
     )
     metrics = evaluator(request.getfixturevalue(model_fixture))
 
-    assert evaluator.score_function_names == sorted(names if explicit else [main])
+    assert evaluator.score_function_names == sorted(names)
     assert evaluator.primary_metric == f"{evaluator.name}_{main}_ndcg@10"
     for name in evaluator.score_function_names:
         assert f"{evaluator.name}_{name}_ndcg@10" in metrics
