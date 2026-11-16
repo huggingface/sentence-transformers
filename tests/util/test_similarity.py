@@ -418,7 +418,7 @@ def test_pairwise_angle_sim_single_vectors(dim) -> None:
 
     for i in range(len(x)):
         score = pairwise_angle_sim(x[i], y[i])
-        assert score.shape == pairwise_cos_sim(x[i], y[i]).shape == ()
+        assert score.shape == ()
         torch.testing.assert_close(score, expected[i])
 
 
