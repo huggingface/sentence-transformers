@@ -55,8 +55,8 @@ video = ["transformers[video]"]
 train = ["datasets>=2.16.0", "accelerate>=1.3.0"]
 merge = ["mergekit>=0.1.5"]
 kernels = ["transformers[kernels]>=5.20.0"]
-onnx = ["onnxscript"]
-onnx-gpu = ["onnxscript"]
+onnx = ["onnxscript", "onnxruntime"]
+onnx-gpu = ["onnxscript", "onnxruntime-gpu"]
 openvino = ["openvino"]
 dev = [
     "datasets>=2.16.0",
