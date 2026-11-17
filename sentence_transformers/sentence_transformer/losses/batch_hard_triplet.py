@@ -15,8 +15,14 @@ class BatchHardTripletLossDistanceFunction:
 
     @staticmethod
     def cosine_distance(embeddings: Tensor) -> Tensor:
-        """Compute the 2D matrix of cosine distances (1-cosine_similarity) between all embeddings."""
-        distances = (1 - pytorch_cos_sim(embeddings, embeddings)).clamp(min=0.0)
+        """Compute the 2D matrix of cosine distances (1-cosine_similarity) between all embeddings.
+
+        Float16 and bfloat16 inputs are computed in float32, including under autocast.
+        """
+        with torch.autocast(device_type=embeddings.device.type, enabled=False):
+            if embeddings.dtype in (torch.float16, torch.bfloat16):
+                embeddings = embeddings.float()
+            distances = (1 - pytorch_cos_sim(embeddings, embeddings)).clamp(min=0.0)
         distances.fill_diagonal_(0.0)
         return distances
 

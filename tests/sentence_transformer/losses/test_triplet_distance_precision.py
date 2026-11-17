@@ -67,6 +67,30 @@ def test_cosine_distance_precision_and_diagonal(dtype, autocast):
     torch.testing.assert_close(embeddings.grad, reference.grad.to(dtype), atol=1e-3, rtol=1e-2)
 
 
+def test_cosine_distance_near_duplicates_under_autocast():
+    embeddings = torch.tensor(
+        [
+            [1.0, 0.03, 0.0, 0.0],
+            [1.0, 0.06, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 1.0],
+        ],
+        dtype=torch.float32,
+        requires_grad=True,
+    )
+    reference = embeddings.detach().double().requires_grad_()
+    expected = 1 - nn.functional.cosine_similarity(reference[:, None], reference[None, :], dim=-1)
+
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        actual = BatchHardTripletLossDistanceFunction.cosine_distance(embeddings)
+    actual.sum().backward()
+    expected.sum().backward()
+
+    assert actual.dtype == torch.float32
+    assert actual[0, 1] > 0
+    torch.testing.assert_close(actual, expected.float(), atol=1e-6, rtol=1e-6)
+    torch.testing.assert_close(embeddings.grad, reference.grad.float(), atol=1e-6, rtol=1e-6)
+
+
 @pytest.mark.parametrize(
     "loss_class", [BatchAllTripletLoss, BatchHardTripletLoss, BatchHardSoftMarginTripletLoss, BatchSemiHardTripletLoss]
 )
