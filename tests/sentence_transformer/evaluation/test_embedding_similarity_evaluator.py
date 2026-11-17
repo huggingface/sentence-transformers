@@ -62,3 +62,47 @@ def test_embedding_similarity_evaluator_shared_quantization_ranges(precision: st
     )
 
     assert reversed_evaluator(model) == pytest.approx(metrics)
+
+
+def test_reused_evaluator_uses_each_models_similarity(stsb_bert_tiny_model: SentenceTransformer, tmp_path, caplog):
+    """Without similarity_fn_names the similarity is resolved per call, so a reused evaluator
+    scores and labels every model with its own similarity rather than with the first one's."""
+    model = stsb_bert_tiny_model
+    evaluator = EmbeddingSimilarityEvaluator(
+        ["a cat sits", "a man plays guitar", "the sky is blue"],
+        ["a kitten rests", "someone plays music", "grass is green"],
+        [0.9, 0.7, 0.2],
+        name="test",
+    )
+    model.similarity_fn_name = "cosine"
+    results = evaluator(model, output_path=str(tmp_path))
+    assert set(results) == {"test_pearson_cosine", "test_spearman_cosine"}
+    assert evaluator.primary_metric == "test_spearman_cosine"
+
+    model.similarity_fn_name = "dot"
+    with caplog.at_level("WARNING"):
+        results = evaluator(model, output_path=str(tmp_path))
+
+    assert set(results) == {"test_pearson_dot", "test_spearman_dot"}
+    assert evaluator.similarity_fn_names == ["dot"]
+    assert evaluator.primary_metric == "test_spearman_dot"
+    assert evaluator.csv_headers == ["epoch", "steps", "dot_pearson", "dot_spearman"]
+    # The CSV keeps the header row of the first call, so the appended row is mislabeled.
+    assert "labeled with the previous similarity function" in caplog.text
+
+
+def test_explicit_similarity_fn_names_survive_reuse(stsb_bert_tiny_model: SentenceTransformer):
+    model = stsb_bert_tiny_model
+    evaluator = EmbeddingSimilarityEvaluator(
+        ["a cat sits", "a man plays guitar"],
+        ["a kitten rests", "someone plays music"],
+        [0.9, 0.7],
+        similarity_fn_names=["cosine"],
+        write_csv=False,
+    )
+    evaluator(model)
+    model.similarity_fn_name = "dot"
+    results = evaluator(model)
+
+    assert evaluator.similarity_fn_names == ["cosine"]
+    assert set(results) == {"pearson_cosine", "spearman_cosine"}

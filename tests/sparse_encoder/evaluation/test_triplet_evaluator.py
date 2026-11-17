@@ -37,3 +37,25 @@ def test_triplet_evaluator_csv_columns_are_aligned(
     assert len(rows) == 2
     for i, (row, metrics) in enumerate(zip(rows, results)):
         assert [float(value) for value in row] == pytest.approx([i, i * 10, *[metrics[key] for key in metric_names]])
+
+
+def test_triplet_evaluator_reused_evaluator_uses_each_models_similarity(
+    splade_bert_tiny_model: SparseEncoder, tmp_path: Path
+) -> None:
+    model = splade_bert_tiny_model
+    evaluator = SparseTripletEvaluator(
+        anchors=["A man is eating food.", "The girl plays guitar."],
+        positives=["A man eats something.", "A woman plays a guitar."],
+        negatives=["The sky is blue.", "A cat sits outside."],
+        name="test",
+    )
+    model.similarity_fn_name = "dot"
+    evaluator(model, output_path=str(tmp_path))
+    model.similarity_fn_name = "cosine"
+    results = evaluator(model, output_path=str(tmp_path))
+
+    assert "test_cosine_accuracy" in results
+    assert "test_dot_accuracy" not in results
+    assert evaluator.similarity_fn_names == ["cosine"]
+    assert evaluator.csv_headers[:3] == ["epoch", "steps", "accuracy_cosine"]
+    assert evaluator.csv_headers.count("anchor_active_dims") == 1

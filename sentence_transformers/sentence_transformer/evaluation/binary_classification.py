@@ -125,6 +125,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         self.csv_headers = ["epoch", "steps"]
 
         self._append_csv_headers(self.similarity_fn_names)
+        self._similarity_fn_names_from_model = not self.similarity_fn_names
 
     def _append_csv_headers(self, similarity_fn_names: list[str]) -> None:
         metrics = [
@@ -181,9 +182,15 @@ class BinaryClassificationEvaluator(BaseEvaluator):
 
         logger.info(f"Binary Accuracy Evaluation of the model on the {self.name} dataset{out_txt}:")
 
-        if not self.similarity_fn_names:
-            self.similarity_fn_names = [model.similarity_fn_name]
-            self._append_csv_headers(self.similarity_fn_names)
+        headers_changed = False
+        if self._similarity_fn_names_from_model:
+            # Resolved per call, so an evaluator reused across models scores and labels each of them
+            # with its own similarity rather than with the first model's.
+            if self.similarity_fn_names != [model.similarity_fn_name]:
+                headers_changed = bool(self.similarity_fn_names)
+                self.similarity_fn_names = [model.similarity_fn_name]
+                self.csv_headers = ["epoch", "steps"]
+                self._append_csv_headers(self.similarity_fn_names)
         scores = self.compute_metrics(model)
 
         file_output_data = [epoch, steps]
@@ -203,6 +210,12 @@ class BinaryClassificationEvaluator(BaseEvaluator):
                     writer.writerow(self.csv_headers)
                     writer.writerow(file_output_data)
             else:
+                if headers_changed:
+                    logger.warning(
+                        f"{self.csv_file} was written with different similarity function columns, so the "
+                        f"rows appended for {self.similarity_fn_names} are labeled with the previous "
+                        "similarity function."
+                    )
                 with open(csv_path, newline="", mode="a", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     writer.writerow(file_output_data)

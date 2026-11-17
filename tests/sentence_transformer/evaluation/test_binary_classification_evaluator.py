@@ -183,3 +183,30 @@ def test_BinaryClassificationEvaluator_csv_columns_are_aligned(
 
     assert len(rows) == 2
     assert len(rows[1]) == len(rows[0])
+
+
+def test_reused_evaluator_uses_each_models_similarity(stsb_bert_tiny_model: SentenceTransformer, tmp_path, caplog):
+    """Without similarity_fn_names the similarity is resolved per call, so a reused evaluator
+    scores and labels every model with its own similarity rather than with the first one's."""
+    model = stsb_bert_tiny_model
+    evaluator = evaluation.BinaryClassificationEvaluator(
+        ["a cat sits", "a man plays guitar", "the sky is blue", "dogs bark"],
+        ["a kitten rests", "someone plays music", "grass is green", "the stock market fell"],
+        [1, 1, 0, 0],
+        name="test",
+    )
+    model.similarity_fn_name = "cosine"
+    results = evaluator(model, output_path=str(tmp_path))
+    assert {key.split("_")[1] for key in results} == {"cosine"}
+    assert evaluator.primary_metric == "test_cosine_ap"
+
+    model.similarity_fn_name = "dot"
+    with caplog.at_level("WARNING"):
+        results = evaluator(model, output_path=str(tmp_path))
+
+    assert {key.split("_")[1] for key in results} == {"dot"}
+    assert evaluator.similarity_fn_names == ["dot"]
+    assert evaluator.primary_metric == "test_dot_ap"
+    assert all(header.startswith("dot_") for header in evaluator.csv_headers[2:])
+    # The CSV keeps the header row of the first call, so the appended row is mislabeled.
+    assert "labeled with the previous similarity function" in caplog.text
