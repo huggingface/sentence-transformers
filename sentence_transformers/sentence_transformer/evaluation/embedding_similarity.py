@@ -137,6 +137,7 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
         ]
 
         self._append_csv_headers(self.similarity_fn_names)
+        self._similarity_fn_names_from_model = not self.similarity_fn_names
 
     def _append_csv_headers(self, similarity_fn_names: list[str]) -> None:
         metrics = ["pearson", "spearman"]
@@ -195,8 +196,9 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
 
         labels = self.scores
 
-        if not self.similarity_fn_names:
+        if self._similarity_fn_names_from_model and self.similarity_fn_names != [model.similarity_fn_name]:
             self.similarity_fn_names = [model.similarity_fn_name]
+            self.csv_headers = ["epoch", "steps"]
             self._append_csv_headers(self.similarity_fn_names)
 
         similarity_functions = self._get_similarity_functions()

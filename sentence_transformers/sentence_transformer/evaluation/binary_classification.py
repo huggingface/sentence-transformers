@@ -125,6 +125,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         self.csv_headers = ["epoch", "steps"]
 
         self._append_csv_headers(self.similarity_fn_names)
+        self._similarity_fn_names_from_model = not self.similarity_fn_names
 
     def _append_csv_headers(self, similarity_fn_names: list[str]) -> None:
         metrics = [
@@ -181,8 +182,9 @@ class BinaryClassificationEvaluator(BaseEvaluator):
 
         logger.info(f"Binary Accuracy Evaluation of the model on the {self.name} dataset{out_txt}:")
 
-        if not self.similarity_fn_names:
+        if self._similarity_fn_names_from_model and self.similarity_fn_names != [model.similarity_fn_name]:
             self.similarity_fn_names = [model.similarity_fn_name]
+            self.csv_headers = ["epoch", "steps"]
             self._append_csv_headers(self.similarity_fn_names)
         scores = self.compute_metrics(model)
 

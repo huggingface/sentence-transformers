@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+
 import pytest
 
 from sentence_transformers.base.evaluation import SequentialEvaluator
@@ -76,6 +78,31 @@ def test_main_similarity_is_evaluated(evaluator_class, model_fixture, main_param
     assert all(key in metrics for key in expected_keys)
     assert evaluator.primary_metric == expected_keys[1]
     assert metrics["sequential_score"] == metrics[evaluator.primary_metric]
+
+
+@pytest.mark.parametrize(CASE_PARAMETERS, ALL_CASES)
+@pytest.mark.parametrize("explicit_similarity", [False, True])
+def test_evaluator_reuse(
+    evaluator_class, model_fixture, main_parameter, names, explicit_similarity, request, tmp_path
+):
+    model = request.getfixturevalue(model_fixture)
+    evaluator = make_evaluator(evaluator_class, similarity_fn_names=names[:1] if explicit_similarity else None)
+
+    for name in names:
+        model.similarity_fn_name = name
+        output_path = tmp_path / name
+        metrics = evaluator(model, output_path=output_path)
+        expected_names = names[:1] if explicit_similarity else [name]
+        reference = make_evaluator(evaluator_class, similarity_fn_names=expected_names)
+
+        assert metrics == pytest.approx(reference(model))
+        assert evaluator.primary_metric == reference.primary_metric
+        assert evaluator.similarity_fn_names == expected_names
+        with (output_path / evaluator.csv_file).open(newline="", encoding="utf-8") as f:
+            header, *rows = csv.reader(f)
+        assert header == reference.csv_headers
+        assert len(rows) == 1
+        assert len(rows[0]) == len(header)
 
 
 @pytest.mark.parametrize(CASE_PARAMETERS, ALL_CASES)

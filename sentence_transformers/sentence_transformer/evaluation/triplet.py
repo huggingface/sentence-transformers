@@ -159,6 +159,7 @@ class TripletEvaluator(BaseEvaluator):
         self.write_csv = write_csv
 
         self._append_csv_headers(self.similarity_fn_names)
+        self._similarity_fn_names_from_model = not self.similarity_fn_names
 
     def _append_csv_headers(self, similarity_fn_names):
         for fn_name in similarity_fn_names:
@@ -195,8 +196,9 @@ class TripletEvaluator(BaseEvaluator):
         embeddings_positives = self.embed_inputs(model, self.positives, encode_fn_name="document")
         embeddings_negatives = self.embed_inputs(model, self.negatives, encode_fn_name="document")
 
-        if not self.similarity_fn_names:
+        if self._similarity_fn_names_from_model and self.similarity_fn_names != [model.similarity_fn_name]:
             self.similarity_fn_names = [model.similarity_fn_name]
+            self.csv_headers = ["epoch", "steps"]
             self._append_csv_headers(self.similarity_fn_names)
 
         similarity_functions = self._get_similarity_functions()
