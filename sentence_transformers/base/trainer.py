@@ -54,6 +54,8 @@ from sentence_transformers.base.sampler import (
     NoDuplicatesBatchSampler,
     ProportionalBatchSampler,
     RoundRobinBatchSampler,
+    SynchronizedMultiDatasetBatchSampler,
+    _SynchronizedConcatDataset,
 )
 from sentence_transformers.base.training_args import BaseTrainingArguments, BatchSamplers, MultiDatasetBatchSamplers
 from sentence_transformers.util import fullname, is_datasets_available, is_training_available
@@ -545,6 +547,11 @@ class BaseTrainer(Trainer, ABC):
         self.accum_loss_components[training_type]["steps"] += 1
 
     def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
+        if self.args.synchronized_dataset_batch_sizes is not None:
+            # Trainer estimates this from a single nominal batch size, which is
+            # not meaningful for task-dependent sizes. Mutate the final metrics
+            # too, so TrainOutput and callbacks cannot expose the false estimate.
+            logs.pop("train_samples_per_second", None)
         training_type = None
         if "loss" in logs:
             training_type = "train"
@@ -837,6 +844,67 @@ class BaseTrainer(Trainer, ABC):
         if self.args.multi_dataset_batch_sampler == MultiDatasetBatchSamplers.PROPORTIONAL:
             return ProportionalBatchSampler(dataset=dataset, **multi_batch_sampler_kwargs)
 
+    def _synchronized_batch_components(self, dataset):
+        """Validate the narrow opt-in contract before preparing any training batches."""
+        if not isinstance(dataset, DatasetDict) or not dataset:
+            raise ValueError("Synchronized batches require a nonempty map-style DatasetDict.")
+        if any(not isinstance(child, Dataset) for child in dataset.values()):
+            raise ValueError("Synchronized batches require map-style Dataset children.")
+        mapping = self.args.synchronized_dataset_batch_sizes
+        if set(mapping) != set(dataset):
+            raise ValueError("synchronized_dataset_batch_sizes must have exactly the training dataset keys.")
+        if self.model_class.__name__ != "SentenceTransformer":
+            raise ValueError("Synchronized batching supports SentenceTransformerTrainer only.")
+        if type(self).get_batch_sampler is not BaseTrainer.get_batch_sampler or (
+            type(self).get_multi_dataset_batch_sampler is not BaseTrainer.get_multi_dataset_batch_sampler
+        ):
+            raise ValueError("Custom sampler overrides are unsupported in synchronized mode.")
+        if self.accelerator.distributed_type.name not in ("NO", "MULTI_CPU", "MULTI_GPU"):
+            raise ValueError("Synchronized batches require ordinary fixed-world-size data parallelism.")
+        if self.args.n_gpu > 1 and self.args.world_size == 1:
+            raise ValueError("DataParallel is unsupported; use one process per device.")
+        config = self.accelerator.dataloader_config
+        if config.split_batches or config.dispatch_batches or config.use_stateful_dataloader:
+            raise ValueError(
+                "Synchronized batches require split_batches=False, dispatch_batches=False and no stateful loader."
+            )
+        if self.args.batch_sampler != BatchSamplers.BATCH_SAMPLER:
+            raise ValueError("Only BATCH_SAMPLER is supported; no dynamic or custom samplers.")
+        if not self.args.dataloader_drop_last or self.args.dataloader_num_workers:
+            raise ValueError("Synchronized batches require global drop_last=True and num_workers=0.")
+        if self.args.auto_find_batch_size or self.args.ignore_data_skip:
+            raise ValueError("Synchronized batches require fixed sizes and data skipping on resume.")
+        names = list(dataset)
+        seed = self.args.data_seed if self.args.data_seed is not None else self.args.seed
+        combined = _SynchronizedConcatDataset(list(dataset.values()))
+        plan = SynchronizedMultiDatasetBatchSampler(
+            combined,
+            [mapping[name] for name in names],
+            world_size=self.accelerator.num_processes,
+            strategy=self.args.multi_dataset_batch_sampler.value,
+            seed=seed,
+            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
+            preserve_batch_frequencies=self.args.preserve_dataset_batch_frequencies,
+        )
+        combined.batch_plan = plan
+        manifest = {
+            "format_version": 1,
+            "task_names": names,
+            "dataset_sizes": list(plan.dataset_sizes),
+            "dataset_fingerprints": [child._fingerprint for child in dataset.values()],
+            "batch_sizes": list(plan.batch_sizes),
+            "world_size": plan.world_size,
+            "strategy": plan.strategy,
+            "data_seed": seed,
+            "gradient_accumulation_steps": self.args.gradient_accumulation_steps,
+            "global_drop_last": True,
+            "preserve_batch_frequencies": self.args.preserve_dataset_batch_frequencies,
+            "available_batch_counts": plan.available_batch_counts,
+            "retained_batch_counts": plan.retained_batch_counts,
+            "num_microsteps": plan.num_microsteps,
+        }
+        return combined, plan, manifest
+
     def _build_dataloader(
         self,
         dataset: Dataset | DatasetDict | IterableDataset,
@@ -866,6 +934,12 @@ class BaseTrainer(Trainer, ABC):
             "persistent_workers": self.args.dataloader_persistent_workers,
             "prefetch_factor": self.args.dataloader_prefetch_factor,
         }
+
+        if dataset_kind == "train" and self.args.synchronized_dataset_batch_sizes is not None:
+            dataset, plan, manifest = self._synchronized_batch_components(dataset)
+            self._synchronized_batch_manifest = manifest
+            self._synchronized_batch_plan = plan
+            return DataLoader(dataset, batch_sampler=plan, **dataloader_params)
 
         if isinstance(dataset, IterableDataset):
             dataloader_params.update(
@@ -946,6 +1020,29 @@ class BaseTrainer(Trainer, ABC):
         self._train_dataloader = self.accelerator.prepare(
             self._build_dataloader(self.train_dataset, self.args.train_batch_size, dataset_kind="train")
         )
+        if self.args.synchronized_dataset_batch_sizes is not None:
+            # DataLoader.drop_last is False when a batch_sampler owns the dropping.
+            # Preserve the verified global-drop contract through skip_first_batches.
+            self._train_dataloader._drop_last = True
+            try:
+                size = self._train_dataloader.total_batch_size
+            except TypeError as exc:
+                raise ValueError(
+                    "Synchronized batches require the Accelerate variable-batch metadata compatibility fix."
+                ) from exc
+            if size is not None or len(self._train_dataloader) != self._synchronized_batch_plan.num_microsteps:
+                raise ValueError("Accelerate did not preserve the synchronized batch plan contract.")
+            if torch.distributed.is_initialized():
+                manifests = [None] * torch.distributed.get_world_size()
+                torch.distributed.all_gather_object(manifests, self._synchronized_batch_manifest)
+                if any(item != manifests[0] for item in manifests):
+                    raise ValueError("All ranks must use the same synchronized dataset and batch plan configuration.")
+            logger.info("Synchronized batch plan: %s", self._synchronized_batch_manifest)
+            logger.warning(
+                "Synchronized batches have task-dependent sizes. The base Trainer's nominal batch-size "
+                "estimates are not actual per-task counts; sample throughput is omitted. "
+                "Use the retained plan counts. The inherited train_loss is not a global-objective oracle."
+            )
         return self._train_dataloader
 
     def get_eval_dataloader(
@@ -1014,6 +1111,15 @@ class BaseTrainer(Trainer, ABC):
         )
 
     def _save(self, output_dir: str | None = None, state_dict=None) -> None:
+        batch_manifest = None
+        active_manifest = getattr(self, "_synchronized_batch_manifest", None)
+        if self.args.synchronized_dataset_batch_sizes is not None:
+            _, _, current_manifest = self._synchronized_batch_components(self.train_dataset)
+            if active_manifest is not None and current_manifest != active_manifest:
+                raise ValueError("The synchronized batch configuration changed after the active loader was built.")
+            batch_manifest = active_manifest if active_manifest is not None else current_manifest
+        elif active_manifest is not None:
+            raise ValueError("Cannot disable synchronized batches before saving their active training state.")
         # If we are executing this function, we are the process zero, so we don't check for that.
         output_dir = output_dir if output_dir is not None else self.args.output_dir
         os.makedirs(output_dir, exist_ok=True)
@@ -1032,6 +1138,9 @@ class BaseTrainer(Trainer, ABC):
 
         # Good practice: save your training arguments together with the trained model
         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
+        if batch_manifest is not None:
+            with open(os.path.join(output_dir, "synchronized_batch_plan.json"), "w") as f:
+                json.dump(batch_manifest, f, indent=2, sort_keys=True)
 
     def _push_from_checkpoint(self, checkpoint_folder: str) -> None:
         # The parent only copies a transformers-layout subset into output_dir before uploading.
@@ -1085,6 +1194,22 @@ class BaseTrainer(Trainer, ABC):
         return skip
 
     def _load_from_checkpoint(self, checkpoint_path: str) -> None:
+        plan_file = os.path.join(checkpoint_path, "synchronized_batch_plan.json")
+        if self.args.synchronized_dataset_batch_sizes is not None:
+            _, _, expected = self._synchronized_batch_components(self.train_dataset)
+            if not os.path.isfile(plan_file):
+                raise ValueError("A synchronized resume requires its saved batch-plan manifest.")
+            with open(plan_file) as f:
+                saved = json.load(f)
+            if saved != expected:
+                raise ValueError(
+                    "Cannot resume with a changed synchronized batch plan, data, world size or accumulation."
+                )
+            # Native Trainer owns model/optimizer/scheduler/RNG restoration. Exact
+            # continuation requires a complete standard checkpoint; this manifest
+            # checks schedule compatibility, not checkpoint contents or integrity.
+        elif os.path.isfile(plan_file):
+            raise ValueError("This checkpoint requires its original synchronized dataset batch configuration.")
         model = getattr(self.model, "_orig_mod", self.model)
         # Our own checkpoint of the model being trained, so its module classes are already imported here,
         # yet a programmatically built model never carries trust_remote_code (#3801). Handing those classes

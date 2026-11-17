@@ -51,6 +51,19 @@ class BaseTrainingArguments(TransformersTrainingArguments):
         multi_dataset_batch_sampler (Union[:class:`~sentence_transformers.base.sampler.MultiDatasetBatchSamplers`, `str`, :class:`~sentence_transformers.base.sampler.MultiDatasetDefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.base.sampler.MultiDatasetDefaultBatchSampler`]], *optional*):
             The multi-dataset batch sampler to use. See :class:`~sentence_transformers.base.sampler.MultiDatasetBatchSamplers`
             for valid options. Defaults to ``MultiDatasetBatchSamplers.PROPORTIONAL``.
+        synchronized_dataset_batch_sizes (`Dict[str, int] | None`, *optional*):
+            Opt in to same-task global microsteps with per-rank sizes for every training dataset.
+            This mode requires map-style datasets, ordinary random sampling, global drop_last=True,
+            fixed world size, num_workers=0 and complete gradient accumulation windows. It does not
+            change a loss's native DDP objective. Requires Accelerate's variable-batch metadata fix.
+            Exact continuation requires a complete standard Trainer checkpoint and unchanged data,
+            world size and schedule; native Trainer performs the state restoration. Model-only
+            saves are allowed but do not promise optimizer/RNG continuation. Sample throughput
+            is omitted because the base Trainer assumes a single nominal batch size.
+        preserve_dataset_batch_frequencies (`bool`, *optional*, defaults to `False`):
+            In synchronized mode, reject any task whose original full local batch count is not
+            divisible by world size. Without this strict policy, task frequencies follow the
+            actually retained global batch plan; no loss rescaling or tail padding is applied.
         router_mapping (`Dict[str, str] | Dict[str, Dict[str, str]]`, *optional*):
             A mapping of dataset column names to Router routes, like "query" or "document". This is used to specify
             which Router submodule to use for each dataset. Two formats are accepted:
@@ -85,6 +98,7 @@ class BaseTrainingArguments(TransformersTrainingArguments):
         "learning_rate_mapping",
         "prompts",
         "router_mapping",
+        "synchronized_dataset_batch_sizes",
     ]
 
     prompts: Union[str, None, dict[str, str], dict[str, dict[str, str]]] = field(  # noqa: UP007
@@ -110,6 +124,16 @@ class BaseTrainingArguments(TransformersTrainingArguments):
             "Either 1) a mapping of column names to routes or 2) a mapping of dataset names to a mapping "
             "of column names to routes for multi-dataset training/evaluation. "
         },
+    )
+    synchronized_dataset_batch_sizes: Union[str, None, dict[str, int]] = field(  # noqa: UP007
+        default=None,
+        metadata={
+            "help": "Opt in to same-task global microsteps, with a per-rank batch size for every train dataset."
+        },
+    )
+    preserve_dataset_batch_frequencies: bool = field(
+        default=False,
+        metadata={"help": "Reject local batch counts not divisible by world size in synchronized mode."},
     )
     learning_rate_mapping: Union[str, None, dict[str, float]] = field(  # noqa: UP007
         default_factory=dict,
@@ -189,6 +213,36 @@ class BaseTrainingArguments(TransformersTrainingArguments):
             if isinstance(self.multi_dataset_batch_sampler, str)
             else self.multi_dataset_batch_sampler
         )
+
+        if isinstance(self.synchronized_dataset_batch_sizes, str):
+            self.synchronized_dataset_batch_sizes = json.loads(self.synchronized_dataset_batch_sizes)
+        if self.synchronized_dataset_batch_sizes is not None:
+            mapping = self.synchronized_dataset_batch_sizes
+            if (
+                not isinstance(mapping, dict)
+                or not mapping
+                or any(
+                    not isinstance(key, str) or type(value) is not int or value <= 0 for key, value in mapping.items()
+                )
+            ):
+                raise ValueError("synchronized_dataset_batch_sizes must be a nonempty mapping to positive integers.")
+            if self.batch_sampler != BatchSamplers.BATCH_SAMPLER:
+                raise ValueError(
+                    "Synchronized batches support only BATCH_SAMPLER; NO_DUPLICATES, GROUP_BY_LABEL and custom samplers are unsupported."
+                )
+            if self.multi_dataset_batch_sampler not in (
+                MultiDatasetBatchSamplers.ROUND_ROBIN,
+                MultiDatasetBatchSamplers.PROPORTIONAL,
+            ):
+                raise ValueError("Synchronized batches support only ROUND_ROBIN or PROPORTIONAL.")
+            if not self.dataloader_drop_last:
+                raise ValueError("Synchronized batches require explicit dataloader_drop_last=True (global drop).")
+            if self.dataloader_num_workers != 0:
+                raise ValueError("Synchronized batching supports dataloader_num_workers=0 only.")
+            if self.auto_find_batch_size or self.ignore_data_skip:
+                raise ValueError("Synchronized batches require fixed batch sizes and data skipping on resume.")
+        elif self.preserve_dataset_batch_frequencies:
+            raise ValueError("preserve_dataset_batch_frequencies requires synchronized_dataset_batch_sizes.")
 
         # In transformers <v4.54.1, the superclass doesn't yet auto-parse dict fields from CLI strings
         if isinstance(self.prompts, str):
