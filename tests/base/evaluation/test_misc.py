@@ -4,7 +4,7 @@ import csv
 
 import pytest
 
-from sentence_transformers.base.evaluation import SequentialEvaluator
+from sentence_transformers.base.evaluation import BaseEvaluator, SequentialEvaluator
 from sentence_transformers.multi_vector_encoder.evaluation import (
     MultiVectorInformationRetrievalEvaluator,
     MultiVectorNanoBEIREvaluator,
@@ -182,3 +182,52 @@ def test_ir_accepts_main_scorer_in_explicit_mapping(evaluator_class, model_fixtu
     assert evaluator.primary_metric == f"{evaluator.name}_{main}_ndcg@10"
     for name in evaluator.score_function_names:
         assert f"{evaluator.name}_{name}_ndcg@10" in metrics
+
+
+@pytest.mark.parametrize(
+    IR_CASE_PARAMETERS,
+    [(cls, model_fixture, names) for cls, model_fixture, _, names in ALL_CASES] + IR_CASES,
+)
+def test_csv_headers_follow_output_file(evaluator_class, model_fixture, names, make_ir_evaluator, request, tmp_path):
+    model = request.getfixturevalue(model_fixture)
+    make = (
+        make_evaluator
+        if issubclass(evaluator_class, (EmbeddingSimilarityEvaluator, TripletEvaluator, BinaryClassificationEvaluator))
+        else make_ir_evaluator
+    )
+    evaluator = make(evaluator_class)
+    model.similarity_fn_name = names[0]
+    evaluator(model, output_path=tmp_path)
+    originals = {path: path.read_bytes() for path in tmp_path.glob("*.csv")}
+    assert originals
+
+    model.similarity_fn_name = names[1]
+    evaluator(model)
+    with pytest.raises(ValueError, match="CSV headers do not match"):
+        evaluator(model, output_path=tmp_path)
+    evaluator(model, output_path=tmp_path / "other")
+    with pytest.raises(ValueError, match="CSV headers do not match"):
+        make(evaluator_class)(model, output_path=tmp_path)
+    assert {path: path.read_bytes() for path in originals} == originals
+
+    model.similarity_fn_name = names[0]
+    evaluator(model, output_path=tmp_path)
+    for path in originals:
+        with path.open(newline="", encoding="utf-8") as f:
+            header, *rows = csv.reader(f)
+        assert len(rows) == 2
+        assert all(len(row) == len(header) for row in rows)
+
+
+def test_csv_append_to_empty_file(tmp_path):
+    evaluator = BaseEvaluator()
+    evaluator.csv_file = "results.csv"
+    evaluator.csv_headers = ["epoch", "steps", "score"]
+    csv_path = tmp_path / evaluator.csv_file
+    csv_path.touch()
+
+    evaluator._write_csv_row(tmp_path, [0, 10, 0.5])
+    evaluator._write_csv_row(tmp_path, [1, 20, 0.75])
+
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        assert list(csv.reader(f)) == [evaluator.csv_headers, ["0", "10", "0.5"], ["1", "20", "0.75"]]

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -197,17 +195,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
                     file_output_data.append(scores[sim_fct][metric])
 
         if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                with open(csv_path, newline="", mode="w", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(self.csv_headers)
-                    writer.writerow(file_output_data)
-            else:
-                with open(csv_path, newline="", mode="a", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(file_output_data)
+            self._write_csv_row(output_path, file_output_data)
 
         metrics = {
             f"{short_name}_{metric}": value

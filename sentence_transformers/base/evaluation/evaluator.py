@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import os
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +25,8 @@ class BaseEvaluator:
     def __init__(self):
         self.greater_is_better = True
         self.primary_metric = None
+        self.csv_file: str | None = None
+        self.csv_headers: list[str] | None = None
 
     def __call__(
         self, model: BaseModel, output_path: str | None = None, epoch: int = -1, steps: int = -1
@@ -95,6 +99,28 @@ class BaseEvaluator:
         Return a dictionary with all meaningful configuration values of the evaluator to store in the model card.
         """
         return {}
+
+    def _write_csv_row(self, output_path: str, row: list[Any]) -> None:
+        """Append a result row, rejecting existing files with different headers."""
+        if self.csv_file is None or self.csv_headers is None:
+            raise ValueError("CSV output requires the evaluator to set both csv_file and csv_headers.")
+
+        os.makedirs(output_path, exist_ok=True)
+        csv_path = os.path.join(output_path, self.csv_file)
+        with open(csv_path, mode="a+", newline="", encoding="utf-8") as f:
+            f.seek(0)
+            headers = next(csv.reader(f), None)
+            if headers is not None and headers != self.csv_headers:
+                raise ValueError(
+                    f"Cannot append to {csv_path!r}: CSV headers do not match. "
+                    f"Expected {self.csv_headers}, found {headers}. "
+                    "Use a different output_path or evaluator name."
+                )
+            f.seek(0, os.SEEK_END)
+            writer = csv.writer(f)
+            if headers is None:
+                writer.writerow(self.csv_headers)
+            writer.writerow(row)
 
 
 # Backward compatibility alias, deprecated

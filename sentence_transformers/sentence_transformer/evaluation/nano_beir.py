@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -329,13 +328,11 @@ class NanoBEIREvaluator(BaseEvaluator):
             out_txt += f" (truncated to {self.truncate_dim})"
         logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
 
-        headers_changed = False
         if self._score_functions_from_model:
             # Taken from a sub-evaluator so the aggregate labels cannot drift from the per-dataset
             # ones, which resolve their own scoring per call.
             self.score_functions = self.evaluators[0]._model_score_functions(model)
             if self.score_function_names != sorted(self.score_functions):
-                headers_changed = bool(self.score_function_names)
                 self.score_function_names = sorted(self.score_functions)
                 self.csv_headers = ["epoch", "steps"]
                 self._append_csv_headers(self.score_function_names)
@@ -357,22 +354,6 @@ class NanoBEIREvaluator(BaseEvaluator):
             agg_results[metric] = self.aggregate_fn(per_metric_results[metric])
 
         if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                fOut = open(csv_path, mode="w", encoding="utf-8")
-                fOut.write(",".join(self.csv_headers))
-                fOut.write("\n")
-
-            else:
-                if headers_changed:
-                    logger.warning(
-                        f"{self.csv_file} was written with different score function columns, so the "
-                        f"rows appended for {self.score_function_names} are labeled with the previous "
-                        "score function."
-                    )
-                fOut = open(csv_path, mode="a", encoding="utf-8")
-
             output_data = [epoch, steps]
             for name in self.score_function_names:
                 for k in self.accuracy_at_k:
@@ -391,9 +372,7 @@ class NanoBEIREvaluator(BaseEvaluator):
                 for k in self.map_at_k:
                     output_data.append(agg_results[f"{name}_map@{k}"])
 
-            fOut.write(",".join(map(str, output_data)))
-            fOut.write("\n")
-            fOut.close()
+            self._write_csv_row(output_path, output_data)
 
         if not self.primary_metric:
             if self.main_score_function is None:

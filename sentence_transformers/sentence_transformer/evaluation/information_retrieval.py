@@ -254,13 +254,11 @@ class InformationRetrievalEvaluator(BaseEvaluator):
 
         logger.info(f"Information Retrieval Evaluation of the model on the {self.name} dataset{out_txt}:")
 
-        headers_changed = False
         if self._score_functions_from_model:
             # Resolved per call, so an evaluator reused across models scores and labels each of them
             # with its own similarity rather than with the first model's.
             self.score_functions = self._model_score_functions(model)
             if self.score_function_names != sorted(self.score_functions):
-                headers_changed = bool(self.score_function_names)
                 self.score_function_names = sorted(self.score_functions)
                 self.csv_headers = ["epoch", "steps"]
                 self._append_csv_headers(self.score_function_names)
@@ -270,22 +268,6 @@ class InformationRetrievalEvaluator(BaseEvaluator):
 
         # Write results to disk
         if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                fOut = open(csv_path, mode="w", encoding="utf-8")
-                fOut.write(",".join(self.csv_headers))
-                fOut.write("\n")
-
-            else:
-                if headers_changed:
-                    logger.warning(
-                        f"{self.csv_file} was written with different score function columns, so the "
-                        f"rows appended for {self.score_function_names} are labeled with the previous "
-                        "score function."
-                    )
-                fOut = open(csv_path, mode="a", encoding="utf-8")
-
             output_data = [epoch, steps]
             for name in self.score_function_names:
                 for k in self.accuracy_at_k:
@@ -304,9 +286,7 @@ class InformationRetrievalEvaluator(BaseEvaluator):
                 for k in self.map_at_k:
                     output_data.append(scores[name]["map@k"][k])
 
-            fOut.write(",".join(map(str, output_data)))
-            fOut.write("\n")
-            fOut.close()
+            self._write_csv_row(output_path, output_data)
 
         if not self.primary_metric:
             if self.main_score_function is None:

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -293,15 +291,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
             self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
 
         if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not output_file_exists:
-                    writer.writerow(self.csv_headers)
-
-                writer.writerow([epoch, steps, mean_ap, mean_mrr, mean_ndcg])
+            self._write_csv_row(output_path, [epoch, steps, mean_ap, mean_mrr, mean_ndcg])
 
         return metrics
 

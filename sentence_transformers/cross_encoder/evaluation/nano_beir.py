@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal
 
@@ -277,27 +276,10 @@ class CrossEncoderNanoBEIREvaluator(BaseEvaluator):
             agg_results[metric] = self.aggregate_fn(per_metric_results[metric])
 
         if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                fOut = open(csv_path, mode="w", encoding="utf-8")
-                fOut.write(",".join(self.csv_headers))
-                fOut.write("\n")
-
-            else:
-                fOut = open(csv_path, mode="a", encoding="utf-8")
-
-            output_data = [
-                epoch,
-                steps,
-                agg_results["map"],
-                agg_results[f"mrr@{self.at_k}"],
-                agg_results[f"ndcg@{self.at_k}"],
-            ]
-
-            fOut.write(",".join(map(str, output_data)))
-            fOut.write("\n")
-            fOut.close()
+            self._write_csv_row(
+                output_path,
+                [epoch, steps, agg_results["map"], agg_results[f"mrr@{self.at_k}"], agg_results[f"ndcg@{self.at_k}"]],
+            )
 
         logger.info("CrossEncoderNanoBEIREvaluator: Aggregated Results:")
         logger.info(f"{' ' * len(str(self.at_k))}       Base  -> Reranked")

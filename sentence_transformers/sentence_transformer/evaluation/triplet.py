@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal
 
@@ -213,18 +211,7 @@ class TripletEvaluator(BaseEvaluator):
             logger.info(f"Accuracy {fn_name.capitalize()} Similarity:\t{accuracy:.2%}")
 
         if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                with open(csv_path, newline="", mode="w", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(self.csv_headers)
-                    writer.writerow([epoch, steps] + list(metrics.values()))
-
-            else:
-                with open(csv_path, newline="", mode="a", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow([epoch, steps] + list(metrics.values()))
+            self._write_csv_row(output_path, [epoch, steps] + list(metrics.values()))
 
         if len(self.similarity_fn_names) > 1:
             metrics["max_accuracy"] = max(metrics.values())

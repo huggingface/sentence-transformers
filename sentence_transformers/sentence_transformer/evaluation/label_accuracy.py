@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING
 
 import torch
@@ -84,17 +82,7 @@ class LabelAccuracyEvaluator(BaseEvaluator):
         logger.info(f"Accuracy: {accuracy:.4f} ({correct}/{total})\n")
 
         if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                with open(csv_path, newline="", mode="w", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(self.csv_headers)
-                    writer.writerow([epoch, steps, accuracy])
-            else:
-                with open(csv_path, newline="", mode="a", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow([epoch, steps, accuracy])
+            self._write_csv_row(output_path, [epoch, steps, accuracy])
 
         metrics = {"accuracy": accuracy}
         metrics = self.prefix_name_to_metrics(metrics, self.name)

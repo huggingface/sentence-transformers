@@ -38,3 +38,11 @@ def test_csv_output_has_one_line_per_row(
         rows = list(csv.reader(f))
     assert rows[0] == evaluator.csv_headers
     assert [row[:2] for row in rows[1:]] == [["0", "1"], ["1", "2"]]
+
+    rows[0][-1] = "different_metric"
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        csv.writer(f).writerows(rows)
+    original = csv_path.read_bytes()
+    with pytest.raises(ValueError, match="CSV headers do not match"):
+        make_evaluator()(reranker_bert_tiny_model, output_path=str(tmp_path))
+    assert csv_path.read_bytes() == original
