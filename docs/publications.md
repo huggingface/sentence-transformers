@@ -125,7 +125,7 @@ In the following you find a (selective) list of articles / applications using Se
 - **September 2020 - [Elastic Transformers -
   Making BERT stretchy - Scalable Semantic Search on a Jupyter Notebook](https://medium.com/@mihail.dungarov/elastic-transformers-ae011e8f5b88)**
 - **July 2020 - [Simple Sentence Similarity Search with SentenceBERT](https://laptrinhx.com/simple-sentence-similarity-search-with-sentencebert-800684405/?fbclid=IwAR0rxdYS2DBGuHhijIRO_lsXqGc9BbjtDA-dDQM5Ng_StahT9xrHdRZuP9M)**
-- **May 2020 - [HN Time Machine: finally some Hacker News history!](https://peltarion.com/blog/applied-ai/hacker-news-time-machine)**
+- **May 2020 - [HN Time Machine: finally some Hacker News history!](https://web.archive.org/web/20230203080233/https://peltarion.com/blog/applied-ai/hacker-news-time-machine)**
 - **May 2020 - [A complete guide to transfer learning from English to other Languages using Sentence Embeddings BERT Models](https://medium.com/data-science/a-complete-guide-to-transfer-learning-from-english-to-other-languages-using-sentence-embeddings-8c427f8804a9)**
 - **March 2020 - [Building a k-NN Similarity Search Engine using Amazon Elasticsearch and SageMaker](https://medium.com/data-science/building-a-k-nn-similarity-search-engine-using-amazon-elasticsearch-and-sagemaker-98df18d883bd)**
 - **February 2020 - [Semantic Search Engine with Sentence BERT](https://medium.com/@evergreenllc2020/semantic-search-engine-with-s-abbfb3cd9377)**
