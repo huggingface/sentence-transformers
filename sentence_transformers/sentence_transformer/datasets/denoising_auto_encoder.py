@@ -27,15 +27,16 @@ class DenoisingAutoEncoderDataset(Dataset):
     Args:
         sentences: A list of sentences
         noise_fn: A noise function: Given a string, it returns a string
-            with noise, e.g. deleted words
+            with noise, e.g. deleted words. Defaults to :meth:`DenoisingAutoEncoderDataset.delete`.
     """
 
-    def __init__(self, sentences: list[str], noise_fn=lambda s: DenoisingAutoEncoderDataset.delete(s)):
+    def __init__(self, sentences: list[str], noise_fn=None):
         if not is_nltk_available():
             raise ImportError(NLTK_IMPORT_ERROR.format(self.__class__.__name__))
 
         self.sentences = sentences
-        self.noise_fn = noise_fn
+        # A lambda default would make the dataset unpicklable, which breaks DataLoader workers started via spawn
+        self.noise_fn = noise_fn if noise_fn is not None else self.delete
 
     def __getitem__(self, item):
         sent = self.sentences[item]
