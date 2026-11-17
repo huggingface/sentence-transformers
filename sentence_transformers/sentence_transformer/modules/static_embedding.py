@@ -180,9 +180,7 @@ class StaticEmbedding(InputModule):
         what model2vec averages over."""
         embeddings = torch.as_tensor(embeddings)
         if not embeddings.is_floating_point():
-            # model2vec's quantize_to="int8" stores integer embeddings, which it averages in float32.
-            # nn.EmbeddingBag needs floating point weights, so dequantize them the same way.
-            embeddings = embeddings.float()
+            embeddings = embeddings.float()  # Some model2vec models store int8 embeddings.
         if token_mapping is not None:
             embeddings = embeddings[torch.as_tensor(token_mapping, dtype=torch.long)]
         if token_weights is not None:

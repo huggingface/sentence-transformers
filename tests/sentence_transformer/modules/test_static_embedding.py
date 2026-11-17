@@ -165,7 +165,6 @@ def test_load_model2vec_small_weights(tmp_path: Path, embedding_dtype: torch.dty
 
 
 def test_load_model2vec_int8_embeddings(tmp_path: Path) -> None:
-    # model2vec's quantize_to="int8" stores integer embeddings, which it averages in float32
     tokenizer = Tokenizer(WordLevel({"[UNK]": 0, "hello": 1, "world": 2}, unk_token="[UNK]"))
     tokenizer.pre_tokenizer = Whitespace()
     tokenizer.save(str(tmp_path / "tokenizer.json"))
