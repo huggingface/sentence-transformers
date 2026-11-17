@@ -212,8 +212,10 @@ def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> 
     loss_fn = CachedMultipleNegativesRankingLoss(model, mini_batch_size=2)
     model.zero_grad()
     with torch.autocast("cpu", dtype=torch.bfloat16):
+        with torch.no_grad():
+            embeddings = model(model.preprocess(COLUMN_A[:2]))["sentence_embedding"]
+        assert embeddings.dtype == torch.bfloat16, "the test premise requires reduced-precision embeddings"
         loss = loss_fn([model.preprocess(COLUMN_A[:6]), model.preprocess(COLUMN_B[:6])], labels)
-        assert loss.dtype == torch.bfloat16, "the test premise requires reduced-precision embeddings"
     assert torch.isfinite(loss)
     loss.backward()
 

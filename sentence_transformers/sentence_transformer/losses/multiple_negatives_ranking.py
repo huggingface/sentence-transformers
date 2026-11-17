@@ -283,6 +283,12 @@ class MultipleNegativesRankingLoss(nn.Module):
             same_query_doc_mask = same_query_doc_mask.repeat(1, len(docs)).bool()
             sim_matrices["doc_to_doc"].masked_fill_(same_query_doc_mask, -torch.inf)
 
+        # Under autocast (e.g. bf16=True or fp16=True), the similarity matmul returns half precision. Upcast
+        # before scaling so the logits, logsumexp and loss are computed in float32 and small losses don't round to 0.
+        for key, sim_matrix in sim_matrices.items():
+            if sim_matrix.dtype in (torch.float16, torch.bfloat16):
+                sim_matrices[key] = sim_matrix.float()
+
         # Compute hardness penalties on the unscaled (raw cosine) similarities (Lan et al. 2025, Eq. 5).
         # penalty = alpha * stop_grad(cos_sim), making harder negatives contribute more to the
         # softmax denominator. Computed before temperature scaling so no rescaling is needed.

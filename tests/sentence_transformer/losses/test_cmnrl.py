@@ -607,3 +607,29 @@ def test_cmnrl_gather_across_devices_offset(stsb_bert_tiny_model: SentenceTransf
 
     assert torch.isfinite(rank1)
     torch.testing.assert_close(rank1, reference, rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_mnrl_loss_stays_float32_under_autocast(stsb_bert_tiny_model: SentenceTransformer, cached: bool) -> None:
+    # A small but non-zero loss used to round to exactly 0 when the scaled logits stayed in bfloat16
+    if cached:
+        loss_fn = CachedMultipleNegativesRankingLoss(stsb_bert_tiny_model, scale=20.0, mini_batch_size=1)
+    else:
+        loss_fn = MultipleNegativesRankingLoss(stsb_bert_tiny_model, scale=20.0)
+    query = torch.tensor([[1.0, 0.0]])
+    positive = torch.tensor([[0.8, 0.6]])
+    negative = torch.tensor([[0.5, 0.75**0.5]])
+    labels = torch.zeros(1)
+
+    def compute_loss() -> torch.Tensor:
+        if cached:
+            return loss_fn.calculate_loss([[query], [positive], [negative]], labels)
+        return loss_fn.compute_loss_from_embeddings([query, positive, negative], labels)
+
+    expected = compute_loss()
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        loss = compute_loss()
+
+    assert loss.dtype == torch.float32
+    assert loss.item() > 0
+    assert loss.item() == pytest.approx(expected.item(), rel=0.1)
