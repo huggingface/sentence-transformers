@@ -196,15 +196,10 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
 
         labels = self.scores
 
-        headers_changed = False
-        if self._similarity_fn_names_from_model:
-            # Resolved per call, so an evaluator reused across models scores and labels each of them
-            # with its own similarity rather than with the first model's.
-            if self.similarity_fn_names != [model.similarity_fn_name]:
-                headers_changed = bool(self.similarity_fn_names)
-                self.similarity_fn_names = [model.similarity_fn_name]
-                self.csv_headers = ["epoch", "steps"]
-                self._append_csv_headers(self.similarity_fn_names)
+        if self._similarity_fn_names_from_model and self.similarity_fn_names != [model.similarity_fn_name]:
+            self.similarity_fn_names = [model.similarity_fn_name]
+            self.csv_headers = ["epoch", "steps"]
+            self._append_csv_headers(self.similarity_fn_names)
 
         similarity_functions = self._get_similarity_functions()
 
@@ -223,12 +218,6 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
             os.makedirs(output_path, exist_ok=True)
             csv_path = os.path.join(output_path, self.csv_file)
             output_file_exists = os.path.isfile(csv_path)
-            if headers_changed and output_file_exists:
-                logger.warning(
-                    f"{self.csv_file} was written with different similarity function columns, so the "
-                    f"rows appended for {self.similarity_fn_names} are labeled with the previous "
-                    "similarity function."
-                )
             with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 if not output_file_exists:
