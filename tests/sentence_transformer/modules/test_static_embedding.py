@@ -164,6 +164,19 @@ def test_load_model2vec_small_weights(tmp_path: Path, embedding_dtype: torch.dty
     torch.testing.assert_close(output, expected, rtol=1e-6, atol=0)
 
 
+def test_load_model2vec_int8_embeddings(tmp_path: Path) -> None:
+    tokenizer = Tokenizer(WordLevel({"[UNK]": 0, "hello": 1, "world": 2}, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = Whitespace()
+    tokenizer.save(str(tmp_path / "tokenizer.json"))
+    embeddings = torch.tensor([[0, 0], [127, -3], [-64, 9]], dtype=torch.int8)
+    save_file({"embeddings": embeddings}, str(tmp_path / "model.safetensors"))
+
+    model = StaticEmbedding.load(str(tmp_path))
+    assert model.embedding.weight.dtype == torch.float32
+    output = model(model.preprocess(["hello world", "world"]))["sentence_embedding"]
+    torch.testing.assert_close(output, torch.tensor([[31.5, 3.0], [-64.0, 9.0]]))
+
+
 def test_from_model2vec_mapping_and_weights(tmp_path: Path) -> None:
     pytest.importorskip("model2vec", exc_type=ImportError)
 
