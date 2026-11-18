@@ -1094,6 +1094,32 @@ def test_router_tokenize_with_mixed_dict_raises_error(static_embedding: StaticEm
         router.preprocess(texts)
 
 
+@pytest.mark.parametrize(
+    ("inputs", "modality"),
+    [
+        ([{"array": torch.zeros(16), "sampling_rate": 16000}], "audio"),
+        ([{"array": torch.zeros(2, 3, 4, 4), "video_metadata": {"fps": 1}}], "video"),
+        ([{"role": "user", "content": "Hello"}], "message"),
+    ],
+)
+def test_router_preprocess_routes_modality_dicts_by_modality(inputs, modality: str):
+    """Audio, video and message dicts are inputs, not legacy ``{task: input}`` dicts, so they must be
+    routed by their inferred modality instead of having their keys read as task names."""
+
+    class MediaRecordingModule(TaskRecordingModule):
+        modalities = [modality]
+
+    text_module = TaskRecordingModule()
+    media_module = MediaRecordingModule()
+    router = Router({"text": [text_module], modality: [media_module]}, allow_empty_key=False)
+
+    features = router.preprocess(inputs)
+    assert features["task"] is None
+    assert features["modality"] == modality
+    assert media_module.seen_tasks == [None]
+    assert text_module.seen_tasks == []
+
+
 def test_router_tokenize_with_modality(static_embedding: StaticEmbedding):
     """Test tokenize method with modality parameter."""
     router = Router({"query": [static_embedding], "document": [static_embedding]})

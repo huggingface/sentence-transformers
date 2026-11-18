@@ -14,7 +14,7 @@ except ImportError:
 from torch import Tensor, nn
 from transformers.utils import logging
 
-from sentence_transformers.base.modality import format_modality, infer_batch_modality
+from sentence_transformers.base.modality import format_modality, infer_batch_modality, is_message_dict
 from sentence_transformers.base.modality_types import MODALITY_TO_PROCESSOR_ARG, Modality, PairInput, SingleInput
 from sentence_transformers.base.modules.input_module import InputModule
 from sentence_transformers.base.modules.module import Module
@@ -609,8 +609,11 @@ class Router(InputModule):
         if inputs and isinstance(inputs[0], dict) and task is None:
             # Extract the task type key from the dictionaries
             dict_keys = set(key for text in inputs for key in text.keys())
-            # If the input keys are not modalities, they might be task types from backwards compatibility
-            if not (dict_keys & set(MODALITY_TO_PROCESSOR_ARG.keys())):
+            # If the input keys are not modalities, they might be task types from backwards compatibility.
+            # Audio/video dicts (with an "array" key) and chat messages are inputs themselves, not task wrappers
+            if not (dict_keys & set(MODALITY_TO_PROCESSOR_ARG.keys())) and not any(
+                "array" in sample or is_message_dict(sample) for sample in inputs
+            ):
                 if len(dict_keys) > 1:
                     raise ValueError(
                         "You cannot pass a list of dictionaries with different task types. "
