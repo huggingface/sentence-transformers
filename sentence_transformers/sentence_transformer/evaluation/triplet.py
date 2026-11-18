@@ -111,8 +111,13 @@ class TripletEvaluator(BaseEvaluator):
         self.name = name
         self.truncate_dim = truncate_dim
 
-        assert len(self.anchors) == len(self.positives)
-        assert len(self.anchors) == len(self.negatives)
+        if not (len(self.anchors) == len(self.positives) == len(self.negatives)):
+            raise ValueError(
+                f"anchors ({len(self.anchors)}), positives ({len(self.positives)}) and negatives "
+                f"({len(self.negatives)}) must have the same length."
+            )
+        if len(self.anchors) == 0:
+            raise ValueError("TripletEvaluator needs at least one (anchor, positive, negative) triplet.")
 
         if main_distance_function != "deprecated" and main_similarity_function is None:
             main_similarity_function = main_distance_function

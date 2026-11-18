@@ -88,7 +88,13 @@ class TranslationEvaluator(BaseEvaluator):
         self.print_wrong_matches = print_wrong_matches
         self.truncate_dim = truncate_dim
 
-        assert len(self.source_sentences) == len(self.target_sentences)
+        if len(self.source_sentences) != len(self.target_sentences):
+            raise ValueError(
+                f"source_sentences ({len(self.source_sentences)}) and target_sentences "
+                f"({len(self.target_sentences)}) must have the same length."
+            )
+        if len(self.source_sentences) == 0:
+            raise ValueError("TranslationEvaluator needs at least one source and target sentence pair.")
 
         if name:
             name = "_" + name

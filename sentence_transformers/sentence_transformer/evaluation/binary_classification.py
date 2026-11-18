@@ -107,10 +107,16 @@ class BinaryClassificationEvaluator(BaseEvaluator):
                 f"`similarity_fn_names` got unexpected names {unknown_names}, expected names in {fn_keys}."
             )
 
-        assert len(self.sentences1) == len(self.sentences2)
-        assert len(self.sentences1) == len(self.labels)
-        for label in labels:
-            assert label == 0 or label == 1
+        if not (len(self.sentences1) == len(self.sentences2) == len(self.labels)):
+            raise ValueError(
+                f"sentences1 ({len(self.sentences1)}), sentences2 ({len(self.sentences2)}) and labels "
+                f"({len(self.labels)}) must have the same length."
+            )
+        if len(self.sentences1) == 0:
+            raise ValueError("BinaryClassificationEvaluator needs at least one sentence pair with a label.")
+        invalid_labels = [label for label in self.labels if label != 0 and label != 1]
+        if invalid_labels:
+            raise ValueError(f"BinaryClassificationEvaluator labels must be 0 or 1, got {invalid_labels[0]!r}.")
 
         self.write_csv = write_csv
         self.name = name
