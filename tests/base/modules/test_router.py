@@ -150,7 +150,6 @@ def test_router_max_seq_length_edges():
 def test_router_max_seq_length_setter_skips_static_embedding_route(
     static_embedding: StaticEmbedding, stsb_bert_tiny_model: SentenceTransformer
 ):
-    # StaticEmbedding has no maximum sequence length to set, so the setter must still update the other routes
     router = Router.for_query_document(
         query_modules=[static_embedding], document_modules=list(stsb_bert_tiny_model.children())
     )

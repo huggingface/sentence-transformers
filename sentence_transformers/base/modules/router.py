@@ -749,7 +749,7 @@ class Router(InputModule):
         has_max_seq_length_keys = []
         for key, models in self.sub_modules.items():
             if models and hasattr(models[0], "max_seq_length"):
-                # Skip read-only limits, e.g. StaticEmbedding, which has no maximum sequence length to set
+                # Skip modules with max_seq_length properties that have no setter, like StaticEmbedding
                 max_seq_length_attr = getattr(type(models[0]), "max_seq_length", None)
                 if isinstance(max_seq_length_attr, property) and max_seq_length_attr.fset is None:
                     continue
