@@ -35,7 +35,6 @@ class DenoisingAutoEncoderDataset(Dataset):
             raise ImportError(NLTK_IMPORT_ERROR.format(self.__class__.__name__))
 
         self.sentences = sentences
-        # A lambda default would make the dataset unpicklable, which breaks DataLoader workers started via spawn
         self.noise_fn = noise_fn if noise_fn is not None else self.delete
 
     def __getitem__(self, item):
