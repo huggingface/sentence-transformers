@@ -54,6 +54,9 @@ def semantic_search_qdrant(
             If provided, uses this existing index for search
         top_k: Number of top results to retrieve
         output_index: Whether to return the Qdrant client and collection name
+        **kwargs: Additional keyword arguments passed to the ``QdrantClient`` when creating a new client
+            (e.g., ``url``, ``host``, ``location``, ``path``, ``api_key``). Defaults to ``url="http://localhost:6333"``
+            if none of ``url``, ``host``, ``location``, or ``path`` are provided.
 
     Returns:
         A tuple containing:
@@ -84,7 +87,10 @@ def semantic_search_qdrant(
             raise ValueError("Corpus embeddings must be a sparse COO tensor")
 
         # Create new Qdrant client and collection
-        client = QdrantClient(url="http://localhost:6333", **kwargs)
+        client_kwargs = dict(kwargs)
+        if not any(key in client_kwargs for key in ("url", "host", "location", "path")):
+            client_kwargs["url"] = "http://localhost:6333"
+        client = QdrantClient(**client_kwargs)
         collection_name = f"sparse_collection_{uuid4().hex}"
 
         client.create_collection(
@@ -194,6 +200,9 @@ def semantic_search_elasticsearch(
             If provided, uses this existing index for search
         top_k: Number of top results to retrieve
         output_index: Whether to return the Elasticsearch client and collection name
+        **kwargs: Additional keyword arguments passed to the ``Elasticsearch`` client when creating a new client
+            (e.g., ``hosts``, ``cloud_id``, ``api_key``, ``basic_auth``). Defaults to ``hosts="http://localhost:9200"``
+            if neither ``hosts`` nor ``cloud_id`` are provided.
 
     Returns:
         A tuple containing:
@@ -225,7 +234,10 @@ def semantic_search_elasticsearch(
         ):
             raise ValueError("Corpus embeddings must be a list of lists in the format [[('token', value), ...], ...]")
 
-        es = Elasticsearch("http://localhost:9200", **kwargs)
+        client_kwargs = dict(kwargs)
+        if "hosts" not in client_kwargs and "cloud_id" not in client_kwargs:
+            client_kwargs["hosts"] = "http://localhost:9200"
+        es = Elasticsearch(**client_kwargs)
         index_name = f"sparse_index_{uuid4().hex}"
 
         es.indices.create(
@@ -459,6 +471,9 @@ def semantic_search_opensearch(
         top_k: Number of top results to retrieve
         output_index: Whether to return the OpenSearch client and collection name
         vocab: The dict to transform tokens into token ids
+        **kwargs: Additional keyword arguments passed to the ``OpenSearch`` client when creating a new client
+            (e.g., ``hosts``, ``http_auth``, ``use_ssl``). Defaults to ``hosts="http://localhost:9200"``
+            if ``hosts`` is not provided.
 
     Returns:
         A tuple containing:
@@ -490,7 +505,10 @@ def semantic_search_opensearch(
         ):
             raise ValueError("Corpus embeddings must be a list of lists in the format [[('token', value), ...], ...]")
 
-        os_client = OpenSearch("http://localhost:9200", **kwargs)
+        client_kwargs = dict(kwargs)
+        if "hosts" not in client_kwargs:
+            client_kwargs["hosts"] = "http://localhost:9200"
+        os_client = OpenSearch(**client_kwargs)
         index_name = f"sparse_index_{uuid4().hex}"
 
         os_client.indices.create(

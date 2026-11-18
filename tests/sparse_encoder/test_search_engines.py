@@ -6,7 +6,12 @@ import types
 import pytest
 import torch
 
-from sentence_transformers.sparse_encoder.search_engines import semantic_search_qdrant, semantic_search_seismic
+from sentence_transformers.sparse_encoder.search_engines import (
+    semantic_search_elasticsearch,
+    semantic_search_opensearch,
+    semantic_search_qdrant,
+    semantic_search_seismic,
+)
 
 
 class StubSeismicIndex:
@@ -96,6 +101,8 @@ class StubQdrantClient:
     """Records the query vector of every search, and answers each one with the same single hit."""
 
     def __init__(self, *args, **kwargs):
+        self.init_args = args
+        self.init_kwargs = kwargs
         self.searched = []
         self.uploaded = []
 
@@ -187,3 +194,130 @@ def test_qdrant_single_query_searches_same_vector_as_batch_of_one(stub_qdrant_mo
     semantic_search_qdrant(batched, corpus_index=(batched_client, "collection"), top_k=1)
 
     assert single_client.searched == batched_client.searched
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected_client_kwargs",
+    [
+        ({}, {"url": "http://localhost:6333"}),
+        ({"location": ":memory:"}, {"location": ":memory:"}),
+        ({"url": "http://custom:6333", "api_key": "secret"}, {"url": "http://custom:6333", "api_key": "secret"}),
+        ({"host": "remotehost", "port": 6333}, {"host": "remotehost", "port": 6333}),
+        ({"path": "/tmp/qdrant"}, {"path": "/tmp/qdrant"}),
+    ],
+)
+def test_qdrant_client_kwargs(stub_qdrant_module, kwargs, expected_client_kwargs) -> None:
+    corpus = torch.sparse_coo_tensor([[1, 0, 1], [5, 3, 5]], [0.5, 0.25, 0.25], (2, VOCAB_SIZE))
+    query = torch.sparse_coo_tensor([[3, 5]], [0.25, 0.75], (VOCAB_SIZE,))
+
+    results, _, (client, _) = semantic_search_qdrant(query, corpus_embeddings=corpus, output_index=True, **kwargs)
+
+    assert results == [[{"corpus_id": 0, "score": 1.0}]]
+    assert client.init_kwargs == expected_client_kwargs
+
+
+class StubElasticsearchIndices:
+    def create(self, *args, **kwargs):
+        pass
+
+    def refresh(self, *args, **kwargs):
+        pass
+
+
+class StubElasticsearchClient:
+    def __init__(self, *args, **kwargs):
+        self.init_args = args
+        self.init_kwargs = kwargs
+        self.indices = StubElasticsearchIndices()
+
+    def search(self, *args, **kwargs):
+        return {"hits": {"hits": [{"_id": "0", "_score": 1.0}]}}
+
+
+@pytest.fixture
+def stub_elasticsearch_module(monkeypatch):
+    """Elasticsearch is not a test dependency, so stand in for the imports that the function performs."""
+    module = types.ModuleType("elasticsearch")
+    module.Elasticsearch = StubElasticsearchClient
+    helpers = types.ModuleType("elasticsearch.helpers")
+    helpers.bulk = lambda es, actions: None
+    module.helpers = helpers
+    monkeypatch.setitem(sys.modules, "elasticsearch", module)
+    monkeypatch.setitem(sys.modules, "elasticsearch.helpers", helpers)
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected_client_kwargs",
+    [
+        ({}, {"hosts": "http://localhost:9200"}),
+        ({"hosts": "https://custom.es:9200"}, {"hosts": "https://custom.es:9200"}),
+        (
+            {"hosts": ["https://node1:9200", "https://node2:9200"]},
+            {"hosts": ["https://node1:9200", "https://node2:9200"]},
+        ),
+        ({"cloud_id": "deployment:id", "api_key": "secret"}, {"cloud_id": "deployment:id", "api_key": "secret"}),
+    ],
+)
+def test_elasticsearch_client_kwargs(stub_elasticsearch_module, kwargs, expected_client_kwargs) -> None:
+    corpus = [[("apple", 0.8)]]
+    query = [[("apple", 1.0)]]
+
+    results, _, (client, _) = semantic_search_elasticsearch(
+        query, corpus_embeddings_decoded=corpus, output_index=True, **kwargs
+    )
+
+    assert results == [[{"corpus_id": 0, "score": 1.0}]]
+    assert client.init_kwargs == expected_client_kwargs
+
+
+class StubOpenSearchIndices:
+    def create(self, *args, **kwargs):
+        pass
+
+    def refresh(self, *args, **kwargs):
+        pass
+
+
+class StubOpenSearchClient:
+    def __init__(self, *args, **kwargs):
+        self.init_args = args
+        self.init_kwargs = kwargs
+        self.indices = StubOpenSearchIndices()
+
+    def search(self, *args, **kwargs):
+        return {"hits": {"hits": [{"_id": "0", "_score": 1.0}]}}
+
+
+@pytest.fixture
+def stub_opensearch_module(monkeypatch):
+    """OpenSearch is not a test dependency, so stand in for the imports that the function performs."""
+    module = types.ModuleType("opensearchpy")
+    module.OpenSearch = StubOpenSearchClient
+    helpers = types.ModuleType("opensearchpy.helpers")
+    helpers.bulk = lambda client, actions: None
+    module.helpers = helpers
+    monkeypatch.setitem(sys.modules, "opensearchpy", module)
+    monkeypatch.setitem(sys.modules, "opensearchpy.helpers", helpers)
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected_client_kwargs",
+    [
+        ({}, {"hosts": "http://localhost:9200"}),
+        ({"hosts": "https://custom.opensearch:9200"}, {"hosts": "https://custom.opensearch:9200"}),
+        (
+            {"hosts": [{"host": "os.internal", "port": 9200}], "http_auth": ("admin", "admin")},
+            {"hosts": [{"host": "os.internal", "port": 9200}], "http_auth": ("admin", "admin")},
+        ),
+    ],
+)
+def test_opensearch_client_kwargs(stub_opensearch_module, kwargs, expected_client_kwargs) -> None:
+    corpus = [[("apple", 0.8)]]
+    query = [[("apple", 1.0)]]
+
+    results, _, (client, _) = semantic_search_opensearch(
+        query, corpus_embeddings_decoded=corpus, output_index=True, **kwargs
+    )
+
+    assert results == [[{"corpus_id": 0, "score": 1.0}]]
+    assert client.init_kwargs == expected_client_kwargs
