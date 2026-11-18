@@ -147,6 +147,21 @@ def test_router_max_seq_length_edges():
     assert module_three.max_seq_length == 1024
 
 
+def test_router_max_seq_length_setter_skips_static_embedding_route(
+    static_embedding: StaticEmbedding, stsb_bert_tiny_model: SentenceTransformer
+):
+    router = Router.for_query_document(
+        query_modules=[static_embedding], document_modules=list(stsb_bert_tiny_model.children())
+    )
+    model = SentenceTransformer(modules=[router])
+
+    model.max_seq_length = 4
+    assert router.sub_modules["document"][0].max_seq_length == 4
+    assert static_embedding.max_seq_length == float("inf")
+    features = model.preprocess(["This is a much longer sentence than four tokens."], task="document")
+    assert features["input_ids"].shape[1] == 4
+
+
 def test_router_init_basic():
     """Test basic initialization of Router."""
     query_module = MockModuleWithMaxLength(256)
