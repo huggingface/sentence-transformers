@@ -265,16 +265,14 @@ class RerankingEvaluator(BaseEvaluator):
             if len(pred_scores.shape) > 1:
                 pred_scores = pred_scores[0]
 
-            pred_scores_argsort = torch.argsort(-pred_scores)  # Sort in decreasing order
             pred_scores = pred_scores.cpu().tolist()
 
-            # Compute MRR score
+            # Compute MRR score: rank the best-scoring positive pessimistically, i.e. tied
+            # negatives count as ranked above it, so tied scores cannot inflate MRR.
             is_relevant = [1] * num_pos + [0] * num_neg
-            mrr_score = 0
-            for rank, index in enumerate(pred_scores_argsort[0 : self.at_k]):
-                if is_relevant[index]:
-                    mrr_score = 1 / (rank + 1)
-                    break
+            best_positive_score = max(pred_scores[:num_pos])
+            rank = 1 + sum(score >= best_positive_score for score in pred_scores[num_pos:])
+            mrr_score = 1 / rank if rank <= self.at_k else 0
             all_mrr_scores.append(mrr_score)
 
             # Compute NDCG score
@@ -321,15 +319,13 @@ class RerankingEvaluator(BaseEvaluator):
             if len(pred_scores.shape) > 1:
                 pred_scores = pred_scores[0]
 
-            pred_scores_argsort = torch.argsort(-pred_scores)  # Sort in decreasing order
             pred_scores = pred_scores.cpu().tolist()
 
-            # Compute MRR score
-            mrr_score = 0
-            for rank, index in enumerate(pred_scores_argsort[0 : self.at_k]):
-                if is_relevant[index]:
-                    mrr_score = 1 / (rank + 1)
-                    break
+            # Compute MRR score: rank the best-scoring positive pessimistically, i.e. tied
+            # negatives count as ranked above it, so tied scores cannot inflate MRR.
+            best_positive_score = max(pred_scores[: len(positive)])
+            rank = 1 + sum(score >= best_positive_score for score in pred_scores[len(positive) :])
+            mrr_score = 1 / rank if rank <= self.at_k else 0
             all_mrr_scores.append(mrr_score)
 
             # Compute NDCG score
