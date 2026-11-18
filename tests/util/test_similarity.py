@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 import sklearn
@@ -1452,3 +1454,16 @@ def test_maxsim_chunking_preserves_shared_masks(
     )
 
     torch.testing.assert_close(scores, expected)
+
+
+@pytest.mark.parametrize("chunk_elements", [6, 10**9])
+@pytest.mark.parametrize("score", [maxsim, maxsim_pairwise])
+def test_maxsim_ragged_padding_stays_masked_with_explicit_mask(chunk_elements: int, score: Callable) -> None:
+    queries = [torch.tensor([[1.0]]), torch.tensor([[1.0], [2.0]])]
+    documents = [torch.tensor([[-1.0]]), torch.tensor([[-2.0], [-3.0]])]
+    mask = torch.ones(2, 2, dtype=torch.bool)
+
+    expected = score(queries, documents, length_normalize=True)
+    actual = score(queries, documents, a_mask=mask, b_mask=mask, length_normalize=True, chunk_elements=chunk_elements)
+
+    torch.testing.assert_close(actual, expected)
