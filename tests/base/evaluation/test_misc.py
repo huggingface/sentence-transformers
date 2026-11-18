@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import csv
 
 import pytest
@@ -219,15 +220,21 @@ def test_csv_headers_follow_output_file(evaluator_class, model_fixture, names, m
         assert all(len(row) == len(header) for row in rows)
 
 
-def test_csv_append_to_empty_file(tmp_path):
+@pytest.mark.parametrize("encoding", [None, "utf-8", "utf-8-sig"])
+def test_csv_append(tmp_path, encoding):
     evaluator = BaseEvaluator()
     evaluator.csv_file = "results.csv"
     evaluator.csv_headers = ["epoch", "steps", "score"]
     csv_path = tmp_path / evaluator.csv_file
-    csv_path.touch()
+    if encoding is None:
+        csv_path.touch()
+    else:
+        with csv_path.open("w", newline="", encoding=encoding) as f:
+            csv.writer(f, quoting=csv.QUOTE_ALL).writerow(evaluator.csv_headers)
 
     evaluator._write_csv_row(tmp_path, [0, 10, 0.5])
     evaluator._write_csv_row(tmp_path, [1, 20, 0.75])
 
-    with csv_path.open(newline="", encoding="utf-8") as f:
+    with csv_path.open(newline="", encoding="utf-8-sig") as f:
         assert list(csv.reader(f)) == [evaluator.csv_headers, ["0", "10", "0.5"], ["1", "20", "0.75"]]
+    assert csv_path.read_bytes().startswith(codecs.BOM_UTF8) == (encoding == "utf-8-sig")
