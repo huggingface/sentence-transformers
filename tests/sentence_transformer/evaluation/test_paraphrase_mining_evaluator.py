@@ -129,3 +129,20 @@ def test_ParaphraseMiningEvaluator_uses_model_similarity(similarity_fn_name: str
     labels = np.array([(keys[i], keys[j]) in duplicates for i, j in pairs])
     scores = np.array([scores_matrix[i, j].item() for i, j in pairs])
     assert metrics["average_precision"] == pytest.approx(average_precision_score(labels, scores))
+
+
+def test_duplicates_dict_accepts_plain_dict() -> None:
+    """A plain (non-defaultdict) ``duplicates_dict`` must not raise KeyError for ids without an entry,
+    and must not be mutated by the evaluator."""
+    model = SentenceTransformer(modules=[BoW(["red", "blue"])], device="cpu")
+    texts = {"a": "red", "b": "red", "c": "blue", "d": "red blue"}
+    duplicates = {"a": {"b": True}, "b": {"a": True}}
+    evaluator = ParaphraseMiningEvaluator(
+        texts, duplicates_list=[("c", "d")], duplicates_dict=duplicates, write_csv=False
+    )
+    assert evaluator.total_num_duplicates == 2
+    assert duplicates == {"a": {"b": True}, "b": {"a": True}}
+
+    metrics = evaluator(model)
+    expected = ParaphraseMiningEvaluator(texts, duplicates_list=[("a", "b"), ("c", "d")], write_csv=False)(model)
+    assert metrics == pytest.approx(expected)
