@@ -109,6 +109,8 @@ class BaseEvaluator:
         csv_path = os.path.join(output_path, self.csv_file)
         with open(csv_path, mode="a+", newline="", encoding="utf-8") as f:
             f.seek(0)
+            if f.read(1) != "\ufeff":
+                f.seek(0)
             headers = next(csv.reader(f), None)
             if headers is not None and headers != self.csv_headers:
                 raise ValueError(
