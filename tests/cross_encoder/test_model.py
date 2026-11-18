@@ -1431,6 +1431,22 @@ class TestKeepInFP32Modules:
         with pytest.raises(ValueError, match="torch backend"):
             CrossEncoder(modules=[Dense(8, 1)], keep_in_fp32_modules=["0.linear"], backend="onnx", device="cpu")
 
+    def test_saved_selection_ignored_on_non_torch_backend(self, tmp_path, caplog):
+        model = CrossEncoder(modules=[Dense(8, 1)], keep_in_fp32_modules=["0.linear"], device="cpu")
+        model.save_pretrained(str(tmp_path), create_model_card=False)
+
+        with caplog.at_level(logging.WARNING):
+            restored = CrossEncoder(str(tmp_path), backend="onnx", device="cpu")
+        assert "Ignoring the saved keep_in_fp32_modules" in caplog.text
+        assert type(restored[0].linear) is nn.Linear
+        assert restored.keep_in_fp32_modules == ["0.linear"]
+
+        with pytest.raises(ValueError, match="torch backend"):
+            CrossEncoder(str(tmp_path), keep_in_fp32_modules=["0.linear"], backend="onnx", device="cpu")
+
+        disabled = CrossEncoder(str(tmp_path), keep_in_fp32_modules=[], backend="onnx", device="cpu")
+        assert disabled.keep_in_fp32_modules == []
+
     def test_copy_pickle_and_compile(self):
         model = CrossEncoder(modules=[Dense(8, 1)], keep_in_fp32_modules=["0.linear"], device="cpu").bfloat16()
         x = torch.randn(3, 8, dtype=torch.bfloat16)
