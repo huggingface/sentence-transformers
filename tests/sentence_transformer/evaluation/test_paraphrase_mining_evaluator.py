@@ -131,18 +131,26 @@ def test_ParaphraseMiningEvaluator_uses_model_similarity(similarity_fn_name: str
     assert metrics["average_precision"] == pytest.approx(average_precision_score(labels, scores))
 
 
-def test_duplicates_dict_accepts_plain_dict() -> None:
-    """A plain (non-defaultdict) ``duplicates_dict`` must not raise KeyError for ids without an entry,
-    and must not be mutated by the evaluator."""
+@pytest.mark.parametrize("add_transitive_closure", [False, True])
+def test_duplicates_dict_accepts_plain_dict(add_transitive_closure: bool) -> None:
     model = SentenceTransformer(modules=[BoW(["red", "blue"])], device="cpu")
     texts = {"a": "red", "b": "red", "c": "blue", "d": "red blue"}
     duplicates = {"a": {"b": True}, "b": {"a": True}}
     evaluator = ParaphraseMiningEvaluator(
-        texts, duplicates_list=[("c", "d")], duplicates_dict=duplicates, write_csv=False
+        texts,
+        duplicates_list=[("b", "c")],
+        duplicates_dict=duplicates,
+        add_transitive_closure=add_transitive_closure,
+        write_csv=False,
     )
-    assert evaluator.total_num_duplicates == 2
-    assert duplicates == {"a": {"b": True}, "b": {"a": True}}
+    assert evaluator.total_num_duplicates == (3 if add_transitive_closure else 2)
 
     metrics = evaluator(model)
-    expected = ParaphraseMiningEvaluator(texts, duplicates_list=[("a", "b"), ("c", "d")], write_csv=False)(model)
+    expected = ParaphraseMiningEvaluator(
+        texts,
+        duplicates_list=[("a", "b"), ("b", "c")],
+        add_transitive_closure=add_transitive_closure,
+        write_csv=False,
+    )(model)
     assert metrics == pytest.approx(expected)
+    assert duplicates == {"a": {"b": True}, "b": {"a": True}}

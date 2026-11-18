@@ -124,8 +124,6 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
         # Store the flag under a private name, as `self.add_transitive_closure` refers to the static method
         self._add_transitive_closure = add_transitive_closure
 
-        # Copy into nested defaultdicts, so lookups of unlabeled pairs return False instead of raising a KeyError,
-        # and so that adding the duplicates_list pairs or the transitive closure doesn't mutate the caller's dict
         self.duplicates = defaultdict(lambda: defaultdict(bool))
         if duplicates_dict is not None:
             for id1, id2_to_is_duplicate in duplicates_dict.items():
