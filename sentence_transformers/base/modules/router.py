@@ -609,10 +609,12 @@ class Router(InputModule):
         if inputs and isinstance(inputs[0], dict) and task is None:
             # Extract the task type key from the dictionaries
             dict_keys = set(key for text in inputs for key in text.keys())
-            # If the input keys are not modalities, they might be task types from backwards compatibility.
-            # Audio/video dicts (with an "array" key) and chat messages are inputs themselves, not task wrappers
+            # Only treat dict keys as legacy task names if the inputs are not modality dicts,
+            # audio/video wrappers, or chat messages.
             if not (dict_keys & set(MODALITY_TO_PROCESSOR_ARG.keys())) and not any(
-                "array" in sample or is_message_dict(sample) for sample in inputs
+                ("array" in sample and ("sampling_rate" in sample or "video_metadata" in sample))
+                or is_message_dict(sample)
+                for sample in inputs
             ):
                 if len(dict_keys) > 1:
                     raise ValueError(

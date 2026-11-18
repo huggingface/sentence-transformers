@@ -1065,19 +1065,21 @@ def test_router_tokenize_with_task(static_embedding: StaticEmbedding):
     assert "input_ids" in doc_tokens
 
 
-def test_router_tokenize_with_dict_input(static_embedding: StaticEmbedding):
+@pytest.mark.parametrize("task", ["query", "array"])
+@pytest.mark.parametrize("allow_empty_key", [True, False])
+def test_router_tokenize_with_dict_input(static_embedding: StaticEmbedding, task: str, allow_empty_key: bool):
     """Test tokenize method with dictionary input."""
-    router = Router({"query": [static_embedding], "document": [static_embedding]})
+    router = Router({"document": [static_embedding], task: [static_embedding]}, allow_empty_key=allow_empty_key)
 
     # Test with dictionary input
     texts = [
-        {"query": "What is the capital of France?"},
-        {"query": "What is the largest ocean?"},
+        {task: "What is the capital of France?"},
+        {task: "What is the largest ocean?"},
     ]
 
     tokens = router.preprocess(texts)
     assert "task" in tokens
-    assert tokens["task"] == "query"
+    assert tokens["task"] == task
     assert "input_ids" in tokens
 
 
@@ -1103,9 +1105,6 @@ def test_router_tokenize_with_mixed_dict_raises_error(static_embedding: StaticEm
     ],
 )
 def test_router_preprocess_routes_modality_dicts_by_modality(inputs, modality: str):
-    """Audio, video and message dicts are inputs, not legacy ``{task: input}`` dicts, so they must be
-    routed by their inferred modality instead of having their keys read as task names."""
-
     class MediaRecordingModule(TaskRecordingModule):
         modalities = [modality]
 
