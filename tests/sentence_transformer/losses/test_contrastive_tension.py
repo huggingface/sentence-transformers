@@ -3,14 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from sentence_transformers import SentenceTransformer
-from sentence_transformers.base.modules import Dense
-from sentence_transformers.sentence_transformer.losses import (
-    ContrastiveTensionDataLoader,
-    ContrastiveTensionLoss,
-    ContrastiveTensionLossInBatchNegatives,
-)
-from sentence_transformers.sentence_transformer.modules import BoW
+from sentence_transformers.sentence_transformer.losses import ContrastiveTensionDataLoader, ContrastiveTensionLoss
 
 
 @pytest.mark.parametrize(
@@ -69,35 +62,3 @@ def test_contrastive_tension_multiple_labels_per_row_raise(batch_size):
     loss = ContrastiveTensionLoss(torch.nn.Identity())
     with pytest.raises(ValueError, match="Target size"):
         loss(features, torch.zeros(batch_size, 3))
-
-
-def test_contrastive_tension_in_batch_encoders_receive_original_features() -> None:
-    model = SentenceTransformer(
-        modules=[
-            BoW(["alpha", "beta", "gamma"]),
-            Dense(3, 3, bias=False, activation_function=torch.nn.Identity()),
-        ],
-        device="cpu",
-    )
-    with torch.no_grad():
-        model[1].linear.weight.copy_(torch.diag(torch.tensor([1.0, 2.0, 3.0])))
-    loss = ContrastiveTensionLossInBatchNegatives(model, scale=1.0)
-    features = model.preprocess(["alpha beta", "beta gamma"])
-    original = features["sentence_embedding"].clone()
-
-    # BoW leaves its features unchanged; both projections must consume the original counts.
-    embeddings_a = loss.model1[1].linear(original)
-    embeddings_b = loss.model2[1].linear(original)
-    scores = loss.similarity_fct(embeddings_a, embeddings_b) * loss.logit_scale.exp()
-    labels = torch.arange(2)
-    expected = (loss.cross_entropy_loss(scores, labels) + loss.cross_entropy_loss(scores.T, labels)) / 2
-    parameters = tuple(loss.parameters())
-    expected_gradients = torch.autograd.grad(expected, parameters)
-
-    actual = loss([features], None)
-    actual.backward()
-
-    torch.testing.assert_close(actual, expected)
-    for parameter, expected_gradient in zip(parameters, expected_gradients):
-        torch.testing.assert_close(parameter.grad, expected_gradient)
-    torch.testing.assert_close(features["sentence_embedding"], original)

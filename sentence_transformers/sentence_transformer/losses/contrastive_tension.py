@@ -259,7 +259,6 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         sentence_features = sentence_features[0]
-        # Modules can replace feature values, so each encoder needs the original inputs.
         embeddings_a = self.model1(dict(sentence_features))["sentence_embedding"]  # (bsz, hdim)
         embeddings_b = self.model2(dict(sentence_features))["sentence_embedding"]
 
