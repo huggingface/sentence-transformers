@@ -1162,9 +1162,10 @@ class BaseTrainer(Trainer, ABC):
         if dataset_name is None:
             return dataset
 
-        # If we have a Dataset, we can set the transform directly...
+        # If we have a Dataset, we can add the transform to a copy, as the same Dataset may be used under several
+        # names, and the Arrow table is shared rather than copied...
         if isinstance(dataset, Dataset):
-            dataset.set_transform(
+            dataset = dataset.with_transform(
                 partial(
                     self.add_dataset_name_transform,
                     dataset_name=dataset_name,
