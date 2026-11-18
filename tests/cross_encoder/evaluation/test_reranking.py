@@ -189,3 +189,39 @@ def test_missing_positives_with_tied_scores() -> None:
 
     assert results["map"] == pytest.approx(0.25)
     assert results["ndcg@1"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("always_rerank_positives", [False, True])
+def test_document_ids_preserve_relevance_for_identical_text(always_rerank_positives: bool) -> None:
+    corpus = {"judged": "Backup completed.", "unjudged": "Backup completed."}
+    samples = [{"query": "backup status", "positive": ["judged"], "documents": ["unjudged"]}]
+    model = Mock()
+    model.predict.return_value = np.array([0.0, 0.0])
+
+    results = CrossEncoderRerankingEvaluator(
+        samples, corpus=corpus, always_rerank_positives=always_rerank_positives, at_k=1
+    )(model)
+
+    assert results["base_mrr@1"] == 0.0
+    assert results["base_map"] == 0.0
+    assert results["ndcg@1"] == (0.5 if always_rerank_positives else 0.0)
+    if always_rerank_positives:
+        model.predict.assert_called_once()
+        assert model.predict.call_args.args[0] == [["backup status", "Backup completed."]] * 2
+    else:
+        model.predict.assert_not_called()
+
+
+def test_document_ids_are_resolved_only_for_prediction() -> None:
+    corpus = {"current": "The backup passed.", "old": "The backup failed last week."}
+    samples = [{"query": "backup status", "positive": ["current"], "negative": ["old"]}]
+    model = Mock()
+    model.predict.return_value = np.array([1.0, 0.0])
+
+    results = CrossEncoderRerankingEvaluator(samples, corpus=corpus)(model)
+
+    assert results["map"] == 1.0
+    assert model.predict.call_args.args[0] == [
+        ["backup status", "The backup passed."],
+        ["backup status", "The backup failed last week."],
+    ]

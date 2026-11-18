@@ -45,7 +45,7 @@ for sample in qrels:
     qrels_dict[sample["query-id"]].add(sample["corpus-id"])
 
 # Convert HuggingFace Dataset to a lookup dict by _id
-corpus_lookup = {item["_id"]: item for item in corpus}
+corpus_lookup = {item["_id"]: item["text"] for item in corpus}
 logger.info(f"Dataset loaded. Corpus size: {len(corpus_dict)}, Queries: {len(queries_dict)}")
 
 #########################
@@ -142,15 +142,15 @@ sparse_samples = [
     {
         "query_id": sample["query_id"],
         "query": sample["query"],
-        "positive": [corpus_lookup[doc_id]["text"] for doc_id in qrels_dict[sample["query_id"]]],
-        "documents": [corpus_lookup[dict_["corpus_id"]]["text"] for dict_ in sample["results"]],
+        "positive": list(qrels_dict[sample["query_id"]]),
+        "documents": [result["corpus_id"] for result in sample["results"]],
     }
     for sample in sparse_pred_data
 ]
 
 # Initialize the evaluator for sparse reranking
 sparse_reranking_evaluator = CrossEncoderRerankingEvaluator(
-    samples=sparse_samples, always_rerank_positives=False, show_progress_bar=True
+    samples=sparse_samples, corpus=corpus_lookup, always_rerank_positives=False, show_progress_bar=True
 )
 os.makedirs(f"runs/{sparse_encoder_model_name}/result/rerank_{cross_encoder_model_name}", exist_ok=True)
 
@@ -181,15 +181,15 @@ dense_samples = [
     {
         "query_id": sample["query_id"],
         "query": sample["query"],
-        "positive": [corpus_lookup[doc_id]["text"] for doc_id in qrels_dict[sample["query_id"]]],
-        "documents": [corpus_lookup[dict_["corpus_id"]]["text"] for dict_ in sample["results"]],
+        "positive": list(qrels_dict[sample["query_id"]]),
+        "documents": [result["corpus_id"] for result in sample["results"]],
     }
     for sample in dense_pred_data
 ]
 
 # Initialize the evaluator for dense reranking
 dense_reranking_evaluator = CrossEncoderRerankingEvaluator(
-    samples=dense_samples, always_rerank_positives=False, show_progress_bar=True
+    samples=dense_samples, corpus=corpus_lookup, always_rerank_positives=False, show_progress_bar=True
 )
 os.makedirs(f"runs/{bi_encoder_model_name}/result/rerank_{cross_encoder_model_name}", exist_ok=True)
 
@@ -243,7 +243,7 @@ fused_pred_data = load_dataset(
 # Initialize the reranking evaluator for the fused results
 logger.info("Setting up reranking for hybrid search results")
 fusion_reranking_evaluator = CrossEncoderRerankingEvaluator(
-    samples=fused_pred_data, always_rerank_positives=False, show_progress_bar=True
+    samples=fused_pred_data, corpus=corpus_lookup, always_rerank_positives=False, show_progress_bar=True
 )
 
 # Run reranking on the fused results

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import logging
 import os
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -11,6 +12,7 @@ from sklearn.metrics import average_precision_score, dcg_score
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 
 if TYPE_CHECKING:
+    from sentence_transformers.base.modality_types import PairableInput
     from sentence_transformers.cross_encoder.model import CrossEncoder
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,9 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
         show_progress_bar (bool): Show progress bar when computing embeddings. Defaults to False.
         write_csv (bool): Write results to CSV file. Defaults to True.
         mrr_at_k (Optional[int], optional): Deprecated parameter. Please use `at_k` instead. Defaults to None.
+        corpus (Mapping[str, PairableInput], optional): Mapping from document IDs to model inputs. If supplied,
+            the "positive", "negative", and "documents" entries contain these IDs. Relevance is determined by ID,
+            so distinct documents with identical text keep their own relevance labels. Defaults to None.
 
     Example:
         ::
@@ -114,9 +119,12 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
         show_progress_bar: bool = False,
         write_csv: bool = True,
         mrr_at_k: int | None = None,
+        *,
+        corpus: Mapping[str, PairableInput] | None = None,
     ):
         super().__init__()
         self.samples = samples
+        self.corpus = corpus
         if mrr_at_k is not None:
             logger.warning(f"The `mrr_at_k` parameter has been deprecated; please use `at_k={mrr_at_k}` instead.")
             self.at_k = mrr_at_k
@@ -207,7 +215,10 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                 continue
 
             sample_metadata.append((is_relevant, len(positive)))
-            all_pairs.extend([query, doc] for doc in docs)
+            if self.corpus is None:
+                all_pairs.extend([query, doc] for doc in docs)
+            else:
+                all_pairs.extend([query, self.corpus[doc_id]] for doc_id in docs)
 
         # Single batched predict call for all query-document pairs
         if all_pairs:
