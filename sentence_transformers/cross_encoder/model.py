@@ -234,7 +234,15 @@ class CrossEncoder(BaseModel, FitMixin):
 
         if self.activation_fn is None:
             self.activation_fn = self.get_default_activation_fn()
-        self.set_keep_in_fp32_modules([] if self.keep_in_fp32_modules is None else self.keep_in_fp32_modules)
+        selection = [] if self.keep_in_fp32_modules is None else self.keep_in_fp32_modules
+        if keep_in_fp32_modules is None and selection and self.backend != "torch":
+            # Keep the saved selection so re-saving doesn't drop it.
+            logger.warning(
+                f"Ignoring the saved keep_in_fp32_modules={selection}: it is only supported by the torch backend, "
+                f"but backend={self.backend!r} was requested."
+            )
+        else:
+            self.set_keep_in_fp32_modules(selection)
 
     def set_keep_in_fp32_modules(self, module_names: list[str]) -> None:
         """Run selected linear layers in fp32, even when autocast is enabled.
