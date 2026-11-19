@@ -207,3 +207,17 @@ def test_missing_positives_with_tied_scores() -> None:
     assert results["map"] == pytest.approx(0.25)
     assert results["mrr@1"] == pytest.approx(0.5)
     assert results["ndcg@1"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("documents", [["p1"], ["n1", "p1"]])
+def test_zero_cutoff(documents: list[str]) -> None:
+    samples = [{"query": "q", "positive": ["p1", "p2"], "documents": documents}]
+    model = Mock()
+    model.predict.return_value = np.arange(len(documents), 0, -1)
+
+    results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, at_k=0)(model)
+
+    for prefix in ("", "base_"):
+        assert results[f"{prefix}map"] == pytest.approx(1 / (2 * len(documents)))
+        assert results[f"{prefix}mrr@0"] == 0.0
+        assert results[f"{prefix}ndcg@0"] == 0.0

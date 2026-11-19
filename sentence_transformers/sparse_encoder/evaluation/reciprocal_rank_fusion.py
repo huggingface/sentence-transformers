@@ -6,11 +6,11 @@ import logging
 import os
 
 import numpy as np
-from sklearn.metrics import average_precision_score, dcg_score
+from sklearn.metrics import average_precision_score
 from tqdm import tqdm
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.util import reciprocal_rank
+from sentence_transformers.util import binary_ndcg, reciprocal_rank
 
 logger = logging.getLogger(__name__)
 
@@ -319,14 +319,9 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
         if num_retrieved_positives == 0:
             return 0, 0, 0
         num_positives = max(num_positives or 0, num_retrieved_positives)
-        ap = average_precision_score(y_true, y_pred) * (num_retrieved_positives / num_positives)
-        if self.at_k == 0:
-            return 0, 0, ap
         mrr = reciprocal_rank(y_true, y_pred, k=self.at_k)
-
-        dcg = dcg_score([y_true], [y_pred], k=self.at_k) if len(y_true) > 1 else y_true[0]
-        ideal_dcg = np.sum(1 / np.log2(np.arange(2, min(num_positives, self.at_k) + 2)))
-        ndcg = dcg / ideal_dcg
+        ndcg = binary_ndcg(y_true, y_pred, k=self.at_k, num_positives=num_positives)
+        ap = average_precision_score(y_true, y_pred) * (num_retrieved_positives / num_positives)
         return mrr, ndcg, ap
 
     def get_config_dict(self):
