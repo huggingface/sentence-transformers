@@ -153,20 +153,9 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
         self.write_csv = write_csv
         self.primary_metric = "average_precision"
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
-
-        logger.info(f"Paraphrase Mining Evaluation of the model on the {self.name} dataset{out_txt}:")
 
         # Compute embedding for the sentences
         pairs_list = paraphrase_mining(
@@ -223,21 +212,13 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
         logger.info(f"Recall: {best_recall * 100:.2f}")
         logger.info(f"F1: {best_f1 * 100:.2f}\n")
 
-        if output_path is not None and self.write_csv:
-            self._write_csv_row(
-                output_path, [epoch, steps, best_precision, best_recall, best_f1, threshold, average_precision]
-            )
-
-        metrics = {
+        return {
             "average_precision": average_precision,
             "f1": best_f1,
             "precision": best_precision,
             "recall": best_recall,
             "threshold": threshold,
         }
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
-        return metrics
 
     @staticmethod
     def add_transitive_closure(graph):

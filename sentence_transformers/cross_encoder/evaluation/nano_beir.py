@@ -251,13 +251,9 @@ class CrossEncoderNanoBEIREvaluator(BaseEvaluator):
     ) -> dict[str, float]:
         per_metric_results = {}
         per_dataset_results = {}
+        out_txt = ""
         if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
+            out_txt = f" after epoch {epoch}" if steps == -1 else f" in epoch {epoch} after {steps} steps"
         logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
 
         for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
@@ -294,9 +290,8 @@ class CrossEncoderNanoBEIREvaluator(BaseEvaluator):
         )
 
         model_card_metrics = {
-            "map": f"{agg_results['map']:.4f} ({agg_results['map'] - agg_results['base_map']:+.4f})",
-            f"mrr@{self.at_k}": f"{agg_results[f'mrr@{self.at_k}']:.4f} ({agg_results[f'mrr@{self.at_k}'] - agg_results[f'base_mrr@{self.at_k}']:+.4f})",
-            f"ndcg@{self.at_k}": f"{agg_results[f'ndcg@{self.at_k}']:.4f} ({agg_results[f'ndcg@{self.at_k}'] - agg_results[f'base_ndcg@{self.at_k}']:+.4f})",
+            metric: f"{agg_results[metric]:.4f} ({agg_results[metric] - agg_results[f'base_{metric}']:+.4f})"
+            for metric in ("map", f"mrr@{self.at_k}", f"ndcg@{self.at_k}")
         }
         model_card_metrics = self.prefix_name_to_metrics(model_card_metrics, self.name)
         self.store_metrics_in_model_card_data(model, model_card_metrics, epoch, steps)

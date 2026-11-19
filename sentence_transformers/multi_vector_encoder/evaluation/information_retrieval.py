@@ -154,7 +154,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             **kwargs,
         )
 
-    def __call__(
+    def evaluate(
         self,
         model: MultiVectorEncoder,
         output_path: str | None = None,
@@ -179,7 +179,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
                     f"({registered!r}) rather than composing with it. Include the model's "
                     f"marker prompt in {param_name} if the trained prompt should be kept."
                 )
-        return super().__call__(model, output_path, epoch, steps, *args, **kwargs)
+        return super().evaluate(model, output_path, epoch, steps, *args, **kwargs)
 
     def _model_score_functions(self, model: MultiVectorEncoder) -> dict[str, Callable[..., Tensor]]:
         # Resolve from similarity_fn_name instead of taking bare model.similarity, so that an explicit

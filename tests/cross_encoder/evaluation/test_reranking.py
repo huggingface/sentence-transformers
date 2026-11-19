@@ -12,7 +12,7 @@ from sentence_transformers import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderRerankingEvaluator
 
 
-def test_negative_format(reranker_bert_tiny_model: CrossEncoder) -> None:
+def test_negative_format(reranker_bert_tiny_model: CrossEncoder, monkeypatch) -> None:
     """Basic test with 'negative' format produces valid metrics."""
     samples = [
         {
@@ -27,9 +27,12 @@ def test_negative_format(reranker_bert_tiny_model: CrossEncoder) -> None:
         },
         {"query": "What is water?", "positive": ["Water is H2O"], "negative": ["Salt is NaCl", "Gold is Au"]},
     ]
+    store_metrics = Mock()
+    monkeypatch.setattr(reranker_bert_tiny_model.model_card_data, "set_evaluation_metrics", store_metrics)
     evaluator = CrossEncoderRerankingEvaluator(samples, name="neg-test")
     results = evaluator(reranker_bert_tiny_model)
 
+    store_metrics.assert_called_once_with(evaluator, results, -1, -1)
     assert "neg-test_map" in results
     assert f"neg-test_mrr@{evaluator.at_k}" in results
     assert f"neg-test_ndcg@{evaluator.at_k}" in results
@@ -37,7 +40,7 @@ def test_negative_format(reranker_bert_tiny_model: CrossEncoder) -> None:
         assert 0.0 <= value <= 1.0
 
 
-def test_documents_format(reranker_bert_tiny_model: CrossEncoder) -> None:
+def test_documents_format(reranker_bert_tiny_model: CrossEncoder, monkeypatch) -> None:
     """Test with 'documents' format produces both base and reranked metrics."""
     samples = [
         {
@@ -51,9 +54,17 @@ def test_documents_format(reranker_bert_tiny_model: CrossEncoder) -> None:
             "documents": ["The moon orbits earth", "The sun is a star", "Mars is red"],
         },
     ]
+    store_metrics = Mock()
+    monkeypatch.setattr(reranker_bert_tiny_model.model_card_data, "set_evaluation_metrics", store_metrics)
     evaluator = CrossEncoderRerankingEvaluator(samples, name="doc-test")
     results = evaluator(reranker_bert_tiny_model)
 
+    expected_card_metrics = {}
+    for metric in ("map", f"mrr@{evaluator.at_k}", f"ndcg@{evaluator.at_k}"):
+        value = results[f"doc-test_{metric}"]
+        improvement = value - results[f"doc-test_base_{metric}"]
+        expected_card_metrics[f"doc-test_{metric}"] = f"{value:.4f} ({improvement:+.4f})"
+    store_metrics.assert_called_once_with(evaluator, expected_card_metrics, -1, -1)
     # Should have both base and reranked metrics
     assert "doc-test_map" in results
     assert "doc-test_base_map" in results

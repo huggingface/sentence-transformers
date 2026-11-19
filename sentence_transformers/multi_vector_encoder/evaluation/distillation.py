@@ -178,19 +178,13 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
         self.csv_file = "distillation_evaluation" + (f"_{name}" if name else "") + "_results.csv"
         self.csv_headers = ["epoch", "steps", "kl_divergence", "spearman"]
 
-    def __call__(
+    def evaluate(
         self,
         model: MultiVectorEncoder,
         output_path: str | None = None,
         epoch: int = -1,
         steps: int = -1,
     ) -> dict[str, float]:
-        if epoch != -1:
-            out_txt = f" after epoch {epoch}" if steps == -1 else f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        logger.info(f"MultiVectorDistillationEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
-
         query_embeddings = model.encode_query(
             self.queries,
             batch_size=self.batch_size,
@@ -254,12 +248,7 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
         logger.info(f"KL divergence:\t{kl:.4f}")
         logger.info(f"Spearman correlation:\t{spearman:.4f}")
 
-        if output_path is not None and self.write_csv:
-            self._write_csv_row(output_path, [epoch, steps, kl, spearman])
-
         self.primary_metric = "spearman"
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
 
     def get_config_dict(self) -> dict[str, Any]:

@@ -50,22 +50,13 @@ class LabelAccuracyEvaluator(BaseEvaluator):
         self.csv_headers = ["epoch", "steps", "accuracy"]
         self.primary_metric = "accuracy"
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
         model.eval()
         total = 0
         correct = 0
 
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}:"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps:"
-        else:
-            out_txt = ":"
-
-        logger.info("Evaluation on the " + self.name + " dataset" + out_txt)
         self.dataloader.collate_fn = model.smart_batching_collate
         for step, batch in enumerate(self.dataloader):
             features, label_ids = batch
@@ -81,10 +72,4 @@ class LabelAccuracyEvaluator(BaseEvaluator):
 
         logger.info(f"Accuracy: {accuracy:.4f} ({correct}/{total})\n")
 
-        if output_path is not None and self.write_csv:
-            self._write_csv_row(output_path, [epoch, steps, accuracy])
-
-        metrics = {"accuracy": accuracy}
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
-        return metrics
+        return {"accuracy": accuracy}

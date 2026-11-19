@@ -317,13 +317,9 @@ class NanoBEIREvaluator(BaseEvaluator):
     ) -> dict[str, float]:
         per_metric_results = {}
         per_dataset_results = {}
+        out_txt = ""
         if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
+            out_txt = f" after epoch {epoch}" if steps == -1 else f" in epoch {epoch} after {steps} steps"
         if self.truncate_dim is not None:
             out_txt += f" (truncated to {self.truncate_dim})"
         logger.info(f"NanoBEIR Evaluation of the model on {self.dataset_names} dataset{out_txt}:")
@@ -349,30 +345,7 @@ class NanoBEIREvaluator(BaseEvaluator):
                 per_dataset_results[full_key] = metric_value
                 per_metric_results[metric].append(metric_value)
 
-        agg_results = {}
-        for metric in per_metric_results:
-            agg_results[metric] = self.aggregate_fn(per_metric_results[metric])
-
-        if output_path is not None and self.write_csv:
-            output_data = [epoch, steps]
-            for name in self.score_function_names:
-                for k in self.accuracy_at_k:
-                    output_data.append(agg_results[f"{name}_accuracy@{k}"])
-
-                for k in self.precision_recall_at_k:
-                    output_data.append(agg_results[f"{name}_precision@{k}"])
-                    output_data.append(agg_results[f"{name}_recall@{k}"])
-
-                for k in self.mrr_at_k:
-                    output_data.append(agg_results[f"{name}_mrr@{k}"])
-
-                for k in self.ndcg_at_k:
-                    output_data.append(agg_results[f"{name}_ndcg@{k}"])
-
-                for k in self.map_at_k:
-                    output_data.append(agg_results[f"{name}_map@{k}"])
-
-            self._write_csv_row(output_path, output_data)
+        agg_results = self._aggregate_results(per_metric_results)
 
         if not self.primary_metric:
             if self.main_score_function is None:
@@ -407,12 +380,21 @@ class NanoBEIREvaluator(BaseEvaluator):
             for k in self.map_at_k:
                 logger.info("MAP@{}: {:.4f}".format(k, agg_results[f"{name}_map@{k}"]))
 
-        agg_results = self.prefix_name_to_metrics(agg_results, self.name)
-        self.store_metrics_in_model_card_data(model, agg_results, epoch, steps)
+        if output_path is not None and self.write_csv:
+            self._write_csv_row(
+                output_path,
+                [epoch, steps] + [self._get_csv_value(header, agg_results) for header in self.csv_headers[2:]],
+            )
 
+        agg_results = self.prefix_name_to_metrics(agg_results, self.name)
+        if len(self.dataset_names) > 1:
+            self.store_metrics_in_model_card_data(model, agg_results, epoch, steps)
         per_dataset_results.update(agg_results)
 
         return per_dataset_results
+
+    def _aggregate_results(self, per_metric_results: dict[str, list[float]]) -> dict[str, float]:
+        return {metric: self.aggregate_fn(values) for metric, values in per_metric_results.items()}
 
     def _get_human_readable_name(self, dataset_name: DatasetNameType | str) -> str:
         human_readable_name = f"Nano{DATASET_NAME_TO_HUMAN_READABLE[dataset_name.lower()]}"
@@ -515,13 +497,6 @@ class NanoBEIREvaluator(BaseEvaluator):
         if error_msg:
             raise ValueError(error_msg.strip())
 
-    def store_metrics_in_model_card_data(self, *args, **kwargs):
-        # Only store metrics in the model card data if there is more than one dataset.
-        # Otherwise the e.g. mean scores for NanoBEIR are the same as the scores for
-        # the single dataset, and we'd end up with duplicate entries.
-        if len(self.dataset_names) > 1:
-            super().store_metrics_in_model_card_data(*args, **kwargs)
-
     def get_config_dict(self) -> dict[str, Any]:
         config_dict = {"dataset_names": self.dataset_names, "dataset_id": self.dataset_id}
         config_dict_candidate_keys = ["truncate_dim", "query_prompts", "corpus_prompts"]
@@ -529,3 +504,9 @@ class NanoBEIREvaluator(BaseEvaluator):
             if getattr(self, key) is not None:
                 config_dict[key] = getattr(self, key)
         return config_dict
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        if header not in metrics:
+            score_function, metric = header.rsplit("-", 1)
+            header = f"{score_function}_{metric.lower()}"
+        return metrics[header]

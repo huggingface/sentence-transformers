@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,21 +97,9 @@ class TranslationEvaluator(BaseEvaluator):
         self.write_csv = write_csv
         self.primary_metric = "mean_accuracy"
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
-
-        logger.info(f"Evaluating translation matching Accuracy of the model on the {self.name} dataset{out_txt}:")
-
         embeddings1 = torch.stack(self.embed_inputs(model, self.source_sentences))
         embeddings2 = torch.stack(self.embed_inputs(model, self.target_sentences))
 
@@ -147,17 +136,11 @@ class TranslationEvaluator(BaseEvaluator):
         logger.info(f"Accuracy src2trg: {acc_src2trg * 100:.2f}")
         logger.info(f"Accuracy trg2src: {acc_trg2src * 100:.2f}")
 
-        if output_path is not None and self.write_csv:
-            self._write_csv_row(output_path, [epoch, steps, acc_src2trg, acc_trg2src])
-
-        metrics = {
+        return {
             "src2trg_accuracy": acc_src2trg,
             "trg2src_accuracy": acc_trg2src,
             "mean_accuracy": (acc_src2trg + acc_trg2src) / 2,
         }
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
-        return metrics
 
     def embed_inputs(
         self,
@@ -179,3 +162,8 @@ class TranslationEvaluator(BaseEvaluator):
         if self.truncate_dim is not None:
             config_dict["truncate_dim"] = self.truncate_dim
         return config_dict
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        if header in ("src2trg", "trg2src"):
+            header += "_accuracy"
+        return metrics[header]
