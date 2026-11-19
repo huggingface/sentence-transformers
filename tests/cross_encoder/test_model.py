@@ -1332,14 +1332,19 @@ class TestKeepInFP32Modules:
         with torch.autocast("cpu", dtype=torch.bfloat16):
             output = restored({"sentence_embedding": x})["scores"]
 
+        assert restored.keep_in_fp32_modules == ["0.linear"]
         if backend == "torch":
             assert output.dtype == torch.float32
             expected = F.linear(x.float(), restored[0].linear.weight.float(), restored[0].linear.bias.float())
             torch.testing.assert_close(output, expected, rtol=0, atol=0)
         else:
-            assert restored.keep_in_fp32_modules == []
             assert output.dtype == torch.bfloat16
-            assert "keep_in_fp32_modules" not in restored._get_model_config()
+
+        restored.save_pretrained(str(tmp_path), create_model_card=False)
+        assert CrossEncoder(str(tmp_path), device="cpu").keep_in_fp32_modules == ["0.linear"]
+        restored.set_keep_in_fp32_modules([])
+        assert restored.keep_in_fp32_modules == []
+        assert "keep_in_fp32_modules" not in restored._get_model_config()
 
         disabled = CrossEncoder(str(tmp_path), keep_in_fp32_modules=[], backend=backend, device="cpu").bfloat16()
         assert type(disabled[0].linear) is nn.Linear
@@ -1438,7 +1443,7 @@ class TestKeepInFP32Modules:
             CrossEncoder(modules=[Dense(8, 1)], keep_in_fp32_modules=["0.linear"], backend="onnx", device="cpu")
 
     @pytest.mark.parametrize("backend", ["onnx", "openvino"])
-    def test_saved_selection_ignored_on_non_torch_backend(self, tmp_path, backend):
+    def test_saved_selection_survives_backend_export(self, tmp_path, backend):
         pytest.importorskip(
             "optimum.onnxruntime" if backend == "onnx" else "optimum.intel.openvino", exc_type=ImportError
         )
@@ -1459,23 +1464,25 @@ class TestKeepInFP32Modules:
             tokenizer_object=tokenizer, pad_token="[PAD]", unk_token="[UNK]", model_max_length=16
         ).save_pretrained(checkpoint)
         model = CrossEncoder(str(checkpoint), keep_in_fp32_modules=["0.model.classifier"], device="cpu")
-        model.save_pretrained(str(checkpoint), create_model_card=False)
+        saved = tmp_path / "saved"
+        model.save_pretrained(str(saved), create_model_card=False)
 
         model_kwargs = {"provider": "CPUExecutionProvider"} if backend == "onnx" else {}
-        restored = CrossEncoder(str(checkpoint), backend=backend, model_kwargs=model_kwargs, device="cpu")
-        assert restored.keep_in_fp32_modules == []
+        restored = CrossEncoder(str(saved), backend=backend, model_kwargs=model_kwargs, device="cpu")
+        assert restored.keep_in_fp32_modules == ["0.model.classifier"]
         assert restored.predict([("a", "b")]).shape == (1,)
-        restored.set_keep_in_fp32_modules([])
         with pytest.raises(ValueError, match="torch backend"):
             restored.set_keep_in_fp32_modules(["0.model.classifier"])
 
-        exported = tmp_path / "exported"
-        restored.save_pretrained(str(exported), create_model_card=False)
-        config = json.loads((exported / "config_sentence_transformers.json").read_text())
-        assert "keep_in_fp32_modules" not in config
-        reloaded = CrossEncoder(str(exported), backend=backend, model_kwargs=model_kwargs, device="cpu")
-        assert reloaded.keep_in_fp32_modules == []
-        assert reloaded.predict([("a", "b")]).shape == (1,)
+        restored.save_pretrained(str(saved), create_model_card=False)
+        reloaded = CrossEncoder(str(saved), device="cpu")
+        assert reloaded.keep_in_fp32_modules == ["0.model.classifier"]
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            assert reloaded.model(**reloaded.preprocess([("a", "b")])).logits.dtype == torch.float32
+
+        restored.set_keep_in_fp32_modules([])
+        assert restored.keep_in_fp32_modules == []
+        assert "keep_in_fp32_modules" not in restored._get_model_config()
 
     def test_copy_pickle_and_compile(self):
         model = CrossEncoder(modules=[Dense(8, 1)], keep_in_fp32_modules=["0.linear"], device="cpu").bfloat16()
