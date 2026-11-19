@@ -147,7 +147,7 @@ class CrossEncoderNanoBEIREvaluator(BaseEvaluator):
             CrossEncoderRerankingEvaluator: Evaluating the model on the NanoNFCorpus dataset:
             Queries: 50   Positives: Min 1.0, Mean 50.4, Max 463.0        Negatives: Min 54.0, Mean 92.8, Max 100.0
                      Base  -> Reranked
-            MAP:     26.10 -> 34.61
+            MAP:     12.40 -> 34.61
             MRR@10:  49.98 -> 58.85
             NDCG@10: 32.50 -> 39.30
 
@@ -161,7 +161,7 @@ class CrossEncoderNanoBEIREvaluator(BaseEvaluator):
 
             CrossEncoderNanoBEIREvaluator: Aggregated Results:
                      Base  -> Reranked
-            MAP:     39.01 -> 55.31
+            MAP:     34.44 -> 55.31
             MRR@10:  46.80 -> 64.01
             NDCG@10: 45.54 -> 60.72
             '''

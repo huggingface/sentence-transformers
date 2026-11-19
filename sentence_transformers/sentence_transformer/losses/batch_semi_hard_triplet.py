@@ -119,6 +119,14 @@ class BatchSemiHardTripletLoss(nn.Module):
         Returns:
             Label_Sentence_Triplet: scalar tensor containing the triplet loss
         """
+        batch_size = embeddings.shape[0]
+        if labels.numel() != batch_size:
+            raise ValueError(
+                f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+            )
+        labels = labels.view(-1)
+
         labels = labels.unsqueeze(1)
 
         pdist_matrix = self.distance_metric(embeddings)

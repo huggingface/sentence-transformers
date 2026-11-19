@@ -160,16 +160,59 @@ class TestTransformerKwargsDecorator:
         }
         assert "cache_dir" in caplog.text
 
-    def test_cache_dir_does_not_override_existing(self, caplog):
+    @pytest.mark.parametrize("name", ["model_kwargs", "processor_kwargs", "config_kwargs"])
+    @pytest.mark.parametrize("existing_cache_dir", ["/existing", None])
+    def test_cache_dir_does_not_override_existing(self, caplog, name, existing_cache_dir):
         @transformer_kwargs_decorator
         def func(**kwargs):
             return kwargs
 
         with caplog.at_level(logging.WARNING):
-            result = func(cache_dir="/tmp/cache", model_kwargs={"cache_dir": "/existing"})
+            result = func(cache_dir="/tmp/cache", **{name: {"cache_dir": existing_cache_dir}})
 
-        assert result["model_kwargs"]["cache_dir"] == "/existing"
-        assert result["processor_kwargs"]["cache_dir"] == "/tmp/cache"
+        for key in ("model_kwargs", "processor_kwargs", "config_kwargs"):
+            assert result[key]["cache_dir"] == (existing_cache_dir if key == name else "/tmp/cache")
+
+    @pytest.mark.parametrize(
+        "name",
+        ["model_kwargs", "processor_kwargs", "config_kwargs", "model_args", "tokenizer_args", "config_args"],
+    )
+    def test_cache_dir_accepts_none_kwargs(self, name):
+        @transformer_kwargs_decorator
+        def func(**kwargs):
+            return kwargs
+
+        result = func(cache_dir="/tmp/cache", **{name: None})
+
+        assert result == {
+            "model_kwargs": {"cache_dir": "/tmp/cache"},
+            "processor_kwargs": {"cache_dir": "/tmp/cache"},
+            "config_kwargs": {"cache_dir": "/tmp/cache"},
+        }
+
+    @pytest.mark.parametrize(
+        "name, target",
+        [
+            ("model_kwargs", "model_kwargs"),
+            ("processor_kwargs", "processor_kwargs"),
+            ("config_kwargs", "config_kwargs"),
+            ("model_args", "model_kwargs"),
+            ("tokenizer_args", "processor_kwargs"),
+            ("config_args", "config_kwargs"),
+        ],
+    )
+    def test_cache_dir_does_not_mutate_kwargs(self, name, target):
+        @transformer_kwargs_decorator
+        def func(**kwargs):
+            return kwargs
+
+        options = {"revision": "main"}
+        first = func(cache_dir="/first/cache", **{name: options})
+        second = func(cache_dir="/second/cache", **{name: options})
+
+        assert options == {"revision": "main"}
+        assert first[target] == {"revision": "main", "cache_dir": "/first/cache"}
+        assert second[target] == {"revision": "main", "cache_dir": "/second/cache"}
 
     def test_cache_dir_none_no_warning(self, caplog):
         @transformer_kwargs_decorator
@@ -250,35 +293,43 @@ class TestCrossEncoderInitArgsDecorator:
 
         assert result == {"config_kwargs": {"classifier_dropout": 0.5, "other": True}}
 
-    def test_positional_num_labels(self, caplog):
-        @cross_encoder_init_args_decorator
-        def func(self, model_name_or_path, **kwargs):
-            return model_name_or_path, kwargs
-
-        with caplog.at_level(logging.WARNING):
-            model_name, kwargs = func(None, "my-model", 3)
-
-        assert model_name == "my-model"
-        assert kwargs == {"num_labels": 3}
-        assert "num_labels" in caplog.text
-        assert "positional" in caplog.text
-
-    def test_positional_all_four_legacy_args(self, caplog):
-        """Old signature: CrossEncoder(model_name, num_labels, max_length, activation_fn, device)."""
+    @pytest.mark.parametrize("num_args", range(1, 15))
+    def test_positional_args(self, caplog, num_args):
         import torch
 
         @cross_encoder_init_args_decorator
         def func(self, model_name_or_path, **kwargs):
             return model_name_or_path, kwargs
 
-        with caplog.at_level(logging.WARNING):
-            model_name, kwargs = func(None, "my-model", 2, 512, torch.nn.Sigmoid(), "cuda")
+        legacy_kwargs = {
+            "num_labels": 2,
+            "max_length": 512,
+            "activation_fn": torch.nn.Sigmoid(),
+            "device": "cpu",
+            "cache_folder": "test-cache",
+            "trust_remote_code": True,
+            "revision": "test-revision",
+            "local_files_only": True,
+            "token": "hf_test_token",
+            "model_kwargs": {"token": "hf_test_model_token"},
+            "tokenizer_kwargs": {"token": "hf_test_tokenizer_token"},
+            "config_kwargs": {"token": "hf_test_config_token"},
+            "model_card_data": object(),
+            "backend": "onnx",
+        }
+        legacy_kwargs = dict(list(legacy_kwargs.items())[:num_args])
 
+        with caplog.at_level(logging.WARNING):
+            model_name, kwargs = func(None, "my-model", *legacy_kwargs.values())
+
+        expected = legacy_kwargs.copy()
+        if "tokenizer_kwargs" in expected:
+            expected["processor_kwargs"] = expected.pop("tokenizer_kwargs")
         assert model_name == "my-model"
-        assert kwargs["num_labels"] == 2
-        assert kwargs["max_length"] == 512
-        assert isinstance(kwargs["activation_fn"], torch.nn.Sigmoid)
-        assert kwargs["device"] == "cuda"
+        assert kwargs == expected
+        for name in legacy_kwargs:
+            assert f"Passing `{name}` as a positional argument" in caplog.text
+        assert "hf_test_" not in caplog.text
 
     def test_positional_does_not_override_kwarg(self, caplog):
         @cross_encoder_init_args_decorator

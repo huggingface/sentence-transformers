@@ -99,6 +99,13 @@ class AnglELoss(CoSENTLoss):
 
             if labels is None:
                 labels = torch.ones(anchor_embeddings.size(0), device=anchor_embeddings.device)
+            batch_size = anchor_embeddings.shape[0]
+            if labels.numel() != batch_size:
+                raise ValueError(
+                    f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                    f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+                )
+            labels = labels.view(-1)
 
             combined_labels = torch.cat([labels, (1 - labels).repeat(len(embeddings) - 2)], dim=0)
             return super().compute_loss_from_embeddings(combined_embeddings, combined_labels)

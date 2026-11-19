@@ -67,6 +67,7 @@ checkpoints
 tmp
 .DS_Store
 /runs
+/logs/
 /tmp_trainer/
 
 # Keep agents ignored

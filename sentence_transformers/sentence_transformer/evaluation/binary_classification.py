@@ -16,7 +16,6 @@ from sentence_transformers.util import (
     pairwise_euclidean_sim,
     pairwise_manhattan_sim,
 )
-from sentence_transformers.util.similarity import SimilarityFunction
 
 if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
@@ -44,7 +43,8 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         show_progress_bar (bool, optional): If true, prints a progress bar. Defaults to False.
         write_csv (bool, optional): Write results to a CSV file. Defaults to True.
         truncate_dim (Optional[int], optional): The dimension to truncate sentence embeddings to. `None` uses the model's current truncation dimension. Defaults to None.
-        similarity_fn_names (Optional[List[Literal["cosine", "dot", "euclidean", "manhattan"]]], optional): The similarity functions to use. If not specified, defaults to the ``similarity_fn_name`` attribute of the model. Defaults to None.
+        similarity_fn_names (Optional[List[Literal["cosine", "dot", "euclidean", "manhattan"]]], optional): The
+            similarity functions to evaluate. If omitted or empty, use ``model.similarity_fn_name``. Defaults to None.
 
     Example:
         ::
@@ -101,6 +101,12 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         self.truncate_dim = truncate_dim
         self.similarity_fn_names = similarity_fn_names or []
 
+        fn_keys = list(self._get_similarity_functions().keys())
+        if unknown_names := sorted(set(self.similarity_fn_names) - set(fn_keys)):
+            raise ValueError(
+                f"`similarity_fn_names` got unexpected names {unknown_names}, expected names in {fn_keys}."
+            )
+
         assert len(self.sentences1) == len(self.sentences2)
         assert len(self.sentences1) == len(self.labels)
         for label in labels:
@@ -119,6 +125,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         self.csv_headers = ["epoch", "steps"]
 
         self._append_csv_headers(self.similarity_fn_names)
+        self._similarity_fn_names_from_model = not self.similarity_fn_names
 
     def _append_csv_headers(self, similarity_fn_names: list[str]) -> None:
         metrics = [
@@ -175,8 +182,9 @@ class BinaryClassificationEvaluator(BaseEvaluator):
 
         logger.info(f"Binary Accuracy Evaluation of the model on the {self.name} dataset{out_txt}:")
 
-        if not self.similarity_fn_names:
+        if self._similarity_fn_names_from_model and self.similarity_fn_names != [model.similarity_fn_name]:
             self.similarity_fn_names = [model.similarity_fn_name]
+            self.csv_headers = ["epoch", "steps"]
             self._append_csv_headers(self.similarity_fn_names)
         scores = self.compute_metrics(model)
 
@@ -236,29 +244,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
             embeddings1 = [emb_dict[sent] for sent in self.sentences1]
             embeddings2 = [emb_dict[sent] for sent in self.sentences2]
 
-        similarity_fns = {
-            SimilarityFunction.COSINE.value: {
-                "score_fn": lambda x, y: pairwise_cos_sim(x, y),
-                "name": "Cosine-Similarity",
-                "greater_is_better": True,
-            },
-            SimilarityFunction.DOT_PRODUCT.value: {
-                "score_fn": lambda x, y: pairwise_dot_score(x, y),
-                "name": "Dot-Product",
-                "greater_is_better": True,
-            },
-            # pairwise_*_sim returns negative distances, so negate them back into positive distances (#3702)
-            SimilarityFunction.MANHATTAN.value: {
-                "score_fn": lambda x, y: -pairwise_manhattan_sim(x, y),
-                "name": "Manhattan-Distance",
-                "greater_is_better": False,
-            },
-            SimilarityFunction.EUCLIDEAN.value: {
-                "score_fn": lambda x, y: -pairwise_euclidean_sim(x, y),
-                "name": "Euclidean-Distance",
-                "greater_is_better": False,
-            },
-        }
+        similarity_fns = self._get_similarity_functions()
 
         labels = np.asarray(self.labels)
         output_scores = {}
@@ -297,6 +283,31 @@ class BinaryClassificationEvaluator(BaseEvaluator):
 
     # Backwards compatibility alias
     compute_metrices = compute_metrics
+
+    def _get_similarity_functions(self) -> dict:
+        return {
+            "cosine": {
+                "score_fn": pairwise_cos_sim,
+                "name": "Cosine-Similarity",
+                "greater_is_better": True,
+            },
+            "dot": {
+                "score_fn": pairwise_dot_score,
+                "name": "Dot-Product",
+                "greater_is_better": True,
+            },
+            # pairwise_*_sim returns negative distances, so negate them back into positive distances (#3702)
+            "manhattan": {
+                "score_fn": lambda x, y: -pairwise_manhattan_sim(x, y),
+                "name": "Manhattan-Distance",
+                "greater_is_better": False,
+            },
+            "euclidean": {
+                "score_fn": lambda x, y: -pairwise_euclidean_sim(x, y),
+                "name": "Euclidean-Distance",
+                "greater_is_better": False,
+            },
+        }
 
     def embed_inputs(
         self,

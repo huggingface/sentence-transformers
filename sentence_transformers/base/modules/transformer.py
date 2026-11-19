@@ -347,6 +347,11 @@ _FEATURE_EXTRACTION_EDGE_CASES: dict[str, tuple[ModalityConfig, str, bool]] = {
         "token_embeddings",
         False,
     ),
+    "mm-grounding-dino": (
+        {("image", "text"): {"method": "forward", "method_output_name": "last_hidden_state"}},
+        "token_embeddings",
+        False,
+    ),
     "paligemma": (
         {("image", "text"): {"method": "forward", "method_output_name": "last_hidden_state"}},
         "token_embeddings",
@@ -366,8 +371,24 @@ _FEATURE_EXTRACTION_EDGE_CASES: dict[str, tuple[ModalityConfig, str, bool]] = {
         "token_embeddings",
         False,
     ),
+    "got_ocr2": (
+        {
+            "image": {"method": "forward", "method_output_name": "last_hidden_state"},
+        },
+        "token_embeddings",
+        False,
+    ),
     # All modalities via forward
     "idefics": (
+        {
+            "text": {"method": "forward", "method_output_name": "last_hidden_state"},
+            "image": {"method": "forward", "method_output_name": "last_hidden_state"},
+            ("image", "text"): {"method": "forward", "method_output_name": "last_hidden_state"},
+        },
+        "token_embeddings",
+        False,
+    ),
+    "florence2": (
         {
             "text": {"method": "forward", "method_output_name": "last_hidden_state"},
             "image": {"method": "forward", "method_output_name": "last_hidden_state"},
@@ -403,6 +424,13 @@ _FILL_MASK_EDGE_CASES: dict[str, tuple[ModalityConfig, str, bool]] = {
 }
 
 _TEXT_GENERATION_EDGE_CASES = {
+    "got_ocr2": (
+        {
+            "image": {"method": "forward", "method_output_name": "logits"},
+        },
+        "causal_logits",
+        False,
+    ),
     # Models supporting text+image without message format, but no image-only
     "git": (
         {
@@ -423,6 +451,22 @@ _TEXT_GENERATION_EDGE_CASES = {
 }
 
 _ANY_TO_ANY_EDGE_CASES = {
+    "got_ocr2": (
+        {
+            "image": {"method": "forward", "method_output_name": "logits"},
+        },
+        "causal_logits",
+        False,
+    ),
+    "florence2": (
+        {
+            "text": {"method": "forward", "method_output_name": "logits"},
+            "image": {"method": "forward", "method_output_name": "logits"},
+            ("image", "text"): {"method": "forward", "method_output_name": "logits"},
+        },
+        "causal_logits",
+        False,
+    ),
     # Models supporting text+image without message format, but no image-only
     "git": (
         {
@@ -501,6 +545,7 @@ class ProcessingKwargs(TypedDict, total=False):
     Valid keys: ``"common"``, ``"text"``, ``"audio"``, ``"image"``, ``"video"``, ``"chat_template"``.
     Modality and ``"common"`` kwargs override built-in defaults. ``"chat_template"`` kwargs are
     forwarded to ``apply_chat_template``, except the Sentence Transformers ``restore_suffix`` flag.
+    ``text.logits_to_keep`` is passed to the causal model instead (default 1, 0 for all token logits).
     """
 
     common: dict[str, Any]
@@ -598,8 +643,7 @@ def _count_media_per_sample(messages: list[list[dict[str, Any]]]) -> tuple[list[
 
     Some VLM processors flatten per-sample visual tokens into single tensors (e.g.
     ``pixel_values`` shape ``(total_visual_tokens, hidden_dim)``), losing the per-sample
-    association. By counting before the processor call, we get reliable per-sample counts
-    that downstream minibatching can use directly.
+    association. Counting the original messages preserves this association for minibatching.
     """
     num_images: list[int] = []
     num_videos: list[int] = []
@@ -705,6 +749,7 @@ class Transformer(InputModule):
             (``"text"``, ``"audio"``, ``"image"``, ``"video"``), ``"common"`` for kwargs shared across all
             modalities, or ``"chat_template"`` for kwargs forwarded to ``apply_chat_template`` (e.g.
             ``{"add_generation_prompt": True}``). Modality and common kwargs override the built-in defaults.
+            ``text.logits_to_keep`` is passed to the causal model instead (default 1, 0 for all token logits).
             The ``"chat_template"`` dict also accepts ``"restore_suffix"`` (default ``True``), a Sentence
             Transformers flag: fixed tokens a chat template appends after the content (e.g. an assistant
             prefill) are restored when truncation drops them, so models that read the final token position
@@ -826,7 +871,6 @@ class Transformer(InputModule):
             )
         self.backend = backend
         self.do_lower_case = do_lower_case
-        self.track_media_counts = False
         self._prompt_length_mapping = {}
         self._method_signature_cache: dict[str, set[str]] = {}
         self._chat_template_suffix_cache: dict[Any, list[int]] = {}
@@ -1263,7 +1307,7 @@ class Transformer(InputModule):
             "image": {},
             "video": {},
         }
-        if self.config.model_type == "whisper":
+        if self.config.model_type in {"whisper", "audioflamingo3"}:
             # Whisper requires inputs to be exactly 30 seconds long. WhisperFeatureExtractor pads
             # to that length by default, but ST's general "audio" modality kwargs above set
             # padding=True ("longest") which would override that default. Restore "max_length".
@@ -1305,6 +1349,7 @@ class Transformer(InputModule):
         for modality_key in modality_kwargs:
             if overrides := effective_processing_kwargs.get(modality_key):  # type: ignore[arg-type]
                 modality_kwargs[modality_key].update(overrides)
+        logits_to_keep = modality_kwargs["text"].pop("logits_to_keep", 1)
 
         # strategy='fixed': pad to the expansion length so the post-tokenization swap below has
         # pad positions to replace. Applied after the merge so processing_kwargs can't break the
@@ -1393,15 +1438,6 @@ class Transformer(InputModule):
             processor_inputs["text"] = self.input_formatter.prepend_prompt_to_texts(processor_inputs["text"], prompt)
             prompt_length = self._get_prompt_length(prompt, **kwargs)
 
-        # Track per-sample image/video counts before the processor flattens them into single tensors.
-        # Losses that minibatch VLM inputs (e.g. CachedMNRL) use these counts to slice visual tensors.
-        # Only used if the Trainer updated track_media_counts to True. Not gated on self.training:
-        # trainer.evaluate() computes the eval loss under model.eval() and needs the counts too.
-        num_images_per_sample = None
-        num_videos_per_sample = None
-        if self.track_media_counts and modality == "message":
-            num_images_per_sample, num_videos_per_sample = _count_media_per_sample(processor_inputs["message"])
-
         with suggest_extra_on_exception():
             processor_output = self._call_processor(
                 modality,
@@ -1410,11 +1446,14 @@ class Transformer(InputModule):
                 common_kwargs,
                 chat_template_kwargs=chat_template_kwargs,
             )
+        processor_output.pop("labels", None)  # ST uses its own losses without these labels
 
-        if num_images_per_sample is not None and "image_grid_thw" in processor_output:
-            processor_output["num_images_per_sample"] = torch.tensor(num_images_per_sample, dtype=torch.long)
-        if num_videos_per_sample is not None and "video_grid_thw" in processor_output:
-            processor_output["num_videos_per_sample"] = torch.tensor(num_videos_per_sample, dtype=torch.long)
+        if modality == "message" and ("pixel_values" in processor_output or "video_grid_thw" in processor_output):
+            num_images, num_videos = _count_media_per_sample(processor_inputs["message"])
+            if "pixel_values" in processor_output:
+                processor_output["num_images_per_sample"] = torch.tensor(num_images, dtype=torch.long)
+            if "video_grid_thw" in processor_output:
+                processor_output["num_videos_per_sample"] = torch.tensor(num_videos, dtype=torch.long)
 
         if should_flatten:
             # DataCollatorWithFlattening expects list[dict], but the processor returns dict[str, list].
@@ -1429,8 +1468,10 @@ class Transformer(InputModule):
             processor_output["prompt_length"] = prompt_length
 
         if self.transformer_task in ("text-generation", "any-to-any"):
+            if isinstance(logits_to_keep, bool) or not isinstance(logits_to_keep, int) or logits_to_keep < 0:
+                raise ValueError("logits_to_keep must be a non-negative integer")
             self._verify_left_padding(processor_output, modality_kwargs, common_kwargs)
-            processor_output["logits_to_keep"] = 1
+            processor_output["logits_to_keep"] = logits_to_keep
 
         # ColBERT-style query expansion: swap pad positions within the width floor for the expansion
         # token id, and mark them via ``query_expansion_positions`` so downstream modules score them.
@@ -1706,7 +1747,8 @@ class Transformer(InputModule):
             # after a projection layer
             if hasattr(config, "projection_dim") and self.module_output_name == "sentence_embedding":
                 return config.projection_dim
-
+            if (dim := getattr(config, "word_embed_proj_dim", None)) is not None:
+                return dim
             if hasattr(config, "hidden_size"):
                 return config.hidden_size
             for attr_name in ("neck_hidden_sizes", "hidden_sizes", "embed_dims"):
@@ -2320,6 +2362,8 @@ class Transformer(InputModule):
         Args:
             model_name_or_path (str): The model name on Hugging Face (e.g. 'sentence-transformers/all-MiniLM-L6-v2')
                 or the path to a local model directory.
+            transformer_task (TransformerTask): The task the Transformer is used for, which determines the
+                auto model class used to load the model, e.g. ``"feature-extraction"``.
             config (PretrainedConfig): The model configuration.
             backend (str): The backend used for model inference. Can be `torch`, `onnx`, or `openvino`.
             is_peft_model (bool): Whether the model is a PEFT model.

@@ -16,18 +16,21 @@ except ImportError:
     MODEL_KEYS = list(CONFIG_MAPPING_NAMES.keys())
 
 
-def find_model_for_architecture(architecture):
+def find_model_for_architecture(architecture, authors=None):
     """
-    Find a model from hf-internal-testing or tiny-random for the given architecture.
-    If multiple models exist, prefer the one ending with 'Model'.
+    Find a tiny model for the given architecture, preferring huggingface-mic by default.
+    If multiple models exist for an author, prefer the one ending with 'Model'.
     """
-    for author in [
-        "tiny-random",
-        "hf-internal-testing",
-        "hf-tiny-model-private",
-        "peft-internal-testing",
-        "onnx-internal-testing",
-    ]:
+    if authors is None:
+        authors = [
+            "huggingface-mic",
+            "tiny-random",
+            "hf-internal-testing",
+            "hf-tiny-model-private",
+            "peft-internal-testing",
+            "onnx-internal-testing",
+        ]
+    for author in authors:
         # Search for models from the author with the architecture tag
         models = list(list_models(filter=architecture, author=author, limit=100))
 
@@ -43,7 +46,7 @@ def find_model_for_architecture(architecture):
                 architecture.lower().replace("_", "").replace("-", "")
                 in model_id.lower().replace("_", "").replace("-", "")
                 and "tiny-random" in model_id.lower()
-            ):
+            ) or author == "huggingface-mic":
                 matching_models.append(model_id)
 
         if not matching_models:
@@ -62,25 +65,27 @@ def find_model_for_architecture(architecture):
 
 
 def update_tiny_model_mapping(tiny_model_mapping):
-    """Update the tiny model mapping using the Hugging Face Hub API"""
+    """Prefer MIC models while retaining existing entries when no MIC is available."""
     updated_mapping = {}
     total = len(tiny_model_mapping)
 
     for idx, (architecture, current_value) in enumerate(tiny_model_mapping.items(), 1):
         print(f"[{idx}/{total}] Processing {architecture}...", end=" ")
 
-        # Skip if we already have a value
-        if current_value is not None:
+        if current_value is not None and current_value.startswith("huggingface-mic/"):
             updated_mapping[architecture] = current_value
-            print(f"Skipped (already has value): {current_value}")
+            print(f"Skipped (already has MIC model): {current_value}")
             continue
 
-        # Try to find a model for this architecture
-        found_model = find_model_for_architecture(architecture)
+        authors = ["huggingface-mic"] if current_value is not None else None
+        found_model = find_model_for_architecture(architecture, authors=authors)
 
         if found_model:
             updated_mapping[architecture] = found_model
             print(f"Found: {found_model}")
+        elif current_value is not None:
+            updated_mapping[architecture] = current_value
+            print(f"Kept (no MIC model found): {current_value}")
         else:
             updated_mapping[architecture] = None
             print("Not found")

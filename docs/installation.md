@@ -16,6 +16,8 @@ We recommend **Python 3.10+**, **[PyTorch 2.2+](https://pytorch.org/get-started/
 | Note that you can mix and match the various extras, e.g. ``pip install -U "sentence-transformers[train,image,video,onnx-gpu]"``.
 ```
 
+After installation, we recommend [logging in to Hugging Face](#log-in-to-hugging-face) for higher Hugging Face Hub rate limits and access to private or gated models and datasets your account can read.
+
 ## Install with uv
 
 ```{eval-rst}
@@ -299,6 +301,32 @@ You can install `sentence-transformers` directly from source to take advantage o
         pip install -U "sentence-transformers[dev] @ git+https://github.com/huggingface/sentence-transformers.git"
 
 ```
+
+## Log in to Hugging Face
+
+We recommend logging in to Hugging Face before downloading models or datasets. Logging in provides [higher Hugging Face Hub rate limits](https://huggingface.co/docs/hub/rate-limits), even with a free account, and lets you download private or gated models and datasets your account can read. Public, ungated models can still be downloaded without logging in.
+
+Run the following command in your terminal and follow the prompts. The `hf` command is included with `huggingface_hub`, a dependency of Sentence Transformers:
+
+```bash
+hf auth login
+```
+
+Alternatively, log in from Python or a notebook:
+
+```python
+from huggingface_hub import login
+
+login()
+```
+
+Sentence Transformers uses your saved credentials automatically by default, so you can continue loading models with the same code. To check your login, run `hf auth whoami`.
+
+For servers, containers, or CI, provide a Hugging Face access token through the [`HF_TOKEN` environment variable](https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables#hf_token) before starting Python. This takes precedence over a saved token.
+
+A token with read access is sufficient for downloading models and datasets. Uploading models requires write access to the destination repository. Create tokens in your [Hugging Face settings](https://huggingface.co/settings/tokens) and see [token permissions](https://huggingface.co/docs/hub/security-tokens) for details. For gated models, your account must also have been granted access to the model.
+
+For more details, see the [Hugging Face authentication guide](https://huggingface.co/docs/huggingface_hub/quick-start#authentication).
 
 ## Editable Install
 

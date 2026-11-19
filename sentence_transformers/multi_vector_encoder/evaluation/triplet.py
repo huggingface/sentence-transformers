@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from torch import Tensor
 
+from sentence_transformers.multi_vector_encoder.evaluation.utils import pooling_config
+from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.sentence_transformer.evaluation.triplet import TripletEvaluator
 from sentence_transformers.util.similarity import SimilarityFunction
 
@@ -22,8 +24,9 @@ class MultiVectorTripletEvaluator(TripletEvaluator):
     Given ``(anchor, positive, negative)`` triplets, checks how often
     ``MaxSim(anchor, positive) > MaxSim(anchor, negative) + margin``. The anchors are encoded via
     :meth:`encode_query` (with the query prefix and length). Positives and negatives are encoded via
-    :meth:`encode_document`. ``truncate_dim`` is not supported (multi-vector token embeddings have no
-    Matryoshka-style truncation) and raises a ValueError.
+    :meth:`encode_document`. ``truncate_dim`` truncates and L2-normalizes token embeddings, while
+    ``token_pooling`` applies pooling according to the pooler's ``tasks``. When None, both use the
+    model's encoding defaults.
 
     A ``margin`` dictionary must be keyed by a supported similarity, ``maxsim`` or ``meanmaxsim`` (a
     float applies to both). The two need different margins: MaxSim sums a per-token maximum over the
@@ -53,13 +56,8 @@ class MultiVectorTripletEvaluator(TripletEvaluator):
             print(results[evaluator.primary_metric])
     """
 
-    def __init__(self, *args, **kwargs) -> None:
-        if kwargs.get("truncate_dim") is not None:
-            raise ValueError(
-                "truncate_dim is not supported by MultiVectorEncoder evaluators: multi-vector token "
-                "embeddings have no Matryoshka-style truncation. Remove truncate_dim to evaluate at "
-                "the full dimension."
-            )
+    def __init__(self, *args, token_pooling: BaseTokenPooling | None = None, **kwargs) -> None:
+        self.token_pooling = token_pooling
         super().__init__(*args, **kwargs)
 
     def _get_similarity_functions(self) -> dict:
@@ -79,15 +77,24 @@ class MultiVectorTripletEvaluator(TripletEvaluator):
         encode_fn_name: str | None = None,
         **kwargs,
     ) -> list[Tensor]:
+        kwargs.setdefault("truncate_dim", self.truncate_dim)
         if encode_fn_name == "query":
             encode_fn = model.encode_query
         elif encode_fn_name == "document":
             encode_fn = model.encode_document
         else:
             encode_fn = model.encode
-        return encode_fn(
+        embeddings = encode_fn(
             sentences,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
+            token_pooling=self.token_pooling,
             **kwargs,
         )
+        return embeddings
+
+    def get_config_dict(self) -> dict[str, Any]:
+        config_dict = super().get_config_dict()
+        if self.token_pooling is not None:
+            config_dict["token_pooling"] = pooling_config(self.token_pooling)
+        return config_dict

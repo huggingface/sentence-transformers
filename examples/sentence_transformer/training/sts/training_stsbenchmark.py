@@ -1,3 +1,8 @@
+# /// script
+# dependencies = [
+#     "sentence-transformers[train]",
+# ]
+# ///
 """
 This examples trains BERT (or any other transformer model like RoBERTa, DistilBERT etc.) for the STSbenchmark from scratch. It generates sentence embeddings
 that can be compared using cosine-similarity to measure the similarity.

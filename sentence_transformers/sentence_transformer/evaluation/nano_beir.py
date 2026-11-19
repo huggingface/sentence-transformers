@@ -85,8 +85,11 @@ class NanoBEIREvaluator(BaseEvaluator):
         batch_size (int): The batch size for evaluation. Defaults to 32.
         write_csv (bool): Whether to write the evaluation results to a CSV file. Defaults to True.
         truncate_dim (int, optional): The dimension to truncate the embeddings to. Defaults to None.
-        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to the ``similarity`` function of the model passed to each call, so a reused evaluator follows every model's own similarity.
-        main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation. Defaults to None.
+        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions.
+            If omitted, uses ``main_score_function`` when set, otherwise the model's ``similarity`` function on each call.
+        main_score_function (Union[str, SimilarityFunction], optional): The score function to use for the primary
+            metric. If set and ``score_functions`` is provided, must be one of its keys. Defaults to None (select the
+            highest NDCG among the evaluated score functions).
         aggregate_fn (Callable[[list[float]], float]): The function to aggregate the scores. Defaults to np.mean.
         aggregate_key (str): The key to use for the aggregated score. Defaults to "mean".
         query_prompts (str | dict[str, str], optional): The prompts to add to the queries. If a string, will add the same prompt to all queries. If a dict, expects that all datasets in dataset_names are keys.
@@ -247,7 +250,7 @@ class NanoBEIREvaluator(BaseEvaluator):
         self.score_functions = score_functions
         self.score_function_names = sorted(list(self.score_functions.keys())) if score_functions else []
         self._score_functions_from_model = score_functions is None
-        self.main_score_function = main_score_function
+        self.main_score_function = SimilarityFunction(main_score_function) if main_score_function else None
         self.truncate_dim = truncate_dim
         self.name = f"NanoBEIR_{aggregate_key}"
         if self.truncate_dim:
@@ -338,13 +341,12 @@ class NanoBEIREvaluator(BaseEvaluator):
                 self._append_csv_headers(self.score_function_names)
                 self.primary_metric = None
 
-        num_underscores_in_name = self.name.count("_")
         for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
             logger.info(f"Evaluating {evaluator.name}")
             evaluation = evaluator(model, output_path, epoch, steps)
             for full_key, metric_value in evaluation.items():
-                splits = full_key.split("_", maxsplit=num_underscores_in_name)
-                metric = splits[-1]
+                # The dataset evaluator prefixes its metrics with its own name
+                metric = full_key.removeprefix(f"{evaluator.name}_")
                 if metric not in per_metric_results:
                     per_metric_results[metric] = []
                 per_dataset_results[full_key] = metric_value

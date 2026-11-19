@@ -18,7 +18,7 @@ Let's look at the performance that we may be able to expect from an Adaptive Lay
 - [tomaarsen/mpnet-base-nli-adaptive-layer](https://huggingface.co/tomaarsen/mpnet-base-nli-adaptive-layer): Trained by running [adaptive_layer_nli.py](adaptive_layer_nli.py) with [microsoft/mpnet-base](https://huggingface.co/microsoft/mpnet-base).
 - [tomaarsen/mpnet-base-nli](https://huggingface.co/tomaarsen/mpnet-base-nli): A near identical model as the former, but using only `MultipleNegativesRankingLoss` rather than `AdaptiveLayerLoss` on top of `MultipleNegativesRankingLoss`. I also use [microsoft/mpnet-base](https://huggingface.co/microsoft/mpnet-base) as the base model.
 
-Both of these models were trained on the AllNLI dataset, which is a concatenation of the [SNLI](https://huggingface.co/datasets/snli) and [MultiNLI](https://huggingface.co/datasets/multi_nli) datasets. I have evaluated these models on the [STSBenchmark](https://huggingface.co/datasets/mteb/stsbenchmark-sts) test set using multiple different embedding dimensions. The results are plotted in the following figure:
+Both of these models were trained on the AllNLI dataset, which is a concatenation of the [SNLI](https://huggingface.co/datasets/stanfordnlp/snli) and [MultiNLI](https://huggingface.co/datasets/nyu-mll/multi_nli) datasets. I have evaluated these models on the [STSBenchmark](https://huggingface.co/datasets/mteb/stsbenchmark-sts) test set using multiple different embedding dimensions. The results are plotted in the following figure:
 
 ![adaptive_layer_results](https://huggingface.co/tomaarsen/mpnet-base-nli-adaptive-layer/resolve/main/adaptive_layer_results.png)
 
@@ -125,7 +125,7 @@ new_num_layers = 3
 model.transformers_model.encoder.layer = model.transformers_model.encoder.layer[:new_num_layers]
 ```
 
-Then we can run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/SentenceTransformer.html#sentence_transformers.sentence_transformer.model.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
+Then we can run inference with it using <a href="../../../../docs/package_reference/sentence_transformer/model.html#sentence_transformers.sentence_transformer.model.SentenceTransformer.encode"><code>SentenceTransformers.encode</code></a>.
 
 ```python
 from sentence_transformers import SentenceTransformer
@@ -148,6 +148,33 @@ similarities = model.similarity(embeddings[0], embeddings[1:])
 ```
 
 As you can see, the similarity between the related sentences is much higher than the unrelated sentence, despite only using 3 layers. Feel free to copy this script locally, modify the `new_num_layers`, and observe the difference in similarities.
+
+## Evaluation during training
+
+To evaluate with fewer layers during training, temporarily remove the later layers and restore them afterwards. The subclass below uses the MPNet layer path from [Inference](#inference). You'll have to adapt this path for other architectures.
+
+```python
+from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+
+
+class MPNetLayerEvaluator(EmbeddingSimilarityEvaluator):
+    def __init__(self, *args, num_layers: int, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.num_layers = num_layers
+
+    def __call__(self, model, *args, **kwargs):
+        encoder = model.transformers_model.encoder
+        all_layers = encoder.layer
+        encoder.layer = all_layers[: self.num_layers]
+        try:
+            return super().__call__(model, *args, **kwargs)
+        finally:
+            encoder.layer = all_layers
+```
+
+Create it like the `dev_evaluator` in [adaptive_layer_sts.py](adaptive_layer_sts.py), adding `num_layers`, and pass it to the trainer. To evaluate several layer counts, combine evaluators with distinct names in a [SequentialEvaluator](../../../../docs/package_reference/base/evaluation.rst).
+
+Use this subclass only for single-process training. With [DDP](../../../../docs/sentence_transformer/training/distributed.rst), only process zero truncates the model, so evaluation would mix embeddings from different layer counts.
 
 ## Code Examples
 

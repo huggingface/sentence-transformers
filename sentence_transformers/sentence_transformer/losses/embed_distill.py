@@ -160,7 +160,8 @@ class EmbedDistillLoss(nn.Module):
         self.projection_dim = projection_dim
         self.projection: nn.Linear | None = None
         if projection_dim is not None:
-            student_dim = model.get_embedding_dimension()
+            get_embedding_dim = getattr(model, "_get_untruncated_embedding_dimension", model.get_embedding_dimension)
+            student_dim = get_embedding_dim()
             self.projection = nn.Linear(student_dim, projection_dim, device=model.device)
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None) -> Tensor:
@@ -209,10 +210,11 @@ class EmbedDistillLoss(nn.Module):
         """
         losses = []
         for student_emb, teacher_emb in zip(embeddings, teacher_embeddings):
-            teacher_emb = teacher_emb.to(device=student_emb.device, dtype=student_emb.dtype)
+            dtype = self.projection.weight.dtype if self.projection is not None else student_emb.dtype
+            teacher_emb = teacher_emb.to(device=student_emb.device, dtype=dtype)
 
             if self.projection is not None:
-                student_emb = self.projection(student_emb)
+                student_emb = self.projection(student_emb.to(dtype))
 
             if self.distance_metric == "mse":
                 loss = nn.functional.mse_loss(student_emb, teacher_emb)
@@ -265,7 +267,10 @@ class EmbedDistillLoss(nn.Module):
         out_features, in_features = state_dict["weight"].shape
 
         if self.projection is None:
-            student_dim = self.model.get_embedding_dimension()
+            get_embedding_dim = getattr(
+                self.model, "_get_untruncated_embedding_dimension", self.model.get_embedding_dimension
+            )
+            student_dim = get_embedding_dim()
             if in_features != student_dim:
                 raise ValueError(
                     f"Saved projection expects student embeddings of dim {in_features}, "

@@ -9,6 +9,7 @@ For the documentation how to train your own models, see [Training Overview](../.
 ## Training Examples
 
 - [distillation](distillation/) - Examples to make models smaller, faster and lighter.
+- [merging](merging/README.md) - Combine compatible rerankers, including their classification heads.
 - [ms_marco](ms_marco/) - Numerous example training scripts for training on the MS MARCO information retrieval dataset.
 - [nli](nli/) - Natural Language Inference (NLI) data involves pair classification using the "contradiction", "entailment", and "neutral" classes.
 - [quora_duplicate_questions](quora_duplicate_questions/) - Quora Duplicate Questions is large set corpus with duplicate questions from the Quora community. The folder contains examples how to train models for duplicate questions mining and for semantic search.

@@ -6,7 +6,7 @@ import pytest
 import torch
 
 import sentence_transformers.sentence_transformer.losses.gist_embed as ge
-from sentence_transformers.sentence_transformer.losses import GISTEmbedLoss
+from sentence_transformers.sentence_transformer.losses import CachedGISTEmbedLoss, GISTEmbedLoss
 
 
 def _make_loss(margin: float) -> GISTEmbedLoss:
@@ -168,3 +168,15 @@ def test_relative_margin_negative_positive_score_suppresses_closer_negative():
     assert scores[0, 1].item() == float("-inf"), f"closer negative must be masked, got {scores[0, 1].item()}"
     # the true positive (CE target) must survive masking, and the loss stays finite.
     assert torch.isfinite(scores[0, 0]) and torch.isfinite(loss)
+
+
+@pytest.mark.parametrize("loss_class", [GISTEmbedLoss, CachedGISTEmbedLoss])
+def test_self_pairs_are_excluded_when_guide_scores_tie(loss_class, stsb_bert_tiny_model) -> None:
+    model = stsb_bert_tiny_model.to("cpu").eval()
+    loss_fn = loss_class(model, guide=model)
+    features = [model.preprocess(["A man is playing a guitar."]) for _ in range(2)]
+
+    loss = loss_fn(features, labels=None)
+    loss.backward()
+
+    assert loss.item() == 0.0

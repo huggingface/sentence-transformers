@@ -8,18 +8,20 @@ Masked Language Model (MLM) is the process how BERT was pre-trained. It has been
 
 ## Running MLM
 
-The **[train_mlm.py](train_mlm.py)** script provides an easy option to run MLM on your data. You run this script by:
+The **[train_mlm.py](train_mlm.py)** script fine-tunes `answerdotai/ModernBERT-base` on the [Wikipedia sentences dataset](https://huggingface.co/datasets/sentence-transformers/wiki1m-for-simcse). Run it with:
 
 ```bash
-python train_mlm.py distilbert-base path/train.txt
+python train_mlm.py
 ```
 
-You can also provide an optional dev dataset:
+The script filters out texts shorter than 10 characters, tokenizes in batches with `Dataset.map`, and reserves 1% of the data for validation using a fixed seed. The fine-tuned model and tokenizer are saved under `output/`.
 
-```bash
-python train_mlm.py distilbert-base path/train.txt path/dev.txt
+Change `model_name` and the `load_dataset` call in the script to use your own model and dataset. The dataset should have a `text` column. To load a local text file with one sentence or paragraph per line, replace the dataset-loading line with:
+
+```python
+dataset = load_dataset("text", data_files="path/train.txt", split="train")
 ```
 
-Each line in train.txt / dev.txt is interpreted as one input for the transformer network, i.e. as one sentence or paragraph.
+The collator dynamically pads each batch and selects tokens as prediction targets according to `mlm_prob`. Of those selected tokens, 80% are replaced with `[MASK]`, 10% with a random token, and 10% are left unchanged.
 
-For more information how to run MLM with huggingface transformers, see the [Language model training examples](https://github.com/huggingface/transformers/tree/main/examples/pytorch/language-modeling).
+For more information on running MLM with Hugging Face Transformers, see the [masked language modeling guide](https://huggingface.co/docs/transformers/tasks/masked_language_modeling).

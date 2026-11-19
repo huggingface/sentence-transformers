@@ -163,7 +163,7 @@ class ContrastiveTensionLoss(nn.Module):
             else:
                 labels = (input_ids1 == input_ids2).all(dim=1).float()
 
-        loss = self.criterion(sim_scores, labels.type_as(sim_scores))
+        loss = self.criterion(sim_scores, labels.view(-1).type_as(sim_scores))
         return loss
 
     def get_config_dict(self) -> dict[str, Any]:
@@ -259,8 +259,8 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         sentence_features = sentence_features[0]
-        embeddings_a = self.model1(sentence_features)["sentence_embedding"]  # (bsz, hdim)
-        embeddings_b = self.model2(sentence_features)["sentence_embedding"]
+        embeddings_a = self.model1(dict(sentence_features))["sentence_embedding"]  # (bsz, hdim)
+        embeddings_b = self.model2(dict(sentence_features))["sentence_embedding"]
 
         scores = self.similarity_fct(embeddings_a, embeddings_b) * self.logit_scale.exp()  # self.scale
         labels = torch.arange(len(scores), dtype=torch.long, device=scores.device)

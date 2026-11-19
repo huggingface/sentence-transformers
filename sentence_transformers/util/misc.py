@@ -9,12 +9,25 @@ import warnings
 from collections.abc import Callable
 from contextlib import contextmanager
 from inspect import isclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 if TYPE_CHECKING:
     from torch import Tensor
 
 logger = logging.getLogger(__name__)
+
+
+def _to_list(values: Any) -> list[Any]:
+    """Convert an iterable to a list, materializing dataset columns in one batch."""
+    if isinstance(values, np.ndarray):
+        return values.tolist()
+    try:
+        from datasets import Column
+    except ImportError:
+        return list(values)
+    return list(values[:] if isinstance(values, Column) else values)
 
 
 def fullname(obj) -> str:

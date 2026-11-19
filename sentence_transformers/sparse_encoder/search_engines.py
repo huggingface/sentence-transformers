@@ -3,10 +3,13 @@ from __future__ import annotations
 import logging
 import time
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import numpy as np
 import torch
 from tqdm import tqdm
+
+from sentence_transformers.util.tensor import _tensor_to_numpy
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,7 @@ def semantic_search_qdrant(
             If provided, uses this existing index for search
         top_k: Number of top results to retrieve
         output_index: Whether to return the Qdrant client and collection name
+        **kwargs: Additional keyword arguments passed to ``QdrantClient`` when creating a new client.
 
     Returns:
         A tuple containing:
@@ -81,8 +85,10 @@ def semantic_search_qdrant(
             raise ValueError("Corpus embeddings must be a sparse COO tensor")
 
         # Create new Qdrant client and collection
-        client = QdrantClient(url="http://localhost:6333", **kwargs)
-        collection_name = f"sparse_collection_{int(time.time())}"
+        if {"url", "host", "location", "path"}.isdisjoint(kwargs):
+            kwargs["url"] = "http://localhost:6333"
+        client = QdrantClient(**kwargs)
+        collection_name = f"sparse_collection_{uuid4().hex}"
 
         client.create_collection(
             collection_name=f"{collection_name}",
@@ -92,7 +98,7 @@ def semantic_search_qdrant(
 
         corpus = corpus_embeddings.coalesce()
         indices_arr = corpus.indices().cpu().numpy()
-        values_arr = corpus.values().cpu().numpy()
+        values_arr = _tensor_to_numpy(corpus.values())
         num_vectors = corpus_embeddings.size(0)
         batch_size = 10000
         vectors_batch = []
@@ -118,6 +124,7 @@ def semantic_search_qdrant(
                     collection_name=collection_name,
                     vectors=vectors_batch,
                     ids=range(insert_idx, insert_idx + len(vectors_batch)),
+                    wait=True,
                 )
                 insert_idx += len(vectors_batch)
                 vectors_batch = []
@@ -134,7 +141,7 @@ def semantic_search_qdrant(
     # Process each query
     query_embeddings = query_embeddings.coalesce()
     query_indices = query_embeddings.indices().cpu().numpy()
-    query_values = query_embeddings.values().cpu().numpy()
+    query_values = _tensor_to_numpy(query_embeddings.values())
     for q_idx in range(query_embeddings.size(0)):
         # Extract query vector
         mask = query_indices[0] == q_idx
@@ -190,6 +197,7 @@ def semantic_search_elasticsearch(
             If provided, uses this existing index for search
         top_k: Number of top results to retrieve
         output_index: Whether to return the Elasticsearch client and collection name
+        **kwargs: Additional keyword arguments passed to ``Elasticsearch`` when creating a new client.
 
     Returns:
         A tuple containing:
@@ -221,11 +229,10 @@ def semantic_search_elasticsearch(
         ):
             raise ValueError("Corpus embeddings must be a list of lists in the format [[('token', value), ...], ...]")
 
-        es = Elasticsearch("http://localhost:9200", **kwargs)
-        index_name = f"sparse_index_{int(time.time())}"
-
-        if es.indices.exists(index=index_name):
-            es.indices.delete(index=index_name)
+        if kwargs.get("cloud_id") is None:
+            kwargs.setdefault("hosts", "http://localhost:9200")
+        es = Elasticsearch(**kwargs)
+        index_name = f"sparse_index_{uuid4().hex}"
 
         es.indices.create(
             index=index_name,
@@ -457,7 +464,7 @@ def semantic_search_opensearch(
             If provided, uses this existing index for search
         top_k: Number of top results to retrieve
         output_index: Whether to return the OpenSearch client and collection name
-        vocab: The dict to transform tokens into token ids
+        **kwargs: Additional keyword arguments passed to ``OpenSearch`` when creating a new client.
 
     Returns:
         A tuple containing:
@@ -489,11 +496,9 @@ def semantic_search_opensearch(
         ):
             raise ValueError("Corpus embeddings must be a list of lists in the format [[('token', value), ...], ...]")
 
-        os_client = OpenSearch("http://localhost:9200", **kwargs)
-        index_name = f"sparse_index_{int(time.time())}"
-
-        if os_client.indices.exists(index=index_name):
-            os_client.indices.delete(index=index_name)
+        kwargs.setdefault("hosts", "http://localhost:9200")
+        os_client = OpenSearch(**kwargs)
+        index_name = f"sparse_index_{uuid4().hex}"
 
         os_client.indices.create(
             index=index_name,

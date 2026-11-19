@@ -36,10 +36,11 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
         sentences2 (List[str]): List with the second sentence in a pair.
         scores (List[float]): Similarity score between sentences1[i] and sentences2[i].
         batch_size (int, optional): The batch size for processing the sentences. Defaults to 16.
-        main_similarity (Optional[Union[str, SimilarityFunction]], optional): The main similarity function to use.
-            Can be a string (e.g. "cosine", "dot") or a SimilarityFunction object. Defaults to None.
-        similarity_fn_names (List[str], optional): List of similarity function names to use. If None, the
-            ``similarity_fn_name`` attribute of the model is used. Defaults to None.
+        main_similarity (Optional[Union[str, SimilarityFunction]], optional): The similarity function to use for the
+            primary metric. Always evaluated when set, even if omitted from ``similarity_fn_names``. Defaults to None
+            (select the highest Spearman correlation among the evaluated similarities).
+        similarity_fn_names (List[str], optional): List of similarity function names to evaluate. If omitted or empty,
+            use ``main_similarity`` when set, otherwise ``model.similarity_fn_name``. Defaults to None.
         name (str, optional): The name of the evaluator. Defaults to "".
         show_progress_bar (bool, optional): Whether to show a progress bar during evaluation. Defaults to False.
         write_csv (bool, optional): Whether to write the evaluation results to a CSV file. Defaults to True.
@@ -106,8 +107,14 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
 
         self.main_similarity = SimilarityFunction(main_similarity) if main_similarity else None
         self.similarity_fn_names = similarity_fn_names or []
-        if self.similarity_fn_names == [] and self.main_similarity is not None:
-            self.similarity_fn_names = [self.main_similarity.value]
+        if self.main_similarity is not None and self.main_similarity.value not in self.similarity_fn_names:
+            self.similarity_fn_names = [*self.similarity_fn_names, self.main_similarity.value]
+
+        fn_keys = list(self._get_similarity_functions().keys())
+        if unknown_names := sorted(set(self.similarity_fn_names) - set(fn_keys)):
+            raise ValueError(
+                f"`similarity_fn_names` got unexpected names {unknown_names}, expected names in {fn_keys}."
+            )
 
         self.name = name
 
@@ -130,6 +137,7 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
         ]
 
         self._append_csv_headers(self.similarity_fn_names)
+        self._similarity_fn_names_from_model = not self.similarity_fn_names
 
     def _append_csv_headers(self, similarity_fn_names: list[str]) -> None:
         metrics = ["pearson", "spearman"]
@@ -165,8 +173,14 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
 
         logger.info(f"EmbeddingSimilarityEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
-        embeddings1 = self.embed_inputs(model, self.sentences1)
-        embeddings2 = self.embed_inputs(model, self.sentences2)
+        if self.precision in ("int8", "uint8"):
+            # Calibrate both sides together so the same sentence has the same quantized embedding.
+            embeddings = self.embed_inputs(model, [*self.sentences1, *self.sentences2])
+            embeddings1 = embeddings[: len(self.sentences1)]
+            embeddings2 = embeddings[len(self.sentences1) :]
+        else:
+            embeddings1 = self.embed_inputs(model, self.sentences1)
+            embeddings2 = self.embed_inputs(model, self.sentences2)
         # Binary and ubinary embeddings are packed, so we need to unpack them for the distance metrics
         if self.precision == "binary":
             # Widen first, as numpy refuses to add 128 to an int8 array (128 doesn't fit in int8)
@@ -182,28 +196,23 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
 
         labels = self.scores
 
-        if not self.similarity_fn_names:
+        if self._similarity_fn_names_from_model and self.similarity_fn_names != [model.similarity_fn_name]:
             self.similarity_fn_names = [model.similarity_fn_name]
+            self.csv_headers = ["epoch", "steps"]
             self._append_csv_headers(self.similarity_fn_names)
 
-        similarity_functions = {
-            "cosine": lambda x, y: pairwise_cos_sim(x, y),
-            "manhattan": lambda x, y: pairwise_manhattan_sim(x, y),
-            "euclidean": lambda x, y: pairwise_euclidean_sim(x, y),
-            "dot": lambda x, y: pairwise_dot_score(x, y),
-        }
+        similarity_functions = self._get_similarity_functions()
 
         metrics = {}
         for fn_name in self.similarity_fn_names:
-            if fn_name in similarity_functions:
-                scores = similarity_functions[fn_name](embeddings1, embeddings2).detach().cpu().numpy()
-                eval_pearson, _ = pearsonr(labels, scores)
-                eval_spearman, _ = spearmanr(labels, scores)
-                metrics[f"pearson_{fn_name}"] = eval_pearson
-                metrics[f"spearman_{fn_name}"] = eval_spearman
-                logger.info(
-                    f"{fn_name.capitalize()}-Similarity:\tPearson: {eval_pearson:.4f}\tSpearman: {eval_spearman:.4f}"
-                )
+            scores = similarity_functions[fn_name](embeddings1, embeddings2).detach().cpu().numpy()
+            eval_pearson, _ = pearsonr(labels, scores)
+            eval_spearman, _ = spearmanr(labels, scores)
+            metrics[f"pearson_{fn_name}"] = eval_pearson
+            metrics[f"spearman_{fn_name}"] = eval_spearman
+            logger.info(
+                f"{fn_name.capitalize()}-Similarity:\tPearson: {eval_pearson:.4f}\tSpearman: {eval_spearman:.4f}"
+            )
 
         if output_path is not None and self.write_csv:
             os.makedirs(output_path, exist_ok=True)
@@ -231,12 +240,7 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
             metrics["spearman_max"] = max(metrics[f"spearman_{fn_name}"] for fn_name in self.similarity_fn_names)
 
         if self.main_similarity:
-            self.primary_metric = {
-                SimilarityFunction.COSINE: "spearman_cosine",
-                SimilarityFunction.EUCLIDEAN: "spearman_euclidean",
-                SimilarityFunction.MANHATTAN: "spearman_manhattan",
-                SimilarityFunction.DOT_PRODUCT: "spearman_dot",
-            }.get(self.main_similarity)
+            self.primary_metric = f"spearman_{self.main_similarity.value}"
         else:
             if len(self.similarity_fn_names) > 1:
                 self.primary_metric = "spearman_max"
@@ -246,6 +250,14 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
         metrics = self.prefix_name_to_metrics(metrics, self.name)
         self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
+
+    def _get_similarity_functions(self) -> dict:
+        return {
+            "cosine": pairwise_cos_sim,
+            "manhattan": pairwise_manhattan_sim,
+            "euclidean": pairwise_euclidean_sim,
+            "dot": pairwise_dot_score,
+        }
 
     def embed_inputs(
         self,

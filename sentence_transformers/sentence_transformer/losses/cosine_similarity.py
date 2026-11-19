@@ -92,6 +92,12 @@ class CosineSimilarityLoss(nn.Module):
         Returns:
             Loss value
         """
+        batch_size = embeddings[0].shape[0]
+        if labels.numel() != batch_size:
+            raise ValueError(
+                f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+            )
         output = self.cos_score_transformation(torch.cosine_similarity(embeddings[0], embeddings[1]))
         return self.loss_fct(output, labels.float().view(-1))
 

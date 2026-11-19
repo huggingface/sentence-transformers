@@ -340,11 +340,13 @@ class TestUseCache:
 
     @pytest.mark.parametrize("use_cache", [False, True])
     def test_nested_audio_config(self, use_cache):
-        config = PretrainedConfig()
-        config.sub_configs = {"audio_config": PretrainedConfig}
-        config.audio_config = PretrainedConfig()
-        config.audio_config.sub_configs = {"codec_config": MimiConfig}
-        config.audio_config.codec_config = MimiConfig(use_cache=True)
+        class AudioConfig(PretrainedConfig):
+            sub_configs = {"codec_config": MimiConfig}
+
+        class CompositeConfig(PretrainedConfig):
+            sub_configs = {"audio_config": AudioConfig}
+
+        config = CompositeConfig(audio_config=AudioConfig(codec_config=MimiConfig(use_cache=True)))
         Transformer._configure_use_cache(config, {"use_cache": use_cache})
         assert config.audio_config.codec_config.use_cache is use_cache
         assert not hasattr(config, "use_cache")
@@ -403,7 +405,6 @@ class TestWarnOnUnsupportedAttentionConfig:
         self,
         caplog,
         monkeypatch,
-        bert_tiny_transformer,
         param,
         value,
         support_flag,
@@ -413,14 +414,17 @@ class TestWarnOnUnsupportedAttentionConfig:
         expect_warn,
     ):
         monkeypatch.setattr(transformer_module, support_flag, supports)
-        config = bert_tiny_transformer.config
+        config = PretrainedConfig()
         if set_on == "main":
             setattr(config, param, value)
         elif set_on == "sub":
-            sub = deepcopy(config)
+
+            class CompositeConfig(PretrainedConfig):
+                sub_configs = {"text_config": PretrainedConfig}
+
+            sub = PretrainedConfig()
             setattr(sub, param, value)
-            config.sub_configs = {"text_config": type(sub)}
-            config.text_config = sub
+            config = CompositeConfig(text_config=sub)
 
         with caplog.at_level(logging.WARNING):
             Transformer._warn_on_unsupported_attention_config(config)
@@ -539,6 +543,19 @@ class TestTransformerModalityConfigValidation:
 
 
 class TestPreprocess:
+    def test_processor_generated_labels_are_discarded(self, bert_tiny_transformer, monkeypatch):
+        original_call = bert_tiny_transformer._call_processor
+
+        def processor_with_labels(*args, **kwargs):
+            output = original_call(*args, **kwargs)
+            output["labels"] = output["input_ids"].clone()
+            return output
+
+        monkeypatch.setattr(bert_tiny_transformer, "_call_processor", processor_with_labels)
+        features = bert_tiny_transformer.preprocess(["hello world"])
+        assert "labels" not in features
+        assert "input_ids" in features
+
     def test_unsupported_modality_error(self, bert_tiny_transformer, monkeypatch):
         """Passing an unsupported modality should raise ValueError."""
         model = bert_tiny_transformer
@@ -643,6 +660,45 @@ class TestPreprocess:
         assert transformer.processor.padding_side == "left"
         assert features["attention_mask"][:, -1].all()
 
+    @pytest.mark.skipif(
+        parse_version(torch.__version__) < Version("2.4"),
+        reason="Llama rotary embeddings call torch.is_autocast_enabled(device_type), which requires torch>=2.4.",
+    )
+    @pytest.mark.parametrize("logits_to_keep", [0, 3])
+    def test_causal_logits_processing_kwargs(self, tmp_path, logits_to_keep):
+        transformer = Transformer(
+            TINY_LLAMA,
+            transformer_task="text-generation",
+            processing_kwargs={"text": {"logits_to_keep": logits_to_keep}},
+        ).eval()
+        features = transformer.preprocess(RAGGED_BATCH)
+        assert features["logits_to_keep"] == logits_to_keep
+        with torch.no_grad():
+            all_logits = transformer.model(
+                input_ids=features["input_ids"], attention_mask=features["attention_mask"], logits_to_keep=0
+            ).logits
+            expected = all_logits[:, -logits_to_keep:]
+            torch.testing.assert_close(transformer(deepcopy(features))["causal_logits"], expected)
+
+        transformer.save(str(tmp_path))
+        loaded = Transformer.load(str(tmp_path)).eval()
+        with torch.no_grad():
+            torch.testing.assert_close(loaded(loaded.preprocess(RAGGED_BATCH))["causal_logits"], expected)
+        override = {"text": {"logits_to_keep": 1}}
+        assert loaded.preprocess(RAGGED_BATCH, processing_kwargs=override)["logits_to_keep"] == 1
+        assert (
+            loaded.processing_kwargs == transformer.processing_kwargs == {"text": {"logits_to_keep": logits_to_keep}}
+        )
+        assert override == {"text": {"logits_to_keep": 1}}
+        with pytest.raises(ValueError, match="ends in a padding token"):
+            loaded.preprocess(RAGGED_BATCH, processing_kwargs={"text": {"padding_side": "right"}})
+
+    @pytest.mark.parametrize("logits_to_keep", [-1, 1.5, "1", None, True])
+    def test_causal_invalid_logits_processing_kwargs(self, logits_to_keep):
+        transformer = Transformer(TINY_LLAMA, transformer_task="text-generation")
+        with pytest.raises(ValueError, match="logits_to_keep must be a non-negative integer"):
+            transformer.preprocess(RAGGED_BATCH, processing_kwargs={"text": {"logits_to_keep": logits_to_keep}})
+
     def test_causal_right_padding_via_attribute_raises(self):
         """padding_side is set to "left" on load, so reaching this means it was mutated afterwards."""
         transformer = Transformer(TINY_LLAMA, transformer_task="text-generation")
@@ -708,6 +764,26 @@ class TestPreprocess:
         message = str(exc_info.value)
         assert "ends in a padding token" in message
         assert 'processor.tokenizer.padding_side = "left"' in message
+
+    @pytest.mark.skipif(
+        Version(transformers_version) < Version("5.0.0"), reason="any-to-any requires transformers v5+"
+    )
+    @pytest.mark.skipif(
+        not (is_vision_available() and is_torchvision_available()),
+        reason="Loading the Llava processor requires Pillow and torchvision",
+    )
+    @pytest.mark.parametrize("training", [True, False])
+    def test_num_images_per_sample_without_image_grid(self, training):
+        """Custom training loops need image counts without constructing a Trainer."""
+        from PIL import Image
+
+        transformer = Transformer(TINY_LLAVA, transformer_task="any-to-any")
+        transformer.train(training)
+        image = Image.new("RGB", (32, 32), "red")
+        features = transformer.preprocess(
+            [{"text": "a", "image": image}, {"text": "text only"}, {"text": "b", "image": [image, image]}]
+        )
+        assert features["num_images_per_sample"].tolist() == [1, 0, 2]
 
 
 class TestForward:
@@ -1039,6 +1115,25 @@ class TestForward:
 
 
 class TestGetEmbeddingDimension:
+    @pytest.mark.parametrize("word_embed_proj_dim", [None, 8])
+    def test_opt_output_dimension(self, word_embed_proj_dim):
+        config = AutoConfig.for_model(
+            "opt",
+            vocab_size=32,
+            hidden_size=16,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            ffn_dim=32,
+            word_embed_proj_dim=word_embed_proj_dim,
+        )
+        model = AutoModel.from_config(config).eval()
+        module = SimpleNamespace(
+            model=model, transformer_task="feature-extraction", module_output_name="token_embeddings"
+        )
+        with torch.no_grad():
+            output = model(input_ids=torch.tensor([[2, 3, 4]]))
+        assert Transformer.get_embedding_dimension(module) == output.last_hidden_state.shape[-1]
+
     def test_standard_hidden_size(self, bert_tiny_transformer):
         dim = bert_tiny_transformer.get_embedding_dimension()
         assert dim == bert_tiny_transformer.config.hidden_size
@@ -2130,14 +2225,15 @@ class TestCanFlattenInputs:
         assert transformer._can_flatten_inputs() is False
         assert transformer.can_flatten_inputs is False
 
-    def test_false_for_non_torch_backend(self):
+    @pytest.mark.parametrize("backend", ["onnx", "openvino"])
+    def test_false_for_non_torch_backend(self, backend):
         """Flattening requires the torch backend."""
-        try:
-            transformer = Transformer(TINY_BERT, backend="onnx")
-        except (ImportError, Exception):
-            pytest.skip("ONNX backend not available")
-        assert transformer._can_flatten_inputs() is False
-        assert transformer.can_flatten_inputs is False
+        transformer = SimpleNamespace(
+            transformer_task="feature-extraction",
+            modality_config={"text": {"method": "forward"}},
+            backend=backend,
+        )
+        assert Transformer._can_flatten_inputs(transformer) is False
 
     def test_false_when_no_flash_attention(self):
         """Without flash attention, flattening should be disabled."""
@@ -2155,10 +2251,7 @@ class TestCanFlattenInputs:
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_true_with_flash_attention(self):
         """With flash attention and a compatible model, flattening should be enabled."""
-        try:
-            import kernels  # noqa: F401
-        except ImportError:
-            pytest.skip("kernels library not available")
+        pytest.importorskip("kernels", reason="kernels library not available", exc_type=ImportError)
 
         try:
             transformer = Transformer(
@@ -2214,9 +2307,9 @@ class TestConditionalFlattening:
     """Test that preprocess only flattens text-only inputs, even when can_flatten_inputs is True."""
 
     @pytest.fixture()
-    def flatten_ready_transformer(self):
+    def flatten_ready_transformer(self, bert_tiny_transformer):
         """A BERT transformer with can_flatten_inputs=True and a mock data_collator."""
-        transformer = Transformer(TINY_BERT)
+        transformer = bert_tiny_transformer
         transformer.can_flatten_inputs = True
         transformer._flatten_position_offset = transformer._infer_flatten_position_offset()
         transformer.data_collator = MagicMock(
@@ -2229,9 +2322,9 @@ class TestConditionalFlattening:
         flatten_ready_transformer.preprocess(["hello world", "another sentence"])
         flatten_ready_transformer.data_collator.assert_called_once()
 
-    def test_text_inputs_not_flattened_when_disabled(self):
+    def test_text_inputs_not_flattened_when_disabled(self, bert_tiny_transformer):
         """Text inputs should NOT be flattened when can_flatten_inputs is False."""
-        transformer = Transformer(TINY_BERT)
+        transformer = bert_tiny_transformer
         assert transformer.can_flatten_inputs is False
         transformer.data_collator = MagicMock()
         transformer.preprocess(["hello world"])

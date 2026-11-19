@@ -50,7 +50,7 @@ stsb_test_dataset = load_dataset("sentence-transformers/stsb", split="test")
 logging.info(stsb_train_dataset)
 
 # 3. Define our training losses
-# 3a. SoftmaxLoss for the NLI data (sentence_A, sentence_B, class), see also https://sbert.net/docs/training/loss_overview.html
+# 3a. SoftmaxLoss for the NLI data (sentence_A, sentence_B, class), see also https://sbert.net/docs/sentence_transformer/loss_overview.html
 train_loss_nli = SoftmaxLoss(model=model, embedding_dimension=model.get_embedding_dimension(), num_labels=3)
 # 3b. CosineSimilarityLoss for the STSB data (sentence_A, sentence_B, similarity score between 0 and 1)
 train_loss_sts = CosineSimilarityLoss(model=model)

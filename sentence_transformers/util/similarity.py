@@ -212,7 +212,7 @@ def euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) 
 
 def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray | Tensor) -> Tensor:
     """
-    Computes the euclidean distance (i.e., negative distance) between pairs of tensors.
+    Computes the euclidean similarity (i.e., negative distance) between pairs of tensors.
 
     Args:
         a (Union[list, np.ndarray, Tensor]): The first tensor.
@@ -225,7 +225,10 @@ def pairwise_euclidean_sim(a: list | np.ndarray | Tensor, b: list | np.ndarray |
     b = _convert_to_float_tensor(b)
     a, b = _match_layouts(a, b)
 
-    return -torch.sqrt(torch.sum((a - b) ** 2, dim=-1)).to_dense()
+    diff = a - b
+    if diff.is_sparse or not diff.is_floating_point():
+        return -diff.square().sum(dim=-1).sqrt().to_dense()
+    return -torch.linalg.vector_norm(diff, dim=-1)
 
 
 # Element budget for one chunk's padded embeddings plus its scoring intermediate when the caller gives
@@ -245,7 +248,7 @@ def _chunk_ranges(
     width, matching the per-chunk padding in :func:`maxsim`, so one long outlier only sizes its own
     chunk.
 
-    The item is a document in :func:`maxsim` and in
+    The item is a query or document in :func:`maxsim`, a document in
     :func:`~sentence_transformers.multi_vector_encoder.scoring.xtr_scores` (which packs the flattened
     ``Q * N`` document axis), and a query-document pair in :func:`maxsim_pairwise`.
 
@@ -279,11 +282,12 @@ def _batch_singular_input(
     if isinstance(embeddings, np.ndarray) and embeddings.ndim == 2:
         embeddings = np.expand_dims(embeddings, 0)
     elif isinstance(embeddings, Tensor) and embeddings.ndim == 2:
-        embeddings = embeddings.unsqueeze(0)
+        # Stacking avoids Neuron's unsupported views of inference tensors.
+        embeddings = torch.stack([embeddings]) if embeddings.device.type == "neuron" else embeddings.unsqueeze(0)
     else:
         return embeddings, mask
     if mask is not None and mask.ndim == 1:
-        mask = mask.unsqueeze(0)
+        mask = torch.stack([mask]) if mask.device.type == "neuron" else mask.unsqueeze(0)
     return embeddings, mask
 
 
@@ -360,7 +364,17 @@ def _embedding_dim(embeddings: list | np.ndarray | Tensor) -> int:
     """The trailing embedding dimension, read without materializing a padded batch."""
     if not isinstance(embeddings, list):
         return embeddings.shape[-1]
-    return next((len(item[0]) for item in embeddings if len(item)), 1)
+    for item in embeddings:
+        if len(item):
+            # Shape metadata avoids creating a device-side view of an inference tensor.
+            return item.shape[-1] if isinstance(item, (Tensor, np.ndarray)) else len(item[0])
+    return 1
+
+
+def _token_lengths(embeddings: list | np.ndarray | Tensor) -> list[int]:
+    if not isinstance(embeddings, list):
+        return [embeddings.shape[1]] * len(embeddings)
+    return [item.shape[0] if isinstance(item, (Tensor, np.ndarray)) else len(item) for item in embeddings]
 
 
 def _query_token_counts(a: list | np.ndarray | Tensor, a_mask: Tensor | None) -> Tensor:
@@ -404,25 +418,37 @@ def maxsim(
         b_mask (Tensor, optional): Boolean or float mask for document tokens, shape ``(batch_b, num_doc_tokens)``,
             ``(num_doc_tokens,)`` alongside a single 2D ``b``, or a list of per-item 1D masks. Tokens with a
             0 / False entry are excluded from the max. Defaults to None (use all tokens).
-        chunk_elements (int, optional): Element budget for the padded ``(chunk, d_tokens, dim)``
-            documents plus the 4D ``(batch_a, chunk, q_tokens, d_tokens)`` scoring intermediate. Documents
-            are greedily packed into chunks (padded per chunk, so a long outlier only sizes its own chunk)
-            that stay under the budget, with a floor of one document per chunk. Defaults to None, which
-            applies a 100M-element budget (at most ~400 MB, half that in bf16 / fp16). With very large
-            query batches that floor can still be big: shard queries externally if a single document
-            exceeds memory.
+        chunk_elements (int, optional): Element budget for each chunk's padded query and document
+            embeddings plus the token similarity tensor. Both sides are chunked and padded
+            separately to limit memory use. A single query-document pair can exceed the budget.
+            Defaults to None, which uses 100 million elements (about 400 MB in fp32, half in
+            bf16 / fp16).
         length_normalize (bool, optional): Divide each score by the number of real (unmasked) query
             tokens, yielding MeanMaxSim: scores land in the per-token similarity range (about
             ``[-1, 1]`` for normalized embeddings) independent of the query length. Defaults to False.
-        device (str, torch.device, optional): Device to run the scoring on, moving each budget-sized
-            document chunk there rather than the whole corpus. The returned scores stay on the
-            documents' device either way. Defaults to None (the documents' device).
+        device (str, torch.device, optional): Device used for scoring, moving inputs there
+            one chunk at a time. Returned scores stay on the documents' device.
+            Defaults to None (the documents' device).
 
     Returns:
         Tensor: Matrix with ``res[i][j]`` = MaxSim(a[i], b[j]), shape ``(batch_a, batch_b)``, always
         float32 (half precision inputs are accumulated in float32 to keep nearby scores distinct), on
         the documents' device: CPU documents score on the CPU even against GPU queries.
     """
+    return _maxsim(a, b, a_mask, b_mask, chunk_elements, length_normalize, device, score_chunk=_maxsim_score_documents)
+
+
+def _maxsim(
+    a: list | np.ndarray | Tensor,
+    b: list | np.ndarray | Tensor,
+    a_mask: Tensor | None = None,
+    b_mask: Tensor | None = None,
+    chunk_elements: int | None = None,
+    length_normalize: bool = False,
+    device: str | torch.device | None = None,
+    *,
+    score_chunk: Callable,
+) -> Tensor:
     a, a_mask = _canonicalize_side(a, a_mask, "a_mask")
     b, b_mask = _canonicalize_side(b, b_mask, "b_mask")
     if len(a) == 0 or len(b) == 0:
@@ -430,36 +456,37 @@ def maxsim(
         result_device = _embeddings_device(b) or _embeddings_device(a)
         return torch.zeros(len(a), len(b), dtype=torch.float32, device=result_device)
     query_token_counts = _query_token_counts(a, a_mask) if length_normalize else None
-    a, a_mask_padded = _pad_multi_vector_inputs(a, a_mask)
-    if a_mask_padded is not None:
-        a_mask_padded = _fit_mask_width(a_mask_padded, a.shape[1], "a_mask")
-
-    num_documents = len(b)
     budget = chunk_elements if chunk_elements is not None else _MAXSIM_CHUNK_ELEMENT_BUDGET
-    if isinstance(b, list):
-        document_widths = [len(document) for document in b]
-    else:
-        document_widths = [b.shape[1]] * num_documents
+    query_widths = _token_lengths(a)
+    document_widths = _token_lengths(b)
+    if a_mask is not None:
+        a_mask = _fit_mask_width(a_mask, max(query_widths), "a_mask")
+        a_mask = a_mask.expand(len(a), -1)
     if b_mask is not None:
         b_mask = _fit_mask_width(b_mask, max(document_widths), "b_mask")
+        b_mask = b_mask.expand(len(b), -1)
 
-    # Scoring runs on the documents' device: they are the big side, and the queries are cheap to move.
     # numpy documents carry no device of their own, so those follow the queries. An explicit
     # ``device`` overrides the scoring device only: each chunk's scores come home right below.
-    result_device = _embeddings_device(b) or a.device
+    result_device = _embeddings_device(b) or _embeddings_device(a) or torch.device("cpu")
     scoring_device = torch.device(device) if device is not None else result_device
-    a, a_mask_padded = _to_device(a, a_mask_padded, scoring_device)
 
-    # The budget covers the padded documents (width x dim) as well as the (batch_a, q_tokens, width)
-    # score intermediate: with a small query side the padding, not the score matrix, is the bigger half.
-    ranges = _chunk_ranges(document_widths, a.shape[0] * a.shape[1] + _embedding_dim(b), budget)
-
-    score_chunks = []
-    for d_start, d_end in ranges:
-        chunk_b, chunk_b_mask = _pad_chunk(b, b_mask, d_start, d_end, scoring_device, "b_mask")
-        score_chunks.append(_maxsim_score_documents(a, chunk_b, a_mask_padded, chunk_b_mask).to(result_device))
+    dim = _embedding_dim(b)
+    document_width = max(document_widths)
+    query_ranges = _chunk_ranges(query_widths, document_width + _embedding_dim(a), budget - document_width * dim)
+    query_score_chunks = []
+    for q_start, q_end in query_ranges:
+        chunk_a, chunk_a_mask = _pad_chunk(a, a_mask, q_start, q_end, scoring_device, "a_mask")
+        document_ranges = _chunk_ranges(
+            document_widths, chunk_a.shape[0] * chunk_a.shape[1] + dim, budget - chunk_a.numel()
+        )
+        score_chunks = []
+        for d_start, d_end in document_ranges:
+            chunk_b, chunk_b_mask = _pad_chunk(b, b_mask, d_start, d_end, scoring_device, "b_mask")
+            score_chunks.append(score_chunk(chunk_a, chunk_b, chunk_a_mask, chunk_b_mask).to(result_device))
+        query_score_chunks.append(score_chunks[0] if len(score_chunks) == 1 else torch.cat(score_chunks, dim=1))
     # cat copies even a single chunk, which is the common case of a batch that fits the budget.
-    scores = score_chunks[0] if len(score_chunks) == 1 else torch.cat(score_chunks, dim=1)
+    scores = query_score_chunks[0] if len(query_score_chunks) == 1 else torch.cat(query_score_chunks, dim=0)
     if query_token_counts is not None:
         scores = scores / query_token_counts.to(device=scores.device, dtype=scores.dtype).unsqueeze(1)
     return scores
@@ -570,6 +597,22 @@ def maxsim_pairwise(
         (half precision inputs are accumulated in float32 to keep nearby scores distinct), on the
         documents' device: CPU documents score on the CPU even against GPU queries.
     """
+    return _maxsim_pairwise(
+        a, b, a_mask, b_mask, chunk_elements, length_normalize, device, score_chunk=_maxsim_score_pairs
+    )
+
+
+def _maxsim_pairwise(
+    a: list | np.ndarray | Tensor,
+    b: list | np.ndarray | Tensor,
+    a_mask: Tensor | None = None,
+    b_mask: Tensor | None = None,
+    chunk_elements: int | None = None,
+    length_normalize: bool = False,
+    device: str | torch.device | None = None,
+    *,
+    score_chunk: Callable,
+) -> Tensor:
     a, a_mask = _canonicalize_side(a, a_mask, "a_mask")
     b, b_mask = _canonicalize_side(b, b_mask, "b_mask")
     if len(a) != len(b):
@@ -583,12 +626,14 @@ def maxsim_pairwise(
     query_token_counts = _query_token_counts(a, a_mask) if length_normalize else None
 
     budget = chunk_elements if chunk_elements is not None else _MAXSIM_CHUNK_ELEMENT_BUDGET
-    query_widths = [len(query) for query in a] if isinstance(a, list) else [a.shape[1]] * len(a)
-    document_widths = [len(document) for document in b] if isinstance(b, list) else [b.shape[1]] * len(b)
+    query_widths = _token_lengths(a)
+    document_widths = _token_lengths(b)
     if a_mask is not None:
         a_mask = _fit_mask_width(a_mask, max(query_widths), "a_mask")
+        a_mask = a_mask.expand(len(a), -1)
     if b_mask is not None:
         b_mask = _fit_mask_width(b_mask, max(document_widths), "b_mask")
+        b_mask = b_mask.expand(len(b), -1)
     # Scoring runs on the documents' device, or the queries' when the documents carry none (numpy).
     # An explicit ``device`` overrides the scoring device only: each chunk's scores come home below.
     result_device = _embeddings_device(b) or _embeddings_device(a) or torch.device("cpu")
@@ -605,7 +650,7 @@ def maxsim_pairwise(
     for start, end in ranges:
         chunk_a, chunk_a_mask = _pad_chunk(a, a_mask, start, end, scoring_device, "a_mask")
         chunk_b, chunk_b_mask = _pad_chunk(b, b_mask, start, end, scoring_device, "b_mask")
-        score_chunks.append(_maxsim_score_pairs(chunk_a, chunk_b, chunk_a_mask, chunk_b_mask).to(result_device))
+        score_chunks.append(score_chunk(chunk_a, chunk_b, chunk_a_mask, chunk_b_mask).to(result_device))
     scores = score_chunks[0] if len(score_chunks) == 1 else torch.cat(score_chunks, dim=0)
     if query_token_counts is not None:
         scores = scores / query_token_counts.to(device=scores.device, dtype=scores.dtype)
@@ -700,7 +745,7 @@ def _zero_row_mask(padded: Tensor) -> Tensor:
 
     Real token embeddings normally carry information in at least one dim, so a fully-zero row is the
     all-but-impossible-except-by-pad signal. This matches the zero padding of
-    :func:`_pad_tensor_list`. Returned in the input dtype (1.0 for real tokens, 0.0 for pad).
+    :func:`_pad_tensor_list`. Returns a boolean mask.
 
     Boundary: a real all-zero row is indistinguishable from padding here and is masked out of
     scoring. L2-normalized pipelines cannot produce one, but token pooling can (a cluster mean of
@@ -709,7 +754,7 @@ def _zero_row_mask(padded: Tensor) -> Tensor:
     and takes the :func:`_fill_empty_document_scores` sentinel. Any future module that intentionally
     emits zero rows (e.g. learned pruning) must pass explicit masks instead of relying on this detection.
     """
-    return padded.any(dim=-1).to(padded.dtype)
+    return padded.any(dim=-1)
 
 
 def _pad_tensor_list(tensors: list[Tensor], lengths: Tensor) -> Tensor:
@@ -728,7 +773,7 @@ def _pad_tensor_list(tensors: list[Tensor], lengths: Tensor) -> Tensor:
     # ``output_size`` looks redundant, but without it each repeat blocks to read the total back.
     flat = torch.cat(tensors, dim=0)
     total = len(flat)
-    lengths = lengths.to(flat.device)
+    lengths = lengths.to(flat.device, non_blocking=True)
     starts = torch.cumsum(lengths, 0) - lengths
     positions = torch.arange(total, device=flat.device) - torch.repeat_interleave(starts, lengths, output_size=total)
     rows = torch.repeat_interleave(torch.arange(len(tensors), device=flat.device), lengths, output_size=total)
@@ -756,7 +801,7 @@ def _pad_multi_vector_inputs(
         if mask is None:
             # Built on the embeddings' device: the lengths are a vector, the mask a full grid.
             positions = torch.arange(padded.shape[1], device=padded.device)
-            mask = (positions.unsqueeze(0) < lengths.to(padded.device).unsqueeze(1)).to(padded.dtype)
+            mask = positions.unsqueeze(0) < lengths.to(padded.device, non_blocking=True).unsqueeze(1)
         return padded, mask
     padded = _convert_to_tensor(inputs)
     if not padded.is_floating_point():
@@ -766,18 +811,23 @@ def _pad_multi_vector_inputs(
     return padded, mask
 
 
-def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:
+def pairwise_angle_sim(x: list | np.ndarray | Tensor, y: list | np.ndarray | Tensor) -> Tensor:
     """
-    Computes the absolute normalized angle distance. See :class:`~sentence_transformers.sentence_transformer.losses.AnglELoss`
-    or https://huggingface.co/papers/2309.12871 for more information.
+    Computes the absolute AnglE similarity: ``|cos_sim(x, y) + sin_sim(x, y)|`` after L2
+    normalization. Dimensions ``i`` and ``i + D/2`` are paired for the sine term. See
+    :class:`~sentence_transformers.sentence_transformer.losses.AnglELoss` or
+    https://huggingface.co/papers/2309.12871 for more information.
 
     Args:
-        x (Tensor): The first tensor.
-        y (Tensor): The second tensor.
+        x (Union[list, np.ndarray, Tensor]): The first tensor.
+        y (Union[list, np.ndarray, Tensor]): The second tensor.
 
     Returns:
         Tensor: Vector with res[i] = angle_sim(a[i], b[i])
     """
+    x = _convert_to_float_tensor(x)
+    y = _convert_to_float_tensor(y)
+
     if x.is_sparse or y.is_sparse:
         logger.warning_once("Pairwise angle similarity does not support sparse tensors. Converting to dense.")
         if x.is_sparse:
@@ -785,30 +835,20 @@ def pairwise_angle_sim(x: Tensor, y: Tensor) -> Tensor:
         if y.is_sparse:
             y = y.to_dense()
 
-    x = _convert_to_float_tensor(x)
-    y = _convert_to_float_tensor(y)
-
     # Pad tensors if the embedding dimension is odd, as torch.chunk requires even dimensions
-    if x.shape[1] % 2 != 0:
+    if x.shape[-1] % 2 != 0:
         x = torch.nn.functional.pad(x, (0, 1), mode="constant", value=0)
         y = torch.nn.functional.pad(y, (0, 1), mode="constant", value=0)
 
-    # modified from https://github.com/SeanLee97/AnglE/blob/main/angle_emb/angle.py
-    # chunk both tensors to obtain complex components
-    a, b = torch.chunk(x, 2, dim=1)
-    c, d = torch.chunk(y, 2, dim=1)
-
-    z = torch.sum(c**2 + d**2, dim=1, keepdim=True)
-    re = (a * c + b * d) / z
-    im = (b * c - a * d) / z
-
-    dz = torch.sum(a**2 + b**2, dim=1, keepdim=True) ** 0.5
-    dw = torch.sum(c**2 + d**2, dim=1, keepdim=True) ** 0.5
-    re /= dz / dw
-    im /= dz / dw
-
-    norm_angle = torch.sum(torch.concat((re, im), dim=1), dim=1)
-    return torch.abs(norm_angle)
+    # Equivalent to the complex-chunk form from https://github.com/SeanLee97/AnglE,
+    # rewritten as cosine + sine similarity after L2 normalization (see #3223).
+    normalized_x = torch.nn.functional.normalize(x, p=2, dim=-1)
+    normalized_y = torch.nn.functional.normalize(y, p=2, dim=-1)
+    cosines = torch.sum(normalized_x * normalized_y, dim=-1)
+    first_x, last_x = torch.chunk(normalized_x, 2, dim=-1)
+    first_y, last_y = torch.chunk(normalized_y, 2, dim=-1)
+    sines = torch.sum(last_x * first_y - first_x * last_y, dim=-1)
+    return torch.abs(cosines + sines)
 
 
 class SimilarityFunction(Enum):

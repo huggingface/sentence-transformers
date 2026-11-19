@@ -14,18 +14,14 @@ from .utils import sparse_allclose
 
 
 @pytest.mark.slow
-def test_multi_process_encode_same_as_standard_encode(splade_bert_tiny_model: SparseEncoder):
-    model = splade_bert_tiny_model
-    # Test that multi-process encoding gives the same result as standard encoding
+@pytest.mark.parametrize("model_fixture", ["splade_bert_tiny_model", "csr_bert_tiny_model"])
+def test_multi_process_encode_same_as_standard_encode(model_fixture: str, request: pytest.FixtureRequest):
+    model = request.getfixturevalue(model_fixture)
     texts = ["First sentence.", "Second sentence.", "Third sentence."] * 5
 
-    # Standard encode
     embeddings_standard = model.encode(texts).cpu()
-
-    # Multi-process encode with device=["cpu"] * 2
     embeddings_multi = model.encode(texts, device=["cpu"] * 2)
 
-    # Should produce the same embeddings
     assert sparse_allclose(embeddings_standard, embeddings_multi, atol=1e-5)
 
 

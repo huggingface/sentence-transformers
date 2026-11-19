@@ -23,11 +23,7 @@ from datetime import datetime
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.base.training_args import (
-    BatchSamplers,
-    MultiDatasetBatchSamplers,
-    SentenceTransformerTrainingArguments,
-)
+from sentence_transformers.base.sampler import BatchSamplers, MultiDatasetBatchSamplers
 from sentence_transformers.sentence_transformer.evaluation import (
     BinaryClassificationEvaluator,
     InformationRetrievalEvaluator,
@@ -36,6 +32,7 @@ from sentence_transformers.sentence_transformer.evaluation import (
 )
 from sentence_transformers.sentence_transformer.losses import ContrastiveLoss, MultipleNegativesRankingLoss
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)

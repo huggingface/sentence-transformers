@@ -117,6 +117,24 @@ def cache_hub_revision_resolution():
         file_io._hub_resolve_revision = resolve_revision
 
 
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    # Neuron workers need free cores before other tests initialize the parent runtime.
+    neuron_pool_test = (
+        "tests/sentence_transformer/test_multi_process.py::test_multi_process_encode_same_as_standard_encode[neuron]"
+    )
+    items.sort(key=lambda item: item.nodeid != neuron_pool_test)
+
+
+@pytest.fixture(params=["cpu", "cuda", "neuron"])
+def inference_device(request: pytest.FixtureRequest) -> str:
+    """Run each dependent test once per listed device, skipping unavailable accelerators."""
+    device = request.param
+    if device != "cpu" and not (hasattr(torch, device) and getattr(torch, device).is_available()):
+        pytest.skip(f"{device} is not available")
+    return device
+
+
 # Sentence Transformers
 @pytest.fixture(scope="session")
 def _stsb_bert_tiny_model() -> SentenceTransformer:
@@ -149,21 +167,6 @@ def _word_embeddings_model() -> SentenceTransformer:
 @pytest.fixture()
 def word_embeddings_model(_word_embeddings_model: SentenceTransformer) -> SentenceTransformer:
     return deepcopy(_word_embeddings_model)
-
-
-@pytest.fixture()
-def stsb_bert_tiny_model_onnx() -> SentenceTransformer:
-    return SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-onnx")
-
-
-@pytest.fixture()
-def stsb_bert_tiny_model_openvino() -> SentenceTransformer:
-    return SentenceTransformer("sentence-transformers-testing/stsb-bert-tiny-openvino")
-
-
-@pytest.fixture()
-def paraphrase_distilroberta_base_v1_model() -> SentenceTransformer:
-    return SentenceTransformer("sentence-transformers/paraphrase-distilroberta-base-v1")
 
 
 @pytest.fixture(scope="session")
@@ -270,8 +273,13 @@ def csr_bert_tiny_model(_csr_bert_tiny_model: SparseEncoder) -> SparseEncoder:
 
 # Tokenization & Datasets
 @pytest.fixture(scope="session")
-def tokenizer() -> Tokenizer:
+def _tokenizer() -> Tokenizer:
     return Tokenizer.from_pretrained("google-bert/bert-base-uncased")
+
+
+@pytest.fixture()
+def tokenizer(_tokenizer: Tokenizer) -> Tokenizer:
+    return deepcopy(_tokenizer)
 
 
 @pytest.fixture

@@ -7,6 +7,7 @@ import os
 import re
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import torch
@@ -18,14 +19,13 @@ from sentence_transformers.base.modules import Dense, Module, Normalize, Router
 from sentence_transformers.base.modules.input_module import InputModule
 from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import is_datasets_available
+from tests.utils import skip_fp16_cpu_layer_norm
 
 from sentence_transformers.models import Asym  # isort:skip  Softly deprecated import
 
-if is_datasets_available():
-    from datasets import Dataset
-else:
-    pytest.skip("The datasets library is not available.", allow_module_level=True)
+pytest.importorskip("datasets", exc_type=ModuleNotFoundError)
+
+from datasets import Dataset
 
 
 class MockModule(InputModule):
@@ -145,6 +145,21 @@ def test_router_max_seq_length_edges():
     assert module_one.max_seq_length == 1024
     assert module_two.max_seq_length == 1024
     assert module_three.max_seq_length == 1024
+
+
+def test_router_max_seq_length_setter_skips_static_embedding_route(
+    static_embedding: StaticEmbedding, stsb_bert_tiny_model: SentenceTransformer
+):
+    router = Router.for_query_document(
+        query_modules=[static_embedding], document_modules=list(stsb_bert_tiny_model.children())
+    )
+    model = SentenceTransformer(modules=[router])
+
+    model.max_seq_length = 4
+    assert router.sub_modules["document"][0].max_seq_length == 4
+    assert static_embedding.max_seq_length == float("inf")
+    features = model.preprocess(["This is a much longer sentence than four tokens."], task="document")
+    assert features["input_ids"].shape[1] == 4
 
 
 def test_router_init_basic():
@@ -393,6 +408,31 @@ def test_router_save_load(static_embedding: StaticEmbedding, tmp_path: Path):
     # Verify embeddings are the same
     assert (query_embeddings_original == query_embeddings_loaded).all()
     assert (doc_embeddings_original == doc_embeddings_loaded).all()
+
+
+@pytest.mark.parametrize("safe_serialization", [True, False])
+@pytest.mark.parametrize("share_module", [True, False])
+def test_router_save_load_preserves_shared_modules(tmp_path: Path, share_module: bool, safe_serialization: bool):
+    query = Dense(2, 2)
+    document = query if share_module else deepcopy(query)
+    router = Router.for_query_document([query], [document])
+    router.save(str(tmp_path), safe_serialization=safe_serialization)
+
+    loaded = Router.load(str(tmp_path), local_files_only=True)
+    assert (loaded.sub_modules["query"][0] is loaded.sub_modules["document"][0]) == share_module
+
+
+@skip_fp16_cpu_layer_norm
+def test_router_load_with_dtype_casts_routed_modules(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path):
+    dim = stsb_bert_tiny_model.get_embedding_dimension()
+    router = Router.for_query_document(
+        [*stsb_bert_tiny_model, Dense(dim, 8)], [*deepcopy(stsb_bert_tiny_model), Dense(dim, 8)]
+    )
+    SentenceTransformer(modules=[router]).save_pretrained(str(tmp_path))
+
+    model = SentenceTransformer(str(tmp_path), model_kwargs={"dtype": torch.float16})
+    assert {param.dtype for param in model.parameters()} == {torch.float16}
+    assert model.encode_query(["What is the capital of France?"], convert_to_tensor=True).dtype == torch.float16
 
 
 def test_router_save_load_with_custom_default_route(static_embedding: StaticEmbedding, tmp_path: Path):
@@ -653,7 +693,7 @@ def test_router_load_with_config(
 
     # Create and save a Router
     query_module = static_embedding
-    doc_module = static_embedding
+    doc_module = deepcopy(static_embedding)
 
     router = Router({"query": [query_module], "document": [doc_module]}, default_route="query")
     model = SentenceTransformer(modules=[router])
@@ -716,7 +756,7 @@ def test_router_load_forwards_trust_remote_code(
         local_files_only=True,
     )
 
-    assert len(captured) == 2  # one resolution per child route
+    assert len(captured) == 1  # one resolution for the shared child module
     for call in captured:
         assert call["trust_remote_code"] is True
         assert call["model_name_or_path"] == str(tmp_path)
@@ -1040,19 +1080,21 @@ def test_router_tokenize_with_task(static_embedding: StaticEmbedding):
     assert "input_ids" in doc_tokens
 
 
-def test_router_tokenize_with_dict_input(static_embedding: StaticEmbedding):
+@pytest.mark.parametrize("task", ["query", "array"])
+@pytest.mark.parametrize("allow_empty_key", [True, False])
+def test_router_tokenize_with_dict_input(static_embedding: StaticEmbedding, task: str, allow_empty_key: bool):
     """Test tokenize method with dictionary input."""
-    router = Router({"query": [static_embedding], "document": [static_embedding]})
+    router = Router({"document": [static_embedding], task: [static_embedding]}, allow_empty_key=allow_empty_key)
 
     # Test with dictionary input
     texts = [
-        {"query": "What is the capital of France?"},
-        {"query": "What is the largest ocean?"},
+        {task: "What is the capital of France?"},
+        {task: "What is the largest ocean?"},
     ]
 
     tokens = router.preprocess(texts)
     assert "task" in tokens
-    assert tokens["task"] == "query"
+    assert tokens["task"] == task
     assert "input_ids" in tokens
 
 
@@ -1067,6 +1109,29 @@ def test_router_tokenize_with_mixed_dict_raises_error(static_embedding: StaticEm
 
     with pytest.raises(ValueError, match="You cannot pass a list of dictionaries with different task types"):
         router.preprocess(texts)
+
+
+@pytest.mark.parametrize(
+    ("inputs", "modality"),
+    [
+        ([{"array": torch.zeros(16), "sampling_rate": 16000}], "audio"),
+        ([{"array": torch.zeros(2, 3, 4, 4), "video_metadata": {"fps": 1}}], "video"),
+        ([{"role": "user", "content": "Hello"}], "message"),
+    ],
+)
+def test_router_preprocess_routes_modality_dicts_by_modality(inputs, modality: str):
+    class MediaRecordingModule(TaskRecordingModule):
+        modalities = [modality]
+
+    text_module = TaskRecordingModule()
+    media_module = MediaRecordingModule()
+    router = Router({"text": [text_module], modality: [media_module]}, allow_empty_key=False)
+
+    features = router.preprocess(inputs)
+    assert features["task"] is None
+    assert features["modality"] == modality
+    assert media_module.seen_tasks == [None]
+    assert text_module.seen_tasks == []
 
 
 def test_router_tokenize_with_modality(static_embedding: StaticEmbedding):
@@ -1517,3 +1582,81 @@ def test_router_forwards_task_to_sub_module_preprocess():
 
     assert query_module.seen_tasks == ["query"]
     assert document_module.seen_tasks == ["document"]
+
+
+@pytest.mark.parametrize(
+    "path", ["../outside_model", "/outside_model", r"C:\outside_model", r"\\server\share\outside_model"]
+)
+def test_router_validates_all_paths_before_resolving_classes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    router_path = tmp_path / "nested" / "router"
+    router_path.mkdir(parents=True)
+    config = {
+        "types": {"valid": "sentence_transformers.models.Normalize", path: "sentence_transformers.models.Dense"},
+        "structure": {"query": ["valid", path]},
+        "parameters": {},
+    }
+    (router_path / "router_config.json").write_text(json.dumps(config))
+    resolve_class = MagicMock(side_effect=AssertionError("Module class resolution must not run"))
+    monkeypatch.setattr("sentence_transformers.base.modules.router.import_module_class", resolve_class)
+
+    with pytest.raises(ValueError, match="Invalid model path"):
+        Router.load(str(tmp_path), subfolder="nested/router", local_files_only=True)
+    resolve_class.assert_not_called()
+
+
+def test_nested_router_roundtrip(tmp_path: Path) -> None:
+    dense = Dense(4, 2, bias=False, activation_function=nn.Identity())
+    router = Router({"query": [Router({"query": [dense]}, default_route="query")]}, default_route="query")
+    router.save(str(tmp_path))
+
+    loaded = Router.load(str(tmp_path), local_files_only=True)
+    inputs = torch.randn(3, 4)
+    actual = loaded({"sentence_embedding": inputs}, task="query")["sentence_embedding"]
+    torch.testing.assert_close(actual, inputs @ dense.linear.weight.T)
+
+
+def test_router_roundtrip_with_nested_route_name(tmp_path: Path) -> None:
+    dense = Dense(4, 2, bias=False, activation_function=nn.Identity())
+    route = "nested/query"
+    router = Router({route: [dense]}, default_route=route)
+    router.save(str(tmp_path))
+
+    loaded = Router.load(str(tmp_path), local_files_only=True)
+    inputs = torch.randn(3, 4)
+    actual = loaded({"sentence_embedding": inputs}, task=route)["sentence_embedding"]
+    torch.testing.assert_close(actual, inputs @ dense.linear.weight.T)
+
+
+@pytest.mark.parametrize("external", [False, True])
+def test_legacy_router_module_paths(tmp_path: Path, external: bool) -> None:
+    loaded_paths = []
+
+    class LegacyDense(Dense):
+        @staticmethod
+        def load(input_path):
+            loaded_paths.append(Path(input_path))
+            return Dense.load(input_path, local_files_only=True)
+
+    model_path = tmp_path / "model"
+    model_path.mkdir()
+    module_path = tmp_path / "outside_model" if external else model_path / "nested" / "dense"
+    module_path.mkdir(parents=True)
+    Dense(4, 2).save(str(module_path))
+    path = "../outside_model" if external else "nested/dense"
+    module_classes = {"test.LegacyDense": LegacyDense}
+
+    config = {"types": {path: "test.LegacyDense"}, "structure": {"query": [path]}, "parameters": {}}
+    (model_path / "router_config.json").write_text(json.dumps(config))
+
+    def load():
+        return Router.load(str(model_path), module_classes=module_classes, local_files_only=True)
+
+    if external:
+        with pytest.raises(ValueError, match="Invalid model path"):
+            load()
+        assert loaded_paths == []
+    else:
+        load()
+        assert loaded_paths == [module_path]

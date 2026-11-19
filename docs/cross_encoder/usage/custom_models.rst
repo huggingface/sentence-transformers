@@ -273,6 +273,43 @@ When building a multimodal :class:`~sentence_transformers.cross_encoder.model.Cr
        },
    )
 
+.. _fp32-modules:
+
+FP32 Computation for Selected Layers
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. note::
+
+   This feature is experimental. Its API and behavior may change, and it may be removed in a future release.
+
+CrossEncoder rerankers typically produce a single score per query-document pair. Computing
+this score in reduced precision can round distinct scores to the same value, creating ties.
+Computing the final linear layer in fp32 can reduce these ties while keeping the backbone in bf16.
+
+Use ``keep_in_fp32_modules`` to make selected ``torch.nn.Linear`` layers compute in fp32 and
+return fp32 outputs, even when autocast is enabled. For example:
+
+.. code-block:: python
+
+   from sentence_transformers import CrossEncoder
+
+   model = CrossEncoder(
+       "cross-encoder/ms-marco-MiniLM-L6-v2",
+       device="cuda",
+       model_kwargs={"dtype": "bfloat16"},
+       keep_in_fp32_modules=["0.model.classifier"],
+   )
+
+Paths are exact names from ``model.named_modules()``, without ``.weight`` or ``.bias``. The
+selection is saved in ``config_sentence_transformers.json`` and automatically restored on load.
+Model authors should save the selection in ``config_sentence_transformers.json`` rather than
+asking users to set it manually when loading. Pass ``keep_in_fp32_modules=[]`` when loading to
+disable a saved selection.
+
+This also applies during training. Stored parameters retain their dtype. See
+:meth:`~sentence_transformers.cross_encoder.model.CrossEncoder.set_keep_in_fp32_modules` for
+compatibility details.
+
 Advanced: Custom Modules
 ------------------------
 

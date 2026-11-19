@@ -7,10 +7,14 @@ from pathlib import Path
 
 import pytest
 import torch
+from torch.utils.data import BatchSampler, DataLoader, SequentialSampler
 
+from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, CrossEncoderTrainingArguments
 from sentence_transformers.cross_encoder.data_collator import CrossEncoderDataCollator
+from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
 from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss
+from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 if is_datasets_available():
@@ -322,3 +326,145 @@ def test_trainer_router_mapping_per_column_rejected(reranker_bert_tiny_model: Cr
             preprocess_fn=reranker_bert_tiny_model.preprocess,
             router_mapping={"stsb-1": {"sentence1": "rerank", "sentence2": "rerank"}},
         )
+
+
+@pytest.mark.parametrize(("num_labels", "labels"), [(1, [1.0, 0.0, 1.0, 0.0]), (3, [2, 0, 1, 2])])
+def test_trainer_tensor_formatted_labels(tmp_path: Path, num_labels: int, labels: list) -> None:
+    """The default losses train on a dataset with tensor labels, e.g. after with_format("torch")."""
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+    from tokenizers.pre_tokenizers import Whitespace
+    from transformers import BertConfig, BertForSequenceClassification, PreTrainedTokenizerFast
+
+    vocab = {"[PAD]": 0, "[UNK]": 1, "hello": 2, "world": 3, "sunny": 4, "today": 5}
+    model_path = tmp_path / "model"
+    BertForSequenceClassification(
+        BertConfig(
+            vocab_size=len(vocab),
+            hidden_size=16,
+            intermediate_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            num_labels=num_labels,
+        )
+    ).save_pretrained(model_path)
+    tokenizer = Tokenizer(WordLevel(vocab, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = Whitespace()
+    PreTrainedTokenizerFast(
+        tokenizer_object=tokenizer, pad_token="[PAD]", unk_token="[UNK]", model_max_length=16
+    ).save_pretrained(model_path)
+    model = CrossEncoder(str(model_path))
+
+    dataset = Dataset.from_dict(
+        {
+            "query": ["hello", "world", "sunny", "today"],
+            "document": ["hello world", "sunny today", "world", "hello sunny"],
+            "label": labels,
+        }
+    ).with_format("torch", columns=["label"], output_all_columns=True)
+    trainer = CrossEncoderTrainer(
+        model=model,
+        train_dataset=dataset,
+        args=CrossEncoderTrainingArguments(
+            output_dir=str(tmp_path / "output"),
+            max_steps=1,
+            per_device_train_batch_size=4,
+            learning_rate=0.01,
+            save_strategy="no",
+            report_to=[],
+            use_cpu=True,
+        ),
+    )
+    weights = next(model.parameters())
+    before = weights.detach().clone()
+
+    result = trainer.train()
+
+    assert result.global_step == 1
+    assert not torch.equal(weights, before)
+    assert torch.isfinite(weights).all()
+
+
+@pytest.mark.parametrize("evaluator_type", ["correlation", "float"])
+def test_fit_saves_best_model_and_calls_callback_after_each_epoch(
+    evaluator_type: str, reranker_bert_tiny_model: CrossEncoder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CrossEncoder.fit() evaluates after each epoch, saves the best model to `output_path` and calls `callback`."""
+
+    class FloatEvaluator(BaseEvaluator):
+        # Returns a single score and keeps the default `primary_metric=None`
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1) -> float:
+            return float(epoch)
+
+    monkeypatch.chdir(tmp_path)
+    model = reranker_bert_tiny_model
+    examples = [InputExample(texts=[f"query {idx}", f"passage {idx}"], label=float(idx % 2)) for idx in range(8)]
+    if evaluator_type == "correlation":
+        evaluator = CrossEncoderCorrelationEvaluator.from_input_examples(examples, name="dev")
+    else:
+        evaluator = FloatEvaluator()
+    output_path = tmp_path / "output"
+    callback_epochs = []
+    model.fit(
+        train_dataloader=DataLoader(examples, batch_size=4),
+        evaluator=evaluator,
+        epochs=2,
+        warmup_steps=0,
+        output_path=str(output_path),
+        callback=lambda score, epoch, steps: callback_epochs.append(epoch),
+        show_progress_bar=False,
+    )
+
+    assert callback_epochs == [1.0, 2.0]
+    assert (output_path / "modules.json").exists()
+
+
+@pytest.mark.parametrize("model_fixture", ["reranker_bert_tiny_model", "multiclass_bert_tiny_model"])
+def test_fit_with_loss_fct(
+    model_fixture: str, request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CrossEncoder.fit() trains with a plain torch loss passed as `loss_fct`."""
+    monkeypatch.chdir(tmp_path)
+    model = request.getfixturevalue(model_fixture)
+    weights = model.model.classifier.weight
+    before = weights.detach().clone()
+    loss_fct = torch.nn.MSELoss() if model.num_labels == 1 else torch.nn.CrossEntropyLoss()
+    examples = [
+        InputExample(texts=[f"query {idx}", f"passage {idx}"], label=idx % max(model.num_labels, 2))
+        for idx in range(8)
+    ]
+    model.fit(
+        train_dataloader=DataLoader(examples, batch_size=4),
+        loss_fct=loss_fct,
+        epochs=1,
+        warmup_steps=0,
+        show_progress_bar=False,
+    )
+
+    assert not torch.equal(weights, before)
+    assert torch.isfinite(weights).all()
+
+
+def test_fit_with_custom_batch_sampler(
+    reranker_bert_tiny_model: CrossEncoder,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """CrossEncoder.fit() accepts a DataLoader built with `batch_sampler=...` and warns that it is not used."""
+    model = reranker_bert_tiny_model
+    monkeypatch.chdir(tmp_path)
+
+    def check_batch_size(trainer, **kwargs):
+        assert trainer.args.per_device_train_batch_size == 4
+
+    monkeypatch.setattr(CrossEncoderTrainer, "train", check_batch_size)
+
+    examples = [InputExample(texts=[f"query {idx}", f"passage {idx}"], label=float(idx % 2)) for idx in range(8)]
+    batch_sampler = BatchSampler(SequentialSampler(examples), batch_size=4, drop_last=False)
+    model.fit(
+        train_dataloader=DataLoader(examples, batch_sampler=batch_sampler),
+        epochs=1,
+        show_progress_bar=False,
+    )
+    assert "uses a custom `batch_sampler`, whose batch grouping `fit()` does not preserve" in caplog.text

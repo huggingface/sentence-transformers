@@ -14,11 +14,12 @@ except ImportError:
 from torch import Tensor, nn
 from transformers.utils import logging
 
-from sentence_transformers.base.modality import format_modality, infer_batch_modality
+from sentence_transformers.base.modality import format_modality, infer_batch_modality, is_message_dict
 from sentence_transformers.base.modality_types import MODALITY_TO_PROCESSOR_ARG, Modality, PairInput, SingleInput
 from sentence_transformers.base.modules.input_module import InputModule
 from sentence_transformers.base.modules.module import Module
 from sentence_transformers.util import import_module_class, load_dir_path
+from sentence_transformers.util.file_io import _validate_relative_path
 
 if TYPE_CHECKING:
     from sentence_transformers.base.model import BaseModel
@@ -553,13 +554,17 @@ class Router(InputModule):
         model_lookup = {}
         model_types = {}
         model_structure = {}
+        model_ids = {}
 
         for name, models in self.sub_modules.items():
             model_structure[name] = []
             for module_idx, model in enumerate(models):
-                model_id = f"{name}_{module_idx}_{type(model).__name__}"
-                model_lookup[model_id] = model
-                model_types[model_id] = f"{type(model).__module__}.{type(model).__name__}"
+                model_id = model_ids.get(id(model))
+                if model_id is None:
+                    model_id = f"{name}_{module_idx}_{type(model).__name__}"
+                    model_ids[id(model)] = model_id
+                    model_lookup[model_id] = model
+                    model_types[model_id] = f"{type(model).__module__}.{type(model).__name__}"
                 model_structure[name].append(model_id)
 
         for model_id, model in model_lookup.items():
@@ -604,8 +609,13 @@ class Router(InputModule):
         if inputs and isinstance(inputs[0], dict) and task is None:
             # Extract the task type key from the dictionaries
             dict_keys = set(key for text in inputs for key in text.keys())
-            # If the input keys are not modalities, they might be task types from backwards compatibility
-            if not (dict_keys & set(MODALITY_TO_PROCESSOR_ARG.keys())):
+            # Only treat dict keys as legacy task names if the inputs are not modality dicts,
+            # audio/video wrappers, or chat messages.
+            if not (dict_keys & set(MODALITY_TO_PROCESSOR_ARG.keys())) and not any(
+                ("array" in sample and ("sampling_rate" in sample or "video_metadata" in sample))
+                or is_message_dict(sample)
+                for sample in inputs
+            ):
                 if len(dict_keys) > 1:
                     raise ValueError(
                         "You cannot pass a list of dictionaries with different task types. "
@@ -660,6 +670,9 @@ class Router(InputModule):
             config = cls.load_config(
                 model_name_or_path=model_name_or_path, config_filename="config.json", subfolder=subfolder, **hub_kwargs
             )
+        for model_id in config["types"]:
+            _validate_relative_path(model_id)
+
         modules = {}
         for model_id, model_type in config["types"].items():
             module_class: type[Module] = module_classes.get(model_type) or import_module_class(
@@ -741,6 +754,10 @@ class Router(InputModule):
         has_max_seq_length_keys = []
         for key, models in self.sub_modules.items():
             if models and hasattr(models[0], "max_seq_length"):
+                # Skip modules with max_seq_length properties that have no setter, like StaticEmbedding
+                max_seq_length_attr = getattr(type(models[0]), "max_seq_length", None)
+                if isinstance(max_seq_length_attr, property) and max_seq_length_attr.fset is None:
+                    continue
                 has_max_seq_length_keys.append(key)
 
         if len(has_max_seq_length_keys) == 0:

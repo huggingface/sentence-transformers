@@ -19,12 +19,12 @@ logger = logging.getLogger(__name__)
 class CrossEncoderCorrelationEvaluator(BaseEvaluator):
     """
     This evaluator can be used with the CrossEncoder class. Given sentence pairs and continuous scores,
-    it compute the pearson & spearman correlation between the predicted score for the sentence pair
+    it computes the Pearson & Spearman correlation between the predicted score for the sentence pair
     and the gold score.
 
     Args:
         sentence_pairs (List[List[str]]): A list of sentence pairs with each element being a list of two strings.
-        labels (List[int]): A list of integers with the gold labels for each sentence pair.
+        scores (List[float]): A list of scores with the gold score for each sentence pair.
         name (str): Name of the evaluator, useful for the generated model card.
         prompt_name (str, optional): The name of the prompt to use when calling ``model.predict()``.
             Must be a key in the model's ``prompts`` dictionary. Defaults to None.
@@ -114,7 +114,7 @@ class CrossEncoderCorrelationEvaluator(BaseEvaluator):
             prompt_name=self.prompt_name,
             batch_size=self.batch_size,
             convert_to_numpy=True,
-            show_progress_bar=False,
+            show_progress_bar=self.show_progress_bar,
         )
 
         eval_pearson, _ = pearsonr(self.scores, pred_scores)
@@ -126,7 +126,7 @@ class CrossEncoderCorrelationEvaluator(BaseEvaluator):
             os.makedirs(output_path, exist_ok=True)
             csv_path = os.path.join(output_path, self.csv_file)
             output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, mode="a" if output_file_exists else "w", encoding="utf-8") as f:
+            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 if not output_file_exists:
                     writer.writerow(self.csv_headers)

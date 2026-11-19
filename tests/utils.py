@@ -15,6 +15,11 @@ skip_bfloat16_cpu_crash = pytest.mark.skipif(
     reason="bfloat16 CPU matmul hard-crashes (0xc000001d) on some Windows machines with torch>=2.13.",
 )
 
+skip_fp16_cpu_layer_norm = pytest.mark.skipif(
+    Version(torch.__version__) < Version("2.3"),
+    reason="FP16 CPU LayerNorm requires torch>=2.3.",
+)
+
 # A chat template in the style of instruct backbones: branches on the chat roles only, so the
 # query/document roles that pairs are mapped to render to nothing.
 GENERIC_INSTRUCT_TEMPLATE = (

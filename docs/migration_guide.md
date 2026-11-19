@@ -266,9 +266,9 @@ The ``tokenizer_kwargs`` parameter on :class:`~sentence_transformers.sentence_tr
    * - ``CrossEncoder("model", 1, 512, nn.Sigmoid(), "cuda")``
      - ``CrossEncoder("model", num_labels=1, max_length=512, activation_fn=nn.Sigmoid(), device="cuda")``
 
-       ``num_labels``, ``max_length``, ``activation_fn``, and ``device`` are now keyword-only arguments.
+       All arguments after ``model_name_or_path`` are now keyword-only.
 
-       Passing them positionally still works but emits a deprecation warning.
+       Arguments accepted positionally in v5.3 still work in their original order but emit deprecation warnings.
 
 .. list-table:: Other CrossEncoder changes
    :widths: 50 50

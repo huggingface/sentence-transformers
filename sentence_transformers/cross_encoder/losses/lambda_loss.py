@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 import torch
@@ -134,7 +135,8 @@ class LambdaLoss(nn.Module):
 
                 Defaults to NDCGLoss2PPScheme. In the original LambdaLoss paper, the NDCGLoss2PPScheme was shown to reach
                 the strongest performance, with the NDCGLoss2Scheme following closely.
-            k (int, optional): Number of documents to consider for NDCG@K. Defaults to None (use all documents).
+            k (int, optional): Number of documents to consider for NDCG@K. A document pair contributes to the loss if
+                at least one of the two documents is in the model's top K. Defaults to None (use all documents).
             sigma (float): Score difference weight used in sigmoid
             eps (float): Small constant for numerical stability
             reduction_log (str): Type of logarithm to use
@@ -228,6 +230,8 @@ class LambdaLoss(nn.Module):
         Args:
             inputs: List of (queries, documents_list)
             labels: Ground truth relevance scores, shape (batch_size, num_documents)
+            prompt: Optional prompt passed to the model's preprocessing of the (query, document) pairs.
+            task: Optional task passed to the model's preprocessing of the (query, document) pairs.
 
         Returns:
             Tensor: LambdaLoss loss over the batch
@@ -294,10 +298,11 @@ class LambdaLoss(nn.Module):
         if not isinstance(self.weighting_scheme, NDCGLoss1Scheme):
             padded_pairs_mask = padded_pairs_mask & (true_diffs > 0)
 
-        # Create truncation mask if k is specified
+        # Keep pairs with either document in the top k (LambdaLoss paper, Eq. 18).
         k = self.k or max_docs
         ndcg_at_k_mask = torch.zeros((max_docs, max_docs), dtype=torch.bool, device=self.model.device)
-        ndcg_at_k_mask[:k, :k] = 1
+        ndcg_at_k_mask[:k, :] = 1
+        ndcg_at_k_mask[:, :k] = 1
 
         # Calculate gains and discounts
         true_sorted_by_preds.clamp_(min=0.0)
@@ -311,20 +316,19 @@ class LambdaLoss(nn.Module):
         # Apply weighting scheme
         weights = self.weighting_scheme(gain, discount, true_sorted_by_preds)
 
-        # Calculate scores differences and probabilities
+        # Calculate weighted log-probabilities directly to avoid underflow and
+        # preserve gradients for strongly misordered pairs.
         scores_diffs = (logits_matrix_sorted[:, :, None] - logits_matrix_sorted[:, None, :]).clamp(min=-1e8, max=1e8)
         scores_diffs.masked_fill_(torch.isnan(scores_diffs), 0.0)
-        weighted_probas = (torch.sigmoid(self.sigma * scores_diffs).clamp(min=self.eps) ** weights).clamp(min=self.eps)
+        losses = weights * nn.functional.logsigmoid(self.sigma * scores_diffs)
 
         # Calculate losses based on specified logarithm base
-        if self.reduction_log == "natural":
-            losses = torch.log(weighted_probas)
-        else:  # binary
-            losses = torch.log2(weighted_probas)
+        if self.reduction_log == "binary":
+            losses = losses / math.log(2)
 
         # Apply masks and reduction
         masked_losses = losses[padded_pairs_mask & ndcg_at_k_mask]
-        loss = -torch.mean(masked_losses)
+        loss = -masked_losses.sum() / max(masked_losses.numel(), 1)
         return loss
 
     def get_config_dict(self) -> dict[str, float | int | str | None]:

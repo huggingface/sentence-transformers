@@ -78,5 +78,7 @@ class CrossEntropyLoss(nn.Module):
         tokens = batch_to_device(tokens, self.model.device)
         logits = self.model(tokens)["scores"]
         logits = self.activation_fn(logits)
+        if not labels.is_floating_point() and labels.shape == (logits.shape[0], 1):
+            labels = labels.view(-1)
         loss = self.ce_loss(logits, labels)
         return loss
