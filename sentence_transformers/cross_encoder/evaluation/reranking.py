@@ -6,9 +6,10 @@ import os
 from typing import TYPE_CHECKING
 
 import numpy as np
-from sklearn.metrics import average_precision_score, dcg_score
+from sklearn.metrics import average_precision_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.util.metrics import _binary_ndcg, _reciprocal_rank
 
 if TYPE_CHECKING:
     from sentence_transformers.cross_encoder.model import CrossEncoder
@@ -22,6 +23,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
 
     Given a query and a list of documents, it computes the score [query, doc_i] for all possible
     documents and sorts them in decreasing order. Then, ``MRR@10``, ``NDCG@10`` and ``MAP`` are computed to measure the quality of the ranking.
+    MRR is averaged over all possible orderings of documents with equal scores.
 
     The evaluator expects a list of samples. Each sample is a dictionary with the mandatory "query" and "positive" keys,
     and either a "negative" or a "documents" key. The "query" is the search query, the "positive" is a list of relevant
@@ -310,17 +312,8 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
         if num_retrieved_positives == 0:
             return 0, 0, 0
         num_positives = max(num_positives or 0, num_retrieved_positives)
-        ranking = np.argsort(y_pred)[::-1]
-
-        mrr = 0
-        for rank, index in enumerate(ranking[0 : self.at_k]):
-            if y_true[index]:
-                mrr = 1 / (rank + 1)
-                break
-
-        dcg = dcg_score([y_true], [y_pred], k=self.at_k) if len(y_true) > 1 else y_true[0]
-        ideal_dcg = np.sum(1 / np.log2(np.arange(2, min(num_positives, self.at_k) + 2)))
-        ndcg = dcg / ideal_dcg
+        mrr = _reciprocal_rank(y_true, y_pred, k=self.at_k)
+        ndcg = _binary_ndcg(y_true, y_pred, k=self.at_k, num_positives=num_positives)
         ap = average_precision_score(y_true, y_pred) * (num_retrieved_positives / num_positives)
         return mrr, ndcg, ap
 

@@ -124,7 +124,7 @@ def test_complementary_retrievers() -> None:
 
     assert results["dense_map"] == pytest.approx(0.5)
     assert results["sparse_map"] == pytest.approx(0.5)
-    assert results["map"] == pytest.approx((0.5 + 2 / 3) / 2)
+    assert results["map"] == pytest.approx(2 / 3)
     assert results["mrr@10"] == 0.5
     assert results["ndcg@10"] == pytest.approx((1 / log2(3) + 0.5) / (1 + 1 / log2(3)))
 
@@ -132,9 +132,25 @@ def test_complementary_retrievers() -> None:
 @pytest.mark.parametrize("num_positives, expected_ap", [(None, 0.5), (2, 0.25)])
 def test_tied_scores(num_positives: int | None, expected_ap: float) -> None:
     evaluator = ReciprocalRankFusionEvaluator([], [], at_k=1, write_csv=False)
-    _, ndcg, ap = evaluator.compute_metrics([1, 0], [0.0, 0.0], num_positives)
+    mrr, ndcg, ap = evaluator.compute_metrics([1, 0], [0.0, 0.0], num_positives)
+    assert mrr == pytest.approx(0.5)
     assert ndcg == pytest.approx(0.5)
     assert ap == pytest.approx(expected_ap)
+
+
+@pytest.mark.parametrize("swap_retrievers", [False, True])
+@pytest.mark.parametrize("at_k", [1, 2, 10])
+def test_rrf_ties_average_metrics(swap_retrievers: bool, at_k: int) -> None:
+    dense = {"query_id": "q", "query": "query", "positive": ["p"], "documents": ["p", "n"]}
+    sparse = {**dense, "documents": ["n", "p"]}
+    if swap_retrievers:
+        dense, sparse = sparse, dense
+
+    results = ReciprocalRankFusionEvaluator([dense], [sparse], at_k=at_k, write_csv=False)()
+
+    assert results[f"mrr@{at_k}"] == pytest.approx(0.5 if at_k == 1 else 0.75)
+    assert results[f"ndcg@{at_k}"] == pytest.approx(0.5 if at_k == 1 else (1 + 1 / log2(3)) / 2)
+    assert results["map"] == pytest.approx(0.5)
 
 
 @pytest.mark.parametrize("documents", [["p1"], ["n1", "p1"]])
@@ -179,4 +195,4 @@ def test_rrf_ties_preserve_dense_then_sparse_input_order(tmp_path):
         prediction = json.loads(prediction_file.readline())
 
     assert prediction["documents"] == [doc for pair in zip(dense_docs, sparse_docs) for doc in pair]
-    assert results["mrr@24"] == 1.0
+    assert results["mrr@24"] == pytest.approx(0.75)

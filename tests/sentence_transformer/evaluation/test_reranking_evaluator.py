@@ -121,3 +121,42 @@ def test_reranking_evaluator_similarity(
         metrics = evaluator(current_model)
         assert metrics["mrr@1"] == score
         assert metrics["ndcg@1"] == score
+
+
+@pytest.mark.parametrize("use_batched_encoding", [True, False])
+@pytest.mark.parametrize(
+    ("positive", "negative", "at_k", "expected_mrr"),
+    [
+        pytest.param(["mid"], ["mid_tie"] * 4, 10, sum(1 / rank for rank in range(1, 6)) / 5, id="one-positive"),
+        pytest.param(["mid"], ["mid_tie"] * 20, 10, sum(1 / rank for rank in range(1, 11)) / 21, id="large-tie"),
+        pytest.param(["low", "mid", "mid"], ["high", "mid_tie", "mid_tie", "low"], 10, 29 / 72, id="mixed-scores"),
+        pytest.param(["mid"], ["high", "low"], 10, 1 / 2, id="distinct-scores"),
+    ],
+)
+def test_reranking_evaluator_mrr(
+    use_batched_encoding: bool, positive: list[str], negative: list[str], at_k: int, expected_mrr: float
+) -> None:
+    tokenizer = Tokenizer(
+        WordLevel({"[UNK]": 0, "query": 1, "low": 2, "mid": 3, "mid_tie": 4, "high": 5}, unk_token="[UNK]")
+    )
+    tokenizer.pre_tokenizer = Whitespace()
+    model = SentenceTransformer(
+        modules=[
+            StaticEmbedding(
+                tokenizer,
+                embedding_weights=torch.tensor(
+                    [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.6, 0.8], [0.6, 0.8], [1.0, 0.0]]
+                ),
+            )
+        ],
+        similarity_fn_name="cosine",
+    )
+    model.model_card_data.generate_widget_examples = False
+
+    evaluator = RerankingEvaluator(
+        samples=[{"query": "query", "positive": positive, "negative": negative}],
+        at_k=at_k,
+        write_csv=False,
+        use_batched_encoding=use_batched_encoding,
+    )
+    assert evaluator(model)[f"mrr@{at_k}"] == pytest.approx(expected_mrr)
