@@ -6,11 +6,10 @@ import logging
 import os
 
 import numpy as np
-from sklearn.metrics import average_precision_score
 from tqdm import tqdm
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.util.metrics import _binary_ndcg, _reciprocal_rank
+from sentence_transformers.util.metrics import _average_precision, _binary_ndcg, _reciprocal_rank
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +321,7 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
         num_positives = max(num_positives or 0, num_retrieved_positives)
         mrr = _reciprocal_rank(y_true, y_pred, k=self.at_k)
         ndcg = _binary_ndcg(y_true, y_pred, k=self.at_k, num_positives=num_positives)
-        ap = average_precision_score(y_true, y_pred) * (num_retrieved_positives / num_positives)
+        ap = _average_precision(y_true, y_pred) * (num_retrieved_positives / num_positives)
         return mrr, ndcg, ap
 
     def get_config_dict(self):

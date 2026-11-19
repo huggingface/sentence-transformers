@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import torch
 import tqdm
-from sklearn.metrics import average_precision_score, ndcg_score
+from sklearn.metrics import ndcg_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.util.metrics import _reciprocal_rank
+from sentence_transformers.util.metrics import _average_precision, _reciprocal_rank
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -290,7 +290,7 @@ class RerankingEvaluator(BaseEvaluator):
             all_ndcg_scores.append(ndcg_score([is_relevant], [pred_scores], k=self.at_k))
 
             # Compute AP
-            all_ap_scores.append(average_precision_score(is_relevant, pred_scores))
+            all_ap_scores.append(_average_precision(is_relevant, pred_scores))
 
         mean_ap = np.mean(all_ap_scores)
         mean_mrr = np.mean(all_mrr_scores)
@@ -340,7 +340,7 @@ class RerankingEvaluator(BaseEvaluator):
             all_ndcg_scores.append(ndcg_score([is_relevant], [pred_scores], k=self.at_k))
 
             # Compute AP
-            all_ap_scores.append(average_precision_score(is_relevant, pred_scores))
+            all_ap_scores.append(_average_precision(is_relevant, pred_scores))
 
         mean_ap = np.mean(all_ap_scores)
         mean_mrr = np.mean(all_mrr_scores)
