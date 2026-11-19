@@ -13,9 +13,18 @@ from sentence_transformers.util import binary_ndcg, reciprocal_rank
 @pytest.mark.parametrize(
     ("labels", "scores", "k", "expected"),
     [
+        pytest.param(
+            [1] + [0] * 9, [1.0] * 10, 10, sum(1 / rank for rank in range(1, 11)) / 10, id="tie-ends-at-cutoff"
+        ),
+        pytest.param([1, 0, 0, 0, 0], [1.0] * 5, 1, 1 / 5, id="top-one"),
         pytest.param([0, 1, 0, 1], [1.0] * 4, 10, 13 / 18, id="interleaved-positives"),
         pytest.param([0, 1, 0, 1], [1.0] * 4, 1, 1 / 2, id="cutoff-inside-tie"),
+        pytest.param([1, 1, 0], [1.0, 1.0, 0.0], 10, 1.0, id="only-positives-tied"),
+        pytest.param([1, 1, 1, 0, 0, 0, 0], [0, 1, 1, 2, 1, 1, 0], 2, 1 / 4, id="mixed-scores-cutoff"),
+        pytest.param([1, 0, 0, 0], [1.0, 2.0, 2.0, 1.0], 2, 0.0, id="tie-below-cutoff"),
         pytest.param([0, 1, 0], [0.9, 0.8, 0.7], 10, 1 / 2, id="distinct-scores"),
+        pytest.param([0, 1, 0], [0.9, 0.8, 0.7], 1, 0.0, id="distinct-scores-cutoff"),
+        pytest.param([1, 1, 0], [0.0, 2.0, 1.0], 10, 1.0, id="best-positive-not-first"),
         pytest.param([0, 0], [1.0, 1.0], 10, 0.0, id="no-positives"),
         pytest.param([1, 1], [1.0, 1.0], 10, 1.0, id="all-positives"),
     ],
