@@ -60,9 +60,9 @@ class BaseTrainingArguments(TransformersTrainingArguments):
                multi-dataset training/evaluation.
         learning_rate_mapping (`Dict[str, float] | None`, *optional*):
             A mapping of parameter name regular expressions to learning rates. This allows you to set different
-            learning rates for different parts of the model, e.g., `{'SparseStaticEmbedding\.*': 1e-3}` for the
-            SparseStaticEmbedding module. This is useful when you want to fine-tune specific parts of the model
-            with different learning rates.
+            learning rates for different parts of the model, e.g., `{'sub_modules\.query\.': 1e-3}` for the
+            query route of a Router, such as the SparseStaticEmbedding module of an inference-free SPLADE model.
+            This is useful when you want to fine-tune specific parts of the model with different learning rates.
         activation_checkpointing (`bool`, *optional*, defaults to `False`):
             Recompute activations during the backward pass to reduce memory usage at the cost of slower training.
             This name also works on older Transformers versions. The legacy name ``gradient_checkpointing`` is supported too.
@@ -116,7 +116,7 @@ class BaseTrainingArguments(TransformersTrainingArguments):
         metadata={
             "help": "A mapping of parameter name regular expressions to learning rates. "
             "This allows you to set different learning rates for different parts of the model, e.g., "
-            r"{'SparseStaticEmbedding\.*': 1e-3} for the SparseStaticEmbedding module."
+            r"{'sub_modules\.query\.': 1e-3} for the query route of a Router."
         },
     )
     activation_checkpointing: bool | None = field(
