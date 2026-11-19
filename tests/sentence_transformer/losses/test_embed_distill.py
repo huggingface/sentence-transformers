@@ -123,8 +123,6 @@ def test_projection_dim_matches_teacher(stsb_bert_tiny_model: SentenceTransforme
 
 @pytest.mark.parametrize("loss_cls", [EmbedDistillLoss, MSELoss])
 def test_projection_with_model_truncate_dim(stsb_bert_tiny_model: SentenceTransformer, loss_cls, tmp_path) -> None:
-    """A model-level truncate_dim only affects encode(), so the projection must accept the
-    full-dimension embeddings that the forward pass produces."""
     model = stsb_bert_tiny_model
     forward_dim = model.get_embedding_dimension()
     model.truncate_dim = 32
@@ -136,7 +134,9 @@ def test_projection_with_model_truncate_dim(stsb_bert_tiny_model: SentenceTransf
 
     path = tmp_path / "proj.safetensors"
     loss.save_projection(path)
-    loss_cls(model).load_projection(path)
+    restored_loss = loss_cls(model)
+    restored_loss.load_projection(path)
+    torch.testing.assert_close(restored_loss.projection.state_dict(), loss.projection.state_dict(), rtol=0, atol=0)
 
 
 def test_no_projection_by_default(stsb_bert_tiny_model: SentenceTransformer) -> None:

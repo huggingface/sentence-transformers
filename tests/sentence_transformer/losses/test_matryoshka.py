@@ -222,16 +222,24 @@ def test_mse_loss_matryoshka_per_column_teacher(stsb_bert_tiny_model):
     assert output.item() == pytest.approx(expected.item())
 
 
-@pytest.mark.parametrize("wrapped", [False, True], ids=["bare", "ddp_wrapped"])
+@pytest.mark.parametrize("wrapped", [False, True], ids=["bare", "wrapped"])
 def test_mse_loss_matryoshka_with_model_truncate_dim(stsb_bert_tiny_model, wrapped):
-    """A model-level truncate_dim only affects encode(), so teacher labels at the full forward
-    dimension must still be truncated to each Matryoshka dimension."""
-    model = stsb_bert_tiny_model.cpu()
-    model.truncate_dim = 32
+    from tests.sentence_transformer.losses.utils import assert_trained, gradients
+
+    model = stsb_bert_tiny_model.cpu().eval()
     loss = MatryoshkaLoss(model=model, loss=MSELoss(model=model), matryoshka_dims=[128, 64, 32])
+    texts = ["A man is eating food.", "A plane is taking off."]
+    labels = torch.randn(2, 128)
+    expected = loss([model.preprocess(texts)], labels)
+    expected.backward()
+    expected_grads = gradients(model)
+    assert_trained(expected_grads)
+    model.zero_grad()
+
+    model.truncate_dim = 32
     if wrapped:
 
-        class _FakeDDP(torch.nn.Module):
+        class ModelWrapper(torch.nn.Module):
             def __init__(self, module):
                 super().__init__()
                 self.module = module
@@ -242,13 +250,12 @@ def test_mse_loss_matryoshka_with_model_truncate_dim(stsb_bert_tiny_model, wrapp
         class _StubTrainer:
             override_model_in_loss = BaseTrainer.override_model_in_loss
 
-        _StubTrainer().override_model_in_loss(loss, _FakeDDP(model))
-    sentence_features = [model.preprocess(["A man is eating food.", "A plane is taking off."])]
-    labels = torch.randn(2, 128)
+        _StubTrainer().override_model_in_loss(loss, ModelWrapper(model))
 
-    output = loss(sentence_features, labels)
-    assert output.shape == torch.Size([])
-    assert torch.isfinite(output)
+    output = loss([model.preprocess(texts)], labels)
+    torch.testing.assert_close(output, expected)
+    output.backward()
+    torch.testing.assert_close(gradients(model), expected_grads)
 
 
 @pytest.mark.parametrize("architecture", ["concatenated_pooling", "dense_projection"])
