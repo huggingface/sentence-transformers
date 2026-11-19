@@ -100,8 +100,7 @@ class StubResponse:
 class StubQdrantClient:
     """Records the query vector of every search, and answers each one with the same single hit."""
 
-    def __init__(self, *args, **kwargs):
-        self.init_args = args
+    def __init__(self, **kwargs):
         self.init_kwargs = kwargs
         self.searched = []
         self.uploaded = []
@@ -216,7 +215,7 @@ def test_qdrant_client_kwargs(stub_qdrant_module, kwargs, expected_client_kwargs
     assert client.init_kwargs == expected_client_kwargs
 
 
-class StubElasticsearchIndices:
+class StubSearchIndices:
     def create(self, *args, **kwargs):
         pass
 
@@ -224,100 +223,59 @@ class StubElasticsearchIndices:
         pass
 
 
-class StubElasticsearchClient:
-    def __init__(self, *args, **kwargs):
-        self.init_args = args
+class StubSearchClient:
+    def __init__(self, hosts=None, **kwargs):
+        self.hosts = hosts
         self.init_kwargs = kwargs
-        self.indices = StubElasticsearchIndices()
+        self.indices = StubSearchIndices()
 
     def search(self, *args, **kwargs):
         return {"hits": {"hits": [{"_id": "0", "_score": 1.0}]}}
 
 
 @pytest.fixture
-def stub_elasticsearch_module(monkeypatch):
-    """Elasticsearch is not a test dependency, so stand in for the imports that the function performs."""
-    module = types.ModuleType("elasticsearch")
-    module.Elasticsearch = StubElasticsearchClient
-    helpers = types.ModuleType("elasticsearch.helpers")
-    helpers.bulk = lambda es, actions: None
-    module.helpers = helpers
-    monkeypatch.setitem(sys.modules, "elasticsearch", module)
-    monkeypatch.setitem(sys.modules, "elasticsearch.helpers", helpers)
+def stub_search_clients(monkeypatch):
+    for module_name, client_name in [("elasticsearch", "Elasticsearch"), ("opensearchpy", "OpenSearch")]:
+        module = types.ModuleType(module_name)
+        setattr(module, client_name, StubSearchClient)
+        helpers = types.ModuleType(f"{module_name}.helpers")
+        helpers.bulk = lambda client, actions: None
+        module.helpers = helpers
+        monkeypatch.setitem(sys.modules, module_name, module)
+        monkeypatch.setitem(sys.modules, f"{module_name}.helpers", helpers)
 
 
 @pytest.mark.parametrize(
-    "kwargs, expected_client_kwargs",
-    [
-        ({}, {"hosts": "http://localhost:9200"}),
-        ({"hosts": "https://custom.es:9200"}, {"hosts": "https://custom.es:9200"}),
-        (
-            {"hosts": ["https://node1:9200", "https://node2:9200"]},
-            {"hosts": ["https://node1:9200", "https://node2:9200"]},
-        ),
-        ({"cloud_id": "deployment:id", "api_key": "secret"}, {"cloud_id": "deployment:id", "api_key": "secret"}),
-    ],
+    "search", [semantic_search_elasticsearch, semantic_search_opensearch], ids=["elasticsearch", "opensearch"]
 )
-def test_elasticsearch_client_kwargs(stub_elasticsearch_module, kwargs, expected_client_kwargs) -> None:
-    corpus = [[("apple", 0.8)]]
-    query = [[("apple", 1.0)]]
-
-    results, _, (client, _) = semantic_search_elasticsearch(
-        query, corpus_embeddings_decoded=corpus, output_index=True, **kwargs
-    )
-
-    assert results == [[{"corpus_id": 0, "score": 1.0}]]
-    assert client.init_kwargs == expected_client_kwargs
-
-
-class StubOpenSearchIndices:
-    def create(self, *args, **kwargs):
-        pass
-
-    def refresh(self, *args, **kwargs):
-        pass
-
-
-class StubOpenSearchClient:
-    def __init__(self, *args, **kwargs):
-        self.init_args = args
-        self.init_kwargs = kwargs
-        self.indices = StubOpenSearchIndices()
-
-    def search(self, *args, **kwargs):
-        return {"hits": {"hits": [{"_id": "0", "_score": 1.0}]}}
-
-
-@pytest.fixture
-def stub_opensearch_module(monkeypatch):
-    """OpenSearch is not a test dependency, so stand in for the imports that the function performs."""
-    module = types.ModuleType("opensearchpy")
-    module.OpenSearch = StubOpenSearchClient
-    helpers = types.ModuleType("opensearchpy.helpers")
-    helpers.bulk = lambda client, actions: None
-    module.helpers = helpers
-    monkeypatch.setitem(sys.modules, "opensearchpy", module)
-    monkeypatch.setitem(sys.modules, "opensearchpy.helpers", helpers)
-
-
 @pytest.mark.parametrize(
-    "kwargs, expected_client_kwargs",
+    "hosts",
     [
-        ({}, {"hosts": "http://localhost:9200"}),
-        ({"hosts": "https://custom.opensearch:9200"}, {"hosts": "https://custom.opensearch:9200"}),
-        (
-            {"hosts": [{"host": "os.internal", "port": 9200}], "http_auth": ("admin", "admin")},
-            {"hosts": [{"host": "os.internal", "port": 9200}], "http_auth": ("admin", "admin")},
-        ),
+        None,
+        "https://custom:9200",
+        ["https://node1:9200", "https://node2:9200"],
+        [{"host": "remotehost", "port": 9200}],
     ],
 )
-def test_opensearch_client_kwargs(stub_opensearch_module, kwargs, expected_client_kwargs) -> None:
+def test_search_client_hosts(stub_search_clients, search, hosts) -> None:
+    corpus = [[("apple", 0.8)]]
+    query = [[("apple", 1.0)]]
+    kwargs = {} if hosts is None else {"hosts": hosts}
+
+    _, _, (client, _) = search(query, corpus_embeddings_decoded=corpus, output_index=True, verify_certs=True, **kwargs)
+
+    assert client.hosts == ("http://localhost:9200" if hosts is None else hosts)
+    assert client.init_kwargs == {"verify_certs": True}
+
+
+@pytest.mark.parametrize("cloud_id, expected_hosts", [(None, "http://localhost:9200"), ("deployment:id", None)])
+def test_elasticsearch_client_cloud_id(stub_search_clients, cloud_id, expected_hosts) -> None:
     corpus = [[("apple", 0.8)]]
     query = [[("apple", 1.0)]]
 
-    results, _, (client, _) = semantic_search_opensearch(
-        query, corpus_embeddings_decoded=corpus, output_index=True, **kwargs
+    _, _, (client, _) = semantic_search_elasticsearch(
+        query, corpus_embeddings_decoded=corpus, output_index=True, cloud_id=cloud_id, api_key="secret"
     )
 
-    assert results == [[{"corpus_id": 0, "score": 1.0}]]
-    assert client.init_kwargs == expected_client_kwargs
+    assert client.hosts == expected_hosts
+    assert client.init_kwargs == {"cloud_id": cloud_id, "api_key": "secret"}
