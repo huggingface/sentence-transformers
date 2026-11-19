@@ -30,6 +30,10 @@ If you are using the <a href="../package_reference/sparse_encoder/modules.html#s
 1. Main loss: Supports all the losses from the <a href="#loss-table">Loss Table</a> and <a href="#distillation">Distillation</a>, with <a href="../package_reference/sparse_encoder/losses.html#sparsemultiplenegativesrankingloss"><code>SparseMultipleNegativesRankingLoss</code></a> used in the CSR Paper.
 2. Reconstruction loss: <a href="../package_reference/sparse_encoder/losses.html#csrreconstructionloss"><code>CSRReconstructionLoss</code></a> is used to ensure that sparse representation can faithfully reconstruct the original dense embeddings.
 
+### Sparse Matryoshka Loss
+
+The <a href="../package_reference/sparse_encoder/losses.html#sparsematryoshkaloss"><code>SparseMatryoshkaLoss</code></a> is a loss modifier for models whose embeddings are pruned at inference time with `max_active_dims`, to reduce the index size and the retrieval latency. It wraps a main loss, and computes it at several sparsity budgets by keeping only the largest values of each embedding, optionally with separate budgets for queries and documents. It is used as the main loss of a <a href="../package_reference/sparse_encoder/losses.html#spladeloss"><code>SpladeLoss</code></a>, <a href="../package_reference/sparse_encoder/losses.html#cachedspladeloss"><code>CachedSpladeLoss</code></a> or <a href="../package_reference/sparse_encoder/losses.html#csrloss"><code>CSRLoss</code></a>, whose regularizers still act on the unpruned embeddings.
+
 ## Loss Table
 
 Loss functions play a critical role in the performance of your fine-tuned model. Sadly, there is no "one size fits all" loss function. Ideally, this table should help narrow down your choice of loss function(s) by matching them to your data formats.
