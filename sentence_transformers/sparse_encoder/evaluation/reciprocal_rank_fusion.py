@@ -10,6 +10,7 @@ from sklearn.metrics import average_precision_score, ndcg_score
 from tqdm import tqdm
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.util import reciprocal_rank
 
 logger = logging.getLogger(__name__)
 
@@ -322,22 +323,10 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
         return metrics
 
     def compute_metrics(self, y_true, y_pred):
-        """Compute MRR, NDCG, and AP metrics using sklearn"""
-        ranking = np.argsort(y_pred)[::-1]
-
-        # Calculate MRR@k
-        mrr = 0
-        for rank, index in enumerate(ranking[0 : self.at_k]):
-            if y_true[index]:
-                mrr = 1 / (rank + 1)
-                break
-
-        # Calculate NDCG@k
+        """Compute MRR, NDCG, and AP."""
+        mrr = reciprocal_rank(y_true, y_pred, k=self.at_k)
         ndcg = ndcg_score([y_true], [y_pred], k=self.at_k)
-
-        # Calculate MAP
         ap = average_precision_score(y_true, y_pred)
-
         return mrr, ndcg, ap
 
     def get_config_dict(self):

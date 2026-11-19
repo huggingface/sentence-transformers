@@ -12,7 +12,7 @@ import tqdm
 from sklearn.metrics import average_precision_score, ndcg_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.util import cos_sim
+from sentence_transformers.util import cos_sim, reciprocal_rank
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -30,6 +30,7 @@ class RerankingEvaluator(BaseEvaluator):
 
     Given a query and a list of documents, it computes the score [query, doc_i] for all possible
     documents and sorts them in decreasing order. Then, MRR@10, NDCG@10 and MAP is compute to measure the quality of the ranking.
+    MRR is averaged over all possible orderings of documents with equal scores.
 
     Args:
         samples (list): A list of dictionaries, where each dictionary represents a sample and has the following keys:
@@ -267,13 +268,9 @@ class RerankingEvaluator(BaseEvaluator):
 
             pred_scores = pred_scores.cpu().tolist()
 
-            # Compute MRR score: rank the best-scoring positive pessimistically, i.e. tied
-            # negatives count as ranked above it, so tied scores cannot inflate MRR.
+            # Compute MRR score
             is_relevant = [1] * num_pos + [0] * num_neg
-            best_positive_score = max(pred_scores[:num_pos])
-            rank = 1 + sum(score >= best_positive_score for score in pred_scores[num_pos:])
-            mrr_score = 1 / rank if rank <= self.at_k else 0
-            all_mrr_scores.append(mrr_score)
+            all_mrr_scores.append(reciprocal_rank(is_relevant, pred_scores, k=self.at_k))
 
             # Compute NDCG score
             all_ndcg_scores.append(ndcg_score([is_relevant], [pred_scores], k=self.at_k))
@@ -321,12 +318,8 @@ class RerankingEvaluator(BaseEvaluator):
 
             pred_scores = pred_scores.cpu().tolist()
 
-            # Compute MRR score: rank the best-scoring positive pessimistically, i.e. tied
-            # negatives count as ranked above it, so tied scores cannot inflate MRR.
-            best_positive_score = max(pred_scores[: len(positive)])
-            rank = 1 + sum(score >= best_positive_score for score in pred_scores[len(positive) :])
-            mrr_score = 1 / rank if rank <= self.at_k else 0
-            all_mrr_scores.append(mrr_score)
+            # Compute MRR score
+            all_mrr_scores.append(reciprocal_rank(is_relevant, pred_scores, k=self.at_k))
 
             # Compute NDCG score
             all_ndcg_scores.append(ndcg_score([is_relevant], [pred_scores], k=self.at_k))

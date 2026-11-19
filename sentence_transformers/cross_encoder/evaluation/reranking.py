@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.metrics import average_precision_score, ndcg_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.util import reciprocal_rank
 
 if TYPE_CHECKING:
     from sentence_transformers.cross_encoder.model import CrossEncoder
@@ -22,6 +23,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
 
     Given a query and a list of documents, it computes the score [query, doc_i] for all possible
     documents and sorts them in decreasing order. Then, ``MRR@10``, ``NDCG@10`` and ``MAP`` are computed to measure the quality of the ranking.
+    MRR is averaged over all possible orderings of documents with equal scores.
 
     The evaluator expects a list of samples. Each sample is a dictionary with the mandatory "query" and "positive" keys,
     and either a "negative" or a "documents" key. The "query" is the search query, the "positive" is a list of relevant
@@ -308,14 +310,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
         return metrics
 
     def compute_metrics(self, y_true, y_pred):
-        ranking = np.argsort(y_pred)[::-1]
-
-        mrr = 0
-        for rank, index in enumerate(ranking[0 : self.at_k]):
-            if y_true[index]:
-                mrr = 1 / (rank + 1)
-                break
-
+        mrr = reciprocal_rank(y_true, y_pred, k=self.at_k)
         ndcg = ndcg_score([y_true], [y_pred], k=self.at_k)
         ap = average_precision_score(y_true, y_pred)
         return mrr, ndcg, ap
