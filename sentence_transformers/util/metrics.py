@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.metrics import dcg_score
 
 
-def reciprocal_rank(y_true: list[int] | np.ndarray, y_score: list[float] | np.ndarray, k: int) -> float:
+def _reciprocal_rank(y_true: list[int] | np.ndarray, y_score: list[float] | np.ndarray, k: int) -> float:
     """Compute reciprocal rank at k for one query, averaged over all orderings of tied scores.
 
     Args:
@@ -34,7 +34,7 @@ def reciprocal_rank(y_true: list[int] | np.ndarray, y_score: list[float] | np.nd
     return rr_score
 
 
-def binary_ndcg(
+def _binary_ndcg(
     y_true: list[int] | np.ndarray,
     y_score: list[float] | np.ndarray,
     k: int,

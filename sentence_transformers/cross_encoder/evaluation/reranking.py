@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.metrics import average_precision_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.util import binary_ndcg, reciprocal_rank
+from sentence_transformers.util.metrics import _binary_ndcg, _reciprocal_rank
 
 if TYPE_CHECKING:
     from sentence_transformers.cross_encoder.model import CrossEncoder
@@ -312,8 +312,8 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
         if num_retrieved_positives == 0:
             return 0, 0, 0
         num_positives = max(num_positives or 0, num_retrieved_positives)
-        mrr = reciprocal_rank(y_true, y_pred, k=self.at_k)
-        ndcg = binary_ndcg(y_true, y_pred, k=self.at_k, num_positives=num_positives)
+        mrr = _reciprocal_rank(y_true, y_pred, k=self.at_k)
+        ndcg = _binary_ndcg(y_true, y_pred, k=self.at_k, num_positives=num_positives)
         ap = average_precision_score(y_true, y_pred) * (num_retrieved_positives / num_positives)
         return mrr, ndcg, ap
 

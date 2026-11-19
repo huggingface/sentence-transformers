@@ -12,7 +12,7 @@ import tqdm
 from sklearn.metrics import average_precision_score, ndcg_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
-from sentence_transformers.util import reciprocal_rank
+from sentence_transformers.util.metrics import _reciprocal_rank
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -284,7 +284,7 @@ class RerankingEvaluator(BaseEvaluator):
 
             # Compute MRR score
             is_relevant = [1] * num_pos + [0] * num_neg
-            all_mrr_scores.append(reciprocal_rank(is_relevant, pred_scores, k=self.at_k))
+            all_mrr_scores.append(_reciprocal_rank(is_relevant, pred_scores, k=self.at_k))
 
             # Compute NDCG score
             all_ndcg_scores.append(ndcg_score([is_relevant], [pred_scores], k=self.at_k))
@@ -334,7 +334,7 @@ class RerankingEvaluator(BaseEvaluator):
             pred_scores = pred_scores.cpu().tolist()
 
             # Compute MRR score
-            all_mrr_scores.append(reciprocal_rank(is_relevant, pred_scores, k=self.at_k))
+            all_mrr_scores.append(_reciprocal_rank(is_relevant, pred_scores, k=self.at_k))
 
             # Compute NDCG score
             all_ndcg_scores.append(ndcg_score([is_relevant], [pred_scores], k=self.at_k))
