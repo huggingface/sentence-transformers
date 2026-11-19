@@ -1193,8 +1193,6 @@ def test_trainer_call_model_init_multi_loss(
 
 
 def test_trainer_same_dataset_under_multiple_names(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
-    """One Dataset passed under several names (e.g. a main loss plus a regularizer on the same data) must be
-    tagged with each name, rather than every copy being tagged with the last one."""
     model = stsb_bert_tiny_model
     dataset = Dataset.from_dict({"anchor": ["a", "b"], "positive": ["c", "d"]})
     dataset.set_transform(lambda batch: {column: [text.upper() for text in texts] for column, texts in batch.items()})
@@ -1211,9 +1209,8 @@ def test_trainer_same_dataset_under_multiple_names(stsb_bert_tiny_model: Sentenc
 
     for split in (trainer.train_dataset, trainer.eval_dataset):
         for dataset_name in ("main", "regularizer"):
-            # The existing transform is kept, and the dataset name is added on top of it
             assert split[dataset_name][0] == {"anchor": "A", "positive": "C", "dataset_name": dataset_name}
-    # The dataset passed by the user is not modified
+
     assert dataset[0] == {"anchor": "A", "positive": "C"}
 
 

@@ -1162,8 +1162,7 @@ class BaseTrainer(Trainer, ABC):
         if dataset_name is None:
             return dataset
 
-        # If we have a Dataset, we can add the transform to a copy, as the same Dataset may be used under several
-        # names, and the Arrow table is shared rather than copied...
+        # If we have a Dataset, we can add the transform to a copy...
         if isinstance(dataset, Dataset):
             dataset = dataset.with_transform(
                 partial(
@@ -1214,7 +1213,7 @@ class BaseTrainer(Trainer, ABC):
         Returns:
             dict[str, list[Any]]: The "just-in-time" transformed batch with the dataset name added.
         """
-        # If the dataset is a Dataset(Dict), then we use set_transform and we want to also apply any
+        # If the dataset is a Dataset(Dict), then we use with_transform and we want to also apply any
         # previous transform if it exists
         if transform:
             batch = transform(batch)
