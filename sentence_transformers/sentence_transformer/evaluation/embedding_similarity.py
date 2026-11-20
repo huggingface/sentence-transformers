@@ -100,8 +100,13 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
         self.precision = precision
         self.truncate_dim = truncate_dim
 
-        assert len(self.sentences1) == len(self.sentences2)
-        assert len(self.sentences1) == len(self.scores)
+        if not (len(self.sentences1) == len(self.sentences2) == len(self.scores)):
+            raise ValueError(
+                f"sentences1 ({len(self.sentences1)}), sentences2 ({len(self.sentences2)}) and scores "
+                f"({len(self.scores)}) must have the same length."
+            )
+        if len(self.sentences1) == 0:
+            raise ValueError("EmbeddingSimilarityEvaluator needs at least one sentence pair with a score.")
 
         self.main_similarity = SimilarityFunction(main_similarity) if main_similarity else None
         self.similarity_fn_names = similarity_fn_names or []

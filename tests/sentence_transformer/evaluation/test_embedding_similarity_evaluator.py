@@ -10,6 +10,7 @@ import pytest
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.sentence_transformer.modules import BoW
+from sentence_transformers.sparse_encoder.evaluation import SparseEmbeddingSimilarityEvaluator
 
 SENTENCES1 = ["A person on a horse jumps over a broken down airplane.", "Children smiling and waving at camera"]
 SENTENCES2 = ["A person is outdoors, on a horse.", "A person is at a diner, ordering an omelette."]
@@ -62,3 +63,17 @@ def test_embedding_similarity_evaluator_shared_quantization_ranges(precision: st
     )
 
     assert reversed_evaluator(model) == pytest.approx(metrics)
+
+
+@pytest.mark.parametrize("evaluator_cls", [EmbeddingSimilarityEvaluator, SparseEmbeddingSimilarityEvaluator])
+@pytest.mark.parametrize(
+    ("sentences1", "sentences2", "scores", "message"),
+    [
+        ([], [], [], "at least one"),
+        (["a"], ["b", "c"], [0.5], "must have the same length"),
+        (["a"], ["b"], [0.5, 1.0], "must have the same length"),
+    ],
+)
+def test_embedding_similarity_rejects_invalid_inputs(evaluator_cls, sentences1, sentences2, scores, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        evaluator_cls(sentences1, sentences2, scores)
