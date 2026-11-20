@@ -157,6 +157,8 @@ class BaseTrainer(Trainer, ABC):
     model_card_callback_class = BaseModelCardCallback
     data_collator_class = BaseDataCollator
     training_args_class = BaseTrainingArguments
+    # Batch keys used internally, so dataset columns with these names would be overwritten or dropped
+    reserved_column_names: tuple[str, ...] = ("return_loss", "dataset_name")
 
     @deprecated_kwargs(tokenizer="processing_class")
     def __init__(
@@ -722,7 +724,7 @@ class BaseTrainer(Trainer, ABC):
                 self.validate_column_names(dataset, dataset_name=dataset_name)
             return
 
-        if overlap := set(dataset.column_names) & {"return_loss", "dataset_name"}:
+        if overlap := set(dataset.column_names) & set(self.reserved_column_names):
             raise ValueError(
                 f"The following column names are invalid in your {dataset_name + ' ' if dataset_name else ''}dataset: {list(overlap)}."
                 " Avoid using these column names, as they are reserved for internal use."

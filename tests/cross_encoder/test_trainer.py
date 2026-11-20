@@ -90,6 +90,27 @@ def test_trainer_multi_dataset_errors(reranker_bert_tiny_model: CrossEncoder, st
         )
 
 
+@pytest.mark.parametrize("column_name", ["prompt", "task"])
+def test_trainer_invalid_column_names(reranker_bert_tiny_model: CrossEncoder, column_name: str) -> None:
+    # The collator passes the resolved prompt and task under these keys, so a dataset column with either
+    # name would be popped from the inputs and silently dropped from the training pairs.
+    train_dataset = Dataset.from_dict(
+        {
+            column_name: ["What is a cat?", "How tall is Everest?"],
+            "response": ["A feline.", "8849 m."],
+            "label": [1, 1],
+        }
+    )
+    with pytest.raises(ValueError, match=f"invalid in your train dataset: \\['{column_name}'\\]"):
+        CrossEncoderTrainer(model=reranker_bert_tiny_model, train_dataset=train_dataset)
+
+    trainer = CrossEncoderTrainer(
+        model=reranker_bert_tiny_model, train_dataset=train_dataset.rename_column(column_name, "query")
+    )
+    with pytest.raises(ValueError, match=f"invalid in your eval dataset: \\['{column_name}'\\]"):
+        trainer.evaluate(eval_dataset=train_dataset)
+
+
 def test_model_card_reuse(reranker_bert_tiny_model_v54: CrossEncoder):
     model = reranker_bert_tiny_model_v54
     assert model._model_card_text
