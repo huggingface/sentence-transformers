@@ -24,6 +24,7 @@ from .misc import (
     fullname,
     import_from_string,
     import_module_class,
+    min_max_normalize,
     similarity_fct_name,
 )
 from .quantization import quantize_embeddings
@@ -97,6 +98,7 @@ __all__ = [
     "fullname",
     "similarity_fct_name",
     "check_teacher_targets",
+    "min_max_normalize",
     "import_from_string",
     "import_module_class",
     "disable_datasets_caching",

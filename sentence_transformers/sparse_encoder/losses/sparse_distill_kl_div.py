@@ -17,6 +17,8 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
         temperature: float = 2.0,
         student_temperature: float | None = None,
         teacher_temperature: float | None = None,
+        normalize_student: bool = False,
+        normalize_teacher: bool = False,
     ) -> None:
         """
         Compute the KL divergence loss between probability distributions derived from student and teacher models' similarity scores.
@@ -38,6 +40,10 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
             teacher_temperature: Teacher-side override of ``temperature``. Match it to the spread of
                 your teacher's scores: dividing by a temperature well below that spread collapses the
                 target to one-hot and destroys the ranking information being distilled. Defaults to None.
+            normalize_student: Whether to min-max normalize each row of student scores to [0, 1] before
+                the temperature and softmax. Defaults to False.
+            normalize_teacher: Whether to min-max normalize each row of teacher scores to [0, 1] before
+                the temperature and softmax. Defaults to False.
 
         References:
             - For more details, please refer to https://huggingface.co/papers/2010.11386
@@ -152,6 +158,8 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
             temperature=temperature,
             student_temperature=student_temperature,
             teacher_temperature=teacher_temperature,
+            normalize_student=normalize_student,
+            normalize_teacher=normalize_teacher,
         )
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
