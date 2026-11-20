@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import queue
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from unittest.mock import Mock
 
 import numpy as np
@@ -13,6 +15,81 @@ from tests.utils import CrashingModel
 # These tests fail if optimum.intel.openvino is imported, because openvinotoolkit/nncf
 # patches torch._C._nn.gelu in a way that breaks pickling. As a result, we may have issues
 # when running both backend tests and multi-process tests in the same session.
+
+
+@pytest.mark.parametrize("pool_kind", ["same", "copy", "different"])
+@pytest.mark.parametrize("same_model", [True, False])
+def test_encode_rejects_concurrent_calls_to_the_same_pool(pool_kind, same_model):
+    model = SentenceTransformer(modules=[torch.nn.Identity()], device="cpu")
+    second_model = model if same_model else SentenceTransformer(modules=[torch.nn.Identity()], device="cpu")
+    waiting_for_result, release_result = Event(), Event()
+
+    class HeldResults(queue.Queue):
+        def get(self, *args, **kwargs):
+            if not waiting_for_result.is_set():
+                waiting_for_result.set()
+                assert release_result.wait(timeout=10)
+            return super().get(*args, **kwargs)
+
+    pool = {"input": queue.Queue(), "output": HeldResults(), "processes": [None]}
+    pool["output"].put([0, torch.tensor([[1.0]])])
+    pool["output"].put([0, torch.tensor([[2.0]])])
+    second_pool = pool.copy() if pool_kind == "copy" else pool
+    if pool_kind == "different":
+        second_pool = {"input": queue.Queue(), "output": queue.Queue(), "processes": [None]}
+        second_pool["output"].put([0, torch.tensor([[3.0]])])
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        first = executor.submit(model.encode, ["first"], pool=pool, chunk_size=1, show_progress_bar=False)
+        try:
+            assert waiting_for_result.wait(timeout=10)
+            if pool_kind == "different":
+                result = second_model.encode(["other"], pool=second_pool, chunk_size=1, show_progress_bar=False)
+                np.testing.assert_array_equal(result, [[3.0]])
+            else:
+                with pytest.raises(RuntimeError, match="already in use"):
+                    second_model.encode(["second"], pool=second_pool, chunk_size=1, show_progress_bar=False)
+            assert pool["input"].qsize() == 1
+        finally:
+            release_result.set()
+        np.testing.assert_array_equal(first.result(timeout=10), [[1.0]])
+
+    result = model.encode(["second"], pool=pool, chunk_size=1, show_progress_bar=False)
+    np.testing.assert_array_equal(result, [[2.0]])
+
+
+@pytest.mark.slow
+def test_concurrent_encode_preserves_real_pool_results(stsb_bert_tiny_model: SentenceTransformer):
+    model = stsb_bert_tiny_model
+    texts = ["First sentence.", "Second sentence."]
+    waiting_for_result, release_result = Event(), Event()
+    pool = model.start_multi_process_pool(["cpu"])
+    output_queue = pool["output"]
+
+    class HeldResults:
+        def get(self, *args, **kwargs):
+            if not waiting_for_result.is_set():
+                waiting_for_result.set()
+                assert release_result.wait(timeout=60)
+            return output_queue.get(*args, **kwargs)
+
+    try:
+        expected = model.encode(texts, pool=pool, chunk_size=2, show_progress_bar=False)
+        pool["output"] = HeldResults()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            first = executor.submit(model.encode, texts, pool=pool, chunk_size=2, show_progress_bar=False)
+            try:
+                assert waiting_for_result.wait(timeout=60)
+                with pytest.raises(RuntimeError, match="already in use"):
+                    model.encode(texts + texts[:1], pool=pool, chunk_size=2, show_progress_bar=False)
+            finally:
+                release_result.set()
+            np.testing.assert_array_equal(first.result(timeout=60), expected)
+
+        result = model.encode(texts, pool=pool, chunk_size=2, show_progress_bar=False)
+        np.testing.assert_array_equal(result, expected)
+    finally:
+        pool["output"] = output_queue
+        model.stop_multi_process_pool(pool)
 
 
 @pytest.mark.parametrize("failed_worker", [0, 1])
