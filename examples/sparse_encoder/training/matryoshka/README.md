@@ -59,7 +59,7 @@ The following results compare the final checkpoints of the [baseline model](http
 | 128 | 45.26 | **53.68** | 14.40 | 8.73 |
 | 64 | 40.03 | **51.74** | 9.15 | 4.92 |
 
-<img src="results.png" alt="Retrieval quality against estimated scoring work, with points labeled by active dimension budget" width="800">
+<img src="../../../../docs/img/sparse_matryoshka_results.png" alt="Retrieval quality against estimated scoring work, with points labeled by active dimension budget" width="800">
 
 What surprised me most is how much Matryoshka improves retrieval quality even without pruning. In my experiments, it consistently outperforms the baseline across active dimension budgets, making it well worth trying even if you plan to use the full embeddings.
 
