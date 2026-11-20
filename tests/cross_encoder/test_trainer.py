@@ -419,6 +419,41 @@ def test_fit_saves_best_model_and_calls_callback_after_each_epoch(
     assert (output_path / "modules.json").exists()
 
 
+@pytest.mark.parametrize("dict_scores", [False, True], ids=["float", "dict"])
+def test_old_fit_callback_receives_primary_score(
+    reranker_bert_tiny_model: CrossEncoder, tmp_path: Path, dict_scores: bool
+) -> None:
+    class ScoreEvaluator(BaseEvaluator):
+        def __init__(self) -> None:
+            super().__init__()
+            self.primary_metric = "score" if dict_scores else None
+
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1):
+            return {"other": 100.0, "score": float(steps)} if dict_scores else float(steps)
+
+    model = reranker_bert_tiny_model
+    callback_results = []
+
+    def callback(score: float, epoch: int, steps: int) -> None:
+        callback_results.append((f"{score:.1f}", epoch, steps))
+
+    output_path = tmp_path / "output"
+    model.old_fit(
+        DataLoader([InputExample(texts=["a", "b"], label=1.0)] * 2, batch_size=1),
+        evaluator=ScoreEvaluator(),
+        epochs=1,
+        evaluation_steps=1,
+        warmup_steps=0,
+        output_path=str(output_path),
+        callback=callback,
+        show_progress_bar=False,
+    )
+
+    assert callback_results == [("1.0", 0, 1), ("2.0", 0, 2), ("-1.0", 0, -1)]
+    assert model.best_score == 2.0
+    assert (output_path / "modules.json").exists()
+
+
 @pytest.mark.parametrize("model_fixture", ["reranker_bert_tiny_model", "multiclass_bert_tiny_model"])
 def test_fit_with_loss_fct(
     model_fixture: str, request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
