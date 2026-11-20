@@ -143,25 +143,24 @@ class ContrastiveTensionLoss(nn.Module):
 
         if labels is None:
             # identical sentence -> 1, different -> 0
-            input_ids1 = sentence_features1["input_ids"]
-            input_ids2 = sentence_features2["input_ids"]
-            attention_mask1 = sentence_features1.get("attention_mask")
-            attention_mask2 = sentence_features2.get("attention_mask")
-
-            if attention_mask1 is not None and attention_mask2 is not None:
-                # Compare only non-padded tokens so sentences are considered identical even if they differ by left/right padding.
-                labels = torch.as_tensor(
-                    [
-                        torch.equal(inputs1[mask1], inputs2[mask2])
-                        for inputs1, mask1, inputs2, mask2 in zip(
-                            input_ids1, attention_mask1.bool(), input_ids2, attention_mask2.bool()
-                        )
-                    ],
-                    device=sim_scores.device,
-                    dtype=sim_scores.dtype,
-                )
-            else:
-                labels = (input_ids1 == input_ids2).all(dim=1).float()
+            sentences = []
+            for features in (sentence_features1, sentence_features2):
+                input_ids = features["input_ids"]
+                if "cu_seq_lens_q" in features:
+                    lengths = features["cu_seq_lens_q"].diff().tolist()
+                    sentences.append(input_ids[0].split(lengths))
+                elif "attention_mask" in features:
+                    # Compare only non-padded tokens, regardless of left or right padding.
+                    sentences.append(
+                        [tokens[mask] for tokens, mask in zip(input_ids, features["attention_mask"].bool())]
+                    )
+                else:
+                    sentences.append(input_ids)
+            labels = torch.as_tensor(
+                [torch.equal(tokens1, tokens2) for tokens1, tokens2 in zip(*sentences)],
+                device=sim_scores.device,
+                dtype=sim_scores.dtype,
+            )
 
         loss = self.criterion(sim_scores, labels.view(-1).type_as(sim_scores))
         return loss
