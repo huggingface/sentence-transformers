@@ -11,6 +11,7 @@ import torch
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import TranslationEvaluator
+from sentence_transformers.sparse_encoder.evaluation import SparseTranslationEvaluator
 
 
 def test_repeated_sentences_count_as_correct_matches(stsb_bert_tiny_model: SentenceTransformer) -> None:
@@ -54,3 +55,16 @@ def test_tied_scores_only_credit_matching_text(sources, targets, expected_src2tr
 
     assert metrics["src2trg_accuracy"] == expected_src2trg
     assert metrics["trg2src_accuracy"] == expected_trg2src
+
+
+@pytest.mark.parametrize("evaluator_cls", [TranslationEvaluator, SparseTranslationEvaluator])
+@pytest.mark.parametrize(
+    ("sources", "targets", "message"),
+    [
+        ([], [], "at least one"),
+        (["a"], ["b", "c"], "must have the same length"),
+    ],
+)
+def test_translation_rejects_invalid_inputs(evaluator_cls, sources, targets, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        evaluator_cls(sources, targets)

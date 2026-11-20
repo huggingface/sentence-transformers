@@ -114,9 +114,9 @@ class BinaryClassificationEvaluator(BaseEvaluator):
             )
         if len(self.sentences1) == 0:
             raise ValueError("BinaryClassificationEvaluator needs at least one sentence pair with a label.")
-        invalid_labels = [label for label in self.labels if label != 0 and label != 1]
-        if invalid_labels:
-            raise ValueError(f"BinaryClassificationEvaluator labels must be 0 or 1, got {invalid_labels[0]!r}.")
+        for label in self.labels:
+            if label not in (0, 1):
+                raise ValueError(f"BinaryClassificationEvaluator labels must be 0 or 1, got {label!r}.")
 
         self.write_csv = write_csv
         self.name = name
