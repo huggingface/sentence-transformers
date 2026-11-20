@@ -10,7 +10,7 @@ from sentence_transformers.cross_encoder.evaluation import (
 )
 
 
-def test_nano_reranking_aggregates_tasks_with_underscores(nano_datasets, reranker_bert_tiny_model, tmp_path):
+def test_nano_reranking_aggregates_tasks_with_underscores(nano_datasets, reranker_bert_tiny_model, tmp_path, caplog):
     evaluator = CrossEncoderNanoRerankingEvaluator(
         nano_datasets.dataset_id, name="my_suite", at_k=1, aggregate_key="macro_mean"
     )
@@ -29,6 +29,16 @@ def test_nano_reranking_aggregates_tasks_with_underscores(nano_datasets, reranke
     assert rows[0] == evaluator.csv_headers
     assert [row[:2] for row in rows[1:]] == [["0", "1"], ["1", "2"]]
     assert all(len(row) == len(rows[0]) for row in rows)
+
+    rows[0][-1] = "different_metric"
+    csv_path = tmp_path / evaluator.csv_file
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        csv.writer(handle).writerows(rows)
+    original = csv_path.read_bytes()
+    with caplog.at_level("WARNING"):
+        assert evaluator(reranker_bert_tiny_model, output_path=tmp_path) == pytest.approx(results)
+    assert "Skipping CSV row" in caplog.text
+    assert csv_path.read_bytes() == original
 
 
 def test_nano_reranking_candidate_subset_and_cutoff(nano_datasets):

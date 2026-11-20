@@ -11,6 +11,7 @@ from sentence_transformers.cross_encoder.evaluation import (
     CrossEncoderClassificationEvaluator,
     CrossEncoderCorrelationEvaluator,
     CrossEncoderNanoBEIREvaluator,
+    CrossEncoderNanoRerankingEvaluator,
     CrossEncoderRerankingEvaluator,
 )
 
@@ -53,7 +54,10 @@ def test_csv_output_has_one_line_per_row(
 
 
 @pytest.mark.parametrize("write_csv", [True, False])
-def test_nanobeir_preserves_child_metrics_and_model_card(reranker_bert_tiny_model, monkeypatch, tmp_path, write_csv):
+@pytest.mark.parametrize("evaluator_class", [CrossEncoderNanoBEIREvaluator, CrossEncoderNanoRerankingEvaluator])
+def test_nano_preserves_child_metrics_and_model_card(
+    evaluator_class, reranker_bert_tiny_model, monkeypatch, tmp_path, write_csv
+):
     def load_dataset(self, name, **kwargs):
         return CrossEncoderRerankingEvaluator(
             samples=[{"query": "q", "positive": ["a"], "documents": ["b", "a", "c"]}],
@@ -61,18 +65,21 @@ def test_nanobeir_preserves_child_metrics_and_model_card(reranker_bert_tiny_mode
             **kwargs,
         )
 
-    monkeypatch.setattr(CrossEncoderNanoBEIREvaluator, "_load_dataset", load_dataset)
+    monkeypatch.setattr(CrossEncoderNanoRerankingEvaluator, "_load_dataset", load_dataset)
     model = reranker_bert_tiny_model
     store_metrics = Mock()
     monkeypatch.setattr(model.model_card_data, "set_evaluation_metrics", store_metrics)
-    evaluator = CrossEncoderNanoBEIREvaluator(
-        dataset_names=["msmarco", "scifact"], rerank_k=3, at_k=2, write_csv=write_csv
+    task_kwargs = (
+        {"dataset_names": ["msmarco", "scifact"]}
+        if evaluator_class is CrossEncoderNanoBEIREvaluator
+        else {"dataset_id": "test-org/custom-nano", "splits": ["first_task", "second_task"]}
     )
+    evaluator = evaluator_class(**task_kwargs, rerank_k=3, at_k=2, write_csv=write_csv)
     previous_results = None
     for epoch, steps in [(0, 1), (1, 2)]:
         store_metrics.reset_mock()
         results = evaluator(model, output_path=tmp_path, epoch=epoch, steps=steps)
-        assert evaluator.primary_metric == "NanoBEIR_R3_mean_ndcg@2"
+        assert evaluator.primary_metric == f"{evaluator.name}_ndcg@2"
         if previous_results is not None:
             assert results == pytest.approx(previous_results)
         previous_results = results

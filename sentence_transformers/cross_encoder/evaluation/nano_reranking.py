@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -159,13 +158,9 @@ class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
     ) -> dict[str, float]:
         per_metric_results = {}
         per_dataset_results = {}
+        out_txt = ""
         if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
+            out_txt = f" after epoch {epoch}" if steps == -1 else f" in epoch {epoch} after {steps} steps"
         logger.info(f"{self.dataset_name} Evaluation of the model on {self.splits} dataset{out_txt}:")
 
         for evaluator in tqdm(self.evaluators, desc="Evaluating datasets", disable=not self.show_progress_bar):
@@ -182,27 +177,10 @@ class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
             agg_results[metric] = self.aggregate_fn(per_metric_results[metric])
 
         if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                fOut = open(csv_path, mode="w", encoding="utf-8")
-                fOut.write(",".join(self.csv_headers))
-                fOut.write("\n")
-
-            else:
-                fOut = open(csv_path, mode="a", encoding="utf-8")
-
-            output_data = [
-                epoch,
-                steps,
-                agg_results["map"],
-                agg_results[f"mrr@{self.at_k}"],
-                agg_results[f"ndcg@{self.at_k}"],
-            ]
-
-            fOut.write(",".join(map(str, output_data)))
-            fOut.write("\n")
-            fOut.close()
+            self._write_csv_row(
+                output_path,
+                [epoch, steps, agg_results["map"], agg_results[f"mrr@{self.at_k}"], agg_results[f"ndcg@{self.at_k}"]],
+            )
 
         logger.info(f"{self.__class__.__name__}: Aggregated Results:")
         logger.info(f"{' ' * len(str(self.at_k))}       Base  -> Reranked")
@@ -217,9 +195,8 @@ class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
         )
 
         model_card_metrics = {
-            "map": f"{agg_results['map']:.4f} ({agg_results['map'] - agg_results['base_map']:+.4f})",
-            f"mrr@{self.at_k}": f"{agg_results[f'mrr@{self.at_k}']:.4f} ({agg_results[f'mrr@{self.at_k}'] - agg_results[f'base_mrr@{self.at_k}']:+.4f})",
-            f"ndcg@{self.at_k}": f"{agg_results[f'ndcg@{self.at_k}']:.4f} ({agg_results[f'ndcg@{self.at_k}'] - agg_results[f'base_ndcg@{self.at_k}']:+.4f})",
+            metric: f"{agg_results[metric]:.4f} ({agg_results[metric] - agg_results[f'base_{metric}']:+.4f})"
+            for metric in ("map", f"mrr@{self.at_k}", f"ndcg@{self.at_k}")
         }
         model_card_metrics = self.prefix_name_to_metrics(model_card_metrics, self.name)
         self.store_metrics_in_model_card_data(model, model_card_metrics, epoch, steps)

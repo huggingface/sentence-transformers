@@ -182,7 +182,8 @@ def make_ir_evaluator(monkeypatch):
             kwargs.setdefault("dataset_names", ["MSMARCO"])
             return evaluator_class(**kwargs)
         if issubclass(evaluator_class, NanoRetrievalEvaluator):
-            return evaluator_class(dataset_id="test-org/custom-nano", splits=["task"], **kwargs)
+            kwargs.setdefault("splits", ["task"])
+            return evaluator_class(dataset_id="test-org/custom-nano", **kwargs)
         return evaluator_class(
             queries={"q": subsets["queries"][0]["text"]},
             corpus={row["_id"]: row["text"] for row in subsets["corpus"]},
@@ -198,16 +199,20 @@ def make_ir_evaluator(monkeypatch):
     "evaluator_class, model_fixture",
     [
         (NanoBEIREvaluator, "stsb_bert_tiny_model"),
+        (NanoRetrievalEvaluator, "stsb_bert_tiny_model"),
         (SparseNanoBEIREvaluator, "splade_bert_tiny_model"),
+        (SparseNanoRetrievalEvaluator, "splade_bert_tiny_model"),
         (MultiVectorNanoBEIREvaluator, "mve_bert_tiny_model"),
+        (MultiVectorNanoRetrievalEvaluator, "mve_bert_tiny_model"),
     ],
 )
 @pytest.mark.parametrize("dataset_names", [["MSMARCO"], ["MSMARCO", "scifact"]])
-def test_nanobeir_stores_complete_aggregates(
+def test_nano_stores_complete_aggregates(
     evaluator_class, model_fixture, dataset_names, make_ir_evaluator, request, monkeypatch, tmp_path
 ):
     model = request.getfixturevalue(model_fixture)
-    evaluator = make_ir_evaluator(evaluator_class, dataset_names=dataset_names, aggregate_key="mean_test")
+    task_parameter = "dataset_names" if issubclass(evaluator_class, NanoBEIREvaluator) else "splits"
+    evaluator = make_ir_evaluator(evaluator_class, **{task_parameter: dataset_names}, aggregate_key="mean_test")
     store_metrics = Mock()
     monkeypatch.setattr(model.model_card_data, "set_evaluation_metrics", store_metrics)
     results = evaluator(model, output_path=tmp_path)
@@ -223,7 +228,7 @@ def test_nanobeir_stores_complete_aggregates(
         with (tmp_path / child.csv_file).open(newline="", encoding="utf-8") as f:
             header, row = csv.reader(f)
         assert len(header) == len(row)
-        if isinstance(child, (SparseNanoBEIREvaluator, SparseInformationRetrievalEvaluator)):
+        if isinstance(child, (SparseNanoRetrievalEvaluator, SparseInformationRetrievalEvaluator)):
             for key, value in child.sparsity_stats.items():
                 assert float(row[header.index(key)]) == pytest.approx(value)
                 assert results[f"{child.name}_{key}"] == pytest.approx(value)

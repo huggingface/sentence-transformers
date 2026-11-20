@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from sentence_transformers.multi_vector_encoder.evaluation.information_retrieval import (
     MultiVectorInformationRetrievalEvaluator,
@@ -8,9 +8,6 @@ from sentence_transformers.multi_vector_encoder.evaluation.information_retrieval
 from sentence_transformers.multi_vector_encoder.evaluation.utils import pooling_config, pooling_name_suffix
 from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.sentence_transformer.evaluation.nano_retrieval import NanoDatasetId, NanoRetrievalEvaluator
-
-if TYPE_CHECKING:
-    from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 
 
 class MultiVectorNanoRetrievalEvaluator(NanoRetrievalEvaluator):
@@ -122,14 +119,3 @@ class MultiVectorNanoRetrievalEvaluator(NanoRetrievalEvaluator):
         if self.token_pooling is not None:
             config_dict["token_pooling"] = pooling_config(self.token_pooling)
         return config_dict
-
-    def __call__(
-        self,
-        model: MultiVectorEncoder,
-        output_path: str | None = None,
-        epoch: int = -1,
-        steps: int = -1,
-        *args,
-        **kwargs,
-    ) -> dict[str, float]:
-        return super().__call__(model, output_path, epoch, steps, *args, **kwargs)

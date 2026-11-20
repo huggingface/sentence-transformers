@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -269,24 +268,18 @@ class NanoRetrievalEvaluator(BaseEvaluator):
     ) -> dict[str, float]:
         per_metric_results = {}
         per_dataset_results = {}
+        out_txt = ""
         if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
+            out_txt = f" after epoch {epoch}" if steps == -1 else f" in epoch {epoch} after {steps} steps"
         if self.truncate_dim is not None:
             out_txt += f" (truncated to {self.truncate_dim})"
         logger.info(f"{self.dataset_name} Evaluation of the model on {self.splits} dataset{out_txt}:")
 
-        headers_changed = False
         if self._score_functions_from_model:
             # Taken from a sub-evaluator so the aggregate labels cannot drift from the per-dataset
             # ones, which resolve their own scoring per call.
             self.score_functions = self.evaluators[0]._model_score_functions(model)
             if self.score_function_names != sorted(self.score_functions):
-                headers_changed = bool(self.score_function_names)
                 self.score_function_names = sorted(self.score_functions)
                 self.csv_headers = ["epoch", "steps"]
                 self._append_csv_headers(self.score_function_names)
@@ -303,48 +296,7 @@ class NanoRetrievalEvaluator(BaseEvaluator):
                 per_dataset_results[full_key] = metric_value
                 per_metric_results[metric].append(metric_value)
 
-        agg_results = {}
-        for metric in per_metric_results:
-            agg_results[metric] = self.aggregate_fn(per_metric_results[metric])
-
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                fOut = open(csv_path, mode="w", encoding="utf-8")
-                fOut.write(",".join(self.csv_headers))
-                fOut.write("\n")
-
-            else:
-                if headers_changed:
-                    logger.warning(
-                        f"{self.csv_file} was written with different score function columns, so the "
-                        f"rows appended for {self.score_function_names} are labeled with the previous "
-                        "score function."
-                    )
-                fOut = open(csv_path, mode="a", encoding="utf-8")
-
-            output_data = [epoch, steps]
-            for name in self.score_function_names:
-                for k in self.accuracy_at_k:
-                    output_data.append(agg_results[f"{name}_accuracy@{k}"])
-
-                for k in self.precision_recall_at_k:
-                    output_data.append(agg_results[f"{name}_precision@{k}"])
-                    output_data.append(agg_results[f"{name}_recall@{k}"])
-
-                for k in self.mrr_at_k:
-                    output_data.append(agg_results[f"{name}_mrr@{k}"])
-
-                for k in self.ndcg_at_k:
-                    output_data.append(agg_results[f"{name}_ndcg@{k}"])
-
-                for k in self.map_at_k:
-                    output_data.append(agg_results[f"{name}_map@{k}"])
-
-            fOut.write(",".join(map(str, output_data)))
-            fOut.write("\n")
-            fOut.close()
+        agg_results = self._aggregate_results(per_metric_results)
 
         if not self.primary_metric:
             if self.main_score_function is None:
@@ -379,12 +331,21 @@ class NanoRetrievalEvaluator(BaseEvaluator):
             for k in self.map_at_k:
                 logger.info("MAP@{}: {:.4f}".format(k, agg_results[f"{name}_map@{k}"]))
 
-        agg_results = self.prefix_name_to_metrics(agg_results, self.name)
-        self.store_metrics_in_model_card_data(model, agg_results, epoch, steps)
+        if output_path is not None and self.write_csv:
+            self._write_csv_row(
+                output_path,
+                [epoch, steps] + [self._get_csv_value(header, agg_results) for header in self.csv_headers[2:]],
+            )
 
+        agg_results = self.prefix_name_to_metrics(agg_results, self.name)
+        if len(self.splits) > 1:
+            self.store_metrics_in_model_card_data(model, agg_results, epoch, steps)
         per_dataset_results.update(agg_results)
 
         return per_dataset_results
+
+    def _aggregate_results(self, per_metric_results: dict[str, list[float]]) -> dict[str, float]:
+        return {metric: self.aggregate_fn(values) for metric, values in per_metric_results.items()}
 
     def _get_split_name(self, split: str) -> str:
         """Returns the dataset split to load for an entry of ``self.splits``."""
@@ -486,13 +447,6 @@ class NanoRetrievalEvaluator(BaseEvaluator):
         if error_msg:
             raise ValueError(error_msg.strip())
 
-    def store_metrics_in_model_card_data(self, *args, **kwargs):
-        # Only store metrics in the model card data if there is more than one dataset.
-        # Otherwise the e.g. mean scores for NanoBEIR are the same as the scores for
-        # the single dataset, and we'd end up with duplicate entries.
-        if len(self.splits) > 1:
-            super().store_metrics_in_model_card_data(*args, **kwargs)
-
     def get_config_dict(self) -> dict[str, Any]:
         config_dict = {"dataset_id": self.dataset_id, "splits": self.splits}
         config_dict_candidate_keys = ["truncate_dim", "query_prompts", "corpus_prompts"]
@@ -500,3 +454,9 @@ class NanoRetrievalEvaluator(BaseEvaluator):
             if getattr(self, key) is not None:
                 config_dict[key] = getattr(self, key)
         return config_dict
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        if header not in metrics:
+            score_function, metric = header.rsplit("-", 1)
+            header = f"{score_function}_{metric.lower()}"
+        return metrics[header]
