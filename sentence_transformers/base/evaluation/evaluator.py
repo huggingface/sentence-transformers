@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import csv
+import logging
+import os
 import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from sentence_transformers.base.model import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class BaseEvaluator:
@@ -17,19 +22,23 @@ class BaseEvaluator:
     the evaluator returns a dictionary of metrics, and the primary metric is the key pointing to the primary
     metric, i.e. the one that is used for model selection and/or logging.
 
-    Extend this class and implement __call__ for custom evaluators.
+    Extend this class and implement ``evaluate`` to return unprefixed metrics.
+    Custom evaluators may also override ``__call__`` to handle their own output.
     """
 
     def __init__(self):
+        self.name = ""
+        self.write_csv = False
         self.greater_is_better = True
         self.primary_metric = None
+        self.csv_file: str | None = None
+        self.csv_headers: list[str] | None = None
 
     def __call__(
-        self, model: BaseModel, output_path: str | None = None, epoch: int = -1, steps: int = -1
+        self, model: BaseModel, output_path: str | None = None, epoch: int = -1, steps: int = -1, *args, **kwargs
     ) -> float | dict[str, float]:
         """
-        This is called during training to evaluate the model.
-        It returns a score for the evaluation with a higher score indicating a better result.
+        Evaluate the model, write the results, and prefix the metric names.
 
         Args:
             model: the model to evaluate
@@ -43,7 +52,41 @@ class BaseEvaluator:
             Either a score for the evaluation with a higher score indicating a better result, or a dictionary with
             scores. If the latter is chosen, then `evaluator.primary_metric` must be defined
         """
+        out_txt = ""
+        if epoch != -1:
+            out_txt = f" after epoch {epoch}" if steps == -1 else f" in epoch {epoch} after {steps} steps"
+        truncate_dim = getattr(self, "truncate_dim", None)
+        if truncate_dim is not None:
+            out_txt += f" (truncated to {truncate_dim})"
+        logger.info(f"{type(self).__name__}: Evaluating the model on the {self.name} dataset{out_txt}:")
+
+        metrics = self.evaluate(model, output_path, epoch, steps, *args, **kwargs)
+        if output_path is not None and self.write_csv:
+            if self.csv_headers is None:
+                raise ValueError("CSV output requires the evaluator to set csv_headers.")
+            self._write_csv_row(
+                output_path, [epoch, steps] + [self._get_csv_value(header, metrics) for header in self.csv_headers[2:]]
+            )
+        metrics = self.prefix_name_to_metrics(metrics, self.name)
+        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
+        return metrics
+
+    def evaluate(
+        self, model: BaseModel, output_path: str | None = None, epoch: int = -1, steps: int = -1
+    ) -> dict[str, float]:
+        """Compute unprefixed metrics before CSV output and model card updates.
+
+        Args:
+            model: The model to evaluate.
+            output_path: Directory for prediction files or nested evaluations.
+            epoch: Current epoch, or -1 when evaluating outside training.
+            steps: Current step, or -1 when evaluating at the end of an epoch.
+        """
         raise NotImplementedError
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        """Map an existing CSV column name to an unprefixed metric."""
+        return metrics[header]
 
     def prefix_name_to_metrics(self, metrics: dict[str, float], name: str) -> dict[str, float]:
         def maybe_to_float(value: Any) -> Any:
@@ -95,6 +138,31 @@ class BaseEvaluator:
         Return a dictionary with all meaningful configuration values of the evaluator to store in the model card.
         """
         return {}
+
+    def _write_csv_row(self, output_path: str, row: list[Any]) -> None:
+        """Append a result row, or warn and skip it if the CSV headers differ."""
+        if self.csv_file is None or self.csv_headers is None:
+            raise ValueError("CSV output requires the evaluator to set both csv_file and csv_headers.")
+
+        os.makedirs(output_path, exist_ok=True)
+        csv_path = os.path.join(output_path, self.csv_file)
+        with open(csv_path, mode="a+", newline="", encoding="utf-8") as f:
+            f.seek(0)
+            if f.read(1) != "\ufeff":
+                f.seek(0)
+            headers = next(csv.reader(f), None)
+            if headers is not None and headers != self.csv_headers:
+                logger.warning(
+                    f"Skipping CSV row for {csv_path!r}: CSV headers do not match. "
+                    f"Expected {self.csv_headers}, found {headers}. "
+                    "Use a different output_path or evaluator name to resume CSV logging."
+                )
+                return
+            f.seek(0, os.SEEK_END)
+            writer = csv.writer(f)
+            if headers is None:
+                writer.writerow(self.csv_headers)
+            writer.writerow(row)
 
 
 # Backward compatibility alias, deprecated

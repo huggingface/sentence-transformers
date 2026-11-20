@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import codecs
+import csv
+from unittest.mock import Mock
+
 import pytest
 
-from sentence_transformers.base.evaluation import SequentialEvaluator
+from sentence_transformers.base.evaluation import BaseEvaluator, SequentialEvaluator
 from sentence_transformers.multi_vector_encoder.evaluation import (
     MultiVectorInformationRetrievalEvaluator,
     MultiVectorNanoBEIREvaluator,
@@ -82,6 +86,57 @@ def test_main_similarity_is_evaluated(evaluator_class, model_fixture, main_param
 
 
 @pytest.mark.parametrize(CASE_PARAMETERS, ALL_CASES)
+@pytest.mark.parametrize("explicit_similarity", [False, True])
+def test_evaluator_reuse(
+    evaluator_class, model_fixture, main_parameter, names, explicit_similarity, request, tmp_path
+):
+    model = request.getfixturevalue(model_fixture)
+    evaluator = make_evaluator(evaluator_class, similarity_fn_names=names[:1] if explicit_similarity else None)
+
+    for name in names:
+        model.similarity_fn_name = name
+        output_path = tmp_path / name
+        metrics = evaluator(model, output_path=output_path)
+        expected_names = names[:1] if explicit_similarity else [name]
+        reference = make_evaluator(evaluator_class, similarity_fn_names=expected_names)
+
+        assert metrics == pytest.approx(reference(model))
+        assert evaluator.primary_metric == reference.primary_metric
+        assert evaluator.similarity_fn_names == expected_names
+        with (output_path / evaluator.csv_file).open(newline="", encoding="utf-8") as f:
+            header, *rows = csv.reader(f)
+        assert header == reference.csv_headers
+        assert len(rows) == 1
+        assert len(rows[0]) == len(header)
+
+
+@pytest.mark.parametrize(CASE_PARAMETERS, ALL_CASES)
+def test_evaluate_extends_metrics_before_output(
+    evaluator_class, model_fixture, main_parameter, names, request, tmp_path, monkeypatch
+):
+    model = request.getfixturevalue(model_fixture)
+    evaluator = make_evaluator(evaluator_class, similarity_fn_names=names)
+    store_metrics = Mock()
+    monkeypatch.setattr(model.model_card_data, "set_evaluation_metrics", store_metrics)
+
+    raw_metrics = evaluator.evaluate(model, output_path=tmp_path)
+    assert not list(tmp_path.iterdir())
+    store_metrics.assert_not_called()
+    assert not any(key.startswith("test_") for key in raw_metrics)
+
+    write_row = evaluator._write_csv_row
+
+    def write_complete_row(output_path, row):
+        assert len(row) == len(evaluator.csv_headers)
+        write_row(output_path, row)
+
+    monkeypatch.setattr(evaluator, "_write_csv_row", write_complete_row)
+    metrics = evaluator(model, output_path=tmp_path, epoch=2, steps=3)
+    assert metrics == pytest.approx({f"test_{key}": value for key, value in raw_metrics.items()})
+    store_metrics.assert_called_once_with(evaluator, metrics, 2, 3)
+
+
+@pytest.mark.parametrize(CASE_PARAMETERS, ALL_CASES)
 def test_unknown_similarity_is_rejected(evaluator_class, model_fixture, main_parameter, names):
     with pytest.raises(ValueError, match="similarity_fn_names.*unknown"):
         make_evaluator(evaluator_class, similarity_fn_names=[names[0], "unknown"])
@@ -124,7 +179,8 @@ def make_ir_evaluator(monkeypatch):
 
     def make(evaluator_class, **kwargs):
         if issubclass(evaluator_class, NanoBEIREvaluator):
-            return evaluator_class(dataset_names=["MSMARCO"], **kwargs)
+            kwargs.setdefault("dataset_names", ["MSMARCO"])
+            return evaluator_class(**kwargs)
         if issubclass(evaluator_class, NanoRetrievalEvaluator):
             return evaluator_class(dataset_id="test-org/custom-nano", splits=["task"], **kwargs)
         return evaluator_class(
@@ -136,6 +192,41 @@ def make_ir_evaluator(monkeypatch):
         )
 
     return make
+
+
+@pytest.mark.parametrize(
+    "evaluator_class, model_fixture",
+    [
+        (NanoBEIREvaluator, "stsb_bert_tiny_model"),
+        (SparseNanoBEIREvaluator, "splade_bert_tiny_model"),
+        (MultiVectorNanoBEIREvaluator, "mve_bert_tiny_model"),
+    ],
+)
+@pytest.mark.parametrize("dataset_names", [["MSMARCO"], ["MSMARCO", "scifact"]])
+def test_nanobeir_stores_complete_aggregates(
+    evaluator_class, model_fixture, dataset_names, make_ir_evaluator, request, monkeypatch, tmp_path
+):
+    model = request.getfixturevalue(model_fixture)
+    evaluator = make_ir_evaluator(evaluator_class, dataset_names=dataset_names, aggregate_key="mean_test")
+    store_metrics = Mock()
+    monkeypatch.setattr(model.model_card_data, "set_evaluation_metrics", store_metrics)
+    results = evaluator(model, output_path=tmp_path)
+
+    assert store_metrics.call_count == len(dataset_names) + (len(dataset_names) > 1)
+    for call in store_metrics.call_args_list:
+        child, metrics, epoch, steps = call.args
+        assert all(key.startswith(f"{child.name}_") for key in metrics)
+        assert metrics == {key: value for key, value in results.items() if key.startswith(f"{child.name}_")}
+        assert epoch == steps == -1
+
+    for child in [*evaluator.evaluators, evaluator]:
+        with (tmp_path / child.csv_file).open(newline="", encoding="utf-8") as f:
+            header, row = csv.reader(f)
+        assert len(header) == len(row)
+        if isinstance(child, (SparseNanoBEIREvaluator, SparseInformationRetrievalEvaluator)):
+            for key, value in child.sparsity_stats.items():
+                assert float(row[header.index(key)]) == pytest.approx(value)
+                assert results[f"{child.name}_{key}"] == pytest.approx(value)
 
 
 @pytest.mark.parametrize(IR_CASE_PARAMETERS, IR_CASES)
@@ -163,3 +254,63 @@ def test_ir_accepts_main_scorer_in_explicit_mapping(evaluator_class, model_fixtu
     assert evaluator.primary_metric == f"{evaluator.name}_{main}_ndcg@10"
     for name in evaluator.score_function_names:
         assert f"{evaluator.name}_{name}_ndcg@10" in metrics
+
+
+@pytest.mark.parametrize(
+    IR_CASE_PARAMETERS,
+    [(cls, model_fixture, names) for cls, model_fixture, _, names in ALL_CASES] + IR_CASES,
+)
+def test_csv_headers_follow_output_file(
+    evaluator_class, model_fixture, names, make_ir_evaluator, request, tmp_path, caplog
+):
+    model = request.getfixturevalue(model_fixture)
+    make = (
+        make_evaluator
+        if issubclass(evaluator_class, (EmbeddingSimilarityEvaluator, TripletEvaluator, BinaryClassificationEvaluator))
+        else make_ir_evaluator
+    )
+    evaluator = make(evaluator_class)
+    model.similarity_fn_name = names[0]
+    evaluator(model, output_path=tmp_path)
+    originals = {path: path.read_bytes() for path in tmp_path.glob("*.csv")}
+    assert originals
+
+    model.similarity_fn_name = names[1]
+    expected_metrics = evaluator(model)
+    with caplog.at_level("WARNING"):
+        assert evaluator(model, output_path=tmp_path) == pytest.approx(expected_metrics)
+    assert "Skipping CSV row" in caplog.text
+    evaluator(model, output_path=tmp_path / "other")
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        assert make(evaluator_class)(model, output_path=tmp_path) == pytest.approx(expected_metrics)
+    assert "Skipping CSV row" in caplog.text
+    assert {path: path.read_bytes() for path in originals} == originals
+
+    model.similarity_fn_name = names[0]
+    evaluator(model, output_path=tmp_path)
+    for path in originals:
+        with path.open(newline="", encoding="utf-8") as f:
+            header, *rows = csv.reader(f)
+        assert len(rows) == 2
+        assert all(len(row) == len(header) for row in rows)
+
+
+@pytest.mark.parametrize("encoding", [None, "utf-8", "utf-8-sig"])
+def test_csv_append(tmp_path, encoding):
+    evaluator = BaseEvaluator()
+    evaluator.csv_file = "results.csv"
+    evaluator.csv_headers = ["epoch", "steps", "score"]
+    csv_path = tmp_path / evaluator.csv_file
+    if encoding is None:
+        csv_path.touch()
+    else:
+        with csv_path.open("w", newline="", encoding=encoding) as f:
+            csv.writer(f, quoting=csv.QUOTE_ALL).writerow(evaluator.csv_headers)
+
+    evaluator._write_csv_row(tmp_path, [0, 10, 0.5])
+    evaluator._write_csv_row(tmp_path, [1, 20, 0.75])
+
+    with csv_path.open(newline="", encoding="utf-8-sig") as f:
+        assert list(csv.reader(f)) == [evaluator.csv_headers, ["0", "10", "0.5"], ["1", "20", "0.75"]]
+    assert csv_path.read_bytes().startswith(codecs.BOM_UTF8) == (encoding == "utf-8-sig")

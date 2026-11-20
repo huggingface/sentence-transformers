@@ -179,6 +179,8 @@ class StaticEmbedding(InputModule):
         ``embedding[token_id] == embeddings[token_mapping[token_id]] * token_weights[token_id]``, which is
         what model2vec averages over."""
         embeddings = torch.as_tensor(embeddings)
+        if not embeddings.is_floating_point():
+            embeddings = embeddings.float()  # Some model2vec models store int8 embeddings.
         if token_mapping is not None:
             embeddings = embeddings[torch.as_tensor(token_mapping, dtype=torch.long)]
         if token_weights is not None:

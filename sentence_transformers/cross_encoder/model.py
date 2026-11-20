@@ -133,8 +133,8 @@ class CrossEncoder(BaseModel, FitMixin):
             Use a ``torch.nn.Module`` (e.g. ``nn.Identity()``) if the model will be saved: plain functions
             emit a warning on save. Defaults to None.
         keep_in_fp32_modules (list[str], optional): Paths to plain linear layers that compute and return
-            fp32, including under autocast. Parameter storage is unchanged. None inherits the saved
-            selection, or selects nothing for a model without one. Pass [] to disable a saved selection.
+            fp32 on the torch backend, including under autocast. Parameter storage is unchanged. None inherits
+            the saved selection, or selects nothing for a model without one. Pass [] to disable a saved selection.
             This feature is experimental. Its API and behavior may change, and it may be removed in a future release.
             See :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder.set_keep_in_fp32_modules`.
 
@@ -234,7 +234,10 @@ class CrossEncoder(BaseModel, FitMixin):
 
         if self.activation_fn is None:
             self.activation_fn = self.get_default_activation_fn()
-        self.set_keep_in_fp32_modules([] if self.keep_in_fp32_modules is None else self.keep_in_fp32_modules)
+        if self.keep_in_fp32_modules is None:
+            self.keep_in_fp32_modules = []
+        if self.backend == "torch" or keep_in_fp32_modules is not None:
+            self.set_keep_in_fp32_modules(self.keep_in_fp32_modules)
 
     def set_keep_in_fp32_modules(self, module_names: list[str]) -> None:
         """Run selected linear layers in fp32, even when autocast is enabled.
@@ -242,8 +245,8 @@ class CrossEncoder(BaseModel, FitMixin):
         Selected layers return fp32 outputs during inference and training, while their stored
         weights retain their dtype. This requires the torch backend.
 
-        The selection is saved with the model and restored when loading. Accelerate device
-        placement and offloading hooks are preserved.
+        The selection is saved with the model and applied when loading on the torch backend.
+        Accelerate device placement and offloading hooks are preserved.
 
         Note:
             This feature is experimental. Its API and behavior may change, and it may be removed
@@ -256,8 +259,11 @@ class CrossEncoder(BaseModel, FitMixin):
         """
         if not isinstance(module_names, (list, tuple)) or any(not isinstance(name, str) for name in module_names):
             raise ValueError("keep_in_fp32_modules must be a list of module paths.")
-        if module_names and self.backend != "torch":
-            raise ValueError("keep_in_fp32_modules is supported only by the torch backend.")
+        if self.backend != "torch":
+            if module_names:
+                raise ValueError("keep_in_fp32_modules is supported only by the torch backend.")
+            self.keep_in_fp32_modules = []
+            return
 
         names = list(dict.fromkeys(module_names))
         selected = {self.get_submodule(name) for name in names}

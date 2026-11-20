@@ -54,6 +54,7 @@ def semantic_search_qdrant(
             If provided, uses this existing index for search
         top_k: Number of top results to retrieve
         output_index: Whether to return the Qdrant client and collection name
+        **kwargs: Additional keyword arguments passed to ``QdrantClient`` when creating a new client.
 
     Returns:
         A tuple containing:
@@ -84,7 +85,9 @@ def semantic_search_qdrant(
             raise ValueError("Corpus embeddings must be a sparse COO tensor")
 
         # Create new Qdrant client and collection
-        client = QdrantClient(url="http://localhost:6333", **kwargs)
+        if {"url", "host", "location", "path"}.isdisjoint(kwargs):
+            kwargs["url"] = "http://localhost:6333"
+        client = QdrantClient(**kwargs)
         collection_name = f"sparse_collection_{uuid4().hex}"
 
         client.create_collection(
@@ -194,6 +197,7 @@ def semantic_search_elasticsearch(
             If provided, uses this existing index for search
         top_k: Number of top results to retrieve
         output_index: Whether to return the Elasticsearch client and collection name
+        **kwargs: Additional keyword arguments passed to ``Elasticsearch`` when creating a new client.
 
     Returns:
         A tuple containing:
@@ -225,7 +229,9 @@ def semantic_search_elasticsearch(
         ):
             raise ValueError("Corpus embeddings must be a list of lists in the format [[('token', value), ...], ...]")
 
-        es = Elasticsearch("http://localhost:9200", **kwargs)
+        if kwargs.get("cloud_id") is None:
+            kwargs.setdefault("hosts", "http://localhost:9200")
+        es = Elasticsearch(**kwargs)
         index_name = f"sparse_index_{uuid4().hex}"
 
         es.indices.create(
@@ -458,7 +464,7 @@ def semantic_search_opensearch(
             If provided, uses this existing index for search
         top_k: Number of top results to retrieve
         output_index: Whether to return the OpenSearch client and collection name
-        vocab: The dict to transform tokens into token ids
+        **kwargs: Additional keyword arguments passed to ``OpenSearch`` when creating a new client.
 
     Returns:
         A tuple containing:
@@ -490,7 +496,8 @@ def semantic_search_opensearch(
         ):
             raise ValueError("Corpus embeddings must be a list of lists in the format [[('token', value), ...], ...]")
 
-        os_client = OpenSearch("http://localhost:9200", **kwargs)
+        kwargs.setdefault("hosts", "http://localhost:9200")
+        os_client = OpenSearch(**kwargs)
         index_name = f"sparse_index_{uuid4().hex}"
 
         os_client.indices.create(

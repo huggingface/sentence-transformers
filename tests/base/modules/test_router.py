@@ -147,6 +147,21 @@ def test_router_max_seq_length_edges():
     assert module_three.max_seq_length == 1024
 
 
+def test_router_max_seq_length_setter_skips_static_embedding_route(
+    static_embedding: StaticEmbedding, stsb_bert_tiny_model: SentenceTransformer
+):
+    router = Router.for_query_document(
+        query_modules=[static_embedding], document_modules=list(stsb_bert_tiny_model.children())
+    )
+    model = SentenceTransformer(modules=[router])
+
+    model.max_seq_length = 4
+    assert router.sub_modules["document"][0].max_seq_length == 4
+    assert static_embedding.max_seq_length == float("inf")
+    features = model.preprocess(["This is a much longer sentence than four tokens."], task="document")
+    assert features["input_ids"].shape[1] == 4
+
+
 def test_router_init_basic():
     """Test basic initialization of Router."""
     query_module = MockModuleWithMaxLength(256)
@@ -1065,19 +1080,21 @@ def test_router_tokenize_with_task(static_embedding: StaticEmbedding):
     assert "input_ids" in doc_tokens
 
 
-def test_router_tokenize_with_dict_input(static_embedding: StaticEmbedding):
+@pytest.mark.parametrize("task", ["query", "array"])
+@pytest.mark.parametrize("allow_empty_key", [True, False])
+def test_router_tokenize_with_dict_input(static_embedding: StaticEmbedding, task: str, allow_empty_key: bool):
     """Test tokenize method with dictionary input."""
-    router = Router({"query": [static_embedding], "document": [static_embedding]})
+    router = Router({"document": [static_embedding], task: [static_embedding]}, allow_empty_key=allow_empty_key)
 
     # Test with dictionary input
     texts = [
-        {"query": "What is the capital of France?"},
-        {"query": "What is the largest ocean?"},
+        {task: "What is the capital of France?"},
+        {task: "What is the largest ocean?"},
     ]
 
     tokens = router.preprocess(texts)
     assert "task" in tokens
-    assert tokens["task"] == "query"
+    assert tokens["task"] == task
     assert "input_ids" in tokens
 
 
@@ -1092,6 +1109,29 @@ def test_router_tokenize_with_mixed_dict_raises_error(static_embedding: StaticEm
 
     with pytest.raises(ValueError, match="You cannot pass a list of dictionaries with different task types"):
         router.preprocess(texts)
+
+
+@pytest.mark.parametrize(
+    ("inputs", "modality"),
+    [
+        ([{"array": torch.zeros(16), "sampling_rate": 16000}], "audio"),
+        ([{"array": torch.zeros(2, 3, 4, 4), "video_metadata": {"fps": 1}}], "video"),
+        ([{"role": "user", "content": "Hello"}], "message"),
+    ],
+)
+def test_router_preprocess_routes_modality_dicts_by_modality(inputs, modality: str):
+    class MediaRecordingModule(TaskRecordingModule):
+        modalities = [modality]
+
+    text_module = TaskRecordingModule()
+    media_module = MediaRecordingModule()
+    router = Router({"text": [text_module], modality: [media_module]}, allow_empty_key=False)
+
+    features = router.preprocess(inputs)
+    assert features["task"] is None
+    assert features["modality"] == modality
+    assert media_module.seen_tasks == [None]
+    assert text_module.seen_tasks == []
 
 
 def test_router_tokenize_with_modality(static_embedding: StaticEmbedding):

@@ -121,6 +121,24 @@ def test_projection_dim_matches_teacher(stsb_bert_tiny_model: SentenceTransforme
     assert loss.projection.in_features == stsb_bert_tiny_model.get_embedding_dimension()
 
 
+@pytest.mark.parametrize("loss_cls", [EmbedDistillLoss, MSELoss])
+def test_projection_with_model_truncate_dim(stsb_bert_tiny_model: SentenceTransformer, loss_cls, tmp_path) -> None:
+    model = stsb_bert_tiny_model
+    forward_dim = model.get_embedding_dimension()
+    model.truncate_dim = 32
+    loss = loss_cls(model, projection_dim=16)
+    assert loss.projection.in_features == forward_dim
+
+    value = loss([_features(model, ["a", "b"])], torch.randn(2, 16, device=model.device))
+    assert torch.isfinite(value)
+
+    path = tmp_path / "proj.safetensors"
+    loss.save_projection(path)
+    restored_loss = loss_cls(model)
+    restored_loss.load_projection(path)
+    torch.testing.assert_close(restored_loss.projection.state_dict(), loss.projection.state_dict(), rtol=0, atol=0)
+
+
 def test_no_projection_by_default(stsb_bert_tiny_model: SentenceTransformer) -> None:
     loss = EmbedDistillLoss(stsb_bert_tiny_model)
     assert loss.projection is None

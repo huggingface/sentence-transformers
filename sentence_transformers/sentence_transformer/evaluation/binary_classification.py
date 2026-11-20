@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -125,6 +123,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         self.csv_headers = ["epoch", "steps"]
 
         self._append_csv_headers(self.similarity_fn_names)
+        self._similarity_fn_names_from_model = not self.similarity_fn_names
 
     def _append_csv_headers(self, similarity_fn_names: list[str]) -> None:
         metrics = [
@@ -154,7 +153,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
             scores.append(example.label)
         return cls(sentences1, sentences2, scores, **kwargs)
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
         """
@@ -169,43 +168,12 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         Returns:
             Dict[str, float]: A dictionary containing the evaluation metrics.
         """
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
 
-        logger.info(f"Binary Accuracy Evaluation of the model on the {self.name} dataset{out_txt}:")
-
-        if not self.similarity_fn_names:
+        if self._similarity_fn_names_from_model and self.similarity_fn_names != [model.similarity_fn_name]:
             self.similarity_fn_names = [model.similarity_fn_name]
+            self.csv_headers = ["epoch", "steps"]
             self._append_csv_headers(self.similarity_fn_names)
         scores = self.compute_metrics(model)
-
-        file_output_data = [epoch, steps]
-
-        for header_name in self.csv_headers:
-            if header_name not in ("epoch", "steps"):
-                sim_fct, metric = header_name.split("_", maxsplit=1)
-                if sim_fct in scores:
-                    file_output_data.append(scores[sim_fct][metric])
-
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                with open(csv_path, newline="", mode="w", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(self.csv_headers)
-                    writer.writerow(file_output_data)
-            else:
-                with open(csv_path, newline="", mode="a", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(file_output_data)
 
         metrics = {
             f"{short_name}_{metric}": value
@@ -223,8 +191,6 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         else:
             self.primary_metric = f"{self.similarity_fn_names[0]}_ap"
 
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
 
     def compute_metrics(self, model: SentenceTransformer) -> dict[str, dict[str, float]]:

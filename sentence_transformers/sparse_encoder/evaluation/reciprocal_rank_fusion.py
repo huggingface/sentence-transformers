@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import csv
 import json
 import logging
 import os
 
 import numpy as np
-from sklearn.metrics import average_precision_score, dcg_score
+from sklearn.metrics import average_precision_score
 from tqdm import tqdm
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.util.metrics import _binary_ndcg, _reciprocal_rank
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
 
     Given a query and two separate ranked lists of documents from different retrievers (e.g., sparse and dense),
     it combines them using the RRF formula and computes metrics like MRR@k, NDCG@k, and MAP.
+    MRR and NDCG average over ties in fused scores.
     MAP and NDCG are normalized using all known positives, including those absent from the retrieved lists.
 
     Args:
@@ -206,7 +207,7 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             num_queries += 1
             num_positives.append(len(positive))
 
-            fusion_pred_scores = np.arange(len(fused_docs), 0, -1)
+            fusion_pred_scores = [rrf_scores[doc] for doc in fused_docs]
             fusion_mrr, fusion_ndcg, fusion_ap = self.compute_metrics(
                 fusion_is_relevant, fusion_pred_scores, len(positive)
             )
@@ -276,28 +277,22 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             os.makedirs(output_path, exist_ok=True)
 
             if self.write_csv:
-                csv_path = os.path.join(output_path, self.csv_file)
-                output_file_exists = os.path.isfile(csv_path)
-                with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    if not output_file_exists:
-                        writer.writerow(self.csv_headers)
-
-                    writer.writerow(
-                        [
-                            epoch,
-                            steps,
-                            mean_dense_ap,
-                            mean_dense_mrr,
-                            mean_dense_ndcg,
-                            mean_sparse_ap,
-                            mean_sparse_mrr,
-                            mean_sparse_ndcg,
-                            mean_fusion_ap,
-                            mean_fusion_mrr,
-                            mean_fusion_ndcg,
-                        ]
-                    )
+                self._write_csv_row(
+                    output_path,
+                    [
+                        epoch,
+                        steps,
+                        mean_dense_ap,
+                        mean_dense_mrr,
+                        mean_dense_ndcg,
+                        mean_sparse_ap,
+                        mean_sparse_mrr,
+                        mean_sparse_ndcg,
+                        mean_fusion_ap,
+                        mean_fusion_mrr,
+                        mean_fusion_ndcg,
+                    ],
+                )
 
             # Write prediction results if requested
             if self.write_predictions and fused_results_list:
@@ -318,20 +313,9 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
         if num_retrieved_positives == 0:
             return 0, 0, 0
         num_positives = max(num_positives or 0, num_retrieved_positives)
+        mrr = _reciprocal_rank(y_true, y_pred, k=self.at_k)
+        ndcg = _binary_ndcg(y_true, y_pred, k=self.at_k, num_positives=num_positives)
         ap = average_precision_score(y_true, y_pred) * (num_retrieved_positives / num_positives)
-        if self.at_k == 0:
-            return 0, 0, ap
-        ranking = np.argsort(y_pred)[::-1]
-
-        mrr = 0
-        for rank, index in enumerate(ranking[0 : self.at_k]):
-            if y_true[index]:
-                mrr = 1 / (rank + 1)
-                break
-
-        dcg = dcg_score([y_true], [y_pred], k=self.at_k) if len(y_true) > 1 else y_true[0]
-        ideal_dcg = np.sum(1 / np.log2(np.arange(2, min(num_positives, self.at_k) + 2)))
-        ndcg = dcg / ideal_dcg
         return mrr, ndcg, ap
 
     def get_config_dict(self):
