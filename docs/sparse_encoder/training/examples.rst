@@ -13,6 +13,7 @@ This page provides examples showing how to train Sparse Encoder models for vario
    ../../../examples/sparse_encoder/training/nli/README
    ../../../examples/sparse_encoder/training/quora_duplicate_questions/README
    ../../../examples/sparse_encoder/training/retrievers/README
+   ../../../examples/sparse_encoder/training/matryoshka/README
 
 .. toctree::
    :maxdepth: 1
@@ -20,4 +21,3 @@ This page provides examples showing how to train Sparse Encoder models for vario
 
    ../../../examples/sparse_encoder/training/merging/README
    ../../sentence_transformer/training/distributed
-

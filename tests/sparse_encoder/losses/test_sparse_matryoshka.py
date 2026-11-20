@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from itertools import combinations
+
 import pytest
 import torch
 from torch import Tensor, nn
@@ -54,14 +56,14 @@ def test_unpruned_budget_matches_inner_loss(splade_bert_tiny_model: SparseEncode
 def test_prunes_queries_and_documents_to_their_own_budgets(splade_bert_tiny_model: SparseEncoder) -> None:
     inner = RecordingLoss()
     loss = SparseMatryoshkaLoss(
-        splade_bert_tiny_model, inner, max_active_dims=[None, 20, 10], query_max_active_dims=[None, 5, 2]
+        splade_bert_tiny_model, inner, max_active_dims=[10, None, 20], query_max_active_dims=[2, None, 5]
     )
     embeddings = _random_embeddings(n_columns=3)
 
     loss.compute_loss_from_embeddings(embeddings, None)
 
     assert len(inner.calls) == 3
-    for call, query_budget, document_budget in zip(inner.calls, [None, 5, 2], [None, 20, 10]):
+    for call, query_budget, document_budget in zip(inner.calls, [2, None, 5], [10, None, 20]):
         torch.testing.assert_close(call[0], select_max_active_dims(embeddings[0], query_budget))
         for received, original in zip(call[1:], embeddings[1:]):
             torch.testing.assert_close(received, select_max_active_dims(original, document_budget))
@@ -82,18 +84,19 @@ def test_query_budgets_default_to_document_budgets(splade_bert_tiny_model: Spars
         torch.testing.assert_close(received, select_max_active_dims(original, 7))
 
 
-def test_loss_is_weighted_sum_over_budgets(splade_bert_tiny_model: SparseEncoder) -> None:
+@pytest.mark.parametrize("weights", [None, [1.0, 0.5]])
+def test_loss_is_weighted_sum_over_budgets(splade_bert_tiny_model: SparseEncoder, weights: list[float] | None) -> None:
     model = splade_bert_tiny_model
     inner = SparseMultipleNegativesRankingLoss(model)
     loss = SparseMatryoshkaLoss(
-        model, inner, max_active_dims=[None, 10], query_max_active_dims=[None, 3], matryoshka_weights=[1.0, 0.5]
+        model, inner, max_active_dims=[None, 10], query_max_active_dims=[None, 3], matryoshka_weights=weights
     )
     embeddings = _random_embeddings()
 
     pruned = [select_max_active_dims(embeddings[0], 3)] + [select_max_active_dims(e, 10) for e in embeddings[1:]]
-    expected = inner.compute_loss_from_embeddings(embeddings, None) + 0.5 * inner.compute_loss_from_embeddings(
-        pruned, None
-    )
+    weights = weights if weights is not None else [0.5, 0.5]
+    expected = weights[0] * inner.compute_loss_from_embeddings(embeddings, None)
+    expected += weights[1] * inner.compute_loss_from_embeddings(pruned, None)
     assert loss.compute_loss_from_embeddings(embeddings, None).item() == pytest.approx(expected.item())
 
 
@@ -109,13 +112,37 @@ def test_gradient_only_reaches_kept_dimensions(splade_bert_tiny_model: SparseEnc
         assert (embedding.grad[~kept] == 0).all()
 
 
-def test_n_dims_per_step_samples_budgets(splade_bert_tiny_model: SparseEncoder) -> None:
+@pytest.mark.parametrize("weights", [None, [1.0, 0.5, 0.25]])
+@pytest.mark.parametrize("sample_size", [1, 2])
+def test_sampling_preserves_expected_loss_and_gradients(
+    splade_bert_tiny_model: SparseEncoder, monkeypatch, weights: list[float] | None, sample_size: int
+) -> None:
     inner = RecordingLoss()
-    loss = SparseMatryoshkaLoss(splade_bert_tiny_model, inner, max_active_dims=[None, 40, 20, 10], n_dims_per_step=2)
+    loss = SparseMatryoshkaLoss(
+        splade_bert_tiny_model,
+        inner,
+        max_active_dims=[None, 20, 10],
+        query_max_active_dims=[None, 5, 2],
+        matryoshka_weights=weights,
+    )
+    embeddings = [embedding.requires_grad_() for embedding in _random_embeddings()]
+    full_loss = loss.compute_loss_from_embeddings(embeddings)
+    inner.calls.clear()
+    loss.n_dims_per_step = sample_size
 
-    loss.compute_loss_from_embeddings(_random_embeddings(), None)
+    sampled_losses = []
+    for indices in combinations(range(3), sample_size):
+        monkeypatch.setattr(
+            "sentence_transformers.sparse_encoder.losses.sparse_matryoshka.random.sample",
+            lambda population, k: indices,
+        )
+        sampled_losses.append(loss.compute_loss_from_embeddings(embeddings))
 
-    assert len(inner.calls) == 2
+    mean_loss = torch.stack(sampled_losses).mean()
+
+    assert len(inner.calls) == len(sampled_losses) * sample_size
+    torch.testing.assert_close(mean_loss, full_loss)
+    torch.testing.assert_close(torch.autograd.grad(mean_loss, embeddings), torch.autograd.grad(full_loss, embeddings))
 
 
 @pytest.mark.parametrize(
@@ -178,7 +205,6 @@ def _run(model: SparseEncoder, loss_fn: nn.Module) -> tuple[dict[str, Tensor], d
 
 
 def test_regularizers_see_unpruned_embeddings(splade_bert_tiny_model: SparseEncoder) -> None:
-    """Wrapped in SpladeLoss, only the base loss is pruned; FLOPS still regularizes the full vectors."""
     model = splade_bert_tiny_model.to("cpu")
     _disable_dropout(model)
     model.train()
@@ -193,11 +219,36 @@ def test_regularizers_see_unpruned_embeddings(splade_bert_tiny_model: SparseEnco
     assert wrapped["base_loss"].item() != pytest.approx(plain["base_loss"].item())
 
 
-def test_cached_splade_matches_splade(splade_bert_tiny_model: SparseEncoder) -> None:
-    """Pruning happens on the gathered embeddings, so GradCache must reproduce SpladeLoss's values and gradients."""
+@pytest.mark.parametrize("n_dims_per_step", [-1, 1])
+def test_default_weights_preserve_regularization_balance(
+    splade_bert_tiny_model: SparseEncoder, n_dims_per_step: int
+) -> None:
     model = splade_bert_tiny_model.to("cpu")
     _disable_dropout(model)
     model.train()
+    inner = SparseMultipleNegativesRankingLoss(model)
+    matryoshka = SparseMatryoshkaLoss(
+        model, inner, max_active_dims=[None, model.get_embedding_dimension()], n_dims_per_step=n_dims_per_step
+    )
+
+    wrapped, wrapped_grads = _run(model, _splade_losses(model, matryoshka, cached=False))
+    plain, plain_grads = _run(model, _splade_losses(model, inner, cached=False))
+
+    torch.testing.assert_close(wrapped, plain)
+    torch.testing.assert_close(wrapped_grads, plain_grads, rtol=1e-4, atol=2e-4)
+
+
+@pytest.mark.parametrize("n_dims_per_step", [-1, 1])
+def test_cached_splade_matches_splade(
+    splade_bert_tiny_model: SparseEncoder, monkeypatch, n_dims_per_step: int
+) -> None:
+    model = splade_bert_tiny_model.to("cpu")
+    _disable_dropout(model)
+    model.train()
+    monkeypatch.setattr(
+        "sentence_transformers.sparse_encoder.losses.sparse_matryoshka.random.sample",
+        lambda population, k: list(population)[-k:],
+    )
 
     def make_loss(cached: bool) -> nn.Module:
         inner = SparseMultipleNegativesRankingLoss(model)
@@ -207,6 +258,7 @@ def test_cached_splade_matches_splade(splade_bert_tiny_model: SparseEncoder) -> 
             max_active_dims=[None, 16, 8],
             query_max_active_dims=[None, 8, 4],
             matryoshka_weights=[1.0, 0.5, 0.25],
+            n_dims_per_step=n_dims_per_step,
         )
         return _splade_losses(model, matryoshka, cached=cached)
 
@@ -221,19 +273,38 @@ def test_cached_splade_matches_splade(splade_bert_tiny_model: SparseEncoder) -> 
         torch.testing.assert_close(grad, plain_grads[name], rtol=1e-4, atol=2e-4, msg=name)
 
 
-def test_csr_loss_prunes_only_the_main_loss(csr_bert_tiny_model: SparseEncoder) -> None:
+def test_csr_budgets_match_inference(csr_bert_tiny_model: SparseEncoder) -> None:
     model = csr_bert_tiny_model.to("cpu")
+    _disable_dropout(model)
     model.train()
     inner = RecordingLoss()
-    loss = CSRLoss(model, loss=SparseMatryoshkaLoss(model, inner, max_active_dims=[4], query_max_active_dims=[2]))
+    budgets = [None, model[-1].k, 4]
+    query_budgets = [None, model[-1].k, 2]
+    loss = CSRLoss(
+        model,
+        loss=SparseMatryoshkaLoss(model, inner, max_active_dims=budgets, query_max_active_dims=query_budgets),
+    )
 
     output = loss([model.preprocess(column) for column in (ANCHORS, POSITIVES)], None)
     torch.stack(list(output.values())).sum().backward()
 
-    (call,) = inner.calls
-    assert (_active_dims(call[0]) <= 2).all()
-    assert (_active_dims(call[1]) <= 4).all()
     assert any(param.grad is not None and param.grad.abs().sum() > 0 for param in model.parameters())
+    assert len(inner.calls) == len(budgets)
+    for call, query_budget, document_budget in zip(inner.calls, query_budgets, budgets):
+        for received, texts, budget in zip(call, (ANCHORS, POSITIVES), (query_budget, document_budget)):
+            expected = model.encode(
+                texts, max_active_dims=budget or model[-1].k, convert_to_sparse_tensor=False, show_progress_bar=False
+            )
+            torch.testing.assert_close(received, expected)
+
+
+@pytest.mark.parametrize("budget_name", ["max_active_dims", "query_max_active_dims"])
+def test_csr_rejects_budgets_above_native_k(csr_bert_tiny_model: SparseEncoder, budget_name: str) -> None:
+    model = csr_bert_tiny_model
+    kwargs = {"max_active_dims": [None, model[-1].k], budget_name: [None, model[-1].k * 2]}
+
+    with pytest.raises(ValueError, match=f"already prunes embeddings to k={model[-1].k}"):
+        SparseMatryoshkaLoss(model, RecordingLoss(), **kwargs)
 
 
 def test_forward_without_wrapper(splade_bert_tiny_model: SparseEncoder) -> None:
@@ -269,20 +340,6 @@ def test_get_config_dict(splade_bert_tiny_model: SparseEncoder) -> None:
     }
 
 
-def test_budgets_are_sorted_from_largest_to_smallest(splade_bert_tiny_model: SparseEncoder) -> None:
-    loss = SparseMatryoshkaLoss(
-        splade_bert_tiny_model,
-        RecordingLoss(),
-        max_active_dims=[10, None, 20],
-        query_max_active_dims=[2, None, 5],
-        matryoshka_weights=[0.25, 1.0, 0.5],
-    )
-
-    assert loss.max_active_dims == (None, 20, 10)
-    assert loss.query_max_active_dims == (None, 5, 2)
-    assert loss.matryoshka_weights == (1.0, 0.5, 0.25)
-
-
 @pytest.mark.parametrize(
     ("kwargs", "name"),
     [
@@ -296,35 +353,3 @@ def test_budget_above_embedding_dimension_raises(
     expected = f"Dimensions in {name} cannot exceed the model's embedding dimension of 30522."
     with pytest.raises(ValueError, match=expected):
         SparseMatryoshkaLoss(splade_bert_tiny_model, RecordingLoss(), **kwargs)
-
-
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"max_active_dims": [64, 32]},
-        {"max_active_dims": [None, 64], "query_max_active_dims": [16, 8]},
-        {"max_active_dims": [64, None], "query_max_active_dims": [None, 8]},
-    ],
-)
-def test_missing_unpruned_budget_warns(splade_bert_tiny_model: SparseEncoder, caplog, kwargs: dict) -> None:
-    with caplog.at_level("WARNING"):
-        SparseMatryoshkaLoss(splade_bert_tiny_model, RecordingLoss(), **kwargs)
-
-    assert len(caplog.records) == 1
-    assert caplog.records[0].levelname == "WARNING"
-    assert "It is strongly recommended to include None" in caplog.records[0].message
-
-
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"max_active_dims": [None, 64]},
-        {"max_active_dims": [30522, 64]},
-        {"max_active_dims": [64, None], "query_max_active_dims": [8, None]},
-    ],
-)
-def test_unpruned_budget_does_not_warn(splade_bert_tiny_model: SparseEncoder, caplog, kwargs: dict) -> None:
-    with caplog.at_level("WARNING"):
-        SparseMatryoshkaLoss(splade_bert_tiny_model, RecordingLoss(), **kwargs)
-
-    assert not caplog.records
