@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections import defaultdict
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -13,14 +12,12 @@ from sentence_transformers.sentence_transformer.evaluation.nano_beir import Nano
 from sentence_transformers.sparse_encoder.evaluation.sparse_information_retrieval import (
     SparseInformationRetrievalEvaluator,
 )
-from sentence_transformers.util import append_to_last_row
 
 if TYPE_CHECKING:
     from torch import Tensor
 
     from sentence_transformers.sentence_transformer.evaluation import SimilarityFunction
     from sentence_transformers.sentence_transformer.evaluation.nano_beir import DatasetNameType
-    from sentence_transformers.sparse_encoder import SparseEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -266,14 +263,10 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
                 ]
             )
 
-    def __call__(
-        self, model: SparseEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1, *args, **kwargs
-    ) -> dict[str, float]:
+    def _aggregate_results(self, per_metric_results: dict[str, list[float]]) -> dict[str, float]:
+        agg_results = super()._aggregate_results(per_metric_results)
         self.sparsity_stats = defaultdict(list)
         self.lengths = defaultdict(list)
-        per_dataset_results = super().__call__(
-            model, output_path=output_path, epoch=epoch, steps=steps, *args, **kwargs
-        )
         total_query_count, total_corpus_count = None, None
         for evaluator in self.evaluators:
             self.lengths["query"].append(len(evaluator.queries))
@@ -301,11 +294,7 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
         avg_corpus_count = total_corpus_count / sum(self.lengths["corpus"])
         self.sparsity_stats["avg_flops"] = float(torch.dot(avg_query_count, avg_corpus_count).cpu())
 
-        per_dataset_results.update(self.prefix_name_to_metrics(self.sparsity_stats, self.name))
-        aggregated_results = {
-            key: value for key, value in per_dataset_results.items() if key.startswith(self.name) and key != self.name
-        }
-        self.store_metrics_in_model_card_data(model, aggregated_results, epoch, steps)
+        agg_results.update(self.sparsity_stats)
         logger.info(
             f"Model Query Sparsity: Active Dimensions: {self.sparsity_stats['query_active_dims']:.1f}, Sparsity Ratio: {self.sparsity_stats['query_sparsity_ratio']:.4f}"
         )
@@ -313,13 +302,8 @@ class SparseNanoBEIREvaluator(NanoBEIREvaluator):
             f"Model Corpus Sparsity: Active Dimensions: {self.sparsity_stats['corpus_active_dims']:.1f}, Sparsity Ratio: {self.sparsity_stats['corpus_sparsity_ratio']:.4f}"
         )
         logger.info(f"Average FLOPS: {self.sparsity_stats['avg_flops']:.2f}")
-        if output_path is not None and self.write_csv:
-            append_to_last_row(
-                os.path.join(output_path, self.csv_file),
-                self.sparsity_stats.values(),
-            )
 
-        return per_dataset_results
+        return agg_results
 
     def _load_dataset(
         self, dataset_name: DatasetNameType | str, **ir_evaluator_kwargs

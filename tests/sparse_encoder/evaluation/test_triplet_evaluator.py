@@ -2,11 +2,34 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from sentence_transformers import SparseEncoder
 from sentence_transformers.sparse_encoder.evaluation import SparseTripletEvaluator
+
+
+def test_triplet_sparsity_uses_explicit_roles() -> None:
+    evaluator = SparseTripletEvaluator(anchors=["a"], positives=["p"], negatives=["n"])
+    model = Mock()
+    model.sparsity.return_value = {"active_dims": 2, "sparsity_ratio": 0.5}
+
+    for role in ["negative", "anchor", "positive", "negative"]:
+        evaluator.embed_inputs(model, [role], encode_fn_name="query" if role == "anchor" else "document", role=role)
+
+    assert dict(evaluator.sparsity_stats) == {
+        "anchor_active_dims": [2],
+        "anchor_sparsity_ratio": [0.5],
+        "positive_active_dims": [2],
+        "positive_sparsity_ratio": [0.5],
+        "negative_active_dims": [2, 2],
+        "negative_sparsity_ratio": [0.5, 0.5],
+    }
+    assert model.encode_query.call_count == 1
+    assert model.encode_document.call_count == 3
+    for call in model.encode_query.call_args_list + model.encode_document.call_args_list:
+        assert "role" not in call.kwargs
 
 
 @pytest.mark.parametrize("similarity_fn_names", [None, ["dot"], ["cosine", "dot"]])

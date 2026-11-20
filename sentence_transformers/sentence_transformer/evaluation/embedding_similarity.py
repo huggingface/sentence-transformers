@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -158,21 +156,9 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
             scores.append(example.label)
         return cls(sentences1, sentences2, scores, **kwargs)
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
-
-        logger.info(f"EmbeddingSimilarityEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
-
         if self.precision in ("int8", "uint8"):
             # Calibrate both sides together so the same sentence has the same quantized embedding.
             embeddings = self.embed_inputs(model, [*self.sentences1, *self.sentences2])
@@ -214,27 +200,6 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
                 f"{fn_name.capitalize()}-Similarity:\tPearson: {eval_pearson:.4f}\tSpearman: {eval_spearman:.4f}"
             )
 
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not output_file_exists:
-                    writer.writerow(self.csv_headers)
-
-                writer.writerow(
-                    [
-                        epoch,
-                        steps,
-                    ]
-                    + [
-                        metrics[f"{metric}_{fn_name}"]
-                        for fn_name in self.similarity_fn_names
-                        for metric in ["pearson", "spearman"]
-                    ]
-                )
-
         if len(self.similarity_fn_names) > 1:
             metrics["pearson_max"] = max(metrics[f"pearson_{fn_name}"] for fn_name in self.similarity_fn_names)
             metrics["spearman_max"] = max(metrics[f"spearman_{fn_name}"] for fn_name in self.similarity_fn_names)
@@ -247,8 +212,6 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
             else:
                 self.primary_metric = f"spearman_{self.similarity_fn_names[0]}"
 
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
 
     def _get_similarity_functions(self) -> dict:
@@ -287,3 +250,9 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
             if getattr(self, key) is not None:
                 config_dict[key] = getattr(self, key)
         return config_dict
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        if header not in metrics:
+            similarity, metric = header.rsplit("_", 1)
+            header = f"{metric}_{similarity}"
+        return metrics[header]

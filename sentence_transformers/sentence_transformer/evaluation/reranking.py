@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
@@ -150,7 +148,7 @@ class RerankingEvaluator(BaseEvaluator):
         self.write_csv = write_csv
         self.primary_metric = f"ndcg@{self.at_k}"
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
         """
@@ -165,17 +163,6 @@ class RerankingEvaluator(BaseEvaluator):
         Returns:
             Dict[str, float]: A dictionary containing the evaluation metrics.
         """
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
-
-        logger.info(f"RerankingEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
         scores = self.compute_metrics(model)
         mean_ap = scores["map"]
@@ -193,26 +180,11 @@ class RerankingEvaluator(BaseEvaluator):
         logger.info(f"MRR@{self.at_k}: {mean_mrr * 100:.2f}")
         logger.info(f"NDCG@{self.at_k}: {mean_ndcg * 100:.2f}")
 
-        #### Write results to disk
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not output_file_exists:
-                    writer.writerow(self.csv_headers)
-
-                writer.writerow([epoch, steps, mean_ap, mean_mrr, mean_ndcg])
-
-        metrics = {
+        return {
             "map": mean_ap,
             f"mrr@{self.at_k}": mean_mrr,
             f"ndcg@{self.at_k}": mean_ndcg,
         }
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
-        return metrics
 
     def compute_metrics(self, model: SentenceTransformer):
         """
@@ -381,3 +353,6 @@ class RerankingEvaluator(BaseEvaluator):
         if self.truncate_dim is not None:
             config_dict["truncate_dim"] = self.truncate_dim
         return config_dict
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        return metrics[header.lower()]

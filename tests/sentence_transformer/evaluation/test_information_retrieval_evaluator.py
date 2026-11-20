@@ -109,7 +109,7 @@ def test_simple(test_data, stsb_bert_tiny_model: SentenceTransformer, tmp_path: 
 
 
 def test_reused_evaluator_follows_the_model_similarity(
-    test_data, stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, caplog
+    test_data, stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path
 ):
     """Without explicit score_functions the scoring is resolved per call, so a reused evaluator
     labels every model with its own similarity rather than with the first one's."""
@@ -125,8 +125,7 @@ def test_reused_evaluator_follows_the_model_similarity(
     original = model.similarity_fn_name
     model.similarity_fn_name = "dot"
     try:
-        with caplog.at_level("WARNING"):
-            results = ir_evaluator(model, output_path=str(tmp_path))
+        results = ir_evaluator(model, output_path=str(tmp_path / "dot"))
     finally:
         model.similarity_fn_name = original
 
@@ -134,8 +133,6 @@ def test_reused_evaluator_follows_the_model_similarity(
     assert ir_evaluator.primary_metric == "test_dot_ndcg@10"
     assert {key.split("_")[1] for key in results} == {"dot"}
     assert len(ir_evaluator.csv_headers) == header_count
-    # The CSV keeps the header row of the first call, so the appended row is mislabeled.
-    assert "labeled with the previous score function" in caplog.text
 
 
 def test_explicit_score_functions_survive_reuse(test_data, stsb_bert_tiny_model: SentenceTransformer):

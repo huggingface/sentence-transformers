@@ -233,7 +233,7 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             return {self.main_score_function.value: SimilarityFunction.to_similarity_fn(self.main_score_function)}
         return {model.similarity_fn_name: model.similarity}
 
-    def __call__(
+    def evaluate(
         self,
         model: SentenceTransformer,
         output_path: str | None = None,
@@ -242,71 +242,17 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         *args,
         **kwargs,
     ) -> dict[str, float]:
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
-
-        logger.info(f"Information Retrieval Evaluation of the model on the {self.name} dataset{out_txt}:")
-
-        headers_changed = False
         if self._score_functions_from_model:
             # Resolved per call, so an evaluator reused across models scores and labels each of them
             # with its own similarity rather than with the first model's.
             self.score_functions = self._model_score_functions(model)
             if self.score_function_names != sorted(self.score_functions):
-                headers_changed = bool(self.score_function_names)
                 self.score_function_names = sorted(self.score_functions)
                 self.csv_headers = ["epoch", "steps"]
                 self._append_csv_headers(self.score_function_names)
                 self.primary_metric = None
 
         scores = self.compute_all_metrics(model, output_path=output_path, *args, **kwargs)
-
-        # Write results to disk
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                fOut = open(csv_path, mode="w", encoding="utf-8")
-                fOut.write(",".join(self.csv_headers))
-                fOut.write("\n")
-
-            else:
-                if headers_changed:
-                    logger.warning(
-                        f"{self.csv_file} was written with different score function columns, so the "
-                        f"rows appended for {self.score_function_names} are labeled with the previous "
-                        "score function."
-                    )
-                fOut = open(csv_path, mode="a", encoding="utf-8")
-
-            output_data = [epoch, steps]
-            for name in self.score_function_names:
-                for k in self.accuracy_at_k:
-                    output_data.append(scores[name]["accuracy@k"][k])
-
-                for k in self.precision_recall_at_k:
-                    output_data.append(scores[name]["precision@k"][k])
-                    output_data.append(scores[name]["recall@k"][k])
-
-                for k in self.mrr_at_k:
-                    output_data.append(scores[name]["mrr@k"][k])
-
-                for k in self.ndcg_at_k:
-                    output_data.append(scores[name]["ndcg@k"][k])
-
-                for k in self.map_at_k:
-                    output_data.append(scores[name]["map@k"][k])
-
-            fOut.write(",".join(map(str, output_data)))
-            fOut.write("\n")
-            fOut.close()
 
         if not self.primary_metric:
             if self.main_score_function is None:
@@ -318,15 +264,12 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             else:
                 self.primary_metric = f"{self.main_score_function.value}_ndcg@{max(self.ndcg_at_k)}"
 
-        metrics = {
+        return {
             f"{score_function}_{metric_name.replace('@k', '@' + str(k))}": value
             for score_function, values_dict in scores.items()
             for metric_name, values in values_dict.items()
             for k, value in values.items()
         }
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
-        return metrics
 
     def get_corpus_id_ranks(self) -> Tensor:
         """Position of each corpus entry in the ascending ``corpus_ids`` order, cached across calls."""
@@ -640,3 +583,9 @@ class InformationRetrievalEvaluator(BaseEvaluator):
             if getattr(self, key) is not None:
                 config_dict[key] = getattr(self, key)
         return config_dict
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        if header not in metrics:
+            score_function, metric = header.rsplit("-", 1)
+            header = f"{score_function}_{metric.lower()}"
+        return metrics[header]

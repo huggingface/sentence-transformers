@@ -94,7 +94,7 @@ class MultiVectorRerankingEvaluator(RerankingEvaluator):
             truncate_dim=truncate_dim,
         )
 
-    def __call__(self, model: MultiVectorEncoder, *args, **kwargs) -> dict[str, float]:
+    def evaluate(self, model: MultiVectorEncoder, *args, **kwargs) -> dict[str, float]:
         if self._user_similarity_fct is None:
             # The parent calls similarity_fct(query_emb, docs_emb) with the query as a single token
             # matrix (batched path) or a length-1 list (per-sample path): normalise to a one-query
@@ -104,7 +104,7 @@ class MultiVectorRerankingEvaluator(RerankingEvaluator):
                 return model.similarity(queries, document_embeddings)
 
             self.similarity_fct = one_to_many
-        return super().__call__(model, *args, **kwargs)
+        return super().evaluate(model, *args, **kwargs)
 
     def embed_inputs(
         self,

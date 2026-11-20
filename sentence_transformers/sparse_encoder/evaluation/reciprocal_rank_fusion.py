@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import logging
 import os
@@ -278,28 +277,22 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             os.makedirs(output_path, exist_ok=True)
 
             if self.write_csv:
-                csv_path = os.path.join(output_path, self.csv_file)
-                output_file_exists = os.path.isfile(csv_path)
-                with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    if not output_file_exists:
-                        writer.writerow(self.csv_headers)
-
-                    writer.writerow(
-                        [
-                            epoch,
-                            steps,
-                            mean_dense_ap,
-                            mean_dense_mrr,
-                            mean_dense_ndcg,
-                            mean_sparse_ap,
-                            mean_sparse_mrr,
-                            mean_sparse_ndcg,
-                            mean_fusion_ap,
-                            mean_fusion_mrr,
-                            mean_fusion_ndcg,
-                        ]
-                    )
+                self._write_csv_row(
+                    output_path,
+                    [
+                        epoch,
+                        steps,
+                        mean_dense_ap,
+                        mean_dense_mrr,
+                        mean_dense_ndcg,
+                        mean_sparse_ap,
+                        mean_sparse_mrr,
+                        mean_sparse_ndcg,
+                        mean_fusion_ap,
+                        mean_fusion_mrr,
+                        mean_fusion_ndcg,
+                    ],
+                )
 
             # Write prediction results if requested
             if self.write_predictions and fused_results_list:
