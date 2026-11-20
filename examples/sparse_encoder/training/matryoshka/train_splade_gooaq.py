@@ -42,6 +42,7 @@ def main():
     seed = 42
     run_name = f"splade-{model_name.split('/')[-1]}-gooaq-matryoshka{'-baseline' if cli.baseline else ''}"
 
+    # 1. Load a model to finetune
     # Seed before loading so repeated runs initialize any new MLM weights identically.
     set_seed(seed)
     model = SparseEncoder(
@@ -51,10 +52,12 @@ def main():
     )
     model.max_seq_length = 256
 
+    # 2. Load the GooAQ dataset with hard negatives
     dataset = load_dataset("tomaarsen/gooaq-hard-negatives", "triplet-5", split="train").select(range(100_000))
     dataset = dataset.train_test_split(test_size=1_000, seed=12)
     logging.info(dataset)
 
+    # 3. Define the training loss
     loss = SparseMultipleNegativesRankingLoss(model)
     if not cli.baseline:
         loss = SparseMatryoshkaLoss(model, loss, max_active_dims=max_active_dims)
@@ -66,6 +69,7 @@ def main():
         mini_batch_size=32,  # You can lower this if you have memory issues
     )
 
+    # 4. Define evaluators for use during training
     # Monitor the full embeddings and the smallest budget to limit evaluation time.
     evaluators = [
         SparseNanoBEIREvaluator(
@@ -77,6 +81,7 @@ def main():
         for budget in [None, max_active_dims[-1]]
     ]
 
+    # 5. Define the training arguments
     training_args = SparseEncoderTrainingArguments(
         output_dir=f"models/{run_name}",
         num_train_epochs=1,
@@ -96,6 +101,8 @@ def main():
         seed=seed,
         data_seed=seed,
     )
+
+    # 6. Create the trainer and start training
     trainer = SparseEncoderTrainer(
         model=model,
         args=training_args,
@@ -106,6 +113,7 @@ def main():
     )
     trainer.train()
 
+    # 7. Evaluate the final model at each budget on all NanoBEIR datasets
     for budget in max_active_dims:
         evaluator = SparseNanoBEIREvaluator(
             max_active_dims=budget,
@@ -114,9 +122,11 @@ def main():
         )
         evaluator(model)
 
+    # 8. Save the final model
     final_output_dir = f"{training_args.output_dir}/final"
     model.save_pretrained(final_output_dir)
 
+    # 9. (Optional) save the model to the Hugging Face Hub
     # Run `hf auth login` to log into your Hugging Face account first.
     try:
         model.push_to_hub(run_name)
