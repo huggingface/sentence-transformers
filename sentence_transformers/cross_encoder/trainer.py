@@ -109,6 +109,8 @@ class CrossEncoderTrainer(BaseTrainer):
     model_card_callback_class = CrossEncoderModelCardCallback
     data_collator_class = CrossEncoderDataCollator
     training_args_class = CrossEncoderTrainingArguments
+    # The data collator passes the resolved prompt and task alongside the raw text columns
+    reserved_column_names = (*BaseTrainer.reserved_column_names, "prompt", "task")
 
     @deprecated_kwargs(tokenizer="processing_class")
     def __init__(
