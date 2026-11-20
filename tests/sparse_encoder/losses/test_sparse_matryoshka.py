@@ -14,6 +14,7 @@ from sentence_transformers.sparse_encoder.losses import (
     SparseMultipleNegativesRankingLoss,
     SpladeLoss,
 )
+from sentence_transformers.sparse_encoder.modules import Router, SparseAutoEncoder
 from sentence_transformers.util import select_max_active_dims
 from tests.sentence_transformer.losses.utils import disable_dropout as _disable_dropout
 
@@ -305,6 +306,30 @@ def test_csr_rejects_budgets_above_native_k(csr_bert_tiny_model: SparseEncoder, 
 
     with pytest.raises(ValueError, match=f"already prunes embeddings to k={model[-1].k}"):
         SparseMatryoshkaLoss(model, RecordingLoss(), **kwargs)
+
+
+@pytest.mark.parametrize(("query_k", "document_k"), [(4, 16), (16, 4)])
+def test_routed_autoencoders_allow_different_budgets(query_k: int, document_k: int) -> None:
+    query = SparseAutoEncoder(input_dim=8, hidden_dim=64, k=query_k, k_aux=0)
+    document = SparseAutoEncoder(input_dim=8, hidden_dim=64, k=document_k, k_aux=0)
+    for module in (query, document):
+        nn.init.ones_(module.encoder.weight)
+    model = SparseEncoder(modules=[Router.for_query_document([query], [document])], device="cpu")
+    inner = RecordingLoss()
+    query_budgets = [query_k, query_k // 2]
+    document_budgets = [document_k, document_k // 2]
+    loss = SparseMatryoshkaLoss(model, inner, max_active_dims=document_budgets, query_max_active_dims=query_budgets)
+
+    features = [{"sentence_embedding": torch.ones(2, 8), "task": task} for task in ("query", "document", "document")]
+    loss(features).backward()
+
+    assert len(inner.calls) == 2
+    for call, query_budget, document_budget in zip(inner.calls, query_budgets, document_budgets):
+        assert (_active_dims(call[0]) == query_budget).all()
+        assert (_active_dims(torch.cat(call[1:])) == document_budget).all()
+    for module in (query, document):
+        assert module.encoder.weight.grad is not None
+        assert module.encoder.weight.grad.abs().sum() > 0
 
 
 def test_forward_without_wrapper(splade_bert_tiny_model: SparseEncoder) -> None:

@@ -60,7 +60,7 @@ class SparseMatryoshkaLoss(nn.Module):
 
         Requirements:
             1. The input requirements are those of the underlying loss.
-            2. When used with :class:`CSRLoss`, numeric budgets cannot exceed the autoencoder's ``k``.
+            2. For sparse autoencoders, set ``k`` to at least the largest budget.
 
         Inputs:
             +---------------------------------------+--------+
@@ -131,14 +131,14 @@ class SparseMatryoshkaLoss(nn.Module):
                     raise ValueError(
                         f"Dimensions in {name} cannot exceed the model's embedding dimension of {model_embedding_dim}."
                     )
-        for module in model.modules():
-            if isinstance(module, SparseAutoEncoder) and any(
-                dim is not None and dim > module.k for dim in (*max_active_dims, *query_max_active_dims)
-            ):
-                raise ValueError(
-                    f"SparseAutoEncoder already prunes embeddings to k={module.k}. "
-                    "Set k to at least the largest requested budget before constructing SparseMatryoshkaLoss."
-                )
+        output_module = model[-1]
+        if isinstance(output_module, SparseAutoEncoder) and any(
+            dim is not None and dim > output_module.k for dim in (*max_active_dims, *query_max_active_dims)
+        ):
+            raise ValueError(
+                f"SparseAutoEncoder already prunes embeddings to k={output_module.k}. "
+                "Set k to at least the largest requested budget before constructing SparseMatryoshkaLoss."
+            )
 
         self.model = model
         self.loss = loss
