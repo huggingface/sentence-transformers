@@ -52,6 +52,11 @@ Sadly, there is no "one size fits all" loss function. Which loss function is sui
 .. autoclass:: sentence_transformers.sparse_encoder.losses.SparseDistillKLDivLoss
 ``` 
 
+## SparseMatryoshkaLoss
+```{eval-rst}
+.. autoclass:: sentence_transformers.sparse_encoder.losses.SparseMatryoshkaLoss
+```
+
 ## SparseTripletLoss
 ```{eval-rst}
 .. autoclass:: sentence_transformers.sparse_encoder.losses.SparseTripletLoss
