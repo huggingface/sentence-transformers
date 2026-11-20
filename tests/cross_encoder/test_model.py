@@ -1318,7 +1318,8 @@ Judge whether the Document meets the requirements based on the Query and the Ins
 
 
 class TestKeepInFP32Modules:
-    def test_saved_fp32_selection_and_overrides(self, tmp_path):
+    @pytest.mark.parametrize("backend", ["torch", "onnx", "openvino"])
+    def test_saved_fp32_selection_and_overrides(self, tmp_path, backend):
         head = Dense(8, 1, activation_function=None, module_output_name="scores")
         model = CrossEncoder(modules=[head], keep_in_fp32_modules=["0.linear"], device="cpu")
         model.save_pretrained(str(tmp_path), create_model_card=False)
@@ -1326,16 +1327,26 @@ class TestKeepInFP32Modules:
         config = json.loads((tmp_path / "config_sentence_transformers.json").read_text())
         assert config["keep_in_fp32_modules"] == ["0.linear"]
 
-        restored = CrossEncoder(str(tmp_path), device="cpu").bfloat16()
+        restored = CrossEncoder(str(tmp_path), backend=backend, device="cpu").bfloat16()
         x = torch.randn(3, 8, dtype=torch.bfloat16)
         with torch.autocast("cpu", dtype=torch.bfloat16):
             output = restored({"sentence_embedding": x})["scores"]
 
-        assert output.dtype == torch.float32
-        expected = F.linear(x.float(), restored[0].linear.weight.float(), restored[0].linear.bias.float())
-        torch.testing.assert_close(output, expected, rtol=0, atol=0)
+        assert restored.keep_in_fp32_modules == ["0.linear"]
+        if backend == "torch":
+            assert output.dtype == torch.float32
+            expected = F.linear(x.float(), restored[0].linear.weight.float(), restored[0].linear.bias.float())
+            torch.testing.assert_close(output, expected, rtol=0, atol=0)
+        else:
+            assert output.dtype == torch.bfloat16
 
-        disabled = CrossEncoder(str(tmp_path), keep_in_fp32_modules=[], device="cpu").bfloat16()
+        restored.save_pretrained(str(tmp_path), create_model_card=False)
+        assert CrossEncoder(str(tmp_path), device="cpu").keep_in_fp32_modules == ["0.linear"]
+        restored.set_keep_in_fp32_modules([])
+        assert restored.keep_in_fp32_modules == []
+        assert "keep_in_fp32_modules" not in restored._get_model_config()
+
+        disabled = CrossEncoder(str(tmp_path), keep_in_fp32_modules=[], backend=backend, device="cpu").bfloat16()
         assert type(disabled[0].linear) is nn.Linear
         assert disabled({"sentence_embedding": x})["scores"].dtype == torch.bfloat16
         assert "keep_in_fp32_modules" not in disabled._get_model_config()
@@ -1430,6 +1441,48 @@ class TestKeepInFP32Modules:
 
         with pytest.raises(ValueError, match="torch backend"):
             CrossEncoder(modules=[Dense(8, 1)], keep_in_fp32_modules=["0.linear"], backend="onnx", device="cpu")
+
+    @pytest.mark.parametrize("backend", ["onnx", "openvino"])
+    def test_saved_selection_survives_backend_export(self, tmp_path, backend):
+        pytest.importorskip(
+            "optimum.onnxruntime" if backend == "onnx" else "optimum.intel.openvino", exc_type=ImportError
+        )
+        checkpoint = tmp_path / "checkpoint"
+        BertForSequenceClassification(
+            BertConfig(
+                vocab_size=4,
+                hidden_size=16,
+                intermediate_size=32,
+                num_hidden_layers=1,
+                num_attention_heads=2,
+                num_labels=1,
+            )
+        ).save_pretrained(checkpoint)
+        tokenizer = Tokenizer(WordLevel({"[PAD]": 0, "[UNK]": 1, "a": 2, "b": 3}, unk_token="[UNK]"))
+        tokenizer.pre_tokenizer = Whitespace()
+        PreTrainedTokenizerFast(
+            tokenizer_object=tokenizer, pad_token="[PAD]", unk_token="[UNK]", model_max_length=16
+        ).save_pretrained(checkpoint)
+        model = CrossEncoder(str(checkpoint), keep_in_fp32_modules=["0.model.classifier"], device="cpu")
+        saved = tmp_path / "saved"
+        model.save_pretrained(str(saved), create_model_card=False)
+
+        model_kwargs = {"provider": "CPUExecutionProvider"} if backend == "onnx" else {}
+        restored = CrossEncoder(str(saved), backend=backend, model_kwargs=model_kwargs, device="cpu")
+        assert restored.keep_in_fp32_modules == ["0.model.classifier"]
+        assert restored.predict([("a", "b")]).shape == (1,)
+        with pytest.raises(ValueError, match="torch backend"):
+            restored.set_keep_in_fp32_modules(["0.model.classifier"])
+
+        restored.save_pretrained(str(saved), create_model_card=False)
+        reloaded = CrossEncoder(str(saved), device="cpu")
+        assert reloaded.keep_in_fp32_modules == ["0.model.classifier"]
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            assert reloaded.model(**reloaded.preprocess([("a", "b")])).logits.dtype == torch.float32
+
+        restored.set_keep_in_fp32_modules([])
+        assert restored.keep_in_fp32_modules == []
+        assert "keep_in_fp32_modules" not in restored._get_model_config()
 
     def test_copy_pickle_and_compile(self):
         model = CrossEncoder(modules=[Dense(8, 1)], keep_in_fp32_modules=["0.linear"], device="cpu").bfloat16()
