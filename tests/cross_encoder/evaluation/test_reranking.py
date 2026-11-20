@@ -12,6 +12,23 @@ from sentence_transformers import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderRerankingEvaluator
 
 
+@pytest.mark.parametrize("always_rerank_positives", [True, False])
+@pytest.mark.parametrize("at_k", [1, 2, 10])
+def test_mrr_ties(always_rerank_positives: bool, at_k: int) -> None:
+    model = Mock()
+    model.predict.return_value = np.ones(3)
+    evaluator = CrossEncoderRerankingEvaluator(
+        [{"query": "q", "positive": ["b"], "documents": ["a", "b", "c"]}],
+        always_rerank_positives=always_rerank_positives,
+        at_k=at_k,
+        write_csv=False,
+    )
+    results = evaluator(model)
+
+    assert results[f"mrr@{at_k}"] == pytest.approx(sum(1 / rank for rank in range(1, min(at_k, 3) + 1)) / 3)
+    assert results[f"base_mrr@{at_k}"] == (1 / 2 if at_k >= 2 else 0.0)
+
+
 def test_negative_format(reranker_bert_tiny_model: CrossEncoder, monkeypatch) -> None:
     """Basic test with 'negative' format produces valid metrics."""
     samples = [
@@ -199,4 +216,19 @@ def test_missing_positives_with_tied_scores() -> None:
     results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, at_k=1)(model)
 
     assert results["map"] == pytest.approx(0.25)
+    assert results["mrr@1"] == pytest.approx(0.5)
     assert results["ndcg@1"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("documents", [["p1"], ["n1", "p1"]])
+def test_zero_cutoff(documents: list[str]) -> None:
+    samples = [{"query": "q", "positive": ["p1", "p2"], "documents": documents}]
+    model = Mock()
+    model.predict.return_value = np.arange(len(documents), 0, -1)
+
+    results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, at_k=0)(model)
+
+    for prefix in ("", "base_"):
+        assert results[f"{prefix}map"] == pytest.approx(1 / (2 * len(documents)))
+        assert results[f"{prefix}mrr@0"] == 0.0
+        assert results[f"{prefix}ndcg@0"] == 0.0

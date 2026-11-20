@@ -10,6 +10,7 @@ import tqdm
 from sklearn.metrics import average_precision_score, ndcg_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.util.metrics import _reciprocal_rank
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -27,6 +28,7 @@ class RerankingEvaluator(BaseEvaluator):
 
     Given a query and a list of documents, it computes the score [query, doc_i] for all possible
     documents and sorts them in decreasing order. Then, MRR@10, NDCG@10 and MAP is compute to measure the quality of the ranking.
+    MRR is averaged over all possible orderings of documents with equal scores.
 
     Args:
         samples (list): A list of dictionaries, where each dictionary represents a sample and has the following keys:
@@ -250,17 +252,11 @@ class RerankingEvaluator(BaseEvaluator):
             if len(pred_scores.shape) > 1:
                 pred_scores = pred_scores[0]
 
-            pred_scores_argsort = torch.argsort(-pred_scores)  # Sort in decreasing order
             pred_scores = pred_scores.cpu().tolist()
 
             # Compute MRR score
             is_relevant = [1] * num_pos + [0] * num_neg
-            mrr_score = 0
-            for rank, index in enumerate(pred_scores_argsort[0 : self.at_k]):
-                if is_relevant[index]:
-                    mrr_score = 1 / (rank + 1)
-                    break
-            all_mrr_scores.append(mrr_score)
+            all_mrr_scores.append(_reciprocal_rank(is_relevant, pred_scores, k=self.at_k))
 
             # Compute NDCG score
             all_ndcg_scores.append(ndcg_score([is_relevant], [pred_scores], k=self.at_k))
@@ -307,16 +303,10 @@ class RerankingEvaluator(BaseEvaluator):
             if len(pred_scores.shape) > 1:
                 pred_scores = pred_scores[0]
 
-            pred_scores_argsort = torch.argsort(-pred_scores)  # Sort in decreasing order
             pred_scores = pred_scores.cpu().tolist()
 
             # Compute MRR score
-            mrr_score = 0
-            for rank, index in enumerate(pred_scores_argsort[0 : self.at_k]):
-                if is_relevant[index]:
-                    mrr_score = 1 / (rank + 1)
-                    break
-            all_mrr_scores.append(mrr_score)
+            all_mrr_scores.append(_reciprocal_rank(is_relevant, pred_scores, k=self.at_k))
 
             # Compute NDCG score
             all_ndcg_scores.append(ndcg_score([is_relevant], [pred_scores], k=self.at_k))

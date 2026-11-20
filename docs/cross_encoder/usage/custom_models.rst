@@ -301,7 +301,7 @@ return fp32 outputs, even when autocast is enabled. For example:
    )
 
 Paths are exact names from ``model.named_modules()``, without ``.weight`` or ``.bias``. The
-selection is saved in ``config_sentence_transformers.json`` and automatically restored on load.
+selection is saved in ``config_sentence_transformers.json`` and automatically applied on the torch backend.
 Model authors should save the selection in ``config_sentence_transformers.json`` rather than
 asking users to set it manually when loading. Pass ``keep_in_fp32_modules=[]`` when loading to
 disable a saved selection.

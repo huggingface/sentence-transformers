@@ -1192,6 +1192,28 @@ def test_trainer_call_model_init_multi_loss(
         assert loss_fn.model is not model, f"Loss '{key}' model was not updated from the original model"
 
 
+def test_trainer_same_dataset_under_multiple_names(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
+    model = stsb_bert_tiny_model
+    dataset = Dataset.from_dict({"anchor": ["a", "b"], "positive": ["c", "d"]})
+    dataset.set_transform(lambda batch: {column: [text.upper() for text in texts] for column, texts in batch.items()})
+
+    loss = {"main": MultipleNegativesRankingLoss(model), "regularizer": MultipleNegativesRankingLoss(model)}
+    args = SentenceTransformerTrainingArguments(output_dir=str(tmp_path), report_to="none")
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=args,
+        train_dataset={"main": dataset, "regularizer": dataset},
+        eval_dataset={"main": dataset, "regularizer": dataset},
+        loss=loss,
+    )
+
+    for split in (trainer.train_dataset, trainer.eval_dataset):
+        for dataset_name in ("main", "regularizer"):
+            assert split[dataset_name][0] == {"anchor": "A", "positive": "C", "dataset_name": dataset_name}
+
+    assert dataset[0] == {"anchor": "A", "positive": "C"}
+
+
 @pytest.mark.parametrize("persistent_workers", [True, False])
 def test_trainer_get_eval_dataloader_with_persistent_workers(
     stsb_bert_tiny_model: SentenceTransformer,

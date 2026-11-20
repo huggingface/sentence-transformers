@@ -444,8 +444,8 @@ class BaseTrainer(Trainer, ABC):
             if name == "model" and isinstance(child, BaseModel):
                 # DDP/compile wrappers don't expose BaseModel methods. Bind the ones
                 # losses call inside `forward` (CE: `preprocess`, MatryoshkaLoss:
-                # `get_embedding_dimension`).
-                for attr in ("preprocess", "get_embedding_dimension"):
+                # `_get_untruncated_embedding_dimension`).
+                for attr in ("preprocess", "get_embedding_dimension", "_get_untruncated_embedding_dimension"):
                     if hasattr(child, attr) and not hasattr(model, attr):
                         setattr(model, attr, getattr(child, attr))
                 loss.model = model
@@ -1162,9 +1162,9 @@ class BaseTrainer(Trainer, ABC):
         if dataset_name is None:
             return dataset
 
-        # If we have a Dataset, we can set the transform directly...
+        # If we have a Dataset, we can add the transform to a copy...
         if isinstance(dataset, Dataset):
-            dataset.set_transform(
+            dataset = dataset.with_transform(
                 partial(
                     self.add_dataset_name_transform,
                     dataset_name=dataset_name,
@@ -1213,7 +1213,7 @@ class BaseTrainer(Trainer, ABC):
         Returns:
             dict[str, list[Any]]: The "just-in-time" transformed batch with the dataset name added.
         """
-        # If the dataset is a Dataset(Dict), then we use set_transform and we want to also apply any
+        # If the dataset is a Dataset(Dict), then we use with_transform and we want to also apply any
         # previous transform if it exists
         if transform:
             batch = transform(batch)

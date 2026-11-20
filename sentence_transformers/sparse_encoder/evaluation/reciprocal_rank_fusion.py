@@ -5,10 +5,11 @@ import logging
 import os
 
 import numpy as np
-from sklearn.metrics import average_precision_score, dcg_score
+from sklearn.metrics import average_precision_score
 from tqdm import tqdm
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.util.metrics import _binary_ndcg, _reciprocal_rank
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
 
     Given a query and two separate ranked lists of documents from different retrievers (e.g., sparse and dense),
     it combines them using the RRF formula and computes metrics like MRR@k, NDCG@k, and MAP.
+    MRR and NDCG average over ties in fused scores.
     MAP and NDCG are normalized using all known positives, including those absent from the retrieved lists.
 
     Args:
@@ -205,7 +207,7 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
             num_queries += 1
             num_positives.append(len(positive))
 
-            fusion_pred_scores = np.arange(len(fused_docs), 0, -1)
+            fusion_pred_scores = [rrf_scores[doc] for doc in fused_docs]
             fusion_mrr, fusion_ndcg, fusion_ap = self.compute_metrics(
                 fusion_is_relevant, fusion_pred_scores, len(positive)
             )
@@ -311,20 +313,9 @@ class ReciprocalRankFusionEvaluator(BaseEvaluator):
         if num_retrieved_positives == 0:
             return 0, 0, 0
         num_positives = max(num_positives or 0, num_retrieved_positives)
+        mrr = _reciprocal_rank(y_true, y_pred, k=self.at_k)
+        ndcg = _binary_ndcg(y_true, y_pred, k=self.at_k, num_positives=num_positives)
         ap = average_precision_score(y_true, y_pred) * (num_retrieved_positives / num_positives)
-        if self.at_k == 0:
-            return 0, 0, ap
-        ranking = np.argsort(y_pred)[::-1]
-
-        mrr = 0
-        for rank, index in enumerate(ranking[0 : self.at_k]):
-            if y_true[index]:
-                mrr = 1 / (rank + 1)
-                break
-
-        dcg = dcg_score([y_true], [y_pred], k=self.at_k) if len(y_true) > 1 else y_true[0]
-        ideal_dcg = np.sum(1 / np.log2(np.arange(2, min(num_positives, self.at_k) + 2)))
-        ndcg = dcg / ideal_dcg
         return mrr, ndcg, ap
 
     def get_config_dict(self):
