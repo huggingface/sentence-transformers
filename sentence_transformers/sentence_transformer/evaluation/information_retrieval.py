@@ -160,6 +160,10 @@ class InformationRetrievalEvaluator(BaseEvaluator):
         for qid in queries:
             if qid in relevant_docs and len(relevant_docs[qid]) > 0:
                 self.queries_ids.append(qid)
+        if not self.queries_ids:
+            raise ValueError(
+                "InformationRetrievalEvaluator needs at least one query with at least one relevant document."
+            )
 
         self.queries = [queries[qid] for qid in self.queries_ids]
 
