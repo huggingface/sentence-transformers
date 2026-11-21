@@ -108,3 +108,86 @@ def test_sparse_static_embedding_loads_json_checkpoint(tmp_path: Path, explicit_
     model = SparseEncoder(modules=[loaded], device="cpu")
     expected = torch.tensor([[0.0, 0.0, 2.5, 1.0], [0.0, 0.0, 0.0, 1.0]])
     torch.testing.assert_close(model.encode_query(["alpha beta", "beta"], convert_to_sparse_tensor=False), expected)
+
+
+def _word_level_tokenizer(model_max_length: int = 32) -> PreTrainedTokenizerFast:
+    backend = Tokenizer(
+        models.WordLevel({"[PAD]": 0, "[UNK]": 1, "alpha": 2, "beta": 3, "gamma": 4}, unk_token="[UNK]")
+    )
+    backend.pre_tokenizer = pre_tokenizers.Whitespace()
+    return PreTrainedTokenizerFast(
+        tokenizer_object=backend, unk_token="[UNK]", pad_token="[PAD]", model_max_length=model_max_length
+    )
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_ids", "expected_embeddings"),
+    [
+        (None, [[2, 3], [3, 0]], [[0.0, 0.0, 1.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0]]),
+        ("gamma ", [[4, 2], [4, 3]], [[0.0, 0.0, 1.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0, 1.0]]),
+    ],
+)
+def test_sparse_static_embedding_respects_max_seq_length(
+    prompt: str | None, expected_ids: list[list[int]], expected_embeddings: list[list[float]]
+) -> None:
+    """Setting max_seq_length limits tokenization, like for a Transformer module; a prompt counts towards it."""
+    module = SparseStaticEmbedding(tokenizer=_word_level_tokenizer(), frozen=True)
+    assert module.max_seq_length == 32
+    model = SparseEncoder(modules=[module], device="cpu")
+    texts = ["alpha beta gamma", "beta"]
+    assert model.preprocess(texts, prompt=prompt)["input_ids"].shape[1] == 3 + bool(prompt)
+
+    model.max_seq_length = 2
+    assert module.max_seq_length == 2
+    assert model.preprocess(texts, prompt=prompt)["input_ids"].tolist() == expected_ids
+    torch.testing.assert_close(
+        model.encode(texts, prompt=prompt, convert_to_sparse_tensor=False), torch.tensor(expected_embeddings)
+    )
+
+
+def test_sparse_static_embedding_max_seq_length_is_saved(tmp_path: Path) -> None:
+    """The limit is stored in the tokenizer, so it survives saving and loading."""
+    module = SparseStaticEmbedding(tokenizer=_word_level_tokenizer(), frozen=True)
+    model = SparseEncoder(modules=[module], device="cpu")
+    model.max_seq_length = 2
+    model.save_pretrained(str(tmp_path), create_model_card=False)
+
+    loaded = SparseEncoder(str(tmp_path), device="cpu")
+    assert loaded.max_seq_length == 2
+    assert loaded.preprocess(["alpha beta gamma"])["input_ids"].tolist() == [[2, 3]]
+
+
+def test_inference_free_splade_max_seq_length_truncates_queries(
+    inference_free_splade_bert_tiny_model: SparseEncoder,
+) -> None:
+    """A loaded inference-free model has a separate tokenizer per route, so the query route must apply the limit."""
+    model = inference_free_splade_bert_tiny_model
+    query_module = model[0].sub_modules["query"][0]
+    assert isinstance(query_module, SparseStaticEmbedding)
+    text = "one two three four five six seven eight nine ten"
+    assert model.preprocess([text], task="query")["input_ids"].shape[1] == 10
+
+    model.max_seq_length = 8
+    assert query_module.max_seq_length == 8
+    assert model.preprocess([text], task="query")["input_ids"].shape[1] == 8
+    assert model.preprocess([text], task="document")["input_ids"].shape[1] == 8
+    assert sparse_allclose(
+        model.encode_query(text, save_to_cpu=True),
+        model.encode_query("one two three four five six seven eight", save_to_cpu=True),
+    )
+
+
+def test_sparse_static_embedding_per_call_processing_kwargs(
+    inference_free_splade_bert_tiny_model: SparseEncoder,
+) -> None:
+    """``processing_kwargs`` passed to encode reach the tokenizer call, like for a Transformer module."""
+    model = inference_free_splade_bert_tiny_model
+    text = "one two three four five six seven eight nine ten"
+    processing_kwargs = {"text": {"max_length": 4, "truncation": True}}
+    assert model.preprocess([text], task="query", processing_kwargs=processing_kwargs)["input_ids"].shape[1] == 4
+    assert sparse_allclose(
+        model.encode_query(text, processing_kwargs=processing_kwargs, save_to_cpu=True),
+        model.encode_query("one two three four", save_to_cpu=True),
+    )
+    # The override only applies to that call
+    assert model.preprocess([text], task="query")["input_ids"].shape[1] == 10

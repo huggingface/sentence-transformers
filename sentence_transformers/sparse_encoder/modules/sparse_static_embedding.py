@@ -19,6 +19,8 @@ from sentence_transformers.util import load_file_path
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizer
 
+    from sentence_transformers.base.modules.transformer import ProcessingKwargs
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,7 +62,18 @@ class SparseStaticEmbedding(InputModule):
 
         self.frozen = frozen
         self.num_dimensions = self.weight.size(0)
-        self.max_seq_length = self.tokenizer.model_max_length
+
+    @property
+    def max_seq_length(self) -> int:
+        """The maximum number of tokens per input; longer inputs are truncated in :meth:`preprocess`.
+        Reads from and writes to the tokenizer's ``model_max_length``, like
+        :class:`~sentence_transformers.base.modules.Transformer`, so the limit is saved with the tokenizer.
+        """
+        return self.tokenizer.model_max_length
+
+    @max_seq_length.setter
+    def max_seq_length(self, value: int) -> None:
+        self.tokenizer.model_max_length = value
 
     def forward(self, features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         input_ids = features["input_ids"]
@@ -88,13 +101,32 @@ class SparseStaticEmbedding(InputModule):
         self,
         inputs: list[str],
         prompt: str | None = None,
+        processing_kwargs: ProcessingKwargs | None = None,
         **kwargs,
     ) -> dict[str, torch.Tensor]:
+        """
+        Tokenize the inputs, truncating them to :attr:`max_seq_length`.
+
+        Args:
+            inputs (list[str]): The texts to tokenize.
+            prompt (str | None): Optional prompt to prepend to each text. The prompt counts towards
+                ``max_seq_length``.
+            processing_kwargs (ProcessingKwargs | None): Per-call overrides for the tokenizer call, in the same
+                format as for :class:`~sentence_transformers.base.modules.Transformer`, e.g.
+                ``{"text": {"max_length": 32, "truncation": True}}``. Only the ``"common"`` and ``"text"`` keys
+                are used. Defaults to None.
+            **kwargs: Ignored, e.g. ``task``.
+
+        Returns:
+            dict[str, torch.Tensor]: The tokenized features, i.e. ``input_ids`` and ``attention_mask``.
+        """
         if prompt:
             inputs = self._prepend_prompt(inputs, prompt)
-        return dict(
-            self.tokenizer(inputs, padding=True, truncation=True, return_tensors="pt", add_special_tokens=False)
-        )
+        tokenizer_kwargs = {"padding": True, "truncation": True, "return_tensors": "pt", "add_special_tokens": False}
+        if processing_kwargs:
+            tokenizer_kwargs.update(processing_kwargs.get("common", {}))
+            tokenizer_kwargs.update(processing_kwargs.get("text", {}))
+        return dict(self.tokenizer(inputs, **tokenizer_kwargs))
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
         self.save_tokenizer(output_path)
