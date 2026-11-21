@@ -1436,7 +1436,7 @@ class Transformer(InputModule):
             # so we don't track prompt length.
         elif prompt and modality == "text":
             processor_inputs["text"] = self.input_formatter.prepend_prompt_to_texts(processor_inputs["text"], prompt)
-            prompt_length = self._get_prompt_length(prompt, **kwargs)
+            prompt_length = self._get_prompt_length(prompt, processing_kwargs=processing_kwargs, **kwargs)
 
         with suggest_extra_on_exception():
             processor_output = self._call_processor(
@@ -2232,7 +2232,9 @@ class Transformer(InputModule):
             ids = ids[0]
         return ids
 
-    def _get_prompt_length(self, prompt: str, **kwargs) -> int | None:
+    def _get_prompt_length(
+        self, prompt: str, processing_kwargs: ProcessingKwargs | None = None, **kwargs
+    ) -> int | None:
         """Return the length of the prompt in tokens, excluding any trailing special token.
 
         Returns None if the processor does not produce ``input_ids``.
@@ -2242,21 +2244,40 @@ class Transformer(InputModule):
         # the lone prompt to the expansion length and report that width instead of the prompt's own size.
         # Task is also excluded from the cache key so the same prompt is measured once across tasks.
         kwargs = {key: value for key, value in kwargs.items() if key != "task"}
-        cache_key = (prompt, *sorted(kwargs.items()))
-        if cache_key in self._prompt_length_mapping:
+        effective_processing_kwargs = self._merge_processing_kwargs(processing_kwargs)
+        cache_key = (
+            prompt,
+            *sorted(kwargs.items()),
+            tuple((key, tuple(sorted(value.items()))) for key, value in sorted(effective_processing_kwargs.items())),
+        )
+        try:
+            hash(cache_key)
+        except TypeError:
+            # Processor kwargs may contain lists or other unhashable values: measure without caching.
+            cache_key = None
+        if cache_key is not None and cache_key in self._prompt_length_mapping:
             return self._prompt_length_mapping[cache_key]
 
-        tokenized_prompt = self.preprocess([prompt], **kwargs)
+        tokenized_prompt = self.preprocess([prompt], processing_kwargs=processing_kwargs, **kwargs)
         if "input_ids" not in tokenized_prompt:
-            self._prompt_length_mapping[cache_key] = None
+            if cache_key is not None:
+                self._prompt_length_mapping[cache_key] = None
             return None
-        prompt_length = tokenized_prompt["input_ids"].shape[-1]
+        prompt_ids = tokenized_prompt["input_ids"][0]
+        if "attention_mask" in tokenized_prompt:
+            prompt_ids = prompt_ids[tokenized_prompt["attention_mask"][0] != 0]
+        prompt_length = len(prompt_ids)
         # If the tokenizer adds a trailing special token (EOS, SEP, etc.), exclude it from the prompt length
         tokenizer = self.tokenizer
-        last_token = tokenized_prompt["input_ids"][..., -1].item()
-        if tokenizer is not None and hasattr(tokenizer, "all_special_ids") and last_token in tokenizer.all_special_ids:
+        if (
+            prompt_length
+            and tokenizer is not None
+            and hasattr(tokenizer, "all_special_ids")
+            and prompt_ids[-1].item() in tokenizer.all_special_ids
+        ):
             prompt_length -= 1
-        self._prompt_length_mapping[cache_key] = prompt_length
+        if cache_key is not None:
+            self._prompt_length_mapping[cache_key] = prompt_length
         return prompt_length
 
     def _load_config(
