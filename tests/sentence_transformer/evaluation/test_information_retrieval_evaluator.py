@@ -234,3 +234,32 @@ def test_metrics(test_data, mock_model, tmp_path: Path):
 
     for key, expected_value in expected_results.items():
         assert results[key] == pytest.approx(expected_value, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("queries", "corpus", "relevant_docs"),
+    [
+        (
+            {"0": "What is a pokemon?", "1": "What is a vegetable?"},
+            {"0": "A pokemon is a fictional creature", "1": "A vegetable is a plant"},
+            {},
+        ),
+        (
+            {"0": "What is a pokemon?", "1": "What is a vegetable?"},
+            {"0": "A pokemon is a fictional creature", "1": "A vegetable is a plant"},
+            {"0": set(), "1": set()},
+        ),
+        (
+            {"0": "What is a pokemon?", "1": "What is a vegetable?"},
+            {"0": "A pokemon is a fictional creature", "1": "A vegetable is a plant"},
+            {"99": {"0"}},
+        ),
+        ({}, {}, {}),
+    ],
+)
+def test_information_retrieval_rejects_zero_usable_queries(queries, corpus, relevant_docs) -> None:
+    """Without a usable query the evaluator would crash cryptically at evaluation time
+    (torch.mm shape mismatch, or ZeroDivisionError in compute_metrics), so construction
+    must fail fast with a clear ValueError instead."""
+    with pytest.raises(ValueError, match="needs at least one query with at least one relevant document"):
+        InformationRetrievalEvaluator(queries=queries, corpus=corpus, relevant_docs=relevant_docs, write_csv=False)
