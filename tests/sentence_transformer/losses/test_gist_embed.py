@@ -111,6 +111,23 @@ def test_positive_mask_protects_ce_target_column(simulate_rank1_world2):
     assert torch.isfinite(loss)
 
 
+def test_gather_rank1_matches_global_batch(simulate_rank1_world2):
+    """Rank 1's per-anchor losses must equal its rows of the single-process loss on the gathered
+    global batch, including the anchor-anchor term, which must contrast against all anchors."""
+    per = simulate_rank1_world2
+    features = _features(per)
+    global_features = [{"sentence_embedding": ge.all_gather_with_grad(f["sentence_embedding"])} for f in features]
+    loss_fn = _make_loss(margin=0.1)
+    loss_fn.temperature = 1.0
+    loss_fn.cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction="none")
+
+    gathered = loss_fn(features, labels=None)
+    loss_fn.gather_across_devices = False
+    reference = loss_fn(global_features, labels=None)[per:]
+
+    torch.testing.assert_close(gathered, reference)
+
+
 def _make_relative_loss(margin: float) -> GISTEmbedLoss:
     """relative-margin GISTEmbedLoss with no gather/contrast, fed precomputed embeddings (#3819)."""
     obj = GISTEmbedLoss.__new__(GISTEmbedLoss)

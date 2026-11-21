@@ -172,11 +172,15 @@ class GISTEmbedLoss(nn.Module):
             raise ValueError(f"Expected 2 or 3 embeddings, got {len(embeddings)}")
         batch_size = anchor.size(0)
         offset = 0
+        all_anchor, all_anchor_guide = anchor, anchor_guide
 
         if self.gather_across_devices:
-            # Gather the candidates across all devices, with gradients, but not the anchors. We compute only this
-            # device's anchors with all candidates from all devices, such that the backward pass on the document
-            # embeddings can flow back to the original devices.
+            # Gather the candidates across all devices, with gradients. We compute only this device's anchors with
+            # all candidates from all devices, such that the backward pass on the document embeddings can flow back
+            # to the original devices. The anchors are gathered only as candidates for the anchor-anchor term.
+            if self.contrast_anchors:
+                all_anchor = all_gather_with_grad(anchor)
+                all_anchor_guide = all_gather_with_grad(anchor_guide)
             positive = all_gather_with_grad(positive)
             positive_guide = all_gather_with_grad(positive_guide)
             if negative is not None:
@@ -220,8 +224,8 @@ class GISTEmbedLoss(nn.Module):
         scores = [ap_sim]
 
         if self.contrast_anchors:
-            aa_sim = self.sim_matrix(anchor, anchor)
-            guided_aa_sim = self.sim_matrix(anchor_guide, anchor_guide)
+            aa_sim = self.sim_matrix(anchor, all_anchor)
+            guided_aa_sim = self.sim_matrix(anchor_guide, all_anchor_guide)
             aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
             aa_sim[rows, rows] = -torch.inf  # No self-negative
             scores.append(aa_sim)
