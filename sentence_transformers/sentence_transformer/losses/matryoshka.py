@@ -9,7 +9,11 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from sentence_transformers.base.losses.gradcache import resolve_gradient_cache_loss, uses_gradient_cache
+from sentence_transformers.base.losses.gradcache import (
+    _supports_deferred_backward,
+    resolve_gradient_cache_loss,
+    uses_gradient_cache,
+)
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 logger = logging.getLogger(__name__)
@@ -81,11 +85,12 @@ class CachedLossDecorator:
         n_dims_per_step: int = -1,
     ) -> None:
         self.fn = fn
+        self.supports_deferred_backward = _supports_deferred_backward(fn)
         self.matryoshka_dims = matryoshka_dims
         self.matryoshka_weights = matryoshka_weights
         self.n_dims_per_step = n_dims_per_step
 
-    def __call__(self, reps: list[list[Tensor]], *args, **kwargs) -> Tensor:
+    def __call__(self, reps: list[list[Tensor]], *args, backward_scale=None, **kwargs) -> Tensor:
         dim_indices = range(len(self.matryoshka_dims))
         if self.n_dims_per_step > 0 and self.n_dims_per_step < len(dim_indices):
             dim_indices = random.sample(dim_indices, self.n_dims_per_step)
@@ -103,13 +108,16 @@ class CachedLossDecorator:
                 matryoshka_reps = [[r.detach().requires_grad_() for r in minibatch] for minibatch in truncated]
             else:
                 matryoshka_reps = truncated
-            loss += weight * self.fn(matryoshka_reps, *args, **kwargs)
+            if backward_scale is None:
+                loss += weight * self.fn(matryoshka_reps, *args, **kwargs)
+            else:
+                loss += weight * self.fn(matryoshka_reps, *args, backward_scale=backward_scale * weight, **kwargs)
             # After computing the gradients in minibatches, we need to continue the backward pass through the truncation calculation
             # the gradients must be multiplied with the weights because otherwise the matryoshka weights are not considered in the backward pass
             if compute_gradients:
                 for t_minibatch, d_minibatch in zip(truncated, matryoshka_reps):
                     for t, d in zip(t_minibatch, d_minibatch):
-                        t.backward(weight * d.grad)
+                        t.backward(weight * d.grad if backward_scale is None else d.grad)
         return loss
 
 

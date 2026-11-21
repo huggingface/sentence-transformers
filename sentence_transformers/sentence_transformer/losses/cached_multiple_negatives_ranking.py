@@ -60,6 +60,11 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
         requires a lot memory when the batch size is large. One drawback is about the speed. Gradient caching will sacrifice
         around 20% computation time according to the paper.
 
+        When the similarity function is an ``nn.Module`` with trainable parameters, score
+        gradients are computed during the outer backward pass, so loss weights and gradient
+        scaling also reach the similarity parameters. This requires an additional score pass.
+        Parameter-free similarity functions retain the original caching path.
+
         See :class:`MultipleNegativesRankingLoss` for more details about the underlying loss itself.
 
         Args:
@@ -242,7 +247,12 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
         return self.loss.hardness_strength
 
     def calculate_loss(
-        self, reps: list[list[Tensor]], labels: Tensor | None = None, *, with_backward: bool = False
+        self,
+        reps: list[list[Tensor]],
+        labels: Tensor | None = None,
+        *,
+        with_backward: bool = False,
+        backward_scale: Tensor | float | None = None,
     ) -> Tensor:
         """Calculate the all-pairs InfoNCE loss, chunked over ``mini_batch_size`` rows of the score
         matrix. The labels are unused: the positive pair is the in-batch diagonal."""
@@ -365,7 +375,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
             loss_mbatch = per_sample_loss.mean() * len(local_batch) / batch_size
 
             if with_backward:
-                loss_mbatch.backward()
+                (loss_mbatch if backward_scale is None else loss_mbatch * backward_scale).backward()
                 loss_mbatch = loss_mbatch.detach()
             losses.append(loss_mbatch)
 
