@@ -215,7 +215,9 @@ def test_missing_positives_with_tied_scores() -> None:
 
     results = CrossEncoderRerankingEvaluator(samples, always_rerank_positives=False, at_k=1)(model)
 
-    assert results["map"] == pytest.approx(0.25)
+    # p1 ranks first or second with equal chance: AP over the retrieved documents is (1 + 1/2) / 2,
+    # scaled by the 1 of 2 positives that were retrieved
+    assert results["map"] == pytest.approx(0.375)
     assert results["mrr@1"] == pytest.approx(0.5)
     assert results["ndcg@1"] == pytest.approx(0.5)
 
