@@ -62,6 +62,13 @@ def test_average_precision_without_positives():
     assert _average_precision([0, 0], [1.0, 0.0]) == 0.0
 
 
+@pytest.mark.parametrize("labels", [[1, 0, 0], [0, 0, 0]])
+def test_average_precision_rejects_nan(labels):
+    """NaN scores from a broken model must not be ranked first and reported as a perfect MAP."""
+    with pytest.raises(ValueError, match="NaN"):
+        _average_precision(labels, [float("nan"), 0.5, 0.1])
+
+
 @pytest.mark.parametrize("as_array", [False, True])
 @pytest.mark.parametrize(
     ("labels", "scores", "k", "expected"),

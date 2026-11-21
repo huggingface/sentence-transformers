@@ -47,7 +47,14 @@ def _average_precision(y_true: list[int] | np.ndarray, y_score: list[float] | np
 
     Returns:
         The expected average precision, or 0.0 if there are no relevant documents.
+
+    Raises:
+        ValueError: If ``y_score`` contains NaN, like :func:`sklearn.metrics.average_precision_score`.
     """
+    scores = np.asarray(y_score, dtype=float)
+    # np.unique sorts NaN last, so without this check a NaN score would be ranked first
+    if np.isnan(scores).any():
+        raise ValueError("Input contains NaN.")
     relevant = np.asarray(y_true, dtype=bool)
     num_relevant = np.count_nonzero(relevant)
     if num_relevant == 0:
@@ -56,7 +63,7 @@ def _average_precision(y_true: list[int] | np.ndarray, y_score: list[float] | np
     # Walk the groups of tied scores from best to worst. Within a group of `size` documents holding
     # `positives` relevant ones, each position is relevant with probability positives / size, and given
     # that, (positives - 1) / (size - 1) of the positions before it are relevant on average.
-    _, group_ids = np.unique(np.asarray(y_score), return_inverse=True)
+    _, group_ids = np.unique(scores, return_inverse=True)
     group_ids = group_ids.ravel()
     group_sizes = np.bincount(group_ids)[::-1]
     group_positives = np.bincount(group_ids, weights=relevant)[::-1]
