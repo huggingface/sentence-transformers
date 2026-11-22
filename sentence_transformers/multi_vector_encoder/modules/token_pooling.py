@@ -441,17 +441,27 @@ class HierarchicalTokenPooling(BaseTokenPooling):
         for _, group in groups:
             documents = list(group)
             embedding_dim = documents[0].shape[1]
-            max_tokens = max(len(document) for document in documents)
-            max_poolable_tokens = max(max_tokens - self.num_protected_tokens, 0)
+            length_sorted_idx = np.argsort([-len(document) for document in documents])
+            pooled_group = []
+            max_elements = None
+            start = 0
+            while start < len(documents):
+                max_tokens = len(documents[length_sorted_idx[start]])
+                max_poolable_tokens = max(max_tokens - self.num_protected_tokens, 0)
 
-            # Estimate four float32 distance buffers and six embedding buffers for working memory.
-            distance_bytes = 4 * max_poolable_tokens**2 * 4
-            embedding_bytes = 6 * max_tokens * embedding_dim * 4
-            bytes_per_document = max(1, distance_bytes + embedding_bytes)
-            batch_size = max(1, _POOLING_MEMORY_BUDGET // bytes_per_document)
+                # Estimate four float32 distance buffers and six embedding buffers for working memory.
+                distance_bytes = 4 * max_poolable_tokens**2 * 4
+                embedding_bytes = 6 * max_tokens * embedding_dim * 4
+                bytes_per_document = max(1, distance_bytes + embedding_bytes)
+                batch_size = max(1, _POOLING_MEMORY_BUDGET // bytes_per_document)
+                # On Apple silicon, macOS only reuses a freed block for requests no larger than it.
+                if torch.backends.mps.is_available():
+                    embedding_elements = max(1, max_tokens * embedding_dim)
+                    max_elements = max_elements or batch_size * embedding_elements
+                    batch_size = max(1, min(batch_size, max_elements // embedding_elements))
 
-            for start in range(0, len(documents), batch_size):
-                batch = documents[start : start + batch_size]
+                batch = [documents[index] for index in length_sorted_idx[start : start + batch_size]]
+                start += batch_size
                 padded_embeddings = _pad_to_3d(batch, "right")
                 lengths = torch.tensor([len(document) for document in batch], device=padded_embeddings.device)
 
@@ -459,9 +469,10 @@ class HierarchicalTokenPooling(BaseTokenPooling):
                 if self.normalize_embeddings:
                     pooled_embeddings = _normalize_token_embeddings(pooled_embeddings)
 
-                pooled_documents.extend(
+                pooled_group.extend(
                     embedding[:length] for embedding, length in zip(pooled_embeddings, pooled_lengths.tolist())
                 )
+            pooled_documents.extend(pooled_group[index] for index in np.argsort(length_sorted_idx))
 
         return pooled_documents
 

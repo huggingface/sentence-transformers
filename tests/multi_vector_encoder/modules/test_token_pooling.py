@@ -162,9 +162,11 @@ class TestHierarchicalTokenPooling:
         pooler.pool(documents)
         assert batch_sizes == [35]
 
-    def test_long_documents_reduce_distance_batch_size(self, monkeypatch):
+    @pytest.mark.parametrize(("mps_available", "expected"), [(True, [23, 690, 310]), (False, [23, 1000])])
+    def test_long_documents_reduce_distance_batch_size(self, monkeypatch, mps_available, expected):
+        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: mps_available)
         pooler = HierarchicalTokenPooling(2, normalize_embeddings=False)
-        documents = [torch.randn(600, 2) for _ in range(33)]
+        documents = [torch.randn(length, 2) for length in [600] * 7 + [20] * 1000 + [600] * 16]
         batch_sizes = []
 
         def singleton(distances, lengths, cluster_counts):
@@ -174,7 +176,7 @@ class TestHierarchicalTokenPooling:
 
         monkeypatch.setattr(pooler.clustering, "forward", singleton)
         actual = pooler.pool(documents)
-        assert batch_sizes == [23, 10]
+        assert batch_sizes == expected
         for pooled, document in zip(actual, documents):
             torch.testing.assert_close(pooled, torch.cat((document[:1], document[1:].mean(0, keepdim=True))))
 
