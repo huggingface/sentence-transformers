@@ -106,3 +106,33 @@ def test_nano_preserves_child_metrics_and_model_card(
             assert [float(value) for value in rows[-1][2:]] == pytest.approx(
                 [results[f"{child.name}_{key}"] for key in ("map", "mrr@2", "ndcg@2")]
             )
+
+
+@pytest.mark.parametrize(
+    ("make_evaluator", "match"),
+    [
+        (lambda: CrossEncoderClassificationEvaluator(sentence_pairs=[], labels=[]), "at least one sentence pair"),
+        (lambda: CrossEncoderCorrelationEvaluator(sentence_pairs=[], scores=[]), "at least two sentence pairs"),
+        (
+            lambda: CrossEncoderCorrelationEvaluator(sentence_pairs=[["a", "b"]], scores=[0.5]),
+            "at least two sentence pairs",
+        ),
+        (
+            lambda: CrossEncoderCorrelationEvaluator(sentence_pairs=[["a", "b"], ["c", "d"]], scores=[0.5]),
+            r"sentence_pairs \(2\) and scores \(1\) must have the same length",
+        ),
+        (lambda: CrossEncoderRerankingEvaluator(samples=[]), "at least one sample"),
+        (lambda: CrossEncoderRerankingEvaluator(samples={}), "at least one sample"),
+    ],
+    ids=[
+        "classification-empty",
+        "correlation-empty",
+        "correlation-single",
+        "correlation-mismatch",
+        "reranking-empty-list",
+        "reranking-empty-dict",
+    ],
+)
+def test_invalid_inputs_raise_clear_error(make_evaluator, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        make_evaluator()

@@ -85,6 +85,8 @@ class CrossEncoderClassificationEvaluator(BaseEvaluator):
         super().__init__()
         if len(sentence_pairs) != len(labels):
             raise ValueError("sentence_pairs and labels must have the same length")
+        if len(sentence_pairs) == 0:
+            raise ValueError("CrossEncoderClassificationEvaluator needs at least one sentence pair with a label.")
 
         self.sentence_pairs = sentence_pairs
         self.labels = np.asarray(labels)
