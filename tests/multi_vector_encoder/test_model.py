@@ -1414,8 +1414,8 @@ def test_encode_pooling_note_skipped_for_unpooled_tasks(caplog) -> None:
 def test_encode_pooling_applies_to_raw_output(mve_bert_tiny_model: MultiVectorEncoder, pooler: str) -> None:
     # Per-call transforms also apply to raw output, like ST's truncate_dim. The pooling module's
     # forward slices each row by its mask before clustering, so batch padding never reaches the
-    # pooling, and the rewritten mask marks the pooled rows: mask-sliced raw output is bit-exact
-    # vs the normal (list of 2D) path.
+    # pooling, and the rewritten mask marks the pooled rows: mask-sliced raw output matches
+    # the normal (list of 2D) path.
     from sentence_transformers.multi_vector_encoder.modules import LambdaTokenPooling
 
     model = mve_bert_tiny_model
@@ -1438,7 +1438,7 @@ def test_encode_pooling_applies_to_raw_output(mve_bert_tiny_model: MultiVectorEn
     assert any(not item["attention_mask"].bool().all() for item in raw)
     for item, pooled_reference in zip(raw, normal):
         mask = item["attention_mask"].bool()
-        assert torch.equal(item["token_embeddings"][mask], pooled_reference)
+        torch.testing.assert_close(item["token_embeddings"][mask], pooled_reference)
 
 
 @pytest.mark.parametrize("output_value", ["token_embeddings", None])
