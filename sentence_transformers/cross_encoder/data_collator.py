@@ -12,8 +12,8 @@ from sentence_transformers.base.data_collator import BaseDataCollator
 @dataclass
 class CrossEncoderDataCollator(BaseDataCollator):
     """Collator for a CrossEncoder model.
-    This returns raw text columns (not tokenized), as CrossEncoder loss functions handle
-    preprocessing. A single prompt and task (resolved per dataset if needed) are passed
+    This returns raw input columns under ``{column}_input`` keys, as CrossEncoder loss functions
+    handle preprocessing. A single prompt and task (resolved per dataset if needed) are passed
     through in the batch so that losses can forward them to ``model.preprocess``.
 
     It is important that the columns are in the expected order. For example, if your dataset has columns
@@ -76,7 +76,7 @@ class CrossEncoderDataCollator(BaseDataCollator):
             batch["task"] = task
 
         for column_name in column_names:
-            batch[column_name] = [row[column_name] for row in features]
+            batch[f"{column_name}_input"] = [row[column_name] for row in features]
 
         return batch
 

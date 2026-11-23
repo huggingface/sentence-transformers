@@ -21,8 +21,8 @@ def test_tensor_formatted_scalar_labels(labels: list) -> None:
 
     assert isinstance(batch["label"], torch.Tensor)
     torch.testing.assert_close(batch["label"], expected["label"])
-    assert batch["query"] == ["q1", "q2", "q3"]
-    assert batch["document"] == ["d1", "d2", "d3"]
+    assert batch["query_input"] == ["q1", "q2", "q3"]
+    assert batch["document_input"] == ["d1", "d2", "d3"]
 
 
 def test_tensor_formatted_list_labels() -> None:
@@ -37,4 +37,4 @@ def test_tensor_formatted_list_labels() -> None:
 
     assert isinstance(batch["label"], list)
     assert [label.tolist() for label in batch["label"]] == rows["labels"]
-    assert batch["docs"] == rows["docs"]
+    assert batch["docs_input"] == rows["docs"]
