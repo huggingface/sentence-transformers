@@ -131,6 +131,8 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
 
         if isinstance(self.samples, dict):
             self.samples = list(self.samples.values())
+        if len(self.samples) == 0:
+            raise ValueError("CrossEncoderRerankingEvaluator needs at least one sample.")
 
         self.csv_file = "CrossEncoderRerankingEvaluator" + ("_" + name if name else "") + f"_results_@{self.at_k}.csv"
         self.csv_headers = ["epoch", "steps", "MAP", f"MRR@{self.at_k}", f"NDCG@{self.at_k}"]

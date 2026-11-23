@@ -72,6 +72,13 @@ class CrossEncoderCorrelationEvaluator(BaseEvaluator):
         write_csv: bool = True,
     ):
         super().__init__()
+        if len(sentence_pairs) != len(scores):
+            raise ValueError(
+                f"sentence_pairs ({len(sentence_pairs)}) and scores ({len(scores)}) must have the same length."
+            )
+        if len(sentence_pairs) < 2:
+            raise ValueError("CrossEncoderCorrelationEvaluator needs at least two sentence pairs with a score.")
+
         self.sentence_pairs = sentence_pairs
         self.scores = scores
         self.name = name
