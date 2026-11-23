@@ -225,6 +225,30 @@ def test_positive_mask_protects_ce_target_column(simulate_rank1_world2, mini_bat
     assert torch.isfinite(loss)
 
 
+@pytest.mark.parametrize("mini_batch_size", [32, 2])
+@pytest.mark.parametrize("identical_pairs", [False, True])
+def test_gather_rank1_matches_global_batch(simulate_rank1_world2, mini_batch_size, identical_pairs):
+    per = simulate_rank1_world2
+    reps, _ = _local_reps(per)
+    _, reps_guided = _local_reps(per, seed=13)
+    if identical_pairs:
+        reps[1] = [r.clone() for r in reps[0]]
+        reps_guided[1] = [r.clone() for r in reps_guided[0]]
+    global_reps = [[cge.all_gather_with_grad(torch.cat(r))] for r in reps]
+    global_reps_guided = [[cge.all_gather_with_grad(torch.cat(r))] for r in reps_guided]
+    loss_fn = _make_loss(margin=0.0, mini_batch_size=mini_batch_size)
+    loss_fn.temperature = 1.0
+    reference_fn = _make_loss(margin=0.0)
+    reference_fn.temperature = 1.0
+    reference_fn.gather_across_devices = False
+    reference_fn.cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction="none")
+
+    gathered = loss_fn.calculate_loss(reps, reps_guided)
+    reference = reference_fn.calculate_loss(global_reps, global_reps_guided)[per:].mean()
+
+    torch.testing.assert_close(gathered, reference)
+
+
 def _make_relative_loss(margin: float) -> CachedGISTEmbedLoss:
     """relative-margin CachedGISTEmbedLoss fed precomputed embeddings (#3819)."""
     obj = CachedGISTEmbedLoss.__new__(CachedGISTEmbedLoss)

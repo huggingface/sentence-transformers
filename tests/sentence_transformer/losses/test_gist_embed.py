@@ -111,6 +111,27 @@ def test_positive_mask_protects_ce_target_column(simulate_rank1_world2):
     assert torch.isfinite(loss)
 
 
+@pytest.mark.parametrize("identical_pairs", [False, True])
+def test_gather_rank1_matches_global_batch(simulate_rank1_world2, identical_pairs):
+    per = simulate_rank1_world2
+    features = _features(per)
+    for feature, guide_feature in zip(features, _features(per, seed=13)):
+        feature["guide_embedding"] = guide_feature["sentence_embedding"]
+    if identical_pairs:
+        features[1] = {key: value.clone() for key, value in features[0].items()}
+    global_features = [{key: ge.all_gather_with_grad(value) for key, value in feature.items()} for feature in features]
+    loss_fn = _make_loss(margin=0.0)
+    loss_fn.guide = lambda feature: {"sentence_embedding": feature["guide_embedding"]}
+    loss_fn.temperature = 1.0
+    loss_fn.cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction="none")
+
+    gathered = loss_fn(features, labels=None)
+    loss_fn.gather_across_devices = False
+    reference = loss_fn(global_features, labels=None)[per:]
+
+    torch.testing.assert_close(gathered, reference)
+
+
 def _make_relative_loss(margin: float) -> GISTEmbedLoss:
     """relative-margin GISTEmbedLoss with no gather/contrast, fed precomputed embeddings (#3819)."""
     obj = GISTEmbedLoss.__new__(GISTEmbedLoss)
