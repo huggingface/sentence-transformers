@@ -13,7 +13,7 @@ from sentence_transformers.base.evaluation import BaseEvaluator
 from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, CrossEncoderTrainingArguments
 from sentence_transformers.cross_encoder.data_collator import CrossEncoderDataCollator
 from sentence_transformers.cross_encoder.evaluation import CrossEncoderCorrelationEvaluator
-from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss
+from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss, MultipleNegativesRankingLoss
 from sentence_transformers.sentence_transformer.readers import InputExample
 from sentence_transformers.util import is_datasets_available, is_training_available
 
@@ -91,24 +91,46 @@ def test_trainer_multi_dataset_errors(reranker_bert_tiny_model: CrossEncoder, st
 
 
 @pytest.mark.parametrize("column_name", ["prompt", "task"])
-def test_trainer_invalid_column_names(reranker_bert_tiny_model: CrossEncoder, column_name: str) -> None:
-    # The collator passes the resolved prompt and task under these keys, so a dataset column with either
-    # name would be popped from the inputs and silently dropped from the training pairs.
-    train_dataset = Dataset.from_dict(
-        {
-            column_name: ["What is a cat?", "How tall is Everest?"],
-            "response": ["A feline.", "8849 m."],
-            "label": [1, 1],
-        }
+@pytest.mark.parametrize("with_metadata", [False, True])
+def test_trainer_prompt_task_columns(
+    reranker_bert_tiny_model: CrossEncoder, column_name: str, with_metadata: bool, tmp_path: Path
+) -> None:
+    rows = {
+        column_name: ["What is a cat?", "How tall is Everest?"],
+        "response": ["A feline.", "8849 m."],
+        "negative": ["A dog.", "100 m."],
+    }
+    dataset = Dataset.from_dict(rows)
+    if with_metadata:
+        dataset = DatasetDict({"example": dataset})
+    args = CrossEncoderTrainingArguments(
+        output_dir=str(tmp_path),
+        prompts={"example": "Search: "} if with_metadata else None,
+        router_mapping={"example": "rerank"} if with_metadata else {},
+        max_steps=1,
+        per_device_train_batch_size=2,
+        per_device_eval_batch_size=2,
+        save_strategy="no",
+        report_to="none",
     )
-    with pytest.raises(ValueError, match=f"invalid in your train dataset: \\['{column_name}'\\]"):
-        CrossEncoderTrainer(model=reranker_bert_tiny_model, train_dataset=train_dataset)
+    loss = MultipleNegativesRankingLoss(reranker_bert_tiny_model)
+    seen = []
+    original_forward = loss.forward
 
-    trainer = CrossEncoderTrainer(
-        model=reranker_bert_tiny_model, train_dataset=train_dataset.rename_column(column_name, "query")
-    )
-    with pytest.raises(ValueError, match=f"invalid in your eval dataset: \\['{column_name}'\\]"):
-        trainer.evaluate(eval_dataset=train_dataset)
+    def track_inputs(inputs, labels, prompt=None, task=None):
+        seen.append((inputs, prompt, task))
+        return original_forward(inputs, labels, prompt=prompt, task=task)
+
+    loss.forward = track_inputs
+    trainer = CrossEncoderTrainer(model=reranker_bert_tiny_model, args=args, train_dataset=dataset, loss=loss)
+    trainer.train()
+    trainer.evaluate(eval_dataset=dataset)
+
+    assert len(seen) == 2
+    for inputs, prompt, task in seen:
+        assert sorted(zip(*inputs)) == sorted(zip(*rows.values()))
+        assert prompt == ("Search: " if with_metadata else None)
+        assert task == ("rerank" if with_metadata else None)
 
 
 def test_model_card_reuse(reranker_bert_tiny_model_v54: CrossEncoder):
