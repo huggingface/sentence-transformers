@@ -175,9 +175,8 @@ class GISTEmbedLoss(nn.Module):
         all_anchor, all_anchor_guide = anchor, anchor_guide
 
         if self.gather_across_devices:
-            # Gather the candidates across all devices, with gradients. We compute only this device's anchors with
-            # all candidates from all devices, such that the backward pass on the document embeddings can flow back
-            # to the original devices. The anchors are gathered only as candidates for the anchor-anchor term.
+            # Compute loss only for local anchors against candidates gathered from all devices.
+            # Gradients for the gathered candidates flow back to their original devices.
             if self.contrast_anchors:
                 all_anchor = all_gather_with_grad(anchor)
                 all_anchor_guide = all_gather_with_grad(anchor_guide)
@@ -227,7 +226,7 @@ class GISTEmbedLoss(nn.Module):
             aa_sim = self.sim_matrix(anchor, all_anchor)
             guided_aa_sim = self.sim_matrix(anchor_guide, all_anchor_guide)
             aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
-            aa_sim[rows, rows] = -torch.inf  # No self-negative
+            aa_sim[rows, offset + rows] = -torch.inf  # No self-negative
             scores.append(aa_sim)
 
         if self.contrast_positives:

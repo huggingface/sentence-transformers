@@ -111,13 +111,17 @@ def test_positive_mask_protects_ce_target_column(simulate_rank1_world2):
     assert torch.isfinite(loss)
 
 
-def test_gather_rank1_matches_global_batch(simulate_rank1_world2):
-    """Rank 1's per-anchor losses must equal its rows of the single-process loss on the gathered
-    global batch, including the anchor-anchor term, which must contrast against all anchors."""
+@pytest.mark.parametrize("identical_pairs", [False, True])
+def test_gather_rank1_matches_global_batch(simulate_rank1_world2, identical_pairs):
     per = simulate_rank1_world2
     features = _features(per)
-    global_features = [{"sentence_embedding": ge.all_gather_with_grad(f["sentence_embedding"])} for f in features]
-    loss_fn = _make_loss(margin=0.1)
+    for feature, guide_feature in zip(features, _features(per, seed=13)):
+        feature["guide_embedding"] = guide_feature["sentence_embedding"]
+    if identical_pairs:
+        features[1] = {key: value.clone() for key, value in features[0].items()}
+    global_features = [{key: ge.all_gather_with_grad(value) for key, value in feature.items()} for feature in features]
+    loss_fn = _make_loss(margin=0.0)
+    loss_fn.guide = lambda feature: {"sentence_embedding": feature["guide_embedding"]}
     loss_fn.temperature = 1.0
     loss_fn.cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction="none")
 
