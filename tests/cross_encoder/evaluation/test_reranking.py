@@ -29,7 +29,8 @@ def test_mrr_ties(always_rerank_positives: bool, at_k: int) -> None:
     assert results[f"base_mrr@{at_k}"] == (1 / 2 if at_k >= 2 else 0.0)
 
 
-def test_negative_format(reranker_bert_tiny_model: CrossEncoder, monkeypatch) -> None:
+@pytest.mark.parametrize("samples_type", [list, np.asarray], ids=["list", "numpy"])
+def test_negative_format(reranker_bert_tiny_model: CrossEncoder, monkeypatch, samples_type) -> None:
     """Basic test with 'negative' format produces valid metrics."""
     samples = [
         {
@@ -46,7 +47,7 @@ def test_negative_format(reranker_bert_tiny_model: CrossEncoder, monkeypatch) ->
     ]
     store_metrics = Mock()
     monkeypatch.setattr(reranker_bert_tiny_model.model_card_data, "set_evaluation_metrics", store_metrics)
-    evaluator = CrossEncoderRerankingEvaluator(samples, name="neg-test")
+    evaluator = CrossEncoderRerankingEvaluator(samples_type(samples), name="neg-test")
     results = evaluator(reranker_bert_tiny_model)
 
     store_metrics.assert_called_once_with(evaluator, results, -1, -1)
