@@ -251,3 +251,17 @@ def test_metrics(test_data, mock_model, tmp_path: Path):
 
     for key, expected_value in expected_results.items():
         assert results[key] == pytest.approx(expected_value, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("queries", "corpus", "relevant_docs"),
+    [
+        ({"q0": "What is a query?"}, {"d0": "This is a document."}, {}),
+        ({"q0": "What is a query?"}, {"d0": "This is a document."}, {"q0": set()}),
+        ({"q0": "What is a query?"}, {"d0": "This is a document."}, {"q1": {"d0"}}),
+        ({}, {}, {}),
+    ],
+)
+def test_information_retrieval_rejects_zero_usable_queries(queries, corpus, relevant_docs) -> None:
+    with pytest.raises(ValueError, match="needs at least one query with at least one relevant document"):
+        InformationRetrievalEvaluator(queries=queries, corpus=corpus, relevant_docs=relevant_docs)
