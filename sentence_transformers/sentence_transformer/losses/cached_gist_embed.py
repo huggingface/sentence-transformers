@@ -61,6 +61,7 @@ class CachedGISTEmbedLoss(nn.Module):
         Args:
             model: SentenceTransformer model
             guide: SentenceTransformer model to guide the in-batch negative sample selection.
+                Its parameters are frozen unless shared with ``model``.
             temperature: Temperature parameter to scale the cosine similarities.
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
                 training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory is used. It's recommended to set it as high as your GPU memory allows. The default
@@ -171,6 +172,11 @@ class CachedGISTEmbedLoss(nn.Module):
         self.contrast_positives = contrast_positives
         self.gather_across_devices = gather_across_devices
         self.cross_entropy_loss = nn.CrossEntropyLoss()
+
+        model_parameters = {id(parameter) for parameter in model.parameters()}
+        for parameter in guide.parameters():
+            if id(parameter) not in model_parameters:
+                parameter.requires_grad_(False)
 
     def sim_matrix(self, embed1: Tensor, embed2: Tensor) -> Tensor:
         return self.similarity_fct(embed1.unsqueeze(1), embed2.unsqueeze(0))

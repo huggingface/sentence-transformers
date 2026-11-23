@@ -116,10 +116,10 @@ class BaseTrainer(Trainer, ABC):
         loss (Optional[Union[:class:`torch.nn.Module`, Dict[str, :class:`torch.nn.Module`],\
             Callable[[:class:`~sentence_transformers.base.model.BaseModel`], :class:`torch.nn.Module`],\
             Dict[str, Callable[[:class:`~sentence_transformers.base.model.BaseModel`]]]], *optional*):
-            The loss function to use for training. Can either be a loss class instance, a dictionary mapping
-            dataset names to loss class instances, a function that returns a loss class instance given a model,
-            or a dictionary mapping dataset names to functions that return a loss class instance given a model.
-            In practice, the latter two are primarily used for hyper-parameter optimization.
+            The loss function to use for training. Can be a loss class instance, a function that returns a loss
+            class instance given a model, or a dictionary mapping dataset names to either option.
+            With ``model_init``, provide a loss class or factory, or a dictionary of them, instead of initialized
+            loss instances.
         evaluator (Union[:class:`~sentence_transformers.base.evaluation.BaseEvaluator`,\
             List[:class:`~sentence_transformers.base.evaluation.BaseEvaluator`]], *optional*):
             The evaluator instance for useful evaluation metrics during training. You can use an ``evaluator`` with

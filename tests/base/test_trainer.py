@@ -29,11 +29,14 @@ from sentence_transformers import (
 from sentence_transformers.base.modules import Normalize, Router
 from sentence_transformers.base.training_args import MultiDatasetBatchSamplers
 from sentence_transformers.sentence_transformer.losses import (
+    CachedGISTEmbedLoss,
     ContrastiveTensionLoss,
     ContrastiveTensionLossInBatchNegatives,
     CosineSimilarityLoss,
     DenoisingAutoEncoderLoss,
     EmbedDistillLoss,
+    GISTEmbedLoss,
+    MatryoshkaLoss,
     MSELoss,
     SoftmaxLoss,
 )
@@ -140,6 +143,34 @@ def test_ddp_rejects_trainable_loss_parameters(stsb_bert_tiny_model, tmp_path, l
             parameter.requires_grad_(False)
     trainer.override_model_in_loss(loss, wrapped)
     assert loss.model is wrapped
+
+
+@pytest.mark.parametrize("loss_class", [GISTEmbedLoss, CachedGISTEmbedLoss])
+@pytest.mark.parametrize("guide_sharing", ["none", "partial", "full"])
+def test_ddp_allows_gist_guides(stsb_bert_tiny_model, tmp_path, loss_class, guide_sharing):
+    model = stsb_bert_tiny_model.to("cpu")
+    guide = model if guide_sharing == "full" else deepcopy(model)
+    if guide_sharing == "partial":
+        guide.transformers_model.set_input_embeddings(model.transformers_model.get_input_embeddings())
+    guided_loss = loss_class(model, guide)
+    model_parameters = {id(parameter) for parameter in model.parameters()}
+    assert all(parameter.requires_grad for parameter in model.parameters())
+    assert all(parameter.requires_grad == (id(parameter) in model_parameters) for parameter in guide.parameters())
+    loss = MatryoshkaLoss(model, guided_loss, [64])
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=SentenceTransformerTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+        loss=loss,
+    )
+    samples = [{"anchor": "hello", "positive": "world"}, {"anchor": "world", "positive": "hello"}]
+    trainer.compute_loss(model, trainer.data_collator(samples)).backward()
+    assert any(parameter.grad is not None for parameter in model.parameters())
+    assert all(parameter.grad is None for parameter in guide.parameters() if id(parameter) not in model_parameters)
+
+    wrapped = Mock(spec=torch.nn.parallel.DistributedDataParallel)
+    wrapped.parameters.return_value = list(model.parameters())
+    trainer.override_model_in_loss(loss, wrapped)
+    assert loss.model is guided_loss.model is wrapped
 
 
 @pytest.mark.parametrize("as_dict", [False, True])
