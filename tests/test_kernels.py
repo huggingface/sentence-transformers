@@ -29,6 +29,8 @@ from sentence_transformers.multi_vector_encoder.scoring import (
     mean_colbert_scores_pairwise,
 )
 from sentence_transformers.multi_vector_encoder.scoring.colbert import (
+    _MPS_MAXSIM_REPO,
+    _MPS_MAXSIM_REVISION,
     _colbert_kd_scores,
     _colbert_scores,
     _colbert_scores_pairwise,
@@ -877,8 +879,26 @@ def test_model_enables_default_cuda_providers(loader, monkeypatch, embeddings, o
     assert all(args == ("sentence-transformers/late-interaction-kernels",) for args, _ in loader)
     assert all(kwargs["revision"] == "v0" for _, kwargs in loader)
     assert all(
-        kwargs["trust_remote_code"] == ["sentence-transformers/late-interaction-kernels"] for _, kwargs in loader
+        kwargs["trust_remote_code"] == ["sentence-transformers/late-interaction-kernels", _MPS_MAXSIM_REPO]
+        for _, kwargs in loader
     )
+
+
+def test_default_mps_providers_are_pinned_to_a_commit(loader, monkeypatch, embeddings):
+    monkeypatch.setattr("kernels.layer.layer.LayerRepository._resolve_revision", lambda self: self._revision)
+    operations = _MaxSimScorer(KernelConfig())._get_operations(torch.device("mps"))
+    assert [args for args, _ in loader] == [(_MPS_MAXSIM_REPO,)] * 2
+    assert all(kwargs["revision"] == _MPS_MAXSIM_REVISION for _, kwargs in loader)
+    torch.testing.assert_close(operations[0](*embeddings, None, None), 2 * maxsim(*embeddings))
+    torch.testing.assert_close(operations[1](*embeddings, None, None), 2 * maxsim_pairwise(*embeddings))
+
+
+def test_default_providers_stay_off_other_devices(loader, embeddings):
+    operations = _MaxSimScorer(KernelConfig())._get_operations(torch.device("cpu"))
+    torch.testing.assert_close(operations[0](*embeddings, None, None), maxsim(*embeddings))
+    pooler = HierarchicalTokenPooling(2, use_kernels=True)
+    pooler._configure_clustering(torch.device("mps"))
+    assert not loader
 
 
 def test_missing_build_falls_back_and_other_errors_propagate(loader, monkeypatch, embeddings):

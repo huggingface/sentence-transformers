@@ -62,7 +62,11 @@ With kernels enabled, :class:`MultiVectorEncoder <sentence_transformers.multi_ve
 `sentence-transformers/late-interaction-kernels <https://huggingface.co/kernels/sentence-transformers/late-interaction-kernels>`_
 kernel for supported MaxSim operations on CUDA. This kernel is implemented in
 `Triton <https://triton-lang.org/>`_, which must be installed to accelerate scoring.
-If Triton is not installed, the provider uses PyTorch scoring instead. Enable kernels on the model and score as usual:
+If Triton is not installed, the provider uses PyTorch scoring instead. On Apple Silicon (``mps``),
+the model instead loads a revision-pinned Metal kernel from
+`m4zar/maxsim-metal <https://huggingface.co/kernels/m4zar/maxsim-metal>`_, which computes in ``float16`` with ``float32`` accumulation.
+It needs macOS 26 and PyTorch 2.11 or newer. Otherwise, or if the build is missing, scoring uses PyTorch.
+Enable kernels on the model and score as usual:
 
 .. code-block:: python
 

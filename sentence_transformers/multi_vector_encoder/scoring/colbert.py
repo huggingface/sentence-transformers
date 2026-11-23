@@ -309,6 +309,11 @@ class _MaxSimPairwise(torch.nn.Module):
         return _maxsim_score_pairs(a, b, a_mask, b_mask)
 
 
+_MPS_MAXSIM_REPO = "m4zar/maxsim-metal"
+# Pinned to an exact commit, so the code that runs on users' Macs never changes.
+_MPS_MAXSIM_REVISION = "9098dfad17c70d0d1987d0d0f2a7146ef64b38df"
+
+
 class _MaxSimScorer:
     """Model similarity callables backed by device-specific MaxSim operations."""
 
@@ -345,7 +350,13 @@ class _MaxSimScorer:
                     "STMaxSim": ("sentence-transformers/late-interaction-kernels", "MaxSim", 0),
                     "STMaxSimPairwise": ("sentence-transformers/late-interaction-kernels", "MaxSimPairwise", 0),
                 },
-                trust_remote_code=["sentence-transformers/late-interaction-kernels"],
+                device_defaults={
+                    "mps": {
+                        "STMaxSim": (_MPS_MAXSIM_REPO, "MaxSim", _MPS_MAXSIM_REVISION),
+                        "STMaxSimPairwise": (_MPS_MAXSIM_REPO, "MaxSimPairwise", _MPS_MAXSIM_REVISION),
+                    }
+                },
+                trust_remote_code=["sentence-transformers/late-interaction-kernels", _MPS_MAXSIM_REPO],
             )
             self._operations[key] = operations
 
