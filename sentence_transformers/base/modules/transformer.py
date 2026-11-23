@@ -18,6 +18,7 @@ from transformers import (
     AutoModelForMaskedLM,
     AutoModelForSequenceClassification,
     AutoProcessor,
+    AutoVideoProcessor,
     BlenderbotConfig,
     BlenderbotSmallConfig,
     FeatureExtractionMixin,
@@ -911,9 +912,9 @@ class Transformer(InputModule):
         if max_seq_length is not None and "model_max_length" not in processor_kwargs:
             processor_kwargs["model_max_length"] = max_seq_length
         with suggest_extra_on_exception():
-            self.processor = AutoProcessor.from_pretrained(
+            self.processor = self._load_processor(
                 tokenizer_name_or_path if tokenizer_name_or_path is not None else model_name_or_path,
-                **processor_kwargs,
+                processor_kwargs,
             )
 
         # Cap the tokenizer model_max_length at the model's max_position_embeddings
@@ -2347,6 +2348,37 @@ class Transformer(InputModule):
             "use_bidirectional_attention", True, _TRANSFORMERS_SUPPORTS_USE_BIDIRECTIONAL_ATTENTION, "4.56.2"
         )
         warn_if_unsupported("is_causal", False, _TRANSFORMERS_SUPPORTS_IS_CAUSAL_FALSE, "5.2.0")
+
+    def _load_processor(
+        self, processor_name_or_path: str, processor_kwargs: dict[str, Any]
+    ) -> ProcessorMixin | PreTrainedTokenizerBase | FeatureExtractionMixin | ImageProcessingMixin | BaseVideoProcessor:
+        """Load the processor, preferring a dedicated video processor for video-only models.
+
+        Some video-only models (e.g. VideoMAE) resolve to an image processor via ``AutoProcessor``, as their
+        checkpoints only contain a ``preprocessor_config.json``, even though a dedicated video processor exists.
+
+        Args:
+            processor_name_or_path (str): The model name on Hugging Face or the path to a local model directory.
+            processor_kwargs (dict[str, Any]): Keyword arguments passed to the Hugging Face Transformers processor.
+
+        Returns:
+            The loaded processor, i.e. a video processor if the model only accepts video inputs.
+        """
+        processor = AutoProcessor.from_pretrained(processor_name_or_path, **processor_kwargs)
+        if not isinstance(processor, ImageProcessingMixin) or isinstance(processor, BaseVideoProcessor):
+            return processor
+
+        input_modalities = getattr(self.model, "input_modalities", None)
+        if isinstance(input_modalities, str):
+            input_modalities = (input_modalities,)
+        if input_modalities is None or set(input_modalities) != {"video"}:
+            return processor
+
+        try:
+            return AutoVideoProcessor.from_pretrained(processor_name_or_path, **processor_kwargs)
+        except Exception as exc:
+            logger.debug(f"Could not load a video processor, using {type(processor).__name__} instead: {exc}")
+            return processor
 
     def _load_model(
         self,

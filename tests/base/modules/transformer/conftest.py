@@ -82,7 +82,6 @@ XFAIL_ARCHITECTURES = [
     "gemma3n",  # TODO: The Gemma3nModel type hint is not correct, plus the Gemma3nProcessor requires text at all times, despite code where text is created if it doesn't exist, high prio
     "phi4_multimodal",  # Processor loads the chat template only on its tokenizer, but requires text with media placeholders
     "tvp",  # TODO: TvpProcessor.get_attributes() returns ['image_processor', 'tokenizer'] instead of ['video_processor', 'tokenizer']
-    "videomae",  # TODO: Models often load with VideoMAEImageProcessor accepting 'images' instead of 'videos'
     "musicgen",  # not compatible with AutoModel
     "musicgen_melody",  # not compatible with AutoModel
     "voxtral",  # VoxtralProcessor doesn't accept audio, only text, while the VoxtralEncoder only processes audio
@@ -699,6 +698,9 @@ def get_arch_kwargs(arch: str, transformer_task: str) -> tuple[dict, dict, dict,
         processing_kwargs["video"] = {"num_frames": 8}
     if arch == "gemma4":
         processing_kwargs["audio"] = {"truncation": False}
+    if arch == "videomae":
+        # VideoMAE expects exactly config.num_frames frames, while the sample videos have more
+        processing_kwargs["video"] = {"do_sample_frames": True, "num_frames": 2}
 
     return model_kwargs, config_kwargs, processor_kwargs, processing_kwargs
 
